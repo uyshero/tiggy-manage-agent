@@ -15,10 +15,13 @@ TMA_TURN_COMMAND_ARGS=["scripts/command_turn_echo.sh"]
 
 这两个配置后来被删除，原因是它们只是在暴露 demo 脚本的启动细节，对真实用户没有价值。
 
-当前服务端固定使用内置 demo command turn：
+当前服务端固定使用 `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`，不再读取 command 相关环境变量：
 
 ```text
-sh scripts/command_turn_echo.sh
+cmd/server
+  -> WorkerRunner
+  -> AgentRuntimeTurnExecutor
+  -> agentruntime.DemoRuntime
 ```
 
 用户侧只需要配置通用 turn 参数：

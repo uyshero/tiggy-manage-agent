@@ -84,6 +84,73 @@ make verify-agent-runtime
 make verify-agent-runtime-full
 ```
 
+`verify-agent-runtime-full` 会显式使用 `fake` Provider，适合检查基础 HTTP / Store / Runner / Runtime 链路，不受本地真实模型配置影响。
+
+## 3. LLM Provider 管理命令
+
+Provider 管理只保存 API Key 的环境变量名，不保存真实 API Key。
+
+查看 Provider：
+
+```bash
+bin/tma provider list
+bin/tma provider get --id fake
+```
+
+创建或更新一个 OpenAI 协议 Provider：
+
+```bash
+bin/tma provider create \
+  --id volcengine-agent-plan \
+  --type openai \
+  --base-url https://ark.cn-beijing.volces.com/api/plan/v3 \
+  --api-key-env TMA_LLM_API_KEY
+```
+
+```bash
+bin/tma provider update \
+  --id volcengine-agent-plan \
+  --base-url https://ark.cn-beijing.volces.com/api/plan/v3 \
+  --api-key-env TMA_LLM_API_KEY
+```
+
+启用 / 禁用：
+
+```bash
+bin/tma provider disable --id volcengine-agent-plan
+bin/tma provider enable --id volcengine-agent-plan
+```
+
+被禁用的 Provider 不能再用于创建新的 Agent；已经绑定该 Provider 的 Session 在执行 turn 时也会失败并回到 `idle`。
+
+## 4. Agent 配置版本命令
+
+查看 Agent 当前配置：
+
+```bash
+bin/tma agent get --id agt_000001
+```
+
+查看 Agent 历史配置版本：
+
+```bash
+bin/tma agent config list --agent agt_000001
+```
+
+创建新的 AgentConfigVersion：
+
+```bash
+bin/tma agent config update \
+  --agent agt_000001 \
+  --llm-provider volcengine-agent-plan \
+  --llm-model doubao-seed-2.0-pro \
+  --system "You are a concise coding agent."
+```
+
+更新后，新建 Session 会绑定新的 `agent_config_version`；已经存在的 Session 继续绑定创建时的旧版本。
+
+## 5. 自动验收
+
 它会自动创建 Agent / Environment / Session，发送一条消息，并检查事件中包含：
 
 - `session.status_running`
@@ -93,6 +160,25 @@ make verify-agent-runtime-full
 - `runtime.llm_request`
 - `runtime.llm_response`
 - `runtime.completed`
+
+如果要验证当前 `.env` 中配置的真实 LLM Provider，使用：
+
+```bash
+make verify-llm-provider
+```
+
+它会读取当前 `.env` / shell 环境中的：
+
+```text
+TMA_LLM_PROVIDER
+TMA_LLM_PROVIDER_TYPE
+TMA_LLM_MODEL
+TMA_LLM_BASE_URL
+TMA_LLM_API_KEY_ENV
+TMA_LLM_API_KEY
+```
+
+启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_delta` 数量。
 - `agent.message`
 - `session.status_idle`
 

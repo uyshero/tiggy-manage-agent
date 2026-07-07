@@ -14,18 +14,32 @@ const (
 	DefaultHTTPAddr      = ":8080"
 	DefaultTurnQueueSize = 16
 	DefaultTurnTimeoutMS = 3600000
+	DefaultLLMProvider   = "fake"
+	DefaultLLMModel      = "fake-demo"
+	DefaultLLMBaseURL    = "https://api.openai.com/v1"
+	DefaultLLMAPIKeyEnv  = "TMA_LLM_API_KEY"
 )
 
 type Config struct {
 	HTTPAddr    string
 	DatabaseURL string
 	Turn        TurnConfig
+	LLM         LLMConfig
 }
 
 type TurnConfig struct {
 	QueueSize     int
 	Timeout       time.Duration
 	TimeoutMillis int
+}
+
+type LLMConfig struct {
+	Provider     string
+	ProviderType string
+	Model        string
+	BaseURL      string
+	APIKeyEnv    string
+	APIKey       string
 }
 
 func Load(dotenvPath string) (Config, error) {
@@ -43,8 +57,16 @@ func FromEnv() (Config, error) {
 			QueueSize:     envIntOrDefault("TMA_TURN_QUEUE_SIZE", DefaultTurnQueueSize),
 			TimeoutMillis: envIntOrDefault("TMA_TURN_TIMEOUT_MS", DefaultTurnTimeoutMS),
 		},
+		LLM: LLMConfig{
+			Provider:     envOrDefault("TMA_LLM_PROVIDER", DefaultLLMProvider),
+			ProviderType: os.Getenv("TMA_LLM_PROVIDER_TYPE"),
+			Model:        envOrDefault("TMA_LLM_MODEL", DefaultLLMModel),
+			BaseURL:      envOrDefault("TMA_LLM_BASE_URL", DefaultLLMBaseURL),
+			APIKeyEnv:    envOrDefault("TMA_LLM_API_KEY_ENV", DefaultLLMAPIKeyEnv),
+		},
 	}
 	config.Turn.Timeout = time.Duration(config.Turn.TimeoutMillis) * time.Millisecond
+	config.LLM.APIKey = os.Getenv(config.LLM.APIKeyEnv)
 
 	if config.DatabaseURL == "" {
 		return Config{}, errors.New("TMA_DATABASE_URL is required")

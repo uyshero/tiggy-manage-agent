@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
@@ -28,11 +29,33 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		defer cancel()
 	}
 
+	config, err := e.resolveRuntimeConfig(request.SessionID)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, request, err)
+		return nil, err
+	}
+	history, err := e.resolveConversationHistory(request.SessionID, request.UserEventSeq)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, request, err)
+		return nil, err
+	}
+
 	payload, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
 		SessionID:   request.SessionID,
 		TurnID:      request.TurnID,
 		UserPayload: request.UserPayload,
-		EmitStep:    e.emitStep(request),
+		History:     history,
+		Config: agentruntime.Config{
+			LLMProvider:     config.LLMProvider,
+			LLMProviderType: config.LLMProviderType,
+			LLMModel:        config.LLMModel,
+			LLMBaseURL:      config.LLMBaseURL,
+			LLMAPIKey:       llmAPIKey(config.LLMAPIKeyEnv),
+			System:          config.System,
+			Tools:           config.Tools,
+			Skills:          config.Skills,
+		},
+		EmitStep: e.emitStep(request),
 	})
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, request, err)
@@ -42,6 +65,27 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		return nil, err
 	}
 	return append(json.RawMessage(nil), payload...), nil
+}
+
+func (e AgentRuntimeTurnExecutor) resolveRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
+	if e.Store == nil {
+		return managedagents.AgentRuntimeConfig{}, nil
+	}
+	return e.Store.ResolveAgentRuntimeConfig(sessionID)
+}
+
+func (e AgentRuntimeTurnExecutor) resolveConversationHistory(sessionID string, beforeSeq int64) ([]managedagents.ConversationMessage, error) {
+	if e.Store == nil || beforeSeq <= 0 {
+		return nil, nil
+	}
+	return e.Store.ListConversationMessages(sessionID, beforeSeq)
+}
+
+func llmAPIKey(envName string) string {
+	if envName == "" {
+		return ""
+	}
+	return os.Getenv(envName)
 }
 
 func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Context, agentruntime.Step) error {

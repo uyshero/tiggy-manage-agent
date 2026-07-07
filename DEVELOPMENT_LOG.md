@@ -200,7 +200,7 @@ sql/migrations/000003_id_sequences.sql
 - `organizations`
 - `workspaces`
 - `agents`
-- `agent_versions`
+- `agent_config_versions`
 - `environments`
 - `sessions`
 - `session_events`
@@ -651,12 +651,175 @@ Runner / TurnExecutor 概念已收敛：
 - `make verify-agent-runtime-full` 已校验事件链路包含 `runtime.llm_request` / `runtime.llm_response`
 - 完整验收通过：`session_id=sesn_000028`，`turn_id=turn_000001`
 
+2026-07-06 LLM Provider 默认配置接入：
+
+- 新增配置项 `TMA_LLM_PROVIDER`，默认值 `fake`
+- 新增配置项 `TMA_LLM_MODEL`，默认值 `fake-demo`
+- 新增 `llm.Provider` 和 `llm.Manager`
+- `llm.Manager` 持有当前 Provider / Model，并实现 `llm.Client`
+- `cmd/server` 通过 `llm.Manager` 注入 `agentruntime.DemoRuntime`
+- 当前只内置 `fake` Provider，不引入真实模型 SDK 或外部网络调用
+- 设计目标是为未来多个 LLM Provider 和运行时热切换留入口，但本次不新增热切换 HTTP API
+- 启动日志会输出 `llm_provider` 和 `llm_model`
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 完整验收通过：`session_id=sesn_000029`，`turn_id=turn_000001`
+
+2026-07-06 AgentConfigVersion 与 LLM 配置收敛：
+
+- 将代码概念从 `AgentVersion` 收敛为 `AgentConfigVersion`
+- 数据库表从 `agent_versions` 收敛为 `agent_config_versions`
+- Session 字段从 `agent_version` 收敛为 `agent_config_version`
+- Agent 配置版本新增 `llm_provider` / `llm_model`
+- `model` 请求字段保留为兼容别名，内部统一落到 `llm_model`
+- 新增 `Store.ResolveAgentRuntimeConfig(session_id)`
+- `AgentRuntimeTurnExecutor` 执行 turn 前按 Session 解析 AgentConfigVersion
+- `DemoRuntime` 发起 LLM 请求时带上 AgentConfigVersion 的 Provider / Model / System
+- `llm.Manager` 支持每次请求指定 Provider / Model，不再只能使用全局当前配置
+- 新增迁移 `000004_agent_config_versions.sql`，兼容已有本地库
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 完整验收通过：`session_id=sesn_000030`，`turn_id=turn_000001`
+
+2026-07-07 OpenAI-compatible LLM Provider 接入：
+
+- 新增 `llm.ProviderOpenAICompatible`
+- 新增 `OpenAICompatibleProvider` / `OpenAICompatibleClient`
+- 使用 Go 标准库 `net/http` 调用 `{base_url}/chat/completions`
+- 新增配置项 `TMA_LLM_BASE_URL`，默认 `https://api.openai.com/v1`
+- 新增配置项 `TMA_LLM_API_KEY`
+- `TMA_LLM_PROVIDER=openai-compatible` 时要求配置 API Key
+- 当前只支持非流式 Chat Completions 文本响应
+- 暂不实现 streaming、tool calling、usage 归集、Key Vault 或 model-bank
+- 单元测试使用自定义 `RoundTripper`，不依赖本地端口或外网
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 默认 fake 链路完整验收通过：`session_id=sesn_000031`，`turn_id=turn_000001`
+
+2026-07-07 LLM 流式 delta 事件接入：
+
+- 新增 runtime 事件类型 `runtime.llm_delta`
+- 新增 `llm.Delta`
+- 新增可选接口 `llm.StreamingClient`
+- `llm.Manager` 实现 `GenerateStream`
+- 底层 client 支持流式时走流式；不支持时自动退回 `Generate`
+- `OpenAICompatibleClient` 使用 `stream: true` 调用 Chat Completions SSE
+- 支持解析 `data: {...}` 和 `data: [DONE]`
+- `DemoRuntime` 收到流式 delta 后写入 `runtime.llm_delta`
+- 最终仍合并完整 assistant 文本并写入 `agent.message`
+- 默认 `fake` Provider 不产生 delta，现有验收脚本不强制检查 delta
+- `scripts/verify_agent_runtime_full.sh` 默认显式覆盖 `TMA_LLM_PROVIDER=fake`，避免本地 `.env` 中真实 Provider 配置影响基础验收
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 默认 fake 链路完整验收通过：`session_id=sesn_000032`，`turn_id=turn_000001`
+
+2026-07-07 自定义 LLM Provider ID 接入：
+
+- 新增配置项 `TMA_LLM_PROVIDER_TYPE`
+- `TMA_LLM_PROVIDER` 允许使用业务自定义 Provider ID
+- 例如 `TMA_LLM_PROVIDER=volcengine-agent-plan`
+- 自定义 Provider ID 可通过 `TMA_LLM_PROVIDER_TYPE=openai` 指定底层协议
+- `openai-compatible` 保留为 Provider Type 历史别名
+- 如果自定义 Provider ID 没有显式设置 Provider Type，当前默认按 `openai` 注册
+- `llm.Manager` 启动时会把自定义 Provider ID 注册进 Provider map
+- 修正此前只接受硬编码 Provider ID 导致的 `unsupported LLM provider` 问题
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 默认 fake 链路完整验收通过：`session_id=sesn_000033`，`turn_id=turn_000001`
+
+2026-07-07 Provider Type 命名收敛：
+
+- `TMA_LLM_PROVIDER_TYPE` 推荐值从 `openai-compatible` 收敛为 `openai`
+- `openai-compatible` 仍作为兼容别名保留
+- 文档和 `.env.example` 已改为 `TMA_LLM_PROVIDER_TYPE=openai`
+- 重新执行 `make fmt`、`make test`、`make build`、`make build-cli`、`make verify-agent-runtime-full`
+- 默认 fake 链路完整验收通过：`session_id=sesn_000034`，`turn_id=turn_000001`
+
+2026-07-07 真实 LLM Provider 验收命令接入：
+
+- 新增 `scripts/verify_llm_provider.sh`
+- 新增 `scripts/verify_llm_provider_full.sh`
+- 新增 Make target `make verify-llm-provider`
+- `verify-agent-runtime-full` 继续固定使用 `fake` Provider
+- `verify-llm-provider` 读取当前 `.env` / shell 中的真实 LLM 配置
+- 验收会创建 Agent / Environment / Session，发送测试消息，检查 `runtime.llm_request`、`runtime.llm_response`、`agent.message`
+- 如果存在 `runtime.llm_delta`，验收输出会显示 delta 数量
+- 验收输出不会打印 API Key
+- 真实 Provider 验收通过：`session_id=sesn_000035`，`turn_id=turn_000001`，`delta_count=57`
+
 配置层已从 `cmd/server/main.go` 抽到 `internal/serverconfig`：
 
 - `cmd/server` 只负责组装 logger、Store、Runner 和 HTTP server
 - `serverconfig.Load(".env")` 统一处理 `.env` 和 shell 环境变量
 - `.env` 只补缺省值，不覆盖 shell 中已有配置
 - `command` 相关配置在启动前校验，避免 server 运行后才暴露明显配置错误
+
+2026-07-07 LLM Provider DB 配置层接入：
+
+- 新增 `llm_providers` 表，保存 Provider ID、底层协议类型、Base URL、API Key 环境变量名和启用状态
+- `cmd/server` 启动时会把 `.env` / shell 中的默认 Provider upsert 到 `llm_providers`
+- 老库迁移会补齐 `agent_config_versions.llm_provider` 到 `llm_providers.id` 的外键约束
+- 新增配置项 `TMA_LLM_API_KEY_ENV`，默认 `TMA_LLM_API_KEY`
+- 数据库只保存 `api_key_env`，真实 API Key 仍只从进程环境变量读取，不写入数据库、不写入运行时事件
+- `ResolveAgentRuntimeConfig(session_id)` 现在会 JOIN `llm_providers`，按 Session 绑定的 AgentConfigVersion 解析 Provider 配置
+- `AgentRuntimeTurnExecutor` 根据 `LLMAPIKeyEnv` 读取密钥，并把 Provider Type / Base URL / API Key 传给 Runtime
+- `llm.Manager` 支持每次请求携带 Provider 配置，未预注册的业务 Provider ID 也可以按 `openai` 协议动态创建 client
+- 修正文档中的 Volcengine Provider ID 拼写
+- 已执行：`gofmt`、`GOCACHE=$PWD/.gocache make test`、`GOCACHE=$PWD/.gocache make build`、`GOCACHE=$PWD/.gocache make build-cli`
+- fake 全链路验收通过：`make verify-agent-runtime-full`，`session_id=sesn_000037`，`turn_id=turn_000001`
+- 真实 Provider 验收通过：`make verify-llm-provider`，`session_id=sesn_000038`，`turn_id=turn_000001`，`delta_count=43`
+- 追加外键迁移后复跑：`make migrate-up`、`GOCACHE=$PWD/.gocache go test ./...`
+
+2026-07-07 LLM Provider 管理入口接入：
+
+- Store 新增 `UpsertLLMProvider`、`GetLLMProvider`、`ListLLMProviders`、`SetLLMProviderEnabled`
+- HTTP 新增 `/v1/llm-providers` 管理接口，支持 list / create / get / update / enable / disable
+- CLI 新增 `bin/tma provider list|get|create|update|enable|disable`
+- Provider 管理仍只保存 `api_key_env`，不保存真实 API Key
+- 创建 Agent 时会校验目标 Provider 存在且已启用，避免错误延迟到 turn 执行阶段才暴露
+- `TESTING.md` 补充 Provider 管理命令
+- 已执行：`gofmt`、`GOCACHE=$PWD/.gocache go test ./...`
+- 手动验收通过：临时服务 `:18082`，`bin/tma provider list/create/update/disable/enable/get`
+- 禁用 Provider 创建 Agent 已被拦截：返回 `400 invalid input: llm provider verify-provider-cli is disabled`
+- 手动验收创建的 `verify-provider-cli` 已重新禁用，避免误用
+- 完整 fake 链路复验通过：`make verify-agent-runtime-full`，`session_id=sesn_000039`，`turn_id=turn_000001`
+
+2026-07-07 Agent 配置版本更新入口接入：
+
+- Store 新增 `GetAgent`、`ListAgentConfigVersions`、`CreateAgentConfigVersion`
+- HTTP 新增 `GET /v1/agents/{agent_id}`
+- HTTP 新增 `GET /v1/agents/{agent_id}/config-versions`
+- HTTP 新增 `POST /v1/agents/{agent_id}/config-versions`
+- CLI 新增 `bin/tma agent get --id ...`
+- CLI 新增 `bin/tma agent config list --agent ...`
+- CLI 新增 `bin/tma agent config update --agent ... --llm-provider ... --llm-model ... --system ...`
+- 创建新 AgentConfigVersion 时会继承未传字段，不覆盖旧版本
+- 创建新 AgentConfigVersion 时会校验 Provider 存在且启用
+- 新 Session 绑定 Agent 当前配置版本；旧 Session 继续绑定创建时的版本
+- 单元测试覆盖：更新 Agent 配置后，旧 Session 仍绑定 v1，新 Session 绑定 v2
+- 已执行：`gofmt`、`GOCACHE=$PWD/.gocache go test ./...`
+- 手动验收通过：临时服务 `:18082`，`agt_000039` 从 `fake-v1` 更新到 `fake-v2`，`agent get` 返回当前版本 2，`agent config list` 返回版本 1 和 2
+- 完整 fake 链路复验通过：`make verify-agent-runtime-full`，`session_id=sesn_000040`，`turn_id=turn_000001`
+
+2026-07-07 LLM Provider 长期路线图补充：
+
+- 新增 `docs/llm-provider-roadmap.md`
+- 明确长期原则：AgentRuntime 不写厂商判断，Provider 差异下沉到 `internal/llm`
+- 明确 DB 只保存 `api_key_env`，不保存真实 API Key
+- 明确未来需要 `llm_models` / `abilities_json` 管理模型能力
+- 明确未来 token usage 不能只放日志，必须落库审计
+- 记录建议表 `llm_usage_records`，支持按 Provider / Model / Agent / Session / Turn / 时间范围统计
+- 记录 usage 归一化方向：input/output/total/cached/reasoning tokens、latency、status、cost
+- 记录未来统一流协议 `runtime.llm_chunk`，类型包括 text / reasoning / tool_calls / grounding / usage / stop / error
+- `docs/agent-runtime.md` 和 `docs/configuration.md` 已补充路线图链接
+
+2026-07-07 Session 多轮上下文注入 LLM：
+
+- 新增 `managedagents.ConversationMessage`
+- Store 新增 `ListConversationMessages(session_id, before_seq)`
+- PostgresStore 从 `session_events` 中按 seq 读取当前 user.message 之前的 `user.message` / `agent.message`
+- HTTP dispatch 将触发 turn 的 `user.message.seq` 写入 `runner.TurnRequest.UserEventSeq`
+- `AgentRuntimeTurnExecutor` 执行 turn 前读取 Session 历史并传给 Runtime
+- `DemoRuntime` 构造 LLM messages 的顺序变为：`system`、历史 user / assistant、当前 user
+- 当前 user.message 不会从历史里重复注入，因为历史查询使用 `seq < UserEventSeq`
+- 单元测试覆盖 Runtime 消息顺序，以及 Runner 适配层传递历史消息
+- 已执行：`gofmt`、`GOCACHE=$PWD/.gocache go test ./...`
+- 完整 fake 链路复验通过：`make verify-agent-runtime-full`，`session_id=sesn_000041`，`turn_id=turn_000001`
 
 Store 边界也同步收窄：`CompleteSessionTurn` 不再生成 mock 回复，只负责把 Runner 产出的 `agent.message` payload 落库，并补齐 `turn_id`。
 

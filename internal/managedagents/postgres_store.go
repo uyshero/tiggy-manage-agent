@@ -32,12 +32,149 @@ func (s *PostgresStore) Close() error {
 	return s.db.Close()
 }
 
+func (s *PostgresStore) EnsureLLMProvider(input EnsureLLMProviderInput) (LLMProvider, error) {
+	// Ensure 用于服务启动时保证默认 Provider 存在，因此总是写成启用状态。
+	return s.UpsertLLMProvider(UpsertLLMProviderInput{
+		ID:           input.ID,
+		ProviderType: input.ProviderType,
+		BaseURL:      input.BaseURL,
+		APIKeyEnv:    input.APIKeyEnv,
+		Enabled:      true,
+	})
+}
+
+func (s *PostgresStore) UpsertLLMProvider(input UpsertLLMProviderInput) (LLMProvider, error) {
+	if input.ID == "" {
+		return LLMProvider{}, fmt.Errorf("%w: llm provider id is required", ErrInvalid)
+	}
+	if input.ProviderType == "" {
+		return LLMProvider{}, fmt.Errorf("%w: llm provider type is required", ErrInvalid)
+	}
+
+	now := time.Now().UTC()
+
+	var provider LLMProvider
+	err := s.db.QueryRowContext(context.Background(), `
+		INSERT INTO llm_providers (id, provider_type, base_url, api_key_env, enabled, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO UPDATE SET
+			provider_type = EXCLUDED.provider_type,
+			base_url = EXCLUDED.base_url,
+			api_key_env = EXCLUDED.api_key_env,
+			enabled = EXCLUDED.enabled
+		RETURNING id, provider_type, base_url, api_key_env, enabled, created_at
+	`, input.ID, input.ProviderType, input.BaseURL, input.APIKeyEnv, input.Enabled, now).Scan(
+		&provider.ID,
+		&provider.ProviderType,
+		&provider.BaseURL,
+		&provider.APIKeyEnv,
+		&provider.Enabled,
+		&provider.CreatedAt,
+	)
+	if err != nil {
+		return LLMProvider{}, err
+	}
+	return provider, nil
+}
+
+func (s *PostgresStore) GetLLMProvider(id string) (LLMProvider, error) {
+	if id == "" {
+		return LLMProvider{}, fmt.Errorf("%w: llm provider id is required", ErrInvalid)
+	}
+
+	var provider LLMProvider
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT id, provider_type, base_url, api_key_env, enabled, created_at
+		FROM llm_providers
+		WHERE id = $1
+	`, id).Scan(
+		&provider.ID,
+		&provider.ProviderType,
+		&provider.BaseURL,
+		&provider.APIKeyEnv,
+		&provider.Enabled,
+		&provider.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return LLMProvider{}, ErrNotFound
+	}
+	if err != nil {
+		return LLMProvider{}, err
+	}
+	return provider, nil
+}
+
+func (s *PostgresStore) ListLLMProviders() ([]LLMProvider, error) {
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT id, provider_type, base_url, api_key_env, enabled, created_at
+		FROM llm_providers
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var providers []LLMProvider
+	for rows.Next() {
+		var provider LLMProvider
+		if err := rows.Scan(
+			&provider.ID,
+			&provider.ProviderType,
+			&provider.BaseURL,
+			&provider.APIKeyEnv,
+			&provider.Enabled,
+			&provider.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return providers, nil
+}
+
+func (s *PostgresStore) SetLLMProviderEnabled(id string, enabled bool) (LLMProvider, error) {
+	if id == "" {
+		return LLMProvider{}, fmt.Errorf("%w: llm provider id is required", ErrInvalid)
+	}
+
+	var provider LLMProvider
+	err := s.db.QueryRowContext(context.Background(), `
+		UPDATE llm_providers
+		SET enabled = $2
+		WHERE id = $1
+		RETURNING id, provider_type, base_url, api_key_env, enabled, created_at
+	`, id, enabled).Scan(
+		&provider.ID,
+		&provider.ProviderType,
+		&provider.BaseURL,
+		&provider.APIKeyEnv,
+		&provider.Enabled,
+		&provider.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return LLMProvider{}, ErrNotFound
+	}
+	if err != nil {
+		return LLMProvider{}, err
+	}
+	return provider, nil
+}
+
 func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	if input.Name == "" {
 		return Agent{}, fmt.Errorf("%w: agent name is required", ErrInvalid)
 	}
-	if input.Model == "" {
-		return Agent{}, fmt.Errorf("%w: agent model is required", ErrInvalid)
+	llmProvider := agentLLMProvider(input)
+	llmModel := agentLLMModel(input)
+	if llmModel == "" {
+		return Agent{}, fmt.Errorf("%w: agent llm_model is required", ErrInvalid)
+	}
+	if err := s.validateLLMProvider(llmProvider); err != nil {
+		return Agent{}, err
 	}
 
 	ctx := context.Background()
@@ -56,7 +193,7 @@ func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	now := time.Now().UTC()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO agents (id, workspace_id, name, current_version, created_at)
+		INSERT INTO agents (id, workspace_id, name, current_config_version, created_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`, id, workspaceID, input.Name, 1, now)
 	if err != nil {
@@ -64,9 +201,9 @@ func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO agent_versions (agent_id, version, model, system, tools_json, skills_json, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, id, 1, input.Model, input.System, nullableRaw(input.Tools), nullableRaw(input.Skills), now)
+		INSERT INTO agent_config_versions (agent_id, version, llm_provider, llm_model, system, tools_json, skills_json, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, id, 1, llmProvider, llmModel, input.System, nullableRaw(input.Tools), nullableRaw(input.Skills), now)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -76,20 +213,225 @@ func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	}
 
 	return Agent{
-		ID:             id,
-		WorkspaceID:    workspaceID,
-		Name:           input.Name,
-		CurrentVersion: 1,
-		Version: AgentVersion{
-			Version:   1,
-			Model:     input.Model,
-			System:    input.System,
-			Tools:     cloneRaw(input.Tools),
-			Skills:    cloneRaw(input.Skills),
-			CreatedAt: now,
+		ID:                   id,
+		WorkspaceID:          workspaceID,
+		Name:                 input.Name,
+		CurrentConfigVersion: 1,
+		ConfigVersion: AgentConfigVersion{
+			Version:     1,
+			LLMProvider: llmProvider,
+			LLMModel:    llmModel,
+			System:      input.System,
+			Tools:       cloneRaw(input.Tools),
+			Skills:      cloneRaw(input.Skills),
+			CreatedAt:   now,
 		},
 		CreatedAt: now,
 	}, nil
+}
+
+func (s *PostgresStore) GetAgent(id string) (Agent, error) {
+	if id == "" {
+		return Agent{}, fmt.Errorf("%w: agent id is required", ErrInvalid)
+	}
+
+	var agent Agent
+	var tools []byte
+	var skills []byte
+	var archivedAt sql.NullTime
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			a.id,
+			a.workspace_id,
+			a.name,
+			a.current_config_version,
+			a.archived_at,
+			a.created_at,
+			av.version,
+			av.llm_provider,
+			av.llm_model,
+			av.system,
+			av.tools_json,
+			av.skills_json,
+			av.created_at
+		FROM agents a
+		JOIN agent_config_versions av
+			ON av.agent_id = a.id
+			AND av.version = a.current_config_version
+		WHERE a.id = $1
+	`, id).Scan(
+		&agent.ID,
+		&agent.WorkspaceID,
+		&agent.Name,
+		&agent.CurrentConfigVersion,
+		&archivedAt,
+		&agent.CreatedAt,
+		&agent.ConfigVersion.Version,
+		&agent.ConfigVersion.LLMProvider,
+		&agent.ConfigVersion.LLMModel,
+		&agent.ConfigVersion.System,
+		&tools,
+		&skills,
+		&agent.ConfigVersion.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return Agent{}, ErrNotFound
+	}
+	if err != nil {
+		return Agent{}, err
+	}
+	if archivedAt.Valid {
+		agent.ArchivedAt = &archivedAt.Time
+	}
+	agent.ConfigVersion.Tools = cloneRaw(tools)
+	agent.ConfigVersion.Skills = cloneRaw(skills)
+	return agent, nil
+}
+
+func (s *PostgresStore) ListAgentConfigVersions(agentID string) ([]AgentConfigVersion, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("%w: agent id is required", ErrInvalid)
+	}
+
+	if _, err := s.GetAgent(agentID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT version, llm_provider, llm_model, system, tools_json, skills_json, created_at
+		FROM agent_config_versions
+		WHERE agent_id = $1
+		ORDER BY version
+	`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var versions []AgentConfigVersion
+	for rows.Next() {
+		var version AgentConfigVersion
+		var tools []byte
+		var skills []byte
+		if err := rows.Scan(
+			&version.Version,
+			&version.LLMProvider,
+			&version.LLMModel,
+			&version.System,
+			&tools,
+			&skills,
+			&version.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		version.Tools = cloneRaw(tools)
+		version.Skills = cloneRaw(skills)
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
+func (s *PostgresStore) CreateAgentConfigVersion(input CreateAgentConfigVersionInput) (Agent, error) {
+	if input.AgentID == "" {
+		return Agent{}, fmt.Errorf("%w: agent id is required", ErrInvalid)
+	}
+	if input.LLMProvider == "" {
+		return Agent{}, fmt.Errorf("%w: agent llm_provider is required", ErrInvalid)
+	}
+	if input.LLMModel == "" {
+		return Agent{}, fmt.Errorf("%w: agent llm_model is required", ErrInvalid)
+	}
+	if err := s.validateLLMProvider(input.LLMProvider); err != nil {
+		return Agent{}, err
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Agent{}, err
+	}
+	defer tx.Rollback()
+
+	var agent Agent
+	var currentVersion int
+	var archivedAt sql.NullTime
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, workspace_id, name, current_config_version, archived_at, created_at
+		FROM agents
+		WHERE id = $1
+		FOR UPDATE
+	`, input.AgentID).Scan(
+		&agent.ID,
+		&agent.WorkspaceID,
+		&agent.Name,
+		&currentVersion,
+		&archivedAt,
+		&agent.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return Agent{}, ErrNotFound
+	}
+	if err != nil {
+		return Agent{}, err
+	}
+	if archivedAt.Valid {
+		return Agent{}, fmt.Errorf("%w: agent %s is archived", ErrInvalid, input.AgentID)
+	}
+
+	nextVersion := currentVersion + 1
+	now := time.Now().UTC()
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO agent_config_versions (agent_id, version, llm_provider, llm_model, system, tools_json, skills_json, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, input.AgentID, nextVersion, input.LLMProvider, input.LLMModel, input.System, nullableRaw(input.Tools), nullableRaw(input.Skills), now)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE agents
+		SET current_config_version = $2
+		WHERE id = $1
+	`, input.AgentID, nextVersion)
+	if err != nil {
+		return Agent{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Agent{}, err
+	}
+
+	agent.CurrentConfigVersion = nextVersion
+	agent.ConfigVersion = AgentConfigVersion{
+		Version:     nextVersion,
+		LLMProvider: input.LLMProvider,
+		LLMModel:    input.LLMModel,
+		System:      input.System,
+		Tools:       cloneRaw(input.Tools),
+		Skills:      cloneRaw(input.Skills),
+		CreatedAt:   now,
+	}
+	return agent, nil
+}
+
+func (s *PostgresStore) validateLLMProvider(id string) error {
+	var enabled bool
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT enabled FROM llm_providers WHERE id = $1
+	`, id).Scan(&enabled)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("%w: llm provider %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("%w: llm provider %s is disabled", ErrInvalid, id)
+	}
+	return nil
 }
 
 func (s *PostgresStore) CreateEnvironment(input CreateEnvironmentInput) (Environment, error) {
@@ -147,10 +489,10 @@ func (s *PostgresStore) CreateSession(input CreateSessionInput) (Session, error)
 	defer tx.Rollback()
 
 	var agentWorkspaceID string
-	var agentVersion int
+	var agentConfigVersion int
 	err = tx.QueryRowContext(ctx, `
-		SELECT workspace_id, current_version FROM agents WHERE id = $1 AND archived_at IS NULL
-	`, agentID).Scan(&agentWorkspaceID, &agentVersion)
+		SELECT workspace_id, current_config_version FROM agents WHERE id = $1 AND archived_at IS NULL
+	`, agentID).Scan(&agentWorkspaceID, &agentConfigVersion)
 	if err == sql.ErrNoRows {
 		return Session{}, fmt.Errorf("%w: agent %s", ErrNotFound, agentID)
 	}
@@ -181,21 +523,21 @@ func (s *PostgresStore) CreateSession(input CreateSessionInput) (Session, error)
 
 	now := time.Now().UTC()
 	session := Session{
-		ID:            id,
-		WorkspaceID:   workspaceID,
-		AgentID:       agentID,
-		AgentVersion:  agentVersion,
-		EnvironmentID: input.EnvironmentID,
-		Status:        SessionStatusIdle,
-		Title:         input.Title,
-		CreatedBy:     defaultString(input.CreatedBy, "system"),
-		CreatedAt:     now,
+		ID:                 id,
+		WorkspaceID:        workspaceID,
+		AgentID:            agentID,
+		AgentConfigVersion: agentConfigVersion,
+		EnvironmentID:      input.EnvironmentID,
+		Status:             SessionStatusIdle,
+		Title:              input.Title,
+		CreatedBy:          defaultString(input.CreatedBy, "system"),
+		CreatedAt:          now,
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions (id, workspace_id, agent_id, agent_version, environment_id, status, title, created_by, created_at)
+		INSERT INTO sessions (id, workspace_id, agent_id, agent_config_version, environment_id, status, title, created_by, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, session.ID, session.WorkspaceID, session.AgentID, session.AgentVersion, session.EnvironmentID, session.Status, nullableString(session.Title), session.CreatedBy, session.CreatedAt)
+	`, session.ID, session.WorkspaceID, session.AgentID, session.AgentConfigVersion, session.EnvironmentID, session.Status, nullableString(session.Title), session.CreatedBy, session.CreatedAt)
 	if err != nil {
 		return Session{}, err
 	}
@@ -214,6 +556,70 @@ func (s *PostgresStore) CreateSession(input CreateSessionInput) (Session, error)
 	return session, nil
 }
 
+func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntimeConfig, error) {
+	var config AgentRuntimeConfig
+	var tools []byte
+	var skills []byte
+	var providerType sql.NullString
+	var baseURL sql.NullString
+	var apiKeyEnv sql.NullString
+	var enabled sql.NullBool
+
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			s.id,
+			s.workspace_id,
+			s.agent_id,
+			s.agent_config_version,
+			av.llm_provider,
+			av.llm_model,
+			av.system,
+			av.tools_json,
+			av.skills_json,
+			lp.provider_type,
+			lp.base_url,
+			lp.api_key_env,
+			lp.enabled
+		FROM sessions s
+		JOIN agent_config_versions av
+			ON av.agent_id = s.agent_id
+			AND av.version = s.agent_config_version
+		LEFT JOIN llm_providers lp
+			ON lp.id = av.llm_provider
+		WHERE s.id = $1
+	`, sessionID).Scan(
+		&config.SessionID,
+		&config.WorkspaceID,
+		&config.AgentID,
+		&config.AgentConfigVersion,
+		&config.LLMProvider,
+		&config.LLMModel,
+		&config.System,
+		&tools,
+		&skills,
+		&providerType,
+		&baseURL,
+		&apiKeyEnv,
+		&enabled,
+	)
+	if err == sql.ErrNoRows {
+		return AgentRuntimeConfig{}, ErrNotFound
+	}
+	if err != nil {
+		return AgentRuntimeConfig{}, err
+	}
+
+	config.Tools = cloneRaw(tools)
+	config.Skills = cloneRaw(skills)
+	config.LLMProviderType = providerType.String
+	config.LLMBaseURL = baseURL.String
+	config.LLMAPIKeyEnv = apiKeyEnv.String
+	if enabled.Valid && !enabled.Bool {
+		return AgentRuntimeConfig{}, fmt.Errorf("%w: llm provider %s is disabled", ErrInvalid, config.LLMProvider)
+	}
+	return config, nil
+}
+
 func (s *PostgresStore) GetSession(id string) (Session, error) {
 	var session Session
 	var title sql.NullString
@@ -221,14 +627,14 @@ func (s *PostgresStore) GetSession(id string) (Session, error) {
 	var archivedAt sql.NullTime
 
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT id, workspace_id, agent_id, agent_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 	`, id).Scan(
 		&session.ID,
 		&session.WorkspaceID,
 		&session.AgentID,
-		&session.AgentVersion,
+		&session.AgentConfigVersion,
 		&session.EnvironmentID,
 		&session.Status,
 		&title,
@@ -518,6 +924,116 @@ func (s *PostgresStore) FailSessionTurn(sessionID string, turnID string, reason 
 	return events, nil
 }
 
+func (s *PostgresStore) RecordLLMUsage(input RecordLLMUsageInput) (LLMUsageRecord, error) {
+	if input.SessionID == "" {
+		return LLMUsageRecord{}, fmt.Errorf("%w: usage session_id is required", ErrInvalid)
+	}
+	if input.TurnID == "" {
+		return LLMUsageRecord{}, fmt.Errorf("%w: usage turn_id is required", ErrInvalid)
+	}
+	if input.ProviderID == "" {
+		return LLMUsageRecord{}, fmt.Errorf("%w: usage provider_id is required", ErrInvalid)
+	}
+	if input.Model == "" {
+		return LLMUsageRecord{}, fmt.Errorf("%w: usage model is required", ErrInvalid)
+	}
+	if input.Status == "" {
+		input.Status = "completed"
+	}
+
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "llmu", "tma_llm_usage_id_seq")
+	if err != nil {
+		return LLMUsageRecord{}, err
+	}
+	now := time.Now().UTC()
+
+	var record LLMUsageRecord
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO llm_usage_records (
+			id,
+			workspace_id,
+			agent_id,
+			agent_config_version,
+			session_id,
+			turn_id,
+			provider_id,
+			provider_type,
+			model,
+			input_tokens,
+			output_tokens,
+			total_tokens,
+			cached_input_tokens,
+			reasoning_tokens,
+			latency_ms,
+			status,
+			error_message,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+		RETURNING
+			id,
+			workspace_id,
+			agent_id,
+			agent_config_version,
+			session_id,
+			turn_id,
+			provider_id,
+			provider_type,
+			model,
+			input_tokens,
+			output_tokens,
+			total_tokens,
+			cached_input_tokens,
+			reasoning_tokens,
+			latency_ms,
+			status,
+			error_message,
+			created_at
+	`, id,
+		input.WorkspaceID,
+		input.AgentID,
+		input.AgentConfigVersion,
+		input.SessionID,
+		input.TurnID,
+		input.ProviderID,
+		input.ProviderType,
+		input.Model,
+		input.InputTokens,
+		input.OutputTokens,
+		input.TotalTokens,
+		input.CachedInputTokens,
+		input.ReasoningTokens,
+		input.LatencyMillis,
+		input.Status,
+		input.ErrorMessage,
+		now,
+	).Scan(
+		&record.ID,
+		&record.WorkspaceID,
+		&record.AgentID,
+		&record.AgentConfigVersion,
+		&record.SessionID,
+		&record.TurnID,
+		&record.ProviderID,
+		&record.ProviderType,
+		&record.Model,
+		&record.InputTokens,
+		&record.OutputTokens,
+		&record.TotalTokens,
+		&record.CachedInputTokens,
+		&record.ReasoningTokens,
+		&record.LatencyMillis,
+		&record.Status,
+		&record.ErrorMessage,
+		&record.CreatedAt,
+	)
+	if err != nil {
+		return LLMUsageRecord{}, err
+	}
+	return record, nil
+}
+
 func (s *PostgresStore) ListEvents(sessionID string, afterSeq int64) ([]Event, error) {
 	if _, err := s.GetSession(sessionID); err != nil {
 		return nil, err
@@ -543,6 +1059,48 @@ func (s *PostgresStore) ListEvents(sessionID string, afterSeq int64) ([]Event, e
 		events = append(events, event)
 	}
 	return events, rows.Err()
+}
+
+func (s *PostgresStore) ListConversationMessages(sessionID string, beforeSeq int64) ([]ConversationMessage, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+	if beforeSeq <= 0 {
+		return []ConversationMessage{}, nil
+	}
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT seq, type, payload_json
+		FROM session_events
+		WHERE session_id = $1
+			AND seq < $2
+			AND type IN ($3, $4)
+		ORDER BY seq ASC
+	`, sessionID, beforeSeq, EventUserMessage, EventAgentMessage)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []ConversationMessage
+	for rows.Next() {
+		var eventType string
+		var message ConversationMessage
+		if err := rows.Scan(&message.Seq, &eventType, &message.Payload); err != nil {
+			return nil, err
+		}
+		switch eventType {
+		case EventUserMessage:
+			message.Role = "user"
+		case EventAgentMessage:
+			message.Role = "assistant"
+		default:
+			continue
+		}
+		message.Payload = cloneRaw(message.Payload)
+		messages = append(messages, message)
+	}
+	return messages, rows.Err()
 }
 
 func (s *PostgresStore) SubscribeEvents(sessionID string) (<-chan Event, func(), error) {
@@ -754,7 +1312,7 @@ func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason strin
 
 func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, agent_id, agent_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 	`, id)
@@ -763,7 +1321,7 @@ func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	// 涉及状态迁移的事务都通过 FOR UPDATE 锁住 Session，保护状态机一致性。
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, agent_id, agent_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 		FOR UPDATE
@@ -780,7 +1338,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 		&session.ID,
 		&session.WorkspaceID,
 		&session.AgentID,
-		&session.AgentVersion,
+		&session.AgentConfigVersion,
 		&session.EnvironmentID,
 		&session.Status,
 		&title,

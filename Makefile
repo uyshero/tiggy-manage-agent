@@ -1,4 +1,4 @@
-.PHONY: run test test-postgres verify-agent-runtime verify-agent-runtime-full build build-cli fmt db-up db-down db-logs migrate-up
+.PHONY: run test test-postgres verify-agent-runtime verify-agent-runtime-full verify-llm-provider build build-cli fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
@@ -17,6 +17,9 @@ verify-agent-runtime: build-cli
 
 verify-agent-runtime-full: build build-cli db-up migrate-up
 	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" scripts/verify_agent_runtime_full.sh
+
+verify-llm-provider: build build-cli db-up migrate-up
+	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" scripts/verify_llm_provider_full.sh
 
 build:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-server ./cmd/server

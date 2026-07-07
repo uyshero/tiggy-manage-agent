@@ -18,6 +18,14 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+func agentLLMProvider(input CreateAgentInput) string {
+	return defaultString(input.LLMProvider, "fake")
+}
+
+func agentLLMModel(input CreateAgentInput) string {
+	return defaultString(input.LLMModel, input.Model)
+}
+
 func cloneRaw(value json.RawMessage) json.RawMessage {
 	if len(value) == 0 {
 		return nil

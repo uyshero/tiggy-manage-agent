@@ -14,11 +14,142 @@ type appendEventsRequest struct {
 	Events []managedagents.AppendEventInput `json:"events"`
 }
 
+type llmProviderRequest struct {
+	ID           string  `json:"id"`
+	ProviderType *string `json:"provider_type"`
+	BaseURL      *string `json:"base_url"`
+	APIKeyEnv    *string `json:"api_key_env"`
+	Enabled      *bool   `json:"enabled"`
+}
+
+type agentConfigVersionRequest struct {
+	LLMProvider *string          `json:"llm_provider"`
+	LLMModel    *string          `json:"llm_model"`
+	Model       *string          `json:"model"`
+	System      *string          `json:"system"`
+	Tools       *json.RawMessage `json:"tools"`
+	Skills      *json.RawMessage `json:"skills"`
+}
+
+func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := s.store.ListLLMProviders()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
+}
+
+func (s *Server) createLLMProvider(w http.ResponseWriter, r *http.Request) {
+	var request llmProviderRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	enabled := true
+	if request.Enabled != nil {
+		enabled = *request.Enabled
+	}
+	provider, err := s.store.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
+		ID:           request.ID,
+		ProviderType: stringValue(request.ProviderType),
+		BaseURL:      stringValue(request.BaseURL),
+		APIKeyEnv:    stringValue(request.APIKeyEnv),
+		Enabled:      enabled,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, provider)
+}
+
+func (s *Server) getLLMProvider(w http.ResponseWriter, r *http.Request) {
+	provider, err := s.store.GetLLMProvider(r.PathValue("provider_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, provider)
+}
+
+func (s *Server) updateLLMProvider(w http.ResponseWriter, r *http.Request) {
+	existing, err := s.store.GetLLMProvider(r.PathValue("provider_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	var request llmProviderRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if request.ProviderType != nil {
+		existing.ProviderType = *request.ProviderType
+	}
+	if request.BaseURL != nil {
+		existing.BaseURL = *request.BaseURL
+	}
+	if request.APIKeyEnv != nil {
+		existing.APIKeyEnv = *request.APIKeyEnv
+	}
+	if request.Enabled != nil {
+		existing.Enabled = *request.Enabled
+	}
+
+	provider, err := s.store.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
+		ID:           existing.ID,
+		ProviderType: existing.ProviderType,
+		BaseURL:      existing.BaseURL,
+		APIKeyEnv:    existing.APIKeyEnv,
+		Enabled:      existing.Enabled,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, provider)
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func (s *Server) enableLLMProvider(w http.ResponseWriter, r *http.Request) {
+	provider, err := s.store.SetLLMProviderEnabled(r.PathValue("provider_id"), true)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, provider)
+}
+
+func (s *Server) disableLLMProvider(w http.ResponseWriter, r *http.Request) {
+	provider, err := s.store.SetLLMProviderEnabled(r.PathValue("provider_id"), false)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, provider)
+}
+
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var input managedagents.CreateAgentInput
 	if err := decodeJSON(r, &input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	if input.LLMProvider == "" {
+		input.LLMProvider = s.defaultLLMProvider
+	}
+	if input.LLMModel == "" && input.Model == "" {
+		input.LLMModel = s.defaultLLMModel
 	}
 
 	agent, err := s.store.CreateAgent(input)
@@ -28,6 +159,81 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, agent)
+}
+
+func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
+	agent, err := s.store.GetAgent(r.PathValue("agent_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
+func (s *Server) listAgentConfigVersions(w http.ResponseWriter, r *http.Request) {
+	versions, err := s.store.ListAgentConfigVersions(r.PathValue("agent_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"config_versions": versions})
+}
+
+func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request) {
+	current, err := s.store.GetAgent(r.PathValue("agent_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	var request agentConfigVersionRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	next := current.ConfigVersion
+	if request.LLMProvider != nil {
+		next.LLMProvider = *request.LLMProvider
+	}
+	if request.LLMModel != nil {
+		next.LLMModel = *request.LLMModel
+	}
+	if request.Model != nil && request.LLMModel == nil {
+		next.LLMModel = *request.Model
+	}
+	if request.System != nil {
+		next.System = *request.System
+	}
+	if request.Tools != nil {
+		next.Tools = cloneJSONRaw(*request.Tools)
+	}
+	if request.Skills != nil {
+		next.Skills = cloneJSONRaw(*request.Skills)
+	}
+
+	agent, err := s.store.CreateAgentConfigVersion(managedagents.CreateAgentConfigVersionInput{
+		AgentID:     current.ID,
+		LLMProvider: next.LLMProvider,
+		LLMModel:    next.LLMModel,
+		System:      next.System,
+		Tools:       next.Tools,
+		Skills:      next.Skills,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, agent)
+}
+
+func cloneJSONRaw(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return nil
+	}
+	clone := make([]byte, len(value))
+	copy(clone, value)
+	return clone
 }
 
 func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -124,9 +330,10 @@ func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events 
 				"event_seq", event.Seq,
 			)
 			if err := s.runner.StartTurn(r.Context(), runner.TurnRequest{
-				SessionID:   sessionID,
-				TurnID:      turnID,
-				UserPayload: event.Payload,
+				SessionID:    sessionID,
+				TurnID:       turnID,
+				UserEventSeq: event.Seq,
+				UserPayload:  event.Payload,
 			}); err != nil {
 				reason := err.Error()
 				s.logger.Error("runner start turn failed",

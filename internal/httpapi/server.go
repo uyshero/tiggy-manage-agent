@@ -13,13 +13,19 @@ import (
 const serviceName = "tiggy-manage-agent"
 
 type Server struct {
-	mux    *http.ServeMux
-	store  managedagents.Store
-	runner runner.Runner
-	logger *slog.Logger
+	mux                *http.ServeMux
+	store              managedagents.Store
+	runner             runner.Runner
+	logger             *slog.Logger
+	defaultLLMProvider string
+	defaultLLMModel    string
 }
 
 func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger) http.Handler {
+	return NewServerWithStoreRunnerAndLLMDefaults(store, turnRunner, logger, "fake", "fake-demo")
+}
+
+func NewServerWithStoreRunnerAndLLMDefaults(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger, defaultLLMProvider string, defaultLLMModel string) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -27,10 +33,12 @@ func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Ru
 		panic("httpapi runner is required")
 	}
 	server := &Server{
-		mux:    http.NewServeMux(),
-		store:  store,
-		runner: turnRunner,
-		logger: logger,
+		mux:                http.NewServeMux(),
+		store:              store,
+		runner:             turnRunner,
+		logger:             logger,
+		defaultLLMProvider: defaultLLMProvider,
+		defaultLLMModel:    defaultLLMModel,
 	}
 	server.routes()
 	return server.mux
@@ -39,7 +47,17 @@ func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Ru
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", healthHandler)
 
+	s.mux.HandleFunc("GET /v1/llm-providers", s.listLLMProviders)
+	s.mux.HandleFunc("POST /v1/llm-providers", s.createLLMProvider)
+	s.mux.HandleFunc("GET /v1/llm-providers/{provider_id}", s.getLLMProvider)
+	s.mux.HandleFunc("PATCH /v1/llm-providers/{provider_id}", s.updateLLMProvider)
+	s.mux.HandleFunc("POST /v1/llm-providers/{provider_id}/enable", s.enableLLMProvider)
+	s.mux.HandleFunc("POST /v1/llm-providers/{provider_id}/disable", s.disableLLMProvider)
+
 	s.mux.HandleFunc("POST /v1/agents", s.createAgent)
+	s.mux.HandleFunc("GET /v1/agents/{agent_id}", s.getAgent)
+	s.mux.HandleFunc("GET /v1/agents/{agent_id}/config-versions", s.listAgentConfigVersions)
+	s.mux.HandleFunc("POST /v1/agents/{agent_id}/config-versions", s.createAgentConfigVersion)
 	s.mux.HandleFunc("POST /v1/environments", s.createEnvironment)
 	s.mux.HandleFunc("POST /v1/sessions", s.createSession)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}", s.getSession)

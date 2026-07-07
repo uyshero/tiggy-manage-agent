@@ -1,13 +1,13 @@
 #!/bin/sh
 set -eu
 
-BASE_URL="${TMA_VERIFY_BASE_URL:-http://localhost:18080}"
-HTTP_ADDR="${TMA_VERIFY_HTTP_ADDR:-:18080}"
+BASE_URL="${TMA_VERIFY_LLM_BASE_URL:-http://localhost:18081}"
+HTTP_ADDR="${TMA_VERIFY_LLM_HTTP_ADDR:-:18081}"
 DATABASE_URL="${TMA_DATABASE_URL:-postgres://tma:tma@localhost:5432/tma?sslmode=disable}"
 SERVER_BIN="${TMA_SERVER_BIN:-bin/tma-server}"
 CLI="${TMA_CLI:-bin/tma}"
-LOG_FILE="${TMA_VERIFY_SERVER_LOG:-.verify-agent-runtime-server.log}"
-WAIT_SECONDS="${TMA_VERIFY_SERVER_WAIT_SECONDS:-20}"
+LOG_FILE="${TMA_VERIFY_LLM_SERVER_LOG:-.verify-llm-provider-server.log}"
+WAIT_SECONDS="${TMA_VERIFY_LLM_SERVER_WAIT_SECONDS:-30}"
 
 if [ ! -x "$SERVER_BIN" ]; then
   echo "missing server binary: $SERVER_BIN"
@@ -32,15 +32,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting TMA server for AgentRuntime verification"
+echo "Starting TMA server for real LLM provider verification"
 echo "base_url=$BASE_URL"
 echo "server_log=$LOG_FILE"
 
 TMA_HTTP_ADDR="$HTTP_ADDR" \
 TMA_DATABASE_URL="$DATABASE_URL" \
-TMA_LLM_PROVIDER="${TMA_VERIFY_LLM_PROVIDER:-fake}" \
-TMA_LLM_MODEL="${TMA_VERIFY_LLM_MODEL:-fake-demo}" \
-TMA_LLM_API_KEY="${TMA_VERIFY_LLM_API_KEY:-}" \
 "$SERVER_BIN" >"$LOG_FILE" 2>&1 &
 server_pid="$!"
 
@@ -55,7 +52,7 @@ while [ "$(date +%s)" -le "$deadline" ]; do
 
   if TMA_BASE_URL="$BASE_URL" "$CLI" health >/dev/null 2>&1; then
     echo "Server is healthy"
-    TMA_BASE_URL="$BASE_URL" scripts/verify_agent_runtime.sh
+    TMA_BASE_URL="$BASE_URL" TMA_CLI="$CLI" scripts/verify_llm_provider.sh
     exit 0
   fi
 

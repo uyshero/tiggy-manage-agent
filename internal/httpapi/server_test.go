@@ -44,6 +44,128 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestLLMProviderManagement(t *testing.T) {
+	server := newTestServer()
+
+	created := postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
+		"id": "volcengine-agent-plan",
+		"provider_type": "openai",
+		"base_url": "https://ark.cn-beijing.volces.com/api/plan/v3",
+		"api_key_env": "TMA_LLM_API_KEY_VOLCENGINE"
+	}`)
+	if created.ID != "volcengine-agent-plan" || !created.Enabled {
+		t.Fatalf("unexpected created provider: %+v", created)
+	}
+	if created.APIKeyEnv != "TMA_LLM_API_KEY_VOLCENGINE" {
+		t.Fatalf("expected api key env reference only, got %q", created.APIKeyEnv)
+	}
+
+	listed := getJSON[llmProvidersResponse](t, server, "/v1/llm-providers")
+	if len(listed.Providers) != 2 || listed.Providers[1].ID != created.ID {
+		t.Fatalf("unexpected provider list: %+v", listed.Providers)
+	}
+
+	updated := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPatch, "/v1/llm-providers/"+created.ID, `{
+		"base_url": "https://ark.cn-beijing.volces.com/api/v3"
+	}`, http.StatusOK)
+	if updated.BaseURL != "https://ark.cn-beijing.volces.com/api/v3" {
+		t.Fatalf("expected updated base_url, got %q", updated.BaseURL)
+	}
+	if updated.ProviderType != "openai" || updated.APIKeyEnv != "TMA_LLM_API_KEY_VOLCENGINE" {
+		t.Fatalf("expected update to preserve omitted fields, got %+v", updated)
+	}
+
+	disabled := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPost, "/v1/llm-providers/"+created.ID+"/disable", `{}`, http.StatusOK)
+	if disabled.Enabled {
+		t.Fatalf("expected provider disabled, got %+v", disabled)
+	}
+
+	enabled := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPost, "/v1/llm-providers/"+created.ID+"/enable", `{}`, http.StatusOK)
+	if !enabled.Enabled {
+		t.Fatalf("expected provider enabled, got %+v", enabled)
+	}
+}
+
+func TestCreateAgentRejectsDisabledLLMProvider(t *testing.T) {
+	server := newTestServer()
+	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
+		"id": "disabled-provider",
+		"provider_type": "openai",
+		"enabled": false
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/agents", bytes.NewBufferString(`{
+		"name": "Code Assistant",
+		"llm_provider": "disabled-provider",
+		"llm_model": "gpt-4o"
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d for disabled provider, got %d: %s", http.StatusBadRequest, response.Code, response.Body.String())
+	}
+}
+
+func TestAgentConfigVersionUpdateKeepsExistingSessionsPinned(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1",
+		"system": "version one"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	oldSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	if oldSession.AgentConfigVersion != 1 {
+		t.Fatalf("expected old session pinned to config version 1, got %d", oldSession.AgentConfigVersion)
+	}
+
+	updated := postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2",
+		"system": "version two"
+	}`)
+	if updated.CurrentConfigVersion != 2 {
+		t.Fatalf("expected agent current config version 2, got %d", updated.CurrentConfigVersion)
+	}
+	if updated.ConfigVersion.LLMProvider != "fake" {
+		t.Fatalf("expected update to inherit llm provider fake, got %q", updated.ConfigVersion.LLMProvider)
+	}
+	if updated.ConfigVersion.LLMModel != "fake-v2" || updated.ConfigVersion.System != "version two" {
+		t.Fatalf("unexpected updated config version: %+v", updated.ConfigVersion)
+	}
+
+	versions := getJSON[agentConfigVersionsResponse](t, server, "/v1/agents/"+agent.ID+"/config-versions")
+	if len(versions.ConfigVersions) != 2 {
+		t.Fatalf("expected 2 config versions, got %d", len(versions.ConfigVersions))
+	}
+	if versions.ConfigVersions[0].LLMModel != "fake-v1" || versions.ConfigVersions[1].LLMModel != "fake-v2" {
+		t.Fatalf("unexpected config versions: %+v", versions.ConfigVersions)
+	}
+
+	newSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	if newSession.AgentConfigVersion != 2 {
+		t.Fatalf("expected new session pinned to config version 2, got %d", newSession.AgentConfigVersion)
+	}
+
+	oldSessionAfterUpdate := getJSON[managedagents.Session](t, server, "/v1/sessions/"+oldSession.ID)
+	if oldSessionAfterUpdate.AgentConfigVersion != 1 {
+		t.Fatalf("expected old session to remain pinned to config version 1, got %d", oldSessionAfterUpdate.AgentConfigVersion)
+	}
+}
+
 func TestManagedAgentsMinimumFlow(t *testing.T) {
 	server := newTestServer()
 
@@ -56,8 +178,14 @@ func TestManagedAgentsMinimumFlow(t *testing.T) {
 	if agent.ID == "" {
 		t.Fatal("expected agent id")
 	}
-	if agent.CurrentVersion != 1 {
-		t.Fatalf("expected current version 1, got %d", agent.CurrentVersion)
+	if agent.CurrentConfigVersion != 1 {
+		t.Fatalf("expected current version 1, got %d", agent.CurrentConfigVersion)
+	}
+	if agent.ConfigVersion.LLMProvider != "fake" {
+		t.Fatalf("expected default llm provider fake, got %q", agent.ConfigVersion.LLMProvider)
+	}
+	if agent.ConfigVersion.LLMModel != "gpt-4o" {
+		t.Fatalf("expected llm model gpt-4o, got %q", agent.ConfigVersion.LLMModel)
 	}
 
 	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
@@ -187,6 +315,9 @@ func TestAppendEventsUsesInjectedRunner(t *testing.T) {
 	}
 	if recorder.starts[0].SessionID != session.ID || recorder.starts[0].TurnID != turnID {
 		t.Fatalf("unexpected runner start request: %+v", recorder.starts[0])
+	}
+	if recorder.starts[0].UserEventSeq != startResponse.Events[1].Seq {
+		t.Fatalf("expected runner user event seq %d, got %d", startResponse.Events[1].Seq, recorder.starts[0].UserEventSeq)
 	}
 
 	postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
@@ -445,6 +576,14 @@ func TestInterruptRequiresRunningSession(t *testing.T) {
 
 type eventsResponse struct {
 	Events []managedagents.Event `json:"events"`
+}
+
+type llmProvidersResponse struct {
+	Providers []managedagents.LLMProvider `json:"providers"`
+}
+
+type agentConfigVersionsResponse struct {
+	ConfigVersions []managedagents.AgentConfigVersion `json:"config_versions"`
 }
 
 type recordingRunner struct {

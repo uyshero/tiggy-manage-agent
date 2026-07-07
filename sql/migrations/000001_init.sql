@@ -19,15 +19,25 @@ CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id),
   name TEXT NOT NULL,
-  current_version INTEGER NOT NULL,
+  current_config_version INTEGER NOT NULL,
   archived_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS agent_versions (
+CREATE TABLE IF NOT EXISTS llm_providers (
+  id TEXT PRIMARY KEY,
+  provider_type TEXT NOT NULL,
+  base_url TEXT NOT NULL DEFAULT '',
+  api_key_env TEXT NOT NULL DEFAULT '',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS agent_config_versions (
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   version INTEGER NOT NULL,
-  model TEXT NOT NULL,
+  llm_provider TEXT NOT NULL DEFAULT 'fake' REFERENCES llm_providers(id),
+  llm_model TEXT NOT NULL,
   system TEXT NOT NULL DEFAULT '',
   tools_json JSONB NOT NULL DEFAULT 'null'::jsonb,
   skills_json JSONB NOT NULL DEFAULT 'null'::jsonb,
@@ -48,7 +58,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id),
   agent_id TEXT NOT NULL REFERENCES agents(id),
-  agent_version INTEGER NOT NULL,
+  agent_config_version INTEGER NOT NULL,
   environment_id TEXT NOT NULL REFERENCES environments(id),
   status TEXT NOT NULL,
   title TEXT,
@@ -81,6 +91,27 @@ CREATE TABLE IF NOT EXISTS session_events (
   UNIQUE (session_id, seq)
 );
 
+CREATE TABLE IF NOT EXISTS llm_usage_records (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  agent_config_version INTEGER NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  turn_id TEXT NOT NULL,
+  provider_id TEXT NOT NULL REFERENCES llm_providers(id),
+  provider_type TEXT NOT NULL DEFAULT '',
+  model TEXT NOT NULL,
+  input_tokens BIGINT NOT NULL DEFAULT 0,
+  output_tokens BIGINT NOT NULL DEFAULT 0,
+  total_tokens BIGINT NOT NULL DEFAULT 0,
+  cached_input_tokens BIGINT NOT NULL DEFAULT 0,
+  reasoning_tokens BIGINT NOT NULL DEFAULT 0,
+  latency_ms BIGINT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  error_message TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_workspaces_org_id
   ON workspaces(org_id);
 
@@ -99,6 +130,15 @@ CREATE INDEX IF NOT EXISTS idx_sessions_agent_id
 CREATE INDEX IF NOT EXISTS idx_session_events_session_seq
   ON session_events(session_id, seq);
 
+CREATE INDEX IF NOT EXISTS idx_llm_usage_session_turn
+  ON llm_usage_records(session_id, turn_id);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_provider_model
+  ON llm_usage_records(provider_id, model);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at
+  ON llm_usage_records(created_at);
+
 INSERT INTO organizations (id, name)
 VALUES ('org_default', 'Default Organization')
 ON CONFLICT (id) DO NOTHING;
@@ -107,3 +147,6 @@ INSERT INTO workspaces (id, org_id, name)
 VALUES ('wksp_default', 'org_default', 'Default Workspace')
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO llm_providers (id, provider_type, base_url, api_key_env, enabled)
+VALUES ('fake', 'fake', '', '', TRUE)
+ON CONFLICT (id) DO NOTHING;

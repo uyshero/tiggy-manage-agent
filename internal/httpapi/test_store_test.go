@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -17,53 +18,215 @@ type testStore struct {
 	nextSessionID     int64
 	nextEventID       int64
 
-	agents       map[string]managedagents.Agent
-	environments map[string]managedagents.Environment
-	sessions     map[string]managedagents.Session
-	events       map[string][]managedagents.Event
-	subscribers  map[string]map[chan managedagents.Event]struct{}
+	agents              map[string]managedagents.Agent
+	agentConfigVersions map[string][]managedagents.AgentConfigVersion
+	providers           map[string]managedagents.LLMProvider
+	environments        map[string]managedagents.Environment
+	sessions            map[string]managedagents.Session
+	events              map[string][]managedagents.Event
+	subscribers         map[string]map[chan managedagents.Event]struct{}
 }
 
 func newTestStore() *testStore {
-	return &testStore{
-		agents:       make(map[string]managedagents.Agent),
-		environments: make(map[string]managedagents.Environment),
-		sessions:     make(map[string]managedagents.Session),
-		events:       make(map[string][]managedagents.Event),
-		subscribers:  make(map[string]map[chan managedagents.Event]struct{}),
+	store := &testStore{
+		agents:              make(map[string]managedagents.Agent),
+		agentConfigVersions: make(map[string][]managedagents.AgentConfigVersion),
+		providers:           make(map[string]managedagents.LLMProvider),
+		environments:        make(map[string]managedagents.Environment),
+		sessions:            make(map[string]managedagents.Session),
+		events:              make(map[string][]managedagents.Event),
+		subscribers:         make(map[string]map[chan managedagents.Event]struct{}),
 	}
+	store.providers["fake"] = managedagents.LLMProvider{
+		ID:           "fake",
+		ProviderType: "fake",
+		Enabled:      true,
+		CreatedAt:    time.Now().UTC(),
+	}
+	return store
+}
+
+func (s *testStore) EnsureLLMProvider(input managedagents.EnsureLLMProviderInput) (managedagents.LLMProvider, error) {
+	return s.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
+		ID:           input.ID,
+		ProviderType: input.ProviderType,
+		BaseURL:      input.BaseURL,
+		APIKeyEnv:    input.APIKeyEnv,
+		Enabled:      true,
+	})
+}
+
+func (s *testStore) UpsertLLMProvider(input managedagents.UpsertLLMProviderInput) (managedagents.LLMProvider, error) {
+	if input.ID == "" {
+		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider id is required", managedagents.ErrInvalid)
+	}
+	if input.ProviderType == "" {
+		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider type is required", managedagents.ErrInvalid)
+	}
+
+	provider := managedagents.LLMProvider{
+		ID:           input.ID,
+		ProviderType: input.ProviderType,
+		BaseURL:      input.BaseURL,
+		APIKeyEnv:    input.APIKeyEnv,
+		Enabled:      input.Enabled,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.providers[provider.ID] = provider
+	return provider, nil
+}
+
+func (s *testStore) GetLLMProvider(id string) (managedagents.LLMProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	provider, ok := s.providers[id]
+	if !ok {
+		return managedagents.LLMProvider{}, managedagents.ErrNotFound
+	}
+	return provider, nil
+}
+
+func (s *testStore) ListLLMProviders() ([]managedagents.LLMProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	providers := make([]managedagents.LLMProvider, 0, len(s.providers))
+	for _, provider := range s.providers {
+		providers = append(providers, provider)
+	}
+	sort.Slice(providers, func(i, j int) bool {
+		return providers[i].ID < providers[j].ID
+	})
+	return providers, nil
+}
+
+func (s *testStore) SetLLMProviderEnabled(id string, enabled bool) (managedagents.LLMProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	provider, ok := s.providers[id]
+	if !ok {
+		return managedagents.LLMProvider{}, managedagents.ErrNotFound
+	}
+	provider.Enabled = enabled
+	s.providers[id] = provider
+	return provider, nil
 }
 
 func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedagents.Agent, error) {
 	if input.Name == "" {
 		return managedagents.Agent{}, fmt.Errorf("%w: agent name is required", managedagents.ErrInvalid)
 	}
-	if input.Model == "" {
-		return managedagents.Agent{}, fmt.Errorf("%w: agent model is required", managedagents.ErrInvalid)
+	if input.LLMProvider == "" {
+		input.LLMProvider = "fake"
+	}
+	if input.LLMModel == "" {
+		input.LLMModel = input.Model
+	}
+	if input.LLMModel == "" {
+		return managedagents.Agent{}, fmt.Errorf("%w: agent llm_model is required", managedagents.ErrInvalid)
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	provider, ok := s.providers[input.LLMProvider]
+	if !ok {
+		return managedagents.Agent{}, fmt.Errorf("%w: llm provider %s", managedagents.ErrNotFound, input.LLMProvider)
+	}
+	if !provider.Enabled {
+		return managedagents.Agent{}, fmt.Errorf("%w: llm provider %s is disabled", managedagents.ErrInvalid, input.LLMProvider)
+	}
 
 	now := time.Now().UTC()
 	id := s.nextID("agt", &s.nextAgentID)
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
 	agent := managedagents.Agent{
-		ID:             id,
-		WorkspaceID:    workspaceID,
-		Name:           input.Name,
-		CurrentVersion: 1,
-		Version: managedagents.AgentVersion{
-			Version:   1,
-			Model:     input.Model,
-			System:    input.System,
-			Tools:     cloneRaw(input.Tools),
-			Skills:    cloneRaw(input.Skills),
-			CreatedAt: now,
+		ID:                   id,
+		WorkspaceID:          workspaceID,
+		Name:                 input.Name,
+		CurrentConfigVersion: 1,
+		ConfigVersion: managedagents.AgentConfigVersion{
+			Version:     1,
+			LLMProvider: input.LLMProvider,
+			LLMModel:    input.LLMModel,
+			System:      input.System,
+			Tools:       cloneRaw(input.Tools),
+			Skills:      cloneRaw(input.Skills),
+			CreatedAt:   now,
 		},
 		CreatedAt: now,
 	}
 	s.agents[id] = agent
+	s.agentConfigVersions[id] = []managedagents.AgentConfigVersion{agent.ConfigVersion}
+	return agent, nil
+}
+
+func (s *testStore) GetAgent(id string) (managedagents.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, ok := s.agents[id]
+	if !ok {
+		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	return agent, nil
+}
+
+func (s *testStore) ListAgentConfigVersions(agentID string) ([]managedagents.AgentConfigVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.agents[agentID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	versions := s.agentConfigVersions[agentID]
+	return append([]managedagents.AgentConfigVersion(nil), versions...), nil
+}
+
+func (s *testStore) CreateAgentConfigVersion(input managedagents.CreateAgentConfigVersionInput) (managedagents.Agent, error) {
+	if input.AgentID == "" {
+		return managedagents.Agent{}, fmt.Errorf("%w: agent id is required", managedagents.ErrInvalid)
+	}
+	if input.LLMProvider == "" {
+		return managedagents.Agent{}, fmt.Errorf("%w: agent llm_provider is required", managedagents.ErrInvalid)
+	}
+	if input.LLMModel == "" {
+		return managedagents.Agent{}, fmt.Errorf("%w: agent llm_model is required", managedagents.ErrInvalid)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, ok := s.agents[input.AgentID]
+	if !ok {
+		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	provider, ok := s.providers[input.LLMProvider]
+	if !ok {
+		return managedagents.Agent{}, fmt.Errorf("%w: llm provider %s", managedagents.ErrNotFound, input.LLMProvider)
+	}
+	if !provider.Enabled {
+		return managedagents.Agent{}, fmt.Errorf("%w: llm provider %s is disabled", managedagents.ErrInvalid, input.LLMProvider)
+	}
+
+	nextVersion := agent.CurrentConfigVersion + 1
+	configVersion := managedagents.AgentConfigVersion{
+		Version:     nextVersion,
+		LLMProvider: input.LLMProvider,
+		LLMModel:    input.LLMModel,
+		System:      input.System,
+		Tools:       cloneRaw(input.Tools),
+		Skills:      cloneRaw(input.Skills),
+		CreatedAt:   time.Now().UTC(),
+	}
+	agent.CurrentConfigVersion = nextVersion
+	agent.ConfigVersion = configVersion
+	s.agents[input.AgentID] = agent
+	s.agentConfigVersions[input.AgentID] = append(s.agentConfigVersions[input.AgentID], configVersion)
 	return agent, nil
 }
 
@@ -123,15 +286,15 @@ func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (manag
 	now := time.Now().UTC()
 	id := s.nextID("sesn", &s.nextSessionID)
 	session := managedagents.Session{
-		ID:            id,
-		WorkspaceID:   workspaceID,
-		AgentID:       agent.ID,
-		AgentVersion:  agent.CurrentVersion,
-		EnvironmentID: environment.ID,
-		Status:        managedagents.SessionStatusIdle,
-		Title:         input.Title,
-		CreatedBy:     defaultString(input.CreatedBy, "system"),
-		CreatedAt:     now,
+		ID:                 id,
+		WorkspaceID:        workspaceID,
+		AgentID:            agent.ID,
+		AgentConfigVersion: agent.CurrentConfigVersion,
+		EnvironmentID:      environment.ID,
+		Status:             managedagents.SessionStatusIdle,
+		Title:              input.Title,
+		CreatedBy:          defaultString(input.CreatedBy, "system"),
+		CreatedAt:          now,
 	}
 	s.sessions[id] = session
 	s.appendEventLocked(id, managedagents.EventSessionStatusProvisioning, json.RawMessage(`{"status":"provisioning"}`), now)
@@ -148,6 +311,48 @@ func (s *testStore) GetSession(id string) (managedagents.Session, error) {
 		return managedagents.Session{}, managedagents.ErrNotFound
 	}
 	return session, nil
+}
+
+func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return managedagents.AgentRuntimeConfig{}, managedagents.ErrNotFound
+	}
+	agent, ok := s.agents[session.AgentID]
+	if !ok {
+		return managedagents.AgentRuntimeConfig{}, managedagents.ErrNotFound
+	}
+	configVersion, ok := s.agentConfigVersionLocked(session.AgentID, session.AgentConfigVersion)
+	if !ok {
+		return managedagents.AgentRuntimeConfig{}, managedagents.ErrNotFound
+	}
+	provider := s.providers[configVersion.LLMProvider]
+
+	return managedagents.AgentRuntimeConfig{
+		SessionID:          sessionID,
+		AgentID:            agent.ID,
+		AgentConfigVersion: session.AgentConfigVersion,
+		LLMProvider:        configVersion.LLMProvider,
+		LLMProviderType:    defaultString(provider.ProviderType, "fake"),
+		LLMModel:           configVersion.LLMModel,
+		LLMBaseURL:         provider.BaseURL,
+		LLMAPIKeyEnv:       provider.APIKeyEnv,
+		System:             configVersion.System,
+		Tools:              cloneRaw(configVersion.Tools),
+		Skills:             cloneRaw(configVersion.Skills),
+	}, nil
+}
+
+func (s *testStore) agentConfigVersionLocked(agentID string, version int) (managedagents.AgentConfigVersion, bool) {
+	for _, configVersion := range s.agentConfigVersions[agentID] {
+		if configVersion.Version == version {
+			return configVersion, true
+		}
+	}
+	return managedagents.AgentConfigVersion{}, false
 }
 
 func (s *testStore) ArchiveSession(id string) (managedagents.Session, error) {
@@ -318,6 +523,40 @@ func (s *testStore) ListEvents(sessionID string, afterSeq int64) ([]managedagent
 		}
 	}
 	return events, nil
+}
+
+func (s *testStore) ListConversationMessages(sessionID string, beforeSeq int64) ([]managedagents.ConversationMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	if beforeSeq <= 0 {
+		return []managedagents.ConversationMessage{}, nil
+	}
+
+	var messages []managedagents.ConversationMessage
+	for _, event := range s.events[sessionID] {
+		if event.Seq >= beforeSeq {
+			continue
+		}
+		role := ""
+		switch event.Type {
+		case managedagents.EventUserMessage:
+			role = "user"
+		case managedagents.EventAgentMessage:
+			role = "assistant"
+		default:
+			continue
+		}
+		messages = append(messages, managedagents.ConversationMessage{
+			Seq:     event.Seq,
+			Role:    role,
+			Payload: cloneRaw(event.Payload),
+		})
+	}
+	return messages, nil
 }
 
 func (s *testStore) SubscribeEvents(sessionID string) (<-chan managedagents.Event, func(), error) {

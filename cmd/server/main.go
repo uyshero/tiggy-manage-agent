@@ -12,6 +12,7 @@ import (
 
 	"tiggy-manage-agent/internal/agentruntime"
 	"tiggy-manage-agent/internal/httpapi"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/serverconfig"
@@ -30,12 +31,20 @@ func main() {
 
 	store, cleanup := mustOpenStore(config.DatabaseURL, logger)
 	defer cleanup()
-	turnRunner, runnerCleanup := buildRunner(config.Turn, store, logger)
+	if err := ensureDefaultLLMProvider(store, config, logger); err != nil {
+		logger.Error("ensure default llm provider failed", "error", err)
+		os.Exit(1)
+	}
+	turnRunner, runnerCleanup, err := buildRunner(config, store, logger)
+	if err != nil {
+		logger.Error("build runner failed", "error", err)
+		os.Exit(1)
+	}
 	defer runnerCleanup()
 
 	server := &http.Server{
 		Addr:              config.HTTPAddr,
-		Handler:           httpapi.NewServerWithStoreAndRunner(store, turnRunner, logger),
+		Handler:           httpapi.NewServerWithStoreRunnerAndLLMDefaults(store, turnRunner, logger, config.LLM.Provider, config.LLM.Model),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -77,19 +86,62 @@ func mustOpenStore(databaseURL string, logger *slog.Logger) (managedagents.Store
 	}
 }
 
-func buildRunner(config serverconfig.TurnConfig, store managedagents.Store, logger *slog.Logger) (runner.Runner, func()) {
-	turnExecutor := runner.AgentRuntimeTurnExecutor{
-		Runtime: agentruntime.DemoRuntime{},
-		Store:   store,
-		Timeout: config.Timeout,
+func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Config, logger *slog.Logger) error {
+	providerType := llm.ResolveProviderType(config.LLM.Provider, config.LLM.ProviderType)
+	baseURL := config.LLM.BaseURL
+	apiKeyEnv := config.LLM.APIKeyEnv
+	if providerType == llm.ProviderFake {
+		baseURL = ""
+		apiKeyEnv = ""
 	}
-	worker := runner.NewWorkerRunner(store, turnExecutor, config.QueueSize, logger)
+	provider, err := store.EnsureLLMProvider(managedagents.EnsureLLMProviderInput{
+		ID:           config.LLM.Provider,
+		ProviderType: providerType,
+		BaseURL:      baseURL,
+		APIKeyEnv:    apiKeyEnv,
+		Enabled:      true,
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("ensured default llm provider",
+		"llm_provider", provider.ID,
+		"llm_provider_type", provider.ProviderType,
+		"llm_base_url", provider.BaseURL,
+		"llm_api_key_env", provider.APIKeyEnv,
+	)
+	return nil
+}
+
+func buildRunner(config serverconfig.Config, store managedagents.Store, logger *slog.Logger) (runner.Runner, func(), error) {
+	llmManager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
+		Provider:     config.LLM.Provider,
+		ProviderType: config.LLM.ProviderType,
+		Model:        config.LLM.Model,
+		BaseURL:      config.LLM.BaseURL,
+		APIKey:       config.LLM.APIKey,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	_, llmProvider, llmModel := llmManager.Current()
+
+	turnExecutor := runner.AgentRuntimeTurnExecutor{
+		Runtime: agentruntime.DemoRuntime{
+			Client: llmManager,
+		},
+		Store:   store,
+		Timeout: config.Turn.Timeout,
+	}
+	worker := runner.NewWorkerRunner(store, turnExecutor, config.Turn.QueueSize, logger)
 	logger.Info("using worker runner",
 		"turn_executor", "agent_runtime",
 		"agent_runtime", "demo",
-		"queue_size", config.QueueSize,
+		"llm_provider", llmProvider,
+		"llm_model", llmModel,
+		"queue_size", config.Turn.QueueSize,
 	)
-	return worker, worker.Close
+	return worker, worker.Close, nil
 }
 
 func shutdownSignal() <-chan os.Signal {

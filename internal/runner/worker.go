@@ -18,7 +18,12 @@ var (
 // TurnExecutor 是真正执行 turn 的最小接口。
 // WorkerRunner 负责排队、取消和状态回写；TurnExecutor 只负责产出 agent.message payload。
 type TurnExecutor interface {
-	RunTurn(ctx context.Context, request TurnRequest) (json.RawMessage, error)
+	RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error)
+}
+
+type TurnResult struct {
+	AgentPayload json.RawMessage
+	Usage        *managedagents.RecordLLMUsageInput
 }
 
 // WorkerRunner 是后续接 Sandbox / Agent Runtime 的队列化 Runner 骨架。
@@ -154,7 +159,7 @@ func (r *WorkerRunner) runJob(job workerJob) {
 	key := turnKey{sessionID: job.request.SessionID, turnID: job.request.TurnID}
 	defer r.deleteTurn(key)
 
-	agentPayload, err := r.turnExecutor.RunTurn(job.ctx, job.request)
+	result, err := r.turnExecutor.RunTurn(job.ctx, job.request)
 	if err != nil {
 		if job.ctx.Err() != nil {
 			r.logger.Info("worker runner turn canceled before completion",
@@ -174,7 +179,7 @@ func (r *WorkerRunner) runJob(job workerJob) {
 		return
 	}
 
-	events, err := r.store.CompleteSessionTurn(job.request.SessionID, job.request.TurnID, agentPayload)
+	events, err := r.store.CompleteSessionTurn(job.request.SessionID, job.request.TurnID, result.AgentPayload)
 	if err != nil {
 		r.logger.Error("worker runner completion failed",
 			"session_id", job.request.SessionID,
@@ -182,6 +187,15 @@ func (r *WorkerRunner) runJob(job workerJob) {
 			"error", err,
 		)
 		return
+	}
+	if result.Usage != nil {
+		if _, err := r.store.RecordLLMUsage(*result.Usage); err != nil {
+			r.logger.Error("worker runner llm usage record failed",
+				"session_id", job.request.SessionID,
+				"turn_id", job.request.TurnID,
+				"error", err,
+			)
+		}
 	}
 	r.logger.Info("worker runner turn completed",
 		"session_id", job.request.SessionID,

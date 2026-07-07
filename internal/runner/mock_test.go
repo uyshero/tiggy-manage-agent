@@ -155,6 +155,7 @@ type mockStore struct {
 	reason        string
 	payload       json.RawMessage
 	runtimeEvents []string
+	history       []managedagents.ConversationMessage
 }
 
 func (s *mockStore) completeCalls() int {
@@ -191,6 +192,50 @@ func (s *mockStore) CreateAgent(managedagents.CreateAgentInput) (managedagents.A
 	return managedagents.Agent{}, nil
 }
 
+func (s *mockStore) GetAgent(string) (managedagents.Agent, error) {
+	return managedagents.Agent{}, nil
+}
+
+func (s *mockStore) ListAgentConfigVersions(string) ([]managedagents.AgentConfigVersion, error) {
+	return nil, nil
+}
+
+func (s *mockStore) CreateAgentConfigVersion(managedagents.CreateAgentConfigVersionInput) (managedagents.Agent, error) {
+	return managedagents.Agent{}, nil
+}
+
+func (s *mockStore) EnsureLLMProvider(input managedagents.EnsureLLMProviderInput) (managedagents.LLMProvider, error) {
+	return s.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
+		ID:           input.ID,
+		ProviderType: input.ProviderType,
+		BaseURL:      input.BaseURL,
+		APIKeyEnv:    input.APIKeyEnv,
+		Enabled:      true,
+	})
+}
+
+func (s *mockStore) UpsertLLMProvider(input managedagents.UpsertLLMProviderInput) (managedagents.LLMProvider, error) {
+	return managedagents.LLMProvider{
+		ID:           input.ID,
+		ProviderType: input.ProviderType,
+		BaseURL:      input.BaseURL,
+		APIKeyEnv:    input.APIKeyEnv,
+		Enabled:      input.Enabled,
+	}, nil
+}
+
+func (s *mockStore) GetLLMProvider(string) (managedagents.LLMProvider, error) {
+	return managedagents.LLMProvider{}, nil
+}
+
+func (s *mockStore) ListLLMProviders() ([]managedagents.LLMProvider, error) {
+	return nil, nil
+}
+
+func (s *mockStore) SetLLMProviderEnabled(string, bool) (managedagents.LLMProvider, error) {
+	return managedagents.LLMProvider{}, nil
+}
+
 func (s *mockStore) CreateEnvironment(managedagents.CreateEnvironmentInput) (managedagents.Environment, error) {
 	return managedagents.Environment{}, nil
 }
@@ -201,6 +246,15 @@ func (s *mockStore) CreateSession(managedagents.CreateSessionInput) (managedagen
 
 func (s *mockStore) GetSession(string) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
+	return managedagents.AgentRuntimeConfig{
+		SessionID:       sessionID,
+		LLMProvider:     "fake",
+		LLMProviderType: "fake",
+		LLMModel:        "fake-demo",
+	}, nil
 }
 
 func (s *mockStore) ArchiveSession(string) (managedagents.Session, error) {
@@ -273,6 +327,10 @@ func (s *mockStore) FailSessionTurn(sessionID string, turnID string, reason stri
 
 func (s *mockStore) ListEvents(string, int64) ([]managedagents.Event, error) {
 	return nil, nil
+}
+
+func (s *mockStore) ListConversationMessages(string, int64) ([]managedagents.ConversationMessage, error) {
+	return append([]managedagents.ConversationMessage(nil), s.history...), nil
 }
 
 func (s *mockStore) SubscribeEvents(string) (<-chan managedagents.Event, func(), error) {

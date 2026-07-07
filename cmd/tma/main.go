@@ -58,6 +58,8 @@ func run(args []string) error {
 	switch remaining[0] {
 	case "health":
 		return commandHealth(client, remaining[1:])
+	case "provider":
+		return commandProvider(client, remaining[1:])
 	case "agent":
 		return commandAgent(client, remaining[1:])
 	case "env":
@@ -87,6 +89,136 @@ func commandHealth(client *apiClient, args []string) error {
 	return printJSON(response)
 }
 
+func commandProvider(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("provider command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "list":
+		if len(args) != 1 {
+			return fmt.Errorf("provider list does not accept arguments")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/llm-providers", nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "get":
+		flags := flag.NewFlagSet("provider get", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var id string
+		flags.StringVar(&id, "id", "", "provider id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("provider get requires --id")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/llm-providers/"+url.PathEscape(id), nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "create":
+		flags := flag.NewFlagSet("provider create", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var id string
+		var providerType string
+		var baseURL string
+		var apiKeyEnv string
+		var disabled bool
+		flags.StringVar(&id, "id", "", "provider id")
+		flags.StringVar(&providerType, "type", "", "provider protocol type")
+		flags.StringVar(&baseURL, "base-url", "", "provider base URL")
+		flags.StringVar(&apiKeyEnv, "api-key-env", "", "environment variable name that stores the API key")
+		flags.BoolVar(&disabled, "disabled", false, "create provider as disabled")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" || providerType == "" {
+			return fmt.Errorf("provider create requires --id and --type")
+		}
+
+		request := map[string]any{
+			"id":            id,
+			"provider_type": providerType,
+			"base_url":      baseURL,
+			"api_key_env":   apiKeyEnv,
+			"enabled":       !disabled,
+		}
+
+		var response any
+		if err := client.do(http.MethodPost, "/v1/llm-providers", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "update":
+		flags := flag.NewFlagSet("provider update", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var id string
+		var providerType string
+		var baseURL string
+		var apiKeyEnv string
+		flags.StringVar(&id, "id", "", "provider id")
+		flags.StringVar(&providerType, "type", "", "provider protocol type")
+		flags.StringVar(&baseURL, "base-url", "", "provider base URL")
+		flags.StringVar(&apiKeyEnv, "api-key-env", "", "environment variable name that stores the API key")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("provider update requires --id")
+		}
+
+		request := map[string]any{}
+		if flagWasPassed(flags, "type") {
+			request["provider_type"] = providerType
+		}
+		if flagWasPassed(flags, "base-url") {
+			request["base_url"] = baseURL
+		}
+		if flagWasPassed(flags, "api-key-env") {
+			request["api_key_env"] = apiKeyEnv
+		}
+		if len(request) == 0 {
+			return fmt.Errorf("provider update requires at least one field flag")
+		}
+
+		var response any
+		if err := client.do(http.MethodPatch, "/v1/llm-providers/"+url.PathEscape(id), request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "enable", "disable":
+		flags := flag.NewFlagSet("provider "+args[0], flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var id string
+		flags.StringVar(&id, "id", "", "provider id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("provider %s requires --id", args[0])
+		}
+
+		var response any
+		path := "/v1/llm-providers/" + url.PathEscape(id) + "/" + args[0]
+		if err := client.do(http.MethodPost, path, map[string]any{}, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown provider subcommand %q", args[0])
+	}
+}
+
 func commandAgent(client *apiClient, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("agent command requires a subcommand")
@@ -98,23 +230,32 @@ func commandAgent(client *apiClient, args []string) error {
 		flags.SetOutput(io.Discard)
 
 		var name string
+		var llmProvider string
+		var llmModel string
 		var model string
 		var system string
 		flags.StringVar(&name, "name", "", "agent name")
+		flags.StringVar(&llmProvider, "llm-provider", "", "llm provider id")
+		flags.StringVar(&llmModel, "llm-model", "", "llm model id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.StringVar(&system, "system", "", "system prompt")
 
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if name == "" || model == "" {
-			return fmt.Errorf("agent create requires --name and --model")
+		if llmModel == "" {
+			llmModel = model
+		}
+		if name == "" || llmModel == "" {
+			return fmt.Errorf("agent create requires --name and --model (or --llm-model)")
 		}
 
 		request := map[string]string{
-			"name":   name,
-			"model":  model,
-			"system": system,
+			"name":         name,
+			"llm_provider": llmProvider,
+			"llm_model":    llmModel,
+			"model":        model,
+			"system":       system,
 		}
 
 		var response any
@@ -123,8 +264,101 @@ func commandAgent(client *apiClient, args []string) error {
 		}
 
 		return printJSON(response)
+	case "get":
+		flags := flag.NewFlagSet("agent get", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var id string
+		flags.StringVar(&id, "id", "", "agent id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("agent get requires --id")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(id), nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "config":
+		return commandAgentConfig(client, args[1:])
 	default:
 		return fmt.Errorf("unknown agent subcommand %q", args[0])
+	}
+}
+
+func commandAgentConfig(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("agent config command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("agent config list", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var agentID string
+		flags.StringVar(&agentID, "agent", "", "agent id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if agentID == "" {
+			return fmt.Errorf("agent config list requires --agent")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(agentID)+"/config-versions", nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "update":
+		flags := flag.NewFlagSet("agent config update", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var agentID string
+		var llmProvider string
+		var llmModel string
+		var model string
+		var system string
+		flags.StringVar(&agentID, "agent", "", "agent id")
+		flags.StringVar(&llmProvider, "llm-provider", "", "llm provider id")
+		flags.StringVar(&llmModel, "llm-model", "", "llm model id")
+		flags.StringVar(&model, "model", "", "model id")
+		flags.StringVar(&system, "system", "", "system prompt")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if agentID == "" {
+			return fmt.Errorf("agent config update requires --agent")
+		}
+
+		request := map[string]any{}
+		if flagWasPassed(flags, "llm-provider") {
+			request["llm_provider"] = llmProvider
+		}
+		if flagWasPassed(flags, "llm-model") {
+			request["llm_model"] = llmModel
+		}
+		if flagWasPassed(flags, "model") {
+			request["model"] = model
+		}
+		if flagWasPassed(flags, "system") {
+			request["system"] = system
+		}
+		if len(request) == 0 {
+			return fmt.Errorf("agent config update requires at least one field flag")
+		}
+
+		var response any
+		path := "/v1/agents/" + url.PathEscape(agentID) + "/config-versions"
+		if err := client.do(http.MethodPost, path, request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown agent config subcommand %q", args[0])
 	}
 }
 
@@ -489,6 +723,16 @@ func printJSON(value any) error {
 	return nil
 }
 
+func flagWasPassed(flags *flag.FlagSet, name string) bool {
+	passed := false
+	flags.Visit(func(flag *flag.Flag) {
+		if flag.Name == name {
+			passed = true
+		}
+	})
+	return passed
+}
+
 func usageError() error {
 	printUsage()
 	return errors.New("missing command")
@@ -497,7 +741,16 @@ func usageError() error {
 func printUsage() {
 	fmt.Fprintln(os.Stderr, `Usage:
   tma [--base-url URL] health
-  tma [--base-url URL] agent create --name NAME --model MODEL [--system TEXT]
+  tma [--base-url URL] provider list
+  tma [--base-url URL] provider get --id PROVIDER
+  tma [--base-url URL] provider create --id PROVIDER --type TYPE [--base-url URL] [--api-key-env ENV] [--disabled]
+  tma [--base-url URL] provider update --id PROVIDER [--type TYPE] [--base-url URL] [--api-key-env ENV]
+  tma [--base-url URL] provider enable --id PROVIDER
+  tma [--base-url URL] provider disable --id PROVIDER
+  tma [--base-url URL] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
+  tma [--base-url URL] agent get --id AGENT_ID
+  tma [--base-url URL] agent config list --agent AGENT_ID
+  tma [--base-url URL] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT]
   tma [--base-url URL] env create --name NAME [--config JSON]
   tma [--base-url URL] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
   tma [--base-url URL] session get --session SESSION_ID

@@ -85,7 +85,7 @@ Override the connection string when needed:
 TMA_DATABASE_URL="postgres://user:pass@localhost:5432/db?sslmode=disable" make run
 ```
 
-The server runs turns through `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`. The current runtime does not call an LLM yet; it returns a deterministic `agent.message` so the HTTP / Store / Runner lifecycle can be verified. Runtime design notes are in [docs/agent-runtime.md](./docs/agent-runtime.md).
+The server runs turns through `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`. The current runtime resolves the Session-bound AgentConfigVersion, then calls `llm.Manager` with that `llm_provider` / `llm_model`. The default `fake` provider stays local; `openai-compatible` can call an OpenAI Chat Completions compatible endpoint. Runtime design notes are in [docs/agent-runtime.md](./docs/agent-runtime.md).
 
 Command turns are still documented as a lower-level external process adapter in [docs/command-turn-protocol.md](./docs/command-turn-protocol.md), but they are not the default server path.
 
@@ -152,7 +152,8 @@ bin/tma health
 ```bash
 bin/tma agent create \
   --name "Code Assistant" \
-  --model gpt-4o \
+  --llm-provider volcengine-agent-plan \
+  --llm-model gpt-4o-mini \
   --system "You are a coding agent."
 ```
 
