@@ -28,6 +28,9 @@ WorkerRunner -> LocalSystemTurnExecutor / CloudSandboxTurnExecutor
 ```text
 WorkerRunner -> TurnExecutor
 
+internal/tools
+  -> manifest / registry / executor
+
 internal/capability.Provider
   -> runCommand
   -> executeCode
@@ -39,12 +42,9 @@ internal/capability.Provider
 
 ## 当前不做什么
 
-当前阶段不新增：
+当前阶段不新增完整 UI Tool 模块：
 
 ```text
-ToolManifest
-ToolRegistry
-ToolExecutor
 assistant.tool_call
 tool.call_result
 本机系统 turn mode
@@ -53,10 +53,11 @@ tool.call_result
 
 原因：
 
-- TMA 现在还没有 LLM loop。
-- 还没有模型 function calling 协议。
+- 内部 `internal/tools` manifest / registry / executor 已存在，`openai-compatible` 已有第一版原生 function calling 适配。
 - 还没有 Inspector / Intervention UI。
 - 直接上 Tool 模块会提前引入大量未验证抽象。
+
+当前 `DemoRuntime` 有一个最小 tool loop：优先使用 `llm.Request.Tools` / `llm.Message.ToolCalls` 承载厂商原生工具调用适配；同时继续兼容 `tma.tool_call.v1` 文本 JSON envelope。两条路径最终都通过 `internal/tools` 映射到 `capability.Provider`。它用于验证 Runtime -> Tools -> Capability Provider 的执行闭环，仍不是完整 UI Tool 模块。
 
 ## 当前代码边界
 
@@ -121,7 +122,7 @@ Capability Provider
 WorkerRunner
   -> AgentRuntimeTurnExecutor
       -> LLM loop
-          -> Tool layer
+          -> internal/tools
               -> Capability Provider
 ```
 
@@ -147,9 +148,10 @@ Builtin Tool: tma.cloud_sandbox
 
 也就是说：
 
-- `internal/capability.Provider` 是系统内部能力面。
+- `internal/tools` 是当前内置工具 manifest / registry / executor 层。
+- `internal/capability.Provider` 是系统底层能力面。
 - `LocalSystemProvider` 和 `CloudSandboxProvider` 是并列 Provider，不是从属关系。
-- 未来 `ToolManifest` 是面向 LLM 的暴露面。
+- 当前 `tools.Manifest` 是面向 LLM 的内置工具暴露面，并能生成厂商原生 function calling schema；未来可继续扩展到 UI 注册。
 - 二者不是同一层，但 API 名称可以保持一致。
 
 ## 后续路线
@@ -159,5 +161,5 @@ Builtin Tool: tma.cloud_sandbox
 1. 保持现有 `Runner / TurnExecutor` 稳定。
 2. 持续完善 `LocalSystemProvider`。
 3. 再引入 `AgentRuntimeTurnExecutor`。
-4. 等 LLM loop 成形后，再抽 `ToolManifest / ToolRegistry / ToolExecutor`。
+4. 继续完善 `internal/tools` 的 manifest / registry / executor，并补齐更多 Provider 的原生 function calling 适配。
 5. 最后把具体 Provider 包装成 `tma.local_system`、`tma.cloud_sandbox` 等 builtin tools。

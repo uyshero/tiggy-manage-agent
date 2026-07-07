@@ -96,3 +96,7 @@ func (LocalSystemProvider) WriteFile(_ context.Context, request WriteFileRequest
 	}
 	return FileResult{Path: request.Path}, nil
 }
+
+func (LocalSystemProvider) EditFile(_ context.Context, request EditFileRequest) (EditFileResult, error) {
+	return editLocalFile(request), nil
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -95,6 +96,44 @@ func TestWorkerRunnerCompletesTurn(t *testing.T) {
 	}
 }
 
+func TestWorkerRunnerRecordsLLMUsageAfterSuccessfulTurn(t *testing.T) {
+	store := &mockStore{}
+	executor := staticExecutor{
+		payload: json.RawMessage(`{"content":[{"type":"text","text":"worker ok"}]}`),
+		usage: &managedagents.RecordLLMUsageInput{
+			WorkspaceID:        "wksp_default",
+			AgentID:            "agt_000001",
+			AgentConfigVersion: 2,
+			SessionID:          "sesn_000001",
+			TurnID:             "turn_000001",
+			ProviderID:         "volcengine-agent-plan",
+			ProviderType:       "openai",
+			Model:              "doubao-test",
+			InputTokens:        11,
+			OutputTokens:       7,
+			TotalTokens:        18,
+			Status:             "completed",
+		},
+	}
+	runner := NewWorkerRunner(store, executor, 1, nil)
+	defer runner.Close()
+
+	if err := runner.StartTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[]}`),
+	}); err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return store.usageCalls() == 1
+	})
+	if got := store.usageRecords[0]; got.ProviderID != "volcengine-agent-plan" || got.Model != "doubao-test" || got.TotalTokens != 18 || got.AgentConfigVersion != 2 {
+		t.Fatalf("unexpected usage record: %#v", got)
+	}
+}
+
 func TestWorkerRunnerFailsTurnWhenExecutorFails(t *testing.T) {
 	store := &mockStore{}
 	runner := NewWorkerRunner(store, staticExecutor{err: errors.New("executor boom")}, 1, nil)
@@ -113,6 +152,50 @@ func TestWorkerRunnerFailsTurnWhenExecutorFails(t *testing.T) {
 	})
 	if got := store.failReason(); got != "executor boom" {
 		t.Fatalf("expected failure reason %q, got %q", "executor boom", got)
+	}
+	if got := store.usageCalls(); got != 0 {
+		t.Fatalf("expected failed turn not to record usage, got %d", got)
+	}
+}
+
+func TestWorkerRunnerRecordsFailedLLMUsageWhenExecutorFailsAfterModelCall(t *testing.T) {
+	store := &mockStore{}
+	runner := NewWorkerRunner(store, staticExecutor{
+		usage: &managedagents.RecordLLMUsageInput{
+			WorkspaceID:        "wksp_default",
+			AgentID:            "agt_000001",
+			AgentConfigVersion: 2,
+			SessionID:          "sesn_000001",
+			TurnID:             "turn_000001",
+			ProviderID:         "volcengine-agent-plan",
+			ProviderType:       "openai",
+			Model:              "doubao-test",
+			InputTokens:        21,
+			OutputTokens:       9,
+			TotalTokens:        30,
+			Status:             "completed",
+		},
+		err: errors.New("post llm step failed"),
+	}, 1, nil)
+	defer runner.Close()
+
+	if err := runner.StartTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[]}`),
+	}); err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+
+	waitFor(t, func() bool {
+		return store.failCalls() == 1 && store.usageCalls() == 1
+	})
+	got := store.usageRecords[0]
+	if got.Status != "failed" || got.ErrorMessage != "post llm step failed" {
+		t.Fatalf("expected failed usage status and error, got %#v", got)
+	}
+	if got.ProviderID != "volcengine-agent-plan" || got.Model != "doubao-test" || got.TotalTokens != 30 {
+		t.Fatalf("unexpected failed usage record: %#v", got)
 	}
 }
 
@@ -154,6 +237,8 @@ type mockStore struct {
 	failed        int
 	reason        string
 	payload       json.RawMessage
+	summaries     map[string]managedagents.SessionSummary
+	usageRecords  []managedagents.RecordLLMUsageInput
 	runtimeEvents []string
 	history       []managedagents.ConversationMessage
 }
@@ -180,6 +265,12 @@ func (s *mockStore) failReason() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.reason
+}
+
+func (s *mockStore) usageCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.usageRecords)
 }
 
 func (s *mockStore) runtimeEventTypes() []string {
@@ -236,6 +327,21 @@ func (s *mockStore) SetLLMProviderEnabled(string, bool) (managedagents.LLMProvid
 	return managedagents.LLMProvider{}, nil
 }
 
+func (s *mockStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
+	if input.ContextWindowTokens <= 0 {
+		input.ContextWindowTokens = managedagents.DefaultContextWindowTokens
+	}
+	return managedagents.LLMModel{
+		ProviderID:          input.ProviderID,
+		Model:               input.Model,
+		ContextWindowTokens: input.ContextWindowTokens,
+	}, nil
+}
+
+func (s *mockStore) ListLLMModels(string) ([]managedagents.LLMModel, error) {
+	return nil, nil
+}
+
 func (s *mockStore) CreateEnvironment(managedagents.CreateEnvironmentInput) (managedagents.Environment, error) {
 	return managedagents.Environment{}, nil
 }
@@ -250,11 +356,51 @@ func (s *mockStore) GetSession(string) (managedagents.Session, error) {
 
 func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
 	return managedagents.AgentRuntimeConfig{
-		SessionID:       sessionID,
-		LLMProvider:     "fake",
-		LLMProviderType: "fake",
-		LLMModel:        "fake-demo",
+		SessionID:             sessionID,
+		WorkspaceID:           "wksp_default",
+		AgentID:               "agt_000001",
+		AgentConfigVersion:    1,
+		LLMProvider:           "fake",
+		LLMProviderType:       "fake",
+		LLMModel:              "fake-demo",
+		ContextWindowTokens:   managedagents.DefaultContextWindowTokens,
+		SummaryText:           "summary from mock store",
+		SummarySourceUntilSeq: 2,
 	}, nil
+}
+
+func (s *mockStore) GetSessionSummary(sessionID string) (managedagents.SessionSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.summaries == nil {
+		s.summaries = make(map[string]managedagents.SessionSummary)
+	}
+	summary, ok := s.summaries[sessionID]
+	if !ok {
+		return managedagents.SessionSummary{}, managedagents.ErrNotFound
+	}
+	return summary, nil
+}
+
+func (s *mockStore) SaveSessionSummary(sessionID string, input managedagents.UpsertSessionSummaryInput) (managedagents.SessionSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.summaries == nil {
+		s.summaries = make(map[string]managedagents.SessionSummary)
+	}
+	summary := managedagents.SessionSummary{
+		SessionID:      sessionID,
+		SummaryText:    input.SummaryText,
+		SourceUntilSeq: input.SourceUntilSeq,
+	}
+	s.summaries[sessionID] = summary
+	return summary, nil
+}
+
+func (s *mockStore) UpsertSessionSummary(string, managedagents.UpsertSessionSummaryInput) (managedagents.UpsertSessionSummaryResult, error) {
+	return managedagents.UpsertSessionSummaryResult{}, nil
 }
 
 func (s *mockStore) ArchiveSession(string) (managedagents.Session, error) {
@@ -325,6 +471,112 @@ func (s *mockStore) FailSessionTurn(sessionID string, turnID string, reason stri
 	}}, nil
 }
 
+func (s *mockStore) RecordLLMUsage(input managedagents.RecordLLMUsageInput) (managedagents.LLMUsageRecord, error) {
+	s.mu.Lock()
+	s.usageRecords = append(s.usageRecords, input)
+	s.mu.Unlock()
+
+	return managedagents.LLMUsageRecord{
+		ID:                 "llmu_000001",
+		WorkspaceID:        input.WorkspaceID,
+		AgentID:            input.AgentID,
+		AgentConfigVersion: input.AgentConfigVersion,
+		SessionID:          input.SessionID,
+		TurnID:             input.TurnID,
+		ProviderID:         input.ProviderID,
+		ProviderType:       input.ProviderType,
+		Model:              input.Model,
+		InputTokens:        input.InputTokens,
+		OutputTokens:       input.OutputTokens,
+		TotalTokens:        input.TotalTokens,
+		CachedInputTokens:  input.CachedInputTokens,
+		ReasoningTokens:    input.ReasoningTokens,
+		LatencyMillis:      input.LatencyMillis,
+		Status:             input.Status,
+		ErrorMessage:       input.ErrorMessage,
+	}, nil
+}
+
+func (s *mockStore) GetSessionLLMUsage(sessionID string) (managedagents.LLMUsageReport, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	report := managedagents.LLMUsageReport{
+		SessionID: sessionID,
+		Records:   []managedagents.LLMUsageRecord{},
+	}
+	for index, input := range s.usageRecords {
+		if input.SessionID != sessionID {
+			continue
+		}
+		record := managedagents.LLMUsageRecord{
+			ID:                 fmt.Sprintf("llmu_%06d", index+1),
+			WorkspaceID:        input.WorkspaceID,
+			AgentID:            input.AgentID,
+			AgentConfigVersion: input.AgentConfigVersion,
+			SessionID:          input.SessionID,
+			TurnID:             input.TurnID,
+			ProviderID:         input.ProviderID,
+			ProviderType:       input.ProviderType,
+			Model:              input.Model,
+			InputTokens:        input.InputTokens,
+			OutputTokens:       input.OutputTokens,
+			TotalTokens:        input.TotalTokens,
+			CachedInputTokens:  input.CachedInputTokens,
+			ReasoningTokens:    input.ReasoningTokens,
+			LatencyMillis:      input.LatencyMillis,
+			Status:             input.Status,
+			ErrorMessage:       input.ErrorMessage,
+		}
+		report.Records = append(report.Records, record)
+		report.Summary.RecordCount++
+		report.Summary.InputTokens += record.InputTokens
+		report.Summary.OutputTokens += record.OutputTokens
+		report.Summary.TotalTokens += record.TotalTokens
+		report.Summary.CachedInputTokens += record.CachedInputTokens
+		report.Summary.ReasoningTokens += record.ReasoningTokens
+		report.Summary.LatencyMillis += record.LatencyMillis
+	}
+	return report, nil
+}
+
+func (s *mockStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managedagents.LLMUsageAggregateReport, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	report := managedagents.LLMUsageAggregateReport{
+		GroupBy: managedagents.LLMUsageGroupByProviderModel,
+		Filters: input,
+		Groups:  []managedagents.LLMUsageAggregate{},
+	}
+	for _, usage := range s.usageRecords {
+		if input.ProviderID != "" && usage.ProviderID != input.ProviderID {
+			continue
+		}
+		if input.Model != "" && usage.Model != input.Model {
+			continue
+		}
+		record := managedagents.LLMUsageRecord{
+			ProviderID:        usage.ProviderID,
+			Model:             usage.Model,
+			InputTokens:       usage.InputTokens,
+			OutputTokens:      usage.OutputTokens,
+			TotalTokens:       usage.TotalTokens,
+			CachedInputTokens: usage.CachedInputTokens,
+			ReasoningTokens:   usage.ReasoningTokens,
+			LatencyMillis:     usage.LatencyMillis,
+		}
+		report.Summary.RecordCount++
+		report.Summary.InputTokens += record.InputTokens
+		report.Summary.OutputTokens += record.OutputTokens
+		report.Summary.TotalTokens += record.TotalTokens
+		report.Summary.CachedInputTokens += record.CachedInputTokens
+		report.Summary.ReasoningTokens += record.ReasoningTokens
+		report.Summary.LatencyMillis += record.LatencyMillis
+	}
+	return report, nil
+}
+
 func (s *mockStore) ListEvents(string, int64) ([]managedagents.Event, error) {
 	return nil, nil
 }
@@ -353,14 +605,15 @@ func waitFor(t *testing.T, condition func() bool) {
 
 type staticExecutor struct {
 	payload json.RawMessage
+	usage   *managedagents.RecordLLMUsageInput
 	err     error
 }
 
-func (e staticExecutor) RunTurn(context.Context, TurnRequest) (json.RawMessage, error) {
+func (e staticExecutor) RunTurn(context.Context, TurnRequest) (TurnResult, error) {
 	if e.err != nil {
-		return nil, e.err
+		return TurnResult{Usage: e.usage}, e.err
 	}
-	return e.payload, nil
+	return TurnResult{AgentPayload: e.payload, Usage: e.usage}, nil
 }
 
 type blockingExecutor struct {
@@ -376,9 +629,9 @@ func newBlockingExecutor() *blockingExecutor {
 	}
 }
 
-func (e *blockingExecutor) RunTurn(ctx context.Context, request TurnRequest) (json.RawMessage, error) {
+func (e *blockingExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
 	e.once.Do(func() { close(e.started) })
 	<-ctx.Done()
 	close(e.canceled)
-	return nil, ctx.Err()
+	return TurnResult{}, ctx.Err()
 }

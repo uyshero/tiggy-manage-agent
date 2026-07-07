@@ -21,7 +21,7 @@ esac
 		Command: command,
 		Timeout: 5 * time.Second,
 	}
-	payload, err := executor.RunTurn(t.Context(), TurnRequest{
+	result, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
 		TurnID:      "turn_000001",
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"hello"}]}`),
@@ -30,7 +30,7 @@ esac
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if got := payloadText(payload); got != "command: hello" {
+	if got := payloadText(result.AgentPayload); got != "command: hello" {
 		t.Fatalf("expected command payload, got %q", got)
 	}
 }

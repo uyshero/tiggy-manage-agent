@@ -44,3 +44,7 @@ func (fakeProvider) ReadFile(context.Context, ReadFileRequest) (FileResult, erro
 func (fakeProvider) WriteFile(context.Context, WriteFileRequest) (FileResult, error) {
 	return FileResult{}, nil
 }
+
+func (fakeProvider) EditFile(context.Context, EditFileRequest) (EditFileResult, error) {
+	return EditFileResult{}, nil
+}

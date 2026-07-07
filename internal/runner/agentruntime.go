@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tools"
 )
 
 // AgentRuntimeTurnExecutor 把 WorkerRunner 的 TurnExecutor 接口适配到 AgentRuntime。
@@ -19,9 +22,9 @@ type AgentRuntimeTurnExecutor struct {
 	Timeout time.Duration
 }
 
-func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (json.RawMessage, error) {
+func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
 	if e.Runtime == nil {
-		return nil, errors.New("agent runtime is required")
+		return TurnResult{}, errors.New("agent runtime is required")
 	}
 	if e.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -32,39 +35,67 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	config, err := e.resolveRuntimeConfig(request.SessionID)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, request, err)
-		return nil, err
+		return TurnResult{}, err
 	}
 	history, err := e.resolveConversationHistory(request.SessionID, request.UserEventSeq)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, request, err)
-		return nil, err
+		return TurnResult{}, err
 	}
 
-	payload, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
+	startedAt := time.Now()
+	toolRegistry := tools.DefaultRegistry()
+	result, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
 		SessionID:   request.SessionID,
 		TurnID:      request.TurnID,
 		UserPayload: request.UserPayload,
 		History:     history,
 		Config: agentruntime.Config{
-			LLMProvider:     config.LLMProvider,
-			LLMProviderType: config.LLMProviderType,
-			LLMModel:        config.LLMModel,
-			LLMBaseURL:      config.LLMBaseURL,
-			LLMAPIKey:       llmAPIKey(config.LLMAPIKeyEnv),
-			System:          config.System,
-			Tools:           config.Tools,
-			Skills:          config.Skills,
+			LLMProvider:           config.LLMProvider,
+			LLMProviderType:       config.LLMProviderType,
+			LLMModel:              config.LLMModel,
+			LLMBaseURL:            config.LLMBaseURL,
+			LLMAPIKey:             llmAPIKey(config.LLMAPIKeyEnv),
+			ContextWindowTokens:   config.ContextWindowTokens,
+			SummaryText:           config.SummaryText,
+			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
+			System:                config.System,
+			Tools:                 toolRegistry.ModelContext(),
+			ModelTools:            toolRegistry.ModelTools(),
+			Skills:                config.Skills,
+			ToolExecutor:          tools.RegistryExecutor{Registry: toolRegistry},
+			ToolExecutionContext: tools.ExecutionContext{
+				Provider: capability.LocalSystemProvider{},
+			},
 		},
 		EmitStep: e.emitStep(request),
 	})
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, request, err)
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return TurnResult{}, ctx.Err()
 		}
-		return nil, err
+		return TurnResult{
+			Usage: e.failedUsageRecord(request, config, result, time.Since(startedAt), err),
+		}, err
 	}
-	return append(json.RawMessage(nil), payload...), nil
+	if result.SummaryText != "" && e.Store != nil {
+		if _, saveErr := e.Store.SaveSessionSummary(request.SessionID, managedagents.UpsertSessionSummaryInput{
+			SummaryText:    result.SummaryText,
+			SourceUntilSeq: result.SummarySourceUntilSeq,
+		}); saveErr != nil {
+			slog.Default().Warn("runtime summary save failed",
+				"session_id", request.SessionID,
+				"turn_id", request.TurnID,
+				"source_until_seq", result.SummarySourceUntilSeq,
+				"error", saveErr,
+			)
+		}
+	}
+	return TurnResult{
+		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
+		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
+	}, nil
 }
 
 func (e AgentRuntimeTurnExecutor) resolveRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
@@ -126,4 +157,52 @@ func (e AgentRuntimeTurnExecutor) recordRuntimeFailed(ctx context.Context, reque
 		Type:    managedagents.EventRuntimeFailed,
 		Message: err.Error(),
 	})
+}
+
+func (e AgentRuntimeTurnExecutor) usageRecord(request TurnRequest, config managedagents.AgentRuntimeConfig, result agentruntime.TurnResult, latency time.Duration) *managedagents.RecordLLMUsageInput {
+	providerID := defaultString(result.Provider, config.LLMProvider)
+	model := defaultString(result.Model, config.LLMModel)
+	if providerID == "" || model == "" {
+		return nil
+	}
+	if config.WorkspaceID == "" || config.AgentID == "" || config.AgentConfigVersion <= 0 {
+		return nil
+	}
+
+	return &managedagents.RecordLLMUsageInput{
+		WorkspaceID:        config.WorkspaceID,
+		AgentID:            config.AgentID,
+		AgentConfigVersion: config.AgentConfigVersion,
+		SessionID:          request.SessionID,
+		TurnID:             request.TurnID,
+		ProviderID:         providerID,
+		ProviderType:       defaultString(result.ProviderType, config.LLMProviderType),
+		Model:              model,
+		InputTokens:        result.Usage.InputTokens,
+		OutputTokens:       result.Usage.OutputTokens,
+		TotalTokens:        result.Usage.TotalTokens,
+		CachedInputTokens:  result.Usage.CachedInputTokens,
+		ReasoningTokens:    result.Usage.ReasoningTokens,
+		LatencyMillis:      latency.Milliseconds(),
+		Status:             "completed",
+	}
+}
+
+func (e AgentRuntimeTurnExecutor) failedUsageRecord(request TurnRequest, config managedagents.AgentRuntimeConfig, result agentruntime.TurnResult, latency time.Duration, err error) *managedagents.RecordLLMUsageInput {
+	usage := e.usageRecord(request, config, result, latency)
+	if usage == nil {
+		return nil
+	}
+	usage.Status = "failed"
+	if err != nil {
+		usage.ErrorMessage = err.Error()
+	}
+	return usage
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }

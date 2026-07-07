@@ -11,19 +11,21 @@ import (
 )
 
 const (
-	DefaultHTTPAddr      = ":8080"
-	DefaultTurnQueueSize = 16
-	DefaultTurnTimeoutMS = 3600000
-	DefaultLLMProvider   = "fake"
-	DefaultLLMModel      = "fake-demo"
-	DefaultLLMBaseURL    = "https://api.openai.com/v1"
-	DefaultLLMAPIKeyEnv  = "TMA_LLM_API_KEY"
+	DefaultHTTPAddr            = ":8080"
+	DefaultTurnQueueSize       = 16
+	DefaultTurnTimeoutMS       = 3600000
+	DefaultLLMProvider         = "fake"
+	DefaultLLMModel            = "fake-demo"
+	DefaultLLMBaseURL          = "https://api.openai.com/v1"
+	DefaultLLMAPIKeyEnv        = "TMA_LLM_API_KEY"
+	DefaultContextWindowTokens = 128000
 )
 
 type Config struct {
 	HTTPAddr    string
 	DatabaseURL string
 	Turn        TurnConfig
+	Context     ContextConfig
 	LLM         LLMConfig
 }
 
@@ -31,6 +33,10 @@ type TurnConfig struct {
 	QueueSize     int
 	Timeout       time.Duration
 	TimeoutMillis int
+}
+
+type ContextConfig struct {
+	DefaultWindowTokens int
 }
 
 type LLMConfig struct {
@@ -56,6 +62,9 @@ func FromEnv() (Config, error) {
 		Turn: TurnConfig{
 			QueueSize:     envIntOrDefault("TMA_TURN_QUEUE_SIZE", DefaultTurnQueueSize),
 			TimeoutMillis: envIntOrDefault("TMA_TURN_TIMEOUT_MS", DefaultTurnTimeoutMS),
+		},
+		Context: ContextConfig{
+			DefaultWindowTokens: envIntOrDefault("TMA_DEFAULT_CONTEXT_WINDOW_TOKENS", DefaultContextWindowTokens),
 		},
 		LLM: LLMConfig{
 			Provider:     envOrDefault("TMA_LLM_PROVIDER", DefaultLLMProvider),

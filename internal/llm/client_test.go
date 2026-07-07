@@ -232,7 +232,7 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(bytes.NewBufferString(`{"choices":[{"message":{"role":"assistant","content":"real-ish response"}}]}`)),
+			Body:       io.NopCloser(bytes.NewBufferString(`{"choices":[{"message":{"role":"assistant","content":"real-ish response"}}],"usage":{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":2}}}`)),
 		}, nil
 	})}
 
@@ -280,11 +280,90 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 	if response.Message.Role != "assistant" || response.Message.Content[0].Text != "real-ish response" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
+	if response.Usage.InputTokens != 12 || response.Usage.OutputTokens != 7 || response.Usage.TotalTokens != 19 || response.Usage.CachedInputTokens != 3 || response.Usage.ReasoningTokens != 2 {
+		t.Fatalf("unexpected usage: %#v", response.Usage)
+	}
+}
+
+func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
+	var captured struct {
+		Tools []Tool `json:"tools"`
+	}
+
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     make(http.Header),
+			Body: io.NopCloser(bytes.NewBufferString(`{
+				"choices":[{
+					"message":{
+						"role":"assistant",
+						"content":null,
+						"tool_calls":[{
+							"id":"call_1",
+							"type":"function",
+							"function":{
+								"name":"tma.local_system.run_command",
+								"arguments":"{\"command\":\"sh\",\"args\":[\"-c\",\"pwd\"]}"
+							}
+						}]
+					}
+				}]
+			}`)),
+		}, nil
+	})}
+
+	client := OpenAICompatibleClient{
+		BaseURL: "http://llm.example/v1",
+		APIKey:  "test-key",
+		Client:  httpClient,
+	}
+
+	response, err := client.Generate(t.Context(), Request{
+		Model:    "test-model",
+		Messages: []Message{{Role: "user", Content: []ContentPart{{Type: "text", Text: "inspect"}}}},
+		Tools: []Tool{{
+			Type: "function",
+			Function: ToolFunction{
+				Name:        "tma.local_system.run_command",
+				Description: "Run a command.",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "tma.local_system.run_command" {
+		t.Fatalf("unexpected captured tools: %#v", captured.Tools)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_1" || call.Function.Name != "tma.local_system.run_command" {
+		t.Fatalf("unexpected tool call: %#v", call)
+	}
+	var args map[string]any
+	if err := json.Unmarshal(call.Function.Arguments, &args); err != nil {
+		t.Fatalf("decode tool call arguments: %v", err)
+	}
+	if args["command"] != "sh" {
+		t.Fatalf("unexpected arguments: %#v", args)
+	}
 }
 
 func TestOpenAICompatibleClientStreamsAssistantMessage(t *testing.T) {
 	var captured struct {
-		Stream bool `json:"stream"`
+		Stream        bool `json:"stream"`
+		StreamOptions struct {
+			IncludeUsage bool `json:"include_usage"`
+		} `json:"stream_options"`
 	}
 	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
@@ -294,6 +373,7 @@ func TestOpenAICompatibleClientStreamsAssistantMessage(t *testing.T) {
 			`data: {"choices":[{"delta":{"role":"assistant"}}]}`,
 			`data: {"choices":[{"delta":{"content":"hello"}}]}`,
 			`data: {"choices":[{"delta":{"content":" world"}}]}`,
+			`data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":4,"total_tokens":9}}`,
 			`data: [DONE]`,
 			``,
 		}, "\n")
@@ -332,11 +412,17 @@ func TestOpenAICompatibleClientStreamsAssistantMessage(t *testing.T) {
 	if !captured.Stream {
 		t.Fatal("expected stream=true request")
 	}
+	if !captured.StreamOptions.IncludeUsage {
+		t.Fatal("expected stream_options.include_usage=true request")
+	}
 	if len(deltas) != 2 || deltas[0].Text != "hello" || deltas[1].Text != " world" {
 		t.Fatalf("unexpected deltas: %#v", deltas)
 	}
 	if response.Message.Role != "assistant" || response.Message.Content[0].Text != "hello world" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+	if response.Usage.InputTokens != 5 || response.Usage.OutputTokens != 4 || response.Usage.TotalTokens != 9 {
+		t.Fatalf("unexpected usage: %#v", response.Usage)
 	}
 }
 

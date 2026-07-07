@@ -8,7 +8,7 @@ import (
 func TestEchoExecutorUsesFirstTextContent(t *testing.T) {
 	executor := EchoExecutor{}
 
-	payload, err := executor.RunTurn(t.Context(), TurnRequest{
+	result, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
 		TurnID:      "turn_000001",
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"hello worker"}]}`),
@@ -17,7 +17,7 @@ func TestEchoExecutorUsesFirstTextContent(t *testing.T) {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if got := payloadText(payload); got != "Echo Agent received: hello worker" {
+	if got := payloadText(result.AgentPayload); got != "Echo Agent received: hello worker" {
 		t.Fatalf("expected echo payload, got %q", got)
 	}
 }
@@ -25,7 +25,7 @@ func TestEchoExecutorUsesFirstTextContent(t *testing.T) {
 func TestEchoExecutorHandlesEmptyText(t *testing.T) {
 	executor := EchoExecutor{}
 
-	payload, err := executor.RunTurn(t.Context(), TurnRequest{
+	result, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
 		TurnID:      "turn_000001",
 		UserPayload: json.RawMessage(`{"content":[]}`),
@@ -34,7 +34,7 @@ func TestEchoExecutorHandlesEmptyText(t *testing.T) {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if got := payloadText(payload); got != "Echo Agent received your message." {
+	if got := payloadText(result.AgentPayload); got != "Echo Agent received your message." {
 		t.Fatalf("expected fallback payload, got %q", got)
 	}
 }

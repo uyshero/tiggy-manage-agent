@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS llm_providers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS llm_models (
+  provider_id TEXT NOT NULL REFERENCES llm_providers(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  context_window_tokens INTEGER NOT NULL DEFAULT 128000,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_id, model)
+);
+
 CREATE TABLE IF NOT EXISTS agent_config_versions (
   agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   version INTEGER NOT NULL,
@@ -75,6 +84,7 @@ CREATE TABLE IF NOT EXISTS sessions (
       'idle',
       'running',
       'interrupting',
+      'compacting',
       'failed',
       'terminated'
     )
@@ -89,6 +99,14 @@ CREATE TABLE IF NOT EXISTS session_events (
   payload_json JSONB NOT NULL DEFAULT 'null'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (session_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS session_summaries (
+  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+  summary_text TEXT NOT NULL DEFAULT '',
+  source_until_seq BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS llm_usage_records (
@@ -150,3 +168,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO llm_providers (id, provider_type, base_url, api_key_env, enabled)
 VALUES ('fake', 'fake', '', '', TRUE)
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO llm_models (provider_id, model, context_window_tokens)
+VALUES ('fake', 'fake-demo', 128000)
+ON CONFLICT (provider_id, model) DO NOTHING;

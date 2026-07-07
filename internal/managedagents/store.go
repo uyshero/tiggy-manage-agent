@@ -3,6 +3,7 @@ package managedagents
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 var (
@@ -16,6 +17,19 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func normalizeLLMUsageGroupBy(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", LLMUsageGroupByProviderModel, "provider-model":
+		return LLMUsageGroupByProviderModel
+	case LLMUsageGroupByProvider:
+		return LLMUsageGroupByProvider
+	case LLMUsageGroupByModel:
+		return LLMUsageGroupByModel
+	default:
+		return ""
+	}
 }
 
 func agentLLMProvider(input CreateAgentInput) string {

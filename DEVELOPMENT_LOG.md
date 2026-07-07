@@ -860,6 +860,106 @@ history_events
 - runner start failure 写出的 failed 事件
 - SSE stream opened / closed
 
+## 2026-07-07 LLM Usage 审计基础链路
+
+背景：
+
+- 后续需要按 Provider / Model / Agent / Session / Turn 审计每次模型调用的 token 消耗。
+- usage 不能只写日志，必须进入数据库，方便后续做账单、限额和问题追踪。
+
+本次收口：
+
+- `llm.Response` 增加 `Usage`，内部统一结构为 `input/output/total/cached/reasoning tokens`。
+- `agentruntime.Runtime` 返回 `TurnResult`，同时带回 `agent.message` payload 和模型 usage。
+- `AgentRuntimeTurnExecutor` 负责把 Runtime usage 补齐为可落库记录：
+  - workspace
+  - agent
+  - agent_config_version
+  - session
+  - turn
+  - provider
+  - provider_type
+  - model
+  - latency
+- `WorkerRunner` 只在 turn 成功完成后调用 `Store.RecordLLMUsage`。
+- `openai-compatible` 已解析非流式 `usage`，流式请求会带 `stream_options.include_usage=true`，并解析最终 chunk usage。
+- 新增 Session usage 查询：
+  - HTTP: `GET /v1/sessions/{session_id}/usage`
+  - CLI: `bin/tma usage list --session ...`
+  - 返回 `summary` 总量和 `records` 每轮明细。
+- 新增跨 Session usage 聚合：
+  - HTTP: `GET /v1/llm-usage`
+  - CLI: `bin/tma usage summary`
+  - 支持按 `provider`、`model`、`provider_model` 分组。
+  - 支持 `workspace_id`、`provider_id`、`model`、`status`、`from`、`to` 过滤。
+- 新增 failed usage 基础语义：
+  - 如果执行器失败且没有 usage，不写 usage。
+  - 如果模型调用已经发生，执行器随错误返回 usage，`WorkerRunner` 写入 `status=failed` 和 `error_message`。
+  - `AgentRuntimeTurnExecutor` 会把 Runtime 返回的部分 usage 补齐为 failed usage 记录。
+
+重要边界：
+
+- Runtime 不直接写数据库。
+- Command / Echo executor 不是 LLM 调用，不生成 usage。
+- 失败 turn 不写 completed usage；只有能证明模型调用已经发生时，才写 `status=failed` usage。
+
+已验证：
+
+```bash
+GOCACHE=/private/tmp/tma-gocache go test ./...
+```
+
+后续建议：
+
+- 基于 usage 聚合继续做成本看板和预算/限额策略。
+
+---
+
+## 2026-07-07 Context Builder 抽离
+
+背景：
+
+- `DemoRuntime` 里原本直接组装 `system + history + current user`。
+- 后续 token budget、历史截断、summary、多模态上下文都会改这段逻辑，如果继续放在 Runtime 主流程里会越来越重。
+
+本次收口：
+
+- 新增 `agentruntime.ContextBuilder` 接口。
+- 新增 `DefaultContextBuilder` 基础实现。
+- `DemoRuntime` 改为依赖 `ContextBuilder.Build(...)` 产出 `llm.Messages`。
+- 新增 `llm_models` 表，按 `provider_id + model` 保存 `context_window_tokens`。
+- 默认模型总窗口为 `128000`，可通过模型配置覆盖。
+- `DefaultContextBuilder` 新增 `MaxInputTokens`，运行时按 `context_window_tokens * 60%` 计算输入预算。
+- 服务配置新增 `TMA_DEFAULT_CONTEXT_WINDOW_TOKENS`，作为未知模型或默认模型的总窗口兜底值。
+- 新增 `session_summaries` 表，保存当前 Session summary、覆盖到的 event seq 和更新时间。
+- 新增手动 summary 写入入口：
+  - HTTP: `PUT /v1/sessions/{session_id}/summary`
+  - CLI: `bin/tma session summary upsert --session ... --text ... --until ...`
+- 写入 summary 时要求 Session 为 `idle`，并写出 `session.status_compacting -> session.status_idle` 事件。
+- `runtime.llm_request` step 里补充 `history_count`、`omitted_history_count`、`estimated_token_count`、`context_truncated`、`summary_included`，方便观察上下文构造结果。
+
+当前基础规则：
+
+- system 非空时放第一条。
+- summary 非空时放在 system 后面。
+- 历史只接收 `user` / `assistant`。
+- 历史空文本跳过。
+- 当前 user message 总是追加到最后。
+- system、summary 和当前 user message 保底保留；history 从最近到最旧尝试纳入 60% 预算。
+- token 计数当前是近似估算，不是厂商 tokenizer 精确结果。
+
+已验证：
+
+```bash
+GOCACHE=/private/tmp/tma-gocache go test ./...
+```
+
+后续建议：
+
+- 接入真实 tokenizer 或 provider/model 对应 tokenizer。
+- 增加自动 summary 生成和更新策略。
+- 增加 just-in-time compaction：下一轮构建上下文时发现超预算，先压缩再继续原 turn。
+
 ---
 
 ## 下一步建议
@@ -896,6 +996,8 @@ make db-down
 
 ```bash
 bin/tma health
+bin/tma usage list --session sesn_000001
+bin/tma usage summary --group-by provider_model
 bin/tma event list --session sesn_000001 --after 0
 bin/tma event stream --session sesn_000001 --after 0
 ```

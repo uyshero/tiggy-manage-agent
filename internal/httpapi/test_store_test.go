@@ -21,9 +21,12 @@ type testStore struct {
 	agents              map[string]managedagents.Agent
 	agentConfigVersions map[string][]managedagents.AgentConfigVersion
 	providers           map[string]managedagents.LLMProvider
+	models              map[string]managedagents.LLMModel
 	environments        map[string]managedagents.Environment
 	sessions            map[string]managedagents.Session
+	summaries           map[string]managedagents.SessionSummary
 	events              map[string][]managedagents.Event
+	usageRecords        []managedagents.RecordLLMUsageInput
 	subscribers         map[string]map[chan managedagents.Event]struct{}
 }
 
@@ -32,8 +35,10 @@ func newTestStore() *testStore {
 		agents:              make(map[string]managedagents.Agent),
 		agentConfigVersions: make(map[string][]managedagents.AgentConfigVersion),
 		providers:           make(map[string]managedagents.LLMProvider),
+		models:              make(map[string]managedagents.LLMModel),
 		environments:        make(map[string]managedagents.Environment),
 		sessions:            make(map[string]managedagents.Session),
+		summaries:           make(map[string]managedagents.SessionSummary),
 		events:              make(map[string][]managedagents.Event),
 		subscribers:         make(map[string]map[chan managedagents.Event]struct{}),
 	}
@@ -42,6 +47,13 @@ func newTestStore() *testStore {
 		ProviderType: "fake",
 		Enabled:      true,
 		CreatedAt:    time.Now().UTC(),
+	}
+	store.models[llmModelKey("fake", "fake-demo")] = managedagents.LLMModel{
+		ProviderID:          "fake",
+		Model:               "fake-demo",
+		ContextWindowTokens: managedagents.DefaultContextWindowTokens,
+		CreatedAt:           time.Now().UTC(),
+		UpdatedAt:           time.Now().UTC(),
 	}
 	return store
 }
@@ -115,6 +127,55 @@ func (s *testStore) SetLLMProviderEnabled(id string, enabled bool) (managedagent
 	provider.Enabled = enabled
 	s.providers[id] = provider
 	return provider, nil
+}
+
+func (s *testStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
+	if input.ProviderID == "" || input.Model == "" {
+		return managedagents.LLMModel{}, managedagents.ErrInvalid
+	}
+	if input.ContextWindowTokens <= 0 {
+		input.ContextWindowTokens = managedagents.DefaultContextWindowTokens
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.providers[input.ProviderID]; !ok {
+		return managedagents.LLMModel{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	model := managedagents.LLMModel{
+		ProviderID:          input.ProviderID,
+		Model:               input.Model,
+		ContextWindowTokens: input.ContextWindowTokens,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+	s.models[llmModelKey(input.ProviderID, input.Model)] = model
+	return model, nil
+}
+
+func (s *testStore) ListLLMModels(providerID string) ([]managedagents.LLMModel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	models := make([]managedagents.LLMModel, 0, len(s.models))
+	for _, model := range s.models {
+		if providerID != "" && model.ProviderID != providerID {
+			continue
+		}
+		models = append(models, model)
+	}
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].ProviderID == models[j].ProviderID {
+			return models[i].Model < models[j].Model
+		}
+		return models[i].ProviderID < models[j].ProviderID
+	})
+	return models, nil
+}
+
+func llmModelKey(providerID string, model string) string {
+	return providerID + "\x00" + model
 }
 
 func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedagents.Agent, error) {
@@ -330,19 +391,86 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		return managedagents.AgentRuntimeConfig{}, managedagents.ErrNotFound
 	}
 	provider := s.providers[configVersion.LLMProvider]
+	contextWindowTokens := managedagents.DefaultContextWindowTokens
+	if model, ok := s.models[llmModelKey(configVersion.LLMProvider, configVersion.LLMModel)]; ok {
+		contextWindowTokens = model.ContextWindowTokens
+	}
+	summary := s.summaries[sessionID]
 
 	return managedagents.AgentRuntimeConfig{
-		SessionID:          sessionID,
-		AgentID:            agent.ID,
-		AgentConfigVersion: session.AgentConfigVersion,
-		LLMProvider:        configVersion.LLMProvider,
-		LLMProviderType:    defaultString(provider.ProviderType, "fake"),
-		LLMModel:           configVersion.LLMModel,
-		LLMBaseURL:         provider.BaseURL,
-		LLMAPIKeyEnv:       provider.APIKeyEnv,
-		System:             configVersion.System,
-		Tools:              cloneRaw(configVersion.Tools),
-		Skills:             cloneRaw(configVersion.Skills),
+		SessionID:             sessionID,
+		WorkspaceID:           session.WorkspaceID,
+		AgentID:               agent.ID,
+		AgentConfigVersion:    session.AgentConfigVersion,
+		LLMProvider:           configVersion.LLMProvider,
+		LLMProviderType:       defaultString(provider.ProviderType, "fake"),
+		LLMModel:              configVersion.LLMModel,
+		LLMBaseURL:            provider.BaseURL,
+		LLMAPIKeyEnv:          provider.APIKeyEnv,
+		ContextWindowTokens:   contextWindowTokens,
+		SummaryText:           summary.SummaryText,
+		SummarySourceUntilSeq: summary.SourceUntilSeq,
+		System:                configVersion.System,
+		Tools:                 cloneRaw(configVersion.Tools),
+		Skills:                cloneRaw(configVersion.Skills),
+	}, nil
+}
+
+func (s *testStore) GetSessionSummary(sessionID string) (managedagents.SessionSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	summary, ok := s.summaries[sessionID]
+	if !ok {
+		return managedagents.SessionSummary{}, managedagents.ErrNotFound
+	}
+	return summary, nil
+}
+
+func (s *testStore) SaveSessionSummary(sessionID string, input managedagents.UpsertSessionSummaryInput) (managedagents.SessionSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.SessionSummary{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	summary := managedagents.SessionSummary{
+		SessionID:      sessionID,
+		SummaryText:    input.SummaryText,
+		SourceUntilSeq: input.SourceUntilSeq,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.summaries[sessionID] = summary
+	return summary, nil
+}
+
+func (s *testStore) UpsertSessionSummary(sessionID string, input managedagents.UpsertSessionSummaryInput) (managedagents.UpsertSessionSummaryResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return managedagents.UpsertSessionSummaryResult{}, managedagents.ErrNotFound
+	}
+	if session.Status != managedagents.SessionStatusIdle {
+		return managedagents.UpsertSessionSummaryResult{}, managedagents.ErrInvalid
+	}
+	now := time.Now().UTC()
+	summary := managedagents.SessionSummary{
+		SessionID:      sessionID,
+		SummaryText:    input.SummaryText,
+		SourceUntilSeq: input.SourceUntilSeq,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	s.summaries[sessionID] = summary
+	compacting := s.appendEventLocked(sessionID, managedagents.EventSessionStatusCompacting, json.RawMessage(`{"status":"compacting"}`), now)
+	idle := s.appendEventLocked(sessionID, managedagents.EventSessionStatusIdle, json.RawMessage(`{"status":"idle"}`), now)
+	return managedagents.UpsertSessionSummaryResult{
+		Summary: summary,
+		Events:  []managedagents.Event{compacting, idle},
 	}, nil
 }
 
@@ -353,6 +481,195 @@ func (s *testStore) agentConfigVersionLocked(agentID string, version int) (manag
 		}
 	}
 	return managedagents.AgentConfigVersion{}, false
+}
+
+func (s *testStore) RecordLLMUsage(input managedagents.RecordLLMUsageInput) (managedagents.LLMUsageRecord, error) {
+	s.mu.Lock()
+	s.usageRecords = append(s.usageRecords, input)
+	id := fmt.Sprintf("llmu_%06d", len(s.usageRecords))
+	s.mu.Unlock()
+
+	return managedagents.LLMUsageRecord{
+		ID:                 id,
+		WorkspaceID:        input.WorkspaceID,
+		AgentID:            input.AgentID,
+		AgentConfigVersion: input.AgentConfigVersion,
+		SessionID:          input.SessionID,
+		TurnID:             input.TurnID,
+		ProviderID:         input.ProviderID,
+		ProviderType:       input.ProviderType,
+		Model:              input.Model,
+		InputTokens:        input.InputTokens,
+		OutputTokens:       input.OutputTokens,
+		TotalTokens:        input.TotalTokens,
+		CachedInputTokens:  input.CachedInputTokens,
+		ReasoningTokens:    input.ReasoningTokens,
+		LatencyMillis:      input.LatencyMillis,
+		Status:             input.Status,
+		ErrorMessage:       input.ErrorMessage,
+	}, nil
+}
+
+func (s *testStore) GetSessionLLMUsage(sessionID string) (managedagents.LLMUsageReport, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.LLMUsageReport{}, managedagents.ErrNotFound
+	}
+
+	report := managedagents.LLMUsageReport{
+		SessionID: sessionID,
+		Records:   []managedagents.LLMUsageRecord{},
+	}
+	for index, input := range s.usageRecords {
+		if input.SessionID != sessionID {
+			continue
+		}
+		record := managedagents.LLMUsageRecord{
+			ID:                 fmt.Sprintf("llmu_%06d", index+1),
+			WorkspaceID:        input.WorkspaceID,
+			AgentID:            input.AgentID,
+			AgentConfigVersion: input.AgentConfigVersion,
+			SessionID:          input.SessionID,
+			TurnID:             input.TurnID,
+			ProviderID:         input.ProviderID,
+			ProviderType:       input.ProviderType,
+			Model:              input.Model,
+			InputTokens:        input.InputTokens,
+			OutputTokens:       input.OutputTokens,
+			TotalTokens:        input.TotalTokens,
+			CachedInputTokens:  input.CachedInputTokens,
+			ReasoningTokens:    input.ReasoningTokens,
+			LatencyMillis:      input.LatencyMillis,
+			Status:             input.Status,
+			ErrorMessage:       input.ErrorMessage,
+		}
+		report.Records = append(report.Records, record)
+		report.Summary.RecordCount++
+		report.Summary.InputTokens += record.InputTokens
+		report.Summary.OutputTokens += record.OutputTokens
+		report.Summary.TotalTokens += record.TotalTokens
+		report.Summary.CachedInputTokens += record.CachedInputTokens
+		report.Summary.ReasoningTokens += record.ReasoningTokens
+		report.Summary.LatencyMillis += record.LatencyMillis
+	}
+	return report, nil
+}
+
+func (s *testStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managedagents.LLMUsageAggregateReport, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	groupBy := testUsageGroupBy(input.GroupBy)
+	if groupBy == "" {
+		return managedagents.LLMUsageAggregateReport{}, managedagents.ErrInvalid
+	}
+	input.GroupBy = groupBy
+
+	report := managedagents.LLMUsageAggregateReport{
+		GroupBy: groupBy,
+		Filters: input,
+		Groups:  []managedagents.LLMUsageAggregate{},
+	}
+	indexByKey := map[string]int{}
+	for _, record := range usageRecordsFromInputs(s.usageRecords) {
+		if !matchesUsageInput(record, input) {
+			continue
+		}
+		providerID := ""
+		model := ""
+		if groupBy == managedagents.LLMUsageGroupByProvider || groupBy == managedagents.LLMUsageGroupByProviderModel {
+			providerID = record.ProviderID
+		}
+		if groupBy == managedagents.LLMUsageGroupByModel || groupBy == managedagents.LLMUsageGroupByProviderModel {
+			model = record.Model
+		}
+		key := providerID + "\x00" + model
+		groupIndex, ok := indexByKey[key]
+		if !ok {
+			groupIndex = len(report.Groups)
+			indexByKey[key] = groupIndex
+			report.Groups = append(report.Groups, managedagents.LLMUsageAggregate{
+				ProviderID: providerID,
+				Model:      model,
+			})
+		}
+		addUsageSummary(&report.Groups[groupIndex].Summary, record)
+		addUsageSummary(&report.Summary, record)
+	}
+	return report, nil
+}
+
+func usageRecordsFromInputs(inputs []managedagents.RecordLLMUsageInput) []managedagents.LLMUsageRecord {
+	records := make([]managedagents.LLMUsageRecord, 0, len(inputs))
+	for index, input := range inputs {
+		records = append(records, managedagents.LLMUsageRecord{
+			ID:                 fmt.Sprintf("llmu_%06d", index+1),
+			WorkspaceID:        input.WorkspaceID,
+			AgentID:            input.AgentID,
+			AgentConfigVersion: input.AgentConfigVersion,
+			SessionID:          input.SessionID,
+			TurnID:             input.TurnID,
+			ProviderID:         input.ProviderID,
+			ProviderType:       input.ProviderType,
+			Model:              input.Model,
+			InputTokens:        input.InputTokens,
+			OutputTokens:       input.OutputTokens,
+			TotalTokens:        input.TotalTokens,
+			CachedInputTokens:  input.CachedInputTokens,
+			ReasoningTokens:    input.ReasoningTokens,
+			LatencyMillis:      input.LatencyMillis,
+			Status:             input.Status,
+			ErrorMessage:       input.ErrorMessage,
+		})
+	}
+	return records
+}
+
+func matchesUsageInput(record managedagents.LLMUsageRecord, input managedagents.ListLLMUsageInput) bool {
+	if input.WorkspaceID != "" && record.WorkspaceID != input.WorkspaceID {
+		return false
+	}
+	if input.ProviderID != "" && record.ProviderID != input.ProviderID {
+		return false
+	}
+	if input.Model != "" && record.Model != input.Model {
+		return false
+	}
+	if input.Status != "" && record.Status != input.Status {
+		return false
+	}
+	if input.From != nil && record.CreatedAt.Before(*input.From) {
+		return false
+	}
+	if input.To != nil && !record.CreatedAt.Before(*input.To) {
+		return false
+	}
+	return true
+}
+
+func addUsageSummary(summary *managedagents.LLMUsageSummary, record managedagents.LLMUsageRecord) {
+	summary.RecordCount++
+	summary.InputTokens += record.InputTokens
+	summary.OutputTokens += record.OutputTokens
+	summary.TotalTokens += record.TotalTokens
+	summary.CachedInputTokens += record.CachedInputTokens
+	summary.ReasoningTokens += record.ReasoningTokens
+	summary.LatencyMillis += record.LatencyMillis
+}
+
+func testUsageGroupBy(value string) string {
+	switch value {
+	case "", managedagents.LLMUsageGroupByProviderModel, "provider-model":
+		return managedagents.LLMUsageGroupByProviderModel
+	case managedagents.LLMUsageGroupByProvider:
+		return managedagents.LLMUsageGroupByProvider
+	case managedagents.LLMUsageGroupByModel:
+		return managedagents.LLMUsageGroupByModel
+	default:
+		return ""
+	}
 }
 
 func (s *testStore) ArchiveSession(id string) (managedagents.Session, error) {

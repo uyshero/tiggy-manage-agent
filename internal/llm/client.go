@@ -26,8 +26,10 @@ type ContentPart struct {
 }
 
 type Message struct {
-	Role    string        `json:"role"`
-	Content []ContentPart `json:"content"`
+	Role       string        `json:"role"`
+	Content    []ContentPart `json:"content"`
+	ToolCalls  []ToolCall    `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 type Request struct {
@@ -37,6 +39,7 @@ type Request struct {
 	BaseURL      string    `json:"-"`
 	APIKey       string    `json:"-"`
 	Messages     []Message `json:"messages"`
+	Tools        []Tool    `json:"tools,omitempty"`
 }
 
 type Response struct {
@@ -55,6 +58,28 @@ type Usage struct {
 	TotalTokens       int64 `json:"total_tokens,omitempty"`
 	CachedInputTokens int64 `json:"cached_input_tokens,omitempty"`
 	ReasoningTokens   int64 `json:"reasoning_tokens,omitempty"`
+}
+
+type Tool struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+type ToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Function ToolCallFunction `json:"function"`
+}
+
+type ToolCallFunction struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 // Client 是 AgentRuntime 调用模型的最小边界。
@@ -354,9 +379,11 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 	}
 
 	body, err := json.Marshal(openAIChatRequest{
-		Model:    model,
-		Messages: openAIMessages(request.Messages),
-		Stream:   stream,
+		Model:         model,
+		Messages:      openAIMessages(request.Messages),
+		Tools:         openAITools(request.Tools),
+		Stream:        stream,
+		StreamOptions: openAIStreamOptionsForRequest(stream),
 	})
 	if err != nil {
 		return Response{}, fmt.Errorf("encode openai-compatible request: %w", err)
@@ -405,36 +432,82 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 
 	return Response{
 		Message: Message{
-			Role: defaultString(decoded.Choices[0].Message.Role, "assistant"),
+			Role:      defaultString(decoded.Choices[0].Message.Role, "assistant"),
+			ToolCalls: toolCallsFromOpenAI(decoded.Choices[0].Message.ToolCalls),
 			Content: []ContentPart{{
 				Type: "text",
-				Text: decoded.Choices[0].Message.Content,
+				Text: openAIContentText(decoded.Choices[0].Message.Content),
 			}},
 		},
+		Usage: openAIUsage(decoded.Usage),
 	}, nil
 }
 
 type openAIChatRequest struct {
-	Model    string          `json:"model"`
-	Messages []openAIMessage `json:"messages"`
-	Stream   bool            `json:"stream,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []openAIMessage      `json:"messages"`
+	Tools         []openAITool         `json:"tools,omitempty"`
+	Stream        bool                 `json:"stream,omitempty"`
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string           `json:"role"`
+	Content    *string          `json:"content,omitempty"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
+}
+
+type openAITool struct {
+	Type     string             `json:"type"`
+	Function openAIToolFunction `json:"function"`
+}
+
+type openAIToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+type openAIToolCall struct {
+	ID       string                 `json:"id,omitempty"`
+	Type     string                 `json:"type,omitempty"`
+	Function openAIToolCallFunction `json:"function"`
+}
+
+type openAIToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments,omitempty"`
 }
 
 type openAIChatResponse struct {
 	Choices []struct {
 		Message openAIMessage `json:"message"`
 	} `json:"choices"`
+	Usage openAIUsageResponse `json:"usage"`
 }
 
 type openAIStreamResponse struct {
 	Choices []struct {
 		Delta openAIMessage `json:"delta"`
 	} `json:"choices"`
+	Usage openAIUsageResponse `json:"usage"`
+}
+
+type openAIUsageResponse struct {
+	PromptTokens        int64 `json:"prompt_tokens"`
+	CompletionTokens    int64 `json:"completion_tokens"`
+	TotalTokens         int64 `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int64 `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CompletionTokensDetails struct {
+		ReasoningTokens int64 `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
 }
 
 func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, error) {
@@ -444,6 +517,7 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 	var builder strings.Builder
 	index := 0
 	role := "assistant"
+	var usage Usage
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") {
@@ -462,11 +536,14 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			return Response{}, fmt.Errorf("decode openai-compatible stream chunk: %w", err)
 		}
+		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			usage = openAIUsage(chunk.Usage)
+		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Role != "" {
 				role = choice.Delta.Role
 			}
-			text := choice.Delta.Content
+			text := openAIContentText(choice.Delta.Content)
 			if text == "" {
 				continue
 			}
@@ -491,18 +568,108 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 				Text: builder.String(),
 			}},
 		},
+		Usage: usage,
 	}, nil
+}
+
+func openAIStreamOptionsForRequest(stream bool) *openAIStreamOptions {
+	if !stream {
+		return nil
+	}
+	return &openAIStreamOptions{IncludeUsage: true}
+}
+
+func openAIUsage(usage openAIUsageResponse) Usage {
+	total := usage.TotalTokens
+	if total == 0 {
+		total = usage.PromptTokens + usage.CompletionTokens
+	}
+	return Usage{
+		InputTokens:       usage.PromptTokens,
+		OutputTokens:      usage.CompletionTokens,
+		TotalTokens:       total,
+		CachedInputTokens: usage.PromptTokensDetails.CachedTokens,
+		ReasoningTokens:   usage.CompletionTokensDetails.ReasoningTokens,
+	}
 }
 
 func openAIMessages(messages []Message) []openAIMessage {
 	result := make([]openAIMessage, 0, len(messages))
 	for _, message := range messages {
+		content := textContent(message.Content)
 		result = append(result, openAIMessage{
-			Role:    message.Role,
-			Content: textContent(message.Content),
+			Role:       message.Role,
+			Content:    &content,
+			ToolCalls:  openAIToolCalls(message.ToolCalls),
+			ToolCallID: message.ToolCallID,
 		})
 	}
 	return result
+}
+
+func openAITools(tools []Tool) []openAITool {
+	if len(tools) == 0 {
+		return nil
+	}
+	result := make([]openAITool, 0, len(tools))
+	for _, tool := range tools {
+		result = append(result, openAITool{
+			Type: defaultString(tool.Type, "function"),
+			Function: openAIToolFunction{
+				Name:        tool.Function.Name,
+				Description: tool.Function.Description,
+				Parameters:  tool.Function.Parameters,
+			},
+		})
+	}
+	return result
+}
+
+func openAIToolCalls(calls []ToolCall) []openAIToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	result := make([]openAIToolCall, 0, len(calls))
+	for _, call := range calls {
+		result = append(result, openAIToolCall{
+			ID:   call.ID,
+			Type: defaultString(call.Type, "function"),
+			Function: openAIToolCallFunction{
+				Name:      call.Function.Name,
+				Arguments: string(call.Function.Arguments),
+			},
+		})
+	}
+	return result
+}
+
+func toolCallsFromOpenAI(calls []openAIToolCall) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	result := make([]ToolCall, 0, len(calls))
+	for _, call := range calls {
+		arguments := json.RawMessage(strings.TrimSpace(call.Function.Arguments))
+		if len(arguments) == 0 {
+			arguments = json.RawMessage(`{}`)
+		}
+		result = append(result, ToolCall{
+			ID:   call.ID,
+			Type: defaultString(call.Type, "function"),
+			Function: ToolCallFunction{
+				Name:      call.Function.Name,
+				Arguments: arguments,
+			},
+		})
+	}
+	return result
+}
+
+func openAIContentText(content *string) string {
+	if content == nil {
+		return ""
+	}
+	return *content
 }
 
 func textContent(parts []ContentPart) string {

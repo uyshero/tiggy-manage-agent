@@ -29,9 +29,9 @@ type CommandTurnExecutor struct {
 	Provider capability.Provider
 }
 
-func (e CommandTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (json.RawMessage, error) {
+func (e CommandTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
 	if e.Command == "" {
-		return nil, fmt.Errorf("turn command is required")
+		return TurnResult{}, fmt.Errorf("turn command is required")
 	}
 	if e.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -46,7 +46,7 @@ func (e CommandTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (
 		UserPayload:     request.UserPayload,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("encode command turn input: %w", err)
+		return TurnResult{}, fmt.Errorf("encode command turn input: %w", err)
 	}
 
 	provider := e.Provider
@@ -66,26 +66,26 @@ func (e CommandTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (
 	})
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return TurnResult{}, ctx.Err()
 		}
-		return nil, fmt.Errorf("command turn failed: %w", err)
+		return TurnResult{}, fmt.Errorf("command turn failed: %w", err)
 	}
 	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("command turn failed: exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
+		return TurnResult{}, fmt.Errorf("command turn failed: exit code %d: %s", result.ExitCode, truncate(result.Stderr, 500))
 	}
 
 	payload := bytes.TrimSpace([]byte(result.Stdout))
 	if len(payload) == 0 {
-		return nil, fmt.Errorf("command turn returned empty stdout")
+		return TurnResult{}, fmt.Errorf("command turn returned empty stdout")
 	}
 	if !json.Valid(payload) {
-		return nil, fmt.Errorf("command turn returned invalid JSON")
+		return TurnResult{}, fmt.Errorf("command turn returned invalid JSON")
 	}
 	if err := validateCommandTurnOutputProtocol(payload); err != nil {
-		return nil, err
+		return TurnResult{}, err
 	}
 
-	return append(json.RawMessage(nil), payload...), nil
+	return TurnResult{AgentPayload: append(json.RawMessage(nil), payload...)}, nil
 }
 
 func validateCommandTurnOutputProtocol(payload []byte) error {

@@ -9,10 +9,10 @@ import (
 // 它不调用模型，只把用户第一段文本包装成 agent.message payload。
 type EchoExecutor struct{}
 
-func (EchoExecutor) RunTurn(ctx context.Context, request TurnRequest) (json.RawMessage, error) {
+func (EchoExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return TurnResult{}, ctx.Err()
 	default:
 	}
 
@@ -27,9 +27,9 @@ func (EchoExecutor) RunTurn(ctx context.Context, request TurnRequest) (json.RawM
 		},
 	})
 	if err != nil {
-		return json.RawMessage(`{"content":[{"type":"text","text":"Echo Agent received your message."}]}`), nil
+		return TurnResult{AgentPayload: json.RawMessage(`{"content":[{"type":"text","text":"Echo Agent received your message."}]}`)}, nil
 	}
-	return encoded, nil
+	return TurnResult{AgentPayload: encoded}, nil
 }
 
 func firstTextContent(payload json.RawMessage) string {

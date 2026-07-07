@@ -86,6 +86,28 @@ func TestLLMProviderManagement(t *testing.T) {
 	}
 }
 
+func TestLLMModelManagement(t *testing.T) {
+	server := newTestServer()
+
+	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
+		"id": "volcengine-agent-plan",
+		"provider_type": "openai"
+	}`)
+	created := postJSONWithStatus[managedagents.LLMModel](t, server, http.MethodPost, "/v1/llm-models", `{
+		"provider_id": "volcengine-agent-plan",
+		"model": "doubao-test",
+		"context_window_tokens": 256000
+	}`, http.StatusOK)
+	if created.ProviderID != "volcengine-agent-plan" || created.Model != "doubao-test" || created.ContextWindowTokens != 256000 {
+		t.Fatalf("unexpected created model: %+v", created)
+	}
+
+	listed := getJSON[llmModelsResponse](t, server, "/v1/llm-models?provider_id=volcengine-agent-plan")
+	if len(listed.Models) != 1 || listed.Models[0].ContextWindowTokens != 256000 {
+		t.Fatalf("unexpected model list: %+v", listed.Models)
+	}
+}
+
 func TestCreateAgentRejectsDisabledLLMProvider(t *testing.T) {
 	server := newTestServer()
 	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
@@ -285,6 +307,188 @@ func TestManagedAgentsMinimumFlow(t *testing.T) {
 	}
 	if eventsAfterSeq.Events[2].Type != managedagents.EventAgentMessage {
 		t.Fatalf("expected agent.message event, got %q", eventsAfterSeq.Events[2].Type)
+	}
+}
+
+func TestGetSessionLLMUsageIncludesSummaryAndRecords(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	_, err := store.RecordLLMUsage(managedagents.RecordLLMUsageInput{
+		WorkspaceID:        session.WorkspaceID,
+		AgentID:            agent.ID,
+		AgentConfigVersion: session.AgentConfigVersion,
+		SessionID:          session.ID,
+		TurnID:             "turn_000001",
+		ProviderID:         "fake",
+		ProviderType:       "fake",
+		Model:              "fake-demo",
+		InputTokens:        10,
+		OutputTokens:       5,
+		TotalTokens:        15,
+		CachedInputTokens:  2,
+		ReasoningTokens:    1,
+		LatencyMillis:      120,
+		Status:             "completed",
+	})
+	if err != nil {
+		t.Fatalf("record usage: %v", err)
+	}
+	_, err = store.RecordLLMUsage(managedagents.RecordLLMUsageInput{
+		WorkspaceID:        session.WorkspaceID,
+		AgentID:            agent.ID,
+		AgentConfigVersion: session.AgentConfigVersion,
+		SessionID:          session.ID,
+		TurnID:             "turn_000002",
+		ProviderID:         "fake",
+		ProviderType:       "fake",
+		Model:              "fake-demo",
+		InputTokens:        7,
+		OutputTokens:       3,
+		TotalTokens:        10,
+		LatencyMillis:      80,
+		Status:             "completed",
+	})
+	if err != nil {
+		t.Fatalf("record usage: %v", err)
+	}
+
+	report := getJSON[managedagents.LLMUsageReport](t, server, "/v1/sessions/"+session.ID+"/usage")
+	if report.SessionID != session.ID {
+		t.Fatalf("expected session_id %q, got %q", session.ID, report.SessionID)
+	}
+	if report.Summary.RecordCount != 2 || report.Summary.InputTokens != 17 || report.Summary.OutputTokens != 8 || report.Summary.TotalTokens != 25 {
+		t.Fatalf("unexpected usage summary: %+v", report.Summary)
+	}
+	if report.Summary.CachedInputTokens != 2 || report.Summary.ReasoningTokens != 1 || report.Summary.LatencyMillis != 200 {
+		t.Fatalf("unexpected usage summary details: %+v", report.Summary)
+	}
+	if len(report.Records) != 2 || report.Records[0].TurnID != "turn_000001" || report.Records[1].TurnID != "turn_000002" {
+		t.Fatalf("unexpected usage records: %+v", report.Records)
+	}
+}
+
+func TestUpsertSessionSummaryWritesCompactionEvents(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	result := postJSONWithStatus[managedagents.UpsertSessionSummaryResult](t, server, http.MethodPut, "/v1/sessions/"+session.ID+"/summary", `{
+		"summary_text": "User prefers concise replies.",
+		"source_until_seq": 2
+	}`, http.StatusOK)
+	if result.Summary.SummaryText != "User prefers concise replies." || result.Summary.SourceUntilSeq != 2 {
+		t.Fatalf("unexpected summary: %+v", result.Summary)
+	}
+	if len(result.Events) != 2 ||
+		result.Events[0].Type != managedagents.EventSessionStatusCompacting ||
+		result.Events[1].Type != managedagents.EventSessionStatusIdle {
+		t.Fatalf("unexpected summary events: %+v", result.Events)
+	}
+
+	summary := getJSON[managedagents.SessionSummary](t, server, "/v1/sessions/"+session.ID+"/summary")
+	if summary.SummaryText != result.Summary.SummaryText {
+		t.Fatalf("expected stored summary, got %+v", summary)
+	}
+}
+
+func TestListLLMUsageAggregatesByProviderAndModel(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	for _, input := range []managedagents.RecordLLMUsageInput{
+		{
+			WorkspaceID:        session.WorkspaceID,
+			AgentID:            agent.ID,
+			AgentConfigVersion: session.AgentConfigVersion,
+			SessionID:          session.ID,
+			TurnID:             "turn_000001",
+			ProviderID:         "fake",
+			Model:              "fake-demo",
+			InputTokens:        10,
+			OutputTokens:       5,
+			TotalTokens:        15,
+			Status:             "completed",
+		},
+		{
+			WorkspaceID:        session.WorkspaceID,
+			AgentID:            agent.ID,
+			AgentConfigVersion: session.AgentConfigVersion,
+			SessionID:          session.ID,
+			TurnID:             "turn_000002",
+			ProviderID:         "volcengine-agent-plan",
+			Model:              "doubao-test",
+			InputTokens:        20,
+			OutputTokens:       10,
+			TotalTokens:        30,
+			Status:             "completed",
+		},
+	} {
+		if _, err := store.RecordLLMUsage(input); err != nil {
+			t.Fatalf("record usage: %v", err)
+		}
+	}
+
+	report := getJSON[managedagents.LLMUsageAggregateReport](t, server, "/v1/llm-usage")
+	if report.GroupBy != managedagents.LLMUsageGroupByProviderModel {
+		t.Fatalf("expected default group_by provider_model, got %q", report.GroupBy)
+	}
+	if report.Summary.RecordCount != 2 || report.Summary.TotalTokens != 45 {
+		t.Fatalf("unexpected usage summary: %+v", report.Summary)
+	}
+	if len(report.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %+v", report.Groups)
+	}
+
+	filtered := getJSON[managedagents.LLMUsageAggregateReport](t, server, "/v1/llm-usage?provider_id=fake&group_by=provider")
+	if filtered.GroupBy != managedagents.LLMUsageGroupByProvider {
+		t.Fatalf("expected provider group_by, got %q", filtered.GroupBy)
+	}
+	if filtered.Summary.RecordCount != 1 || filtered.Summary.TotalTokens != 15 {
+		t.Fatalf("unexpected filtered summary: %+v", filtered.Summary)
+	}
+	if len(filtered.Groups) != 1 || filtered.Groups[0].ProviderID != "fake" || filtered.Groups[0].Model != "" {
+		t.Fatalf("unexpected filtered groups: %+v", filtered.Groups)
 	}
 }
 
@@ -580,6 +784,10 @@ type eventsResponse struct {
 
 type llmProvidersResponse struct {
 	Providers []managedagents.LLMProvider `json:"providers"`
+}
+
+type llmModelsResponse struct {
+	Models []managedagents.LLMModel `json:"models"`
 }
 
 type agentConfigVersionsResponse struct {

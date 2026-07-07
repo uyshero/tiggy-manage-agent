@@ -60,12 +60,16 @@ func run(args []string) error {
 		return commandHealth(client, remaining[1:])
 	case "provider":
 		return commandProvider(client, remaining[1:])
+	case "model":
+		return commandModel(client, remaining[1:])
 	case "agent":
 		return commandAgent(client, remaining[1:])
 	case "env":
 		return commandEnvironment(client, remaining[1:])
 	case "session":
 		return commandSession(client, remaining[1:])
+	case "usage":
+		return commandUsage(client, remaining[1:])
 	case "event":
 		return commandEvent(client, remaining[1:])
 	case "help", "-h", "--help":
@@ -216,6 +220,65 @@ func commandProvider(client *apiClient, args []string) error {
 		return printJSON(response)
 	default:
 		return fmt.Errorf("unknown provider subcommand %q", args[0])
+	}
+}
+
+func commandModel(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("model command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("model list", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var providerID string
+		flags.StringVar(&providerID, "provider", "", "provider id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		path := "/v1/llm-models"
+		if providerID != "" {
+			path += "?provider_id=" + url.QueryEscape(providerID)
+		}
+		var response any
+		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "upsert":
+		flags := flag.NewFlagSet("model upsert", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var providerID string
+		var model string
+		var contextWindow int
+		flags.StringVar(&providerID, "provider", "", "provider id")
+		flags.StringVar(&model, "model", "", "model id")
+		flags.IntVar(&contextWindow, "context-window", 0, "model total context window tokens")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if providerID == "" || model == "" {
+			return fmt.Errorf("model upsert requires --provider and --model")
+		}
+
+		request := map[string]any{
+			"provider_id": providerID,
+			"model":       model,
+		}
+		if contextWindow > 0 {
+			request["context_window_tokens"] = contextWindow
+		}
+		var response any
+		if err := client.do(http.MethodPost, "/v1/llm-models", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown model subcommand %q", args[0])
 	}
 }
 
@@ -501,8 +564,150 @@ func commandSession(client *apiClient, args []string) error {
 
 		fmt.Printf("deleted session %s\n", sessionID)
 		return nil
+	case "summary":
+		return commandSessionSummary(client, args[1:])
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+func commandSessionSummary(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session summary command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "get":
+		flags := flag.NewFlagSet("session summary get", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("session summary get requires --session")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/summary", nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "upsert":
+		flags := flag.NewFlagSet("session summary upsert", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var text string
+		var untilSeq int64
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.StringVar(&text, "text", "", "summary text")
+		flags.Int64Var(&untilSeq, "until", 0, "source until event seq")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" || text == "" {
+			return fmt.Errorf("session summary upsert requires --session and --text")
+		}
+
+		request := map[string]any{
+			"summary_text":     text,
+			"source_until_seq": untilSeq,
+		}
+		var response any
+		if err := client.do(http.MethodPut, "/v1/sessions/"+url.PathEscape(sessionID)+"/summary", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown session summary subcommand %q", args[0])
+	}
+}
+
+func commandUsage(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("usage list", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		flags.StringVar(&sessionID, "session", "", "session id")
+
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("usage list requires --session")
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/usage", nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "summary":
+		flags := flag.NewFlagSet("usage summary", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var workspaceID string
+		var providerID string
+		var model string
+		var status string
+		var groupBy string
+		var from string
+		var to string
+		flags.StringVar(&workspaceID, "workspace", "", "workspace id")
+		flags.StringVar(&providerID, "provider", "", "provider id")
+		flags.StringVar(&model, "model", "", "model name")
+		flags.StringVar(&status, "status", "", "usage status")
+		flags.StringVar(&groupBy, "group-by", "", "provider, model, or provider_model")
+		flags.StringVar(&from, "from", "", "RFC3339 inclusive start time")
+		flags.StringVar(&to, "to", "", "RFC3339 exclusive end time")
+
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+
+		query := url.Values{}
+		if workspaceID != "" {
+			query.Set("workspace_id", workspaceID)
+		}
+		if providerID != "" {
+			query.Set("provider_id", providerID)
+		}
+		if model != "" {
+			query.Set("model", model)
+		}
+		if status != "" {
+			query.Set("status", status)
+		}
+		if groupBy != "" {
+			query.Set("group_by", groupBy)
+		}
+		if from != "" {
+			query.Set("from", from)
+		}
+		if to != "" {
+			query.Set("to", to)
+		}
+
+		path := "/v1/llm-usage"
+		if encoded := query.Encode(); encoded != "" {
+			path += "?" + encoded
+		}
+		var response any
+		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown usage subcommand %q", args[0])
 	}
 }
 
@@ -747,6 +952,8 @@ func printUsage() {
   tma [--base-url URL] provider update --id PROVIDER [--type TYPE] [--base-url URL] [--api-key-env ENV]
   tma [--base-url URL] provider enable --id PROVIDER
   tma [--base-url URL] provider disable --id PROVIDER
+  tma [--base-url URL] model list [--provider PROVIDER]
+  tma [--base-url URL] model upsert --provider PROVIDER --model MODEL [--context-window TOKENS]
   tma [--base-url URL] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
   tma [--base-url URL] agent get --id AGENT_ID
   tma [--base-url URL] agent config list --agent AGENT_ID
@@ -756,6 +963,10 @@ func printUsage() {
   tma [--base-url URL] session get --session SESSION_ID
   tma [--base-url URL] session archive --session SESSION_ID
   tma [--base-url URL] session delete --session SESSION_ID
+  tma [--base-url URL] session summary get --session SESSION_ID
+  tma [--base-url URL] session summary upsert --session SESSION_ID --text TEXT [--until SEQ]
+  tma [--base-url URL] usage list --session SESSION_ID
+  tma [--base-url URL] usage summary [--group-by provider|model|provider_model] [--provider PROVIDER] [--model MODEL] [--from RFC3339] [--to RFC3339]
   tma [--base-url URL] event send --session SESSION_ID --text TEXT
   tma [--base-url URL] event interrupt --session SESSION_ID
   tma [--base-url URL] event list --session SESSION_ID [--after SEQ]

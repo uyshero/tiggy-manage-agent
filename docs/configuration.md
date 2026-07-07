@@ -86,6 +86,18 @@ TMA_TURN_TIMEOUT_MS=3600000
 
 当前服务端内置 `agentruntime.DemoRuntime`。AgentRuntime 设计见 [agent-runtime.md](./agent-runtime.md)。
 
+## Context
+
+### `TMA_DEFAULT_CONTEXT_WINDOW_TOKENS`
+
+未知模型的默认总上下文窗口。默认按 128k 处理。
+
+```env
+TMA_DEFAULT_CONTEXT_WINDOW_TOKENS=128000
+```
+
+每个模型可以通过 `llm_models.context_window_tokens` 单独指定窗口大小。Context Builder 当前固定最多使用窗口的 60% 作为输入上下文预算；超过预算时保留 system 和当前 user message，并从最近的历史消息开始尽量纳入预算。当前 token 计数是近似估算，不是模型厂商 tokenizer 的精确结果。
+
 ## LLM
 
 ### `TMA_LLM_PROVIDER`
@@ -109,7 +121,7 @@ openai-compatible
 
 `openai-compatible` 调用 OpenAI Chat Completions 兼容接口，适用于 OpenAI 或企业内部兼容网关。
 
-当前 `openai-compatible` 使用 `stream: true` 读取 SSE 文本增量，服务端会把增量写成 `runtime.llm_delta` 事件；最终仍会写一条完整 `agent.message`。
+当前 `openai-compatible` 使用 `stream: true` 读取普通文本 SSE 增量，服务端会把增量写成 `runtime.llm_delta` 事件；最终仍会写一条完整 `agent.message`。带工具 schema 的请求第一版走非流式 Chat Completions，并支持原生 `tools` / `tool_calls` 适配。
 
 这个配置项先作为默认 Provider 选择入口保留。服务启动时会把它 upsert 到 `llm_providers` 表；创建 Agent 时，如果请求没有传 `llm_provider`，HTTP 层会用它补齐 AgentConfigVersion。
 

@@ -13,6 +13,7 @@ var configEnvKeys = []string{
 	"TMA_DATABASE_URL",
 	"TMA_TURN_QUEUE_SIZE",
 	"TMA_TURN_TIMEOUT_MS",
+	"TMA_DEFAULT_CONTEXT_WINDOW_TOKENS",
 	"TMA_LLM_PROVIDER",
 	"TMA_LLM_PROVIDER_TYPE",
 	"TMA_LLM_MODEL",
@@ -40,6 +41,9 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.LLM.Provider != DefaultLLMProvider {
 		t.Fatalf("expected default llm provider %q, got %q", DefaultLLMProvider, config.LLM.Provider)
 	}
+	if config.Context.DefaultWindowTokens != DefaultContextWindowTokens {
+		t.Fatalf("expected default context window tokens %d, got %d", DefaultContextWindowTokens, config.Context.DefaultWindowTokens)
+	}
 	if config.LLM.Model != DefaultLLMModel {
 		t.Fatalf("expected default llm model %q, got %q", DefaultLLMModel, config.LLM.Model)
 	}
@@ -57,6 +61,7 @@ func TestLoadReadsDotEnv(t *testing.T) {
 TMA_HTTP_ADDR=:18080
 TMA_DATABASE_URL=postgres://dotenv
 TMA_TURN_TIMEOUT_MS=1234
+TMA_DEFAULT_CONTEXT_WINDOW_TOKENS=4096
 TMA_LLM_PROVIDER=fake
 TMA_LLM_PROVIDER_TYPE=openai
 TMA_LLM_MODEL=fake-dotenv
@@ -78,6 +83,9 @@ TMA_LLM_API_KEY_CUSTOM=dotenv-key
 	}
 	if config.Turn.Timeout != 1234*time.Millisecond {
 		t.Fatalf("expected dotenv turn timeout 1234ms, got %s", config.Turn.Timeout)
+	}
+	if config.Context.DefaultWindowTokens != 4096 {
+		t.Fatalf("expected dotenv context window tokens 4096, got %d", config.Context.DefaultWindowTokens)
 	}
 	if config.LLM.Provider != "fake" || config.LLM.Model != "fake-dotenv" {
 		t.Fatalf("expected dotenv llm config, got provider=%q model=%q", config.LLM.Provider, config.LLM.Model)

@@ -86,6 +86,32 @@ make verify-agent-runtime-full
 
 `verify-agent-runtime-full` 会显式使用 `fake` Provider，适合检查基础 HTTP / Store / Runner / Runtime 链路，不受本地真实模型配置影响。
 
+如果要手动验证 Context Builder 历史截断，可以在启动服务前设置：
+
+```bash
+export TMA_DEFAULT_CONTEXT_WINDOW_TOKENS=128
+make run
+```
+
+然后连续发送多轮消息，查看 `runtime.llm_request` 事件中的 `history_count`、`omitted_history_count`、`estimated_token_count` 和 `context_truncated`。Context Builder 当前会使用总窗口的 60%，所以上例实际预算约为 76 token。
+
+手动写入 Session summary：
+
+```bash
+bin/tma session summary upsert \
+  --session sesn_000001 \
+  --text "Earlier conversation established repo layout and provider settings." \
+  --until 12
+```
+
+查看 summary：
+
+```bash
+bin/tma session summary get --session sesn_000001
+```
+
+写入 summary 时会产生 `session.status_compacting` 和 `session.status_idle` 事件。
+
 ## 3. LLM Provider 管理命令
 
 Provider 管理只保存 API Key 的环境变量名，不保存真实 API Key。
@@ -123,7 +149,27 @@ bin/tma provider enable --id volcengine-agent-plan
 
 被禁用的 Provider 不能再用于创建新的 Agent；已经绑定该 Provider 的 Session 在执行 turn 时也会失败并回到 `idle`。
 
-## 4. Agent 配置版本命令
+## 4. LLM Model 管理命令
+
+模型配置保存总上下文窗口，不保存输入上下文预算。Context Builder 固定使用总窗口的 60%。
+
+```bash
+bin/tma model list
+bin/tma model list --provider fake
+```
+
+新增或更新模型窗口：
+
+```bash
+bin/tma model upsert \
+  --provider volcengine-agent-plan \
+  --model doubao-seed-2.0-pro \
+  --context-window 128000
+```
+
+没有显式配置的模型会按默认 `128000` 处理。
+
+## 5. Agent 配置版本命令
 
 查看 Agent 当前配置：
 
@@ -149,7 +195,52 @@ bin/tma agent config update \
 
 更新后，新建 Session 会绑定新的 `agent_config_version`；已经存在的 Session 继续绑定创建时的旧版本。
 
-## 5. 自动验收
+## 6. LLM Usage 查询命令
+
+查看某个 Session 的 token usage 总量和每轮明细：
+
+```bash
+bin/tma usage list --session sesn_000001
+```
+
+返回结构包含：
+
+```json
+{
+  "session_id": "sesn_000001",
+  "summary": {
+    "record_count": 1,
+    "input_tokens": 10,
+    "output_tokens": 5,
+    "total_tokens": 15,
+    "cached_input_tokens": 0,
+    "reasoning_tokens": 0,
+    "latency_ms": 120
+  },
+  "records": []
+}
+```
+
+`summary` 是该 Session 下所有 usage 明细的合计；`records` 是每个 turn 的 usage 明细。
+
+查看跨 Session 的 usage 聚合：
+
+```bash
+bin/tma usage summary
+```
+
+默认按 `provider_id + model` 分组。也可以指定分组和过滤条件：
+
+```bash
+bin/tma usage summary --group-by provider
+bin/tma usage summary --group-by model
+bin/tma usage summary --provider volcengine-agent-plan
+bin/tma usage summary --model doubao-seed-2.0-pro
+bin/tma usage summary --status failed
+bin/tma usage summary --from 2026-07-07T00:00:00+08:00 --to 2026-07-08T00:00:00+08:00
+```
+
+## 7. 自动验收
 
 它会自动创建 Agent / Environment / Session，发送一条消息，并检查事件中包含：
 

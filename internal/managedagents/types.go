@@ -6,12 +6,15 @@ import (
 )
 
 const (
-	DefaultWorkspaceID = "wksp_default"
+	DefaultWorkspaceID         = "wksp_default"
+	DefaultContextWindowTokens = 128000
+	ContextBudgetRatioPercent  = 60
 
 	SessionStatusProvisioning = "provisioning"
 	SessionStatusIdle         = "idle"
 	SessionStatusRunning      = "running"
 	SessionStatusInterrupting = "interrupting"
+	SessionStatusCompacting   = "compacting"
 	// failed 保留给系统级 Session 故障；普通 Runner 执行失败只标记 turn failed 并回到 idle。
 	SessionStatusFailed     = "failed"
 	SessionStatusTerminated = "terminated"
@@ -20,6 +23,7 @@ const (
 	EventSessionStatusIdle         = "session.status_idle"
 	EventSessionStatusRunning      = "session.status_running"
 	EventSessionStatusInterrupting = "session.status_interrupting"
+	EventSessionStatusCompacting   = "session.status_compacting"
 	// session.status_failed 保留给整个 Session 不可继续的故障，不用于普通 turn 失败。
 	EventSessionStatusFailed     = "session.status_failed"
 	EventSessionStatusTerminated = "session.status_terminated"
@@ -35,6 +39,9 @@ const (
 	EventRuntimeLLMResponse = "runtime.llm_response"
 	EventRuntimeToolCall    = "runtime.tool_call"
 	EventRuntimeToolResult  = "runtime.tool_result"
+	EventRuntimeContextCompacting = "runtime.context_compacting"
+	EventRuntimeContextCompacted = "runtime.context_compacted"
+	EventRuntimeContextCompactionFailed = "runtime.context_compaction_failed"
 	EventRuntimeCompleted   = "runtime.completed"
 	EventRuntimeFailed      = "runtime.failed"
 )
@@ -66,6 +73,20 @@ type LLMProvider struct {
 	APIKeyEnv    string    `json:"api_key_env,omitempty"`
 	Enabled      bool      `json:"enabled"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type LLMModel struct {
+	ProviderID          string    `json:"provider_id"`
+	Model               string    `json:"model"`
+	ContextWindowTokens int       `json:"context_window_tokens"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type UpsertLLMModelInput struct {
+	ProviderID          string `json:"provider_id"`
+	Model               string `json:"model"`
+	ContextWindowTokens int    `json:"context_window_tokens"`
 }
 
 type EnsureLLMProviderInput struct {
@@ -122,6 +143,24 @@ type ConversationMessage struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+type SessionSummary struct {
+	SessionID      string    `json:"session_id"`
+	SummaryText    string    `json:"summary_text"`
+	SourceUntilSeq int64     `json:"source_until_seq"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type UpsertSessionSummaryInput struct {
+	SummaryText    string `json:"summary_text"`
+	SourceUntilSeq int64  `json:"source_until_seq"`
+}
+
+type UpsertSessionSummaryResult struct {
+	Summary SessionSummary `json:"summary"`
+	Events  []Event        `json:"events"`
+}
+
 type LLMUsageRecord struct {
 	ID                 string    `json:"id"`
 	WorkspaceID        string    `json:"workspace_id"`
@@ -141,6 +180,51 @@ type LLMUsageRecord struct {
 	Status             string    `json:"status"`
 	ErrorMessage       string    `json:"error_message,omitempty"`
 	CreatedAt          time.Time `json:"created_at"`
+}
+
+type LLMUsageSummary struct {
+	RecordCount       int64 `json:"record_count"`
+	InputTokens       int64 `json:"input_tokens"`
+	OutputTokens      int64 `json:"output_tokens"`
+	TotalTokens       int64 `json:"total_tokens"`
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+	ReasoningTokens   int64 `json:"reasoning_tokens"`
+	LatencyMillis     int64 `json:"latency_ms"`
+}
+
+type LLMUsageReport struct {
+	SessionID string           `json:"session_id"`
+	Summary   LLMUsageSummary  `json:"summary"`
+	Records   []LLMUsageRecord `json:"records"`
+}
+
+const (
+	LLMUsageGroupByProvider      = "provider"
+	LLMUsageGroupByModel         = "model"
+	LLMUsageGroupByProviderModel = "provider_model"
+)
+
+type ListLLMUsageInput struct {
+	WorkspaceID string     `json:"workspace_id,omitempty"`
+	ProviderID  string     `json:"provider_id,omitempty"`
+	Model       string     `json:"model,omitempty"`
+	Status      string     `json:"status,omitempty"`
+	GroupBy     string     `json:"group_by,omitempty"`
+	From        *time.Time `json:"from,omitempty"`
+	To          *time.Time `json:"to,omitempty"`
+}
+
+type LLMUsageAggregate struct {
+	ProviderID string          `json:"provider_id,omitempty"`
+	Model      string          `json:"model,omitempty"`
+	Summary    LLMUsageSummary `json:"summary"`
+}
+
+type LLMUsageAggregateReport struct {
+	GroupBy string              `json:"group_by"`
+	Filters ListLLMUsageInput   `json:"filters"`
+	Summary LLMUsageSummary     `json:"summary"`
+	Groups  []LLMUsageAggregate `json:"groups"`
 }
 
 type RecordLLMUsageInput struct {
@@ -183,18 +267,21 @@ type CreateAgentConfigVersionInput struct {
 }
 
 type AgentRuntimeConfig struct {
-	SessionID          string          `json:"session_id"`
-	WorkspaceID        string          `json:"workspace_id"`
-	AgentID            string          `json:"agent_id"`
-	AgentConfigVersion int             `json:"agent_config_version"`
-	LLMProvider        string          `json:"llm_provider"`
-	LLMProviderType    string          `json:"llm_provider_type,omitempty"`
-	LLMModel           string          `json:"llm_model"`
-	LLMBaseURL         string          `json:"llm_base_url,omitempty"`
-	LLMAPIKeyEnv       string          `json:"llm_api_key_env,omitempty"`
-	System             string          `json:"system"`
-	Tools              json.RawMessage `json:"tools,omitempty"`
-	Skills             json.RawMessage `json:"skills,omitempty"`
+	SessionID             string          `json:"session_id"`
+	WorkspaceID           string          `json:"workspace_id"`
+	AgentID               string          `json:"agent_id"`
+	AgentConfigVersion    int             `json:"agent_config_version"`
+	LLMProvider           string          `json:"llm_provider"`
+	LLMProviderType       string          `json:"llm_provider_type,omitempty"`
+	LLMModel              string          `json:"llm_model"`
+	LLMBaseURL            string          `json:"llm_base_url,omitempty"`
+	LLMAPIKeyEnv          string          `json:"llm_api_key_env,omitempty"`
+	ContextWindowTokens   int             `json:"context_window_tokens"`
+	SummaryText           string          `json:"summary_text,omitempty"`
+	SummarySourceUntilSeq int64           `json:"summary_source_until_seq,omitempty"`
+	System                string          `json:"system"`
+	Tools                 json.RawMessage `json:"tools,omitempty"`
+	Skills                json.RawMessage `json:"skills,omitempty"`
 }
 
 type CreateEnvironmentInput struct {

@@ -168,6 +168,7 @@ func (r *WorkerRunner) runJob(job workerJob) {
 			)
 			return
 		}
+		r.recordFailedUsage(job.request, result.Usage, err)
 		r.failTurn(job.request, err)
 		return
 	}
@@ -202,6 +203,24 @@ func (r *WorkerRunner) runJob(job workerJob) {
 		"turn_id", job.request.TurnID,
 		"events", len(events),
 	)
+}
+
+func (r *WorkerRunner) recordFailedUsage(request TurnRequest, usage *managedagents.RecordLLMUsageInput, turnErr error) {
+	if usage == nil {
+		return
+	}
+	failedUsage := *usage
+	failedUsage.Status = "failed"
+	if turnErr != nil && failedUsage.ErrorMessage == "" {
+		failedUsage.ErrorMessage = turnErr.Error()
+	}
+	if _, err := r.store.RecordLLMUsage(failedUsage); err != nil {
+		r.logger.Error("worker runner failed llm usage record failed",
+			"session_id", request.SessionID,
+			"turn_id", request.TurnID,
+			"error", err,
+		)
+	}
 }
 
 func (r *WorkerRunner) failTurn(request TurnRequest, err error) {

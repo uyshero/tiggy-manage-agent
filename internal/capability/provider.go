@@ -33,6 +33,7 @@ type Provider interface {
 	ExecuteCode(ctx context.Context, request ExecuteCodeRequest) (CommandResult, error)
 	ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error)
 	WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error)
+	EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error)
 }
 
 type RunCommandRequest struct {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
@@ -22,6 +23,12 @@ type llmProviderRequest struct {
 	Enabled      *bool   `json:"enabled"`
 }
 
+type llmModelRequest struct {
+	ProviderID          string `json:"provider_id"`
+	Model               string `json:"model"`
+	ContextWindowTokens int    `json:"context_window_tokens"`
+}
+
 type agentConfigVersionRequest struct {
 	LLMProvider *string          `json:"llm_provider"`
 	LLMModel    *string          `json:"llm_model"`
@@ -29,6 +36,11 @@ type agentConfigVersionRequest struct {
 	System      *string          `json:"system"`
 	Tools       *json.RawMessage `json:"tools"`
 	Skills      *json.RawMessage `json:"skills"`
+}
+
+type sessionSummaryRequest struct {
+	SummaryText    string `json:"summary_text"`
+	SourceUntilSeq int64  `json:"source_until_seq"`
 }
 
 func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +149,108 @@ func (s *Server) disableLLMProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, provider)
+}
+
+func (s *Server) listLLMModels(w http.ResponseWriter, r *http.Request) {
+	models, err := s.store.ListLLMModels(r.URL.Query().Get("provider_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) upsertLLMModel(w http.ResponseWriter, r *http.Request) {
+	var request llmModelRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	model, err := s.store.UpsertLLMModel(managedagents.UpsertLLMModelInput{
+		ProviderID:          request.ProviderID,
+		Model:               request.Model,
+		ContextWindowTokens: request.ContextWindowTokens,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, model)
+}
+
+func (s *Server) getSessionLLMUsage(w http.ResponseWriter, r *http.Request) {
+	report, err := s.store.GetSessionLLMUsage(r.PathValue("session_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func (s *Server) getSessionSummary(w http.ResponseWriter, r *http.Request) {
+	summary, err := s.store.GetSessionSummary(r.PathValue("session_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, summary)
+}
+
+func (s *Server) upsertSessionSummary(w http.ResponseWriter, r *http.Request) {
+	var request sessionSummaryRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := s.store.UpsertSessionSummary(r.PathValue("session_id"), managedagents.UpsertSessionSummaryInput{
+		SummaryText:    request.SummaryText,
+		SourceUntilSeq: request.SourceUntilSeq,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) listLLMUsage(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	from, err := parseOptionalTime(query.Get("from"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid from: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	to, err := parseOptionalTime(query.Get("to"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid to: %v", managedagents.ErrInvalid, err))
+		return
+	}
+
+	report, err := s.store.ListLLMUsage(managedagents.ListLLMUsageInput{
+		WorkspaceID: query.Get("workspace_id"),
+		ProviderID:  query.Get("provider_id"),
+		Model:       query.Get("model"),
+		Status:      query.Get("status"),
+		GroupBy:     query.Get("group_by"),
+		From:        from,
+		To:          to,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
+
+func parseOptionalTime(value string) (*time.Time, error) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {

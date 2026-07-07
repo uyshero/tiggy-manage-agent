@@ -164,6 +164,75 @@ func (s *PostgresStore) SetLLMProviderEnabled(id string, enabled bool) (LLMProvi
 	return provider, nil
 }
 
+func (s *PostgresStore) UpsertLLMModel(input UpsertLLMModelInput) (LLMModel, error) {
+	if input.ProviderID == "" {
+		return LLMModel{}, fmt.Errorf("%w: llm model provider_id is required", ErrInvalid)
+	}
+	if input.Model == "" {
+		return LLMModel{}, fmt.Errorf("%w: llm model is required", ErrInvalid)
+	}
+	if input.ContextWindowTokens <= 0 {
+		input.ContextWindowTokens = DefaultContextWindowTokens
+	}
+	if _, err := s.GetLLMProvider(input.ProviderID); err != nil {
+		return LLMModel{}, err
+	}
+
+	now := time.Now().UTC()
+	var model LLMModel
+	err := s.db.QueryRowContext(context.Background(), `
+		INSERT INTO llm_models (provider_id, model, context_window_tokens, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $4)
+		ON CONFLICT (provider_id, model) DO UPDATE SET
+			context_window_tokens = EXCLUDED.context_window_tokens,
+			updated_at = EXCLUDED.updated_at
+		RETURNING provider_id, model, context_window_tokens, created_at, updated_at
+	`, input.ProviderID, input.Model, input.ContextWindowTokens, now).Scan(
+		&model.ProviderID,
+		&model.Model,
+		&model.ContextWindowTokens,
+		&model.CreatedAt,
+		&model.UpdatedAt,
+	)
+	if err != nil {
+		return LLMModel{}, err
+	}
+	return model, nil
+}
+
+func (s *PostgresStore) ListLLMModels(providerID string) ([]LLMModel, error) {
+	query := `
+		SELECT provider_id, model, context_window_tokens, created_at, updated_at
+		FROM llm_models
+		WHERE ($1 = '' OR provider_id = $1)
+		ORDER BY provider_id, model
+	`
+	rows, err := s.db.QueryContext(context.Background(), query, providerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var models []LLMModel
+	for rows.Next() {
+		var model LLMModel
+		if err := rows.Scan(
+			&model.ProviderID,
+			&model.Model,
+			&model.ContextWindowTokens,
+			&model.CreatedAt,
+			&model.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		models = append(models, model)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
 func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	if input.Name == "" {
 		return Agent{}, fmt.Errorf("%w: agent name is required", ErrInvalid)
@@ -564,6 +633,8 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 	var baseURL sql.NullString
 	var apiKeyEnv sql.NullString
 	var enabled sql.NullBool
+	var summaryText sql.NullString
+	var summarySourceUntilSeq sql.NullInt64
 
 	err := s.db.QueryRowContext(context.Background(), `
 		SELECT
@@ -579,15 +650,23 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 			lp.provider_type,
 			lp.base_url,
 			lp.api_key_env,
-			lp.enabled
+			lp.enabled,
+			COALESCE(lm.context_window_tokens, $2),
+			ss.summary_text,
+			ss.source_until_seq
 		FROM sessions s
 		JOIN agent_config_versions av
 			ON av.agent_id = s.agent_id
 			AND av.version = s.agent_config_version
 		LEFT JOIN llm_providers lp
 			ON lp.id = av.llm_provider
+		LEFT JOIN llm_models lm
+			ON lm.provider_id = av.llm_provider
+			AND lm.model = av.llm_model
+		LEFT JOIN session_summaries ss
+			ON ss.session_id = s.id
 		WHERE s.id = $1
-	`, sessionID).Scan(
+	`, sessionID, DefaultContextWindowTokens).Scan(
 		&config.SessionID,
 		&config.WorkspaceID,
 		&config.AgentID,
@@ -601,6 +680,9 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 		&baseURL,
 		&apiKeyEnv,
 		&enabled,
+		&config.ContextWindowTokens,
+		&summaryText,
+		&summarySourceUntilSeq,
 	)
 	if err == sql.ErrNoRows {
 		return AgentRuntimeConfig{}, ErrNotFound
@@ -614,10 +696,148 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 	config.LLMProviderType = providerType.String
 	config.LLMBaseURL = baseURL.String
 	config.LLMAPIKeyEnv = apiKeyEnv.String
+	config.SummaryText = summaryText.String
+	config.SummarySourceUntilSeq = summarySourceUntilSeq.Int64
 	if enabled.Valid && !enabled.Bool {
 		return AgentRuntimeConfig{}, fmt.Errorf("%w: llm provider %s is disabled", ErrInvalid, config.LLMProvider)
 	}
 	return config, nil
+}
+
+func (s *PostgresStore) GetSessionSummary(sessionID string) (SessionSummary, error) {
+	if sessionID == "" {
+		return SessionSummary{}, fmt.Errorf("%w: summary session_id is required", ErrInvalid)
+	}
+	var summary SessionSummary
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT session_id, summary_text, source_until_seq, created_at, updated_at
+		FROM session_summaries
+		WHERE session_id = $1
+	`, sessionID).Scan(
+		&summary.SessionID,
+		&summary.SummaryText,
+		&summary.SourceUntilSeq,
+		&summary.CreatedAt,
+		&summary.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return SessionSummary{}, ErrNotFound
+	}
+	if err != nil {
+		return SessionSummary{}, err
+	}
+	return summary, nil
+}
+
+func (s *PostgresStore) SaveSessionSummary(sessionID string, input UpsertSessionSummaryInput) (SessionSummary, error) {
+	if sessionID == "" {
+		return SessionSummary{}, fmt.Errorf("%w: summary session_id is required", ErrInvalid)
+	}
+	if input.SummaryText == "" {
+		return SessionSummary{}, fmt.Errorf("%w: summary_text is required", ErrInvalid)
+	}
+	if input.SourceUntilSeq < 0 {
+		return SessionSummary{}, fmt.Errorf("%w: source_until_seq must be non-negative", ErrInvalid)
+	}
+	if _, err := s.GetSession(sessionID); err != nil {
+		return SessionSummary{}, err
+	}
+
+	now := time.Now().UTC()
+	var summary SessionSummary
+	err := s.db.QueryRowContext(context.Background(), `
+		INSERT INTO session_summaries (session_id, summary_text, source_until_seq, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $4)
+		ON CONFLICT (session_id) DO UPDATE SET
+			summary_text = EXCLUDED.summary_text,
+			source_until_seq = EXCLUDED.source_until_seq,
+			updated_at = EXCLUDED.updated_at
+		RETURNING session_id, summary_text, source_until_seq, created_at, updated_at
+	`, sessionID, input.SummaryText, input.SourceUntilSeq, now).Scan(
+		&summary.SessionID,
+		&summary.SummaryText,
+		&summary.SourceUntilSeq,
+		&summary.CreatedAt,
+		&summary.UpdatedAt,
+	)
+	if err != nil {
+		return SessionSummary{}, err
+	}
+	return summary, nil
+}
+
+func (s *PostgresStore) UpsertSessionSummary(sessionID string, input UpsertSessionSummaryInput) (UpsertSessionSummaryResult, error) {
+	if sessionID == "" {
+		return UpsertSessionSummaryResult{}, fmt.Errorf("%w: summary session_id is required", ErrInvalid)
+	}
+	if input.SummaryText == "" {
+		return UpsertSessionSummaryResult{}, fmt.Errorf("%w: summary_text is required", ErrInvalid)
+	}
+	if input.SourceUntilSeq < 0 {
+		return UpsertSessionSummaryResult{}, fmt.Errorf("%w: source_until_seq must be non-negative", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+	defer tx.Rollback()
+
+	session, err := getSessionTx(ctx, tx, sessionID)
+	if err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+	if session.Status != SessionStatusIdle {
+		return UpsertSessionSummaryResult{}, fmt.Errorf("%w: summary update requires idle session", ErrInvalid)
+	}
+
+	now := time.Now().UTC()
+	compactingEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusCompacting, mustRaw(`{"status":"compacting"}`), now)
+	if err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = $2 WHERE id = $1`, session.ID, SessionStatusCompacting); err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+
+	var summary SessionSummary
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO session_summaries (session_id, summary_text, source_until_seq, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $4)
+		ON CONFLICT (session_id) DO UPDATE SET
+			summary_text = EXCLUDED.summary_text,
+			source_until_seq = EXCLUDED.source_until_seq,
+			updated_at = EXCLUDED.updated_at
+		RETURNING session_id, summary_text, source_until_seq, created_at, updated_at
+	`, session.ID, input.SummaryText, input.SourceUntilSeq, now).Scan(
+		&summary.SessionID,
+		&summary.SummaryText,
+		&summary.SourceUntilSeq,
+		&summary.CreatedAt,
+		&summary.UpdatedAt,
+	)
+	if err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+
+	idleEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusIdle, mustRaw(`{"status":"idle"}`), now)
+	if err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = $2 WHERE id = $1`, session.ID, SessionStatusIdle); err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return UpsertSessionSummaryResult{}, err
+	}
+
+	events := []Event{compactingEvent, idleEvent}
+	for _, event := range events {
+		s.hub.publish(event)
+	}
+	return UpsertSessionSummaryResult{Summary: summary, Events: events}, nil
 }
 
 func (s *PostgresStore) GetSession(id string) (Session, error) {
@@ -1032,6 +1252,154 @@ func (s *PostgresStore) RecordLLMUsage(input RecordLLMUsageInput) (LLMUsageRecor
 		return LLMUsageRecord{}, err
 	}
 	return record, nil
+}
+
+func (s *PostgresStore) GetSessionLLMUsage(sessionID string) (LLMUsageReport, error) {
+	if sessionID == "" {
+		return LLMUsageReport{}, fmt.Errorf("%w: usage session_id is required", ErrInvalid)
+	}
+	if _, err := s.GetSession(sessionID); err != nil {
+		return LLMUsageReport{}, err
+	}
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			agent_id,
+			agent_config_version,
+			session_id,
+			turn_id,
+			provider_id,
+			provider_type,
+			model,
+			input_tokens,
+			output_tokens,
+			total_tokens,
+			cached_input_tokens,
+			reasoning_tokens,
+			latency_ms,
+			status,
+			error_message,
+			created_at
+		FROM llm_usage_records
+		WHERE session_id = $1
+		ORDER BY created_at ASC, id ASC
+	`, sessionID)
+	if err != nil {
+		return LLMUsageReport{}, err
+	}
+	defer rows.Close()
+
+	report := LLMUsageReport{
+		SessionID: sessionID,
+		Records:   []LLMUsageRecord{},
+	}
+	for rows.Next() {
+		var record LLMUsageRecord
+		if err := rows.Scan(
+			&record.ID,
+			&record.WorkspaceID,
+			&record.AgentID,
+			&record.AgentConfigVersion,
+			&record.SessionID,
+			&record.TurnID,
+			&record.ProviderID,
+			&record.ProviderType,
+			&record.Model,
+			&record.InputTokens,
+			&record.OutputTokens,
+			&record.TotalTokens,
+			&record.CachedInputTokens,
+			&record.ReasoningTokens,
+			&record.LatencyMillis,
+			&record.Status,
+			&record.ErrorMessage,
+			&record.CreatedAt,
+		); err != nil {
+			return LLMUsageReport{}, err
+		}
+		report.Records = append(report.Records, record)
+		report.Summary.RecordCount++
+		report.Summary.InputTokens += record.InputTokens
+		report.Summary.OutputTokens += record.OutputTokens
+		report.Summary.TotalTokens += record.TotalTokens
+		report.Summary.CachedInputTokens += record.CachedInputTokens
+		report.Summary.ReasoningTokens += record.ReasoningTokens
+		report.Summary.LatencyMillis += record.LatencyMillis
+	}
+	if err := rows.Err(); err != nil {
+		return LLMUsageReport{}, err
+	}
+	return report, nil
+}
+
+func (s *PostgresStore) ListLLMUsage(input ListLLMUsageInput) (LLMUsageAggregateReport, error) {
+	groupBy := normalizeLLMUsageGroupBy(input.GroupBy)
+	if groupBy == "" {
+		return LLMUsageAggregateReport{}, fmt.Errorf("%w: unsupported usage group_by %q", ErrInvalid, input.GroupBy)
+	}
+	input.GroupBy = groupBy
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT
+			CASE WHEN $1 IN ('provider', 'provider_model') THEN provider_id ELSE '' END AS provider_id,
+			CASE WHEN $1 IN ('model', 'provider_model') THEN model ELSE '' END AS model,
+			COUNT(*) AS record_count,
+			COALESCE(SUM(input_tokens), 0) AS input_tokens,
+			COALESCE(SUM(output_tokens), 0) AS output_tokens,
+			COALESCE(SUM(total_tokens), 0) AS total_tokens,
+			COALESCE(SUM(cached_input_tokens), 0) AS cached_input_tokens,
+			COALESCE(SUM(reasoning_tokens), 0) AS reasoning_tokens,
+			COALESCE(SUM(latency_ms), 0) AS latency_ms
+		FROM llm_usage_records
+		WHERE ($2 = '' OR workspace_id = $2)
+			AND ($3 = '' OR provider_id = $3)
+			AND ($4 = '' OR model = $4)
+			AND ($5 = '' OR status = $5)
+			AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
+			AND ($7::timestamptz IS NULL OR created_at < $7::timestamptz)
+		GROUP BY 1, 2
+		ORDER BY total_tokens DESC, provider_id ASC, model ASC
+	`, groupBy, input.WorkspaceID, input.ProviderID, input.Model, input.Status, input.From, input.To)
+	if err != nil {
+		return LLMUsageAggregateReport{}, err
+	}
+	defer rows.Close()
+
+	report := LLMUsageAggregateReport{
+		GroupBy: groupBy,
+		Filters: input,
+		Groups:  []LLMUsageAggregate{},
+	}
+	for rows.Next() {
+		var aggregate LLMUsageAggregate
+		if err := rows.Scan(
+			&aggregate.ProviderID,
+			&aggregate.Model,
+			&aggregate.Summary.RecordCount,
+			&aggregate.Summary.InputTokens,
+			&aggregate.Summary.OutputTokens,
+			&aggregate.Summary.TotalTokens,
+			&aggregate.Summary.CachedInputTokens,
+			&aggregate.Summary.ReasoningTokens,
+			&aggregate.Summary.LatencyMillis,
+		); err != nil {
+			return LLMUsageAggregateReport{}, err
+		}
+		report.Groups = append(report.Groups, aggregate)
+		report.Summary.RecordCount += aggregate.Summary.RecordCount
+		report.Summary.InputTokens += aggregate.Summary.InputTokens
+		report.Summary.OutputTokens += aggregate.Summary.OutputTokens
+		report.Summary.TotalTokens += aggregate.Summary.TotalTokens
+		report.Summary.CachedInputTokens += aggregate.Summary.CachedInputTokens
+		report.Summary.ReasoningTokens += aggregate.Summary.ReasoningTokens
+		report.Summary.LatencyMillis += aggregate.Summary.LatencyMillis
+	}
+	if err := rows.Err(); err != nil {
+		return LLMUsageAggregateReport{}, err
+	}
+	return report, nil
 }
 
 func (s *PostgresStore) ListEvents(sessionID string, afterSeq int64) ([]Event, error) {

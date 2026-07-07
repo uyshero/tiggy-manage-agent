@@ -110,6 +110,20 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 		"llm_base_url", provider.BaseURL,
 		"llm_api_key_env", provider.APIKeyEnv,
 	)
+	model, err := store.UpsertLLMModel(managedagents.UpsertLLMModelInput{
+		ProviderID:          provider.ID,
+		Model:               config.LLM.Model,
+		ContextWindowTokens: config.Context.DefaultWindowTokens,
+	})
+	if err != nil {
+		return err
+	}
+	logger.Info("ensured default llm model",
+		"llm_provider", model.ProviderID,
+		"llm_model", model.Model,
+		"context_window_tokens", model.ContextWindowTokens,
+		"context_budget_ratio_percent", managedagents.ContextBudgetRatioPercent,
+	)
 	return nil
 }
 
@@ -139,6 +153,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, logger *
 		"agent_runtime", "demo",
 		"llm_provider", llmProvider,
 		"llm_model", llmModel,
+		"default_context_window_tokens", config.Context.DefaultWindowTokens,
 		"queue_size", config.Turn.QueueSize,
 	)
 	return worker, worker.Close, nil
