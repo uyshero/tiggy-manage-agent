@@ -177,26 +177,86 @@ func TestDemoRuntimeExecutesNativeToolCalls(t *testing.T) {
 	}
 }
 
-func TestDemoRuntimeExecutesLegacyToolCallEnvelope(t *testing.T) {
-	client := &legacyToolLoopLLMClient{}
+func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
+	client := &sensitiveToolLoopLLMClient{}
+	provider := &countingCapabilityProvider{}
+	var steps []Step
 	runtime := DemoRuntime{Client: client}
 
 	result, err := runtime.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
 		TurnID:      "turn_000001",
-		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"please inspect"}]}`),
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
 		Config: Config{
-			ToolExecutor: tools.NewDefaultExecutor(),
+			ModelTools:       tools.DefaultRegistry().ModelTools(),
+			ToolRegistry:     tools.DefaultRegistry(),
+			InterventionMode: tools.InterventionModeRequestApproval,
+			ToolExecutor:     tools.NewDefaultExecutor(),
 			ToolExecutionContext: tools.ExecutionContext{
-				Provider: stubCapabilityProvider{},
+				Provider: provider,
 			},
+		},
+		EmitStep: func(ctx context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
 		},
 	})
 	if err != nil {
 		t.Fatalf("run turn: %v", err)
 	}
-	if got := payloadText(result.AgentPayload); got != "legacy final answer" {
-		t.Fatalf("expected final answer after legacy tool loop, got %q", got)
+	if got := payloadText(result.AgentPayload); got != "approval final answer" {
+		t.Fatalf("expected final answer after approval gate, got %q", got)
+	}
+	if provider.editCalls != 0 {
+		t.Fatalf("expected edit_file not to execute without approval, got %d calls", provider.editCalls)
+	}
+	if !hasStepType(steps, managedagents.EventRuntimeToolInterventionRequired) {
+		t.Fatalf("expected intervention required step, got %#v", steps)
+	}
+	var toolResult map[string]any
+	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[2])), &toolResult); err != nil {
+		t.Fatalf("decode tool result: %v", err)
+	}
+	if toolResult["pending_intervention"] != true {
+		t.Fatalf("expected pending_intervention tool result, got %#v", toolResult)
+	}
+}
+
+func TestDemoRuntimeApproveForMeExecutesSensitiveTools(t *testing.T) {
+	client := &sensitiveToolLoopLLMClient{}
+	provider := &countingCapabilityProvider{}
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
+		Config: Config{
+			ModelTools:       tools.DefaultRegistry().ModelTools(),
+			ToolRegistry:     tools.DefaultRegistry(),
+			InterventionMode: tools.InterventionModeApproveForMe,
+			ToolExecutor:     tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{
+				Provider: provider,
+			},
+		},
+		EmitStep: func(ctx context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "approval final answer" {
+		t.Fatalf("expected final answer after auto-approval, got %q", got)
+	}
+	if provider.editCalls != 1 {
+		t.Fatalf("expected edit_file to execute once, got %d", provider.editCalls)
+	}
+	if !hasStepType(steps, managedagents.EventRuntimeToolInterventionApproved) {
+		t.Fatalf("expected intervention approved step, got %#v", steps)
 	}
 }
 
@@ -517,19 +577,23 @@ func (c *nativeToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 	}, nil
 }
 
-type legacyToolLoopLLMClient struct {
+type sensitiveToolLoopLLMClient struct {
 	requests []llm.Request
 }
 
-func (c *legacyToolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (llm.Response, error) {
+func (c *sensitiveToolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (llm.Response, error) {
 	c.requests = append(c.requests, request)
 	if len(c.requests) == 1 {
 		return llm.Response{
 			Message: llm.Message{
 				Role: "assistant",
-				Content: []llm.ContentPart{{
-					Type: "text",
-					Text: `{"protocol_version":"tma.agent_runtime.demo.v1","tool_calls":[{"id":"call_1","name":"run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}]}`,
+				ToolCalls: []llm.ToolCall{{
+					ID:   "call_edit",
+					Type: "function",
+					Function: llm.ToolCallFunction{
+						Name:      "tma.local_system.edit_file",
+						Arguments: json.RawMessage(`{"file_path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
+					},
 				}},
 			},
 		}, nil
@@ -539,7 +603,7 @@ func (c *legacyToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 			Role: "assistant",
 			Content: []llm.ContentPart{{
 				Type: "text",
-				Text: "legacy final answer",
+				Text: "approval final answer",
 			}},
 		},
 	}, nil
@@ -567,6 +631,31 @@ func (stubCapabilityProvider) WriteFile(context.Context, capability.WriteFileReq
 }
 
 func (stubCapabilityProvider) EditFile(context.Context, capability.EditFileRequest) (capability.EditFileResult, error) {
+	return capability.EditFileResult{Success: true, Replacements: 1}, nil
+}
+
+type countingCapabilityProvider struct {
+	editCalls int
+}
+
+func (p *countingCapabilityProvider) RunCommand(context.Context, capability.RunCommandRequest) (capability.CommandResult, error) {
+	return capability.CommandResult{ExitCode: 0, Stdout: "tool-output"}, nil
+}
+
+func (p *countingCapabilityProvider) ExecuteCode(context.Context, capability.ExecuteCodeRequest) (capability.CommandResult, error) {
+	return capability.CommandResult{}, nil
+}
+
+func (p *countingCapabilityProvider) ReadFile(context.Context, capability.ReadFileRequest) (capability.FileResult, error) {
+	return capability.FileResult{}, nil
+}
+
+func (p *countingCapabilityProvider) WriteFile(context.Context, capability.WriteFileRequest) (capability.FileResult, error) {
+	return capability.FileResult{}, nil
+}
+
+func (p *countingCapabilityProvider) EditFile(context.Context, capability.EditFileRequest) (capability.EditFileResult, error) {
+	p.editCalls++
 	return capability.EditFileResult{Success: true, Replacements: 1}, nil
 }
 

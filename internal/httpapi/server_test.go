@@ -310,6 +310,36 @@ func TestManagedAgentsMinimumFlow(t *testing.T) {
 	}
 }
 
+func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	updated := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
+		"intervention_mode": "approve_for_me"
+	}`, http.StatusOK)
+	if string(updated.RuntimeSettings) != `{"intervention_mode":"approve_for_me"}` {
+		t.Fatalf("unexpected runtime settings after patch: %s", string(updated.RuntimeSettings))
+	}
+
+	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if string(fetched.RuntimeSettings) != `{"intervention_mode":"approve_for_me"}` {
+		t.Fatalf("unexpected runtime settings on get: %s", string(fetched.RuntimeSettings))
+	}
+}
+
 func TestGetSessionLLMUsageIncludesSummaryAndRecords(t *testing.T) {
 	store := newTestStore()
 	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)

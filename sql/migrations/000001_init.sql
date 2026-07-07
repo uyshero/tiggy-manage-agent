@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   status TEXT NOT NULL,
   title TEXT,
   sandbox_id TEXT,
+  runtime_settings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   worker_node_id TEXT,
   idle_expires_at TIMESTAMPTZ,
   running_since TIMESTAMPTZ,

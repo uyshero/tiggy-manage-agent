@@ -17,6 +17,7 @@ type Store interface {
 	CreateEnvironment(input CreateEnvironmentInput) (Environment, error)
 	CreateSession(input CreateSessionInput) (Session, error)
 	GetSession(id string) (Session, error)
+	UpdateSessionRuntimeSettings(id string, input UpdateSessionRuntimeSettingsInput) (Session, error)
 	ResolveAgentRuntimeConfig(sessionID string) (AgentRuntimeConfig, error)
 	GetSessionSummary(sessionID string) (SessionSummary, error)
 	SaveSessionSummary(sessionID string, input UpsertSessionSummaryInput) (SessionSummary, error)

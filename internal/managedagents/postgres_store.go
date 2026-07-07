@@ -599,14 +599,15 @@ func (s *PostgresStore) CreateSession(input CreateSessionInput) (Session, error)
 		EnvironmentID:      input.EnvironmentID,
 		Status:             SessionStatusIdle,
 		Title:              input.Title,
+		RuntimeSettings:    json.RawMessage(`{}`),
 		CreatedBy:          defaultString(input.CreatedBy, "system"),
 		CreatedAt:          now,
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions (id, workspace_id, agent_id, agent_config_version, environment_id, status, title, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, session.ID, session.WorkspaceID, session.AgentID, session.AgentConfigVersion, session.EnvironmentID, session.Status, nullableString(session.Title), session.CreatedBy, session.CreatedAt)
+		INSERT INTO sessions (id, workspace_id, agent_id, agent_config_version, environment_id, status, title, runtime_settings_json, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, session.ID, session.WorkspaceID, session.AgentID, session.AgentConfigVersion, session.EnvironmentID, session.Status, nullableString(session.Title), session.RuntimeSettings, session.CreatedBy, session.CreatedAt)
 	if err != nil {
 		return Session{}, err
 	}
@@ -629,6 +630,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 	var config AgentRuntimeConfig
 	var tools []byte
 	var skills []byte
+	var runtimeSettings []byte
 	var providerType sql.NullString
 	var baseURL sql.NullString
 	var apiKeyEnv sql.NullString
@@ -645,6 +647,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 			av.llm_provider,
 			av.llm_model,
 			av.system,
+			s.runtime_settings_json,
 			av.tools_json,
 			av.skills_json,
 			lp.provider_type,
@@ -674,6 +677,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 		&config.LLMProvider,
 		&config.LLMModel,
 		&config.System,
+		&runtimeSettings,
 		&tools,
 		&skills,
 		&providerType,
@@ -691,6 +695,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 		return AgentRuntimeConfig{}, err
 	}
 
+	config.RuntimeSettings = cloneRaw(runtimeSettings)
 	config.Tools = cloneRaw(tools)
 	config.Skills = cloneRaw(skills)
 	config.LLMProviderType = providerType.String
@@ -844,10 +849,11 @@ func (s *PostgresStore) GetSession(id string) (Session, error) {
 	var session Session
 	var title sql.NullString
 	var sandboxID sql.NullString
+	var runtimeSettings []byte
 	var archivedAt sql.NullTime
 
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, runtime_settings_json, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 	`, id).Scan(
@@ -859,6 +865,7 @@ func (s *PostgresStore) GetSession(id string) (Session, error) {
 		&session.Status,
 		&title,
 		&sandboxID,
+		&runtimeSettings,
 		&session.CreatedBy,
 		&session.CreatedAt,
 		&archivedAt,
@@ -872,11 +879,32 @@ func (s *PostgresStore) GetSession(id string) (Session, error) {
 
 	session.Title = title.String
 	session.SandboxID = sandboxID.String
+	session.RuntimeSettings = cloneRaw(runtimeSettings)
 	if archivedAt.Valid {
 		session.ArchivedAt = &archivedAt.Time
 	}
 
 	return session, nil
+}
+
+func (s *PostgresStore) UpdateSessionRuntimeSettings(id string, input UpdateSessionRuntimeSettingsInput) (Session, error) {
+	if len(input.RuntimeSettings) == 0 {
+		input.RuntimeSettings = json.RawMessage(`{}`)
+	}
+	if !json.Valid(input.RuntimeSettings) {
+		return Session{}, fmt.Errorf("%w: runtime_settings must be valid JSON", ErrInvalid)
+	}
+	if _, err := s.GetSession(id); err != nil {
+		return Session{}, err
+	}
+	if _, err := s.db.ExecContext(context.Background(), `
+		UPDATE sessions
+		SET runtime_settings_json = $2
+		WHERE id = $1
+	`, id, input.RuntimeSettings); err != nil {
+		return Session{}, err
+	}
+	return s.GetSession(id)
 }
 
 func (s *PostgresStore) ArchiveSession(id string) (Session, error) {
@@ -1689,7 +1717,7 @@ func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	// 涉及状态迁移的事务都通过 FOR UPDATE 锁住 Session，保护状态机一致性。
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, runtime_settings_json, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 		FOR UPDATE
@@ -1700,6 +1728,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 	var session Session
 	var title sql.NullString
 	var sandboxID sql.NullString
+	var runtimeSettings []byte
 	var archivedAt sql.NullTime
 
 	err := tx.QueryRowContext(ctx, query, id).Scan(
@@ -1711,6 +1740,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 		&session.Status,
 		&title,
 		&sandboxID,
+		&runtimeSettings,
 		&session.CreatedBy,
 		&session.CreatedAt,
 		&archivedAt,
@@ -1724,6 +1754,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 
 	session.Title = title.String
 	session.SandboxID = sandboxID.String
+	session.RuntimeSettings = cloneRaw(runtimeSettings)
 	if archivedAt.Valid {
 		session.ArchivedAt = &archivedAt.Time
 	}

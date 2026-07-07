@@ -354,6 +354,7 @@ func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (manag
 		EnvironmentID:      environment.ID,
 		Status:             managedagents.SessionStatusIdle,
 		Title:              input.Title,
+		RuntimeSettings:    json.RawMessage(`{}`),
 		CreatedBy:          defaultString(input.CreatedBy, "system"),
 		CreatedAt:          now,
 	}
@@ -371,6 +372,19 @@ func (s *testStore) GetSession(id string) (managedagents.Session, error) {
 	if !ok {
 		return managedagents.Session{}, managedagents.ErrNotFound
 	}
+	return session, nil
+}
+
+func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	session.RuntimeSettings = cloneRaw(input.RuntimeSettings)
+	s.sessions[id] = session
 	return session, nil
 }
 
@@ -411,6 +425,7 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		SummaryText:           summary.SummaryText,
 		SummarySourceUntilSeq: summary.SourceUntilSeq,
 		System:                configVersion.System,
+		RuntimeSettings:       cloneRaw(session.RuntimeSettings),
 		Tools:                 cloneRaw(configVersion.Tools),
 		Skills:                cloneRaw(configVersion.Skills),
 	}, nil

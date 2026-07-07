@@ -81,6 +81,14 @@ runtime.completed
 
 当前 `DemoRuntime` 已有最小 tool loop：Runtime 会把 `internal/tools.Registry.ModelTools()` 生成的函数 schema 放进 `llm.Request.Tools`。`openai-compatible` 会把它转换成 Chat Completions `tools`，并把响应里的原生 `tool_calls` 解析回 `llm.Message.ToolCalls`。Runtime 随后调用 `internal/tools.Executor`，记录 `runtime.tool_call` / `runtime.tool_result`，再把工具结果作为带 `tool_call_id` 的 `tool` role message 送回模型继续本轮回复。
 
+Session 级工具开启等级通过 `runtime_settings.intervention_mode` 热更新，当前支持：
+
+- `request_approval`：敏感工具不执行，写出 `runtime.tool_intervention_required`，并返回 `pending_intervention=true` 的 tool result。
+- `approve_for_me`：敏感工具先写出 `runtime.tool_intervention_approved`，再继续执行。
+- `full_access`：直接执行。
+
+当前 `tma.local_system.read_file` 默认直通；`run_command`、`execute_code`、`write_file`、`edit_file` 会进入这套 policy。
+
 作为兼容路径，如果模型返回一个文本 JSON envelope，且其中包含 `tool_calls`，Runtime 也会按同一套 executor 执行。这个 envelope 是 TMA 内部稳定协议，用来把模型输出、内置工具 registry 和底层 capability provider 解耦，并兼容尚未支持厂商原生 function calling 的 Provider。
 
 当前工具调用 envelope 版本是 `tma.tool_call.v1`：
@@ -104,7 +112,7 @@ runtime.completed
 }
 ```
 
-`function.name` 使用 `<tool_identifier>.<api_name>` 格式，例如 `tma.local_system.run_command`。Runtime 当前仍兼容旧的 `tma.agent_runtime.demo.v1` 工具调用 envelope，便于已有测试和历史会话逐步迁移。
+`function.name` 使用 `<tool_identifier>.<api_name>` 格式，例如 `tma.local_system.run_command`。新项目不兼容旧的 `tma.agent_runtime.demo.v1` 工具调用 envelope；该协议名只保留给当前 demo `agent.message` payload。
 
 ## 多轮上下文
 

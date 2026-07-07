@@ -123,6 +123,15 @@ openai-compatible
 
 当前 `openai-compatible` 使用 `stream: true` 读取普通文本 SSE 增量，服务端会把增量写成 `runtime.llm_delta` 事件；最终仍会写一条完整 `agent.message`。带工具 schema 的请求第一版走非流式 Chat Completions，并支持原生 `tools` / `tool_calls` 适配。
 
+Session 级工具权限可通过 `PATCH /v1/sessions/{session_id}/runtime-settings` 热更新 `intervention_mode`，当前支持 `request_approval`、`approve_for_me`、`full_access`。
+
+CLI：
+
+```bash
+bin/tma session runtime get --session sesn_000001
+bin/tma session runtime update --session sesn_000001 --intervention-mode approve_for_me
+```
+
 这个配置项先作为默认 Provider 选择入口保留。服务启动时会把它 upsert 到 `llm_providers` 表；创建 Agent 时，如果请求没有传 `llm_provider`，HTTP 层会用它补齐 AgentConfigVersion。
 
 `TMA_LLM_PROVIDER` 可以是内置 Provider ID，也可以是业务自定义 Provider ID。例如：

@@ -72,6 +72,28 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	}
 }
 
+func TestParseInterventionModeDefaultsAndNormalizes(t *testing.T) {
+	if got := ParseInterventionMode(nil); got != InterventionModeRequestApproval {
+		t.Fatalf("expected default intervention mode, got %q", got)
+	}
+	if got := ParseInterventionMode(json.RawMessage(`{"intervention_mode":"APPROVE_FOR_ME"}`)); got != InterventionModeApproveForMe {
+		t.Fatalf("expected normalized approve_for_me, got %q", got)
+	}
+	if got := ParseInterventionMode(json.RawMessage(`{"intervention_mode":"wat"}`)); got != InterventionModeRequestApproval {
+		t.Fatalf("expected invalid value to fall back to default, got %q", got)
+	}
+}
+
+func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
+	manifest, api, ok := DefaultRegistry().GetAPI(LocalSystemIdentifier, "edit_file")
+	if !ok {
+		t.Fatal("expected edit_file api")
+	}
+	if manifest.Identifier != LocalSystemIdentifier || api.Name != "edit_file" || api.HumanIntervention != "optional" {
+		t.Fatalf("unexpected api lookup result: manifest=%#v api=%#v", manifest, api)
+	}
+}
+
 func TestRegistryExecutorRunsLocalSystemCommand(t *testing.T) {
 	executor := NewDefaultExecutor()
 

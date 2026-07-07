@@ -60,9 +60,12 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			SummaryText:           config.SummaryText,
 			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
 			System:                config.System,
+			RuntimeSettings:       config.RuntimeSettings,
 			Tools:                 toolRegistry.ModelContext(),
 			ModelTools:            toolRegistry.ModelTools(),
 			Skills:                config.Skills,
+			InterventionMode:      tools.ParseInterventionMode(config.RuntimeSettings),
+			ToolRegistry:          toolRegistry,
 			ToolExecutor:          tools.RegistryExecutor{Registry: toolRegistry},
 			ToolExecutionContext: tools.ExecutionContext{
 				Provider: capability.LocalSystemProvider{},

@@ -29,14 +29,16 @@ func (LocalSystemRuntime) Manifest() Manifest {
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
-				Name:        "run_command",
-				Description: "Run a command with optional args, working directory, environment variables, and stdin.",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"}},"required":["command"]}`),
+				Name:              "run_command",
+				Description:       "Run a command with optional args, working directory, environment variables, and stdin.",
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"}},"required":["command"]}`),
+				HumanIntervention: "optional",
 			},
 			{
-				Name:        "execute_code",
-				Description: "Execute a short code snippet in a supported language.",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}}},"required":["language","code"]}`),
+				Name:              "execute_code",
+				Description:       "Execute a short code snippet in a supported language.",
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}}},"required":["language","code"]}`),
+				HumanIntervention: "optional",
 			},
 			{
 				Name:        "read_file",

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -564,10 +565,72 @@ func commandSession(client *apiClient, args []string) error {
 
 		fmt.Printf("deleted session %s\n", sessionID)
 		return nil
+	case "runtime":
+		return commandSessionRuntime(client, args[1:])
 	case "summary":
 		return commandSessionSummary(client, args[1:])
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+func commandSessionRuntime(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session runtime command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "get":
+		flags := flag.NewFlagSet("session runtime get", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("session runtime get requires --session")
+		}
+
+		var response struct {
+			RuntimeSettings json.RawMessage `json:"runtime_settings"`
+		}
+		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &response); err != nil {
+			return err
+		}
+		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
+	case "update":
+		flags := flag.NewFlagSet("session runtime update", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var interventionMode string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.StringVar(&interventionMode, "intervention-mode", "", "request_approval | approve_for_me | full_access")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" || interventionMode == "" {
+			return fmt.Errorf("session runtime update requires --session and --intervention-mode")
+		}
+
+		mode, ok := normalizeInterventionModeArg(interventionMode)
+		if !ok {
+			return fmt.Errorf("unsupported intervention mode %q", interventionMode)
+		}
+
+		var response struct {
+			RuntimeSettings json.RawMessage `json:"runtime_settings"`
+		}
+		if err := client.do(http.MethodPatch, "/v1/sessions/"+url.PathEscape(sessionID)+"/runtime-settings", map[string]any{
+			"intervention_mode": mode,
+		}, &response); err != nil {
+			return err
+		}
+		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
+	default:
+		return fmt.Errorf("unknown session runtime subcommand %q", args[0])
 	}
 }
 
@@ -911,11 +974,135 @@ func (c *apiClient) stream(path string, output io.Writer) error {
 		return fmt.Errorf("GET %s returned %s: %s", path, response.Status, strings.TrimSpace(string(responseBytes)))
 	}
 
-	_, err = io.Copy(output, response.Body)
-	if err != nil {
+	return streamSSE(response.Body, output)
+}
+
+func streamSSE(reader io.Reader, output io.Writer) error {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if len(lines) != 0 {
+				if _, err := io.WriteString(output, formatSSEChunk(lines)); err != nil {
+					return fmt.Errorf("write stream: %w", err)
+				}
+				lines = lines[:0]
+			} else {
+				if _, err := io.WriteString(output, "\n"); err != nil {
+					return fmt.Errorf("write stream: %w", err)
+				}
+			}
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("read stream: %w", err)
 	}
+	if len(lines) != 0 {
+		if _, err := io.WriteString(output, formatSSEChunk(lines)); err != nil {
+			return fmt.Errorf("write stream: %w", err)
+		}
+	}
 	return nil
+}
+
+func formatSSEChunk(lines []string) string {
+	chunk := strings.Join(lines, "\n") + "\n\n"
+	eventType, eventData := parseSSEChunk(lines)
+	if eventType != "runtime.tool_intervention_required" {
+		return chunk
+	}
+	formatted, ok := formatToolInterventionEvent(eventData)
+	if !ok {
+		return chunk
+	}
+	return formatted + "\n"
+}
+
+func parseSSEChunk(lines []string) (string, string) {
+	var eventType string
+	var dataLines []string
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "event:"):
+			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	return eventType, strings.Join(dataLines, "\n")
+}
+
+func formatToolInterventionEvent(raw string) (string, bool) {
+	var event struct {
+		Seq     int64           `json:"seq"`
+		Type    string          `json:"type"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		return "", false
+	}
+	var payload struct {
+		TurnID  string `json:"turn_id"`
+		Message string `json:"message"`
+		Data    struct {
+			ID               string `json:"id"`
+			Identifier       string `json:"identifier"`
+			APIName          string `json:"api_name"`
+			InterventionMode string `json:"intervention_mode"`
+			Reason           string `json:"reason"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return "", false
+	}
+
+	var builder strings.Builder
+	builder.WriteString("approval required\n")
+	if event.Seq > 0 {
+		builder.WriteString("  seq: ")
+		builder.WriteString(strconv.FormatInt(event.Seq, 10))
+		builder.WriteString("\n")
+	}
+	if payload.TurnID != "" {
+		builder.WriteString("  turn: ")
+		builder.WriteString(payload.TurnID)
+		builder.WriteString("\n")
+	}
+	if payload.Data.ID != "" {
+		builder.WriteString("  call: ")
+		builder.WriteString(payload.Data.ID)
+		builder.WriteString("\n")
+	}
+	if payload.Data.Identifier != "" || payload.Data.APIName != "" {
+		builder.WriteString("  tool: ")
+		builder.WriteString(payload.Data.Identifier)
+		if payload.Data.APIName != "" {
+			builder.WriteString(".")
+			builder.WriteString(payload.Data.APIName)
+		}
+		builder.WriteString("\n")
+	}
+	if payload.Data.InterventionMode != "" {
+		builder.WriteString("  mode: ")
+		builder.WriteString(payload.Data.InterventionMode)
+		builder.WriteString("\n")
+	}
+	if payload.Message != "" {
+		builder.WriteString("  message: ")
+		builder.WriteString(payload.Message)
+		builder.WriteString("\n")
+	}
+	if payload.Data.Reason != "" {
+		builder.WriteString("  policy: ")
+		builder.WriteString(payload.Data.Reason)
+		builder.WriteString("\n")
+	}
+	return builder.String(), true
 }
 
 func printJSON(value any) error {
@@ -926,6 +1113,37 @@ func printJSON(value any) error {
 
 	fmt.Println(string(encoded))
 	return nil
+}
+
+func printRawJSON(raw json.RawMessage) error {
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("decode output: %w", err)
+	}
+	return printJSON(value)
+}
+
+func defaultJSONObject(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return json.RawMessage(`{}`)
+	}
+	return raw
+}
+
+func normalizeInterventionModeArg(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "request_approval":
+		return "request_approval", true
+	case "approve_for_me":
+		return "approve_for_me", true
+	case "full_access":
+		return "full_access", true
+	default:
+		return "", false
+	}
 }
 
 func flagWasPassed(flags *flag.FlagSet, name string) bool {
@@ -961,6 +1179,8 @@ func printUsage() {
   tma [--base-url URL] env create --name NAME [--config JSON]
   tma [--base-url URL] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
   tma [--base-url URL] session get --session SESSION_ID
+  tma [--base-url URL] session runtime get --session SESSION_ID
+  tma [--base-url URL] session runtime update --session SESSION_ID --intervention-mode MODE
   tma [--base-url URL] session archive --session SESSION_ID
   tma [--base-url URL] session delete --session SESSION_ID
   tma [--base-url URL] session summary get --session SESSION_ID

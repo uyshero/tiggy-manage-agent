@@ -13,10 +13,9 @@ import (
 )
 
 const (
-	ExecutorServer                = "server"
-	ManifestProtocolVersion       = "tma.tools.manifest.v1"
-	ToolCallProtocolVersion       = "tma.tool_call.v1"
-	LegacyToolCallProtocolVersion = "tma.agent_runtime.demo.v1"
+	ExecutorServer          = "server"
+	ManifestProtocolVersion = "tma.tools.manifest.v1"
+	ToolCallProtocolVersion = "tma.tool_call.v1"
 )
 
 type Manifest struct {
@@ -57,12 +56,13 @@ type ExecutionContext struct {
 }
 
 type ExecutionResult struct {
-	ID         string          `json:"id,omitempty"`
-	Identifier string          `json:"identifier"`
-	APIName    string          `json:"api_name"`
-	Content    string          `json:"content"`
-	State      json.RawMessage `json:"state,omitempty"`
-	Error      *ExecutionError `json:"error,omitempty"`
+	ID                  string          `json:"id,omitempty"`
+	Identifier          string          `json:"identifier"`
+	APIName             string          `json:"api_name"`
+	Content             string          `json:"content"`
+	State               json.RawMessage `json:"state,omitempty"`
+	PendingIntervention bool            `json:"pending_intervention,omitempty"`
+	Error               *ExecutionError `json:"error,omitempty"`
 }
 
 type ExecutionError struct {
@@ -109,6 +109,20 @@ func (r Registry) Register(runtime Runtime) {
 func (r Registry) Get(identifier string) (Runtime, bool) {
 	runtime, ok := r.runtimes[identifier]
 	return runtime, ok
+}
+
+func (r Registry) GetAPI(identifier string, apiName string) (Manifest, API, bool) {
+	runtime, ok := r.runtimes[identifier]
+	if !ok {
+		return Manifest{}, API{}, false
+	}
+	manifest := runtime.Manifest()
+	for _, api := range manifest.API {
+		if api.Name == apiName {
+			return manifest, api, true
+		}
+	}
+	return manifest, API{}, false
 }
 
 func (r Registry) Manifests() []Manifest {
@@ -163,7 +177,6 @@ func (r Registry) ModelContext() json.RawMessage {
 					},
 				}},
 			},
-			"legacy_compatibility": "identifier/api_name/name fields are still accepted during migration",
 		},
 		"tools": manifests,
 	}
@@ -252,13 +265,14 @@ func splitFunctionName(name string) (string, string) {
 
 func ResultMessage(result ExecutionResult) string {
 	encoded, err := json.Marshal(map[string]any{
-		"id":         result.ID,
-		"identifier": result.Identifier,
-		"api_name":   result.APIName,
-		"content":    result.Content,
-		"state":      rawJSONObject(result.State),
-		"error":      result.Error,
-		"success":    result.Error == nil,
+		"id":                   result.ID,
+		"identifier":           result.Identifier,
+		"api_name":             result.APIName,
+		"content":              result.Content,
+		"state":                rawJSONObject(result.State),
+		"pending_intervention": result.PendingIntervention,
+		"error":                result.Error,
+		"success":              result.Error == nil,
 	})
 	if err != nil {
 		return `{"success":false,"error":{"type":"encode_failed","message":"encode tool result failed"}}`
@@ -274,6 +288,21 @@ func failedResult(call Call, errorType string, message string) ExecutionResult {
 		APIName:    call.APIName,
 		Error: &ExecutionError{
 			Type:    errorType,
+			Message: message,
+		},
+	}
+}
+
+func PendingInterventionResult(call Call, message string) ExecutionResult {
+	call = NormalizeCall(call)
+	return ExecutionResult{
+		ID:                  call.ID,
+		Identifier:          call.Identifier,
+		APIName:             call.APIName,
+		Content:             message,
+		PendingIntervention: true,
+		Error: &ExecutionError{
+			Type:    "human_intervention_required",
 			Message: message,
 		},
 	}

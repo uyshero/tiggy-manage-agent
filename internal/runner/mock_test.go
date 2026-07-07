@@ -232,15 +232,16 @@ func TestWorkerRunnerInterruptCancelsExecutor(t *testing.T) {
 }
 
 type mockStore struct {
-	mu            sync.Mutex
-	completed     int
-	failed        int
-	reason        string
-	payload       json.RawMessage
-	summaries     map[string]managedagents.SessionSummary
-	usageRecords  []managedagents.RecordLLMUsageInput
-	runtimeEvents []string
-	history       []managedagents.ConversationMessage
+	mu              sync.Mutex
+	completed       int
+	failed          int
+	reason          string
+	payload         json.RawMessage
+	summaries       map[string]managedagents.SessionSummary
+	usageRecords    []managedagents.RecordLLMUsageInput
+	runtimeEvents   []string
+	history         []managedagents.ConversationMessage
+	runtimeSettings json.RawMessage
 }
 
 func (s *mockStore) completeCalls() int {
@@ -354,6 +355,10 @@ func (s *mockStore) GetSession(string) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
 }
 
+func (s *mockStore) UpdateSessionRuntimeSettings(string, managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
+	return managedagents.Session{}, nil
+}
+
 func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
 	return managedagents.AgentRuntimeConfig{
 		SessionID:             sessionID,
@@ -366,6 +371,7 @@ func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		ContextWindowTokens:   managedagents.DefaultContextWindowTokens,
 		SummaryText:           "summary from mock store",
 		SummarySourceUntilSeq: 2,
+		RuntimeSettings:       append(json.RawMessage(nil), s.runtimeSettings...),
 	}, nil
 }
 

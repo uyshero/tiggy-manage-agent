@@ -9,6 +9,7 @@ import (
 
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
+	"tiggy-manage-agent/internal/tools"
 )
 
 type appendEventsRequest struct {
@@ -41,6 +42,10 @@ type agentConfigVersionRequest struct {
 type sessionSummaryRequest struct {
 	SummaryText    string `json:"summary_text"`
 	SourceUntilSeq int64  `json:"source_until_seq"`
+}
+
+type sessionRuntimeSettingsRequest struct {
+	InterventionMode *string `json:"intervention_mode"`
 }
 
 func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
@@ -389,6 +394,36 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Request) {
+	var request sessionRuntimeSettingsRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	settings := map[string]any{}
+	if request.InterventionMode != nil {
+		mode, ok := tools.NormalizeInterventionMode(*request.InterventionMode)
+		if !ok {
+			writeError(w, fmt.Errorf("%w: unsupported intervention_mode %q", managedagents.ErrInvalid, *request.InterventionMode))
+			return
+		}
+		settings["intervention_mode"] = mode
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	session, err := s.store.UpdateSessionRuntimeSettings(r.PathValue("session_id"), managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: raw,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, session)
 }
 

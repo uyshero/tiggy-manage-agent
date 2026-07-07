@@ -116,6 +116,29 @@ func TestAgentRuntimeTurnExecutorPassesConversationHistory(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorPassesSessionInterventionMode(t *testing.T) {
+	store := &mockStore{
+		runtimeSettings: json.RawMessage(`{"intervention_mode":"approve_for_me"}`),
+	}
+	runtime := &captureRuntime{}
+	executor := AgentRuntimeTurnExecutor{
+		Runtime: runtime,
+		Store:   store,
+	}
+
+	_, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000002",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"go"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	if runtime.request.Config.InterventionMode != "approve_for_me" {
+		t.Fatalf("expected session intervention mode to reach runtime, got %q", runtime.request.Config.InterventionMode)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorSavesRuntimeSummary(t *testing.T) {
 	store := &mockStore{}
 	executor := AgentRuntimeTurnExecutor{

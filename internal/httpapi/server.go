@@ -64,6 +64,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/environments", s.createEnvironment)
 	s.mux.HandleFunc("POST /v1/sessions", s.createSession)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}", s.getSession)
+	s.mux.HandleFunc("PATCH /v1/sessions/{session_id}/runtime-settings", s.updateSessionRuntimeSettings)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/archive", s.archiveSession)
 	s.mux.HandleFunc("DELETE /v1/sessions/{session_id}", s.deleteSession)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/summary", s.getSessionSummary)

@@ -32,18 +32,20 @@ const (
 	EventUserInterrupt = "user.interrupt"
 	EventAgentMessage  = "agent.message"
 
-	EventRuntimeStarted     = "runtime.started"
-	EventRuntimeThinking    = "runtime.thinking"
-	EventRuntimeLLMRequest  = "runtime.llm_request"
-	EventRuntimeLLMDelta    = "runtime.llm_delta"
-	EventRuntimeLLMResponse = "runtime.llm_response"
-	EventRuntimeToolCall    = "runtime.tool_call"
-	EventRuntimeToolResult  = "runtime.tool_result"
-	EventRuntimeContextCompacting = "runtime.context_compacting"
-	EventRuntimeContextCompacted = "runtime.context_compacted"
-	EventRuntimeContextCompactionFailed = "runtime.context_compaction_failed"
-	EventRuntimeCompleted   = "runtime.completed"
-	EventRuntimeFailed      = "runtime.failed"
+	EventRuntimeStarted                  = "runtime.started"
+	EventRuntimeThinking                 = "runtime.thinking"
+	EventRuntimeLLMRequest               = "runtime.llm_request"
+	EventRuntimeLLMDelta                 = "runtime.llm_delta"
+	EventRuntimeLLMResponse              = "runtime.llm_response"
+	EventRuntimeToolCall                 = "runtime.tool_call"
+	EventRuntimeToolInterventionRequired = "runtime.tool_intervention_required"
+	EventRuntimeToolInterventionApproved = "runtime.tool_intervention_approved"
+	EventRuntimeToolResult               = "runtime.tool_result"
+	EventRuntimeContextCompacting        = "runtime.context_compacting"
+	EventRuntimeContextCompacted         = "runtime.context_compacted"
+	EventRuntimeContextCompactionFailed  = "runtime.context_compaction_failed"
+	EventRuntimeCompleted                = "runtime.completed"
+	EventRuntimeFailed                   = "runtime.failed"
 )
 
 type Agent struct {
@@ -115,17 +117,18 @@ type Environment struct {
 }
 
 type Session struct {
-	ID                 string     `json:"id"`
-	WorkspaceID        string     `json:"workspace_id"`
-	AgentID            string     `json:"agent_id"`
-	AgentConfigVersion int        `json:"agent_config_version"`
-	EnvironmentID      string     `json:"environment_id"`
-	Status             string     `json:"status"`
-	Title              string     `json:"title,omitempty"`
-	SandboxID          string     `json:"sandbox_id,omitempty"`
-	CreatedBy          string     `json:"created_by"`
-	CreatedAt          time.Time  `json:"created_at"`
-	ArchivedAt         *time.Time `json:"archived_at,omitempty"`
+	ID                 string          `json:"id"`
+	WorkspaceID        string          `json:"workspace_id"`
+	AgentID            string          `json:"agent_id"`
+	AgentConfigVersion int             `json:"agent_config_version"`
+	EnvironmentID      string          `json:"environment_id"`
+	Status             string          `json:"status"`
+	Title              string          `json:"title,omitempty"`
+	SandboxID          string          `json:"sandbox_id,omitempty"`
+	RuntimeSettings    json.RawMessage `json:"runtime_settings,omitempty"`
+	CreatedBy          string          `json:"created_by"`
+	CreatedAt          time.Time       `json:"created_at"`
+	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
 }
 
 type Event struct {
@@ -266,6 +269,10 @@ type CreateAgentConfigVersionInput struct {
 	Skills      json.RawMessage `json:"skills,omitempty"`
 }
 
+type UpdateSessionRuntimeSettingsInput struct {
+	RuntimeSettings json.RawMessage `json:"runtime_settings"`
+}
+
 type AgentRuntimeConfig struct {
 	SessionID             string          `json:"session_id"`
 	WorkspaceID           string          `json:"workspace_id"`
@@ -280,6 +287,7 @@ type AgentRuntimeConfig struct {
 	SummaryText           string          `json:"summary_text,omitempty"`
 	SummarySourceUntilSeq int64           `json:"summary_source_until_seq,omitempty"`
 	System                string          `json:"system"`
+	RuntimeSettings       json.RawMessage `json:"runtime_settings,omitempty"`
 	Tools                 json.RawMessage `json:"tools,omitempty"`
 	Skills                json.RawMessage `json:"skills,omitempty"`
 }

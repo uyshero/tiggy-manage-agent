@@ -51,9 +51,12 @@ type Config struct {
 	SummaryText           string
 	SummarySourceUntilSeq int64
 	System                string
+	RuntimeSettings       json.RawMessage
 	Tools                 json.RawMessage
 	ModelTools            []llm.Tool
 	Skills                json.RawMessage
+	InterventionMode      string
+	ToolRegistry          tools.Registry
 	ToolExecutor          tools.Executor
 	ToolExecutionContext  tools.ExecutionContext
 }
@@ -206,13 +209,9 @@ type toolCallEnvelope struct {
 }
 
 type toolCallEnvelopeCall struct {
-	ID         string           `json:"id,omitempty"`
-	Type       string           `json:"type,omitempty"`
-	Function   toolCallFunction `json:"function,omitempty"`
-	Identifier string           `json:"identifier,omitempty"`
-	APIName    string           `json:"api_name,omitempty"`
-	Name       string           `json:"name,omitempty"`
-	Arguments  json.RawMessage  `json:"arguments,omitempty"`
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Function toolCallFunction `json:"function,omitempty"`
 }
 
 type toolCallFunction struct {
@@ -307,6 +306,8 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 
 func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call) ([]toolCallExecutionResult, error) {
 	results := make([]toolCallExecutionResult, 0, len(calls))
+	registry := turnRequest.Config.ToolRegistry
+	policy := tools.InterventionPolicy{Mode: turnRequest.Config.InterventionMode}
 	for _, toolCall := range calls {
 		call := tools.NormalizeCall(toolCall)
 		if err := emitStep(ctx, turnRequest, Step{
@@ -329,6 +330,60 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 			executionContext.Deadline = deadlineFromContext(ctx)
 		}
 
+		if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
+			decision := policy.Evaluate(manifest, api)
+			if decision.Required && !decision.Allowed {
+				if err := emitStep(ctx, turnRequest, Step{
+					Type:    managedagents.EventRuntimeToolInterventionRequired,
+					Message: "Tool call requires approval before execution.",
+					Data: map[string]any{
+						"id":                call.ID,
+						"identifier":        call.Identifier,
+						"api_name":          call.APIName,
+						"intervention_mode": decision.Mode,
+						"reason":            decision.Reason,
+					},
+				}); err != nil {
+					return nil, err
+				}
+				executionResult := tools.PendingInterventionResult(call, "Tool call requires human approval before execution.")
+				result := toolCallExecutionResult{Call: call, Result: executionResult}
+				if err := emitStep(ctx, turnRequest, Step{
+					Type:    managedagents.EventRuntimeToolResult,
+					Message: "Tool result pending approval.",
+					Data: map[string]any{
+						"id":                   call.ID,
+						"identifier":           call.Identifier,
+						"api_name":             call.APIName,
+						"content":              executionResult.Content,
+						"state":                rawJSONObject(executionResult.State),
+						"error":                executionResult.Error,
+						"success":              false,
+						"pending_intervention": true,
+					},
+				}); err != nil {
+					return nil, err
+				}
+				results = append(results, result)
+				continue
+			}
+			if decision.Required && decision.Allowed && decision.Mode == tools.InterventionModeApproveForMe {
+				if err := emitStep(ctx, turnRequest, Step{
+					Type:    managedagents.EventRuntimeToolInterventionApproved,
+					Message: "Tool call auto-approved for execution.",
+					Data: map[string]any{
+						"id":                call.ID,
+						"identifier":        call.Identifier,
+						"api_name":          call.APIName,
+						"intervention_mode": decision.Mode,
+						"reason":            decision.Reason,
+					},
+				}); err != nil {
+					return nil, err
+				}
+			}
+		}
+
 		executionResult, err := executor.Execute(ctx, call, executionContext)
 		if err != nil {
 			return nil, err
@@ -339,19 +394,20 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 			Type:    managedagents.EventRuntimeToolResult,
 			Message: "Received tool result.",
 			Data: map[string]any{
-				"id":         call.ID,
-				"identifier": call.Identifier,
-				"api_name":   call.APIName,
-				"content":    executionResult.Content,
-				"state":      rawJSONObject(executionResult.State),
-				"error":      executionResult.Error,
-				"success":    executionResult.Error == nil,
+				"id":                   call.ID,
+				"identifier":           call.Identifier,
+				"api_name":             call.APIName,
+				"content":              executionResult.Content,
+				"state":                rawJSONObject(executionResult.State),
+				"pending_intervention": executionResult.PendingIntervention,
+				"error":                executionResult.Error,
+				"success":              executionResult.Error == nil,
 			},
 		}); err != nil {
 			return nil, err
 		}
 		results = append(results, result)
-		if executionResult.Error != nil {
+		if executionResult.Error != nil && executionResult.Error.Type != "human_intervention_required" {
 			return results, fmt.Errorf("tool %s.%s failed: %s", call.Identifier, call.APIName, executionResult.Error.Message)
 		}
 	}
@@ -367,7 +423,7 @@ func parseToolCallEnvelope(parts []llm.ContentPart) (toolCallEnvelope, bool) {
 	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
 		return toolCallEnvelope{}, false
 	}
-	if envelope.ProtocolVersion != tools.ToolCallProtocolVersion && envelope.ProtocolVersion != tools.LegacyToolCallProtocolVersion {
+	if envelope.ProtocolVersion != tools.ToolCallProtocolVersion {
 		return toolCallEnvelope{}, false
 	}
 	if len(envelope.ToolCalls) == 0 {
@@ -396,11 +452,9 @@ func toolCallsFromLLMResponse(response llm.Response) ([]tools.Call, bool) {
 	calls := make([]tools.Call, 0, len(envelope.ToolCalls))
 	for _, envelopeCall := range envelope.ToolCalls {
 		calls = append(calls, tools.NormalizeCall(tools.Call{
-			ID:         envelopeCall.ID,
-			Identifier: envelopeCall.Identifier,
-			APIName:    defaultString(envelopeCall.APIName, envelopeCall.Function.Name),
-			Name:       envelopeCall.Name,
-			Arguments:  defaultRawMessage(envelopeCall.Arguments, envelopeCall.Function.Arguments),
+			ID:        envelopeCall.ID,
+			APIName:   envelopeCall.Function.Name,
+			Arguments: envelopeCall.Function.Arguments,
 		}))
 	}
 	return calls, true
@@ -417,13 +471,6 @@ func rawJSONObject(raw json.RawMessage) any {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return string(raw)
-	}
-	return value
-}
-
-func defaultRawMessage(value json.RawMessage, fallback json.RawMessage) json.RawMessage {
-	if len(value) == 0 {
-		return fallback
 	}
 	return value
 }
