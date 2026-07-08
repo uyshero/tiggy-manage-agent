@@ -183,7 +183,7 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 	var steps []Step
 	runtime := DemoRuntime{Client: client}
 
-	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
 		TurnID:      "turn_000001",
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
@@ -201,11 +201,8 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("run turn: %v", err)
-	}
-	if got := payloadText(result.AgentPayload); got != "approval final answer" {
-		t.Fatalf("expected final answer after approval gate, got %q", got)
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected pending intervention error, got %v", err)
 	}
 	if provider.editCalls != 0 {
 		t.Fatalf("expected edit_file not to execute without approval, got %d calls", provider.editCalls)
@@ -213,12 +210,15 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 	if !hasStepType(steps, managedagents.EventRuntimeToolInterventionRequired) {
 		t.Fatalf("expected intervention required step, got %#v", steps)
 	}
-	var toolResult map[string]any
-	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[2])), &toolResult); err != nil {
-		t.Fatalf("decode tool result: %v", err)
+	requiredStep := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	if len(requiredStep.Private) == 0 {
+		t.Fatalf("expected intervention required step to include private continuation state")
 	}
-	if toolResult["pending_intervention"] != true {
-		t.Fatalf("expected pending_intervention tool result, got %#v", toolResult)
+	if _, ok := requiredStep.Private["continuation_messages"].([]llm.Message); !ok {
+		t.Fatalf("expected private continuation messages, got %#v", requiredStep.Private["continuation_messages"])
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("expected runtime to pause before second LLM request, got %d requests", len(client.requests))
 	}
 }
 
@@ -666,6 +666,15 @@ func hasStepType(steps []Step, stepType string) bool {
 		}
 	}
 	return false
+}
+
+func firstStepType(steps []Step, stepType string) Step {
+	for _, step := range steps {
+		if step.Type == stepType {
+			return step
+		}
+	}
+	return Step{}
 }
 
 func payloadText(payload json.RawMessage) string {

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
 )
@@ -19,6 +20,7 @@ type Server struct {
 	logger             *slog.Logger
 	defaultLLMProvider string
 	defaultLLMModel    string
+	continuationClient llm.Client
 }
 
 func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger) http.Handler {
@@ -65,6 +67,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions", s.createSession)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}", s.getSession)
 	s.mux.HandleFunc("PATCH /v1/sessions/{session_id}/runtime-settings", s.updateSessionRuntimeSettings)
+	s.mux.HandleFunc("GET /v1/sessions/{session_id}/interventions", s.listSessionInterventions)
+	s.mux.HandleFunc("POST /v1/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve", s.approveSessionIntervention)
+	s.mux.HandleFunc("POST /v1/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject", s.rejectSessionIntervention)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/archive", s.archiveSession)
 	s.mux.HandleFunc("DELETE /v1/sessions/{session_id}", s.deleteSession)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/summary", s.getSessionSummary)

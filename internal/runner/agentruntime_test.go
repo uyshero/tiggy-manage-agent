@@ -139,6 +139,41 @@ func TestAgentRuntimeTurnExecutorPassesSessionInterventionMode(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorSavesPendingInterventionSteps(t *testing.T) {
+	store := &mockStore{}
+	executor := AgentRuntimeTurnExecutor{
+		Runtime: interventionStepRuntime{},
+		Store:   store,
+	}
+
+	_, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000003",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"edit"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+
+	interventions := store.savedInterventions()
+	if len(interventions) != 1 {
+		t.Fatalf("expected 1 saved intervention, got %#v", interventions)
+	}
+	got := interventions[0]
+	if got.TurnID != "turn_000003" || got.CallID != "call_edit" || got.ToolIdentifier != "tma.local_system" || got.APIName != "edit_file" {
+		t.Fatalf("unexpected saved intervention: %#v", got)
+	}
+	if got.InterventionMode != "request_approval" || got.Reason != "optional" {
+		t.Fatalf("unexpected intervention policy fields: %#v", got)
+	}
+	if string(got.Arguments) != `{"path":"README.md"}` {
+		t.Fatalf("unexpected intervention arguments: %s", string(got.Arguments))
+	}
+	if string(got.Continuation) != `[{"role":"assistant","content":[{"type":"text","text":"calling tool"}]}]` || got.ContinuationRound != 2 {
+		t.Fatalf("unexpected intervention continuation: round=%d messages=%s", got.ContinuationRound, string(got.Continuation))
+	}
+}
+
 func TestAgentRuntimeTurnExecutorSavesRuntimeSummary(t *testing.T) {
 	store := &mockStore{}
 	executor := AgentRuntimeTurnExecutor{
@@ -197,5 +232,34 @@ func (summaryRuntime) RunTurn(context.Context, agentruntime.TurnRequest) (agentr
 		AgentPayload:          json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`),
 		SummaryText:           "generated summary",
 		SummarySourceUntilSeq: 7,
+	}, nil
+}
+
+type interventionStepRuntime struct{}
+
+func (interventionStepRuntime) RunTurn(ctx context.Context, request agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
+	if err := request.EmitStep(ctx, agentruntime.Step{
+		Type:    managedagents.EventRuntimeToolInterventionRequired,
+		Message: "Tool call requires approval before execution.",
+		Data: map[string]any{
+			"id":                "call_edit",
+			"identifier":        "tma.local_system",
+			"api_name":          "edit_file",
+			"arguments":         map[string]any{"path": "README.md"},
+			"intervention_mode": "request_approval",
+			"reason":            "optional",
+		},
+		Private: map[string]any{
+			"continuation_messages": []llm.Message{{
+				Role:    "assistant",
+				Content: []llm.ContentPart{{Type: "text", Text: "calling tool"}},
+			}},
+			"continuation_round": 2,
+		},
+	}); err != nil {
+		return agentruntime.TurnResult{}, err
+	}
+	return agentruntime.TurnResult{
+		AgentPayload: json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`),
 	}, nil
 }

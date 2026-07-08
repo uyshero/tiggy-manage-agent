@@ -567,6 +567,8 @@ func commandSession(client *apiClient, args []string) error {
 		return nil
 	case "runtime":
 		return commandSessionRuntime(client, args[1:])
+	case "intervention":
+		return commandSessionIntervention(client, args[1:])
 	case "summary":
 		return commandSessionSummary(client, args[1:])
 	default:
@@ -631,6 +633,71 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
 	default:
 		return fmt.Errorf("unknown session runtime subcommand %q", args[0])
+	}
+}
+
+func commandSessionIntervention(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session intervention command requires a subcommand")
+	}
+
+	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("session intervention list", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var status string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.StringVar(&status, "status", "", "pending | approved | rejected")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("session intervention list requires --session")
+		}
+
+		query := url.Values{}
+		if status != "" {
+			query.Set("status", status)
+		}
+		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions"
+		if encoded := query.Encode(); encoded != "" {
+			path += "?" + encoded
+		}
+
+		var response any
+		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "approve", "reject":
+		flags := flag.NewFlagSet("session intervention "+args[0], flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var turnID string
+		var callID string
+		var reason string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.StringVar(&turnID, "turn", "", "turn id")
+		flags.StringVar(&callID, "call", "", "tool call id")
+		flags.StringVar(&reason, "reason", "", "decision reason")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" || turnID == "" || callID == "" {
+			return fmt.Errorf("session intervention %s requires --session, --turn, and --call", args[0])
+		}
+
+		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions/" + url.PathEscape(turnID) + "/" + url.PathEscape(callID) + "/" + args[0]
+		var response any
+		if err := client.do(http.MethodPost, path, map[string]any{"reason": reason}, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown session intervention subcommand %q", args[0])
 	}
 }
 
@@ -1013,14 +1080,22 @@ func streamSSE(reader io.Reader, output io.Writer) error {
 func formatSSEChunk(lines []string) string {
 	chunk := strings.Join(lines, "\n") + "\n\n"
 	eventType, eventData := parseSSEChunk(lines)
-	if eventType != "runtime.tool_intervention_required" {
+	switch eventType {
+	case "runtime.tool_intervention_required", "runtime.tool_intervention_approved", "runtime.tool_intervention_rejected":
+		formatted, ok := formatToolInterventionEvent(eventType, eventData)
+		if !ok {
+			return chunk
+		}
+		return formatted + "\n"
+	case "runtime.tool_result":
+		formatted, ok := formatToolResultEvent(eventData)
+		if !ok {
+			return chunk
+		}
+		return formatted + "\n"
+	default:
 		return chunk
 	}
-	formatted, ok := formatToolInterventionEvent(eventData)
-	if !ok {
-		return chunk
-	}
-	return formatted + "\n"
 }
 
 func parseSSEChunk(lines []string) (string, string) {
@@ -1037,7 +1112,7 @@ func parseSSEChunk(lines []string) (string, string) {
 	return eventType, strings.Join(dataLines, "\n")
 }
 
-func formatToolInterventionEvent(raw string) (string, bool) {
+func formatToolInterventionEvent(eventType string, raw string) (string, bool) {
 	var event struct {
 		Seq     int64           `json:"seq"`
 		Type    string          `json:"type"`
@@ -1062,31 +1137,9 @@ func formatToolInterventionEvent(raw string) (string, bool) {
 	}
 
 	var builder strings.Builder
-	builder.WriteString("approval required\n")
-	if event.Seq > 0 {
-		builder.WriteString("  seq: ")
-		builder.WriteString(strconv.FormatInt(event.Seq, 10))
-		builder.WriteString("\n")
-	}
-	if payload.TurnID != "" {
-		builder.WriteString("  turn: ")
-		builder.WriteString(payload.TurnID)
-		builder.WriteString("\n")
-	}
-	if payload.Data.ID != "" {
-		builder.WriteString("  call: ")
-		builder.WriteString(payload.Data.ID)
-		builder.WriteString("\n")
-	}
-	if payload.Data.Identifier != "" || payload.Data.APIName != "" {
-		builder.WriteString("  tool: ")
-		builder.WriteString(payload.Data.Identifier)
-		if payload.Data.APIName != "" {
-			builder.WriteString(".")
-			builder.WriteString(payload.Data.APIName)
-		}
-		builder.WriteString("\n")
-	}
+	builder.WriteString(toolInterventionHeader(eventType))
+	builder.WriteString("\n")
+	writeSeqTurnCallTool(&builder, event.Seq, payload.TurnID, payload.Data.ID, payload.Data.Identifier, payload.Data.APIName)
 	if payload.Data.InterventionMode != "" {
 		builder.WriteString("  mode: ")
 		builder.WriteString(payload.Data.InterventionMode)
@@ -1103,6 +1156,106 @@ func formatToolInterventionEvent(raw string) (string, bool) {
 		builder.WriteString("\n")
 	}
 	return builder.String(), true
+}
+
+func formatToolResultEvent(raw string) (string, bool) {
+	var event struct {
+		Seq     int64           `json:"seq"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		return "", false
+	}
+	var payload struct {
+		TurnID  string `json:"turn_id"`
+		Message string `json:"message"`
+		Data    struct {
+			ID         string `json:"id"`
+			Identifier string `json:"identifier"`
+			APIName    string `json:"api_name"`
+			Content    string `json:"content"`
+			Success    bool   `json:"success"`
+			Error      *struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return "", false
+	}
+
+	var builder strings.Builder
+	builder.WriteString("tool result\n")
+	writeSeqTurnCallTool(&builder, event.Seq, payload.TurnID, payload.Data.ID, payload.Data.Identifier, payload.Data.APIName)
+	builder.WriteString("  success: ")
+	builder.WriteString(strconv.FormatBool(payload.Data.Success))
+	builder.WriteString("\n")
+	if payload.Message != "" {
+		builder.WriteString("  message: ")
+		builder.WriteString(payload.Message)
+		builder.WriteString("\n")
+	}
+	if payload.Data.Error != nil {
+		builder.WriteString("  error: ")
+		if payload.Data.Error.Type != "" {
+			builder.WriteString(payload.Data.Error.Type)
+			builder.WriteString(": ")
+		}
+		builder.WriteString(payload.Data.Error.Message)
+		builder.WriteString("\n")
+	}
+	if payload.Data.Content != "" {
+		builder.WriteString("  content: ")
+		builder.WriteString(truncateValue(strings.ReplaceAll(payload.Data.Content, "\n", "\\n"), 500))
+		builder.WriteString("\n")
+	}
+	return builder.String(), true
+}
+
+func toolInterventionHeader(eventType string) string {
+	switch eventType {
+	case "runtime.tool_intervention_approved":
+		return "approval approved"
+	case "runtime.tool_intervention_rejected":
+		return "approval rejected"
+	default:
+		return "approval required"
+	}
+}
+
+func writeSeqTurnCallTool(builder *strings.Builder, seq int64, turnID string, callID string, identifier string, apiName string) {
+	if seq > 0 {
+		builder.WriteString("  seq: ")
+		builder.WriteString(strconv.FormatInt(seq, 10))
+		builder.WriteString("\n")
+	}
+	if turnID != "" {
+		builder.WriteString("  turn: ")
+		builder.WriteString(turnID)
+		builder.WriteString("\n")
+	}
+	if callID != "" {
+		builder.WriteString("  call: ")
+		builder.WriteString(callID)
+		builder.WriteString("\n")
+	}
+	if identifier != "" || apiName != "" {
+		builder.WriteString("  tool: ")
+		builder.WriteString(identifier)
+		if apiName != "" {
+			builder.WriteString(".")
+			builder.WriteString(apiName)
+		}
+		builder.WriteString("\n")
+	}
+}
+
+func truncateValue(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "..."
 }
 
 func printJSON(value any) error {
@@ -1181,6 +1334,9 @@ func printUsage() {
   tma [--base-url URL] session get --session SESSION_ID
   tma [--base-url URL] session runtime get --session SESSION_ID
   tma [--base-url URL] session runtime update --session SESSION_ID --intervention-mode MODE
+  tma [--base-url URL] session intervention list --session SESSION_ID [--status STATUS]
+  tma [--base-url URL] session intervention approve --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
+  tma [--base-url URL] session intervention reject --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
   tma [--base-url URL] session archive --session SESSION_ID
   tma [--base-url URL] session delete --session SESSION_ID
   tma [--base-url URL] session summary get --session SESSION_ID

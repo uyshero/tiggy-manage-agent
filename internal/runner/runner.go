@@ -6,7 +6,10 @@ import (
 	"errors"
 )
 
-var ErrTurnAlreadyRunning = errors.New("turn already running")
+var (
+	ErrTurnAlreadyRunning  = errors.New("turn already running")
+	ErrTurnWaitingApproval = errors.New("turn waiting for approval")
+)
 
 // TurnRequest 是 HTTP / Store 层提交给 Runner 的一次执行请求。
 // HTTP 请求结束不代表 turn 结束，真实 Runner 后续应使用自己的生命周期管理。

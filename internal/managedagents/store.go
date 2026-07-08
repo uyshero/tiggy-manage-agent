@@ -32,6 +32,19 @@ func normalizeLLMUsageGroupBy(value string) string {
 	}
 }
 
+func normalizeInterventionStatus(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", InterventionStatusPending:
+		return InterventionStatusPending
+	case InterventionStatusApproved:
+		return InterventionStatusApproved
+	case InterventionStatusRejected:
+		return InterventionStatusRejected
+	default:
+		return ""
+	}
+}
+
 func agentLLMProvider(input CreateAgentInput) string {
 	return defaultString(input.LLMProvider, "fake")
 }

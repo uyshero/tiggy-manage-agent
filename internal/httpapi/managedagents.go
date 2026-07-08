@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/tools"
@@ -46,6 +50,10 @@ type sessionSummaryRequest struct {
 
 type sessionRuntimeSettingsRequest struct {
 	InterventionMode *string `json:"intervention_mode"`
+}
+
+type interventionDecisionRequest struct {
+	Reason string `json:"reason,omitempty"`
 }
 
 func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
@@ -427,6 +435,472 @@ func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, session)
 }
 
+func (s *Server) listSessionInterventions(w http.ResponseWriter, r *http.Request) {
+	status := r.URL.Query().Get("status")
+	interventions, err := s.store.ListSessionInterventions(r.PathValue("session_id"), status)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"interventions": interventions})
+}
+
+func (s *Server) approveSessionIntervention(w http.ResponseWriter, r *http.Request) {
+	s.decideSessionIntervention(w, r, managedagents.InterventionStatusApproved)
+}
+
+func (s *Server) rejectSessionIntervention(w http.ResponseWriter, r *http.Request) {
+	s.decideSessionIntervention(w, r, managedagents.InterventionStatusRejected)
+}
+
+func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Request, status string) {
+	var request interventionDecisionRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := s.store.DecideSessionIntervention(r.PathValue("session_id"), managedagents.DecideSessionInterventionInput{
+		TurnID:         r.PathValue("turn_id"),
+		CallID:         r.PathValue("call_id"),
+		Status:         status,
+		DecisionReason: request.Reason,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	switch status {
+	case managedagents.InterventionStatusApproved:
+		executionResult, events, err := s.executeApprovedIntervention(r, result.Intervention)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		result.Events = append(result.Events, events...)
+		if executionResult.Error == nil && len(result.Intervention.Continuation) > 0 {
+			continuationEvents, err := s.continueApprovedIntervention(r, result.Intervention, executionResult)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			result.Events = append(result.Events, continuationEvents...)
+		}
+	case managedagents.InterventionStatusRejected:
+		reason := "tool intervention rejected"
+		if request.Reason != "" {
+			reason = "tool intervention rejected: " + request.Reason
+		}
+		events, err := s.store.FailSessionTurn(result.Intervention.SessionID, result.Intervention.TurnID, reason)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		result.Events = append(result.Events, events...)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) executeApprovedIntervention(r *http.Request, intervention managedagents.SessionIntervention) (tools.ExecutionResult, []managedagents.Event, error) {
+	executor := tools.NewDefaultExecutor()
+	executionResult, err := executor.Execute(r.Context(), tools.Call{
+		ID:         intervention.CallID,
+		Identifier: intervention.ToolIdentifier,
+		APIName:    intervention.APIName,
+		Arguments:  intervention.Arguments,
+	}, tools.ExecutionContext{
+		SessionID: intervention.SessionID,
+		TurnID:    intervention.TurnID,
+		Provider:  capability.LocalSystemProvider{},
+	})
+	if err != nil {
+		return tools.ExecutionResult{}, nil, err
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"turn_id": intervention.TurnID,
+		"message": "Received approved tool result.",
+		"data": map[string]any{
+			"id":                   intervention.CallID,
+			"identifier":           intervention.ToolIdentifier,
+			"api_name":             intervention.APIName,
+			"content":              executionResult.Content,
+			"state":                rawJSONValue(executionResult.State),
+			"pending_intervention": executionResult.PendingIntervention,
+			"error":                executionResult.Error,
+			"success":              executionResult.Error == nil,
+			"approval_source":      "user",
+		},
+	})
+	if err != nil {
+		return tools.ExecutionResult{}, nil, err
+	}
+	events, err := s.store.AppendEvents(intervention.SessionID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventRuntimeToolResult,
+		Payload: payload,
+	}})
+	return executionResult, events, err
+}
+
+func (s *Server) continueApprovedIntervention(r *http.Request, intervention managedagents.SessionIntervention, executionResult tools.ExecutionResult) ([]managedagents.Event, error) {
+	var messages []llm.Message
+	if err := json.Unmarshal(intervention.Continuation, &messages); err != nil {
+		return nil, fmt.Errorf("decode intervention continuation: %w", err)
+	}
+	messages = append(messages, llm.Message{
+		Role:       "tool",
+		ToolCallID: intervention.CallID,
+		Content:    []llm.ContentPart{{Type: "text", Text: tools.ResultMessage(executionResult)}},
+	})
+
+	config, err := s.store.ResolveAgentRuntimeConfig(intervention.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	var client llm.Client
+	if s.continuationClient != nil {
+		client = s.continuationClient
+	} else {
+		manager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
+			Provider:     config.LLMProvider,
+			ProviderType: config.LLMProviderType,
+			Model:        config.LLMModel,
+			BaseURL:      config.LLMBaseURL,
+			APIKey:       os.Getenv(config.LLMAPIKeyEnv),
+		})
+		if err != nil {
+			return nil, err
+		}
+		client = manager
+	}
+	registry := tools.DefaultRegistry()
+	policy := tools.InterventionPolicy{Mode: tools.ParseInterventionMode(config.RuntimeSettings)}
+	executor := tools.NewDefaultExecutor()
+	executionContext := tools.ExecutionContext{
+		SessionID: intervention.SessionID,
+		TurnID:    intervention.TurnID,
+		Provider:  capability.LocalSystemProvider{},
+	}
+
+	var allEvents []managedagents.Event
+	for round := intervention.ContinuationRound + 1; round < 4; round++ {
+		requestEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeLLMRequest, intervention.TurnID, "Resuming LLM after approved tool result.", map[string]any{
+			"provider":      config.LLMProvider,
+			"provider_type": config.LLMProviderType,
+			"model":         config.LLMModel,
+			"message_count": len(messages),
+			"tool_round":    round,
+		})
+		if err != nil {
+			return allEvents, err
+		}
+		allEvents = append(allEvents, requestEvents...)
+
+		llmRequest := llm.Request{
+			Provider:     config.LLMProvider,
+			ProviderType: config.LLMProviderType,
+			Model:        config.LLMModel,
+			BaseURL:      config.LLMBaseURL,
+			APIKey:       os.Getenv(config.LLMAPIKeyEnv),
+			Messages:     messages,
+			Tools:        registry.ModelTools(),
+		}
+		startedAt := time.Now()
+		llmResponse, err := client.Generate(r.Context(), llmRequest)
+		if err != nil {
+			s.recordContinuationUsage(intervention, config, llm.Usage{}, time.Since(startedAt), "failed", err.Error())
+			return allEvents, err
+		}
+		s.recordContinuationUsage(intervention, config, llmResponse.Usage, time.Since(startedAt), "completed", "")
+
+		responseEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeLLMResponse, intervention.TurnID, "Received resumed LLM response.", map[string]any{
+			"role":          llmResponse.Message.Role,
+			"content_count": len(llmResponse.Message.Content),
+			"usage":         llmResponse.Usage,
+			"tool_round":    round,
+		})
+		if err != nil {
+			return allEvents, err
+		}
+		allEvents = append(allEvents, responseEvents...)
+
+		toolCalls, hasToolCalls := toolCallsFromLLMResponse(llmResponse)
+		if !hasToolCalls || len(toolCalls) == 0 {
+			completedEvents, err := s.completeContinuation(intervention, llmResponse)
+			if err != nil {
+				return allEvents, err
+			}
+			allEvents = append(allEvents, completedEvents...)
+			return allEvents, nil
+		}
+
+		assistantMessage := llm.Message{
+			Role:      "assistant",
+			Content:   []llm.ContentPart{{Type: "text", Text: contentPartsText(llmResponse.Message.Content)}},
+			ToolCalls: append([]llm.ToolCall(nil), llmResponse.Message.ToolCalls...),
+		}
+		continuationMessages := append([]llm.Message(nil), messages...)
+		continuationMessages = append(continuationMessages, assistantMessage)
+		messages = append(messages, assistantMessage)
+
+		for _, toolCall := range toolCalls {
+			call := tools.NormalizeCall(toolCall)
+			toolEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolCall, intervention.TurnID, "Executing continuation tool call.", map[string]any{
+				"id":         call.ID,
+				"identifier": call.Identifier,
+				"api_name":   call.APIName,
+				"arguments":  rawJSONValue(call.Arguments),
+			})
+			if err != nil {
+				return allEvents, err
+			}
+			allEvents = append(allEvents, toolEvents...)
+
+			if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
+				decision := policy.Evaluate(manifest, api)
+				if decision.Required && !decision.Allowed {
+					requiredEvents, err := s.pauseContinuationForIntervention(intervention, call, decision, continuationMessages, round)
+					if err != nil {
+						return allEvents, err
+					}
+					allEvents = append(allEvents, requiredEvents...)
+					return allEvents, nil
+				}
+				if decision.Required && decision.Allowed && decision.Mode == tools.InterventionModeApproveForMe {
+					approvedEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolInterventionApproved, intervention.TurnID, "Tool call auto-approved for execution.", map[string]any{
+						"id":                call.ID,
+						"identifier":        call.Identifier,
+						"api_name":          call.APIName,
+						"arguments":         rawJSONValue(call.Arguments),
+						"intervention_mode": decision.Mode,
+						"reason":            decision.Reason,
+						"approval_source":   "auto",
+					})
+					if err != nil {
+						return allEvents, err
+					}
+					allEvents = append(allEvents, approvedEvents...)
+				}
+			}
+
+			result, err := executor.Execute(r.Context(), call, executionContext)
+			if err != nil {
+				return allEvents, err
+			}
+			resultEvents, err := s.appendToolResultEvent(intervention.SessionID, intervention.TurnID, call, result, "Received continuation tool result.")
+			if err != nil {
+				return allEvents, err
+			}
+			allEvents = append(allEvents, resultEvents...)
+			if result.Error != nil {
+				failedEvents, err := s.store.FailSessionTurn(intervention.SessionID, intervention.TurnID, "continuation tool failed: "+result.Error.Message)
+				if err != nil {
+					return allEvents, err
+				}
+				allEvents = append(allEvents, failedEvents...)
+				return allEvents, nil
+			}
+			messages = append(messages, llm.Message{
+				Role:       "tool",
+				ToolCallID: call.ID,
+				Content:    []llm.ContentPart{{Type: "text", Text: tools.ResultMessage(result)}},
+			})
+		}
+	}
+
+	failedEvents, err := s.store.FailSessionTurn(intervention.SessionID, intervention.TurnID, "continuation tool loop exceeded maximum rounds")
+	if err != nil {
+		return allEvents, err
+	}
+	s.recordContinuationUsage(intervention, config, llm.Usage{}, 0, "failed", "continuation tool loop exceeded maximum rounds")
+	allEvents = append(allEvents, failedEvents...)
+	return allEvents, nil
+}
+
+func (s *Server) recordContinuationUsage(intervention managedagents.SessionIntervention, config managedagents.AgentRuntimeConfig, usage llm.Usage, latency time.Duration, status string, errorMessage string) {
+	if config.WorkspaceID == "" || config.AgentID == "" || config.AgentConfigVersion <= 0 {
+		return
+	}
+	if config.LLMProvider == "" || config.LLMModel == "" {
+		return
+	}
+	record := managedagents.RecordLLMUsageInput{
+		WorkspaceID:        config.WorkspaceID,
+		AgentID:            config.AgentID,
+		AgentConfigVersion: config.AgentConfigVersion,
+		SessionID:          intervention.SessionID,
+		TurnID:             intervention.TurnID,
+		ProviderID:         config.LLMProvider,
+		ProviderType:       config.LLMProviderType,
+		Model:              config.LLMModel,
+		InputTokens:        usage.InputTokens,
+		OutputTokens:       usage.OutputTokens,
+		TotalTokens:        usage.TotalTokens,
+		CachedInputTokens:  usage.CachedInputTokens,
+		ReasoningTokens:    usage.ReasoningTokens,
+		LatencyMillis:      latency.Milliseconds(),
+		Status:             status,
+		ErrorMessage:       errorMessage,
+	}
+	if _, err := s.store.RecordLLMUsage(record); err != nil {
+		s.logger.Error("continuation llm usage record failed",
+			"session_id", intervention.SessionID,
+			"turn_id", intervention.TurnID,
+			"status", status,
+			"error", err,
+		)
+	}
+}
+
+func (s *Server) appendRuntimeEvent(sessionID string, eventType string, turnID string, message string, data map[string]any) ([]managedagents.Event, error) {
+	payload, err := json.Marshal(map[string]any{
+		"turn_id": turnID,
+		"message": message,
+		"data":    data,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.store.AppendEvents(sessionID, []managedagents.AppendEventInput{{
+		Type:    eventType,
+		Payload: payload,
+	}})
+}
+
+func (s *Server) appendToolResultEvent(sessionID string, turnID string, call tools.Call, executionResult tools.ExecutionResult, message string) ([]managedagents.Event, error) {
+	return s.appendRuntimeEvent(sessionID, managedagents.EventRuntimeToolResult, turnID, message, map[string]any{
+		"id":                   call.ID,
+		"identifier":           call.Identifier,
+		"api_name":             call.APIName,
+		"content":              executionResult.Content,
+		"state":                rawJSONValue(executionResult.State),
+		"pending_intervention": executionResult.PendingIntervention,
+		"error":                executionResult.Error,
+		"success":              executionResult.Error == nil,
+	})
+}
+
+func (s *Server) pauseContinuationForIntervention(intervention managedagents.SessionIntervention, call tools.Call, decision tools.InterventionDecision, continuationMessages []llm.Message, round int) ([]managedagents.Event, error) {
+	encodedContinuation, err := json.Marshal(continuationMessages)
+	if err != nil {
+		return nil, fmt.Errorf("encode continuation messages: %w", err)
+	}
+	if _, err := s.store.SaveSessionIntervention(intervention.SessionID, managedagents.SaveSessionInterventionInput{
+		TurnID:            intervention.TurnID,
+		CallID:            call.ID,
+		ToolIdentifier:    call.Identifier,
+		APIName:           call.APIName,
+		Arguments:         call.Arguments,
+		InterventionMode:  decision.Mode,
+		Reason:            decision.Reason,
+		Continuation:      encodedContinuation,
+		ContinuationRound: round,
+	}); err != nil {
+		return nil, err
+	}
+	if err := s.store.MarkSessionTurnWaitingApproval(intervention.SessionID, intervention.TurnID); err != nil {
+		return nil, err
+	}
+	return s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolInterventionRequired, intervention.TurnID, "Tool call requires approval before execution.", map[string]any{
+		"id":                call.ID,
+		"identifier":        call.Identifier,
+		"api_name":          call.APIName,
+		"arguments":         rawJSONValue(call.Arguments),
+		"intervention_mode": decision.Mode,
+		"reason":            decision.Reason,
+	})
+}
+
+func (s *Server) completeContinuation(intervention managedagents.SessionIntervention, llmResponse llm.Response) ([]managedagents.Event, error) {
+	agentPayload, err := json.Marshal(map[string]any{
+		"protocol_version": "tma.agent_runtime.demo.v1",
+		"content":          llmResponse.Message.Content,
+	})
+	if err != nil {
+		return nil, err
+	}
+	completedEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeCompleted, intervention.TurnID, "Approved intervention continuation completed.", nil)
+	if err != nil {
+		return nil, err
+	}
+	turnEvents, err := s.store.CompleteSessionTurn(intervention.SessionID, intervention.TurnID, agentPayload)
+	if err != nil {
+		return completedEvents, err
+	}
+	return append(completedEvents, turnEvents...), nil
+}
+
+type toolCallEnvelope struct {
+	ProtocolVersion string                 `json:"protocol_version"`
+	ToolCalls       []toolCallEnvelopeCall `json:"tool_calls"`
+}
+
+type toolCallEnvelopeCall struct {
+	ID       string           `json:"id,omitempty"`
+	Type     string           `json:"type,omitempty"`
+	Function toolCallFunction `json:"function,omitempty"`
+}
+
+type toolCallFunction struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+func toolCallsFromLLMResponse(response llm.Response) ([]tools.Call, bool) {
+	if len(response.Message.ToolCalls) > 0 {
+		calls := make([]tools.Call, 0, len(response.Message.ToolCalls))
+		for _, toolCall := range response.Message.ToolCalls {
+			calls = append(calls, tools.NormalizeCall(tools.Call{
+				ID:        toolCall.ID,
+				APIName:   toolCall.Function.Name,
+				Arguments: toolCall.Function.Arguments,
+			}))
+		}
+		return calls, true
+	}
+
+	text := strings.TrimSpace(contentPartsText(response.Message.Content))
+	if text == "" || !json.Valid([]byte(text)) {
+		return nil, false
+	}
+	var envelope toolCallEnvelope
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		return nil, false
+	}
+	if envelope.ProtocolVersion != tools.ToolCallProtocolVersion || len(envelope.ToolCalls) == 0 {
+		return nil, false
+	}
+	calls := make([]tools.Call, 0, len(envelope.ToolCalls))
+	for _, envelopeCall := range envelope.ToolCalls {
+		calls = append(calls, tools.NormalizeCall(tools.Call{
+			ID:        envelopeCall.ID,
+			APIName:   envelopeCall.Function.Name,
+			Arguments: envelopeCall.Function.Arguments,
+		}))
+	}
+	return calls, true
+}
+
+func contentPartsText(parts []llm.ContentPart) string {
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Type == "text" && part.Text != "" {
+			values = append(values, part.Text)
+		}
+	}
+	return strings.Join(values, "\n")
+}
+
+func rawJSONValue(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
+}
+
 func (s *Server) archiveSession(w http.ResponseWriter, r *http.Request) {
 	session, err := s.store.ArchiveSession(r.PathValue("session_id"))
 	if err != nil {
@@ -455,6 +929,11 @@ func (s *Server) appendSessionEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := s.store.AppendEvents(r.PathValue("session_id"), request.Events)
 	if err != nil {
+		if reminderEvents, reminderErr := s.appendApprovalReminderIfWaiting(r.PathValue("session_id"), request.Events); reminderErr == nil && len(reminderEvents) > 0 {
+			s.logEvents("session approval reminder appended", reminderEvents)
+			writeJSON(w, http.StatusAccepted, map[string]any{"events": reminderEvents})
+			return
+		}
 		writeError(w, err)
 		return
 	}
@@ -464,6 +943,75 @@ func (s *Server) appendSessionEvents(w http.ResponseWriter, r *http.Request) {
 	s.logEvents("session events appended", events)
 	s.dispatchRunnerEvents(r, sessionID, events)
 	writeJSON(w, http.StatusCreated, map[string]any{"events": events})
+}
+
+func (s *Server) appendApprovalReminderIfWaiting(sessionID string, inputs []managedagents.AppendEventInput) ([]managedagents.Event, error) {
+	if len(inputs) != 1 || inputs[0].Type != managedagents.EventUserMessage {
+		return nil, nil
+	}
+	session, err := s.store.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session.Status != managedagents.SessionStatusRunning {
+		return nil, nil
+	}
+	pending, err := s.store.ListSessionInterventions(sessionID, managedagents.InterventionStatusPending)
+	if err != nil {
+		return nil, err
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+
+	events := make([]managedagents.AppendEventInput, 0, len(pending)+1)
+	events = append(events, managedagents.AppendEventInput{
+		Type:    managedagents.EventAgentMessage,
+		Payload: approvalReminderPayload(pending),
+	})
+	for _, intervention := range pending {
+		payload, err := json.Marshal(map[string]any{
+			"turn_id": intervention.TurnID,
+			"message": "Tool call is still waiting for approval.",
+			"data": map[string]any{
+				"id":                intervention.CallID,
+				"identifier":        intervention.ToolIdentifier,
+				"api_name":          intervention.APIName,
+				"arguments":         rawJSONValue(intervention.Arguments),
+				"intervention_mode": intervention.InterventionMode,
+				"reason":            intervention.Reason,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, managedagents.AppendEventInput{
+			Type:    managedagents.EventRuntimeToolInterventionRequired,
+			Payload: payload,
+		})
+	}
+	return s.store.AppendEvents(sessionID, events)
+}
+
+func approvalReminderPayload(pending []managedagents.SessionIntervention) json.RawMessage {
+	turnID := pending[0].TurnID
+	lines := []string{"A tool call is waiting for approval before this session can continue."}
+	for _, intervention := range pending {
+		lines = append(lines, fmt.Sprintf("- %s.%s call=%s", intervention.ToolIdentifier, intervention.APIName, intervention.CallID))
+	}
+	lines = append(lines, "Approve or reject the pending call, then send your next message.")
+	payload, err := json.Marshal(map[string]any{
+		"protocol_version": "tma.agent_runtime.demo.v1",
+		"turn_id":          turnID,
+		"content": []map[string]string{{
+			"type": "text",
+			"text": strings.Join(lines, "\n"),
+		}},
+	})
+	if err != nil {
+		return json.RawMessage(`{"content":[{"type":"text","text":"A tool call is waiting for approval."}]}`)
+	}
+	return payload
 }
 
 func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events []managedagents.Event) {

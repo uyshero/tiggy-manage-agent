@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
 )
@@ -337,6 +338,305 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
 	if string(fetched.RuntimeSettings) != `{"intervention_mode":"approve_for_me"}` {
 		t.Fatalf("unexpected runtime settings on get: %s", string(fetched.RuntimeSettings))
+	}
+}
+
+func TestSessionInterventionApproveRejectAPI(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please read"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+	if turnID == "" {
+		t.Fatal("expected started turn id")
+	}
+
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID:            turnID,
+		CallID:            "call_read",
+		ToolIdentifier:    "tma.local_system",
+		APIName:           "read_file",
+		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
+		InterventionMode:  "request_approval",
+		Reason:            "optional",
+		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"tma.local_system.read_file","arguments":{"path":"../../README.md"}}}]}]`),
+		ContinuationRound: 0,
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	listed := getJSON[struct {
+		Interventions []managedagents.SessionIntervention `json:"interventions"`
+	}](t, server, "/v1/sessions/"+session.ID+"/interventions?status=pending")
+	if len(listed.Interventions) != 1 {
+		t.Fatalf("expected 1 pending intervention, got %#v", listed.Interventions)
+	}
+	if listed.Interventions[0].Status != managedagents.InterventionStatusPending {
+		t.Fatalf("expected pending intervention, got %#v", listed.Interventions[0])
+	}
+
+	approved := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{
+		"reason": "looks safe"
+	}`, http.StatusOK)
+	if approved.Intervention.Status != managedagents.InterventionStatusApproved {
+		t.Fatalf("expected approved intervention, got %#v", approved.Intervention)
+	}
+	expectedEventTypes := []string{
+		managedagents.EventRuntimeToolInterventionApproved,
+		managedagents.EventRuntimeToolResult,
+		managedagents.EventRuntimeLLMRequest,
+		managedagents.EventRuntimeLLMResponse,
+		managedagents.EventRuntimeCompleted,
+		managedagents.EventAgentMessage,
+		managedagents.EventSessionStatusIdle,
+	}
+	if len(approved.Events) != len(expectedEventTypes) {
+		t.Fatalf("expected %d events, got %#v", len(expectedEventTypes), approved.Events)
+	}
+	for index, eventType := range expectedEventTypes {
+		if approved.Events[index].Type != eventType {
+			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, approved.Events)
+		}
+	}
+	var toolResult struct {
+		Data struct {
+			Success bool `json:"success"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(approved.Events[1].Payload, &toolResult); err != nil {
+		t.Fatalf("decode tool result event: %v", err)
+	}
+	if !toolResult.Data.Success {
+		t.Fatalf("expected approved tool execution to succeed, got payload %s", string(approved.Events[1].Payload))
+	}
+	var agentPayload struct {
+		TurnID  string `json:"turn_id"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(approved.Events[5].Payload, &agentPayload); err != nil {
+		t.Fatalf("decode resumed agent message: %v", err)
+	}
+	if agentPayload.TurnID != turnID || len(agentPayload.Content) == 0 || !strings.Contains(agentPayload.Content[0].Text, "please read") {
+		t.Fatalf("unexpected resumed agent payload: %s", string(approved.Events[5].Payload))
+	}
+	if len(store.usageRecords) != 1 {
+		t.Fatalf("expected 1 continuation usage record, got %#v", store.usageRecords)
+	}
+	if usage := store.usageRecords[0]; usage.SessionID != session.ID || usage.TurnID != turnID || usage.Status != "completed" || usage.ProviderID != "fake" || usage.Model != "fake-demo" {
+		t.Fatalf("unexpected continuation usage record: %#v", usage)
+	}
+
+	postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/reject", `{}`, http.StatusBadRequest)
+}
+
+func TestSessionInterventionRejectFailsTurn(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID:           turnID,
+		CallID:           "call_edit",
+		ToolIdentifier:   "tma.local_system",
+		APIName:          "edit_file",
+		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
+		InterventionMode: "request_approval",
+		Reason:           "optional",
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	rejected := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_edit/reject", `{
+		"reason": "unsafe edit"
+	}`, http.StatusOK)
+	if rejected.Intervention.Status != managedagents.InterventionStatusRejected {
+		t.Fatalf("expected rejected intervention, got %#v", rejected.Intervention)
+	}
+	if len(rejected.Events) != 2 || rejected.Events[0].Type != managedagents.EventRuntimeToolInterventionRejected || rejected.Events[1].Type != managedagents.EventSessionStatusIdle {
+		t.Fatalf("expected rejected event and failed idle event, got %#v", rejected.Events)
+	}
+	if got := payloadString(rejected.Events[1].Payload, "last_turn_status"); got != "failed" {
+		t.Fatalf("expected failed turn after reject, got %q", got)
+	}
+	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if fetched.Status != managedagents.SessionStatusIdle {
+		t.Fatalf("expected session idle after reject, got %q", fetched.Status)
+	}
+}
+
+func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) {
+	store := newTestStore()
+	testServer := &Server{
+		mux:                http.NewServeMux(),
+		store:              store,
+		runner:             runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		defaultLLMProvider: "fake",
+		defaultLLMModel:    "fake-demo",
+		continuationClient: continuationToolCallClient{},
+	}
+	testServer.routes()
+	server := testServer.mux
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID:            turnID,
+		CallID:            "call_read",
+		ToolIdentifier:    "tma.local_system",
+		APIName:           "read_file",
+		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
+		InterventionMode:  "request_approval",
+		Reason:            "optional",
+		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"tma.local_system.read_file","arguments":{"path":"../../README.md"}}}]}]`),
+		ContinuationRound: 0,
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	approved := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{
+		"reason": "read first"
+	}`, http.StatusOK)
+	expectedEventTypes := []string{
+		managedagents.EventRuntimeToolInterventionApproved,
+		managedagents.EventRuntimeToolResult,
+		managedagents.EventRuntimeLLMRequest,
+		managedagents.EventRuntimeLLMResponse,
+		managedagents.EventRuntimeToolCall,
+		managedagents.EventRuntimeToolInterventionRequired,
+	}
+	if len(approved.Events) != len(expectedEventTypes) {
+		t.Fatalf("expected %d events, got %#v", len(expectedEventTypes), approved.Events)
+	}
+	for index, eventType := range expectedEventTypes {
+		if approved.Events[index].Type != eventType {
+			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, approved.Events)
+		}
+	}
+	listed := getJSON[struct {
+		Interventions []managedagents.SessionIntervention `json:"interventions"`
+	}](t, server, "/v1/sessions/"+session.ID+"/interventions?status=pending")
+	if len(listed.Interventions) != 1 || listed.Interventions[0].CallID != "call_edit_again" {
+		t.Fatalf("expected second pending intervention, got %#v", listed.Interventions)
+	}
+	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if fetched.Status != managedagents.SessionStatusRunning {
+		t.Fatalf("expected session to keep running while waiting for second approval, got %q", fetched.Status)
+	}
+	if len(store.usageRecords) != 1 || store.usageRecords[0].TotalTokens != 14 || store.usageRecords[0].Status != "completed" {
+		t.Fatalf("unexpected continuation usage records: %#v", store.usageRecords)
+	}
+}
+
+func TestUserMessageWhileWaitingApprovalReturnsReminder(t *testing.T) {
+	store := newTestStore()
+	runner := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(store, runner, nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID:           turnID,
+		CallID:           "call_edit",
+		ToolIdentifier:   "tma.local_system",
+		APIName:          "edit_file",
+		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
+		InterventionMode: "request_approval",
+		Reason:           "optional",
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	response := postJSONWithStatus[struct {
+		Events []managedagents.Event `json:"events"`
+	}](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/events", `{
+		"events": [{"type": "user.message", "payload": {"content": [{"type":"text","text":"hello?"}]}}]
+	}`, http.StatusAccepted)
+	if len(response.Events) != 2 || response.Events[0].Type != managedagents.EventAgentMessage || response.Events[1].Type != managedagents.EventRuntimeToolInterventionRequired {
+		t.Fatalf("expected reminder agent message and reissued approval event, got %#v", response.Events)
+	}
+	if len(runner.starts) != 0 {
+		t.Fatalf("expected reminder not to start a new turn, got %#v", runner.starts)
 	}
 }
 
@@ -847,6 +1147,29 @@ func (failingRunner) StartTurn(context.Context, runner.TurnRequest) error {
 
 func (failingRunner) InterruptTurn(context.Context, runner.InterruptRequest) error {
 	return nil
+}
+
+type continuationToolCallClient struct{}
+
+func (continuationToolCallClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{
+		Message: llm.Message{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "call_edit_again",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "tma.local_system.edit_file",
+					Arguments: json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
+				},
+			}},
+		},
+		Usage: llm.Usage{
+			InputTokens:  11,
+			OutputTokens: 3,
+			TotalTokens:  14,
+		},
+	}, nil
 }
 
 func postJSON[T any](t *testing.T, handler http.Handler, path string, body string) T {

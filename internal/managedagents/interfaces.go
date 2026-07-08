@@ -19,6 +19,10 @@ type Store interface {
 	GetSession(id string) (Session, error)
 	UpdateSessionRuntimeSettings(id string, input UpdateSessionRuntimeSettingsInput) (Session, error)
 	ResolveAgentRuntimeConfig(sessionID string) (AgentRuntimeConfig, error)
+	SaveSessionIntervention(sessionID string, input SaveSessionInterventionInput) (SessionIntervention, error)
+	ListSessionInterventions(sessionID string, status string) ([]SessionIntervention, error)
+	DecideSessionIntervention(sessionID string, input DecideSessionInterventionInput) (DecideSessionInterventionResult, error)
+	MarkSessionTurnWaitingApproval(sessionID string, turnID string) error
 	GetSessionSummary(sessionID string) (SessionSummary, error)
 	SaveSessionSummary(sessionID string, input UpsertSessionSummaryInput) (SessionSummary, error)
 	UpsertSessionSummary(sessionID string, input UpsertSessionSummaryInput) (UpsertSessionSummaryResult, error)

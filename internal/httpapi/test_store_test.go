@@ -25,6 +25,7 @@ type testStore struct {
 	environments        map[string]managedagents.Environment
 	sessions            map[string]managedagents.Session
 	summaries           map[string]managedagents.SessionSummary
+	interventions       map[string]managedagents.SessionIntervention
 	events              map[string][]managedagents.Event
 	usageRecords        []managedagents.RecordLLMUsageInput
 	subscribers         map[string]map[chan managedagents.Event]struct{}
@@ -39,6 +40,7 @@ func newTestStore() *testStore {
 		environments:        make(map[string]managedagents.Environment),
 		sessions:            make(map[string]managedagents.Session),
 		summaries:           make(map[string]managedagents.SessionSummary),
+		interventions:       make(map[string]managedagents.SessionIntervention),
 		events:              make(map[string][]managedagents.Event),
 		subscribers:         make(map[string]map[chan managedagents.Event]struct{}),
 	}
@@ -386,6 +388,140 @@ func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.
 	session.RuntimeSettings = cloneRaw(input.RuntimeSettings)
 	s.sessions[id] = session
 	return session, nil
+}
+
+func (s *testStore) SaveSessionIntervention(sessionID string, input managedagents.SaveSessionInterventionInput) (managedagents.SessionIntervention, error) {
+	if input.TurnID == "" || input.CallID == "" || input.ToolIdentifier == "" || input.APIName == "" || input.InterventionMode == "" {
+		return managedagents.SessionIntervention{}, managedagents.ErrInvalid
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.SessionIntervention{}, managedagents.ErrNotFound
+	}
+
+	intervention := managedagents.SessionIntervention{
+		SessionID:         sessionID,
+		TurnID:            input.TurnID,
+		CallID:            input.CallID,
+		ToolIdentifier:    input.ToolIdentifier,
+		APIName:           input.APIName,
+		Arguments:         cloneRaw(input.Arguments),
+		InterventionMode:  input.InterventionMode,
+		Reason:            input.Reason,
+		Status:            managedagents.InterventionStatusPending,
+		RequestedAt:       time.Now().UTC(),
+		Continuation:      cloneRaw(input.Continuation),
+		ContinuationRound: input.ContinuationRound,
+	}
+	expiresAt := intervention.RequestedAt.Add(30 * time.Minute)
+	intervention.ExpiresAt = &expiresAt
+	s.interventions[interventionKey(sessionID, input.TurnID, input.CallID)] = intervention
+	return intervention, nil
+}
+
+func (s *testStore) ListSessionInterventions(sessionID string, status string) ([]managedagents.SessionIntervention, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	interventions := make([]managedagents.SessionIntervention, 0)
+	for _, intervention := range s.interventions {
+		if intervention.SessionID != sessionID {
+			continue
+		}
+		if status != "" && intervention.Status != status {
+			continue
+		}
+		interventions = append(interventions, intervention)
+	}
+	sort.Slice(interventions, func(i, j int) bool {
+		if interventions[i].RequestedAt.Equal(interventions[j].RequestedAt) {
+			if interventions[i].TurnID == interventions[j].TurnID {
+				return interventions[i].CallID < interventions[j].CallID
+			}
+			return interventions[i].TurnID < interventions[j].TurnID
+		}
+		return interventions[i].RequestedAt.Before(interventions[j].RequestedAt)
+	})
+	return interventions, nil
+}
+
+func (s *testStore) DecideSessionIntervention(sessionID string, input managedagents.DecideSessionInterventionInput) (managedagents.DecideSessionInterventionResult, error) {
+	if input.TurnID == "" || input.CallID == "" {
+		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrInvalid
+	}
+	if input.Status != managedagents.InterventionStatusApproved && input.Status != managedagents.InterventionStatusRejected {
+		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrInvalid
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrNotFound
+	}
+	key := interventionKey(sessionID, input.TurnID, input.CallID)
+	intervention, ok := s.interventions[key]
+	if !ok {
+		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrNotFound
+	}
+	if intervention.Status != managedagents.InterventionStatusPending {
+		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrInvalid
+	}
+
+	now := time.Now().UTC()
+	intervention.Status = input.Status
+	intervention.DecisionReason = input.DecisionReason
+	intervention.DecidedAt = &now
+	s.interventions[key] = intervention
+
+	eventType := managedagents.EventRuntimeToolInterventionApproved
+	message := "Tool call approved by user."
+	if input.Status == managedagents.InterventionStatusRejected {
+		eventType = managedagents.EventRuntimeToolInterventionRejected
+		message = "Tool call rejected by user."
+	}
+	payload, err := json.Marshal(map[string]any{
+		"turn_id": input.TurnID,
+		"message": message,
+		"data": map[string]any{
+			"id":                intervention.CallID,
+			"identifier":        intervention.ToolIdentifier,
+			"api_name":          intervention.APIName,
+			"arguments":         rawJSONObject(intervention.Arguments),
+			"intervention_mode": intervention.InterventionMode,
+			"reason":            intervention.Reason,
+			"decision_reason":   intervention.DecisionReason,
+			"approval_source":   "user",
+		},
+	})
+	if err != nil {
+		return managedagents.DecideSessionInterventionResult{}, err
+	}
+	event := s.appendEventLocked(sessionID, eventType, payload, now)
+	s.publishLocked(event)
+	return managedagents.DecideSessionInterventionResult{
+		Intervention: intervention,
+		Events:       []managedagents.Event{event},
+	}, nil
+}
+
+func (s *testStore) MarkSessionTurnWaitingApproval(sessionID string, turnID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.ErrNotFound
+	}
+	if turnID == "" {
+		return managedagents.ErrInvalid
+	}
+	return nil
 }
 
 func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {
@@ -1025,6 +1161,21 @@ func cloneRaw(value json.RawMessage) json.RawMessage {
 	clone := make([]byte, len(value))
 	copy(clone, value)
 	return clone
+}
+
+func interventionKey(sessionID string, turnID string, callID string) string {
+	return sessionID + "\x00" + turnID + "\x00" + callID
+}
+
+func rawJSONObject(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
+	}
+	return value
 }
 
 func statusPayload(status string, turnID string) json.RawMessage {

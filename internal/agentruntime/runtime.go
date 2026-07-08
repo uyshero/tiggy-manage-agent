@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,10 +16,13 @@ import (
 
 const DemoProtocolVersion = "tma.agent_runtime.demo.v1"
 
+var ErrPendingIntervention = errors.New("pending tool intervention")
+
 type Step struct {
 	Type    string         `json:"type"`
 	Message string         `json:"message,omitempty"`
 	Data    map[string]any `json:"data,omitempty"`
+	Private map[string]any `json:"-"`
 }
 
 // TurnRequest 是 AgentRuntime 执行一轮对话所需的最小输入。
@@ -282,16 +286,20 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 			return llm.Response{}, fmt.Errorf("tool calls requested but tool executor is not configured")
 		}
 
-		toolResults, err := runtime.executeToolCalls(ctx, turnRequest, toolExecutor, toolCalls)
+		assistantMessage := llm.Message{
+			Role:      "assistant",
+			Content:   []llm.ContentPart{{Type: "text", Text: contentPartsText(llmResponse.Message.Content)}},
+			ToolCalls: append([]llm.ToolCall(nil), llmResponse.Message.ToolCalls...),
+		}
+		continuationMessages := append([]llm.Message(nil), requestForLLM.Messages...)
+		continuationMessages = append(continuationMessages, assistantMessage)
+
+		toolResults, err := runtime.executeToolCalls(ctx, turnRequest, toolExecutor, toolCalls, continuationMessages, round)
 		if err != nil {
 			return llm.Response{}, err
 		}
 
-		requestForLLM.Messages = append(requestForLLM.Messages, llm.Message{
-			Role:      "assistant",
-			Content:   []llm.ContentPart{{Type: "text", Text: contentPartsText(llmResponse.Message.Content)}},
-			ToolCalls: append([]llm.ToolCall(nil), llmResponse.Message.ToolCalls...),
-		})
+		requestForLLM.Messages = append(requestForLLM.Messages, assistantMessage)
 		for _, result := range toolResults {
 			requestForLLM.Messages = append(requestForLLM.Messages, llm.Message{
 				Role:       "tool",
@@ -304,7 +312,7 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 	return llm.Response{}, fmt.Errorf("tool loop exceeded maximum rounds")
 }
 
-func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call) ([]toolCallExecutionResult, error) {
+func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call, continuationMessages []llm.Message, continuationRound int) ([]toolCallExecutionResult, error) {
 	results := make([]toolCallExecutionResult, 0, len(calls))
 	registry := turnRequest.Config.ToolRegistry
 	policy := tools.InterventionPolicy{Mode: turnRequest.Config.InterventionMode}
@@ -340,32 +348,18 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 						"id":                call.ID,
 						"identifier":        call.Identifier,
 						"api_name":          call.APIName,
+						"arguments":         rawJSONObject(call.Arguments),
 						"intervention_mode": decision.Mode,
 						"reason":            decision.Reason,
 					},
-				}); err != nil {
-					return nil, err
-				}
-				executionResult := tools.PendingInterventionResult(call, "Tool call requires human approval before execution.")
-				result := toolCallExecutionResult{Call: call, Result: executionResult}
-				if err := emitStep(ctx, turnRequest, Step{
-					Type:    managedagents.EventRuntimeToolResult,
-					Message: "Tool result pending approval.",
-					Data: map[string]any{
-						"id":                   call.ID,
-						"identifier":           call.Identifier,
-						"api_name":             call.APIName,
-						"content":              executionResult.Content,
-						"state":                rawJSONObject(executionResult.State),
-						"error":                executionResult.Error,
-						"success":              false,
-						"pending_intervention": true,
+					Private: map[string]any{
+						"continuation_messages": continuationMessages,
+						"continuation_round":    continuationRound,
 					},
 				}); err != nil {
 					return nil, err
 				}
-				results = append(results, result)
-				continue
+				return nil, ErrPendingIntervention
 			}
 			if decision.Required && decision.Allowed && decision.Mode == tools.InterventionModeApproveForMe {
 				if err := emitStep(ctx, turnRequest, Step{
@@ -375,8 +369,10 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 						"id":                call.ID,
 						"identifier":        call.Identifier,
 						"api_name":          call.APIName,
+						"arguments":         rawJSONObject(call.Arguments),
 						"intervention_mode": decision.Mode,
 						"reason":            decision.Reason,
+						"approval_source":   "auto",
 					},
 				}); err != nil {
 					return nil, err

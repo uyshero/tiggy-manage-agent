@@ -907,6 +907,265 @@ func (s *PostgresStore) UpdateSessionRuntimeSettings(id string, input UpdateSess
 	return s.GetSession(id)
 }
 
+func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSessionInterventionInput) (SessionIntervention, error) {
+	if sessionID == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention session_id is required", ErrInvalid)
+	}
+	if input.TurnID == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention turn_id is required", ErrInvalid)
+	}
+	if input.CallID == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention call_id is required", ErrInvalid)
+	}
+	if input.ToolIdentifier == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention tool_identifier is required", ErrInvalid)
+	}
+	if input.APIName == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention api_name is required", ErrInvalid)
+	}
+	if input.InterventionMode == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention intervention_mode is required", ErrInvalid)
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(30 * time.Minute)
+	row := s.db.QueryRowContext(context.Background(), `
+		INSERT INTO session_interventions (
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			requested_at,
+			expires_at,
+			decided_at,
+			decision_reason,
+			continuation_messages_json,
+			continuation_round
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, $12, $13)
+		ON CONFLICT (session_id, turn_id, call_id) DO UPDATE
+		SET
+			tool_identifier = EXCLUDED.tool_identifier,
+			api_name = EXCLUDED.api_name,
+			arguments_json = EXCLUDED.arguments_json,
+			intervention_mode = EXCLUDED.intervention_mode,
+			reason = EXCLUDED.reason,
+			status = EXCLUDED.status,
+			requested_at = EXCLUDED.requested_at,
+			expires_at = EXCLUDED.expires_at,
+			decided_at = NULL,
+			decision_reason = NULL,
+			continuation_messages_json = EXCLUDED.continuation_messages_json,
+			continuation_round = EXCLUDED.continuation_round
+		RETURNING
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			decision_reason,
+			requested_at,
+			expires_at,
+			decided_at,
+			continuation_messages_json,
+			continuation_round
+	`, sessionID, input.TurnID, input.CallID, input.ToolIdentifier, input.APIName, nullableRaw(input.Arguments), input.InterventionMode, input.Reason, InterventionStatusPending, now, expiresAt, nullableRaw(input.Continuation), input.ContinuationRound)
+	intervention, err := scanSessionIntervention(row)
+	if err != nil {
+		return SessionIntervention{}, err
+	}
+	return intervention, nil
+}
+
+func (s *PostgresStore) ListSessionInterventions(sessionID string, status string) ([]SessionIntervention, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("%w: intervention session_id is required", ErrInvalid)
+	}
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+	normalizedStatus := normalizeInterventionStatus(status)
+	if status != "" && normalizedStatus == "" {
+		return nil, fmt.Errorf("%w: unsupported intervention status %q", ErrInvalid, status)
+	}
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			decision_reason,
+			requested_at,
+			expires_at,
+			decided_at,
+			continuation_messages_json,
+			continuation_round
+		FROM session_interventions
+		WHERE session_id = $1
+			AND ($2 = '' OR status = $2)
+		ORDER BY requested_at ASC, turn_id ASC, call_id ASC
+	`, sessionID, normalizedStatus)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	interventions := make([]SessionIntervention, 0)
+	for rows.Next() {
+		intervention, err := scanSessionIntervention(rows)
+		if err != nil {
+			return nil, err
+		}
+		interventions = append(interventions, intervention)
+	}
+	return interventions, rows.Err()
+}
+
+func (s *PostgresStore) DecideSessionIntervention(sessionID string, input DecideSessionInterventionInput) (DecideSessionInterventionResult, error) {
+	if sessionID == "" {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention session_id is required", ErrInvalid)
+	}
+	if input.TurnID == "" {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn_id is required", ErrInvalid)
+	}
+	if input.CallID == "" {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention call_id is required", ErrInvalid)
+	}
+	status := normalizeInterventionStatus(input.Status)
+	if status != InterventionStatusApproved && status != InterventionStatusRejected {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention decision must be approved or rejected", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+	defer tx.Rollback()
+
+	session, err := getSessionForUpdateTx(ctx, tx, sessionID)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+	if session.Status == SessionStatusTerminated {
+		return DecideSessionInterventionResult{}, ErrTerminated
+	}
+
+	current, err := getSessionInterventionForUpdateTx(ctx, tx, sessionID, input.TurnID, input.CallID)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+	if current.Status != InterventionStatusPending {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention %s is already %s", ErrInvalid, input.CallID, current.Status)
+	}
+
+	now := time.Now().UTC()
+	row := tx.QueryRowContext(ctx, `
+		UPDATE session_interventions
+		SET status = $4, decision_reason = $5, decided_at = $6
+		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
+		RETURNING
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			decision_reason,
+			requested_at,
+			expires_at,
+			decided_at,
+			continuation_messages_json,
+			continuation_round
+	`, sessionID, input.TurnID, input.CallID, status, input.DecisionReason, now)
+	decided, err := scanSessionIntervention(row)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+
+	eventType := EventRuntimeToolInterventionApproved
+	message := "Tool call approved by user."
+	if status == InterventionStatusRejected {
+		eventType = EventRuntimeToolInterventionRejected
+		message = "Tool call rejected by user."
+	}
+	payload, err := json.Marshal(map[string]any{
+		"turn_id": decided.TurnID,
+		"message": message,
+		"data": map[string]any{
+			"id":                decided.CallID,
+			"identifier":        decided.ToolIdentifier,
+			"api_name":          decided.APIName,
+			"arguments":         rawJSONObject(decided.Arguments),
+			"intervention_mode": decided.InterventionMode,
+			"reason":            decided.Reason,
+			"decision_reason":   decided.DecisionReason,
+			"approval_source":   "user",
+		},
+	})
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+	event, err := s.appendEventTx(ctx, tx, sessionID, eventType, payload, now)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+
+	s.hub.publish(event)
+	return DecideSessionInterventionResult{
+		Intervention: decided,
+		Events:       []Event{event},
+	}, nil
+}
+
+func (s *PostgresStore) MarkSessionTurnWaitingApproval(sessionID string, turnID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("%w: session_id is required", ErrInvalid)
+	}
+	if turnID == "" {
+		return fmt.Errorf("%w: turn_id is required", ErrInvalid)
+	}
+
+	result, err := s.db.ExecContext(context.Background(), `
+		UPDATE session_turns
+		SET status = $3
+		WHERE session_id = $1 AND id = $2 AND status IN ($3, $4)
+	`, sessionID, turnID, TurnStatusWaitingApproval, TurnStatusRunning)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *PostgresStore) ArchiveSession(id string) (Session, error) {
 	ctx := context.Background()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -1649,7 +1908,7 @@ func currentTurnID(ctx context.Context, tx *sql.Tx, sessionID string) (string, e
 	err := tx.QueryRowContext(ctx, `
 		SELECT id
 		FROM session_turns
-		WHERE session_id = $1 AND status = 'running'
+		WHERE session_id = $1 AND status IN ('running', 'waiting_approval')
 		ORDER BY started_at DESC
 		LIMIT 1
 	`, sessionID).Scan(&turnID)
@@ -1683,7 +1942,7 @@ func completeTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, n
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
 		SET status = 'completed', ended_at = $3
-		WHERE session_id = $1 AND id = $2 AND status = 'running'
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, now)
 	return err
 }
@@ -1692,7 +1951,7 @@ func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, 
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
 		SET status = 'interrupted', interrupt_requested_at = $3, ended_at = $3
-		WHERE session_id = $1 AND id = $2 AND status = 'running'
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, now)
 	return err
 }
@@ -1701,14 +1960,89 @@ func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason strin
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
 		SET status = 'failed', error_message = $3, ended_at = $4
-		WHERE session_id = $1 AND id = $2 AND status = 'running'
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, nullableString(reason), now)
 	return err
 }
 
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func getSessionInterventionForUpdateTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, callID string) (SessionIntervention, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			decision_reason,
+			requested_at,
+			expires_at,
+			decided_at,
+			continuation_messages_json,
+			continuation_round
+		FROM session_interventions
+		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
+		FOR UPDATE
+	`, sessionID, turnID, callID)
+	return scanSessionIntervention(row)
+}
+
+func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
+	var intervention SessionIntervention
+	var arguments []byte
+	var continuation []byte
+	var reason sql.NullString
+	var decisionReason sql.NullString
+	var expiresAt sql.NullTime
+	var decidedAt sql.NullTime
+
+	err := scanner.Scan(
+		&intervention.SessionID,
+		&intervention.TurnID,
+		&intervention.CallID,
+		&intervention.ToolIdentifier,
+		&intervention.APIName,
+		&arguments,
+		&intervention.InterventionMode,
+		&reason,
+		&intervention.Status,
+		&decisionReason,
+		&intervention.RequestedAt,
+		&expiresAt,
+		&decidedAt,
+		&continuation,
+		&intervention.ContinuationRound,
+	)
+	if err == sql.ErrNoRows {
+		return SessionIntervention{}, ErrNotFound
+	}
+	if err != nil {
+		return SessionIntervention{}, err
+	}
+
+	intervention.Arguments = cloneRaw(arguments)
+	intervention.Continuation = cloneRaw(continuation)
+	intervention.Reason = reason.String
+	intervention.DecisionReason = decisionReason.String
+	if expiresAt.Valid {
+		intervention.ExpiresAt = &expiresAt.Time
+	}
+	if decidedAt.Valid {
+		intervention.DecidedAt = &decidedAt.Time
+	}
+	return intervention, nil
+}
+
 func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, created_by, created_at, archived_at
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, runtime_settings_json, created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
 	`, id)
@@ -1772,6 +2106,17 @@ func nullableString(value string) any {
 func nullableRaw(value json.RawMessage) any {
 	if len(value) == 0 {
 		return json.RawMessage(`null`)
+	}
+	return value
+}
+
+func rawJSONObject(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return string(raw)
 	}
 	return value
 }

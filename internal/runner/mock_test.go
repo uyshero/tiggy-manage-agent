@@ -158,6 +158,28 @@ func TestWorkerRunnerFailsTurnWhenExecutorFails(t *testing.T) {
 	}
 }
 
+func TestWorkerRunnerLeavesTurnOpenWhenWaitingForApproval(t *testing.T) {
+	store := &mockStore{}
+	runner := NewWorkerRunner(store, staticExecutor{err: ErrTurnWaitingApproval}, 1, nil)
+	defer runner.Close()
+
+	if err := runner.StartTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[]}`),
+	}); err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if got := store.completeCalls(); got != 0 {
+		t.Fatalf("expected waiting turn not to complete, got %d completions", got)
+	}
+	if got := store.failCalls(); got != 0 {
+		t.Fatalf("expected waiting turn not to fail, got %d failures", got)
+	}
+}
+
 func TestWorkerRunnerRecordsFailedLLMUsageWhenExecutorFailsAfterModelCall(t *testing.T) {
 	store := &mockStore{}
 	runner := NewWorkerRunner(store, staticExecutor{
@@ -238,6 +260,7 @@ type mockStore struct {
 	reason          string
 	payload         json.RawMessage
 	summaries       map[string]managedagents.SessionSummary
+	interventions   []managedagents.SaveSessionInterventionInput
 	usageRecords    []managedagents.RecordLLMUsageInput
 	runtimeEvents   []string
 	history         []managedagents.ConversationMessage
@@ -278,6 +301,12 @@ func (s *mockStore) runtimeEventTypes() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.runtimeEvents...)
+}
+
+func (s *mockStore) savedInterventions() []managedagents.SaveSessionInterventionInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]managedagents.SaveSessionInterventionInput(nil), s.interventions...)
 }
 
 func (s *mockStore) CreateAgent(managedagents.CreateAgentInput) (managedagents.Agent, error) {
@@ -357,6 +386,42 @@ func (s *mockStore) GetSession(string) (managedagents.Session, error) {
 
 func (s *mockStore) UpdateSessionRuntimeSettings(string, managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagents.SaveSessionInterventionInput) (managedagents.SessionIntervention, error) {
+	s.mu.Lock()
+	s.interventions = append(s.interventions, input)
+	s.mu.Unlock()
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(30 * time.Minute)
+	return managedagents.SessionIntervention{
+		SessionID:         sessionID,
+		TurnID:            input.TurnID,
+		CallID:            input.CallID,
+		ToolIdentifier:    input.ToolIdentifier,
+		APIName:           input.APIName,
+		Arguments:         input.Arguments,
+		InterventionMode:  input.InterventionMode,
+		Reason:            input.Reason,
+		Status:            managedagents.InterventionStatusPending,
+		RequestedAt:       now,
+		ExpiresAt:         &expiresAt,
+		Continuation:      input.Continuation,
+		ContinuationRound: input.ContinuationRound,
+	}, nil
+}
+
+func (s *mockStore) ListSessionInterventions(string, string) ([]managedagents.SessionIntervention, error) {
+	return nil, nil
+}
+
+func (s *mockStore) DecideSessionIntervention(string, managedagents.DecideSessionInterventionInput) (managedagents.DecideSessionInterventionResult, error) {
+	return managedagents.DecideSessionInterventionResult{}, nil
+}
+
+func (s *mockStore) MarkSessionTurnWaitingApproval(string, string) error {
+	return nil
 }
 
 func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.AgentRuntimeConfig, error) {

@@ -40,12 +40,23 @@ const (
 	EventRuntimeToolCall                 = "runtime.tool_call"
 	EventRuntimeToolInterventionRequired = "runtime.tool_intervention_required"
 	EventRuntimeToolInterventionApproved = "runtime.tool_intervention_approved"
+	EventRuntimeToolInterventionRejected = "runtime.tool_intervention_rejected"
 	EventRuntimeToolResult               = "runtime.tool_result"
 	EventRuntimeContextCompacting        = "runtime.context_compacting"
 	EventRuntimeContextCompacted         = "runtime.context_compacted"
 	EventRuntimeContextCompactionFailed  = "runtime.context_compaction_failed"
 	EventRuntimeCompleted                = "runtime.completed"
 	EventRuntimeFailed                   = "runtime.failed"
+
+	InterventionStatusPending  = "pending"
+	InterventionStatusApproved = "approved"
+	InterventionStatusRejected = "rejected"
+
+	TurnStatusRunning         = "running"
+	TurnStatusWaitingApproval = "waiting_approval"
+	TurnStatusInterrupted     = "interrupted"
+	TurnStatusCompleted       = "completed"
+	TurnStatusFailed          = "failed"
 )
 
 type Agent struct {
@@ -138,6 +149,48 @@ type Event struct {
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
+}
+
+type SessionIntervention struct {
+	SessionID         string          `json:"session_id"`
+	TurnID            string          `json:"turn_id"`
+	CallID            string          `json:"call_id"`
+	ToolIdentifier    string          `json:"tool_identifier"`
+	APIName           string          `json:"api_name"`
+	Arguments         json.RawMessage `json:"arguments,omitempty"`
+	InterventionMode  string          `json:"intervention_mode"`
+	Reason            string          `json:"reason,omitempty"`
+	Status            string          `json:"status"`
+	DecisionReason    string          `json:"decision_reason,omitempty"`
+	RequestedAt       time.Time       `json:"requested_at"`
+	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
+	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
+	Continuation      json.RawMessage `json:"-"`
+	ContinuationRound int             `json:"-"`
+}
+
+type SaveSessionInterventionInput struct {
+	TurnID            string          `json:"turn_id"`
+	CallID            string          `json:"call_id"`
+	ToolIdentifier    string          `json:"tool_identifier"`
+	APIName           string          `json:"api_name"`
+	Arguments         json.RawMessage `json:"arguments,omitempty"`
+	InterventionMode  string          `json:"intervention_mode"`
+	Reason            string          `json:"reason,omitempty"`
+	Continuation      json.RawMessage `json:"-"`
+	ContinuationRound int             `json:"-"`
+}
+
+type DecideSessionInterventionInput struct {
+	TurnID         string `json:"turn_id"`
+	CallID         string `json:"call_id"`
+	Status         string `json:"status"`
+	DecisionReason string `json:"decision_reason,omitempty"`
+}
+
+type DecideSessionInterventionResult struct {
+	Intervention SessionIntervention `json:"intervention"`
+	Events       []Event             `json:"events"`
 }
 
 type ConversationMessage struct {

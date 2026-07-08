@@ -36,6 +36,9 @@ make test-postgres
 - `user.message -> CompleteSessionTurn`：turn `completed`，Session 回到 `idle`
 - `user.message -> user.interrupt -> late CompleteSessionTurn`：turn `interrupted`，不补 `agent.message`
 - `user.message -> FailSessionTurn`：turn `failed`，Session 回到 `idle`，可继续发送下一条消息
+- 原生 `tools` / `tool_calls` 与 `tma.tool_call.v1` fallback
+- Session 级 `intervention_mode`
+- CLI `event stream` 对审批事件的可读展示
 
 ---
 
@@ -111,6 +114,23 @@ bin/tma session summary get --session sesn_000001
 ```
 
 写入 summary 时会产生 `session.status_compacting` 和 `session.status_idle` 事件。
+
+Session 级 runtime settings：
+
+```bash
+bin/tma session runtime get --session sesn_000001
+bin/tma session runtime update --session sesn_000001 --intervention-mode request_approval
+bin/tma session runtime update --session sesn_000001 --intervention-mode approve_for_me
+bin/tma session runtime update --session sesn_000001 --intervention-mode full_access
+```
+
+Tool intervention 决策：
+
+```bash
+bin/tma session intervention list --session sesn_000001 --status pending
+bin/tma session intervention approve --session sesn_000001 --turn turn_000003 --call call_edit --reason "looks safe"
+bin/tma session intervention reject --session sesn_000001 --turn turn_000003 --call call_edit --reason "not this time"
+```
 
 ## 3. LLM Provider 管理命令
 
@@ -516,6 +536,69 @@ bin/tma event send \
 ```text
 event: session.status_running
 event: user.message
+```
+
+如果当前 Session 已设置：
+
+```bash
+bin/tma session runtime update --session sesn_000001 --intervention-mode request_approval
+```
+
+当模型命中敏感工具时，`bin/tma event stream --session sesn_000001 --after 0` 当前会把审批事件和工具结果事件格式化为更易读的提示，而不是原始 SSE JSON。例如：
+
+```text
+approval required
+  seq: 12
+  turn: turn_000003
+  call: call_edit
+  tool: tma.local_system.edit_file
+  mode: request_approval
+  message: Tool call requires approval before execution.
+  policy: optional
+```
+
+当前这一步只验证“可见性”和“拦截”：
+
+- `request_approval`：敏感工具不执行，事件流中出现 `approval required`
+- `approve_for_me`：会出现 `runtime.tool_intervention_approved`，随后继续执行
+- `full_access`：直接执行，不出现审批提示
+
+查看 pending 审批记录：
+
+```bash
+bin/tma session intervention list \
+  --session sesn_000001 \
+  --status pending
+```
+
+批准或拒绝某个 pending call：
+
+```bash
+bin/tma session intervention approve \
+  --session sesn_000001 \
+  --turn turn_000003 \
+  --call call_edit \
+  --reason "looks safe"
+
+bin/tma session intervention reject \
+  --session sesn_000001 \
+  --turn turn_000003 \
+  --call call_edit \
+  --reason "not this time"
+```
+
+批准后应写出 `runtime.tool_intervention_approved` 事件，并消费保存的 tool call 追加 `runtime.tool_result`。拒绝后应写出 `runtime.tool_intervention_rejected` 事件，不执行工具。
+
+在 `bin/tma event stream` 中，批准、拒绝和工具结果会分别显示为 `approval approved`、`approval rejected`、`tool result`。
+
+当前 approve/reject 是非交互式决策入口：`request_approval` 会把 turn 标记为 `waiting_approval`，不会生成 pending 后的临时 `agent.message`。approve 会执行被批准的工具并回写结果事件；如果 pending 记录中带有 continuation messages，还会把 tool result 送回 LLM，并继续最多 4 轮 tool loop。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写 rejected 事件并 fail turn，不会把拒绝原因喂回模型继续推理。长期未审批时记录保持 `pending` / `waiting_approval`，不会自动 approve / reject / expire。
+
+如果 session 正在 `waiting_approval`，用户又发送新的 `user.message`，服务端不会开启新 turn；它会返回 `202 Accepted`，写一条提醒 `agent.message`，并重新写出 pending 的 `runtime.tool_intervention_required`，方便 CLI/UI 再次展示审批信息。
+
+approve 后的 continuation LLM 调用会进入 usage 记录，可用下面命令确认：
+
+```bash
+bin/tma usage list --session sesn_000001
 ```
 
 这两条事件的 `data` 中应包含相同的 `payload.turn_id`。

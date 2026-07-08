@@ -74,6 +74,9 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		EmitStep: e.emitStep(request),
 	})
 	if err != nil {
+		if errors.Is(err, agentruntime.ErrPendingIntervention) {
+			return TurnResult{}, ErrTurnWaitingApproval
+		}
 		_ = e.recordRuntimeFailed(ctx, request, err)
 		if ctx.Err() != nil {
 			return TurnResult{}, ctx.Err()
@@ -137,6 +140,11 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 		if eventType == "" {
 			return errors.New("runtime step type is required")
 		}
+		if eventType == managedagents.EventRuntimeToolInterventionRequired {
+			if err := e.savePendingIntervention(request, step); err != nil {
+				return err
+			}
+		}
 		payload, err := json.Marshal(map[string]any{
 			"message": step.Message,
 			"data":    step.Data,
@@ -150,6 +158,58 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 		})
 		return err
 	}
+}
+
+func (e AgentRuntimeTurnExecutor) savePendingIntervention(request TurnRequest, step agentruntime.Step) error {
+	if e.Store == nil {
+		return nil
+	}
+
+	callID, _ := step.Data["id"].(string)
+	identifier, _ := step.Data["identifier"].(string)
+	apiName, _ := step.Data["api_name"].(string)
+	mode, _ := step.Data["intervention_mode"].(string)
+	reason, _ := step.Data["reason"].(string)
+	if callID == "" || identifier == "" || apiName == "" {
+		return nil
+	}
+
+	var arguments json.RawMessage
+	if value, ok := step.Data["arguments"]; ok && value != nil {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("encode intervention arguments: %w", err)
+		}
+		arguments = encoded
+	}
+
+	var continuation json.RawMessage
+	if value, ok := step.Private["continuation_messages"]; ok && value != nil {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Errorf("encode intervention continuation: %w", err)
+		}
+		continuation = encoded
+	}
+	continuationRound := 0
+	if value, ok := step.Private["continuation_round"].(int); ok {
+		continuationRound = value
+	}
+
+	if _, err := e.Store.SaveSessionIntervention(request.SessionID, managedagents.SaveSessionInterventionInput{
+		TurnID:            request.TurnID,
+		CallID:            callID,
+		ToolIdentifier:    identifier,
+		APIName:           apiName,
+		Arguments:         arguments,
+		InterventionMode:  mode,
+		Reason:            reason,
+		Continuation:      continuation,
+		ContinuationRound: continuationRound,
+	}); err != nil {
+		return err
+	}
+	return e.Store.MarkSessionTurnWaitingApproval(request.SessionID, request.TurnID)
 }
 
 func (e AgentRuntimeTurnExecutor) recordRuntimeFailed(ctx context.Context, request TurnRequest, err error) error {
