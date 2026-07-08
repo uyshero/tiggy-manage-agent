@@ -320,7 +320,7 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		call := tools.NormalizeCall(toolCall)
 		if err := emitStep(ctx, turnRequest, Step{
 			Type:    managedagents.EventRuntimeToolCall,
-			Message: "Executing tool call.",
+			Message: "Received tool call request.",
 			Data: map[string]any{
 				"id":         call.ID,
 				"identifier": call.Identifier,

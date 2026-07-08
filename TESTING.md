@@ -127,6 +127,8 @@ bin/tma session runtime update --session sesn_000001 --intervention-mode full_ac
 Tool intervention 决策：
 
 ```bash
+bin/tma session attach --session sesn_000001 --after 0
+
 bin/tma session intervention list --session sesn_000001 --status pending
 bin/tma session intervention approve --session sesn_000001 --turn turn_000003 --call call_edit --reason "looks safe"
 bin/tma session intervention reject --session sesn_000001 --turn turn_000003 --call call_edit --reason "not this time"
@@ -290,6 +292,33 @@ TMA_LLM_API_KEY
 ```
 
 启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_delta` 数量。
+
+如果要验证当前 `.env` 中配置的真实 LLM Provider 的 tool approval 流程，先启动服务，再运行：
+
+```bash
+scripts/verify_intervention_flow.sh
+```
+
+默认模式会自动创建 Agent / Environment / Session，设置 `intervention_mode=request_approval`，发送 `APPROVAL_TEST_RUN_COMMAND`，等待 pending approval，然后打印 `session attach`、直接 approve、直接 reject 三组命令供手动测试。
+
+也可以自动走 approve 或 reject 分支：
+
+```bash
+TMA_APPROVAL_TEST_DECISION=approve scripts/verify_intervention_flow.sh
+TMA_APPROVAL_TEST_DECISION=reject scripts/verify_intervention_flow.sh
+```
+
+可用环境变量：
+
+```text
+TMA_BASE_URL
+TMA_CLI
+TMA_DOTENV_PATH
+TMA_APPROVAL_TEST_WAIT_SECONDS
+TMA_APPROVAL_TEST_MESSAGE
+TMA_APPROVAL_TEST_DECISION=manual|approve|reject
+```
+
 - `agent.message`
 - `session.status_idle`
 
@@ -490,19 +519,17 @@ bin/tma event list --session sesn_000001 --after 2
 bin/tma event stream --session sesn_000001 --after 0
 ```
 
-预期立即补发历史事件，例如：
+预期立即补发历史事件。已支持可读格式的事件会显示为短文本，例如：
 
 ```text
-id: evt_000001
-event: session.status_provisioning
-data: {..."seq":1...}
+status: provisioning
 
-id: evt_000002
-event: session.status_idle
-data: {..."seq":2...}
+status: idle
 
 : stream ready
 ```
+
+尚未专门格式化的事件仍会按原始 SSE 输出，便于调试新事件类型。
 
 测试从 `seq=2` 后续传：
 
@@ -534,8 +561,9 @@ bin/tma event send \
 终端 B 应实时看到新事件：
 
 ```text
-event: session.status_running
-event: user.message
+status: running (turn turn_000003)
+
+user> second message
 ```
 
 如果当前 Session 已设置：
@@ -544,7 +572,19 @@ event: user.message
 bin/tma session runtime update --session sesn_000001 --intervention-mode request_approval
 ```
 
-当模型命中敏感工具时，`bin/tma event stream --session sesn_000001 --after 0` 当前会把审批事件和工具结果事件格式化为更易读的提示，而不是原始 SSE JSON。例如：
+`bin/tma event stream --session sesn_000001 --after 0` 当前会把常见事件格式化为更易读的提示，而不是原始 SSE JSON。常见输出包括：
+
+```text
+status: running (turn turn_000003)
+
+user> edit README
+
+delta> working
+
+agent> done
+```
+
+当模型命中敏感工具时，审批事件会显示为：
 
 ```text
 approval required
@@ -562,6 +602,62 @@ approval required
 - `request_approval`：敏感工具不执行，事件流中出现 `approval required`
 - `approve_for_me`：会出现 `runtime.tool_intervention_approved`，随后继续执行
 - `full_access`：直接执行，不出现审批提示
+
+交互式会话入口：
+
+```bash
+bin/tma session attach --session sesn_000001 --after 0
+```
+
+查看交互式输入说明：
+
+```bash
+bin/tma session attach --help
+```
+
+`session attach` 会持续监听同一个 session 的 SSE，也可以直接在当前终端输入消息发送 `user.message`。
+启动后会打印简短提示：
+
+```text
+attached to sesn_000001
+type a message, /say MESSAGE, /interrupt, or /quit
+approval: a=approve, r REASON=reject, s=skip
+```
+
+启动时会先查询当前 `status=pending` 的审批记录；即使使用了较新的 `--after` 跳过历史 `runtime.tool_intervention_required` 事件，只要 Store 里仍有 pending approval，也会恢复成本地 prompt：
+
+```text
+pending approval recovered: tma.local_system.edit_file call=call_edit
+approval action: a=approve, r [reason]=reject, s=skip
+```
+
+常用输入：
+
+```text
+hello agent
+/say hello agent
+/interrupt
+/quit
+```
+
+遇到 `approval required` 时，会在当前命令中提示：
+
+```text
+approval action: a=approve, r [reason]=reject, s=skip
+```
+
+- `a` / `approve`：调用 approve API，工具执行后 event stream 继续输出后续事件
+- `r not safe` / `reject not safe`：带可选拒绝原因 reject，随后 fail 当前 turn 并回到 idle
+- `s` / `skip`：本次不处理，本地 prompt 消失，pending 记录继续保留
+- `/say MESSAGE`：在本地已有 pending prompt 时仍强制发送一条新 user message；服务端会按 waiting approval 规则返回提醒并重新发送审批事件
+
+发送成功后会显示：
+
+```text
+message sent
+```
+
+如果发送消息、interrupt 或审批 API 返回错误，`session attach` 会在终端打印 `... failed: ...`，但不会退出整个交互式会话；可以继续输入下一条消息或下一次审批决策。SSE 连接本身断开时，命令仍会退出并返回错误。
 
 查看 pending 审批记录：
 
@@ -591,7 +687,7 @@ bin/tma session intervention reject \
 
 在 `bin/tma event stream` 中，批准、拒绝和工具结果会分别显示为 `approval approved`、`approval rejected`、`tool result`。
 
-当前 approve/reject 是非交互式决策入口：`request_approval` 会把 turn 标记为 `waiting_approval`，不会生成 pending 后的临时 `agent.message`。approve 会执行被批准的工具并回写结果事件；如果 pending 记录中带有 continuation messages，还会把 tool result 送回 LLM，并继续最多 4 轮 tool loop。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写 rejected 事件并 fail turn，不会把拒绝原因喂回模型继续推理。长期未审批时记录保持 `pending` / `waiting_approval`，不会自动 approve / reject / expire。
+细粒度 approve/reject 命令仍保留给脚本和调试使用：`request_approval` 会把 turn 标记为 `waiting_approval`，不会生成 pending 后的临时 `agent.message`。approve 会执行被批准的工具并回写结果事件；如果 pending 记录中带有 continuation messages，还会把 tool result 送回 LLM，并继续最多 4 轮 tool loop。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写 rejected 事件并 fail turn，不会把拒绝原因喂回模型继续推理。长期未审批时记录保持 `pending` / `waiting_approval`，不会自动 approve / reject / expire。
 
 如果 session 正在 `waiting_approval`，用户又发送新的 `user.message`，服务端不会开启新 turn；它会返回 `202 Accepted`，写一条提醒 `agent.message`，并重新写出 pending 的 `runtime.tool_intervention_required`，方便 CLI/UI 再次展示审批信息。
 

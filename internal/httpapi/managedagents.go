@@ -644,7 +644,7 @@ func (s *Server) continueApprovedIntervention(r *http.Request, intervention mana
 
 		for _, toolCall := range toolCalls {
 			call := tools.NormalizeCall(toolCall)
-			toolEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolCall, intervention.TurnID, "Executing continuation tool call.", map[string]any{
+			toolEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolCall, intervention.TurnID, "Received continuation tool call request.", map[string]any{
 				"id":         call.ID,
 				"identifier": call.Identifier,
 				"api_name":   call.APIName,

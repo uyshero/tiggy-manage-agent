@@ -169,6 +169,15 @@ bin/tma session create \
 ```
 
 ```bash
+bin/tma session attach --session sesn_000001 --after 0
+```
+
+`session attach` is the recommended human CLI entrypoint. It streams session
+events, lets you type user messages directly, and handles pending tool approval
+with `a` / `r reason` / `s` in the same terminal. It also supports `/interrupt`
+and `/quit`.
+
+```bash
 bin/tma session archive --session sesn_000001
 ```
 
@@ -176,13 +185,9 @@ bin/tma session archive --session sesn_000001
 bin/tma session delete --session sesn_000001
 ```
 
-```bash
-bin/tma event send \
-  --session sesn_000001 \
-  --text "hello"
-```
-
-AgentRuntime turns run asynchronously. `event send` immediately records `session.status_running` and `user.message`; the background worker then records `agent.message` and `session.status_idle` when the runtime finishes.
+AgentRuntime turns run asynchronously. Sending a message through `session attach`
+records `session.status_running` and `user.message`; the background worker then
+records `agent.message` and `session.status_idle` when the runtime finishes.
 The demo runtime also records `runtime.started`, `runtime.thinking`, `runtime.llm_request`, `runtime.llm_response`, and `runtime.completed` events so the execution process is visible in `event list` and SSE streams.
 
 HTTP depends on the `internal/runner.Runner` interface. `cmd/server` injects a `WorkerRunner` backed by `AgentRuntimeTurnExecutor`, so HTTP handlers do not know runtime execution details.
@@ -196,7 +201,10 @@ Turn lifecycle is also persisted in `session_turns`, so the service can track wh
 bin/tma event interrupt --session sesn_000001
 ```
 
-`event interrupt` is valid while a Session is `running`. Run it right after `event send` to verify the interrupt path.
+`event send`, `event interrupt`, and `event stream` remain useful scripting and
+debugging entrypoints. For normal manual use, prefer `session attach`.
+
+`event interrupt` is valid while a Session is `running`. Run it right after sending a message to verify the interrupt path.
 
 ```bash
 bin/tma event list --session sesn_000001 --after 0

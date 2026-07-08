@@ -928,7 +928,6 @@ func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSess
 	}
 
 	now := time.Now().UTC()
-	expiresAt := now.Add(30 * time.Minute)
 	row := s.db.QueryRowContext(context.Background(), `
 		INSERT INTO session_interventions (
 			session_id,
@@ -941,13 +940,12 @@ func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSess
 			reason,
 			status,
 			requested_at,
-			expires_at,
 			decided_at,
 			decision_reason,
 			continuation_messages_json,
 			continuation_round
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, NULL, $12, $13)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12)
 		ON CONFLICT (session_id, turn_id, call_id) DO UPDATE
 		SET
 			tool_identifier = EXCLUDED.tool_identifier,
@@ -957,7 +955,6 @@ func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSess
 			reason = EXCLUDED.reason,
 			status = EXCLUDED.status,
 			requested_at = EXCLUDED.requested_at,
-			expires_at = EXCLUDED.expires_at,
 			decided_at = NULL,
 			decision_reason = NULL,
 			continuation_messages_json = EXCLUDED.continuation_messages_json,
@@ -974,11 +971,10 @@ func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSess
 			status,
 			decision_reason,
 			requested_at,
-			expires_at,
 			decided_at,
 			continuation_messages_json,
 			continuation_round
-	`, sessionID, input.TurnID, input.CallID, input.ToolIdentifier, input.APIName, nullableRaw(input.Arguments), input.InterventionMode, input.Reason, InterventionStatusPending, now, expiresAt, nullableRaw(input.Continuation), input.ContinuationRound)
+	`, sessionID, input.TurnID, input.CallID, input.ToolIdentifier, input.APIName, nullableRaw(input.Arguments), input.InterventionMode, input.Reason, InterventionStatusPending, now, nullableRaw(input.Continuation), input.ContinuationRound)
 	intervention, err := scanSessionIntervention(row)
 	if err != nil {
 		return SessionIntervention{}, err
@@ -1011,7 +1007,6 @@ func (s *PostgresStore) ListSessionInterventions(sessionID string, status string
 			status,
 			decision_reason,
 			requested_at,
-			expires_at,
 			decided_at,
 			continuation_messages_json,
 			continuation_round
@@ -1091,7 +1086,6 @@ func (s *PostgresStore) DecideSessionIntervention(sessionID string, input Decide
 			status,
 			decision_reason,
 			requested_at,
-			expires_at,
 			decided_at,
 			continuation_messages_json,
 			continuation_round
@@ -1983,7 +1977,6 @@ func getSessionInterventionForUpdateTx(ctx context.Context, tx *sql.Tx, sessionI
 			status,
 			decision_reason,
 			requested_at,
-			expires_at,
 			decided_at,
 			continuation_messages_json,
 			continuation_round
@@ -2000,7 +1993,6 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 	var continuation []byte
 	var reason sql.NullString
 	var decisionReason sql.NullString
-	var expiresAt sql.NullTime
 	var decidedAt sql.NullTime
 
 	err := scanner.Scan(
@@ -2015,7 +2007,6 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 		&intervention.Status,
 		&decisionReason,
 		&intervention.RequestedAt,
-		&expiresAt,
 		&decidedAt,
 		&continuation,
 		&intervention.ContinuationRound,
@@ -2031,9 +2022,6 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 	intervention.Continuation = cloneRaw(continuation)
 	intervention.Reason = reason.String
 	intervention.DecisionReason = decisionReason.String
-	if expiresAt.Valid {
-		intervention.ExpiresAt = &expiresAt.Time
-	}
 	if decidedAt.Valid {
 		intervention.DecidedAt = &decidedAt.Time
 	}

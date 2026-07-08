@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -569,6 +568,8 @@ func commandSession(client *apiClient, args []string) error {
 		return commandSessionRuntime(client, args[1:])
 	case "intervention":
 		return commandSessionIntervention(client, args[1:])
+	case "attach":
+		return commandSessionAttach(client, args[1:])
 	case "summary":
 		return commandSessionSummary(client, args[1:])
 	default:
@@ -1044,220 +1045,6 @@ func (c *apiClient) stream(path string, output io.Writer) error {
 	return streamSSE(response.Body, output)
 }
 
-func streamSSE(reader io.Reader, output io.Writer) error {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	var lines []string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			if len(lines) != 0 {
-				if _, err := io.WriteString(output, formatSSEChunk(lines)); err != nil {
-					return fmt.Errorf("write stream: %w", err)
-				}
-				lines = lines[:0]
-			} else {
-				if _, err := io.WriteString(output, "\n"); err != nil {
-					return fmt.Errorf("write stream: %w", err)
-				}
-			}
-			continue
-		}
-		lines = append(lines, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read stream: %w", err)
-	}
-	if len(lines) != 0 {
-		if _, err := io.WriteString(output, formatSSEChunk(lines)); err != nil {
-			return fmt.Errorf("write stream: %w", err)
-		}
-	}
-	return nil
-}
-
-func formatSSEChunk(lines []string) string {
-	chunk := strings.Join(lines, "\n") + "\n\n"
-	eventType, eventData := parseSSEChunk(lines)
-	switch eventType {
-	case "runtime.tool_intervention_required", "runtime.tool_intervention_approved", "runtime.tool_intervention_rejected":
-		formatted, ok := formatToolInterventionEvent(eventType, eventData)
-		if !ok {
-			return chunk
-		}
-		return formatted + "\n"
-	case "runtime.tool_result":
-		formatted, ok := formatToolResultEvent(eventData)
-		if !ok {
-			return chunk
-		}
-		return formatted + "\n"
-	default:
-		return chunk
-	}
-}
-
-func parseSSEChunk(lines []string) (string, string) {
-	var eventType string
-	var dataLines []string
-	for _, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "event:"):
-			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-		case strings.HasPrefix(line, "data:"):
-			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-	}
-	return eventType, strings.Join(dataLines, "\n")
-}
-
-func formatToolInterventionEvent(eventType string, raw string) (string, bool) {
-	var event struct {
-		Seq     int64           `json:"seq"`
-		Type    string          `json:"type"`
-		Payload json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal([]byte(raw), &event); err != nil {
-		return "", false
-	}
-	var payload struct {
-		TurnID  string `json:"turn_id"`
-		Message string `json:"message"`
-		Data    struct {
-			ID               string `json:"id"`
-			Identifier       string `json:"identifier"`
-			APIName          string `json:"api_name"`
-			InterventionMode string `json:"intervention_mode"`
-			Reason           string `json:"reason"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return "", false
-	}
-
-	var builder strings.Builder
-	builder.WriteString(toolInterventionHeader(eventType))
-	builder.WriteString("\n")
-	writeSeqTurnCallTool(&builder, event.Seq, payload.TurnID, payload.Data.ID, payload.Data.Identifier, payload.Data.APIName)
-	if payload.Data.InterventionMode != "" {
-		builder.WriteString("  mode: ")
-		builder.WriteString(payload.Data.InterventionMode)
-		builder.WriteString("\n")
-	}
-	if payload.Message != "" {
-		builder.WriteString("  message: ")
-		builder.WriteString(payload.Message)
-		builder.WriteString("\n")
-	}
-	if payload.Data.Reason != "" {
-		builder.WriteString("  policy: ")
-		builder.WriteString(payload.Data.Reason)
-		builder.WriteString("\n")
-	}
-	return builder.String(), true
-}
-
-func formatToolResultEvent(raw string) (string, bool) {
-	var event struct {
-		Seq     int64           `json:"seq"`
-		Payload json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal([]byte(raw), &event); err != nil {
-		return "", false
-	}
-	var payload struct {
-		TurnID  string `json:"turn_id"`
-		Message string `json:"message"`
-		Data    struct {
-			ID         string `json:"id"`
-			Identifier string `json:"identifier"`
-			APIName    string `json:"api_name"`
-			Content    string `json:"content"`
-			Success    bool   `json:"success"`
-			Error      *struct {
-				Type    string `json:"type"`
-				Message string `json:"message"`
-			} `json:"error"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return "", false
-	}
-
-	var builder strings.Builder
-	builder.WriteString("tool result\n")
-	writeSeqTurnCallTool(&builder, event.Seq, payload.TurnID, payload.Data.ID, payload.Data.Identifier, payload.Data.APIName)
-	builder.WriteString("  success: ")
-	builder.WriteString(strconv.FormatBool(payload.Data.Success))
-	builder.WriteString("\n")
-	if payload.Message != "" {
-		builder.WriteString("  message: ")
-		builder.WriteString(payload.Message)
-		builder.WriteString("\n")
-	}
-	if payload.Data.Error != nil {
-		builder.WriteString("  error: ")
-		if payload.Data.Error.Type != "" {
-			builder.WriteString(payload.Data.Error.Type)
-			builder.WriteString(": ")
-		}
-		builder.WriteString(payload.Data.Error.Message)
-		builder.WriteString("\n")
-	}
-	if payload.Data.Content != "" {
-		builder.WriteString("  content: ")
-		builder.WriteString(truncateValue(strings.ReplaceAll(payload.Data.Content, "\n", "\\n"), 500))
-		builder.WriteString("\n")
-	}
-	return builder.String(), true
-}
-
-func toolInterventionHeader(eventType string) string {
-	switch eventType {
-	case "runtime.tool_intervention_approved":
-		return "approval approved"
-	case "runtime.tool_intervention_rejected":
-		return "approval rejected"
-	default:
-		return "approval required"
-	}
-}
-
-func writeSeqTurnCallTool(builder *strings.Builder, seq int64, turnID string, callID string, identifier string, apiName string) {
-	if seq > 0 {
-		builder.WriteString("  seq: ")
-		builder.WriteString(strconv.FormatInt(seq, 10))
-		builder.WriteString("\n")
-	}
-	if turnID != "" {
-		builder.WriteString("  turn: ")
-		builder.WriteString(turnID)
-		builder.WriteString("\n")
-	}
-	if callID != "" {
-		builder.WriteString("  call: ")
-		builder.WriteString(callID)
-		builder.WriteString("\n")
-	}
-	if identifier != "" || apiName != "" {
-		builder.WriteString("  tool: ")
-		builder.WriteString(identifier)
-		if apiName != "" {
-			builder.WriteString(".")
-			builder.WriteString(apiName)
-		}
-		builder.WriteString("\n")
-	}
-}
-
-func truncateValue(value string, limit int) string {
-	if limit <= 0 || len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
-}
-
 func printJSON(value any) error {
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -1299,6 +1086,15 @@ func normalizeInterventionModeArg(value string) (string, bool) {
 	}
 }
 
+func isHelpArg(value string) bool {
+	switch value {
+	case "help", "-h", "--help":
+		return true
+	default:
+		return false
+	}
+}
+
 func flagWasPassed(flags *flag.FlagSet, name string) bool {
 	passed := false
 	flags.Visit(func(flag *flag.Flag) {
@@ -1332,6 +1128,7 @@ func printUsage() {
   tma [--base-url URL] env create --name NAME [--config JSON]
   tma [--base-url URL] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
   tma [--base-url URL] session get --session SESSION_ID
+  tma [--base-url URL] session attach --session SESSION_ID [--after SEQ]
   tma [--base-url URL] session runtime get --session SESSION_ID
   tma [--base-url URL] session runtime update --session SESSION_ID --intervention-mode MODE
   tma [--base-url URL] session intervention list --session SESSION_ID [--status STATUS]

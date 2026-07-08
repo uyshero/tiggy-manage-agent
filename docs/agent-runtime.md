@@ -79,15 +79,15 @@ runtime.completed
 
 `runtime.llm_delta` 只在 LLM client 支持流式输出时出现。默认 `fake` Provider 不会写 delta；`openai-compatible` 会解析 Chat Completions SSE，并把每段文本写成 delta 事件。
 
-当前 `DemoRuntime` 已有最小 tool loop：Runtime 会把 `internal/tools.Registry.ModelTools()` 生成的函数 schema 放进 `llm.Request.Tools`。`openai-compatible` 会把它转换成 Chat Completions `tools`，并把响应里的原生 `tool_calls` 解析回 `llm.Message.ToolCalls`。Runtime 随后调用 `internal/tools.Executor`，记录 `runtime.tool_call` / `runtime.tool_result`，再把工具结果作为带 `tool_call_id` 的 `tool` role message 送回模型继续本轮回复。
+当前 `DemoRuntime` 已有最小 tool loop：Runtime 会把 `internal/tools.Registry.ModelTools()` 生成的函数 schema 放进 `llm.Request.Tools`。`openai-compatible` 会把它转换成 Chat Completions `tools`，并把响应里的原生 `tool_calls` 解析回 `llm.Message.ToolCalls`。Runtime 会先记录 `runtime.tool_call` 表示模型请求了工具调用；通过审批或直通策略后，才调用 `internal/tools.Executor`，并用 `runtime.tool_result` 记录真实执行结果，再把工具结果作为带 `tool_call_id` 的 `tool` role message 送回模型继续本轮回复。
 
 Session 级工具开启等级通过 `runtime_settings.intervention_mode` 热更新，当前支持：
 
-- `request_approval`：敏感工具不执行，写出 `runtime.tool_intervention_required`，并返回 `pending_intervention=true` 的 tool result。
+- `request_approval`：敏感工具不执行，写出 `runtime.tool_intervention_required`，保存 pending intervention，并暂停当前 turn。
 - `approve_for_me`：敏感工具先写出 `runtime.tool_intervention_approved`，再继续执行。
 - `full_access`：直接执行。
 
-`request_approval` 同时会把 pending call 保存到 `session_interventions`，保存恢复 LLM tool loop 所需的 continuation messages，写入 `expires_at`，并把 turn 标记为 `waiting_approval`。可以通过 `GET /v1/sessions/{session_id}/interventions?status=pending` 或 `bin/tma session intervention list --session ... --status pending` 查看，再用 `approve` / `reject` 写入用户决策事件。approve 会消费保存的 tool call，执行工具并写出 `runtime.tool_result`；如果记录带有 continuation messages，还会把 tool result 作为 `tool` role message 发回 LLM，并继续最多 4 轮 tool loop，续跑中的 LLM 调用会写入 usage 记录。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写出 `runtime.tool_intervention_rejected`，随后 fail turn，不会把拒绝原因喂回模型继续推理。长期无人审批时记录保持 `pending` / `waiting_approval`，不会自动超时；如果用户在等待期间发送新消息，服务端会返回提醒并重新发送 pending 审批事件，而不是开启新 turn。
+`request_approval` 同时会把 pending call 保存到 `session_interventions`，保存恢复 LLM tool loop 所需的 continuation messages，并把 turn 标记为 `waiting_approval`。可以通过 `bin/tma session attach --session ...` 在同一个交互式会话命令中发送 user message、监听事件并处理审批，也可以通过 `GET /v1/sessions/{session_id}/interventions?status=pending` 或 `bin/tma session intervention list --session ... --status pending` 查看，再用细粒度 `approve` / `reject` 写入用户决策事件。approve 会消费保存的 tool call，执行工具并写出 `runtime.tool_result`；如果记录带有 continuation messages，还会把 tool result 作为 `tool` role message 发回 LLM，并继续最多 4 轮 tool loop，续跑中的 LLM 调用会写入 usage 记录。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写出 `runtime.tool_intervention_rejected`，随后 fail turn，不会把拒绝原因喂回模型继续推理。长期无人审批时记录保持 `pending` / `waiting_approval`，不会自动超时；如果用户在等待期间发送新消息，服务端会返回提醒并重新发送 pending 审批事件，而不是开启新 turn。
 
 当前 `tma.local_system.read_file` 默认直通；`run_command`、`execute_code`、`write_file`、`edit_file` 会进入这套 policy。
 
@@ -370,3 +370,7 @@ Provider 长期路线、模型能力和 token usage 审计设计见 [llm-provide
 3. 加 Tool 调用循环。
 4. 将 Tool API 映射到 `capability.Provider`。
 5. 再决定是否把 `CommandTurnExecutor` 作为可选 remote/runtime adapter。
+
+## 相关文档
+
+- [Observability Design](./observability.md) — 可观测性规划（模型观测 vs 人类观测、Perfetto / Langfuse / OTel、分阶段落地）

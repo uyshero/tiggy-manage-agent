@@ -416,8 +416,6 @@ func (s *testStore) SaveSessionIntervention(sessionID string, input managedagent
 		Continuation:      cloneRaw(input.Continuation),
 		ContinuationRound: input.ContinuationRound,
 	}
-	expiresAt := intervention.RequestedAt.Add(30 * time.Minute)
-	intervention.ExpiresAt = &expiresAt
 	s.interventions[interventionKey(sessionID, input.TurnID, input.CallID)] = intervention
 	return intervention, nil
 }

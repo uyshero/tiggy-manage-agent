@@ -394,7 +394,6 @@ func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagent
 	s.mu.Unlock()
 
 	now := time.Now().UTC()
-	expiresAt := now.Add(30 * time.Minute)
 	return managedagents.SessionIntervention{
 		SessionID:         sessionID,
 		TurnID:            input.TurnID,
@@ -406,7 +405,6 @@ func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagent
 		Reason:            input.Reason,
 		Status:            managedagents.InterventionStatusPending,
 		RequestedAt:       now,
-		ExpiresAt:         &expiresAt,
 		Continuation:      input.Continuation,
 		ContinuationRound: input.ContinuationRound,
 	}, nil

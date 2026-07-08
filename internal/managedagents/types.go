@@ -163,7 +163,6 @@ type SessionIntervention struct {
 	Status            string          `json:"status"`
 	DecisionReason    string          `json:"decision_reason,omitempty"`
 	RequestedAt       time.Time       `json:"requested_at"`
-	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
 	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
 	Continuation      json.RawMessage `json:"-"`
 	ContinuationRound int             `json:"-"`
