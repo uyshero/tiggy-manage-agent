@@ -5,14 +5,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 // LocalSystemProvider 使用当前机器的进程和文件系统实现能力面。
-// 它适合本地开发和受信任环境；需要隔离时应换成 CloudSandboxProvider / RemoteProvider。
+// 它适合本地开发和受信任环境；需要隔离时应换成 OnlyboxesProvider / RemoteProvider。
 type LocalSystemProvider struct{}
+
+func (LocalSystemProvider) ToolRuntime() string {
+	return "local_system"
+}
+
+func (LocalSystemProvider) ToolCapabilities() []string {
+	return []string{
+		"filesystem.read",
+		"filesystem.write",
+		"exec",
+		"code.execute",
+	}
+}
 
 func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
 	if request.Command == "" {
@@ -99,4 +114,35 @@ func (LocalSystemProvider) WriteFile(_ context.Context, request WriteFileRequest
 
 func (LocalSystemProvider) EditFile(_ context.Context, request EditFileRequest) (EditFileResult, error) {
 	return editLocalFile(request), nil
+}
+
+func (LocalSystemProvider) ExportArtifactFile(_ context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+	path := strings.TrimSpace(request.Path)
+	if path == "" {
+		return ExportArtifactFileResult{}, fmt.Errorf("artifact export path is required")
+	}
+	if !filepath.IsAbs(path) {
+		workDir := strings.TrimSpace(request.WorkDir)
+		if workDir == "" {
+			workDir = "."
+		}
+		path = filepath.Join(workDir, path)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ExportArtifactFileResult{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return ExportArtifactFileResult{}, err
+	}
+	if info.IsDir() {
+		return ExportArtifactFileResult{}, fmt.Errorf("artifact export path %q is a directory", path)
+	}
+	return ExportArtifactFileResult{
+		Path:        strings.TrimSpace(request.Path),
+		Name:        filepath.Base(path),
+		ContentType: http.DetectContentType(content),
+		Content:     content,
+	}, nil
 }

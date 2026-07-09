@@ -10,16 +10,20 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
-	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/tools"
 )
 
 // AgentRuntimeTurnExecutor 把 WorkerRunner 的 TurnExecutor 接口适配到 AgentRuntime。
 type AgentRuntimeTurnExecutor struct {
-	Runtime agentruntime.Runtime
-	Store   managedagents.Store
-	Timeout time.Duration
+	Runtime          agentruntime.Runtime
+	Store            managedagents.Store
+	ObjectStore      objectstore.Client
+	ArtifactBucket   string
+	Timeout          time.Duration
+	ProviderResolver execution.ProviderResolver
 }
 
 func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
@@ -44,13 +48,22 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	}
 
 	startedAt := time.Now()
-	toolRegistry := tools.DefaultRegistry()
+	toolExecution := execution.ResolveToolExecution(execution.ToolExecutionRequest{
+		Config:           config,
+		SessionID:        config.SessionID,
+		TurnID:           request.TurnID,
+		ProviderResolver: e.ProviderResolver,
+		Store:            e.Store,
+		ArtifactRecorder: ToolArtifactRecorder{Store: e.Store, ObjectStore: e.ObjectStore, Bucket: e.ArtifactBucket},
+	})
 	result, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
 		SessionID:   request.SessionID,
 		TurnID:      request.TurnID,
 		UserPayload: request.UserPayload,
 		History:     history,
 		Config: agentruntime.Config{
+			WorkspaceID:           config.WorkspaceID,
+			EnvironmentID:         config.EnvironmentID,
 			LLMProvider:           config.LLMProvider,
 			LLMProviderType:       config.LLMProviderType,
 			LLMModel:              config.LLMModel,
@@ -61,15 +74,13 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
 			System:                config.System,
 			RuntimeSettings:       config.RuntimeSettings,
-			Tools:                 toolRegistry.ModelContext(),
-			ModelTools:            toolRegistry.ModelTools(),
+			Tools:                 toolExecution.Registry.ModelContext(),
+			ModelTools:            toolExecution.Registry.ModelTools(),
 			Skills:                config.Skills,
 			InterventionMode:      tools.ParseInterventionMode(config.RuntimeSettings),
-			ToolRegistry:          toolRegistry,
-			ToolExecutor:          tools.RegistryExecutor{Registry: toolRegistry},
-			ToolExecutionContext: tools.ExecutionContext{
-				Provider: capability.LocalSystemProvider{},
-			},
+			ToolRegistry:          toolExecution.Registry,
+			ToolExecutor:          tools.RegistryExecutor{Registry: toolExecution.Registry},
+			ToolExecutionContext:  toolExecution.Context,
 		},
 		EmitStep: e.emitStep(request),
 	})

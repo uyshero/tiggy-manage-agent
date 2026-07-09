@@ -39,6 +39,8 @@ Expected response:
 
 ```text
 cmd/server/        HTTP server entrypoint
+cmd/tma/           CLI entrypoint
+cmd/worker/        Minimal long-running worker entrypoint
 internal/httpapi/  HTTP routes and handlers
 internal/managedagents/  TMA resource model, Store interface, and PostgresStore
 internal/runner/  Replaceable turn Runner interface, WorkerRunner, AgentRuntimeTurnExecutor, and test helpers
@@ -143,6 +145,82 @@ Build the CLI:
 make build-cli
 ```
 
+Build the minimal worker:
+
+```bash
+make build-worker
+```
+
+The worker currently registers itself, sends heartbeat, polls `/v1/workers/{id}/work/poll`, acknowledges work, and completes work. `tool_execution` work uses the `tma.work.v1` invocation format; `default.*` tools run through `tools.DefaultRuntime + LocalSystemProvider` on the machine running `tma-worker`. When an agent config enables `local_system`, AgentRuntime only exposes those tools if a matching online worker exists, unless trusted local development explicitly enables server-local fallback.
+
+```bash
+bin/tma-worker --base-url http://localhost:8080 --name viito-mac
+```
+
+Check worker connectivity and declared capabilities without starting the long-running loop:
+
+```bash
+bin/tma-worker doctor --base-url http://localhost:8080 --name viito-mac
+```
+
+Verify the local worker-backed path with a temporary server and worker:
+
+```bash
+make verify-worker-backed-local-system
+```
+
+## Web Search And Crawl
+
+TMA exposes `web.search` and `web.crawl` as server builtin tools. They do not require the `cloud_sandbox` or `local_system` provider to be available.
+
+Local search defaults to SearXNG on port `8180`:
+
+```bash
+docker compose up -d searxng
+```
+
+If `TMA_WEB_TAVILY_API_KEY`, `TMA_WEB_BRAVE_API_KEY`, `TMA_WEB_EXA_API_KEY`, or `TMA_WEB_BAIDU_API_KEY` is configured and `TMA_WEB_SEARCH_PROVIDERS` is not set, keyed providers are tried before the local SearXNG fallback.
+
+Run the full web tool verification:
+
+```bash
+make verify-web-search-crawl
+```
+
+That target checks the local SearXNG JSON API, then runs AgentRuntime tool-call loops for both `web.crawl` and `web.search`.
+
+Verify cloud sandbox outbound network approval behavior with:
+
+```bash
+make verify-network-approval
+```
+
+That target covers `request_approval`, `approve_for_me`, `full_access`, and `cloud_sandbox_allow_network=false` using a fake LLM-triggered Python download.
+
+Inspect the current local web configuration with:
+
+```bash
+bin/tma web doctor --searxng-url http://localhost:8180 --query 测试 --timeout 20
+```
+
+Directly exercise search/crawl without an LLM session:
+
+```bash
+bin/tma web search --query "中文 AI 智能体 新闻" --limit 5 --timeout 30
+bin/tma web crawl --url https://example.com --timeout 45
+bin/tma web crawl --url https://example.com --impl browserless --attempts-only
+```
+
+Enable web tools for an agent config with:
+
+```bash
+bin/tma agent config update \
+  --agent agt_000001 \
+  --tools '{"tools":["web"],"runtime":"auto"}'
+```
+
+Configuration details are in [docs/configuration.md](./docs/configuration.md#web-search--crawl).
+
 Example flow:
 
 ```bash
@@ -217,6 +295,12 @@ bin/tma event stream --session sesn_000001 --after 0
 More manual verification commands are in [TESTING.md](./TESTING.md).
 
 Troubleshooting notes are in [docs/troubleshooting.md](./docs/troubleshooting.md).
+
+Onlyboxes sandbox deployment and LobeHub integration are documented in [docs/产品设计架构图梳理.md](./docs/产品设计架构图梳理.md).
+
+The current HTTP API contract is documented in [docs/api-reference.md](./docs/api-reference.md).
+
+The remaining product gaps and recommended build order are tracked in [docs/product-gap-roadmap.md](./docs/product-gap-roadmap.md).
 
 Architecture decisions and development history are recorded in [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md).
 

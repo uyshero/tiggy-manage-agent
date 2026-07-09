@@ -1,0 +1,393 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/internal/workruntime"
+)
+
+func TestRunWorkerPollsAndCompletesOneWork(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	api := &fakeWorkerAPI{
+		onComplete: cancel,
+		work: &managedagents.WorkerWork{
+			ID:       "work_000001",
+			WorkType: managedagents.WorkerWorkTypeToolExecution,
+			Status:   managedagents.WorkerWorkStatusPending,
+			Payload:  json.RawMessage(`{"protocol_version":"tma.work.v1","namespace":"default","api":"run_command","capabilities":["exec"],"risk":"exec","runtime":"local_system","input":{"command":"sh","args":["-c","printf worker-tool"]}}`),
+		},
+	}
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+	executor := workruntime.DefaultExecutor("test-worker")
+	err := runWorker(ctx, api, workerConfig{
+		Name:              "test-worker",
+		WorkspaceID:       managedagents.DefaultWorkspaceID,
+		WorkerType:        managedagents.WorkerTypeLocal,
+		RegisteredBy:      "test",
+		LeaseSeconds:      30,
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	}, executor, logger)
+	if err != nil {
+		t.Fatalf("run worker: %v", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("expected worker context to be canceled")
+	}
+	if api.registerCalls != 1 || api.heartbeatCalls != 1 || api.pollCalls != 1 || api.ackCalls != 1 || api.completeCalls != 1 {
+		t.Fatalf("unexpected calls: register=%d heartbeat=%d poll=%d ack=%d complete=%d", api.registerCalls, api.heartbeatCalls, api.pollCalls, api.ackCalls, api.completeCalls)
+	}
+	if api.completedWorkID != "work_000001" {
+		t.Fatalf("expected completed work id, got %q", api.completedWorkID)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(api.completedResult, &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if result["worker_name"] != "test-worker" || result["status"] != "executed" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	toolResult, ok := result["tool_result"].(map[string]any)
+	if !ok || toolResult["content"] != "worker-tool" {
+		t.Fatalf("unexpected tool result: %#v", result["tool_result"])
+	}
+	assertWorkerCapabilities(t, api.registerCapabilities, executor.WorkerCapabilities())
+	assertWorkerCapabilities(t, api.heartbeatCapabilities, executor.WorkerCapabilities())
+}
+
+func TestRunWorkerRegistersExecutorDeclaredCapabilities(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	declared := tools.WorkerCapabilities{
+		Namespaces:   []string{"artifact"},
+		APIs:         []string{"artifact.write"},
+		Runtimes:     []string{"local_system"},
+		Capabilities: []string{"artifact.write"},
+	}
+	api := &fakeWorkerAPI{onHeartbeat: cancel}
+	logger := slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil))
+	err := runWorker(ctx, api, workerConfig{
+		Name:              "custom-worker",
+		WorkspaceID:       managedagents.DefaultWorkspaceID,
+		WorkerType:        managedagents.WorkerTypeLocal,
+		RegisteredBy:      "test",
+		LeaseSeconds:      30,
+		PollInterval:      time.Hour,
+		HeartbeatInterval: time.Hour,
+	}, workruntime.Executor{
+		WorkerName:           "custom-worker",
+		DeclaredCapabilities: &declared,
+	}, logger)
+	if err != nil {
+		t.Fatalf("run worker: %v", err)
+	}
+	assertWorkerCapabilities(t, api.registerCapabilities, declared)
+	assertWorkerCapabilities(t, api.heartbeatCapabilities, declared)
+}
+
+func TestRunWorkerDoctorChecksLifecycleAndArchives(t *testing.T) {
+	api := &fakeWorkerAPI{}
+	output := &bytes.Buffer{}
+	executor := workruntime.DefaultExecutor("doctor-worker")
+
+	err := runWorkerDoctor(t.Context(), api, workerConfig{
+		BaseURL:      "http://tma.test",
+		Name:         "doctor-worker",
+		WorkspaceID:  managedagents.DefaultWorkspaceID,
+		WorkerType:   managedagents.WorkerTypeLocal,
+		RegisteredBy: "test",
+		LeaseSeconds: 30,
+	}, executor, output)
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	if api.healthCalls != 1 || api.registerCalls != 1 || api.heartbeatCalls != 1 || api.pollCalls != 1 || api.diagnoseCalls != 1 || api.archiveCalls != 1 {
+		t.Fatalf("unexpected doctor calls: health=%d register=%d heartbeat=%d poll=%d diagnose=%d archive=%d",
+			api.healthCalls,
+			api.registerCalls,
+			api.heartbeatCalls,
+			api.pollCalls,
+			api.diagnoseCalls,
+			api.archiveCalls,
+		)
+	}
+	if api.registerName != "doctor-worker-doctor" {
+		t.Fatalf("unexpected doctor worker name %q", api.registerName)
+	}
+	if api.diagnoseRequest.WorkspaceID != managedagents.DefaultWorkspaceID || api.diagnoseRequest.API == "" || api.diagnoseRequest.Runtime == "" {
+		t.Fatalf("unexpected diagnose request: %+v", api.diagnoseRequest)
+	}
+	assertWorkerCapabilities(t, api.registerCapabilities, executor.WorkerCapabilities())
+	assertWorkerCapabilities(t, api.heartbeatCapabilities, executor.WorkerCapabilities())
+	for _, expected := range []string{
+		"server: ok",
+		"capabilities:",
+		"register: ok wrk_000001",
+		"heartbeat: ok",
+		"poll: ok",
+		"diagnose: ok",
+		"archive: ok",
+		"doctor: ok",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected doctor output to contain %q, got %q", expected, output.String())
+		}
+	}
+}
+
+func TestRunWorkerDoctorArchivesOnFailureAfterRegister(t *testing.T) {
+	api := &fakeWorkerAPI{heartbeatError: context.Canceled}
+	err := runWorkerDoctor(t.Context(), api, workerConfig{
+		BaseURL:      "http://tma.test",
+		Name:         "doctor-worker",
+		WorkspaceID:  managedagents.DefaultWorkspaceID,
+		WorkerType:   managedagents.WorkerTypeLocal,
+		RegisteredBy: "test",
+		LeaseSeconds: 30,
+	}, workruntime.DefaultExecutor("doctor-worker"), &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected doctor failure")
+	}
+	if api.archiveCalls != 1 {
+		t.Fatalf("expected doctor to archive registered worker on failure, got %d", api.archiveCalls)
+	}
+}
+
+func TestExecuteWorkRejectsInvalidToolExecutionPayload(t *testing.T) {
+	result := executeWork(t.Context(), workruntime.DefaultExecutor("test-worker"), managedagents.WorkerWork{
+		ID:       "work_000004",
+		WorkType: managedagents.WorkerWorkTypeToolExecution,
+		Payload:  json.RawMessage(`{"hello":"worker"}`),
+	})
+	if result.Success {
+		t.Fatalf("expected invalid tool execution to fail, got result %s", string(result.Result))
+	}
+	if !strings.Contains(result.ErrorMessage, "unsupported tool namespace") {
+		t.Fatalf("unexpected error message %q", result.ErrorMessage)
+	}
+}
+
+func TestExecuteWorkRunsSandboxCommandWithLocalSystemProvider(t *testing.T) {
+	payload, err := json.Marshal(capability.RunCommandRequest{
+		Command: "sh",
+		Args:    []string{"-c", "printf worker-command"},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result := executeWork(t.Context(), workruntime.DefaultExecutor("test-worker"), managedagents.WorkerWork{
+		ID:       "work_000002",
+		WorkType: managedagents.WorkerWorkTypeSandboxCommand,
+		Payload:  payload,
+	})
+	if !result.Success {
+		t.Fatalf("expected successful sandbox command, got error %q result %s", result.ErrorMessage, string(result.Result))
+	}
+	var body struct {
+		Status        string `json:"status"`
+		CommandResult struct {
+			ExitCode int    `json:"exit_code"`
+			Stdout   string `json:"stdout"`
+		} `json:"command_result"`
+	}
+	if err := json.Unmarshal(result.Result, &body); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if body.Status != "executed" || body.CommandResult.ExitCode != 0 || body.CommandResult.Stdout != "worker-command" {
+		t.Fatalf("unexpected sandbox command result: %+v", body)
+	}
+}
+
+func TestExecuteWorkFailsSandboxCommandOnNonZeroExit(t *testing.T) {
+	payload, err := json.Marshal(capability.RunCommandRequest{
+		Command: "sh",
+		Args:    []string{"-c", "exit 9"},
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	result := executeWork(t.Context(), workruntime.DefaultExecutor("test-worker"), managedagents.WorkerWork{
+		ID:       "work_000003",
+		WorkType: managedagents.WorkerWorkTypeSandboxCommand,
+		Payload:  payload,
+	})
+	if result.Success {
+		t.Fatalf("expected failed sandbox command, got result %s", string(result.Result))
+	}
+	if result.ErrorMessage != "command exited with code 9" {
+		t.Fatalf("unexpected error message %q", result.ErrorMessage)
+	}
+}
+
+func TestWorkerHTTPClientSendsBearerToken(t *testing.T) {
+	var seenAuth string
+	client := &workerHTTPClient{
+		baseURL: "http://example.invalid",
+		token:   "worker-secret",
+		http: &http.Client{
+			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				seenAuth = r.Header.Get("Authorization")
+				if r.Method != http.MethodPost || r.URL.Path != "/v1/workers" {
+					t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+				}
+				return &http.Response{
+					StatusCode: http.StatusCreated,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewBufferString(`{"id":"wrk_000001","workspace_id":"wksp_default","name":"test-worker","worker_type":"local","status":"online"}`)),
+				}, nil
+			}),
+		},
+	}
+	worker, err := client.RegisterWorker(t.Context(), managedagents.RegisterWorkerInput{Name: "test-worker"})
+	if err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	if worker.ID != "wrk_000001" {
+		t.Fatalf("unexpected worker: %+v", worker)
+	}
+	if seenAuth != "Bearer worker-secret" {
+		t.Fatalf("expected worker bearer token, got %q", seenAuth)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
+}
+
+type fakeWorkerAPI struct {
+	onComplete     func()
+	onHeartbeat    func()
+	heartbeatError error
+
+	work                  *managedagents.WorkerWork
+	completedWorkID       string
+	completedResult       json.RawMessage
+	registerCapabilities  json.RawMessage
+	heartbeatCapabilities json.RawMessage
+	registerName          string
+	diagnoseRequest       workerDiagnoseRequest
+
+	healthCalls    int
+	registerCalls  int
+	heartbeatCalls int
+	pollCalls      int
+	ackCalls       int
+	completeCalls  int
+	diagnoseCalls  int
+	archiveCalls   int
+}
+
+func (a *fakeWorkerAPI) Health(context.Context) error {
+	a.healthCalls++
+	return nil
+}
+
+func (a *fakeWorkerAPI) RegisterWorker(_ context.Context, input managedagents.RegisterWorkerInput) (managedagents.Worker, error) {
+	a.registerCalls++
+	a.registerCapabilities = append(json.RawMessage(nil), input.Capabilities...)
+	a.registerName = input.Name
+	return managedagents.Worker{
+		ID:          "wrk_000001",
+		WorkspaceID: managedagents.DefaultWorkspaceID,
+		WorkerType:  managedagents.WorkerTypeLocal,
+		Status:      managedagents.WorkerStatusOnline,
+	}, nil
+}
+
+func (a *fakeWorkerAPI) HeartbeatWorker(_ context.Context, _ string, input managedagents.WorkerHeartbeatInput) (managedagents.Worker, error) {
+	a.heartbeatCalls++
+	a.heartbeatCapabilities = append(json.RawMessage(nil), input.Capabilities...)
+	if a.heartbeatError != nil {
+		return managedagents.Worker{}, a.heartbeatError
+	}
+	if a.onHeartbeat != nil {
+		a.onHeartbeat()
+	}
+	return managedagents.Worker{ID: "wrk_000001", Status: managedagents.WorkerStatusOnline}, nil
+}
+
+func (a *fakeWorkerAPI) PollWorkerWork(context.Context, string, managedagents.PollWorkerWorkInput) (*managedagents.WorkerWork, error) {
+	a.pollCalls++
+	work := a.work
+	a.work = nil
+	return work, nil
+}
+
+func (a *fakeWorkerAPI) AckWorkerWork(context.Context, string, string) (managedagents.WorkerWork, error) {
+	a.ackCalls++
+	return managedagents.WorkerWork{ID: "work_000001", Status: managedagents.WorkerWorkStatusRunning}, nil
+}
+
+func (a *fakeWorkerAPI) CompleteWorkerWork(_ context.Context, _ string, workID string, input managedagents.CompleteWorkerWorkInput) (managedagents.WorkerWork, error) {
+	a.completeCalls++
+	a.completedWorkID = workID
+	a.completedResult = append(json.RawMessage(nil), input.Result...)
+	if a.onComplete != nil {
+		a.onComplete()
+	}
+	return managedagents.WorkerWork{ID: workID, Status: managedagents.WorkerWorkStatusCompleted}, nil
+}
+
+func (a *fakeWorkerAPI) DiagnoseWorkers(_ context.Context, input workerDiagnoseRequest) (workerDiagnoseResponse, error) {
+	a.diagnoseCalls++
+	a.diagnoseRequest = input
+	return workerDiagnoseResponse{
+		Matches: 1,
+		Diagnostics: []workerDiagnosisResult{{
+			WorkerID: "wrk_000001",
+			Name:     a.registerName,
+			Status:   managedagents.WorkerStatusOnline,
+			Match:    true,
+		}},
+	}, nil
+}
+
+func (a *fakeWorkerAPI) ArchiveWorker(context.Context, string) (managedagents.Worker, error) {
+	a.archiveCalls++
+	return managedagents.Worker{ID: "wrk_000001", Status: managedagents.WorkerStatusArchived}, nil
+}
+
+func assertWorkerCapabilities(t *testing.T, raw json.RawMessage, expected tools.WorkerCapabilities) {
+	t.Helper()
+
+	var actual tools.WorkerCapabilities
+	if err := json.Unmarshal(raw, &actual); err != nil {
+		t.Fatalf("decode worker capabilities: %v", err)
+	}
+	assertStringSet(t, actual.Namespaces, expected.Namespaces, "namespaces")
+	assertStringSet(t, actual.APIs, expected.APIs, "apis")
+	assertStringSet(t, actual.Runtimes, expected.Runtimes, "runtimes")
+	assertStringSet(t, actual.Capabilities, expected.Capabilities, "capabilities")
+}
+
+func assertStringSet(t *testing.T, actual []string, expected []string, label string) {
+	t.Helper()
+
+	actualSet := make(map[string]bool, len(actual))
+	for _, value := range actual {
+		actualSet[value] = true
+	}
+	for _, value := range expected {
+		if !actualSet[value] {
+			t.Fatalf("expected %s to include %q, got %#v", label, value, actual)
+		}
+	}
+}

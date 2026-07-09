@@ -5,15 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
+	"tiggy-manage-agent/internal/tools"
 )
 
 func newTestServer() http.Handler {
@@ -84,6 +90,426 @@ func TestLLMProviderManagement(t *testing.T) {
 	enabled := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPost, "/v1/llm-providers/"+created.ID+"/enable", `{}`, http.StatusOK)
 	if !enabled.Enabled {
 		t.Fatalf("expected provider enabled, got %+v", enabled)
+	}
+}
+
+func TestWorkerRegistryLifecycle(t *testing.T) {
+	server := newTestServer()
+
+	created := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.read_file"],
+			"runtimes": ["local_system"],
+			"capabilities": ["filesystem.read"]
+		},
+		"metadata": {"os":"darwin"},
+		"lease_seconds": 30
+	}`)
+	if created.ID == "" || created.Status != managedagents.WorkerStatusOnline || created.WorkerType != managedagents.WorkerTypeLocal {
+		t.Fatalf("unexpected created worker: %+v", created)
+	}
+	if created.LastSeenAt == nil || created.LeaseExpiresAt == nil {
+		t.Fatalf("expected heartbeat timestamps on created worker: %+v", created)
+	}
+
+	listed := getJSON[struct {
+		Workers []managedagents.Worker `json:"workers"`
+	}](t, server, "/v1/workers?workspace_id=wksp_default&status=online")
+	if len(listed.Workers) != 1 || listed.Workers[0].ID != created.ID {
+		t.Fatalf("unexpected workers list: %+v", listed.Workers)
+	}
+
+	heartbeat := postJSONWithStatus[managedagents.Worker](t, server, http.MethodPost, "/v1/workers/"+created.ID+"/heartbeat", `{
+		"status": "draining",
+		"lease_seconds": 45
+	}`, http.StatusOK)
+	if heartbeat.Status != managedagents.WorkerStatusDraining {
+		t.Fatalf("expected draining worker, got %+v", heartbeat)
+	}
+
+	archived := postJSONWithStatus[managedagents.Worker](t, server, http.MethodPost, "/v1/workers/"+created.ID+"/archive", `{}`, http.StatusOK)
+	if archived.Status != managedagents.WorkerStatusArchived || archived.ArchivedAt == nil {
+		t.Fatalf("expected archived worker, got %+v", archived)
+	}
+}
+
+func TestWorkerDiagnoseAPI(t *testing.T) {
+	server := newTestServer()
+
+	postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "reader-only",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.run_command"],
+			"runtimes": ["local_system"],
+			"capabilities": ["filesystem.read"]
+		},
+		"lease_seconds": 30
+	}`)
+	postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "executor",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.run_command"],
+			"runtimes": ["local_system"],
+			"capabilities": ["exec"]
+		},
+		"lease_seconds": 30
+	}`)
+
+	response := postJSONWithStatus[workerDiagnoseResponse](t, server, http.MethodPost, "/v1/workers/diagnose", `{
+		"workspace_id": "wksp_default",
+		"namespace": "default",
+		"api": "run_command",
+		"runtime": "local_system",
+		"capabilities": ["exec"],
+		"input": {}
+	}`, http.StatusOK)
+	if response.Invocation.ProtocolVersion != tools.WorkProtocolVersion || response.Invocation.Runtime != tools.ToolRuntimeLocalSystem {
+		t.Fatalf("unexpected invocation: %+v", response.Invocation)
+	}
+	if response.Matches != 1 || len(response.Diagnostics) != 2 {
+		t.Fatalf("unexpected diagnosis summary: %+v", response)
+	}
+	var sawMissing bool
+	var sawMatch bool
+	for _, diagnosis := range response.Diagnostics {
+		switch diagnosis.Name {
+		case "reader-only":
+			sawMissing = true
+			if diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
+				t.Fatalf("expected reader-only mismatch, got %+v", diagnosis)
+			}
+		case "executor":
+			sawMatch = true
+			if !diagnosis.Match || len(diagnosis.Reasons) != 0 {
+				t.Fatalf("expected executor match, got %+v", diagnosis)
+			}
+		}
+	}
+	if !sawMissing || !sawMatch {
+		t.Fatalf("missing expected diagnostics: %+v", response.Diagnostics)
+	}
+}
+
+func TestWorkerAuthProtectsWorkerConsumerEndpoints(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndWorkerAuth(
+		store,
+		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		nil,
+		"fake",
+		"fake-demo",
+		nil,
+		nil,
+		"worker-secret",
+	)
+
+	unauthorized := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/workers", `{
+		"name": "viito-mac"
+	}`, http.StatusUnauthorized)
+	if unauthorized["error"] == "" {
+		t.Fatalf("expected unauthorized worker error, got %#v", unauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/workers", bytes.NewBufferString(`{
+		"name": "viito-mac",
+		"worker_type": "local"
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer worker-secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected authorized worker register status %d, got %d: %s", http.StatusCreated, response.Code, response.Body.String())
+	}
+	var worker managedagents.Worker
+	if err := json.NewDecoder(response.Body).Decode(&worker); err != nil {
+		t.Fatalf("decode authorized worker: %v", err)
+	}
+
+	pollRequest := httptest.NewRequest(http.MethodGet, "/v1/workers/"+worker.ID+"/work/poll", nil)
+	pollResponse := httptest.NewRecorder()
+	server.ServeHTTP(pollResponse, pollRequest)
+	if pollResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated poll status %d, got %d: %s", http.StatusUnauthorized, pollResponse.Code, pollResponse.Body.String())
+	}
+
+	listed := getJSON[struct {
+		Workers []managedagents.Worker `json:"workers"`
+	}](t, server, "/v1/workers")
+	if len(listed.Workers) != 1 || listed.Workers[0].ID != worker.ID {
+		t.Fatalf("expected worker list to remain control-plane visible, got %+v", listed.Workers)
+	}
+}
+
+func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(
+		store,
+		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		nil,
+		"fake",
+		"fake-demo",
+		nil,
+		nil,
+		"",
+		"control-secret",
+	)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "executor",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.run_command"],
+			"runtimes": ["local_system"],
+			"capabilities": ["exec"]
+		},
+		"lease_seconds": 30
+	}`)
+
+	unauthorized := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"work_type": "tool_execution",
+		"payload": {
+			"protocol_version": "tma.work.v1",
+			"namespace": "default",
+			"api": "run_command",
+			"capabilities": ["exec"],
+			"risk": "exec",
+			"runtime": "local_system",
+			"input": {"command": "sh", "args": ["-c", "printf hello"]}
+		}
+	}`, http.StatusUnauthorized)
+	if unauthorized["error"] != "control authorization required" {
+		t.Fatalf("expected control auth error, got %#v", unauthorized)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/worker-work", bytes.NewBufferString(`{
+		"workspace_id": "wksp_default",
+		"work_type": "tool_execution",
+		"payload": {
+			"protocol_version": "tma.work.v1",
+			"namespace": "default",
+			"api": "run_command",
+			"capabilities": ["exec"],
+			"risk": "exec",
+			"runtime": "local_system",
+			"input": {"command": "sh", "args": ["-c", "printf hello"]}
+		}
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer control-secret")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected authorized control-plane enqueue status %d, got %d: %s", http.StatusCreated, response.Code, response.Body.String())
+	}
+	var work managedagents.WorkerWork
+	if err := json.NewDecoder(response.Body).Decode(&work); err != nil {
+		t.Fatalf("decode authorized work: %v", err)
+	}
+	if work.WorkerID != worker.ID {
+		t.Fatalf("expected selected worker %q, got %+v", worker.ID, work)
+	}
+
+	getRequest := httptest.NewRequest(http.MethodGet, "/v1/worker-work/"+work.ID, nil)
+	getResponse := httptest.NewRecorder()
+	server.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated work get status %d, got %d: %s", http.StatusUnauthorized, getResponse.Code, getResponse.Body.String())
+	}
+
+	getRequest = httptest.NewRequest(http.MethodGet, "/v1/worker-work/"+work.ID, nil)
+	getRequest.Header.Set("Authorization", "Bearer control-secret")
+	getResponse = httptest.NewRecorder()
+	server.ServeHTTP(getResponse, getRequest)
+	if getResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized work get status %d, got %d: %s", http.StatusOK, getResponse.Code, getResponse.Body.String())
+	}
+}
+
+func TestWorkerWorkLifecycle(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.run_command"],
+			"runtimes": ["local_system"],
+			"capabilities": ["exec"]
+		},
+		"lease_seconds": 30
+	}`)
+	queued := postJSON[managedagents.WorkerWork](t, server, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"work_type": "tool_execution",
+		"payload": {
+			"protocol_version": "tma.work.v1",
+			"namespace": "default",
+			"api": "run_command",
+			"capabilities": ["exec"],
+			"risk": "exec",
+			"runtime": "local_system",
+			"input": {"command": "sh", "args": ["-c", "printf hello"]}
+		}
+	}`)
+	if queued.WorkerID != worker.ID {
+		t.Fatalf("expected enqueue to select worker %q, got %+v", worker.ID, queued)
+	}
+
+	polled := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll?lease_seconds=45")
+	if polled.Work == nil || polled.Work.ID != queued.ID {
+		t.Fatalf("expected queued work from poll, got %+v", polled.Work)
+	}
+	if polled.Work.Status != managedagents.WorkerWorkStatusLeased || polled.Work.WorkerID != worker.ID || polled.Work.LeaseExpiresAt == nil {
+		t.Fatalf("expected leased work, got %+v", polled.Work)
+	}
+
+	acked := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/workers/"+worker.ID+"/work/"+queued.ID+"/ack", `{}`, http.StatusOK)
+	if acked.Status != managedagents.WorkerWorkStatusRunning || acked.StartedAt == nil {
+		t.Fatalf("expected running work after ack, got %+v", acked)
+	}
+
+	heartbeat := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/workers/"+worker.ID+"/work/"+queued.ID+"/heartbeat", `{
+		"lease_seconds": 60
+	}`, http.StatusOK)
+	if heartbeat.Status != managedagents.WorkerWorkStatusRunning || heartbeat.LeaseExpiresAt == nil {
+		t.Fatalf("expected running work heartbeat, got %+v", heartbeat)
+	}
+
+	completed := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/workers/"+worker.ID+"/work/"+queued.ID+"/result", `{
+		"success": true,
+		"result": {"ok": true}
+	}`, http.StatusOK)
+	if completed.Status != managedagents.WorkerWorkStatusCompleted || completed.CompletedAt == nil {
+		t.Fatalf("expected completed work, got %+v", completed)
+	}
+	if string(completed.Result) != `{"ok":true}` {
+		t.Fatalf("unexpected result JSON: %s", string(completed.Result))
+	}
+
+	fetched := getJSON[managedagents.WorkerWork](t, server, "/v1/worker-work/"+queued.ID)
+	if fetched.ID != queued.ID || fetched.Status != managedagents.WorkerWorkStatusCompleted || string(fetched.Result) != `{"ok":true}` {
+		t.Fatalf("unexpected fetched work: %+v result=%s", fetched, string(fetched.Result))
+	}
+
+	empty := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll")
+	if empty.Work != nil {
+		t.Fatalf("expected no more work, got %+v", empty.Work)
+	}
+}
+
+func TestReapExpiredWorkerWork(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"lease_seconds": 30
+	}`)
+	queued := postJSON[managedagents.WorkerWork](t, server, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"worker_id": "`+worker.ID+`",
+		"work_type": "sandbox_command",
+		"payload": {"command": "sh", "args": ["-c", "sleep 100"]}
+	}`)
+	polled := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll?lease_seconds=1")
+	if polled.Work == nil || polled.Work.ID != queued.ID {
+		t.Fatalf("expected queued work from poll, got %+v", polled.Work)
+	}
+
+	store.mu.Lock()
+	expiredAt := time.Now().UTC().Add(-time.Minute)
+	work := store.workerWork[queued.ID]
+	work.LeaseExpiresAt = &expiredAt
+	store.workerWork[queued.ID] = work
+	store.mu.Unlock()
+
+	response := postJSONWithStatus[struct {
+		Count   int                        `json:"count"`
+		Expired []managedagents.WorkerWork `json:"expired"`
+	}](t, server, http.MethodPost, "/v1/worker-work/reap-expired", `{"limit":10}`, http.StatusOK)
+	if response.Count != 1 || len(response.Expired) != 1 {
+		t.Fatalf("expected one expired work, got %+v", response)
+	}
+	expired := response.Expired[0]
+	if expired.ID != queued.ID || expired.Status != managedagents.WorkerWorkStatusFailed || expired.CompletedAt == nil {
+		t.Fatalf("unexpected expired work: %+v", expired)
+	}
+	if !strings.Contains(expired.ErrorMessage, "worker work lease expired") {
+		t.Fatalf("expected lease expiry error message, got %q", expired.ErrorMessage)
+	}
+
+	fetched := getJSON[managedagents.WorkerWork](t, server, "/v1/worker-work/"+queued.ID)
+	if fetched.Status != managedagents.WorkerWorkStatusFailed || fetched.CompletedAt == nil {
+		t.Fatalf("expected fetched work to remain failed, got %+v", fetched)
+	}
+}
+
+func TestWorkerWorkRejectsInvalidToolExecutionPayload(t *testing.T) {
+	server := newTestServer()
+
+	response := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/worker-work", `{
+		"work_type": "tool_execution",
+		"payload": {"command": "echo hello"}
+	}`, http.StatusBadRequest)
+	if !strings.Contains(response["error"], "unsupported tool namespace") {
+		t.Fatalf("unexpected error response: %+v", response)
+	}
+}
+
+func TestWorkerWorkRejectsToolExecutionWithoutMatchingWorker(t *testing.T) {
+	server := newTestServer()
+	postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "reader-only",
+		"worker_type": "local",
+		"capabilities": {
+			"namespaces": ["default"],
+			"apis": ["default.read_file"],
+			"runtimes": ["local_system"],
+			"capabilities": ["filesystem.read"]
+		},
+		"lease_seconds": 30
+	}`)
+
+	response := postJSONWithStatus[workerWorkConflictResponse](t, server, http.MethodPost, "/v1/worker-work", `{
+		"work_type": "tool_execution",
+		"payload": {
+			"protocol_version": "tma.work.v1",
+			"namespace": "default",
+			"api": "run_command",
+			"capabilities": ["exec"],
+			"risk": "exec",
+			"runtime": "local_system",
+			"input": {"command": "sh", "args": ["-c", "printf hello"]}
+		}
+	}`, http.StatusConflict)
+	if !strings.Contains(response.Error, "no online worker matches tool invocation") {
+		t.Fatalf("unexpected error response: %+v", response)
+	}
+	if response.Invocation.API != "run_command" || response.Matches != 0 || len(response.Diagnostics) != 1 {
+		t.Fatalf("unexpected diagnostics summary: %+v", response)
+	}
+	diagnosis := response.Diagnostics[0]
+	if diagnosis.Name != "reader-only" || diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing api default.run_command") || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
+		t.Fatalf("unexpected worker diagnosis: %+v", diagnosis)
 	}
 }
 
@@ -186,6 +612,89 @@ func TestAgentConfigVersionUpdateKeepsExistingSessionsPinned(t *testing.T) {
 	oldSessionAfterUpdate := getJSON[managedagents.Session](t, server, "/v1/sessions/"+oldSession.ID)
 	if oldSessionAfterUpdate.AgentConfigVersion != 1 {
 		t.Fatalf("expected old session to remain pinned to config version 1, got %d", oldSessionAfterUpdate.AgentConfigVersion)
+	}
+}
+
+func TestUpgradeSessionAgentConfigToCurrent(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1",
+		"system": "version one"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2",
+		"system": "version two"
+	}`)
+
+	var result managedagents.UpgradeSessionAgentConfigResult
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/config/upgrade", bytes.NewBufferString(`{"to_current":true,"updated_by":"tester"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected upgrade status %d, got %d: %s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !result.Changed || result.OldAgentConfigVersion != 1 || result.NewAgentConfigVersion != 2 {
+		t.Fatalf("unexpected upgrade result: %+v", result)
+	}
+	if result.Event.Type != managedagents.EventSessionConfigUpdated {
+		t.Fatalf("expected config updated event, got %+v", result.Event)
+	}
+	updatedSession := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if updatedSession.AgentConfigVersion != 2 {
+		t.Fatalf("expected session to upgrade to version 2, got %d", updatedSession.AgentConfigVersion)
+	}
+}
+
+func TestUpgradeSessionAgentConfigRequiresIdleSession(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1",
+		"system": "version one"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2",
+		"system": "version two"
+	}`)
+	if _, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"run"}]}`),
+	}}); err != nil {
+		t.Fatalf("start session turn: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/config/upgrade", bytes.NewBufferString(`{"to_current":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("expected upgrade status %d, got %d: %s", http.StatusConflict, response.Code, response.Body.String())
 	}
 }
 
@@ -329,21 +838,48 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 	}`)
 
 	updated := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
-		"intervention_mode": "approve_for_me"
+		"intervention_mode": "approve_for_me",
+		"tool_runtime": "cloud_sandbox",
+		"cloud_sandbox_root": ".",
+		"cloud_sandbox_allow_network": true
 	}`, http.StatusOK)
-	if string(updated.RuntimeSettings) != `{"intervention_mode":"approve_for_me"}` {
-		t.Fatalf("unexpected runtime settings after patch: %s", string(updated.RuntimeSettings))
-	}
+	assertRuntimeSettings(t, updated.RuntimeSettings, map[string]any{
+		"intervention_mode":           "approve_for_me",
+		"tool_runtime":                "cloud_sandbox",
+		"cloud_sandbox_root":          ".",
+		"cloud_sandbox_allow_network": true,
+	})
+
+	merged := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
+		"tool_runtime": "local_system"
+	}`, http.StatusOK)
+	assertRuntimeSettings(t, merged.RuntimeSettings, map[string]any{
+		"intervention_mode":           "approve_for_me",
+		"tool_runtime":                "local_system",
+		"cloud_sandbox_root":          ".",
+		"cloud_sandbox_allow_network": true,
+	})
 
 	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
-	if string(fetched.RuntimeSettings) != `{"intervention_mode":"approve_for_me"}` {
-		t.Fatalf("unexpected runtime settings on get: %s", string(fetched.RuntimeSettings))
-	}
+	assertRuntimeSettings(t, fetched.RuntimeSettings, map[string]any{
+		"intervention_mode":           "approve_for_me",
+		"tool_runtime":                "local_system",
+		"cloud_sandbox_root":          ".",
+		"cloud_sandbox_allow_network": true,
+	})
 }
 
 func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	store := newTestStore()
-	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreAndExecutionResolver(
+		store,
+		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		nil,
+		"fake",
+		"fake-demo",
+		objectstore.NewNoopClient(objectstore.Config{}),
+		execution.SessionProviderResolver{Store: store, AllowLocalSystem: true},
+	)
 
 	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
 		"name": "Code Assistant",
@@ -358,6 +894,11 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
+	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
+	}); err != nil {
+		t.Fatalf("set local_system tool runtime: %v", err)
+	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please read"}]}`),
@@ -373,12 +914,12 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:            turnID,
 		CallID:            "call_read",
-		ToolIdentifier:    "tma.local_system",
+		ToolIdentifier:    "default",
 		APIName:           "read_file",
 		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
 		InterventionMode:  "request_approval",
 		Reason:            "optional",
-		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"tma.local_system.read_file","arguments":{"path":"../../README.md"}}}]}]`),
+		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"../../README.md"}}}]}]`),
 		ContinuationRound: 0,
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
@@ -450,7 +991,7 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/reject", `{}`, http.StatusBadRequest)
 }
 
-func TestSessionInterventionRejectFailsTurn(t *testing.T) {
+func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 	store := newTestStore()
 	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
 
@@ -467,6 +1008,11 @@ func TestSessionInterventionRejectFailsTurn(t *testing.T) {
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
+	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
+	}); err != nil {
+		t.Fatalf("set local_system tool runtime: %v", err)
+	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
@@ -479,11 +1025,12 @@ func TestSessionInterventionRejectFailsTurn(t *testing.T) {
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:           turnID,
 		CallID:           "call_edit",
-		ToolIdentifier:   "tma.local_system",
+		ToolIdentifier:   "default",
 		APIName:          "edit_file",
 		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 		InterventionMode: "request_approval",
 		Reason:           "optional",
+		Continuation:     json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md","old_string":"x","new_string":"y"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}
@@ -494,15 +1041,303 @@ func TestSessionInterventionRejectFailsTurn(t *testing.T) {
 	if rejected.Intervention.Status != managedagents.InterventionStatusRejected {
 		t.Fatalf("expected rejected intervention, got %#v", rejected.Intervention)
 	}
-	if len(rejected.Events) != 2 || rejected.Events[0].Type != managedagents.EventRuntimeToolInterventionRejected || rejected.Events[1].Type != managedagents.EventSessionStatusIdle {
-		t.Fatalf("expected rejected event and failed idle event, got %#v", rejected.Events)
+	expectedEventTypes := []string{
+		managedagents.EventRuntimeToolInterventionRejected,
+		managedagents.EventRuntimeToolResult,
+		managedagents.EventRuntimeLLMRequest,
+		managedagents.EventRuntimeLLMResponse,
+		managedagents.EventRuntimeCompleted,
+		managedagents.EventAgentMessage,
+		managedagents.EventSessionStatusIdle,
 	}
-	if got := payloadString(rejected.Events[1].Payload, "last_turn_status"); got != "failed" {
-		t.Fatalf("expected failed turn after reject, got %q", got)
+	if len(rejected.Events) != len(expectedEventTypes) {
+		t.Fatalf("expected %d rejected continuation events, got %#v", len(expectedEventTypes), rejected.Events)
+	}
+	for index, eventType := range expectedEventTypes {
+		if rejected.Events[index].Type != eventType {
+			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, rejected.Events[index])
+		}
 	}
 	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
 	if fetched.Status != managedagents.SessionStatusIdle {
 		t.Fatalf("expected session idle after reject, got %q", fetched.Status)
+	}
+	var toolResult struct {
+		Data struct {
+			Success        bool   `json:"success"`
+			DecisionReason string `json:"decision_reason"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rejected.Events[1].Payload, &toolResult); err != nil {
+		t.Fatalf("decode rejected tool result: %v", err)
+	}
+	if toolResult.Data.Success || toolResult.Data.DecisionReason != "unsafe edit" {
+		t.Fatalf("unexpected rejected tool result payload: %s", string(rejected.Events[1].Payload))
+	}
+	var agentPayload struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(rejected.Events[5].Payload, &agentPayload); err != nil {
+		t.Fatalf("decode rejected continuation agent payload: %v", err)
+	}
+	if len(agentPayload.Content) == 0 || !strings.Contains(agentPayload.Content[0].Text, "please edit") {
+		t.Fatalf("unexpected rejected continuation payload: %s", string(rejected.Events[5].Payload))
+	}
+	if len(store.usageRecords) != 1 || store.usageRecords[0].Status != "completed" {
+		t.Fatalf("expected one completed continuation usage record, got %#v", store.usageRecords)
+	}
+}
+
+func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	events, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please read"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(events[1].Payload, "turn_id")
+	if _, err := store.AppendRuntimeEvent(session.ID, turnID, managedagents.AppendEventInput{
+		Type: managedagents.EventRuntimeToolCall,
+		Payload: json.RawMessage(`{
+			"turn_id":"` + turnID + `",
+			"message":"Received tool call request.",
+			"data":{"id":"call_read","identifier":"default","api_name":"read_file"}
+		}`),
+	}); err != nil {
+		t.Fatalf("append tool call: %v", err)
+	}
+	if _, err := store.AppendRuntimeEvent(session.ID, turnID, managedagents.AppendEventInput{
+		Type: managedagents.EventRuntimeToolResult,
+		Payload: json.RawMessage(`{
+			"turn_id":"` + turnID + `",
+			"message":"Received tool result.",
+			"data":{"id":"call_read","identifier":"default","api_name":"read_file","success":true}
+		}`),
+	}); err != nil {
+		t.Fatalf("append tool result: %v", err)
+	}
+	if _, err := store.CompleteSessionTurn(session.ID, turnID, json.RawMessage(`{"content":[{"type":"text","text":"done"}]}`)); err != nil {
+		t.Fatalf("complete turn: %v", err)
+	}
+
+	trace := getJSON[struct {
+		SessionID string `json:"session_id"`
+		TurnID    string `json:"turn_id"`
+		TraceID   string `json:"trace_id"`
+		Status    string `json:"status"`
+		Summary   string `json:"summary"`
+		Stats     struct {
+			StepCount int `json:"step_count"`
+			SpanCount int `json:"span_count"`
+			ToolCalls int `json:"tool_calls"`
+		} `json:"stats"`
+		Turns []struct {
+			TurnID string `json:"turn_id"`
+			Status string `json:"status"`
+		} `json:"turns"`
+		Steps []struct {
+			Type    string `json:"type"`
+			APIName string `json:"api_name"`
+			Outcome string `json:"outcome"`
+		} `json:"steps"`
+		Spans []struct {
+			Name string `json:"name"`
+		} `json:"spans"`
+	}](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID)
+	if trace.SessionID != session.ID || trace.TurnID != turnID {
+		t.Fatalf("unexpected trace identity: %+v", trace)
+	}
+	if trace.TraceID == "" || len(trace.Spans) == 0 || trace.Spans[0].Name != "tma.interaction" {
+		t.Fatalf("expected span trace projection, got %+v", trace)
+	}
+	if trace.Status != managedagents.TurnStatusCompleted || trace.Stats.StepCount < 4 || trace.Stats.ToolCalls != 1 {
+		t.Fatalf("expected projected trace stats, got %+v", trace)
+	}
+	if len(trace.Turns) != 1 || trace.Turns[0].TurnID != turnID || trace.Turns[0].Status != managedagents.TurnStatusCompleted {
+		t.Fatalf("expected projected turn catalog, got %+v", trace.Turns)
+	}
+	if !strings.Contains(trace.Summary, "tool result: default.read_file success") {
+		t.Fatalf("expected projected summary to mention tool result, got %q", trace.Summary)
+	}
+	if len(trace.Steps) < 4 {
+		t.Fatalf("expected projected steps, got %+v", trace.Steps)
+	}
+
+	perfetto := getJSON[map[string]any](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID+"&format=perfetto")
+	if _, ok := perfetto["traceEvents"]; !ok {
+		t.Fatalf("expected perfetto traceEvents, got %+v", perfetto)
+	}
+	otel := getJSON[map[string]any](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID+"&format=otel")
+	if _, ok := otel["resourceSpans"]; !ok {
+		t.Fatalf("expected otel resourceSpans, got %+v", otel)
+	}
+}
+
+func TestMetricsEndpointAndInspectorPage(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	if _, err := store.RecordLLMUsage(managedagents.RecordLLMUsageInput{
+		WorkspaceID:        managedagents.DefaultWorkspaceID,
+		AgentID:            "agt_000001",
+		AgentConfigVersion: 1,
+		SessionID:          "sesn_000001",
+		TurnID:             "turn_000001",
+		ProviderID:         "fake",
+		Model:              "fake-demo",
+		InputTokens:        5,
+		OutputTokens:       7,
+		TotalTokens:        12,
+		LatencyMillis:      99,
+		Status:             "completed",
+	}); err != nil {
+		t.Fatalf("record usage: %v", err)
+	}
+	if _, err := store.RegisterWorker(managedagents.RegisterWorkerInput{
+		Name:       "local-worker",
+		WorkerType: managedagents.WorkerTypeLocal,
+	}); err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Inspector Agent",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "inspector-env",
+		"config": {"type":"cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please inspect"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("append user event: %v", err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+	if _, err := store.AppendRuntimeEvent(session.ID, turnID, managedagents.AppendEventInput{
+		Type: managedagents.EventRuntimeToolCall,
+		Payload: json.RawMessage(`{
+			"turn_id":"` + turnID + `",
+			"message":"Received tool call request.",
+			"data":{"id":"call_read","identifier":"default","api_name":"read_file"}
+		}`),
+	}); err != nil {
+		t.Fatalf("append tool call: %v", err)
+	}
+	if _, err := store.AppendRuntimeEvent(session.ID, turnID, managedagents.AppendEventInput{
+		Type: managedagents.EventRuntimeToolResult,
+		Payload: json.RawMessage(`{
+			"turn_id":"` + turnID + `",
+			"message":"Received tool result.",
+			"data":{"id":"call_read","identifier":"default","api_name":"read_file","success":true}
+		}`),
+	}); err != nil {
+		t.Fatalf("append tool result: %v", err)
+	}
+	if _, err := store.CompleteSessionTurn(session.ID, turnID, json.RawMessage(`{"content":[{"type":"text","text":"done"}]}`)); err != nil {
+		t.Fatalf("complete turn: %v", err)
+	}
+
+	metricsRequest := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	metricsResponse := httptest.NewRecorder()
+	server.ServeHTTP(metricsResponse, metricsRequest)
+	if metricsResponse.Code != http.StatusOK {
+		t.Fatalf("metrics expected status 200, got %d: %s", metricsResponse.Code, metricsResponse.Body.String())
+	}
+	metrics := metricsResponse.Body.String()
+	if !strings.Contains(metrics, `tma_llm_tokens_total{kind="total",model="fake-demo",provider="fake"} 12`) {
+		t.Fatalf("expected metrics token total, got:\n%s", metrics)
+	}
+	if !strings.Contains(metrics, `tma_workers_total{status="online",type="local"} 1`) {
+		t.Fatalf("expected worker gauge, got:\n%s", metrics)
+	}
+	sessionMetricsRequest := httptest.NewRequest(http.MethodGet, "/metrics?session_id="+session.ID+"&turn_id="+turnID, nil)
+	sessionMetricsResponse := httptest.NewRecorder()
+	server.ServeHTTP(sessionMetricsResponse, sessionMetricsRequest)
+	if sessionMetricsResponse.Code != http.StatusOK {
+		t.Fatalf("session metrics expected status 200, got %d: %s", sessionMetricsResponse.Code, sessionMetricsResponse.Body.String())
+	}
+	sessionMetrics := sessionMetricsResponse.Body.String()
+	for _, expected := range []string{
+		`tma_session_events_total{event_type="runtime.tool_call",session_id="` + session.ID + `"} 1`,
+		`tma_trace_steps_total{session_id="` + session.ID + `",turn_id="` + turnID + `"} 6`,
+		`tma_tool_calls_total{api_name="read_file",outcome="success",session_id="` + session.ID + `",tool_identifier="default",turn_id="` + turnID + `"} 1`,
+	} {
+		if !strings.Contains(sessionMetrics, expected) {
+			t.Fatalf("expected session metrics to contain %q, got:\n%s", expected, sessionMetrics)
+		}
+	}
+
+	inspectorRequest := httptest.NewRequest(http.MethodGet, "/inspector", nil)
+	inspectorResponse := httptest.NewRecorder()
+	server.ServeHTTP(inspectorResponse, inspectorRequest)
+	if inspectorResponse.Code != http.StatusOK {
+		t.Fatalf("inspector expected status 200, got %d: %s", inspectorResponse.Code, inspectorResponse.Body.String())
+	}
+	if contentType := inspectorResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+		t.Fatalf("expected html content type, got %q", contentType)
+	}
+	if body := inspectorResponse.Body.String(); !strings.Contains(body, "TMA Inspector") ||
+		!strings.Contains(body, "Turns") ||
+		!strings.Contains(body, "Spans") ||
+		!strings.Contains(body, "Exporters") ||
+		!strings.Contains(body, "/v1/observability/status") ||
+		!strings.Contains(body, "OTLP HTTP") ||
+		!strings.Contains(body, "Auto refresh every 5s") ||
+		!strings.Contains(body, "Copy CLI") ||
+		!strings.Contains(body, "data-copy") ||
+		!strings.Contains(body, "bin/tma session artifact download --session") {
+		t.Fatalf("expected inspector UI body, got %q", body)
+	}
+}
+
+func TestObservabilityStatusEndpoint(t *testing.T) {
+	t.Setenv("TMA_PERFETTO", "1")
+	t.Setenv("TMA_PERFETTO_DIR", "/tmp/tma-traces")
+	t.Setenv("TMA_OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.test")
+	t.Setenv("TMA_OTEL_EXPORTER_OTLP_TOKEN", "secret-token")
+
+	response := getJSON[struct {
+		Perfetto struct {
+			Enabled     bool   `json:"enabled"`
+			Destination string `json:"destination"`
+		} `json:"perfetto"`
+		OTLP struct {
+			Enabled       bool   `json:"enabled"`
+			Destination   string `json:"destination"`
+			TokenProvided bool   `json:"token_provided"`
+		} `json:"otlp"`
+	}](t, newTestServer(), "/v1/observability/status")
+	if !response.Perfetto.Enabled || response.Perfetto.Destination != "/tmp/tma-traces" {
+		t.Fatalf("unexpected perfetto status: %+v", response.Perfetto)
+	}
+	if !response.OTLP.Enabled || response.OTLP.Destination != "http://collector.test/v1/traces" || !response.OTLP.TokenProvided {
+		t.Fatalf("unexpected otlp status: %+v", response.OTLP)
 	}
 }
 
@@ -515,6 +1350,7 @@ func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) 
 		defaultLLMProvider: "fake",
 		defaultLLMModel:    "fake-demo",
 		continuationClient: continuationToolCallClient{},
+		executionResolver:  execution.SessionProviderResolver{Store: store, AllowLocalSystem: true},
 	}
 	testServer.routes()
 	server := testServer.mux
@@ -532,6 +1368,11 @@ func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) 
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
+	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
+	}); err != nil {
+		t.Fatalf("set local_system tool runtime: %v", err)
+	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
@@ -544,12 +1385,12 @@ func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) 
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:            turnID,
 		CallID:            "call_read",
-		ToolIdentifier:    "tma.local_system",
+		ToolIdentifier:    "default",
 		APIName:           "read_file",
 		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
 		InterventionMode:  "request_approval",
 		Reason:            "optional",
-		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"tma.local_system.read_file","arguments":{"path":"../../README.md"}}}]}]`),
+		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"../../README.md"}}}]}]`),
 		ContinuationRound: 0,
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
@@ -618,7 +1459,7 @@ func TestUserMessageWhileWaitingApprovalReturnsReminder(t *testing.T) {
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:           turnID,
 		CallID:           "call_edit",
-		ToolIdentifier:   "tma.local_system",
+		ToolIdentifier:   "default",
 		APIName:          "edit_file",
 		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 		InterventionMode: "request_approval",
@@ -819,6 +1660,321 @@ func TestListLLMUsageAggregatesByProviderAndModel(t *testing.T) {
 	}
 	if len(filtered.Groups) != 1 || filtered.Groups[0].ProviderID != "fake" || filtered.Groups[0].Model != "" {
 		t.Fatalf("unexpected filtered groups: %+v", filtered.Groups)
+	}
+}
+
+func TestObjectRefsAndSessionArtifacts(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	object := postJSONWithStatus[managedagents.ObjectRef](t, server, http.MethodPost, "/v1/object-refs", `{
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_default/sesn_000001/output.txt",
+		"content_type": "text/plain",
+		"size_bytes": 42,
+		"checksum_sha256": "abc123",
+		"metadata": {"source": "tool"},
+		"created_by": "test"
+	}`, http.StatusCreated)
+	if object.ID != "obj_000001" || object.StorageProvider != managedagents.ObjectStorageProviderS3 || object.Visibility != managedagents.ObjectVisibilityWorkspace {
+		t.Fatalf("unexpected object defaults: %+v", object)
+	}
+	if string(object.Metadata) != `{"source":"tool"}` {
+		t.Fatalf("unexpected object metadata: %s", string(object.Metadata))
+	}
+	fetchedObject := getJSON[managedagents.ObjectRef](t, server, "/v1/object-refs/"+object.ID)
+	if fetchedObject.ID != object.ID || fetchedObject.ObjectKey != object.ObjectKey {
+		t.Fatalf("unexpected fetched object: %+v", fetchedObject)
+	}
+
+	artifact := postJSONWithStatus[managedagents.SessionArtifact](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts", `{
+		"object_ref_id": "`+object.ID+`",
+		"turn_id": "turn_000001",
+		"tool_call_id": "call_write",
+		"name": "output.txt",
+		"artifact_type": "file",
+		"metadata": {"preview": "hello"},
+		"created_by": "test"
+	}`, http.StatusCreated)
+	if artifact.ID != "art_000001" || artifact.EnvironmentID != environment.ID || artifact.WorkspaceID != session.WorkspaceID {
+		t.Fatalf("unexpected artifact: %+v", artifact)
+	}
+
+	listed := getJSON[struct {
+		Artifacts []managedagents.SessionArtifact `json:"artifacts"`
+	}](t, server, "/v1/sessions/"+session.ID+"/artifacts")
+	if len(listed.Artifacts) != 1 || listed.Artifacts[0].ObjectRefID != object.ID || listed.Artifacts[0].TurnID != "turn_000001" {
+		t.Fatalf("unexpected session artifacts: %+v", listed.Artifacts)
+	}
+
+	foreignObject := postJSONWithStatus[managedagents.ObjectRef](t, server, http.MethodPost, "/v1/object-refs", `{
+		"workspace_id": "wksp_other",
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_other/file.txt"
+	}`, http.StatusCreated)
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts", bytes.NewBufferString(`{
+		"object_ref_id": "`+foreignObject.ID+`"
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected workspace mismatch status %d, got %d: %s", http.StatusBadRequest, response.Code, response.Body.String())
+	}
+}
+
+func TestUploadSessionArtifactUsesObjectStore(t *testing.T) {
+	store := newTestStore()
+	objectStore := &fakeObjectStore{}
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStore(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "fake-demo", objectStore)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	body, contentType := multipartArtifactUpload(t, map[string]string{
+		"bucket":        "tma-artifacts",
+		"object_key":    "wksp_default/" + session.ID + "/uploads/output.txt",
+		"turn_id":       "turn_000001",
+		"tool_call_id":  "call_write",
+		"metadata":      `{"preview":"hello"}`,
+		"artifact_type": "file",
+	}, "file", "output.txt", "hello")
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts/upload", body)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("expected upload status %d, got %d: %s", http.StatusCreated, response.Code, response.Body.String())
+	}
+	if len(objectStore.puts) != 1 {
+		t.Fatalf("expected 1 object store put, got %#v", objectStore.puts)
+	}
+	if objectStore.puts[0].Bucket != "tma-artifacts" || objectStore.puts[0].Key != "wksp_default/"+session.ID+"/uploads/output.txt" || objectStore.puts[0].Content != "hello" {
+		t.Fatalf("unexpected object store put: %#v", objectStore.puts[0])
+	}
+
+	var decoded struct {
+		ObjectRef managedagents.ObjectRef       `json:"object_ref"`
+		Artifact  managedagents.SessionArtifact `json:"artifact"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if decoded.ObjectRef.ID == "" || decoded.ObjectRef.Bucket != "tma-artifacts" || decoded.ObjectRef.ChecksumSHA256 == "" {
+		t.Fatalf("unexpected object ref: %+v", decoded.ObjectRef)
+	}
+	if decoded.Artifact.ID == "" || decoded.Artifact.ObjectRefID != decoded.ObjectRef.ID || decoded.Artifact.TurnID != "turn_000001" {
+		t.Fatalf("unexpected artifact: %+v", decoded.Artifact)
+	}
+}
+
+func TestUploadSessionArtifactWithoutObjectStoreReturnsUnavailable(t *testing.T) {
+	server := newTestServer()
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	body, contentType := multipartArtifactUpload(t, map[string]string{
+		"bucket": "tma-artifacts",
+	}, "file", "output.txt", "hello")
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts/upload", body)
+	request.Header.Set("Content-Type", contentType)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected upload status %d, got %d: %s", http.StatusServiceUnavailable, response.Code, response.Body.String())
+	}
+}
+
+func TestDownloadSessionArtifactProxiesObjectContent(t *testing.T) {
+	store := newTestStore()
+	objectStore := &fakeObjectStore{downloads: map[string]string{}}
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStore(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "fake-demo", objectStore)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	object := postJSON[managedagents.ObjectRef](t, server, "/v1/object-refs", `{
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_default/`+session.ID+`/files/report.txt",
+		"content_type": "text/plain",
+		"size_bytes": 7
+	}`)
+	artifact := postJSON[managedagents.SessionArtifact](t, server, "/v1/sessions/"+session.ID+"/artifacts", `{
+		"object_ref_id": "`+object.ID+`",
+		"name": "report.txt",
+		"artifact_type": "file"
+	}`)
+
+	objectStore.downloads[object.Bucket+"/"+object.ObjectKey] = "report-1"
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+session.ID+"/artifacts/"+artifact.ID+"/download", nil)
+	response := httptest.NewRecorder()
+
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected download status %d, got %d: %s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if got := response.Body.String(); got != "report-1" {
+		t.Fatalf("unexpected body: %q", got)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/plain" {
+		t.Fatalf("unexpected content type: %q", got)
+	}
+	if got := response.Header().Get("Content-Disposition"); !strings.Contains(got, "report.txt") {
+		t.Fatalf("unexpected content disposition: %q", got)
+	}
+}
+
+func TestDownloadObjectRefRequiresSessionContext(t *testing.T) {
+	store := newTestStore()
+	objectStore := &fakeObjectStore{downloads: map[string]string{}}
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStore(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "fake-demo", objectStore)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	object := postJSONWithStatus[managedagents.ObjectRef](t, server, http.MethodPost, "/v1/object-refs", `{
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_default/`+session.ID+`/files/secret.txt",
+		"content_type": "text/plain",
+		"size_bytes": 9,
+		"visibility": "session"
+	}`, http.StatusCreated)
+	artifact := postJSON[managedagents.SessionArtifact](t, server, "/v1/sessions/"+session.ID+"/artifacts", `{
+		"object_ref_id": "`+object.ID+`",
+		"name": "secret.txt",
+		"artifact_type": "file"
+	}`)
+	_ = artifact
+
+	objectStore.downloads[object.Bucket+"/"+object.ObjectKey] = "secret-1"
+
+	noSessionReq := httptest.NewRequest(http.MethodGet, "/v1/object-refs/"+object.ID+"/download", nil)
+	noSessionResp := httptest.NewRecorder()
+	server.ServeHTTP(noSessionResp, noSessionReq)
+	if noSessionResp.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden without session, got %d: %s", noSessionResp.Code, noSessionResp.Body.String())
+	}
+
+	withSessionReq := httptest.NewRequest(http.MethodGet, "/v1/object-refs/"+object.ID+"/download?session_id="+session.ID, nil)
+	withSessionResp := httptest.NewRecorder()
+	server.ServeHTTP(withSessionResp, withSessionReq)
+	if withSessionResp.Code != http.StatusOK {
+		t.Fatalf("expected download status %d, got %d: %s", http.StatusOK, withSessionResp.Code, withSessionResp.Body.String())
+	}
+	if got := withSessionResp.Body.String(); got != "secret-1" {
+		t.Fatalf("unexpected session download body: %q", got)
+	}
+}
+
+func TestDeleteObjectRefRequiresArtifactCleanup(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStore(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "fake-demo", &fakeObjectStore{downloads: map[string]string{}})
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	object := postJSON[managedagents.ObjectRef](t, server, "/v1/object-refs", `{
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_default/`+session.ID+`/files/report.txt",
+		"size_bytes": 7
+	}`)
+	postJSON[managedagents.SessionArtifact](t, server, "/v1/sessions/"+session.ID+"/artifacts", `{
+		"object_ref_id": "`+object.ID+`",
+		"artifact_type": "file"
+	}`)
+
+	request := httptest.NewRequest(http.MethodDelete, "/v1/object-refs/"+object.ID, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("expected conflict when deleting referenced object, got %d: %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/v1/sessions/"+session.ID+"/artifacts/art_000001", nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected artifact delete status %d, got %d: %s", http.StatusNoContent, response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodDelete, "/v1/object-refs/"+object.ID, nil)
+	response = httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected object delete status %d, got %d: %s", http.StatusNoContent, response.Code, response.Body.String())
 	}
 }
 
@@ -1149,6 +2305,99 @@ func (failingRunner) InterruptTurn(context.Context, runner.InterruptRequest) err
 	return nil
 }
 
+type fakeObjectStore struct {
+	puts      []fakeObjectStorePut
+	downloads map[string]string
+}
+
+type fakeObjectStorePut struct {
+	Bucket      string
+	Key         string
+	Content     string
+	ContentType string
+	SizeBytes   int64
+	Checksum    string
+}
+
+func (f *fakeObjectStore) PutObject(_ context.Context, input objectstore.PutObjectInput) (objectstore.PutObjectResult, error) {
+	content, err := io.ReadAll(input.Body)
+	if err != nil {
+		return objectstore.PutObjectResult{}, err
+	}
+	f.puts = append(f.puts, fakeObjectStorePut{
+		Bucket:      input.Bucket,
+		Key:         input.Key,
+		Content:     string(content),
+		ContentType: input.ContentType,
+		SizeBytes:   input.SizeBytes,
+		Checksum:    input.ChecksumSHA256,
+	})
+	return objectstore.PutObjectResult{
+		Bucket:         input.Bucket,
+		Key:            input.Key,
+		ETag:           "fake-etag",
+		SizeBytes:      input.SizeBytes,
+		ChecksumSHA256: input.ChecksumSHA256,
+	}, nil
+}
+
+func (f *fakeObjectStore) GetObject(_ context.Context, input objectstore.GetObjectInput) (objectstore.GetObjectResult, error) {
+	if f.downloads != nil {
+		if content, ok := f.downloads[input.Bucket+"/"+input.Key]; ok {
+			return objectstore.GetObjectResult{
+				Bucket:      input.Bucket,
+				Key:         input.Key,
+				Body:        io.NopCloser(strings.NewReader(content)),
+				ContentType: "text/plain",
+				SizeBytes:   int64(len(content)),
+				ETag:        "fake-download-etag",
+			}, nil
+		}
+		if content, ok := f.downloads[input.Key]; ok {
+			return objectstore.GetObjectResult{
+				Bucket:      input.Bucket,
+				Key:         input.Key,
+				Body:        io.NopCloser(strings.NewReader(content)),
+				ContentType: "text/plain",
+				SizeBytes:   int64(len(content)),
+				ETag:        "fake-download-etag",
+			}, nil
+		}
+	}
+	return objectstore.GetObjectResult{}, objectstore.ErrNotFound
+}
+
+func (f *fakeObjectStore) DeleteObject(context.Context, objectstore.DeleteObjectInput) error {
+	return objectstore.ErrNotConfigured
+}
+
+func (f *fakeObjectStore) PresignGetObject(context.Context, objectstore.PresignGetObjectInput) (objectstore.PresignedURL, error) {
+	return objectstore.PresignedURL{}, objectstore.ErrNotConfigured
+}
+
+func multipartArtifactUpload(t *testing.T, fields map[string]string, fileField string, fileName string, content string) (*bytes.Buffer, string) {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			t.Fatalf("write multipart field %s: %v", key, err)
+		}
+	}
+	file, err := writer.CreateFormFile(fileField, fileName)
+	if err != nil {
+		t.Fatalf("create multipart file: %v", err)
+	}
+	if _, err := file.Write([]byte(content)); err != nil {
+		t.Fatalf("write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	return &body, writer.FormDataContentType()
+}
+
 type continuationToolCallClient struct{}
 
 func (continuationToolCallClient) Generate(context.Context, llm.Request) (llm.Response, error) {
@@ -1159,7 +2408,7 @@ func (continuationToolCallClient) Generate(context.Context, llm.Request) (llm.Re
 				ID:   "call_edit_again",
 				Type: "function",
 				Function: llm.ToolCallFunction{
-					Name:      "tma.local_system.edit_file",
+					Name:      "default.edit_file",
 					Arguments: json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 				},
 			}},
@@ -1216,6 +2465,23 @@ func getJSON[T any](t *testing.T, handler http.Handler, path string) T {
 	}
 
 	return value
+}
+
+func assertRuntimeSettings(t *testing.T, raw json.RawMessage, expected map[string]any) {
+	t.Helper()
+
+	var actual map[string]any
+	if err := json.Unmarshal(raw, &actual); err != nil {
+		t.Fatalf("decode runtime settings: %v", err)
+	}
+	if len(actual) != len(expected) {
+		t.Fatalf("unexpected runtime settings size: got %#v want %#v", actual, expected)
+	}
+	for key, value := range expected {
+		if actual[key] != value {
+			t.Fatalf("unexpected runtime setting %s: got %q want %q in %#v", key, actual[key], value, actual)
+		}
+	}
 }
 
 func waitFor(t *testing.T, condition func() bool) {

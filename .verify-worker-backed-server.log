@@ -1,0 +1,13 @@
+{"time":"2026-07-09T13:58:31.684588+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-09T13:58:31.696805+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"fake","llm_provider_type":"fake","llm_base_url":"","llm_api_key_env":""}
+{"time":"2026-07-09T13:58:31.712517+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"fake","llm_model":"fake-demo","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-09T13:58:31.712571+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"objectstore.NoopClient"}
+{"time":"2026-07-09T13:58:31.712595+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":""}
+{"time":"2026-07-09T13:58:31.712647+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"fake","llm_model":"fake-demo","default_context_window_tokens":128000,"queue_size":16}
+{"time":"2026-07-09T13:58:31.713109+08:00","level":"INFO","msg":"tma server listening","addr":":18082"}
+{"time":"2026-07-09T13:58:34.73395+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000643","session_id":"sesn_000047","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T13:58:34.733999+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000644","session_id":"sesn_000047","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T13:58:34.734024+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000047","turn_id":"turn_000001","event_id":"evt_000644","event_seq":4}
+{"time":"2026-07-09T13:58:34.734055+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000047","turn_id":"turn_000001"}
+{"time":"2026-07-09T13:58:35.110656+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000047","turn_id":"turn_000001","events":2}
+{"time":"2026-07-09T13:58:36.216099+08:00","level":"INFO","msg":"server stopped"}

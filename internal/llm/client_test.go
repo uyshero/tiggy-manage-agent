@@ -33,6 +33,192 @@ func TestFakeClientGeneratesAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestFakeClientGeneratesToolVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_tool_call",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_tool" || call.Function.Name != "default.run_command" {
+		t.Fatalf("unexpected tool call: %#v", call)
+	}
+}
+
+func TestFakeClientSummarizesToolVerificationResult(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role:       "tool",
+			ToolCallID: "call_verify_tool",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "/workspace\n\ntma-session-tool-ok",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	if len(response.Message.Content) != 1 || !strings.Contains(response.Message.Content[0].Text, "tma-session-tool-ok") {
+		t.Fatalf("unexpected response content: %#v", response.Message.Content)
+	}
+}
+
+func TestFakeClientGeneratesUploadedFileVerificationCalls(t *testing.T) {
+	client := FakeClient{}
+
+	seedResponse, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_uploaded_file_seed",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("seed generate: %v", err)
+	}
+	if len(seedResponse.Message.ToolCalls) != 1 || seedResponse.Message.ToolCalls[0].Function.Name != "default.run_command" {
+		t.Fatalf("unexpected seed tool call: %#v", seedResponse.Message.ToolCalls)
+	}
+
+	readResponse, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_uploaded_file_read",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("read generate: %v", err)
+	}
+	if len(readResponse.Message.ToolCalls) != 1 || readResponse.Message.ToolCalls[0].Function.Name != "default.run_command" {
+		t.Fatalf("unexpected read tool call: %#v", readResponse.Message.ToolCalls)
+	}
+}
+
+func TestFakeClientGeneratesWebCrawlVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_web_crawl http://127.0.0.1:18084/fixture.html",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_web_crawl" || call.Function.Name != "web.crawl" {
+		t.Fatalf("unexpected web crawl tool call: %#v", call)
+	}
+	if !strings.Contains(string(call.Function.Arguments), "http://127.0.0.1:18084/fixture.html") {
+		t.Fatalf("expected crawl URL in arguments, got %s", string(call.Function.Arguments))
+	}
+}
+
+func TestFakeClientGeneratesWebSearchVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_web_search tma-web-search-ok",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_web_search" || call.Function.Name != "web.search" {
+		t.Fatalf("unexpected web search tool call: %#v", call)
+	}
+	if !strings.Contains(string(call.Function.Arguments), "tma-web-search-ok") {
+		t.Fatalf("expected search query in arguments, got %s", string(call.Function.Arguments))
+	}
+}
+
+func TestFakeClientGeneratesNetworkDownloadVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_network_download https://example.com/test.txt",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_network_download" || call.Function.Name != "default.execute_code" {
+		t.Fatalf("unexpected network download tool call: %#v", call)
+	}
+	arguments := string(call.Function.Arguments)
+	if !strings.Contains(arguments, "https://example.com/test.txt") || !strings.Contains(arguments, "tma-network-download-ok") {
+		t.Fatalf("expected download URL and marker in arguments, got %s", arguments)
+	}
+}
+
+func TestFakeClientSummarizesNetworkDownloadVerificationResult(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role:       "tool",
+			ToolCallID: "call_verify_network_download",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: `{"id":"call_verify_network_download","content":"network unreachable"}`,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.Content) != 1 || !strings.Contains(response.Message.Content[0].Text, "network unreachable") {
+		t.Fatalf("unexpected response content: %#v", response.Message.Content)
+	}
+}
+
 func TestManagerDefaultsToFakeProvider(t *testing.T) {
 	manager, err := NewManager("", "")
 	if err != nil {
@@ -307,7 +493,7 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 							"id":"call_1",
 							"type":"function",
 							"function":{
-								"name":"tma.local_system.run_command",
+								"name":"default.run_command",
 								"arguments":"{\"command\":\"sh\",\"args\":[\"-c\",\"pwd\"]}"
 							}
 						}]
@@ -329,7 +515,7 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 		Tools: []Tool{{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "tma.local_system.run_command",
+				Name:        "default.run_command",
 				Description: "Run a command.",
 				Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
 			},
@@ -339,14 +525,14 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "tma.local_system.run_command" {
+	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "default.run_command" {
 		t.Fatalf("unexpected captured tools: %#v", captured.Tools)
 	}
 	if len(response.Message.ToolCalls) != 1 {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_1" || call.Function.Name != "tma.local_system.run_command" {
+	if call.ID != "call_1" || call.Function.Name != "default.run_command" {
 		t.Fatalf("unexpected tool call: %#v", call)
 	}
 	var args map[string]any

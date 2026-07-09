@@ -79,6 +79,9 @@ func (c *apiClient) streamInteractive(path string, sessionID string, input io.Re
 		cancel()
 		return fmt.Errorf("write attach hint: %w", err)
 	}
+	if err := printSessionVersionNotice(c, sessionID, lockedOutput); err != nil {
+		fmt.Fprintf(lockedOutput, "session version notice unavailable: %v\n", err)
+	}
 	if _, err := fmt.Fprintln(lockedOutput, "type a message, /say MESSAGE, /interrupt, or /quit"); err != nil {
 		cancel()
 		return fmt.Errorf("write attach hint: %w", err)
@@ -109,6 +112,40 @@ func (c *apiClient) streamInteractive(path string, sessionID string, input io.Re
 		}
 		return nil
 	}
+}
+
+type attachSessionInfo struct {
+	ID                 string `json:"id"`
+	AgentID            string `json:"agent_id"`
+	AgentConfigVersion int    `json:"agent_config_version"`
+}
+
+type attachAgentInfo struct {
+	ID                   string `json:"id"`
+	CurrentConfigVersion int    `json:"current_config_version"`
+}
+
+func printSessionVersionNotice(client *apiClient, sessionID string, output io.Writer) error {
+	var session attachSessionInfo
+	if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &session); err != nil {
+		return err
+	}
+	if session.AgentID == "" || session.AgentConfigVersion <= 0 {
+		return nil
+	}
+	var agent attachAgentInfo
+	if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(session.AgentID), nil, &agent); err != nil {
+		return err
+	}
+	if agent.CurrentConfigVersion <= 0 {
+		return nil
+	}
+	if session.AgentConfigVersion < agent.CurrentConfigVersion {
+		_, err := fmt.Fprintf(output, "notice: this session is pinned to agent config v%d; latest is v%d. Start a new session to use the latest config.\n", session.AgentConfigVersion, agent.CurrentConfigVersion)
+		return err
+	}
+	_, err := fmt.Fprintf(output, "agent config: v%d\n", session.AgentConfigVersion)
+	return err
 }
 
 type lockedWriter struct {

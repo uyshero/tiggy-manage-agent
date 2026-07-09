@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -34,6 +35,51 @@ func TestCommandSessionAttachHelpDoesNotRequireSession(t *testing.T) {
 	})
 	if !strings.Contains(stderr, "Interactive input:") {
 		t.Fatalf("expected attach help output, got %q", stderr)
+	}
+}
+
+func TestPrintSessionVersionNoticeShowsCurrentVersion(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/sessions/sesn_000001":
+			return jsonResponse(`{"id":"sesn_000001","agent_id":"agt_000001","agent_config_version":2}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/agents/agt_000001":
+			return jsonResponse(`{"id":"agt_000001","current_config_version":2}`), nil
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	var output bytes.Buffer
+	if err := printSessionVersionNotice(client, "sesn_000001", &output); err != nil {
+		t.Fatalf("print notice: %v", err)
+	}
+	if !strings.Contains(output.String(), "agent config: v2") {
+		t.Fatalf("expected current version notice, got %q", output.String())
+	}
+}
+
+func TestPrintSessionVersionNoticeWarnsOutdatedSession(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/sessions/sesn_000001":
+			return jsonResponse(`{"id":"sesn_000001","agent_id":"agt_000001","agent_config_version":1}`), nil
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/agents/agt_000001":
+			return jsonResponse(`{"id":"agt_000001","current_config_version":3}`), nil
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			return nil, nil
+		}
+	})
+
+	var output bytes.Buffer
+	if err := printSessionVersionNotice(client, "sesn_000001", &output); err != nil {
+		t.Fatalf("print notice: %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "pinned to agent config v1") || !strings.Contains(text, "latest is v3") {
+		t.Fatalf("expected outdated version notice, got %q", text)
 	}
 }
 
@@ -117,7 +163,7 @@ func TestAnnouncePendingInterventionsRecoversApproval(t *testing.T) {
 	err := announcePendingInterventions(&output, state, []toolInterventionEvent{{
 		TurnID:     "turn_123",
 		CallID:     "call_123",
-		Identifier: "tma.local_system",
+		Identifier: "default",
 		APIName:    "edit_file",
 	}})
 	if err != nil {
@@ -129,7 +175,7 @@ func TestAnnouncePendingInterventionsRecoversApproval(t *testing.T) {
 		t.Fatalf("expected recovered pending approval, got %#v ok=%v", pending, ok)
 	}
 	text := output.String()
-	if !strings.Contains(text, "pending approval recovered: tma.local_system.edit_file call=call_123") {
+	if !strings.Contains(text, "pending approval recovered: default.edit_file call=call_123") {
 		t.Fatalf("expected recovered approval output, got %q", text)
 	}
 	if !strings.Contains(text, "approval action: a=approve") {
@@ -144,7 +190,7 @@ func TestAnnouncePendingInterventionsSkipsDuplicate(t *testing.T) {
 	err := announcePendingInterventions(&output, state, []toolInterventionEvent{{
 		TurnID:     "turn_123",
 		CallID:     "call_123",
-		Identifier: "tma.local_system",
+		Identifier: "default",
 		APIName:    "edit_file",
 	}})
 	if err != nil {

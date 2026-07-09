@@ -62,6 +62,28 @@ func TestStreamSSEFormatsSessionStatus(t *testing.T) {
 	}
 }
 
+func TestStreamSSEFormatsSessionConfigUpdated(t *testing.T) {
+	input := "id: evt_1\n" +
+		"event: session.config_updated\n" +
+		"data: {\"seq\":12,\"type\":\"session.config_updated\",\"payload\":{\"old_agent_config_version\":1,\"new_agent_config_version\":2,\"updated_by\":\"tester\"}}\n\n"
+
+	var output bytes.Buffer
+	if err := streamSSE(strings.NewReader(input), &output); err != nil {
+		t.Fatalf("stream sse: %v", err)
+	}
+
+	text := output.String()
+	if !strings.Contains(text, "session config updated") {
+		t.Fatalf("expected readable config update header, got %q", text)
+	}
+	if !strings.Contains(text, "agent_config_version: v1 -> v2") || !strings.Contains(text, "updated_by: tester") {
+		t.Fatalf("expected config update details, got %q", text)
+	}
+	if strings.Contains(text, "event: session.config_updated") {
+		t.Fatalf("expected formatted output instead of raw SSE chunk, got %q", text)
+	}
+}
+
 func TestStreamSSEFormatsLLMDelta(t *testing.T) {
 	input := "id: evt_1\n" +
 		"event: runtime.llm_delta\n" +
@@ -80,7 +102,7 @@ func TestStreamSSEFormatsLLMDelta(t *testing.T) {
 func TestStreamSSEFormatsToolInterventionRequired(t *testing.T) {
 	input := "id: evt_2\n" +
 		"event: runtime.tool_intervention_required\n" +
-		"data: {\"seq\":7,\"type\":\"runtime.tool_intervention_required\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call requires approval before execution.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"tma.local_system\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"reason\":\"optional\"}}}\n\n"
+		"data: {\"seq\":7,\"type\":\"runtime.tool_intervention_required\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call requires approval before execution.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"default\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"reason\":\"optional\"}}}\n\n"
 
 	var output bytes.Buffer
 	if err := streamSSE(strings.NewReader(input), &output); err != nil {
@@ -91,7 +113,7 @@ func TestStreamSSEFormatsToolInterventionRequired(t *testing.T) {
 	if !strings.Contains(text, "approval required") {
 		t.Fatalf("expected readable approval header, got %q", text)
 	}
-	if !strings.Contains(text, "tool: tma.local_system.edit_file") {
+	if !strings.Contains(text, "tool: default.edit_file") {
 		t.Fatalf("expected tool summary, got %q", text)
 	}
 	if !strings.Contains(text, "mode: request_approval") {
@@ -105,7 +127,7 @@ func TestStreamSSEFormatsToolInterventionRequired(t *testing.T) {
 func TestStreamSSEWithInterventionsHandlesRequiredEvent(t *testing.T) {
 	input := "id: evt_2\n" +
 		"event: runtime.tool_intervention_required\n" +
-		"data: {\"seq\":7,\"type\":\"runtime.tool_intervention_required\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call requires approval before execution.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"tma.local_system\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"reason\":\"optional\"}}}\n\n"
+		"data: {\"seq\":7,\"type\":\"runtime.tool_intervention_required\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call requires approval before execution.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"default\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"reason\":\"optional\"}}}\n\n"
 
 	var output bytes.Buffer
 	var handled []toolInterventionEvent
@@ -128,7 +150,7 @@ func TestStreamSSEWithInterventionsHandlesRequiredEvent(t *testing.T) {
 func TestStreamSSEFormatsToolInterventionApproved(t *testing.T) {
 	input := "id: evt_3\n" +
 		"event: runtime.tool_intervention_approved\n" +
-		"data: {\"seq\":8,\"type\":\"runtime.tool_intervention_approved\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call approved by user.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"tma.local_system\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"approval_source\":\"user\"}}}\n\n"
+		"data: {\"seq\":8,\"type\":\"runtime.tool_intervention_approved\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call approved by user.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"default\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"approval_source\":\"user\"}}}\n\n"
 
 	var output bytes.Buffer
 	if err := streamSSE(strings.NewReader(input), &output); err != nil {
@@ -139,7 +161,7 @@ func TestStreamSSEFormatsToolInterventionApproved(t *testing.T) {
 	if !strings.Contains(text, "approval approved") {
 		t.Fatalf("expected readable approved header, got %q", text)
 	}
-	if !strings.Contains(text, "tool: tma.local_system.edit_file") {
+	if !strings.Contains(text, "tool: default.edit_file") {
 		t.Fatalf("expected tool summary, got %q", text)
 	}
 	if strings.Contains(text, "event: runtime.tool_intervention_approved") {
@@ -150,7 +172,7 @@ func TestStreamSSEFormatsToolInterventionApproved(t *testing.T) {
 func TestStreamSSEFormatsToolInterventionRejected(t *testing.T) {
 	input := "id: evt_4\n" +
 		"event: runtime.tool_intervention_rejected\n" +
-		"data: {\"seq\":9,\"type\":\"runtime.tool_intervention_rejected\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call rejected by user.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"tma.local_system\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"decision_reason\":\"not now\"}}}\n\n"
+		"data: {\"seq\":9,\"type\":\"runtime.tool_intervention_rejected\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Tool call rejected by user.\",\"data\":{\"id\":\"call_edit\",\"identifier\":\"default\",\"api_name\":\"edit_file\",\"intervention_mode\":\"request_approval\",\"decision_reason\":\"not now\"}}}\n\n"
 
 	var output bytes.Buffer
 	if err := streamSSE(strings.NewReader(input), &output); err != nil {
@@ -172,7 +194,7 @@ func TestStreamSSEFormatsToolInterventionRejected(t *testing.T) {
 func TestStreamSSEFormatsToolResult(t *testing.T) {
 	input := "id: evt_5\n" +
 		"event: runtime.tool_result\n" +
-		"data: {\"seq\":10,\"type\":\"runtime.tool_result\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Received approved tool result.\",\"data\":{\"id\":\"call_read\",\"identifier\":\"tma.local_system\",\"api_name\":\"read_file\",\"content\":\"hello\\nworld\",\"success\":true}}}\n\n"
+		"data: {\"seq\":10,\"type\":\"runtime.tool_result\",\"payload\":{\"turn_id\":\"turn_123\",\"message\":\"Received approved tool result.\",\"data\":{\"id\":\"call_read\",\"identifier\":\"default\",\"api_name\":\"read_file\",\"content\":\"hello\\nworld\",\"artifacts\":[{\"artifact_id\":\"art_000001\",\"object_ref_id\":\"obj_000001\",\"name\":\"read_file.json\",\"artifact_type\":\"asset\",\"download_path\":\"/v1/sessions/sesn_000001/artifacts/art_000001/download\"}],\"success\":true}}}\n\n"
 
 	var output bytes.Buffer
 	if err := streamSSE(strings.NewReader(input), &output); err != nil {
@@ -189,8 +211,30 @@ func TestStreamSSEFormatsToolResult(t *testing.T) {
 	if !strings.Contains(text, "content: hello\\nworld") {
 		t.Fatalf("expected content summary, got %q", text)
 	}
+	if !strings.Contains(text, "artifacts:") || !strings.Contains(text, "art_000001 read_file.json [asset] download: /v1/sessions/sesn_000001/artifacts/art_000001/download") {
+		t.Fatalf("expected artifact summary, got %q", text)
+	}
+	if !strings.Contains(text, "cli: bin/tma session artifact download --session sesn_000001 --artifact art_000001") {
+		t.Fatalf("expected artifact download command hint, got %q", text)
+	}
 	if strings.Contains(text, "event: runtime.tool_result") {
 		t.Fatalf("expected formatted output instead of raw SSE chunk, got %q", text)
+	}
+}
+
+func TestStreamSSEFormatsToolResultArtifactError(t *testing.T) {
+	input := "id: evt_6\n" +
+		"event: runtime.tool_result\n" +
+		"data: {\"seq\":11,\"type\":\"runtime.tool_result\",\"payload\":{\"turn_id\":\"turn_123\",\"data\":{\"id\":\"call_read\",\"identifier\":\"default\",\"api_name\":\"read_file\",\"artifact_error\":\"object store client not configured\",\"success\":true}}}\n\n"
+
+	var output bytes.Buffer
+	if err := streamSSE(strings.NewReader(input), &output); err != nil {
+		t.Fatalf("stream sse: %v", err)
+	}
+
+	text := output.String()
+	if !strings.Contains(text, "artifact error: object store client not configured") {
+		t.Fatalf("expected artifact error summary, got %q", text)
 	}
 }
 

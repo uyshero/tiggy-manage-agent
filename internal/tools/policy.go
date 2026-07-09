@@ -9,6 +9,7 @@ const (
 	InterventionModeRequestApproval = "request_approval"
 	InterventionModeApproveForMe    = "approve_for_me"
 	InterventionModeFullAccess      = "full_access"
+	InterventionReasonNetworkAccess = "network_access"
 )
 
 type InterventionPolicy struct {
@@ -64,4 +65,32 @@ func (p InterventionPolicy) Evaluate(manifest Manifest, api API) InterventionDec
 		return InterventionDecision{Allowed: true, Required: true, Mode: mode, Reason: api.HumanIntervention}
 	}
 	return InterventionDecision{Allowed: false, Required: true, Mode: mode, Reason: api.HumanIntervention}
+}
+
+func (p InterventionPolicy) EvaluateCall(manifest Manifest, api API, call Call, executionContext ExecutionContext) InterventionDecision {
+	if callRequiresNetworkApproval(call, executionContext) {
+		api.HumanIntervention = InterventionReasonNetworkAccess
+	}
+	return p.Evaluate(manifest, api)
+}
+
+type networkApprovalProvider interface {
+	RequiresNetworkApproval() bool
+}
+
+func callRequiresNetworkApproval(call Call, executionContext ExecutionContext) bool {
+	provider, ok := executionContext.Provider.(networkApprovalProvider)
+	if !ok || !provider.RequiresNetworkApproval() {
+		return false
+	}
+	normalized := NormalizeCall(call)
+	if normalized.Identifier != NamespaceDefault {
+		return false
+	}
+	switch normalized.APIName {
+	case "run_command", "execute_code":
+		return true
+	default:
+		return false
+	}
 }

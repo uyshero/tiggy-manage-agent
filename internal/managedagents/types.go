@@ -47,6 +47,7 @@ const (
 	EventRuntimeContextCompactionFailed  = "runtime.context_compaction_failed"
 	EventRuntimeCompleted                = "runtime.completed"
 	EventRuntimeFailed                   = "runtime.failed"
+	EventSessionConfigUpdated            = "session.config_updated"
 
 	InterventionStatusPending  = "pending"
 	InterventionStatusApproved = "approved"
@@ -57,6 +58,34 @@ const (
 	TurnStatusInterrupted     = "interrupted"
 	TurnStatusCompleted       = "completed"
 	TurnStatusFailed          = "failed"
+
+	ObjectStorageProviderS3   = "s3"
+	ObjectVisibilitySession   = "session"
+	ObjectVisibilityWorkspace = "workspace"
+
+	ArtifactTypeFile     = "file"
+	ArtifactTypeSnapshot = "snapshot"
+	ArtifactTypeAsset    = "asset"
+
+	WorkerTypeLocal  = "local"
+	WorkerTypeShared = "shared"
+	WorkerTypeCloud  = "cloud"
+
+	WorkerStatusOnline   = "online"
+	WorkerStatusOffline  = "offline"
+	WorkerStatusDraining = "draining"
+	WorkerStatusArchived = "archived"
+
+	WorkerWorkTypeToolExecution  = "tool_execution"
+	WorkerWorkTypeSandboxCommand = "sandbox_command"
+	WorkerWorkTypeArtifactSync   = "artifact_sync"
+
+	WorkerWorkStatusPending   = "pending"
+	WorkerWorkStatusLeased    = "leased"
+	WorkerWorkStatusRunning   = "running"
+	WorkerWorkStatusCompleted = "completed"
+	WorkerWorkStatusFailed    = "failed"
+	WorkerWorkStatusCanceled  = "canceled"
 )
 
 type Agent struct {
@@ -282,6 +311,152 @@ type LLMUsageAggregateReport struct {
 	Groups  []LLMUsageAggregate `json:"groups"`
 }
 
+type ObjectRef struct {
+	ID              string          `json:"id"`
+	WorkspaceID     string          `json:"workspace_id"`
+	StorageProvider string          `json:"storage_provider"`
+	Bucket          string          `json:"bucket"`
+	ObjectKey       string          `json:"object_key"`
+	ObjectVersion   string          `json:"object_version,omitempty"`
+	ContentType     string          `json:"content_type,omitempty"`
+	SizeBytes       int64           `json:"size_bytes"`
+	ChecksumSHA256  string          `json:"checksum_sha256,omitempty"`
+	ETag            string          `json:"etag,omitempty"`
+	Visibility      string          `json:"visibility"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	CreatedBy       string          `json:"created_by"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
+type CreateObjectRefInput struct {
+	WorkspaceID     string          `json:"workspace_id,omitempty"`
+	StorageProvider string          `json:"storage_provider,omitempty"`
+	Bucket          string          `json:"bucket"`
+	ObjectKey       string          `json:"object_key"`
+	ObjectVersion   string          `json:"object_version,omitempty"`
+	ContentType     string          `json:"content_type,omitempty"`
+	SizeBytes       int64           `json:"size_bytes"`
+	ChecksumSHA256  string          `json:"checksum_sha256,omitempty"`
+	ETag            string          `json:"etag,omitempty"`
+	Visibility      string          `json:"visibility,omitempty"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	CreatedBy       string          `json:"created_by,omitempty"`
+}
+
+type SessionArtifact struct {
+	ID            string          `json:"id"`
+	WorkspaceID   string          `json:"workspace_id"`
+	SessionID     string          `json:"session_id"`
+	EnvironmentID string          `json:"environment_id,omitempty"`
+	ObjectRefID   string          `json:"object_ref_id"`
+	TurnID        string          `json:"turn_id,omitempty"`
+	ToolCallID    string          `json:"tool_call_id,omitempty"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description,omitempty"`
+	ArtifactType  string          `json:"artifact_type"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedBy     string          `json:"created_by"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type Worker struct {
+	ID             string          `json:"id"`
+	WorkspaceID    string          `json:"workspace_id"`
+	Name           string          `json:"name"`
+	WorkerType     string          `json:"worker_type"`
+	Status         string          `json:"status"`
+	Capabilities   json.RawMessage `json:"capabilities,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	RegisteredBy   string          `json:"registered_by"`
+	RegisteredAt   time.Time       `json:"registered_at"`
+	LastSeenAt     *time.Time      `json:"last_seen_at,omitempty"`
+	LeaseExpiresAt *time.Time      `json:"lease_expires_at,omitempty"`
+	ArchivedAt     *time.Time      `json:"archived_at,omitempty"`
+}
+
+type RegisterWorkerInput struct {
+	WorkspaceID  string          `json:"workspace_id,omitempty"`
+	Name         string          `json:"name"`
+	WorkerType   string          `json:"worker_type,omitempty"`
+	Capabilities json.RawMessage `json:"capabilities,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	RegisteredBy string          `json:"registered_by,omitempty"`
+	LeaseSeconds int             `json:"lease_seconds,omitempty"`
+}
+
+type WorkerHeartbeatInput struct {
+	Status       string          `json:"status,omitempty"`
+	Capabilities json.RawMessage `json:"capabilities,omitempty"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	LeaseSeconds int             `json:"lease_seconds,omitempty"`
+}
+
+type ListWorkersInput struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Status      string `json:"status,omitempty"`
+}
+
+type WorkerWork struct {
+	ID             string          `json:"id"`
+	WorkspaceID    string          `json:"workspace_id"`
+	WorkerID       string          `json:"worker_id,omitempty"`
+	EnvironmentID  string          `json:"environment_id,omitempty"`
+	SessionID      string          `json:"session_id,omitempty"`
+	TurnID         string          `json:"turn_id,omitempty"`
+	WorkType       string          `json:"work_type"`
+	Status         string          `json:"status"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	Result         json.RawMessage `json:"result,omitempty"`
+	ErrorMessage   string          `json:"error_message,omitempty"`
+	LeaseExpiresAt *time.Time      `json:"lease_expires_at,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	StartedAt      *time.Time      `json:"started_at,omitempty"`
+	CompletedAt    *time.Time      `json:"completed_at,omitempty"`
+}
+
+type EnqueueWorkerWorkInput struct {
+	WorkspaceID   string          `json:"workspace_id,omitempty"`
+	WorkerID      string          `json:"worker_id,omitempty"`
+	EnvironmentID string          `json:"environment_id,omitempty"`
+	SessionID     string          `json:"session_id,omitempty"`
+	TurnID        string          `json:"turn_id,omitempty"`
+	WorkType      string          `json:"work_type,omitempty"`
+	Payload       json.RawMessage `json:"payload,omitempty"`
+}
+
+type PollWorkerWorkInput struct {
+	LeaseSeconds int `json:"lease_seconds,omitempty"`
+}
+
+type WorkerWorkHeartbeatInput struct {
+	LeaseSeconds int `json:"lease_seconds,omitempty"`
+}
+
+type ReapExpiredWorkerWorkInput struct {
+	Limit int `json:"limit,omitempty"`
+}
+
+type CompleteWorkerWorkInput struct {
+	Success      bool            `json:"success"`
+	Result       json.RawMessage `json:"result,omitempty"`
+	ErrorMessage string          `json:"error_message,omitempty"`
+}
+
+type CreateSessionArtifactInput struct {
+	WorkspaceID   string          `json:"workspace_id,omitempty"`
+	SessionID     string          `json:"session_id"`
+	EnvironmentID string          `json:"environment_id,omitempty"`
+	ObjectRefID   string          `json:"object_ref_id"`
+	TurnID        string          `json:"turn_id,omitempty"`
+	ToolCallID    string          `json:"tool_call_id,omitempty"`
+	Name          string          `json:"name"`
+	Description   string          `json:"description,omitempty"`
+	ArtifactType  string          `json:"artifact_type,omitempty"`
+	Metadata      json.RawMessage `json:"metadata,omitempty"`
+	CreatedBy     string          `json:"created_by,omitempty"`
+}
+
 type RecordLLMUsageInput struct {
 	WorkspaceID        string `json:"workspace_id"`
 	AgentID            string `json:"agent_id"`
@@ -325,11 +500,26 @@ type UpdateSessionRuntimeSettingsInput struct {
 	RuntimeSettings json.RawMessage `json:"runtime_settings"`
 }
 
+type UpgradeSessionAgentConfigInput struct {
+	ToCurrent bool   `json:"to_current,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+}
+
+type UpgradeSessionAgentConfigResult struct {
+	Session                  Session `json:"session"`
+	Event                    Event   `json:"event,omitempty"`
+	OldAgentConfigVersion    int     `json:"old_agent_config_version"`
+	NewAgentConfigVersion    int     `json:"new_agent_config_version"`
+	LatestAgentConfigVersion int     `json:"latest_agent_config_version"`
+	Changed                  bool    `json:"changed"`
+}
+
 type AgentRuntimeConfig struct {
 	SessionID             string          `json:"session_id"`
 	WorkspaceID           string          `json:"workspace_id"`
 	AgentID               string          `json:"agent_id"`
 	AgentConfigVersion    int             `json:"agent_config_version"`
+	EnvironmentID         string          `json:"environment_id"`
 	LLMProvider           string          `json:"llm_provider"`
 	LLMProviderType       string          `json:"llm_provider_type,omitempty"`
 	LLMModel              string          `json:"llm_model"`

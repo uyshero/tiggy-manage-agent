@@ -9,6 +9,8 @@ import (
 var (
 	ErrNotFound   = errors.New("not found")
 	ErrInvalid    = errors.New("invalid input")
+	ErrForbidden  = errors.New("forbidden")
+	ErrConflict   = errors.New("conflict")
 	ErrTerminated = errors.New("session terminated")
 )
 
@@ -40,6 +42,90 @@ func normalizeInterventionStatus(value string) string {
 		return InterventionStatusApproved
 	case InterventionStatusRejected:
 		return InterventionStatusRejected
+	default:
+		return ""
+	}
+}
+
+func normalizeObjectVisibility(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", ObjectVisibilityWorkspace:
+		return ObjectVisibilityWorkspace
+	case ObjectVisibilitySession:
+		return ObjectVisibilitySession
+	default:
+		return ""
+	}
+}
+
+func normalizeArtifactType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", ArtifactTypeFile:
+		return ArtifactTypeFile
+	case ArtifactTypeSnapshot:
+		return ArtifactTypeSnapshot
+	case ArtifactTypeAsset:
+		return ArtifactTypeAsset
+	default:
+		return ""
+	}
+}
+
+func normalizeWorkerType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", WorkerTypeLocal:
+		return WorkerTypeLocal
+	case WorkerTypeShared:
+		return WorkerTypeShared
+	case WorkerTypeCloud:
+		return WorkerTypeCloud
+	default:
+		return ""
+	}
+}
+
+func normalizeWorkerStatus(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", WorkerStatusOnline:
+		return WorkerStatusOnline
+	case WorkerStatusOffline:
+		return WorkerStatusOffline
+	case WorkerStatusDraining:
+		return WorkerStatusDraining
+	case WorkerStatusArchived:
+		return WorkerStatusArchived
+	default:
+		return ""
+	}
+}
+
+func normalizeWorkerWorkType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", WorkerWorkTypeToolExecution:
+		return WorkerWorkTypeToolExecution
+	case WorkerWorkTypeSandboxCommand:
+		return WorkerWorkTypeSandboxCommand
+	case WorkerWorkTypeArtifactSync:
+		return WorkerWorkTypeArtifactSync
+	default:
+		return ""
+	}
+}
+
+func normalizeWorkerWorkStatus(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case WorkerWorkStatusPending:
+		return WorkerWorkStatusPending
+	case WorkerWorkStatusLeased:
+		return WorkerWorkStatusLeased
+	case WorkerWorkStatusRunning:
+		return WorkerWorkStatusRunning
+	case WorkerWorkStatusCompleted:
+		return WorkerWorkStatusCompleted
+	case WorkerWorkStatusFailed:
+		return WorkerWorkStatusFailed
+	case WorkerWorkStatusCanceled:
+		return WorkerWorkStatusCanceled
 	default:
 		return ""
 	}

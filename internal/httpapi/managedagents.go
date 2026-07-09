@@ -1,20 +1,31 @@
 package httpapi
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectstore"
+	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/internal/workerselect"
 )
+
+const maxArtifactUploadBytes = 64 << 20
 
 type appendEventsRequest struct {
 	Events []managedagents.AppendEventInput `json:"events"`
@@ -49,11 +60,75 @@ type sessionSummaryRequest struct {
 }
 
 type sessionRuntimeSettingsRequest struct {
-	InterventionMode *string `json:"intervention_mode"`
+	InterventionMode  *string `json:"intervention_mode"`
+	ToolRuntime       *string `json:"tool_runtime"`
+	CloudSandboxRoot  *string `json:"cloud_sandbox_root"`
+	CloudSandboxImage *string `json:"cloud_sandbox_image"`
+	AllowNetwork      *bool   `json:"cloud_sandbox_allow_network"`
+}
+
+type sessionConfigUpgradeRequest struct {
+	ToCurrent *bool  `json:"to_current"`
+	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
 type interventionDecisionRequest struct {
 	Reason string `json:"reason,omitempty"`
+}
+
+type workerDiagnoseRequest struct {
+	WorkspaceID     string          `json:"workspace_id,omitempty"`
+	ProtocolVersion string          `json:"protocol_version,omitempty"`
+	Namespace       string          `json:"namespace"`
+	API             string          `json:"api"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
+	Risk            string          `json:"risk,omitempty"`
+	Runtime         string          `json:"runtime,omitempty"`
+	Input           json.RawMessage `json:"input,omitempty"`
+}
+
+type workerDiagnoseResponse struct {
+	Invocation  tools.WorkInvocation    `json:"invocation"`
+	Matches     int                     `json:"matches"`
+	Diagnostics []workerDiagnosisResult `json:"diagnostics"`
+}
+
+type workerWorkConflictResponse struct {
+	Error string `json:"error"`
+	workerDiagnoseResponse
+}
+
+type workerWorkDiagnoseResponse struct {
+	Work    managedagents.WorkerWork `json:"work"`
+	Worker  *workerSummary           `json:"worker,omitempty"`
+	Reasons []string                 `json:"reasons,omitempty"`
+	Actions []string                 `json:"actions,omitempty"`
+}
+
+type workerSummary struct {
+	ID             string  `json:"id"`
+	WorkspaceID    string  `json:"workspace_id"`
+	Name           string  `json:"name"`
+	WorkerType     string  `json:"worker_type"`
+	Status         string  `json:"status"`
+	LeaseExpiresAt *string `json:"lease_expires_at,omitempty"`
+	LastSeenAt     *string `json:"last_seen_at,omitempty"`
+}
+
+type workerDiagnosisResult struct {
+	WorkerID     string   `json:"worker_id"`
+	WorkspaceID  string   `json:"workspace_id"`
+	Name         string   `json:"name"`
+	WorkerType   string   `json:"worker_type"`
+	Status       string   `json:"status"`
+	Match        bool     `json:"match"`
+	Reasons      []string `json:"reasons,omitempty"`
+	Runtimes     []string `json:"runtimes,omitempty"`
+	APIs         []string `json:"apis,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	LeaseExpires *string  `json:"lease_expires_at,omitempty"`
+	LastSeen     *string  `json:"last_seen_at,omitempty"`
+	RegisteredBy string   `json:"registered_by,omitempty"`
 }
 
 func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +284,216 @@ func (s *Server) getSessionSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
+func (s *Server) getSessionTrace(w http.ResponseWriter, r *http.Request) {
+	events, err := s.store.ListEvents(r.PathValue("session_id"), 0)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	trace := observability.ProjectTurnTrace(r.PathValue("session_id"), r.URL.Query().Get("turn_id"), events)
+	if trace.TurnID == "" || len(trace.Steps) == 0 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
+		return
+	}
+	switch strings.TrimSpace(strings.ToLower(r.URL.Query().Get("format"))) {
+	case "", "json", "trace":
+		writeJSON(w, http.StatusOK, trace)
+	case "perfetto":
+		writeJSON(w, http.StatusOK, observability.ExportPerfetto(trace))
+	case "otel", "otlp":
+		writeJSON(w, http.StatusOK, observability.ExportOTel(trace))
+	default:
+		writeError(w, fmt.Errorf("%w: unsupported trace format %q", managedagents.ErrInvalid, r.URL.Query().Get("format")))
+	}
+}
+
+func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	usage, err := s.store.ListLLMUsage(managedagents.ListLLMUsageInput{
+		WorkspaceID: query.Get("workspace_id"),
+		GroupBy:     managedagents.LLMUsageGroupByProviderModel,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+		WorkspaceID: query.Get("workspace_id"),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	snapshot := observability.MetricsSnapshot{
+		Usage:   usage,
+		Workers: workers,
+	}
+	if sessionID := strings.TrimSpace(query.Get("session_id")); sessionID != "" {
+		events, err := s.store.ListEvents(sessionID, 0)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		trace := observability.ProjectTurnTrace(sessionID, query.Get("turn_id"), events)
+		interventions, err := s.store.ListSessionInterventions(sessionID, "")
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		snapshot.Trace = &trace
+		snapshot.Events = events
+		snapshot.Interventions = interventions
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(observability.PrometheusText(snapshot))); err != nil {
+		s.logger.Warn("metrics response write failed", "error", err)
+	}
+}
+
+func (s *Server) getInspector(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte(inspectorHTML)); err != nil {
+		s.logger.Warn("inspector response write failed", "error", err)
+	}
+}
+
+func (s *Server) getObservabilityStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, observability.StatusFromEnv())
+}
+
+const inspectorHTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMA Inspector</title>
+<style>
+:root{color-scheme:light;--bg:#f3f4f6;--ink:#111827;--muted:#6b7280;--line:#d1d5db;--panel:#fff;--accent:#0f766e;--accent-soft:#ecfdf5;--warn:#b45309;--warn-soft:#fffbeb;--err:#b42318;--err-soft:#fef2f2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;letter-spacing:0}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:10}
+h1{margin:0;font-size:18px;font-weight:650}.layout{display:grid;grid-template-columns:320px minmax(0,1fr);min-height:calc(100vh - 57px)}
+aside{border-right:1px solid var(--line);background:#fff;padding:16px;display:grid;gap:16px;align-content:start}main{padding:16px;display:grid;gap:16px;align-content:start}
+label{display:block;font-size:12px;font-weight:650;color:var(--muted);margin:0 0 6px}input,select,button{font:inherit}
+input,select{width:100%;height:34px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff;color:var(--ink)}
+button{height:34px;border:1px solid #0b5f59;border-radius:6px;background:var(--accent);color:#fff;padding:0 12px;font-weight:650;cursor:pointer}button.secondary{background:#fff;color:var(--ink);border-color:var(--line)}
+.actions{display:flex;gap:8px;flex-wrap:wrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.panel h2{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);font-size:14px;background:#f9fafb}.content{padding:12px}
+.stack{display:grid;gap:12px}.meta{color:var(--muted);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:12px}
+.pill.ok{background:var(--accent-soft);border-color:#a7f3d0;color:#065f46}.pill.warn{background:var(--warn-soft);border-color:#fcd34d;color:#92400e}.pill.err{background:var(--err-soft);border-color:#fecaca;color:#991b1b}
+.overview{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px 12px;min-height:82px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:20px;font-weight:650;margin-top:6px}.stat-sub{font-size:12px;color:var(--muted);margin-top:6px}
+.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.triple{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.timeline,.list,.turn-list{display:grid;gap:8px}.step,.list-item,.turn-item{border:1px solid var(--line);border-radius:6px;background:#f9fafb;padding:10px}
+.step{border-left:3px solid #94a3b8}.step.tool{border-left-color:var(--accent)}.step.approval{border-left-color:var(--warn)}.step.error{border-left-color:var(--err)}
+.turn-item{cursor:pointer}.turn-item.active{border-color:var(--accent);background:#f0fdfa}.turn-item:hover{border-color:#9ca3af}
+.summary{white-space:pre-wrap;line-height:1.45}.summary.compact{font-size:13px}.empty{color:var(--muted)}pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.code{background:#111827;color:#e5e7eb;border-radius:8px;padding:12px;max-height:420px;overflow:auto}
+.table-wrap{overflow:auto}.span-table{width:100%;border-collapse:collapse;font-size:13px}.span-table th,.span-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.span-table th{font-size:12px;color:var(--muted);font-weight:650;background:#f9fafb;position:sticky;top:0}
+.toolbar{display:grid;gap:12px}.field{display:grid;gap:6px}.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}.toggle input{width:auto;height:auto}
+a.link{color:#0f766e;text-decoration:none}a.link:hover{text-decoration:underline}.subtle{font-size:12px;color:var(--muted)}.artifact-list{display:grid;gap:6px;margin-top:8px}.artifact-line{border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px}
+@media(max-width:1200px){.overview{grid-template-columns:repeat(3,minmax(0,1fr))}.triple{grid-template-columns:1fr}.split{grid-template-columns:1fr}}
+@media(max-width:860px){.layout{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}.overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header><h1>TMA Inspector</h1><div class="meta" id="status">idle</div></header>
+<div class="layout">
+<aside>
+<section class="panel">
+<h2>Query</h2>
+<div class="content toolbar">
+<div class="field"><label for="session">Session</label><input id="session" autocomplete="off" placeholder="sesn_000001"></div>
+<div class="field"><label for="turn">Turn</label><select id="turn"><option value="">latest</option></select></div>
+<div class="field"><label for="format">Export Format</label><select id="format"><option value="json">Trace JSON</option><option value="perfetto">Perfetto JSON</option><option value="otel">OTel JSON</option></select></div>
+<label class="toggle"><input type="checkbox" id="autoRefresh">Auto refresh every 5s</label>
+<div class="actions"><button id="load">Load</button><button class="secondary" id="export">Preview Export</button><button class="secondary" id="download">Download</button></div>
+</div>
+</section>
+<section class="panel">
+<h2>Turns</h2>
+<div class="content turn-list" id="turns"><span class="empty">No turns loaded.</span></div>
+</section>
+</aside>
+<main>
+<section class="overview" id="overviewCards">
+<div class="stat-card"><div class="stat-label">Turn</div><div class="stat-value">-</div><div class="stat-sub">Load a session.</div></div>
+</section>
+<section class="split">
+<section class="panel"><h2>Session</h2><div class="content stack" id="sessionMeta"><span class="empty">No session loaded.</span></div></section>
+<section class="panel"><h2>Trace Summary</h2><div class="content stack"><div id="traceMeta"><span class="empty">No trace loaded.</span></div><div class="summary compact" id="summary">No trace summary loaded.</div></div></section>
+</section>
+<section class="split">
+<section class="panel"><h2>Context Summary</h2><div class="content summary" id="sessionSummary">No session summary loaded.</div></section>
+<section class="panel"><h2>Usage</h2><div class="content stack"><div id="usageSummary" class="meta"><span class="empty">No usage loaded.</span></div><pre id="usage">No usage loaded.</pre></div></section>
+</section>
+<section class="panel"><h2>Spans</h2><div class="content table-wrap" id="spans"><span class="empty">No spans loaded.</span></div></section>
+<section class="panel"><h2>Timeline</h2><div class="content timeline" id="timeline"><span class="empty">No timeline loaded.</span></div></section>
+<section class="triple">
+<section class="panel"><h2>Pending Approvals</h2><div class="content list" id="interventions"><span class="empty">No interventions loaded.</span></div></section>
+<section class="panel"><h2>Artifacts</h2><div class="content list" id="artifacts"><span class="empty">No artifacts loaded.</span></div></section>
+<section class="panel"><h2>Recent Events</h2><div class="content list" id="events"><span class="empty">No events loaded.</span></div></section>
+</section>
+<section class="triple">
+<section class="panel"><h2>Metrics</h2><div class="content"><pre id="metrics" class="code">No metrics loaded.</pre></div></section>
+<section class="panel"><h2>Exporters</h2><div class="content list" id="exporters"><span class="empty">No exporter status loaded.</span></div></section>
+<section class="panel"><h2>Raw Export</h2><div class="content"><pre id="raw" class="code">No raw export loaded.</pre></div></section>
+</section>
+</main>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let refreshHandle=0;
+function status(text){$("status").textContent=text}
+function activeSession(){return $("session").value.trim()}
+function activeTurn(){return $("turn").value.trim()}
+function tracePath(format){const session=activeSession();const query=[];if(activeTurn())query.push("turn_id="+encodeURIComponent(activeTurn()));if(format)query.push("format="+encodeURIComponent(format));return "/v1/sessions/"+encodeURIComponent(session)+"/trace"+(query.length?"?"+query.join("&"):"")}
+function metricsPath(){const session=activeSession();const query=["session_id="+encodeURIComponent(session)];if(activeTurn())query.push("turn_id="+encodeURIComponent(activeTurn()));return "/metrics?"+query.join("&")}
+async function getJSON(path){const response=await fetch(path);if(!response.ok)throw new Error(await response.text());return response.json()}
+async function getText(path){const response=await fetch(path);if(!response.ok)throw new Error(await response.text());return response.text()}
+async function postJSON(path,body){const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});if(!response.ok)throw new Error(await response.text());return response.json()}
+function escapeHTML(text){return String(text||"").replace(/[&<>]/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])})}
+function escapeAttr(text){return escapeHTML(text).replace(/"/g,"&quot;")}
+function pretty(value){return JSON.stringify(value,null,2)}
+function formatTime(value){if(!value)return"-";const date=new Date(value);if(Number.isNaN(date.getTime()))return String(value);return date.toLocaleString()}
+function formatDuration(ms){const value=Number(ms||0);if(value<1000)return value+" ms";const seconds=(value/1000).toFixed(value<10000?2:1);return seconds+" s"}
+function pillClass(statusValue){if(statusValue==="completed"||statusValue==="ok"||statusValue==="success"||statusValue==="approved")return"pill ok";if(statusValue==="waiting_approval"||statusValue==="pending"||statusValue==="blocked")return"pill warn";if(statusValue==="failed"||statusValue==="error"||statusValue==="rejected")return"pill err";return"pill"}
+function stepClass(step){if(step.outcome==="error"||step.type==="runtime.failed")return"step error";if(step.type&&step.type.indexOf("intervention")!==-1)return"step approval";if(step.type&&step.type.indexOf("tool")!==-1)return"step tool";return"step"}
+function sessionArtifactCLI(downloadPath){downloadPath=String(downloadPath||"").trim();if(!downloadPath)return"";downloadPath=downloadPath.split("?")[0].split("#")[0];const prefix="/v1/sessions/";if(!downloadPath.startsWith(prefix))return"";const parts=downloadPath.slice(prefix.length).split("/");if(parts.length!==4||parts[1]!=="artifacts"||parts[3]!=="download")return"";if(!parts[0]||!parts[2])return"";return "bin/tma session artifact download --session "+parts[0]+" --artifact "+parts[2]}
+function sessionArtifactCommand(sessionId,artifactId){sessionId=String(sessionId||"").trim();artifactId=String(artifactId||"").trim();if(!sessionId||!artifactId)return"";return "bin/tma session artifact download --session "+sessionId+" --artifact "+artifactId}
+function artifactActions(href,command){let html='<div class="actions" style="margin-top:6px">';if(href){html+='<a class="link" href="'+escapeAttr(href)+'" target="_blank" rel="noreferrer">Download</a>'}if(command){html+='<button class="secondary" type="button" data-copy="'+escapeAttr(command)+'">Copy CLI</button>'}return html+'</div>'}
+function renderArtifactLine(artifact){const label=[artifact.artifact_id||artifact.id||"(unknown)",artifact.name||"",artifact.artifact_type?("["+artifact.artifact_type+"]"):""].filter(Boolean).join(" ");const href=artifact.download_path||"";const command=sessionArtifactCLI(href);return'<div class="artifact-line"><div>'+escapeHTML(label)+'</div>'+(href?'<div class="subtle">download: '+escapeHTML(href)+'</div>':"")+(command?'<div class="subtle">cli: '+escapeHTML(command)+'</div>':"")+artifactActions(href,command)+'</div>'}
+async function copyText(text){text=String(text||"");if(!text)return;if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(text)}else{const input=document.createElement("textarea");input.value=text;document.body.appendChild(input);input.select();document.execCommand("copy");input.remove()}status("copied command")}
+function renderOverview(trace){const stats=trace.stats||{};const cards=[{label:"Turn",value:trace.turn_id||"-",sub:trace.status||"running"},{label:"Duration",value:formatDuration(stats.duration_ms),sub:(stats.start_time?formatTime(stats.start_time):"-")+" -> "+(stats.end_time?formatTime(stats.end_time):"-")},{label:"Steps",value:String(stats.step_count||0),sub:"timeline events"},{label:"Spans",value:String(stats.span_count||0),sub:"projected trace spans"},{label:"Tools",value:String(stats.tool_calls||0),sub:String(stats.approval_waits||0)+" approval waits"},{label:"Errors",value:String(stats.errors||0),sub:String(stats.artifact_count||0)+" artifacts"}];$("overviewCards").innerHTML=cards.map(function(card){return'<div class="stat-card"><div class="stat-label">'+escapeHTML(card.label)+'</div><div class="stat-value">'+escapeHTML(card.value)+'</div><div class="stat-sub">'+escapeHTML(card.sub)+'</div></div>'}).join("")}
+function renderTraceMeta(trace){const stats=trace.stats||{};$("traceMeta").innerHTML='<div class="meta"><span>'+escapeHTML(trace.session_id)+'</span><span class="'+pillClass(trace.status||"running")+'">'+escapeHTML(trace.status||"running")+'</span><span>'+escapeHTML(trace.trace_id||"")+'</span></div><div class="meta"><span>'+String(stats.step_count||0)+' steps</span><span>'+String(stats.span_count||0)+' spans</span><span>'+String(stats.llm_requests||0)+' llm</span><span>'+String(stats.tool_calls||0)+' tools</span><span>'+String(stats.pending_approvals||0)+' pending approvals</span></div>'}
+function renderTimeline(trace){const steps=trace.steps||[];$("timeline").innerHTML=steps.length?steps.map(function(step){const subject=step.identifier?(escapeHTML(step.identifier)+(step.api_name?"."+escapeHTML(step.api_name):"")):"";const artifacts=(step.artifacts&&step.artifacts.length)?'<div class="artifact-list">'+step.artifacts.map(renderArtifactLine).join("")+'</div>':"";const artifactError=step.artifact_error?'<div class="subtle" style="margin-top:6px">artifact error: '+escapeHTML(step.artifact_error)+'</div>':"";return'<div class="'+stepClass(step)+'"><div class="meta"><span>seq '+step.seq+'</span><span>'+escapeHTML(step.type)+'</span><span>'+subject+'</span><span>'+escapeHTML(step.outcome||"")+'</span><span>'+formatTime(step.created_at)+'</span></div><div style="margin-top:6px">'+escapeHTML(step.message||step.summary||"")+'</div>'+artifacts+artifactError+'</div>'}).join(""):'<span class="empty">No timeline steps.</span>'}
+function renderSpans(trace){const spans=trace.spans||[];if(!spans.length){$("spans").innerHTML='<span class="empty">No spans loaded.</span>';return}$("spans").innerHTML='<table class="span-table"><thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Duration</th><th>Range</th><th>Attributes</th></tr></thead><tbody>'+spans.map(function(span){const attrs=Object.entries(span.attributes||{}).slice(0,6).map(function(entry){return escapeHTML(entry[0])+': '+escapeHTML(entry[1])}).join('<br>');return'<tr><td><strong>'+escapeHTML(span.name)+'</strong><div class="subtle">'+escapeHTML(span.span_id)+'</div></td><td>'+escapeHTML(span.kind)+'</td><td><span class="'+pillClass(span.status||"unknown")+'">'+escapeHTML(span.status||"unknown")+'</span></td><td>'+escapeHTML(formatDuration(span.duration_ms))+'</td><td>'+escapeHTML(String(span.start_seq||0))+' -> '+escapeHTML(String(span.end_seq||0))+'</td><td>'+(attrs||'<span class="subtle">No attributes</span>')+'</td></tr>'}).join("")+'</tbody></table>'}
+function setTurnOptions(turns,selectedTurn){const previous=selectedTurn||activeTurn();const options=['<option value="">latest</option>'];(turns||[]).forEach(function(turn){options.push('<option value="'+escapeHTML(turn.turn_id)+'">'+escapeHTML(turn.turn_id)+' ('+escapeHTML(turn.status||"running")+')</option>')});$("turn").innerHTML=options.join("");$("turn").value=previous||""}
+function renderTurns(turns,active){$("turns").innerHTML=(turns&&turns.length)?turns.map(function(turn){return'<div class="turn-item'+(turn.turn_id===active?' active':'')+'" data-turn="'+escapeHTML(turn.turn_id)+'"><div class="meta"><span>'+escapeHTML(turn.turn_id)+'</span><span class="'+pillClass(turn.status||"running")+'">'+escapeHTML(turn.status||"running")+'</span></div><div class="subtle" style="margin-top:6px">'+escapeHTML(formatDuration(turn.duration_ms))+' | '+turn.step_count+' steps | '+turn.span_count+' spans</div><div class="summary compact" style="margin-top:8px">'+escapeHTML(turn.summary||"No summary.")+'</div></div>'}).join(""):'<span class="empty">No turns loaded.</span>';Array.from(document.querySelectorAll(".turn-item")).forEach(function(node){node.addEventListener("click",function(){const turn=node.getAttribute("data-turn")||"";$("turn").value=turn;load().catch(function(error){status(error.message)})})})}
+function renderTrace(trace){renderOverview(trace);renderTraceMeta(trace);$("summary").textContent=trace.summary||"No trace summary loaded.";setTurnOptions(trace.turns||[],trace.turn_id||"");renderTurns(trace.turns||[],trace.turn_id||"");renderTimeline(trace);renderSpans(trace);$("raw").textContent=pretty(trace)}
+function renderSession(session){const runtime=session.runtime_settings?pretty(session.runtime_settings):"{}";$("sessionMeta").innerHTML='<div class="meta"><span>'+escapeHTML(session.id)+'</span><span class="'+pillClass(session.status||"unknown")+'">'+escapeHTML(session.status||"unknown")+'</span><span>'+escapeHTML(session.agent_id)+'</span><span>'+escapeHTML(session.environment_id)+'</span></div><div><strong>'+escapeHTML(session.title||"Untitled session")+'</strong></div><div class="meta"><span>created '+escapeHTML(formatTime(session.created_at))+'</span><span>'+escapeHTML(session.created_by||"")+'</span></div><pre>'+escapeHTML(runtime)+'</pre>'}
+function renderSessionSummary(summary){$("sessionSummary").textContent=(summary&&summary.summary_text)||"No session summary loaded."}
+function renderUsage(usage){const summary=(usage&&usage.summary)||{};$("usageSummary").innerHTML='<span>'+String(summary.record_count||0)+' records</span><span>'+String(summary.total_tokens||0)+' tokens</span><span>'+formatDuration(summary.latency_ms||0)+'</span>';$("usage").textContent=pretty(usage||{})}
+function renderArtifacts(sessionId,response){const artifacts=response.artifacts||[];$("artifacts").innerHTML=artifacts.length?artifacts.map(function(artifact){const href='/v1/sessions/'+encodeURIComponent(sessionId)+'/artifacts/'+encodeURIComponent(artifact.id)+'/download';const command=sessionArtifactCommand(sessionId,artifact.id);return'<div class="list-item"><div><strong>'+escapeHTML(artifact.name||artifact.id)+'</strong></div><div class="meta"><span>'+escapeHTML(artifact.artifact_type)+'</span><span>'+escapeHTML(artifact.object_ref_id||"")+'</span><span>'+escapeHTML(artifact.turn_id||"")+'</span></div><div class="subtle">cli: '+escapeHTML(command)+'</div>'+artifactActions(href,command)+'</div>'}).join(""):'<span class="empty">No artifacts.</span>'}
+function renderEvents(response){const events=(response.events||[]).slice(-18).reverse();$("events").innerHTML=events.length?events.map(function(event){return'<div class="list-item"><div class="meta"><span>seq '+event.seq+'</span><span>'+escapeHTML(event.type)+'</span><span>'+escapeHTML(formatTime(event.created_at))+'</span></div><pre style="margin-top:8px">'+escapeHTML(pretty(event.payload||{}))+'</pre></div>'}).join(""):'<span class="empty">No events.</span>'}
+function renderExporterStatus(response){const perfetto=(response&&response.perfetto)||{};const otlp=(response&&response.otlp)||{};function item(name,entry){const state=entry.enabled?"enabled":"disabled";const destination=entry.destination||"not configured";const token=entry.token_provided?'<span>token configured</span>':"";return'<div class="list-item"><div><strong>'+escapeHTML(name)+'</strong> <span class="'+pillClass(state==="enabled"?"ok":"unknown")+'">'+escapeHTML(state)+'</span></div><div class="meta" style="margin-top:6px"><span>'+escapeHTML(destination)+'</span>'+token+'</div></div>'}$("exporters").innerHTML=item("Perfetto",perfetto)+item("OTLP HTTP",otlp)}
+function approvalButtons(sessionId,intervention){const approve="approveIntervention('"+encodeURIComponent(sessionId)+"','"+encodeURIComponent(intervention.turn_id)+"','"+encodeURIComponent(intervention.call_id)+"')";const reject="rejectIntervention('"+encodeURIComponent(sessionId)+"','"+encodeURIComponent(intervention.turn_id)+"','"+encodeURIComponent(intervention.call_id)+"')";return '<div class="actions"><button onclick="'+approve+'">Approve</button><button class="secondary" onclick="'+reject+'">Reject</button></div>'}
+function renderInterventions(sessionId,response){const interventions=response.interventions||[];$("interventions").innerHTML=interventions.length?interventions.map(function(intervention){return'<div class="list-item"><div><strong>'+escapeHTML(intervention.tool_identifier)+'.'+escapeHTML(intervention.api_name)+'</strong></div><div class="meta"><span>'+escapeHTML(intervention.call_id)+'</span><span class="'+pillClass(intervention.status||"pending")+'">'+escapeHTML(intervention.status||"pending")+'</span><span>'+escapeHTML(intervention.reason||"")+'</span></div><pre style="margin-top:8px">'+escapeHTML(pretty(intervention.arguments||{}))+'</pre>'+approvalButtons(sessionId,intervention)+'</div>'}).join(""):'<span class="empty">No pending approvals.</span>'}
+async function approveIntervention(sessionId,turnId,callId){status("approving");await postJSON("/v1/sessions/"+sessionId+"/interventions/"+turnId+"/"+callId+"/approve",{reason:"approved from inspector"});await load();status("approved")}
+async function rejectIntervention(sessionId,turnId,callId){const reason=window.prompt("Reject reason","rejected from inspector");if(reason===null)return;status("rejecting");await postJSON("/v1/sessions/"+sessionId+"/interventions/"+turnId+"/"+callId+"/reject",{reason:reason});await load();status("rejected")}
+async function load(){const session=activeSession();if(!session){status("session required");return}status("loading "+session);const trace=await getJSON(tracePath(""));renderTrace(trace);const requests=[getJSON("/v1/sessions/"+encodeURIComponent(session)),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/usage").catch(function(error){return{error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/summary").catch(function(){return{summary_text:""}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/artifacts").catch(function(error){return{artifacts:[],error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/events").catch(function(error){return{events:[],error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/interventions?status=pending").catch(function(error){return{interventions:[],error:String(error)}}),getText(metricsPath()).catch(function(error){return String(error)}),getJSON("/v1/observability/status").catch(function(error){return{error:String(error)}})];const results=await Promise.all(requests);renderSession(results[0]);renderUsage(results[1]);renderSessionSummary(results[2]);renderArtifacts(session,results[3]);renderEvents(results[4]);renderInterventions(session,results[5]);$("metrics").textContent=results[6];renderExporterStatus(results[7]);status("loaded "+session+" / "+(trace.turn_id||"latest"))}
+async function exportTrace(download){const session=activeSession();if(!session){status("session required");return}const format=$("format").value;const data=await getJSON(tracePath(format));const text=pretty(data);$("raw").textContent=text;if(download){const filename=[session,activeTurn()||"latest",format].join("-")+".json";const blob=new Blob([text],{type:"application/json"});const url=URL.createObjectURL(blob);const anchor=document.createElement("a");anchor.href=url;anchor.download=filename;anchor.click();window.setTimeout(function(){URL.revokeObjectURL(url)},1000)}status((download?"downloaded ":"previewed ")+format)}
+function updateRefresh(){if(refreshHandle){window.clearInterval(refreshHandle);refreshHandle=0}if($("autoRefresh").checked){refreshHandle=window.setInterval(function(){if(activeSession())load().catch(function(error){status(error.message)})},5000)}}
+$("load").addEventListener("click",function(){load().catch(function(error){status(error.message)})});
+$("turn").addEventListener("change",function(){if(activeSession())load().catch(function(error){status(error.message)})});
+$("export").addEventListener("click",function(){exportTrace(false).catch(function(error){status(error.message)})});
+$("download").addEventListener("click",function(){exportTrace(true).catch(function(error){status(error.message)})});
+$("autoRefresh").addEventListener("change",updateRefresh);
+document.addEventListener("click",function(event){const target=event.target.closest("[data-copy]");if(!target)return;copyText(target.getAttribute("data-copy")||"").catch(function(error){status(error.message)})});
+</script>
+</body>
+</html>`
+
 func (s *Server) upsertSessionSummary(w http.ResponseWriter, r *http.Request) {
 	var request sessionSummaryRequest
 	if err := decodeJSON(r, &request); err != nil {
@@ -255,6 +540,504 @@ func (s *Server) listLLMUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, report)
 }
 
+func (s *Server) registerWorker(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.RegisterWorkerInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	worker, err := s.store.RegisterWorker(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, worker)
+}
+
+func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
+	worker, err := s.store.GetWorker(r.PathValue("worker_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, worker)
+}
+
+func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
+	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+		WorkspaceID: r.URL.Query().Get("workspace_id"),
+		Status:      r.URL.Query().Get("status"),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workers": workers})
+}
+
+func (s *Server) diagnoseWorkers(w http.ResponseWriter, r *http.Request) {
+	var request workerDiagnoseRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(request.Input) == 0 {
+		request.Input = json.RawMessage(`{}`)
+	}
+	invocation := tools.WorkInvocation{
+		ProtocolVersion: request.ProtocolVersion,
+		Namespace:       request.Namespace,
+		API:             request.API,
+		Capabilities:    request.Capabilities,
+		Risk:            request.Risk,
+		Runtime:         request.Runtime,
+		Input:           request.Input,
+	}
+	if strings.TrimSpace(invocation.ProtocolVersion) == "" {
+		invocation.ProtocolVersion = tools.WorkProtocolVersion
+	}
+	if strings.TrimSpace(invocation.Runtime) == "" {
+		invocation.Runtime = tools.ToolRuntimeAuto
+	}
+	if err := tools.ValidateWorkInvocation(invocation); err != nil {
+		writeError(w, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	workspaceID := request.WorkspaceID
+	if workspaceID == "" {
+		workspaceID = managedagents.DefaultWorkspaceID
+	}
+	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+		WorkspaceID: workspaceID,
+		Status:      managedagents.WorkerStatusOnline,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, buildWorkerDiagnoseResponse(invocation, workers, time.Now().UTC()))
+}
+
+func (s *Server) heartbeatWorker(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.WorkerHeartbeatInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	worker, err := s.store.HeartbeatWorker(r.PathValue("worker_id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, worker)
+}
+
+func (s *Server) archiveWorker(w http.ResponseWriter, r *http.Request) {
+	worker, err := s.store.ArchiveWorker(r.PathValue("worker_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, worker)
+}
+
+func (s *Server) enqueueWorkerWork(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.EnqueueWorkerWorkInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	invocation, err := validateWorkerWorkPayload(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if input.WorkerID == "" && invocation != nil {
+		workerID, err := workerselect.Selector{Store: s.store}.SelectWorkerID(workerselect.Request{
+			WorkspaceID: input.WorkspaceID,
+			Invocation:  *invocation,
+		})
+		if err != nil {
+			if errors.Is(err, managedagents.ErrConflict) {
+				response, diagnoseErr := s.workerWorkConflictResponse(input.WorkspaceID, *invocation, err)
+				if diagnoseErr != nil {
+					writeError(w, diagnoseErr)
+					return
+				}
+				writeJSON(w, http.StatusConflict, response)
+				return
+			}
+			writeError(w, err)
+			return
+		}
+		input.WorkerID = workerID
+	}
+	work, err := s.store.EnqueueWorkerWork(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, work)
+}
+
+func (s *Server) workerWorkConflictResponse(workspaceID string, invocation tools.WorkInvocation, cause error) (workerWorkConflictResponse, error) {
+	if workspaceID == "" {
+		workspaceID = managedagents.DefaultWorkspaceID
+	}
+	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+		WorkspaceID: workspaceID,
+		Status:      managedagents.WorkerStatusOnline,
+	})
+	if err != nil {
+		return workerWorkConflictResponse{}, err
+	}
+	return workerWorkConflictResponse{
+		Error:                  cause.Error(),
+		workerDiagnoseResponse: buildWorkerDiagnoseResponse(invocation, workers, time.Now().UTC()),
+	}, nil
+}
+
+func buildWorkerDiagnoseResponse(invocation tools.WorkInvocation, workers []managedagents.Worker, now time.Time) workerDiagnoseResponse {
+	diagnostics := workerselect.DiagnoseInvocation(workers, invocation, now)
+	response := workerDiagnoseResponse{Invocation: invocation}
+	for _, diagnosis := range diagnostics {
+		result := workerDiagnosisResult{
+			WorkerID:     diagnosis.Worker.ID,
+			WorkspaceID:  diagnosis.Worker.WorkspaceID,
+			Name:         diagnosis.Worker.Name,
+			WorkerType:   diagnosis.Worker.WorkerType,
+			Status:       diagnosis.Worker.Status,
+			Match:        diagnosis.Match,
+			Reasons:      diagnosis.Reasons,
+			Runtimes:     diagnosis.Capabilities.Runtimes,
+			APIs:         diagnosis.Capabilities.APIs,
+			Capabilities: diagnosis.Capabilities.Capabilities,
+			RegisteredBy: diagnosis.Worker.RegisteredBy,
+		}
+		if diagnosis.Worker.LeaseExpiresAt != nil {
+			formatted := diagnosis.Worker.LeaseExpiresAt.UTC().Format(time.RFC3339)
+			result.LeaseExpires = &formatted
+		}
+		if diagnosis.Worker.LastSeenAt != nil {
+			formatted := diagnosis.Worker.LastSeenAt.UTC().Format(time.RFC3339)
+			result.LastSeen = &formatted
+		}
+		if diagnosis.Match {
+			response.Matches++
+		}
+		response.Diagnostics = append(response.Diagnostics, result)
+	}
+	return response
+}
+
+func (s *Server) getWorkerWork(w http.ResponseWriter, r *http.Request) {
+	work, err := s.store.GetWorkerWork(r.PathValue("work_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, work)
+}
+
+func (s *Server) reapExpiredWorkerWork(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.ReapExpiredWorkerWorkInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	expired, err := s.store.ReapExpiredWorkerWork(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"count":   len(expired),
+		"expired": expired,
+	})
+}
+
+func (s *Server) diagnoseWorkerWork(w http.ResponseWriter, r *http.Request) {
+	work, err := s.store.GetWorkerWork(r.PathValue("work_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	response := diagnoseWorkerWorkState(s.store, work, time.Now().UTC())
+	writeJSON(w, http.StatusOK, response)
+}
+
+func diagnoseWorkerWorkState(store managedagents.Store, work managedagents.WorkerWork, now time.Time) workerWorkDiagnoseResponse {
+	response := workerWorkDiagnoseResponse{Work: work}
+	if strings.TrimSpace(work.WorkerID) != "" {
+		worker, err := store.GetWorker(work.WorkerID)
+		if err != nil {
+			response.Reasons = append(response.Reasons, "assigned worker not found")
+		} else {
+			response.Worker = summarizeWorker(worker)
+			if worker.Status != managedagents.WorkerStatusOnline {
+				response.Reasons = append(response.Reasons, "assigned worker status is "+worker.Status)
+			}
+			if worker.LeaseExpiresAt != nil && worker.LeaseExpiresAt.Before(now) {
+				response.Reasons = append(response.Reasons, "assigned worker lease expired at "+worker.LeaseExpiresAt.UTC().Format(time.RFC3339))
+			}
+		}
+	}
+	switch work.Status {
+	case managedagents.WorkerWorkStatusPending:
+		if strings.TrimSpace(work.WorkerID) == "" {
+			response.Reasons = append(response.Reasons, "work is pending without an assigned worker")
+			response.Actions = append(response.Actions, "wait for a matching worker to poll, or enqueue with --worker for a specific worker")
+		} else {
+			response.Reasons = append(response.Reasons, "work is pending for assigned worker "+work.WorkerID)
+			response.Actions = append(response.Actions, "ensure the worker is online and polling")
+		}
+	case managedagents.WorkerWorkStatusLeased:
+		response.Reasons = append(response.Reasons, "work is leased but not acknowledged")
+		response.Actions = append(response.Actions, "worker should ack or complete the work")
+	case managedagents.WorkerWorkStatusRunning:
+		response.Reasons = append(response.Reasons, "work is running")
+		response.Actions = append(response.Actions, "worker should heartbeat while running and submit result when complete")
+	case managedagents.WorkerWorkStatusCompleted:
+		response.Reasons = append(response.Reasons, "work completed successfully")
+	case managedagents.WorkerWorkStatusFailed:
+		response.Reasons = append(response.Reasons, "work failed")
+	case managedagents.WorkerWorkStatusCanceled:
+		response.Reasons = append(response.Reasons, "work was canceled")
+	default:
+		response.Reasons = append(response.Reasons, "work has unknown status "+work.Status)
+	}
+	if work.Status == managedagents.WorkerWorkStatusLeased || work.Status == managedagents.WorkerWorkStatusRunning {
+		if work.LeaseExpiresAt == nil {
+			response.Reasons = append(response.Reasons, "work has no lease_expires_at")
+			response.Actions = append(response.Actions, "worker should heartbeat, or mark failed if it cannot continue")
+		} else if work.LeaseExpiresAt.Before(now) {
+			response.Reasons = append(response.Reasons, "work lease expired at "+work.LeaseExpiresAt.UTC().Format(time.RFC3339))
+			response.Actions = append(response.Actions, "run: bin/tma work reap-expired")
+		} else {
+			response.Reasons = append(response.Reasons, "work lease valid until "+work.LeaseExpiresAt.UTC().Format(time.RFC3339))
+		}
+	}
+	return response
+}
+
+func summarizeWorker(worker managedagents.Worker) *workerSummary {
+	summary := &workerSummary{
+		ID:          worker.ID,
+		WorkspaceID: worker.WorkspaceID,
+		Name:        worker.Name,
+		WorkerType:  worker.WorkerType,
+		Status:      worker.Status,
+	}
+	if worker.LeaseExpiresAt != nil {
+		formatted := worker.LeaseExpiresAt.UTC().Format(time.RFC3339)
+		summary.LeaseExpiresAt = &formatted
+	}
+	if worker.LastSeenAt != nil {
+		formatted := worker.LastSeenAt.UTC().Format(time.RFC3339)
+		summary.LastSeenAt = &formatted
+	}
+	return summary
+}
+
+func validateWorkerWorkPayload(input managedagents.EnqueueWorkerWorkInput) (*tools.WorkInvocation, error) {
+	workType := strings.TrimSpace(strings.ToLower(input.WorkType))
+	if workType == "" {
+		workType = managedagents.WorkerWorkTypeToolExecution
+	}
+	if workType != managedagents.WorkerWorkTypeToolExecution {
+		return nil, nil
+	}
+	var invocation tools.WorkInvocation
+	if err := json.Unmarshal(input.Payload, &invocation); err != nil {
+		return nil, fmt.Errorf("%w: decode tool_execution work payload: %v", managedagents.ErrInvalid, err)
+	}
+	if err := tools.ValidateWorkInvocation(invocation); err != nil {
+		return nil, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	return &invocation, nil
+}
+
+func (s *Server) pollWorkerWork(w http.ResponseWriter, r *http.Request) {
+	leaseSeconds, err := optionalPositiveInt(r.URL.Query().Get("lease_seconds"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid lease_seconds: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	work, err := s.store.PollWorkerWork(r.PathValue("worker_id"), managedagents.PollWorkerWorkInput{
+		LeaseSeconds: leaseSeconds,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"work": work})
+}
+
+func (s *Server) ackWorkerWork(w http.ResponseWriter, r *http.Request) {
+	work, err := s.store.AckWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, work)
+}
+
+func (s *Server) heartbeatWorkerWork(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.WorkerWorkHeartbeatInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	work, err := s.store.HeartbeatWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, work)
+}
+
+func (s *Server) completeWorkerWork(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.CompleteWorkerWorkInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	work, err := s.store.CompleteWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, work)
+}
+
+func (s *Server) createObjectRef(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.CreateObjectRefInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	object, err := s.store.CreateObjectRef(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, object)
+}
+
+func (s *Server) getObjectRef(w http.ResponseWriter, r *http.Request) {
+	object, err := s.store.GetObjectRef(r.PathValue("object_ref_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, object)
+}
+
+func (s *Server) downloadObjectRef(w http.ResponseWriter, r *http.Request) {
+	objectRef, err := s.store.GetObjectRef(r.PathValue("object_ref_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	if !s.canDownloadObjectRef(r, objectRef) {
+		writeError(w, fmt.Errorf("%w: object download not allowed", managedagents.ErrForbidden))
+		return
+	}
+
+	object, err := s.objectStore.GetObject(r.Context(), objectstore.GetObjectInput{
+		Bucket:  objectRef.Bucket,
+		Key:     objectRef.ObjectKey,
+		Version: objectRef.ObjectVersion,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer object.Body.Close()
+
+	contentType := object.ContentType
+	if contentType == "" {
+		contentType = objectRef.ContentType
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	filename := objectRef.ObjectKey
+	if filename == "" {
+		filename = objectRef.ID
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(object.SizeBytes, 10))
+	w.Header().Set("Content-Disposition", contentDispositionAttachment(filename))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if object.ETag != "" {
+		w.Header().Set("ETag", object.ETag)
+	}
+	if object.ChecksumSHA256 != "" {
+		w.Header().Set("Digest", "sha-256="+object.ChecksumSHA256)
+	}
+
+	if _, err := io.Copy(w, object.Body); err != nil {
+		s.logger.Warn("object download copy failed", "object_ref_id", objectRef.ID, "error", err)
+	}
+}
+
+func (s *Server) deleteObjectRef(w http.ResponseWriter, r *http.Request) {
+	objectRefID := r.PathValue("object_ref_id")
+	count, err := s.store.CountSessionArtifactsByObjectRef(objectRefID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if count > 0 {
+		writeError(w, fmt.Errorf("%w: object ref is still referenced by %d artifact(s)", managedagents.ErrConflict, count))
+		return
+	}
+	if err := s.store.DeleteObjectRef(objectRefID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteSessionArtifact(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteSessionArtifact(r.PathValue("session_id"), r.PathValue("artifact_id")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) canDownloadObjectRef(r *http.Request, objectRef managedagents.ObjectRef) bool {
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if objectRef.Visibility == managedagents.ObjectVisibilityWorkspace {
+		if sessionID == "" {
+			return false
+		}
+		session, err := s.store.GetSession(sessionID)
+		return err == nil && session.WorkspaceID == objectRef.WorkspaceID
+	}
+	if objectRef.Visibility == managedagents.ObjectVisibilitySession {
+		if sessionID == "" {
+			return false
+		}
+		artifacts, err := s.store.ListSessionArtifacts(sessionID)
+		if err != nil {
+			return false
+		}
+		for _, artifact := range artifacts {
+			if artifact.ObjectRefID == objectRef.ID {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
 func parseOptionalTime(value string) (*time.Time, error) {
 	if value == "" {
 		return nil, nil
@@ -264,6 +1047,20 @@ func parseOptionalTime(value string) (*time.Time, error) {
 		return nil, err
 	}
 	return &parsed, nil
+}
+
+func optionalPositiveInt(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("must be non-negative")
+	}
+	return parsed, nil
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -405,13 +1202,270 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, session)
 }
 
+func (s *Server) createSessionArtifact(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.CreateSessionArtifactInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	input.SessionID = r.PathValue("session_id")
+	artifact, err := s.store.CreateSessionArtifact(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, artifact)
+}
+
+func (s *Server) listSessionArtifacts(w http.ResponseWriter, r *http.Request) {
+	artifacts, err := s.store.ListSessionArtifacts(r.PathValue("session_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": artifacts})
+}
+
+func (s *Server) downloadSessionArtifact(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("session_id")
+	artifactID := r.PathValue("artifact_id")
+
+	artifact, err := s.store.GetSessionArtifact(sessionID, artifactID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	objectRef, err := s.store.GetObjectRef(artifact.ObjectRefID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if objectRef.WorkspaceID != artifact.WorkspaceID {
+		writeError(w, fmt.Errorf("%w: artifact workspace mismatch", managedagents.ErrInvalid))
+		return
+	}
+
+	object, err := s.objectStore.GetObject(r.Context(), objectstore.GetObjectInput{
+		Bucket:  objectRef.Bucket,
+		Key:     objectRef.ObjectKey,
+		Version: objectRef.ObjectVersion,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer object.Body.Close()
+
+	contentType := object.ContentType
+	if contentType == "" {
+		contentType = objectRef.ContentType
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	filename := artifact.Name
+	if filename == "" {
+		filename = objectRef.ObjectKey
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(object.SizeBytes, 10))
+	w.Header().Set("Content-Disposition", contentDispositionAttachment(filename))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if object.ETag != "" {
+		w.Header().Set("ETag", object.ETag)
+	}
+	if object.ChecksumSHA256 != "" {
+		w.Header().Set("Digest", "sha-256="+object.ChecksumSHA256)
+	}
+
+	if _, err := io.Copy(w, object.Body); err != nil {
+		s.logger.Warn("artifact download copy failed", "session_id", sessionID, "artifact_id", artifactID, "error", err)
+	}
+}
+
+func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("session_id")
+	session, err := s.store.GetSession(sessionID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxArtifactUploadBytes+1024)
+	if err := r.ParseMultipartForm(maxArtifactUploadBytes); err != nil {
+		writeError(w, fmt.Errorf("%w: parse multipart artifact upload: %v", managedagents.ErrInvalid, err))
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: artifact upload requires file field", managedagents.ErrInvalid))
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	contentType := fallbackString(r.FormValue("content_type"), header.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = http.DetectContentType(content)
+	}
+	checksum := sha256.Sum256(content)
+	checksumHex := hex.EncodeToString(checksum[:])
+
+	bucket, err := objectstore.ResolveBucket(r.FormValue("bucket"), s.defaultObjectStoreBucket())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	objectKey := r.FormValue("object_key")
+	if objectKey == "" {
+		objectKey = defaultUploadObjectKey(session, header.Filename)
+	}
+	if err := objectstore.ValidateObjectKey(objectKey); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	metadata, err := metadataFromFormValue(r.FormValue("metadata"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	putResult, err := s.objectStore.PutObject(r.Context(), objectstore.PutObjectInput{
+		Bucket:         bucket,
+		Key:            objectKey,
+		Body:           bytes.NewReader(content),
+		ContentType:    contentType,
+		SizeBytes:      int64(len(content)),
+		ChecksumSHA256: checksumHex,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	objectRef, err := s.store.CreateObjectRef(managedagents.CreateObjectRefInput{
+		WorkspaceID:     session.WorkspaceID,
+		StorageProvider: managedagents.ObjectStorageProviderS3,
+		Bucket:          fallbackString(putResult.Bucket, bucket),
+		ObjectKey:       fallbackString(putResult.Key, objectKey),
+		ObjectVersion:   putResult.Version,
+		ContentType:     contentType,
+		SizeBytes:       int64(len(content)),
+		ChecksumSHA256:  fallbackString(putResult.ChecksumSHA256, checksumHex),
+		ETag:            putResult.ETag,
+		Visibility:      fallbackString(r.FormValue("visibility"), managedagents.ObjectVisibilityWorkspace),
+		Metadata:        metadata,
+		CreatedBy:       fallbackString(r.FormValue("created_by"), "system"),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		name = safeArtifactFileName(header.Filename)
+	}
+	artifact, err := s.store.CreateSessionArtifact(managedagents.CreateSessionArtifactInput{
+		SessionID:     sessionID,
+		EnvironmentID: r.FormValue("environment_id"),
+		ObjectRefID:   objectRef.ID,
+		TurnID:        r.FormValue("turn_id"),
+		ToolCallID:    r.FormValue("tool_call_id"),
+		Name:          name,
+		Description:   r.FormValue("description"),
+		ArtifactType:  fallbackString(r.FormValue("artifact_type"), managedagents.ArtifactTypeFile),
+		Metadata:      metadata,
+		CreatedBy:     fallbackString(r.FormValue("created_by"), "system"),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"object_ref": objectRef,
+		"artifact":   artifact,
+	})
+}
+
+func (s *Server) defaultObjectStoreBucket() string {
+	type configuredClient interface {
+		Config() objectstore.Config
+	}
+	if client, ok := s.objectStore.(configuredClient); ok {
+		return client.Config().Bucket
+	}
+	return ""
+}
+
+func metadataFromFormValue(value string) (json.RawMessage, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		return nil, fmt.Errorf("%w: invalid metadata JSON object: %v", managedagents.ErrInvalid, err)
+	}
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return nil, err
+	}
+	return json.RawMessage(encoded), nil
+}
+
+func defaultUploadObjectKey(session managedagents.Session, filename string) string {
+	return fmt.Sprintf("%s/%s/uploads/%d-%s", session.WorkspaceID, session.ID, time.Now().UTC().UnixNano(), safeArtifactFileName(filename))
+}
+
+func safeArtifactFileName(filename string) string {
+	filename = filepath.Base(strings.TrimSpace(filename))
+	if filename == "." || filename == string(filepath.Separator) || filename == "" {
+		return "artifact"
+	}
+	filename = strings.ReplaceAll(filename, "/", "_")
+	filename = strings.ReplaceAll(filename, "\\", "_")
+	return filename
+}
+
+func fallbackString(value string, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func contentDispositionAttachment(filename string) string {
+	filename = safeArtifactFileName(filename)
+	return fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "_"))
+}
+
 func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Request) {
 	var request sessionRuntimeSettingsRequest
 	if err := decodeJSON(r, &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	session, err := s.store.GetSession(r.PathValue("session_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	settings := map[string]any{}
+	if len(session.RuntimeSettings) > 0 && string(session.RuntimeSettings) != "null" {
+		if err := json.Unmarshal(session.RuntimeSettings, &settings); err != nil {
+			writeError(w, fmt.Errorf("%w: existing runtime_settings must be valid JSON", managedagents.ErrInvalid))
+			return
+		}
+	}
 	if request.InterventionMode != nil {
 		mode, ok := tools.NormalizeInterventionMode(*request.InterventionMode)
 		if !ok {
@@ -420,12 +1474,29 @@ func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Req
 		}
 		settings["intervention_mode"] = mode
 	}
+	if request.ToolRuntime != nil {
+		runtime, ok := tools.NormalizeToolRuntime(*request.ToolRuntime)
+		if !ok {
+			writeError(w, fmt.Errorf("%w: unsupported tool_runtime %q", managedagents.ErrInvalid, *request.ToolRuntime))
+			return
+		}
+		settings["tool_runtime"] = runtime
+	}
+	if request.CloudSandboxRoot != nil {
+		settings["cloud_sandbox_root"] = strings.TrimSpace(*request.CloudSandboxRoot)
+	}
+	if request.CloudSandboxImage != nil {
+		settings["cloud_sandbox_image"] = strings.TrimSpace(*request.CloudSandboxImage)
+	}
+	if request.AllowNetwork != nil {
+		settings["cloud_sandbox_allow_network"] = *request.AllowNetwork
+	}
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	session, err := s.store.UpdateSessionRuntimeSettings(r.PathValue("session_id"), managedagents.UpdateSessionRuntimeSettingsInput{
+	session, err = s.store.UpdateSessionRuntimeSettings(r.PathValue("session_id"), managedagents.UpdateSessionRuntimeSettingsInput{
 		RuntimeSettings: raw,
 	})
 	if err != nil {
@@ -433,6 +1504,29 @@ func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) upgradeSessionAgentConfig(w http.ResponseWriter, r *http.Request) {
+	request := sessionConfigUpgradeRequest{}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(r, &request); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+	toCurrent := true
+	if request.ToCurrent != nil {
+		toCurrent = *request.ToCurrent
+	}
+	result, err := s.store.UpgradeSessionAgentConfig(r.PathValue("session_id"), managedagents.UpgradeSessionAgentConfigInput{
+		ToCurrent: toCurrent,
+		UpdatedBy: request.UpdatedBy,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) listSessionInterventions(w http.ResponseWriter, r *http.Request) {
@@ -486,32 +1580,48 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 			result.Events = append(result.Events, continuationEvents...)
 		}
 	case managedagents.InterventionStatusRejected:
-		reason := "tool intervention rejected"
-		if request.Reason != "" {
-			reason = "tool intervention rejected: " + request.Reason
-		}
-		events, err := s.store.FailSessionTurn(result.Intervention.SessionID, result.Intervention.TurnID, reason)
+		executionResult, events, err := s.buildRejectedInterventionObservation(result.Intervention, request.Reason)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
 		result.Events = append(result.Events, events...)
+		if len(result.Intervention.Continuation) > 0 {
+			continuationEvents, err := s.continueIntervention(r, result.Intervention, executionResult, "rejected")
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			result.Events = append(result.Events, continuationEvents...)
+		} else {
+			reason := "tool intervention rejected"
+			if request.Reason != "" {
+				reason = "tool intervention rejected: " + request.Reason
+			}
+			events, err := s.store.FailSessionTurn(result.Intervention.SessionID, result.Intervention.TurnID, reason)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			result.Events = append(result.Events, events...)
+		}
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) executeApprovedIntervention(r *http.Request, intervention managedagents.SessionIntervention) (tools.ExecutionResult, []managedagents.Event, error) {
-	executor := tools.NewDefaultExecutor()
+	config, err := s.store.ResolveAgentRuntimeConfig(intervention.SessionID)
+	if err != nil {
+		return tools.ExecutionResult{}, nil, err
+	}
+	registry, _, executionContext := s.resolveToolExecution(config, intervention.SessionID, intervention.TurnID)
+	executor := tools.RegistryExecutor{Registry: registry}
 	executionResult, err := executor.Execute(r.Context(), tools.Call{
 		ID:         intervention.CallID,
 		Identifier: intervention.ToolIdentifier,
 		APIName:    intervention.APIName,
 		Arguments:  intervention.Arguments,
-	}, tools.ExecutionContext{
-		SessionID: intervention.SessionID,
-		TurnID:    intervention.TurnID,
-		Provider:  capability.LocalSystemProvider{},
-	})
+	}, executionContext)
 	if err != nil {
 		return tools.ExecutionResult{}, nil, err
 	}
@@ -525,6 +1635,8 @@ func (s *Server) executeApprovedIntervention(r *http.Request, intervention manag
 			"api_name":             intervention.APIName,
 			"content":              executionResult.Content,
 			"state":                rawJSONValue(executionResult.State),
+			"artifacts":            executionResult.Artifacts,
+			"artifact_error":       executionResult.ArtifactError,
 			"pending_intervention": executionResult.PendingIntervention,
 			"error":                executionResult.Error,
 			"success":              executionResult.Error == nil,
@@ -542,6 +1654,10 @@ func (s *Server) executeApprovedIntervention(r *http.Request, intervention manag
 }
 
 func (s *Server) continueApprovedIntervention(r *http.Request, intervention managedagents.SessionIntervention, executionResult tools.ExecutionResult) ([]managedagents.Event, error) {
+	return s.continueIntervention(r, intervention, executionResult, "approved")
+}
+
+func (s *Server) continueIntervention(r *http.Request, intervention managedagents.SessionIntervention, executionResult tools.ExecutionResult, action string) ([]managedagents.Event, error) {
 	var messages []llm.Message
 	if err := json.Unmarshal(intervention.Continuation, &messages); err != nil {
 		return nil, fmt.Errorf("decode intervention continuation: %w", err)
@@ -572,18 +1688,13 @@ func (s *Server) continueApprovedIntervention(r *http.Request, intervention mana
 		}
 		client = manager
 	}
-	registry := tools.DefaultRegistry()
+	registry, _, executionContext := s.resolveToolExecution(config, intervention.SessionID, intervention.TurnID)
 	policy := tools.InterventionPolicy{Mode: tools.ParseInterventionMode(config.RuntimeSettings)}
-	executor := tools.NewDefaultExecutor()
-	executionContext := tools.ExecutionContext{
-		SessionID: intervention.SessionID,
-		TurnID:    intervention.TurnID,
-		Provider:  capability.LocalSystemProvider{},
-	}
+	executor := tools.RegistryExecutor{Registry: registry}
 
 	var allEvents []managedagents.Event
 	for round := intervention.ContinuationRound + 1; round < 4; round++ {
-		requestEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeLLMRequest, intervention.TurnID, "Resuming LLM after approved tool result.", map[string]any{
+		requestEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeLLMRequest, intervention.TurnID, "Resuming LLM after "+action+" tool result.", map[string]any{
 			"provider":      config.LLMProvider,
 			"provider_type": config.LLMProviderType,
 			"model":         config.LLMModel,
@@ -656,7 +1767,7 @@ func (s *Server) continueApprovedIntervention(r *http.Request, intervention mana
 			allEvents = append(allEvents, toolEvents...)
 
 			if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
-				decision := policy.Evaluate(manifest, api)
+				decision := policy.EvaluateCall(manifest, api, call, executionContext)
 				if decision.Required && !decision.Allowed {
 					requiredEvents, err := s.pauseContinuationForIntervention(intervention, call, decision, continuationMessages, round)
 					if err != nil {
@@ -716,6 +1827,17 @@ func (s *Server) continueApprovedIntervention(r *http.Request, intervention mana
 	return allEvents, nil
 }
 
+func (s *Server) resolveToolExecution(config managedagents.AgentRuntimeConfig, sessionID string, turnID string) (tools.Registry, tools.ConfigPolicy, tools.ExecutionContext) {
+	resolved := execution.ResolveToolExecution(execution.ToolExecutionRequest{
+		Config:           config,
+		SessionID:        sessionID,
+		TurnID:           turnID,
+		ProviderResolver: s.executionResolver,
+		Store:            s.store,
+	})
+	return resolved.Registry, resolved.Policy, resolved.Context
+}
+
 func (s *Server) recordContinuationUsage(intervention managedagents.SessionIntervention, config managedagents.AgentRuntimeConfig, usage llm.Usage, latency time.Duration, status string, errorMessage string) {
 	if config.WorkspaceID == "" || config.AgentID == "" || config.AgentConfigVersion <= 0 {
 		return
@@ -773,6 +1895,8 @@ func (s *Server) appendToolResultEvent(sessionID string, turnID string, call too
 		"api_name":             call.APIName,
 		"content":              executionResult.Content,
 		"state":                rawJSONValue(executionResult.State),
+		"artifacts":            executionResult.Artifacts,
+		"artifact_error":       executionResult.ArtifactError,
 		"pending_intervention": executionResult.PendingIntervention,
 		"error":                executionResult.Error,
 		"success":              executionResult.Error == nil,
@@ -826,7 +1950,78 @@ func (s *Server) completeContinuation(intervention managedagents.SessionInterven
 	if err != nil {
 		return completedEvents, err
 	}
-	return append(completedEvents, turnEvents...), nil
+	allEvents := append(completedEvents, turnEvents...)
+	if err := observability.RefreshSessionSummary(s.store, intervention.SessionID, intervention.TurnID); err != nil {
+		s.logger.Warn("refresh session summary failed after continuation",
+			"session_id", intervention.SessionID,
+			"turn_id", intervention.TurnID,
+			"error", err,
+		)
+	}
+	if result, err := observability.ExportTurnTraceFromEnv(s.store, intervention.SessionID, intervention.TurnID); err != nil {
+		s.logger.Warn("observability export failed after continuation",
+			"session_id", intervention.SessionID,
+			"turn_id", intervention.TurnID,
+			"error", err,
+		)
+	} else if !result.Skipped {
+		s.logger.Info("observability export completed after continuation",
+			"session_id", intervention.SessionID,
+			"turn_id", intervention.TurnID,
+			"trace_id", result.TraceID,
+			"perfetto_path", exporterPerfettoPath(result),
+			"otlp_endpoint", exporterOTLPEndpoint(result),
+		)
+	}
+	return allEvents, nil
+}
+
+func exporterPerfettoPath(result observability.ExporterResult) string {
+	if result.Perfetto == nil {
+		return ""
+	}
+	return result.Perfetto.Path
+}
+
+func exporterOTLPEndpoint(result observability.ExporterResult) string {
+	if result.OTLPPush == nil {
+		return ""
+	}
+	return result.OTLPPush.Endpoint
+}
+
+func (s *Server) buildRejectedInterventionObservation(intervention managedagents.SessionIntervention, decisionReason string) (tools.ExecutionResult, []managedagents.Event, error) {
+	message := "Tool call rejected by user."
+	if decisionReason != "" {
+		message += " Reason: " + decisionReason
+	}
+	result := tools.ExecutionResult{
+		ID:         intervention.CallID,
+		Identifier: intervention.ToolIdentifier,
+		APIName:    intervention.APIName,
+		Content:    message,
+		State: mustJSONMarshal(map[string]any{
+			"rejected":        true,
+			"decision_reason": decisionReason,
+		}),
+		Error: &tools.ExecutionError{
+			Type:    "tool_rejected_by_user",
+			Message: message,
+		},
+	}
+	events, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeToolResult, intervention.TurnID, "Recorded rejected tool result for model continuation.", map[string]any{
+		"id":                   intervention.CallID,
+		"identifier":           intervention.ToolIdentifier,
+		"api_name":             intervention.APIName,
+		"content":              result.Content,
+		"state":                rawJSONValue(result.State),
+		"pending_intervention": false,
+		"error":                result.Error,
+		"success":              false,
+		"approval_source":      "user",
+		"decision_reason":      decisionReason,
+	})
+	return result, events, err
 }
 
 type toolCallEnvelope struct {
@@ -899,6 +2094,14 @@ func rawJSONValue(raw json.RawMessage) any {
 		return string(raw)
 	}
 	return value
+}
+
+func mustJSONMarshal(value any) json.RawMessage {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 func (s *Server) archiveSession(w http.ResponseWriter, r *http.Request) {

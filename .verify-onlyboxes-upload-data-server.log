@@ -1,0 +1,18 @@
+{"time":"2026-07-09T15:49:04.755996+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-09T15:49:04.763378+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"fake","llm_provider_type":"fake","llm_base_url":"","llm_api_key_env":""}
+{"time":"2026-07-09T15:49:04.77354+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"fake","llm_model":"fake-demo","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-09T15:49:04.773784+08:00","level":"INFO","msg":"using object store client","object_store_provider":"localfs","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-upload-data-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.LocalFSClient"}
+{"time":"2026-07-09T15:49:04.773812+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":".","cloud_sandbox_image":"busybox:latest","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"allow_server_local_system":false}
+{"time":"2026-07-09T15:49:04.773887+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"fake","llm_model":"fake-demo","default_context_window_tokens":128000,"queue_size":16}
+{"time":"2026-07-09T15:49:04.774269+08:00","level":"INFO","msg":"tma server listening","addr":":18084"}
+{"time":"2026-07-09T15:49:06.285938+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000663","session_id":"sesn_000050","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T15:49:06.285987+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000664","session_id":"sesn_000050","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T15:49:06.286013+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000050","turn_id":"turn_000001","event_id":"evt_000664","event_seq":4}
+{"time":"2026-07-09T15:49:06.286057+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000050","turn_id":"turn_000001"}
+{"time":"2026-07-09T15:49:08.4262+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000050","turn_id":"turn_000001","events":2}
+{"time":"2026-07-09T15:49:08.697162+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000677","session_id":"sesn_000050","turn_id":"turn_000002","event_seq":17,"event_type":"session.status_running"}
+{"time":"2026-07-09T15:49:08.697282+08:00","level":"INFO","msg":"session events appended","event_id":"evt_000678","session_id":"sesn_000050","turn_id":"turn_000002","event_seq":18,"event_type":"user.message"}
+{"time":"2026-07-09T15:49:08.697334+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000050","turn_id":"turn_000002","event_id":"evt_000678","event_seq":18}
+{"time":"2026-07-09T15:49:08.697362+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000050","turn_id":"turn_000002"}
+{"time":"2026-07-09T15:49:10.040176+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000050","turn_id":"turn_000002","events":2}
+{"time":"2026-07-09T15:49:11.139377+08:00","level":"INFO","msg":"server stopped"}

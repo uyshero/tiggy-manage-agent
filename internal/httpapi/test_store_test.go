@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,10 @@ type testStore struct {
 	nextEnvironmentID int64
 	nextSessionID     int64
 	nextEventID       int64
+	nextObjectID      int64
+	nextArtifactID    int64
+	nextWorkerID      int64
+	nextWorkID        int64
 
 	agents              map[string]managedagents.Agent
 	agentConfigVersions map[string][]managedagents.AgentConfigVersion
@@ -28,6 +33,10 @@ type testStore struct {
 	interventions       map[string]managedagents.SessionIntervention
 	events              map[string][]managedagents.Event
 	usageRecords        []managedagents.RecordLLMUsageInput
+	objectRefs          map[string]managedagents.ObjectRef
+	sessionArtifacts    map[string][]managedagents.SessionArtifact
+	workers             map[string]managedagents.Worker
+	workerWork          map[string]managedagents.WorkerWork
 	subscribers         map[string]map[chan managedagents.Event]struct{}
 }
 
@@ -42,6 +51,10 @@ func newTestStore() *testStore {
 		summaries:           make(map[string]managedagents.SessionSummary),
 		interventions:       make(map[string]managedagents.SessionIntervention),
 		events:              make(map[string][]managedagents.Event),
+		objectRefs:          make(map[string]managedagents.ObjectRef),
+		sessionArtifacts:    make(map[string][]managedagents.SessionArtifact),
+		workers:             make(map[string]managedagents.Worker),
+		workerWork:          make(map[string]managedagents.WorkerWork),
 		subscribers:         make(map[string]map[chan managedagents.Event]struct{}),
 	}
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -390,6 +403,59 @@ func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.
 	return session, nil
 }
 
+func (s *testStore) UpgradeSessionAgentConfig(id string, input managedagents.UpgradeSessionAgentConfigInput) (managedagents.UpgradeSessionAgentConfigResult, error) {
+	if id == "" {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrInvalid
+	}
+	if !input.ToCurrent {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrInvalid
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrNotFound
+	}
+	if session.Status == managedagents.SessionStatusTerminated {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrTerminated
+	}
+	if session.Status != managedagents.SessionStatusIdle {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrConflict
+	}
+	agent, ok := s.agents[session.AgentID]
+	if !ok {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrNotFound
+	}
+	result := managedagents.UpgradeSessionAgentConfigResult{
+		Session:                  session,
+		OldAgentConfigVersion:    session.AgentConfigVersion,
+		NewAgentConfigVersion:    session.AgentConfigVersion,
+		LatestAgentConfigVersion: agent.CurrentConfigVersion,
+	}
+	if agent.CurrentConfigVersion == session.AgentConfigVersion {
+		return result, nil
+	}
+	if agent.CurrentConfigVersion < session.AgentConfigVersion {
+		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrConflict
+	}
+
+	oldVersion := session.AgentConfigVersion
+	session.AgentConfigVersion = agent.CurrentConfigVersion
+	s.sessions[id] = session
+	payload := json.RawMessage(fmt.Sprintf(`{"old_agent_config_version":%d,"new_agent_config_version":%d,"updated_by":"%s"}`,
+		oldVersion, session.AgentConfigVersion, defaultString(input.UpdatedBy, "system")))
+	event := s.appendEventLocked(session.ID, managedagents.EventSessionConfigUpdated, payload, time.Now().UTC())
+	s.publishLocked(event)
+
+	result.Session = session
+	result.Event = event
+	result.NewAgentConfigVersion = session.AgentConfigVersion
+	result.Changed = true
+	return result, nil
+}
+
 func (s *testStore) SaveSessionIntervention(sessionID string, input managedagents.SaveSessionInterventionInput) (managedagents.SessionIntervention, error) {
 	if input.TurnID == "" || input.CallID == "" || input.ToolIdentifier == "" || input.APIName == "" || input.InterventionMode == "" {
 		return managedagents.SessionIntervention{}, managedagents.ErrInvalid
@@ -550,6 +616,7 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		WorkspaceID:           session.WorkspaceID,
 		AgentID:               agent.ID,
 		AgentConfigVersion:    session.AgentConfigVersion,
+		EnvironmentID:         session.EnvironmentID,
 		LLMProvider:           configVersion.LLMProvider,
 		LLMProviderType:       defaultString(provider.ProviderType, "fake"),
 		LLMModel:              configVersion.LLMModel,
@@ -748,6 +815,486 @@ func (s *testStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managed
 		addUsageSummary(&report.Summary, record)
 	}
 	return report, nil
+}
+
+func (s *testStore) CreateObjectRef(input managedagents.CreateObjectRefInput) (managedagents.ObjectRef, error) {
+	if input.Bucket == "" {
+		return managedagents.ObjectRef{}, fmt.Errorf("%w: object bucket is required", managedagents.ErrInvalid)
+	}
+	if input.ObjectKey == "" {
+		return managedagents.ObjectRef{}, fmt.Errorf("%w: object_key is required", managedagents.ErrInvalid)
+	}
+	if input.SizeBytes < 0 {
+		return managedagents.ObjectRef{}, fmt.Errorf("%w: object size_bytes must be non-negative", managedagents.ErrInvalid)
+	}
+	visibility := defaultString(input.Visibility, managedagents.ObjectVisibilityWorkspace)
+	if visibility != managedagents.ObjectVisibilityWorkspace && visibility != managedagents.ObjectVisibilitySession {
+		return managedagents.ObjectRef{}, fmt.Errorf("%w: unsupported object visibility %q", managedagents.ErrInvalid, input.Visibility)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.nextObjectID++
+	now := time.Now().UTC()
+	object := managedagents.ObjectRef{
+		ID:              fmt.Sprintf("obj_%06d", s.nextObjectID),
+		WorkspaceID:     defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		StorageProvider: defaultString(input.StorageProvider, managedagents.ObjectStorageProviderS3),
+		Bucket:          input.Bucket,
+		ObjectKey:       input.ObjectKey,
+		ObjectVersion:   input.ObjectVersion,
+		ContentType:     input.ContentType,
+		SizeBytes:       input.SizeBytes,
+		ChecksumSHA256:  input.ChecksumSHA256,
+		ETag:            input.ETag,
+		Visibility:      visibility,
+		Metadata:        metadataJSON(input.Metadata),
+		CreatedBy:       defaultString(input.CreatedBy, "system"),
+		CreatedAt:       now,
+	}
+	s.objectRefs[object.ID] = object
+	return object, nil
+}
+
+func (s *testStore) GetObjectRef(id string) (managedagents.ObjectRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	object, ok := s.objectRefs[id]
+	if !ok {
+		return managedagents.ObjectRef{}, managedagents.ErrNotFound
+	}
+	return object, nil
+}
+
+func (s *testStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := 0
+	for _, artifacts := range s.sessionArtifacts {
+		for _, artifact := range artifacts {
+			if artifact.ObjectRefID == objectRefID {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+func (s *testStore) DeleteObjectRef(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.objectRefs[id]; !ok {
+		return managedagents.ErrNotFound
+	}
+	delete(s.objectRefs, id)
+	return nil
+}
+
+func (s *testStore) CreateSessionArtifact(input managedagents.CreateSessionArtifactInput) (managedagents.SessionArtifact, error) {
+	if input.SessionID == "" {
+		return managedagents.SessionArtifact{}, fmt.Errorf("%w: artifact session_id is required", managedagents.ErrInvalid)
+	}
+	if input.ObjectRefID == "" {
+		return managedagents.SessionArtifact{}, fmt.Errorf("%w: artifact object_ref_id is required", managedagents.ErrInvalid)
+	}
+	artifactType := defaultString(input.ArtifactType, managedagents.ArtifactTypeFile)
+	if artifactType != managedagents.ArtifactTypeFile && artifactType != managedagents.ArtifactTypeSnapshot && artifactType != managedagents.ArtifactTypeAsset {
+		return managedagents.SessionArtifact{}, fmt.Errorf("%w: unsupported artifact_type %q", managedagents.ErrInvalid, input.ArtifactType)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[input.SessionID]
+	if !ok {
+		return managedagents.SessionArtifact{}, managedagents.ErrNotFound
+	}
+	object, ok := s.objectRefs[input.ObjectRefID]
+	if !ok {
+		return managedagents.SessionArtifact{}, managedagents.ErrNotFound
+	}
+	workspaceID := defaultString(input.WorkspaceID, session.WorkspaceID)
+	if workspaceID != session.WorkspaceID || workspaceID != object.WorkspaceID {
+		return managedagents.SessionArtifact{}, fmt.Errorf("%w: artifact workspace mismatch", managedagents.ErrInvalid)
+	}
+
+	s.nextArtifactID++
+	now := time.Now().UTC()
+	name := input.Name
+	if name == "" {
+		name = object.ObjectKey
+	}
+	artifact := managedagents.SessionArtifact{
+		ID:            fmt.Sprintf("art_%06d", s.nextArtifactID),
+		WorkspaceID:   workspaceID,
+		SessionID:     input.SessionID,
+		EnvironmentID: defaultString(input.EnvironmentID, session.EnvironmentID),
+		ObjectRefID:   input.ObjectRefID,
+		TurnID:        input.TurnID,
+		ToolCallID:    input.ToolCallID,
+		Name:          name,
+		Description:   input.Description,
+		ArtifactType:  artifactType,
+		Metadata:      metadataJSON(input.Metadata),
+		CreatedBy:     defaultString(input.CreatedBy, "system"),
+		CreatedAt:     now,
+	}
+	s.sessionArtifacts[artifact.SessionID] = append(s.sessionArtifacts[artifact.SessionID], artifact)
+	return artifact, nil
+}
+
+func (s *testStore) GetSessionArtifact(sessionID string, artifactID string) (managedagents.SessionArtifact, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.SessionArtifact{}, managedagents.ErrNotFound
+	}
+	for _, artifact := range s.sessionArtifacts[sessionID] {
+		if artifact.ID == artifactID {
+			return artifact, nil
+		}
+	}
+	return managedagents.SessionArtifact{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) DeleteSessionArtifact(sessionID string, artifactID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	artifacts := s.sessionArtifacts[sessionID]
+	filtered := artifacts[:0]
+	removed := false
+	for _, artifact := range artifacts {
+		if artifact.ID == artifactID {
+			removed = true
+			continue
+		}
+		filtered = append(filtered, artifact)
+	}
+	if !removed {
+		return managedagents.ErrNotFound
+	}
+	s.sessionArtifacts[sessionID] = append([]managedagents.SessionArtifact(nil), filtered...)
+	return nil
+}
+
+func (s *testStore) ListSessionArtifacts(sessionID string) ([]managedagents.SessionArtifact, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	artifacts := append([]managedagents.SessionArtifact(nil), s.sessionArtifacts[sessionID]...)
+	sort.Slice(artifacts, func(i, j int) bool {
+		if artifacts[i].CreatedAt.Equal(artifacts[j].CreatedAt) {
+			return artifacts[i].ID < artifacts[j].ID
+		}
+		return artifacts[i].CreatedAt.Before(artifacts[j].CreatedAt)
+	})
+	return artifacts, nil
+}
+
+func (s *testStore) RegisterWorker(input managedagents.RegisterWorkerInput) (managedagents.Worker, error) {
+	if input.Name == "" {
+		return managedagents.Worker{}, fmt.Errorf("%w: worker name is required", managedagents.ErrInvalid)
+	}
+	workerType := defaultString(input.WorkerType, managedagents.WorkerTypeLocal)
+	if workerType != managedagents.WorkerTypeLocal && workerType != managedagents.WorkerTypeShared && workerType != managedagents.WorkerTypeCloud {
+		return managedagents.Worker{}, fmt.Errorf("%w: unsupported worker_type %q", managedagents.ErrInvalid, input.WorkerType)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.nextWorkerID++
+	now := time.Now().UTC()
+	leaseExpiresAt := now.Add(workerLeaseDuration(input.LeaseSeconds))
+	worker := managedagents.Worker{
+		ID:             fmt.Sprintf("wrk_%06d", s.nextWorkerID),
+		WorkspaceID:    defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		Name:           input.Name,
+		WorkerType:     workerType,
+		Status:         managedagents.WorkerStatusOnline,
+		Capabilities:   metadataJSON(input.Capabilities),
+		Metadata:       metadataJSON(input.Metadata),
+		RegisteredBy:   defaultString(input.RegisteredBy, "system"),
+		RegisteredAt:   now,
+		LastSeenAt:     &now,
+		LeaseExpiresAt: &leaseExpiresAt,
+	}
+	s.workers[worker.ID] = worker
+	return worker, nil
+}
+
+func (s *testStore) GetWorker(id string) (managedagents.Worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	worker, ok := s.workers[id]
+	if !ok {
+		return managedagents.Worker{}, managedagents.ErrNotFound
+	}
+	return worker, nil
+}
+
+func (s *testStore) ListWorkers(input managedagents.ListWorkersInput) ([]managedagents.Worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	workers := []managedagents.Worker{}
+	for _, worker := range s.workers {
+		if worker.WorkspaceID != workspaceID {
+			continue
+		}
+		if input.Status != "" && worker.Status != input.Status {
+			continue
+		}
+		workers = append(workers, worker)
+	}
+	sort.Slice(workers, func(i, j int) bool {
+		if workers[i].RegisteredAt.Equal(workers[j].RegisteredAt) {
+			return workers[i].ID < workers[j].ID
+		}
+		return workers[i].RegisteredAt.After(workers[j].RegisteredAt)
+	})
+	return workers, nil
+}
+
+func (s *testStore) HeartbeatWorker(id string, input managedagents.WorkerHeartbeatInput) (managedagents.Worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	worker, ok := s.workers[id]
+	if !ok || worker.ArchivedAt != nil {
+		return managedagents.Worker{}, managedagents.ErrNotFound
+	}
+	status := defaultString(input.Status, managedagents.WorkerStatusOnline)
+	if status == managedagents.WorkerStatusArchived {
+		return managedagents.Worker{}, fmt.Errorf("%w: archived status requires archive endpoint", managedagents.ErrInvalid)
+	}
+	now := time.Now().UTC()
+	leaseExpiresAt := now.Add(workerLeaseDuration(input.LeaseSeconds))
+	worker.Status = status
+	worker.LastSeenAt = &now
+	worker.LeaseExpiresAt = &leaseExpiresAt
+	if len(input.Capabilities) > 0 {
+		worker.Capabilities = metadataJSON(input.Capabilities)
+	}
+	if len(input.Metadata) > 0 {
+		worker.Metadata = metadataJSON(input.Metadata)
+	}
+	s.workers[id] = worker
+	return worker, nil
+}
+
+func (s *testStore) ArchiveWorker(id string) (managedagents.Worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	worker, ok := s.workers[id]
+	if !ok || worker.ArchivedAt != nil {
+		return managedagents.Worker{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	worker.Status = managedagents.WorkerStatusArchived
+	worker.ArchivedAt = &now
+	s.workers[id] = worker
+	return worker, nil
+}
+
+func (s *testStore) EnqueueWorkerWork(input managedagents.EnqueueWorkerWorkInput) (managedagents.WorkerWork, error) {
+	workType := normalizeWorkerWorkType(input.WorkType)
+	if workType == "" {
+		return managedagents.WorkerWork{}, fmt.Errorf("%w: unsupported worker work_type %q", managedagents.ErrInvalid, input.WorkType)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	id := s.nextID("work", &s.nextWorkID)
+	work := managedagents.WorkerWork{
+		ID:            id,
+		WorkspaceID:   defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		WorkerID:      input.WorkerID,
+		EnvironmentID: input.EnvironmentID,
+		SessionID:     input.SessionID,
+		TurnID:        input.TurnID,
+		WorkType:      workType,
+		Status:        managedagents.WorkerWorkStatusPending,
+		Payload:       metadataJSON(input.Payload),
+		Result:        json.RawMessage(`{}`),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	s.workerWork[id] = work
+	return work, nil
+}
+
+func (s *testStore) GetWorkerWork(id string) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	work, ok := s.workerWork[id]
+	if !ok {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	return work, nil
+}
+
+func (s *testStore) PollWorkerWork(workerID string, input managedagents.PollWorkerWorkInput) (*managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	worker, ok := s.workers[workerID]
+	if !ok || worker.ArchivedAt != nil {
+		return nil, managedagents.ErrNotFound
+	}
+
+	workID := ""
+	var selected managedagents.WorkerWork
+	for _, work := range s.workerWork {
+		if work.WorkspaceID != worker.WorkspaceID {
+			continue
+		}
+		if work.Status != managedagents.WorkerWorkStatusPending {
+			continue
+		}
+		if work.WorkerID != "" && work.WorkerID != workerID {
+			continue
+		}
+		if workID == "" || work.CreatedAt.Before(selected.CreatedAt) || (work.CreatedAt.Equal(selected.CreatedAt) && work.ID < selected.ID) {
+			workID = work.ID
+			selected = work
+		}
+	}
+	if workID == "" {
+		return nil, nil
+	}
+
+	now := time.Now().UTC()
+	leaseExpiresAt := now.Add(workerLeaseDuration(input.LeaseSeconds))
+	selected.WorkerID = workerID
+	selected.Status = managedagents.WorkerWorkStatusLeased
+	selected.LeaseExpiresAt = &leaseExpiresAt
+	selected.UpdatedAt = now
+	s.workerWork[workID] = selected
+	return &selected, nil
+}
+
+func (s *testStore) AckWorkerWork(workerID string, workID string) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	work, ok := s.workerWork[workID]
+	if !ok || work.WorkerID != workerID {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	work.Status = managedagents.WorkerWorkStatusRunning
+	if work.StartedAt == nil {
+		work.StartedAt = &now
+	}
+	work.UpdatedAt = now
+	s.workerWork[workID] = work
+	return work, nil
+}
+
+func (s *testStore) HeartbeatWorkerWork(workerID string, workID string, input managedagents.WorkerWorkHeartbeatInput) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	work, ok := s.workerWork[workID]
+	if !ok || work.WorkerID != workerID {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	leaseExpiresAt := now.Add(workerLeaseDuration(input.LeaseSeconds))
+	work.LeaseExpiresAt = &leaseExpiresAt
+	work.UpdatedAt = now
+	s.workerWork[workID] = work
+	return work, nil
+}
+
+func (s *testStore) ReapExpiredWorkerWork(input managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	limit := workerWorkReapLimit(input.Limit)
+	candidates := make([]managedagents.WorkerWork, 0, len(s.workerWork))
+	for _, work := range s.workerWork {
+		if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
+			continue
+		}
+		if work.LeaseExpiresAt == nil || !work.LeaseExpiresAt.Before(now) {
+			continue
+		}
+		candidates = append(candidates, work)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left := candidates[i].LeaseExpiresAt
+		right := candidates[j].LeaseExpiresAt
+		if left != nil && right != nil && !left.Equal(*right) {
+			return left.Before(*right)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	expired := make([]managedagents.WorkerWork, 0, len(candidates))
+	for _, work := range candidates {
+		work.Status = managedagents.WorkerWorkStatusFailed
+		if strings.TrimSpace(work.ErrorMessage) == "" {
+			work.ErrorMessage = "worker work lease expired at " + work.LeaseExpiresAt.UTC().Format(time.RFC3339)
+		}
+		work.UpdatedAt = now
+		work.CompletedAt = &now
+		s.workerWork[work.ID] = work
+		expired = append(expired, work)
+	}
+	return expired, nil
+}
+
+func (s *testStore) CompleteWorkerWork(workerID string, workID string, input managedagents.CompleteWorkerWorkInput) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	work, ok := s.workerWork[workID]
+	if !ok || work.WorkerID != workerID {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+
+	now := time.Now().UTC()
+	work.Status = managedagents.WorkerWorkStatusFailed
+	if input.Success {
+		work.Status = managedagents.WorkerWorkStatusCompleted
+	}
+	work.Result = metadataJSON(input.Result)
+	work.ErrorMessage = input.ErrorMessage
+	work.CompletedAt = &now
+	work.UpdatedAt = now
+	s.workerWork[workID] = work
+	return work, nil
 }
 
 func usageRecordsFromInputs(inputs []managedagents.RecordLLMUsageInput) []managedagents.LLMUsageRecord {
@@ -1161,6 +1708,30 @@ func cloneRaw(value json.RawMessage) json.RawMessage {
 	return clone
 }
 
+func metadataJSON(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return cloneRaw(value)
+}
+
+func workerLeaseDuration(seconds int) time.Duration {
+	if seconds <= 0 {
+		seconds = 60
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func workerWorkReapLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 1000 {
+		return 1000
+	}
+	return limit
+}
+
 func interventionKey(sessionID string, turnID string, callID string) string {
 	return sessionID + "\x00" + turnID + "\x00" + callID
 }
@@ -1224,4 +1795,17 @@ func payloadWithTurnID(payload json.RawMessage, turnID string) json.RawMessage {
 		return payload
 	}
 	return encoded
+}
+
+func normalizeWorkerWorkType(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", managedagents.WorkerWorkTypeToolExecution:
+		return managedagents.WorkerWorkTypeToolExecution
+	case managedagents.WorkerWorkTypeSandboxCommand:
+		return managedagents.WorkerWorkTypeSandboxCommand
+	case managedagents.WorkerWorkTypeArtifactSync:
+		return managedagents.WorkerWorkTypeArtifactSync
+	default:
+		return ""
+	}
 }

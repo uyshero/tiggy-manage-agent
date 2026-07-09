@@ -1,0 +1,95 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - baidu
+      - sogou
+      - 360search
+      - quark
+      - baidu images
+      - baidu kaifa
+      - sogou images
+      - sogou videos
+      - sogou wechat
+      - bilibili
+      - bing
+      - bing images
+      - bing news
+      - bing videos
+      - wikipedia
+      - wikidata
+      - github
+      - arxiv
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "tma-local-searxng-change-me"
+
+search:
+  default_lang: zh-CN
+  autocomplete: baidu
+  formats:
+    - html
+    - json
+
+outgoing:
+  request_timeout: 10.0
+
+engines:
+  - name: baidu
+    disabled: false
+
+  - name: sogou
+    disabled: false
+
+  - name: 360search
+    disabled: false
+
+  - name: quark
+    disabled: false
+
+  - name: baidu images
+    disabled: false
+
+  - name: baidu kaifa
+    disabled: false
+
+  - name: sogou images
+    disabled: false
+
+  - name: sogou videos
+    disabled: false
+
+  - name: sogou wechat
+    disabled: false
+
+  - name: bilibili
+    disabled: false
+
+  - name: bing
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing images
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing news
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: bing videos
+    base_url: https://cn.bing.com
+    disabled: false
+
+  - name: wikipedia
+    disabled: false
+
+  - name: wikidata
+    disabled: false
+
+  - name: github
+    disabled: false
+
+  - name: arxiv
+    disabled: false

@@ -186,6 +186,119 @@ func TestPostgresStoreFailedTurnReturnsSessionToIdle(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreObjectRefsAndSessionArtifacts(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+
+	object, err := store.CreateObjectRef(CreateObjectRefInput{
+		WorkspaceID:    session.WorkspaceID,
+		Bucket:         "tma-integration",
+		ObjectKey:      "integration/" + session.ID + "/artifact.txt",
+		ContentType:    "text/plain",
+		SizeBytes:      12,
+		ChecksumSHA256: "abc123",
+		Metadata:       json.RawMessage(`{"source":"integration"}`),
+		CreatedBy:      "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create object ref: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM session_artifacts WHERE object_ref_id = $1`, object.ID); err != nil {
+			t.Fatalf("cleanup session artifacts for object %s: %v", object.ID, err)
+		}
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM object_refs WHERE id = $1`, object.ID); err != nil {
+			t.Fatalf("cleanup object ref %s: %v", object.ID, err)
+		}
+	})
+
+	fetched, err := store.GetObjectRef(object.ID)
+	if err != nil {
+		t.Fatalf("get object ref: %v", err)
+	}
+	if fetched.Bucket != object.Bucket || fetched.ObjectKey != object.ObjectKey || fetched.Visibility != ObjectVisibilityWorkspace {
+		t.Fatalf("unexpected object ref: %+v", fetched)
+	}
+
+	artifact, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		SessionID:    session.ID,
+		ObjectRefID:  object.ID,
+		TurnID:       "turn_000001",
+		ToolCallID:   "call_write",
+		Name:         "artifact.txt",
+		ArtifactType: ArtifactTypeFile,
+		Metadata:     json.RawMessage(`{"preview":"hello"}`),
+		CreatedBy:    "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create session artifact: %v", err)
+	}
+	if artifact.WorkspaceID != session.WorkspaceID || artifact.EnvironmentID != session.EnvironmentID {
+		t.Fatalf("unexpected artifact: %+v", artifact)
+	}
+
+	artifacts, err := store.ListSessionArtifacts(session.ID)
+	if err != nil {
+		t.Fatalf("list session artifacts: %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].ID != artifact.ID || artifacts[0].ObjectRefID != object.ID {
+		t.Fatalf("unexpected artifacts: %+v", artifacts)
+	}
+}
+
+func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	worker, err := store.RegisterWorker(RegisterWorkerInput{
+		Name:         "integration-worker-" + time.Now().UTC().Format("20060102150405.000000000"),
+		WorkerType:   WorkerTypeLocal,
+		RegisteredBy: "integration-test",
+		LeaseSeconds: 30,
+	})
+	if err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE worker_id = $1`, worker.ID); err != nil {
+			t.Fatalf("cleanup worker work for %s: %v", worker.ID, err)
+		}
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workers WHERE id = $1`, worker.ID); err != nil {
+			t.Fatalf("cleanup worker %s: %v", worker.ID, err)
+		}
+	})
+
+	queued, err := store.EnqueueWorkerWork(EnqueueWorkerWorkInput{
+		WorkspaceID: DefaultWorkspaceID,
+		WorkerID:    worker.ID,
+		WorkType:    WorkerWorkTypeSandboxCommand,
+		Payload:     json.RawMessage(`{"command":"sh","args":["-c","sleep 100"]}`),
+	})
+	if err != nil {
+		t.Fatalf("enqueue worker work: %v", err)
+	}
+	polled, err := store.PollWorkerWork(worker.ID, PollWorkerWorkInput{LeaseSeconds: 1})
+	if err != nil {
+		t.Fatalf("poll worker work: %v", err)
+	}
+	if polled == nil || polled.ID != queued.ID || polled.Status != WorkerWorkStatusLeased {
+		t.Fatalf("expected leased work, got %+v", polled)
+	}
+
+	expiredAt := time.Unix(0, 0).UTC()
+	if _, err := store.db.ExecContext(context.Background(), `UPDATE worker_work SET lease_expires_at = $1 WHERE id = $2`, expiredAt, queued.ID); err != nil {
+		t.Fatalf("force expired lease: %v", err)
+	}
+	expired, err := store.ReapExpiredWorkerWork(ReapExpiredWorkerWorkInput{Limit: 1})
+	if err != nil {
+		t.Fatalf("reap expired worker work: %v", err)
+	}
+	if len(expired) != 1 || expired[0].ID != queued.ID {
+		t.Fatalf("expected only test work to expire, got %+v", expired)
+	}
+	if expired[0].Status != WorkerWorkStatusFailed || expired[0].CompletedAt == nil || !strings.Contains(expired[0].ErrorMessage, "worker work lease expired") {
+		t.Fatalf("unexpected expired work: %+v", expired[0])
+	}
+}
+
 func newPostgresIntegrationStore(t *testing.T) *PostgresStore {
 	t.Helper()
 

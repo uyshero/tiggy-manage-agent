@@ -51,7 +51,7 @@ func (e CommandTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (
 
 	provider := e.Provider
 	if provider == nil {
-		provider = capability.LocalSystemProvider{}
+		provider = capability.NewDefaultWorkspacePathGuardProvider()
 	}
 
 	var deadline *time.Time

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,9 +14,16 @@ import (
 )
 
 const (
-	ExecutorServer          = "server"
-	ManifestProtocolVersion = "tma.tools.manifest.v1"
-	ToolCallProtocolVersion = "tma.tool_call.v1"
+	ExecutorServer              = "server"
+	ManifestProtocolVersion     = "tma.tools.manifest.v1"
+	ToolCallProtocolVersion     = "tma.tool_call.v1"
+	ToolResultProtocolVersion   = "tma.tool_result.v1"
+	MaxTransportedArtifactBytes = 8 << 20
+
+	CapabilityFilesystemRead  = "filesystem.read"
+	CapabilityFilesystemWrite = "filesystem.write"
+	CapabilityProcessExec     = CapabilityExec
+	CapabilityCodeExec        = CapabilityCodeExecute
 )
 
 type Manifest struct {
@@ -35,9 +43,15 @@ type Meta struct {
 
 type API struct {
 	Name              string          `json:"name"`
+	Namespace         string          `json:"namespace,omitempty"`
+	APIName           string          `json:"api,omitempty"`
 	Description       string          `json:"description"`
 	Parameters        json.RawMessage `json:"parameters,omitempty"`
 	HumanIntervention string          `json:"human_intervention,omitempty"`
+	Capabilities      []string        `json:"capabilities,omitempty"`
+	Risk              string          `json:"risk,omitempty"`
+	Runtime           *RuntimePolicy  `json:"runtime,omitempty"`
+	Implementation    string          `json:"implementation,omitempty"`
 }
 
 type Call struct {
@@ -49,20 +63,49 @@ type Call struct {
 }
 
 type ExecutionContext struct {
-	SessionID string
-	TurnID    string
-	Deadline  *time.Time
-	Provider  capability.Provider
+	WorkspaceID      string
+	SessionID        string
+	EnvironmentID    string
+	TurnID           string
+	Deadline         *time.Time
+	Provider         capability.Provider
+	ArtifactRecorder ArtifactRecorder
+}
+
+type ArtifactRecorder interface {
+	RecordToolArtifact(ctx context.Context, call Call, executionContext ExecutionContext, result ExecutionResult) ([]ArtifactRef, error)
 }
 
 type ExecutionResult struct {
-	ID                  string          `json:"id,omitempty"`
-	Identifier          string          `json:"identifier"`
-	APIName             string          `json:"api_name"`
-	Content             string          `json:"content"`
-	State               json.RawMessage `json:"state,omitempty"`
-	PendingIntervention bool            `json:"pending_intervention,omitempty"`
-	Error               *ExecutionError `json:"error,omitempty"`
+	ID                  string           `json:"id,omitempty"`
+	Identifier          string           `json:"identifier"`
+	APIName             string           `json:"api_name"`
+	Content             string           `json:"content"`
+	State               json.RawMessage  `json:"state,omitempty"`
+	ExportedFiles       []ArtifactExport `json:"exported_files,omitempty"`
+	Artifacts           []ArtifactRef    `json:"artifacts,omitempty"`
+	ArtifactError       string           `json:"artifact_error,omitempty"`
+	PendingIntervention bool             `json:"pending_intervention,omitempty"`
+	Error               *ExecutionError  `json:"error,omitempty"`
+}
+
+type ArtifactExport struct {
+	Path          string `json:"path"`
+	WorkDir       string `json:"work_dir,omitempty"`
+	Name          string `json:"name,omitempty"`
+	Description   string `json:"description,omitempty"`
+	ArtifactType  string `json:"artifact_type,omitempty"`
+	ContentType   string `json:"content_type,omitempty"`
+	ContentBase64 string `json:"content_base64,omitempty"`
+	Content       []byte `json:"-"`
+}
+
+type ArtifactRef struct {
+	ArtifactID   string `json:"artifact_id"`
+	ObjectRefID  string `json:"object_ref_id"`
+	Name         string `json:"name"`
+	ArtifactType string `json:"artifact_type"`
+	DownloadPath string `json:"download_path"`
 }
 
 type ExecutionError struct {
@@ -79,8 +122,68 @@ type Executor interface {
 	Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error)
 }
 
+type filteredRuntime struct {
+	inner       Runtime
+	allowedAPIs map[string]bool
+}
+
+func (r filteredRuntime) Manifest() Manifest {
+	manifest := r.inner.Manifest()
+	if len(r.allowedAPIs) == 0 {
+		manifest.API = nil
+		return manifest
+	}
+	apis := make([]API, 0, len(manifest.API))
+	for _, api := range manifest.API {
+		if r.allowedAPIs[api.Name] {
+			apis = append(apis, api)
+		}
+	}
+	manifest.API = apis
+	return manifest
+}
+
+func (r filteredRuntime) Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
+	if len(r.allowedAPIs) > 0 && !r.allowedAPIs[call.APIName] {
+		return failedResult(call, "disabled_tool_api", fmt.Sprintf("tool api %q is disabled", call.APIName)), nil
+	}
+	return r.inner.Execute(ctx, call, executionContext)
+}
+
 type Registry struct {
 	runtimes map[string]Runtime
+}
+
+type ConfigPolicy struct {
+	Explicit            bool
+	Runtime             string
+	EnabledToolPatterns []string
+}
+
+type AvailableCapabilities struct {
+	Runtime      string
+	Namespaces   []string
+	APIs         []string
+	Capabilities []string
+}
+
+type WorkerCapabilities struct {
+	Namespaces   []string       `json:"namespaces"`
+	APIs         []string       `json:"apis"`
+	Runtimes     []string       `json:"runtimes"`
+	Capabilities []string       `json:"capabilities"`
+	Constraints  map[string]any `json:"constraints,omitempty"`
+}
+
+func DecodeWorkerCapabilities(raw json.RawMessage) (WorkerCapabilities, error) {
+	var capabilities WorkerCapabilities
+	if len(raw) == 0 {
+		return capabilities, fmt.Errorf("worker capabilities are empty")
+	}
+	if err := json.Unmarshal(raw, &capabilities); err != nil {
+		return capabilities, err
+	}
+	return capabilities, nil
 }
 
 func NewRegistry(runtimes ...Runtime) Registry {
@@ -92,7 +195,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(LocalSystemRuntime{})
+	return NewRegistry(DefaultRuntime{}, WebRuntime{})
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -104,6 +207,200 @@ func (r Registry) Register(runtime Runtime) {
 		return
 	}
 	r.runtimes[manifest.Identifier] = runtime
+}
+
+func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
+	policy := ParseConfigPolicy(raw)
+	if !policy.Explicit {
+		return r, policy
+	}
+	configured := Registry{runtimes: make(map[string]Runtime)}
+	if len(policy.EnabledToolPatterns) == 0 {
+		return configured, policy
+	}
+	enabledTools := map[string]bool{}
+	enabledAPIs := map[string]map[string]bool{}
+	for _, pattern := range policy.EnabledToolPatterns {
+		if _, ok := r.Get(pattern); ok {
+			enabledTools[pattern] = true
+			continue
+		}
+		identifier, apiName := splitFunctionName(pattern)
+		if identifier == "" || apiName == "" {
+			continue
+		}
+		if _, ok := r.Get(identifier); !ok {
+			continue
+		}
+		if enabledAPIs[identifier] == nil {
+			enabledAPIs[identifier] = map[string]bool{}
+		}
+		enabledAPIs[identifier][apiName] = true
+	}
+	for identifier := range enabledTools {
+		runtime, ok := r.Get(identifier)
+		if ok {
+			configured.Register(runtime)
+		}
+	}
+	for identifier, allowedAPIs := range enabledAPIs {
+		if enabledTools[identifier] {
+			continue
+		}
+		runtime, ok := r.Get(identifier)
+		if !ok {
+			continue
+		}
+		configured.Register(filteredRuntime{
+			inner:       runtime,
+			allowedAPIs: allowedAPIs,
+		})
+	}
+	return configured, policy
+}
+
+func (r Registry) Available(available AvailableCapabilities) Registry {
+	available.Runtime, _ = NormalizeToolRuntime(available.Runtime)
+	availableNamespaces := stringSet(available.Namespaces)
+	availableAPIs := stringSet(available.APIs)
+	availableSet := stringSet(available.Capabilities)
+	return r.FilterAPIs(func(manifest Manifest, api API) bool {
+		namespace := fallbackString(api.Namespace, manifest.Identifier)
+		apiName := fallbackString(api.APIName, api.Name)
+		if len(availableNamespaces) > 0 && !availableNamespaces[namespace] {
+			return false
+		}
+		if len(availableAPIs) > 0 && !availableAPIs[namespace+"."+apiName] {
+			return false
+		}
+		if !apiRuntimeAvailable(api, available.Runtime) {
+			return false
+		}
+		return capabilitiesAvailable(api.Capabilities, availableSet)
+	})
+}
+
+func (r Registry) FilterAPIs(allow func(Manifest, API) bool) Registry {
+	filtered := Registry{runtimes: make(map[string]Runtime)}
+	for identifier, runtime := range r.runtimes {
+		manifest := runtime.Manifest()
+		allowedAPIs := map[string]bool{}
+		for _, api := range manifest.API {
+			if allow != nil && !allow(manifest, api) {
+				continue
+			}
+			allowedAPIs[api.Name] = true
+		}
+		if len(allowedAPIs) > 0 {
+			filtered.runtimes[identifier] = filteredRuntime{inner: runtime, allowedAPIs: allowedAPIs}
+		}
+	}
+	return filtered
+}
+
+func WorkInvocationFromAPI(manifest Manifest, api API, runtime string, input json.RawMessage) WorkInvocation {
+	return WorkInvocation{
+		ProtocolVersion: WorkProtocolVersion,
+		Namespace:       fallbackString(api.Namespace, manifest.Identifier),
+		API:             fallbackString(api.APIName, api.Name),
+		Capabilities:    append([]string(nil), api.Capabilities...),
+		Risk:            api.Risk,
+		Runtime:         runtime,
+		Input:           append(json.RawMessage(nil), input...),
+	}
+}
+
+func (r Registry) WorkInvocation(identifier string, apiName string, runtime string, input json.RawMessage) (WorkInvocation, bool) {
+	manifest, api, ok := r.GetAPI(identifier, apiName)
+	if !ok {
+		return WorkInvocation{}, false
+	}
+	return WorkInvocationFromAPI(manifest, api, runtime, input), true
+}
+
+func ParseConfigPolicy(raw json.RawMessage) ConfigPolicy {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ConfigPolicy{}
+	}
+	policy := ConfigPolicy{Explicit: true}
+	var enabled []string
+	if err := json.Unmarshal(raw, &enabled); err == nil {
+		policy.EnabledToolPatterns = cleanStringList(enabled)
+		return policy
+	}
+	var object struct {
+		EnabledTools []string `json:"enabled_tools"`
+		Tools        []string `json:"tools"`
+		Runtime      string   `json:"runtime"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return ConfigPolicy{}
+	}
+	policy.EnabledToolPatterns = cleanStringList(object.EnabledTools)
+	if len(policy.EnabledToolPatterns) == 0 {
+		policy.EnabledToolPatterns = cleanStringList(object.Tools)
+	}
+	if runtime, ok := NormalizeToolRuntime(object.Runtime); ok && strings.TrimSpace(object.Runtime) != "" {
+		policy.Runtime = runtime
+	}
+	return policy
+}
+
+func cleanStringList(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		cleaned = append(cleaned, value)
+	}
+	return cleaned
+}
+
+func apiRuntimeAvailable(api API, runtime string) bool {
+	if runtime == "" || runtime == ToolRuntimeAuto {
+		return true
+	}
+	policy := NormalizeRuntimePolicy(api.Runtime)
+	for _, allowed := range policy.Allowed {
+		if allowed == ToolRuntimeAuto || allowed == runtime {
+			return true
+		}
+	}
+	return false
+}
+
+func capabilitiesAvailable(required []string, available map[string]bool) bool {
+	for _, capability := range required {
+		if strings.TrimSpace(capability) == "" {
+			continue
+		}
+		if !available[capability] {
+			return false
+		}
+	}
+	return true
+}
+
+func stringSet(values []string) map[string]bool {
+	set := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			set[value] = true
+		}
+	}
+	return set
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func (r Registry) Get(identifier string) (Runtime, bool) {
@@ -126,9 +423,15 @@ func (r Registry) GetAPI(identifier string, apiName string) (Manifest, API, bool
 }
 
 func (r Registry) Manifests() []Manifest {
-	manifests := make([]Manifest, 0, len(r.runtimes))
-	for _, runtime := range r.runtimes {
-		manifests = append(manifests, runtime.Manifest())
+	identifiers := make([]string, 0, len(r.runtimes))
+	for identifier := range r.runtimes {
+		identifiers = append(identifiers, identifier)
+	}
+	sort.Strings(identifiers)
+
+	manifests := make([]Manifest, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		manifests = append(manifests, r.runtimes[identifier].Manifest())
 	}
 	return manifests
 }
@@ -172,7 +475,7 @@ func (r Registry) ModelContext() json.RawMessage {
 					"id":   "optional stable call id",
 					"type": "function",
 					"function": map[string]any{
-						"name":      "tool identifier plus api name, for example tma.local_system.run_command",
+						"name":      "tool namespace plus api name, for example default.run_command",
 						"arguments": "JSON object matching the API parameters",
 					},
 				}},
@@ -234,6 +537,15 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 	if result.ID == "" {
 		result.ID = call.ID
 	}
+	if executionContext.ArtifactRecorder != nil && !result.PendingIntervention && result.Error == nil {
+		artifactRefs, artifactErr := executionContext.ArtifactRecorder.RecordToolArtifact(ctx, call, executionContext, result)
+		if len(artifactRefs) > 0 {
+			result.Artifacts = append(result.Artifacts, artifactRefs...)
+		}
+		if artifactErr != nil {
+			result.ArtifactError = artifactErr.Error()
+		}
+	}
 	return result, nil
 }
 
@@ -245,31 +557,29 @@ func NormalizeCall(call Call) Call {
 		call.Identifier, call.APIName = splitFunctionName(call.APIName)
 	}
 	if call.Identifier == "" {
-		call.Identifier = LocalSystemIdentifier
+		call.Identifier = DefaultIdentifier
 	}
 	return call
 }
 
 func splitFunctionName(name string) (string, string) {
-	switch {
-	case strings.HasPrefix(name, LocalSystemIdentifier+"."):
-		return LocalSystemIdentifier, strings.TrimPrefix(name, LocalSystemIdentifier+".")
-	default:
-		parts := strings.Split(name, ".")
-		if len(parts) == 1 {
-			return "", name
-		}
-		return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
+	parts := strings.Split(name, ".")
+	if len(parts) == 1 {
+		return "", name
 	}
+	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
 }
 
 func ResultMessage(result ExecutionResult) string {
 	encoded, err := json.Marshal(map[string]any{
+		"protocol_version":     ToolResultProtocolVersion,
 		"id":                   result.ID,
 		"identifier":           result.Identifier,
 		"api_name":             result.APIName,
 		"content":              result.Content,
 		"state":                rawJSONObject(result.State),
+		"artifacts":            result.Artifacts,
+		"artifact_error":       result.ArtifactError,
 		"pending_intervention": result.PendingIntervention,
 		"error":                result.Error,
 		"success":              result.Error == nil,

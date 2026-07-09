@@ -187,7 +187,7 @@ echo "Upserting provider/model from $DOTENV_PATH"
 
 suffix="$(date +%Y%m%d%H%M%S)"
 
-system_prompt='You are testing TMA tool approval. When the user says exactly APPROVAL_TEST_RUN_COMMAND, you must call the tool tma.local_system.run_command with command "sh" and args ["-c","pwd"]. Do not answer in text before calling the tool.'
+system_prompt='You are testing TMA tool approval. When the user says exactly APPROVAL_TEST_RUN_COMMAND, you must call the tool default.run_command with command "sh" and args ["-c","pwd"]. Do not answer in text before calling the tool.'
 
 echo "Creating agent"
 agent_json="$("$CLI" --base-url "$BASE_URL" agent create \

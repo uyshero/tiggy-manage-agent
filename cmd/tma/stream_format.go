@@ -85,6 +85,12 @@ func formatSSEChunk(lines []string) string {
 			return chunk
 		}
 		return formatted + "\n"
+	case "session.config_updated":
+		formatted, ok := formatSessionConfigUpdatedEvent(eventData)
+		if !ok {
+			return chunk
+		}
+		return formatted + "\n"
 	case "runtime.llm_delta":
 		formatted, ok := formatLLMDeltaEvent(eventData)
 		if !ok {
@@ -177,6 +183,47 @@ func formatSessionStatusEvent(eventType string, raw string) (string, bool) {
 	if payload.Reason != "" {
 		builder.WriteString("  reason: ")
 		builder.WriteString(payload.Reason)
+		builder.WriteString("\n")
+	}
+	return builder.String(), true
+}
+
+func formatSessionConfigUpdatedEvent(raw string) (string, bool) {
+	var event struct {
+		Seq     int64           `json:"seq"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		return "", false
+	}
+	var payload struct {
+		OldAgentConfigVersion int    `json:"old_agent_config_version"`
+		NewAgentConfigVersion int    `json:"new_agent_config_version"`
+		UpdatedBy             string `json:"updated_by"`
+	}
+	if len(event.Payload) != 0 {
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return "", false
+		}
+	}
+
+	var builder strings.Builder
+	builder.WriteString("session config updated\n")
+	if event.Seq > 0 {
+		builder.WriteString("  seq: ")
+		builder.WriteString(strconv.FormatInt(event.Seq, 10))
+		builder.WriteString("\n")
+	}
+	if payload.OldAgentConfigVersion > 0 || payload.NewAgentConfigVersion > 0 {
+		builder.WriteString("  agent_config_version: v")
+		builder.WriteString(strconv.Itoa(payload.OldAgentConfigVersion))
+		builder.WriteString(" -> v")
+		builder.WriteString(strconv.Itoa(payload.NewAgentConfigVersion))
+		builder.WriteString("\n")
+	}
+	if payload.UpdatedBy != "" {
+		builder.WriteString("  updated_by: ")
+		builder.WriteString(payload.UpdatedBy)
 		builder.WriteString("\n")
 	}
 	return builder.String(), true
@@ -392,12 +439,20 @@ func formatToolResultEvent(raw string) (string, bool) {
 		TurnID  string `json:"turn_id"`
 		Message string `json:"message"`
 		Data    struct {
-			ID         string `json:"id"`
-			Identifier string `json:"identifier"`
-			APIName    string `json:"api_name"`
-			Content    string `json:"content"`
-			Success    bool   `json:"success"`
-			Error      *struct {
+			ID            string `json:"id"`
+			Identifier    string `json:"identifier"`
+			APIName       string `json:"api_name"`
+			Content       string `json:"content"`
+			ArtifactError string `json:"artifact_error"`
+			Artifacts     []struct {
+				ArtifactID   string `json:"artifact_id"`
+				ObjectRefID  string `json:"object_ref_id"`
+				Name         string `json:"name"`
+				ArtifactType string `json:"artifact_type"`
+				DownloadPath string `json:"download_path"`
+			} `json:"artifacts"`
+			Success bool `json:"success"`
+			Error   *struct {
 				Type    string `json:"type"`
 				Message string `json:"message"`
 			} `json:"error"`
@@ -432,7 +487,65 @@ func formatToolResultEvent(raw string) (string, bool) {
 		builder.WriteString(truncateValue(strings.ReplaceAll(payload.Data.Content, "\n", "\\n"), 500))
 		builder.WriteString("\n")
 	}
+	if len(payload.Data.Artifacts) > 0 {
+		builder.WriteString("  artifacts:\n")
+		for _, artifact := range payload.Data.Artifacts {
+			builder.WriteString("    - ")
+			if artifact.ArtifactID != "" {
+				builder.WriteString(artifact.ArtifactID)
+			} else {
+				builder.WriteString("(unknown)")
+			}
+			if artifact.Name != "" {
+				builder.WriteString(" ")
+				builder.WriteString(artifact.Name)
+			}
+			if artifact.ArtifactType != "" {
+				builder.WriteString(" [")
+				builder.WriteString(artifact.ArtifactType)
+				builder.WriteString("]")
+			}
+			if artifact.DownloadPath != "" {
+				builder.WriteString(" download: ")
+				builder.WriteString(artifact.DownloadPath)
+			}
+			builder.WriteString("\n")
+			if command := sessionArtifactDownloadCommand(artifact.DownloadPath); command != "" {
+				builder.WriteString("      cli: ")
+				builder.WriteString(command)
+				builder.WriteString("\n")
+			}
+		}
+	}
+	if payload.Data.ArtifactError != "" {
+		builder.WriteString("  artifact error: ")
+		builder.WriteString(payload.Data.ArtifactError)
+		builder.WriteString("\n")
+	}
 	return builder.String(), true
+}
+
+func sessionArtifactDownloadCommand(downloadPath string) string {
+	downloadPath = strings.TrimSpace(downloadPath)
+	if downloadPath == "" {
+		return ""
+	}
+	downloadPath, _, _ = strings.Cut(downloadPath, "?")
+	downloadPath, _, _ = strings.Cut(downloadPath, "#")
+	const prefix = "/v1/sessions/"
+	if !strings.HasPrefix(downloadPath, prefix) {
+		return ""
+	}
+	parts := strings.Split(strings.TrimPrefix(downloadPath, prefix), "/")
+	if len(parts) != 4 || parts[1] != "artifacts" || parts[3] != "download" {
+		return ""
+	}
+	sessionID := strings.TrimSpace(parts[0])
+	artifactID := strings.TrimSpace(parts[2])
+	if sessionID == "" || artifactID == "" {
+		return ""
+	}
+	return "bin/tma session artifact download --session " + sessionID + " --artifact " + artifactID
 }
 
 func toolInterventionHeader(eventType string) string {

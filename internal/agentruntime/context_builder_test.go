@@ -171,8 +171,8 @@ func TestDefaultContextBuilderInjectsToolsAndSkillsBeforeHistory(t *testing.T) {
 	}
 	assertMessage(t, result.Messages[0], "system", "system")
 	assertMessageContains(t, result.Messages[1], "system", "Available tools:\n")
-	assertMessageContains(t, result.Messages[1], "system", "\"identifier\": \"tma.local_system\"")
-	assertMessageContains(t, result.Messages[1], "system", "\"name\": \"tool identifier plus api name, for example tma.local_system.run_command\"")
+	assertMessageContains(t, result.Messages[1], "system", "\"identifier\": \"default\"")
+	assertMessageContains(t, result.Messages[1], "system", "\"name\": \"tool namespace plus api name, for example default.run_command\"")
 	assertMessage(t, result.Messages[2], "system", "Available skills:\n[\n  \"code-review\",\n  \"search\"\n]")
 	assertMessage(t, result.Messages[3], "assistant", "history")
 	assertMessage(t, result.Messages[4], "user", "current")

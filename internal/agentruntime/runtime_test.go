@@ -117,7 +117,7 @@ func TestDemoRuntimeExecutesCapabilityToolCalls(t *testing.T) {
 		t.Fatalf("expected assistant tool call plus tool result before final response, got %#v", client.requests[1].Messages)
 	}
 	assertLLMMessage(t, client.requests[1].Messages[0], "user", "please inspect")
-	assertLLMMessage(t, client.requests[1].Messages[1], "assistant", `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"tma.local_system.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`)
+	assertLLMMessage(t, client.requests[1].Messages[1], "assistant", `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"default.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`)
 	if client.requests[1].Messages[2].Role != "tool" {
 		t.Fatalf("expected tool role, got %q", client.requests[1].Messages[2].Role)
 	}
@@ -125,7 +125,7 @@ func TestDemoRuntimeExecutesCapabilityToolCalls(t *testing.T) {
 	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[2])), &toolResult); err != nil {
 		t.Fatalf("decode tool result: %v", err)
 	}
-	if toolResult["identifier"] != tools.LocalSystemIdentifier || toolResult["api_name"] != "run_command" || toolResult["success"] != true {
+	if toolResult["identifier"] != tools.DefaultIdentifier || toolResult["api_name"] != "run_command" || toolResult["success"] != true {
 		t.Fatalf("unexpected tool result: %#v", toolResult)
 	}
 	if toolResult["content"] != "tool-output" {
@@ -529,7 +529,7 @@ func (c *toolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (
 				Role: "assistant",
 				Content: []llm.ContentPart{{
 					Type: "text",
-					Text: `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"tma.local_system.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`,
+					Text: `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"default.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`,
 				}},
 			},
 		}, nil
@@ -559,7 +559,7 @@ func (c *nativeToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 					ID:   "call_native",
 					Type: "function",
 					Function: llm.ToolCallFunction{
-						Name:      "tma.local_system.run_command",
+						Name:      "default.run_command",
 						Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf tool-output"]}`),
 					},
 				}},
@@ -591,7 +591,7 @@ func (c *sensitiveToolLoopLLMClient) Generate(ctx context.Context, request llm.R
 					ID:   "call_edit",
 					Type: "function",
 					Function: llm.ToolCallFunction{
-						Name:      "tma.local_system.edit_file",
+						Name:      "default.edit_file",
 						Arguments: json.RawMessage(`{"file_path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
 					},
 				}},

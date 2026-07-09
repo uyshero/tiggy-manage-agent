@@ -217,6 +217,14 @@ bin/tma agent config update \
 
 更新后，新建 Session 会绑定新的 `agent_config_version`；已经存在的 Session 继续绑定创建时的旧版本。
 
+如果确实要让某个已有 idle Session 后续使用 Agent 当前最新配置，需要显式升级：
+
+```bash
+bin/tma session config upgrade --session sesn_000001 --to-current
+```
+
+升级会写入 `session.config_updated` 事件；running / waiting approval 中的 Session 不允许升级。
+
 ## 6. LLM Usage 查询命令
 
 查看某个 Session 的 token usage 总量和每轮明细：
@@ -317,6 +325,51 @@ TMA_DOTENV_PATH
 TMA_APPROVAL_TEST_WAIT_SECONDS
 TMA_APPROVAL_TEST_MESSAGE
 TMA_APPROVAL_TEST_DECISION=manual|approve|reject
+```
+
+### Web Search / Crawl 验收
+
+验证 `web.search` / `web.crawl` 工具注入、执行、结果回传：
+
+```bash
+make verify-web-search-crawl
+```
+
+该目标会自动完成：
+
+- 构建 `bin/tma-server` 和 `bin/tma`
+- 启动 Postgres 并执行迁移
+- 启动 Docker Compose 中的 SearXNG，并探测 `/healthz` 和 `format=json`
+- 启动本地 HTML fixture，验证 Agent 调用 `web.crawl`
+- 启动本地 SearXNG-compatible mock，验证 Agent 调用 `web.search`
+- 检查事件中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message` 和 `session.status_idle`
+
+通过时会输出类似：
+
+```text
+Web search/crawl verification passed
+session_id=sesn_000055
+crawl_turn_id=turn_000001
+search_turn_id=turn_000002
+```
+
+本地服务默认端口：
+
+```text
+TMA server:           http://localhost:18083
+HTML fixture:         http://127.0.0.1:18084
+SearXNG mock:         http://127.0.0.1:18085
+Docker SearXNG:       http://localhost:8180
+```
+
+如果端口被占用，可覆盖：
+
+```bash
+TMA_VERIFY_WEB_HTTP_ADDR=:19083 \
+TMA_VERIFY_WEB_BASE_URL=http://localhost:19083 \
+TMA_VERIFY_WEB_FIXTURE_ADDR=127.0.0.1:19084 \
+TMA_VERIFY_WEB_MOCK_SEARXNG_ADDR=127.0.0.1:19085 \
+make verify-web-search-crawl
 ```
 
 - `agent.message`
@@ -591,7 +644,7 @@ approval required
   seq: 12
   turn: turn_000003
   call: call_edit
-  tool: tma.local_system.edit_file
+  tool: default.edit_file
   mode: request_approval
   message: Tool call requires approval before execution.
   policy: optional
@@ -627,7 +680,7 @@ approval: a=approve, r REASON=reject, s=skip
 启动时会先查询当前 `status=pending` 的审批记录；即使使用了较新的 `--after` 跳过历史 `runtime.tool_intervention_required` 事件，只要 Store 里仍有 pending approval，也会恢复成本地 prompt：
 
 ```text
-pending approval recovered: tma.local_system.edit_file call=call_edit
+pending approval recovered: default.edit_file call=call_edit
 approval action: a=approve, r [reason]=reject, s=skip
 ```
 
@@ -685,7 +738,7 @@ bin/tma session intervention reject \
 
 批准后应写出 `runtime.tool_intervention_approved` 事件，并消费保存的 tool call 追加 `runtime.tool_result`。拒绝后应写出 `runtime.tool_intervention_rejected` 事件，不执行工具。
 
-在 `bin/tma event stream` 中，批准、拒绝和工具结果会分别显示为 `approval approved`、`approval rejected`、`tool result`。
+在 `bin/tma event stream` 中，批准、拒绝和工具结果会分别显示为 `approval approved`、`approval rejected`、`tool result`。如果工具结果带有 artifact，`tool result` 下会显示 artifact id、名称、类型和 TMA 代理下载路径；如果 artifact 记录失败，会显示 `artifact error`。
 
 细粒度 approve/reject 命令仍保留给脚本和调试使用：`request_approval` 会把 turn 标记为 `waiting_approval`，不会生成 pending 后的临时 `agent.message`。approve 会执行被批准的工具并回写结果事件；如果 pending 记录中带有 continuation messages，还会把 tool result 送回 LLM，并继续最多 4 轮 tool loop。续跑中再次遇到敏感工具会再次 pending / waiting approval；模型返回普通文本时生成最终 `agent.message`，并让 session 回到 `idle`。reject 会写 rejected 事件并 fail turn，不会把拒绝原因喂回模型继续推理。长期未审批时记录保持 `pending` / `waiting_approval`，不会自动 approve / reject / expire。
 
@@ -710,7 +763,84 @@ event: session.status_idle
 
 ---
 
-## 11. 使用 curl 验证 SSE
+## 11. Object Ref / Session Artifact
+
+这一节覆盖对象引用、Session artifact、TMA 代理下载和安全删除。文件字节由 objectstore 后端保存，Postgres 只保存 metadata。
+
+如果只想验证 metadata 流，可以先创建一个 object ref，表示对象存储中已经存在或即将存在的对象：
+
+```bash
+bin/tma object create \
+  --bucket tma-artifacts \
+  --key wksp_default/sesn_000001/output.txt \
+  --content-type text/plain \
+  --size 42 \
+  --sha256 abc123 \
+  --metadata '{"source":"manual-test"}'
+```
+
+查看 object ref：
+
+```bash
+bin/tma object get --id obj_000001
+```
+
+把 object ref 挂到 Session artifact：
+
+```bash
+bin/tma session artifact create \
+  --session sesn_000001 \
+  --object obj_000001 \
+  --turn turn_000001 \
+  --call call_write \
+  --name output.txt \
+  --type file \
+  --metadata '{"preview":"hello"}'
+```
+
+列出 Session artifacts：
+
+```bash
+bin/tma session artifact list --session sesn_000001
+bin/tma session artifact list --session sesn_000001 --json
+```
+
+预期：
+
+- `object_ref` 中只有 bucket / key / checksum / size / metadata 等引用信息。
+- `session artifact` 引用 `object_ref_id`，并记录 session / turn / call 关系。
+- 默认 `session artifact list` 输出人类可读摘要；加 `--json` 输出原始 API 响应，方便脚本处理。
+- Postgres 不保存文件二进制。
+
+上传并通过 TMA 代理下载真实内容：
+
+```bash
+printf 'hello artifact\n' >/tmp/tma-artifact.txt
+
+curl -sS -X POST \
+  -F file=@/tmp/tma-artifact.txt \
+  -F turn_id=turn_000001 \
+  -F tool_call_id=call_manual \
+  -F artifact_type=file \
+  http://localhost:8080/v1/sessions/sesn_000001/artifacts/upload
+
+bin/tma session artifact list --session sesn_000001
+bin/tma session artifact download --session sesn_000001 --artifact art_000001 --output /tmp/tma-artifact.downloaded.txt
+```
+
+通过工具执行产生的输出 JSON 也会尽力记录为 Session artifact。可在 `runtime.tool_result` 的 JSON 中查看 `artifacts` 数组；下载路径仍是 `/v1/sessions/{session_id}/artifacts/{artifact_id}/download`，不暴露底层 objectstore 地址。
+
+验证 Inspector 页面是否包含 artifact 下载和复制命令入口：
+
+```bash
+make verify-inspector-ui
+```
+
+该验收会启动真实 TMA server，读取 `/inspector` HTML，并校验页面包含 `Download`、`Copy CLI`、`data-copy`、`bin/tma session artifact download --session ...` 等关键内容。它不依赖浏览器插件，适合作为 Inspector UI 基础交互的轻量回归。
+
+---
+
+## 12. 使用 curl 验证 SSE
 
 ```bash
 curl -N "http://localhost:8080/v1/sessions/sesn_000001/events/stream?after_seq=0"
@@ -726,7 +856,7 @@ bin/tma event send \
 
 ---
 
-## 12. 测试 Interrupt
+## 13. 测试 Interrupt
 
 当前版本使用异步 WorkerRunner。发送 `user.message` 后，Session 会停留在 `running`，这时可以中断。
 
@@ -780,7 +910,7 @@ user.interrupt requires running session
 
 ---
 
-## 13. Archive Session
+## 14. Archive Session
 
 ```bash
 bin/tma session archive --session sesn_000001
@@ -816,7 +946,7 @@ bin/tma event send \
 
 ---
 
-## 14. Delete Session
+## 15. Delete Session
 
 ```bash
 bin/tma session delete --session sesn_000001
@@ -838,7 +968,7 @@ bin/tma session get --session sesn_000001
 
 ---
 
-## 15. 数据库验证
+## 16. 数据库验证
 
 数据库模式不需要本机安装 `psql`。迁移命令会使用 Postgres 容器里的 `psql`。
 
@@ -890,9 +1020,343 @@ make db-down
 
 ---
 
-## 16. 常见问题
+## 17. Onlyboxes 验证
 
-### 16.1 `psql: command not found`
+### 17.1 Sandbox doctor
+
+先检查本地 cloud_sandbox 前置条件：
+
+```bash
+bin/tma sandbox doctor
+```
+
+`sandbox doctor` 会读取当前目录 `.env` 中的 `TMA_CLOUD_SANDBOX_ROOT` 和 `TMA_CLOUD_SANDBOX_IMAGE`，并检查：
+
+- runtime 是否会落到 `cloud_sandbox`。
+- workspace root 是否存在且是目录。
+- `docker` 命令是否可找到。
+- Docker daemon 是否可连接。
+- sandbox 镜像是否已存在于本地；缺失时默认自动 `docker pull`。
+
+它不会自动启动 Docker。若只是想验证 Docker 链路，可以临时指定已有镜像：
+
+```bash
+bin/tma sandbox doctor --image busybox:latest
+```
+
+如果只想做无 pull 的纯检查：
+
+```bash
+bin/tma sandbox doctor --pull=false
+```
+
+### 17.2 Provider 级验证
+
+这一节只验证 `OnlyboxesProvider` 的真实 Docker 执行边界，不需要启动 TMA server，也不依赖 LLM。
+
+默认使用项目内置镜像名：
+
+```bash
+make verify-onlyboxes
+```
+
+如果本地还没有 `coolfan1024/onlyboxes-runtime:default` 镜像，可以先用一个已有的 shell 镜像验证挂载和 workdir 链路：
+
+```bash
+TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes
+```
+
+预期测试会：
+
+- 创建临时 workspace。
+- 在 host 写入 `marker.txt`。
+- 用 Docker 把 workspace 挂载到容器 `/workspace`。
+- 如果配置了 session data root，还会把 session 数据目录挂到 `/mnt/data`。
+- 在容器内读取 `marker.txt` 并写出 `out.txt`。
+- 回到 host 检查 `out.txt` 内容。
+
+通过表示 `cloud_sandbox` provider 的基本命令执行、workspace 挂载、session 数据挂载和输出回写链路可用。
+
+### 17.3 Session 级验证
+
+这一节验证完整链路：
+
+```text
+TMA server
+  -> fake LLM 触发 default.run_command
+  -> AgentRuntime tool loop
+  -> SessionProviderResolver 默认选择 cloud_sandbox
+  -> OnlyboxesProvider
+  -> runtime.tool_call / runtime.tool_result / agent.message
+```
+
+默认使用项目内置镜像名：
+
+```bash
+make verify-onlyboxes-session
+```
+
+如果本地还没有 `coolfan1024/onlyboxes-runtime:default` 镜像，可以先用 `busybox` 验证完整 session 链路：
+
+```bash
+TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes-session
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 用 `TMA_TOOL_RUNTIME=cloud_sandbox` 启动临时 TMA server。
+- 创建 agent / environment / session。
+- 把 session `intervention_mode` 设置为 `approve_for_me`，避免工具审批挂起。
+- 发送 `tma.verify_tool_call` 消息，让 fake LLM 发起工具调用。
+- 校验事件历史中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message`，且 tool result 同时包含 `/workspace` 和 `tma-session-tool-ok`。
+
+通过表示 session 级工具执行已经真实走到 Onlyboxes provider。
+
+### 17.4 cloud_sandbox 外网审批验证
+
+这一节验证 `cloud_sandbox_allow_network` 和 `intervention_mode` 的组合行为：
+
+```bash
+make verify-network-approval
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 用 `TMA_TOOL_RUNTIME=cloud_sandbox` 启动临时 TMA server。
+- 让 fake LLM 通过 `tma.verify_network_download` 触发 `default.execute_code`，执行 Python `urllib.request.urlopen(...)` 下载。
+- 验证 `request_approval + cloud_sandbox_allow_network=true` 会产生 pending intervention，reason 为 `network_access`，批准后继续执行。
+- 验证 `approve_for_me + cloud_sandbox_allow_network=true` 会写出 auto approval 事件并执行成功。
+- 验证 `full_access + cloud_sandbox_allow_network=true` 不写审批事件并直接执行成功。
+- 验证 `full_access + cloud_sandbox_allow_network=false` 不写 `network_access` 审批事件，且 Python 下载不会成功。
+
+通过表示“沙箱具备外网能力”和“访问外网进入审批策略”两层语义已经在真实 AgentRuntime 链路里闭环。
+
+### 17.5 cloud_sandbox 上传数据验证
+
+这一节验证用户上传文件进入 session sandbox 数据目录，并且同一 session 的 `/mnt/data` 能跨多次工具调用保留中间文件：
+
+```bash
+make verify-onlyboxes-upload-data
+```
+
+如果本地还没有默认镜像，也可以用 `busybox` 先验证链路：
+
+```bash
+TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes-upload-data
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 启动临时 TMA server。
+- 创建 agent / environment / session。
+- 通过 `POST /v1/sessions/{session_id}/artifacts/upload` 上传一个 `file` artifact。
+- 发送 `tma.verify_uploaded_file_seed`，让 fake LLM 触发 sandbox 命令读取 `/mnt/data/uploads/{artifact_id}/input.txt`，并写入 `/mnt/data/state.txt`。
+- 再发送 `tma.verify_uploaded_file_read`，确认下一次工具调用仍能读取上传文件和上一轮写入的 `/mnt/data/state.txt`。
+
+通过表示上传接口、对象存储、session artifact、`OnlyboxesProvider` 同步逻辑和 session 级 `/mnt/data` 持久目录已经形成最小闭环。
+
+### 17.6 cloud_sandbox 输出回收验证
+
+这一节验证 `default.run_command` / `default.execute_code` 的 `output_paths` 能把 `/mnt/data` 里生成的文件回收到 session artifact：
+
+```bash
+make verify-onlyboxes-export-artifact
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 启动临时 TMA server。
+- 创建 agent / environment / session。
+- 通过 `POST /v1/sessions/{session_id}/artifacts/upload` 上传一个输入文件。
+- 发送 `tma.verify_uploaded_file_export`，让 fake LLM 触发 sandbox 命令在 `/mnt/data/outputs/export.txt` 生成产物，并通过 `output_paths` 请求保存。
+- 从 `runtime.tool_result` 的 `artifacts` 中取出生成的 `file` artifact。
+- 通过 `bin/tma session artifact download` 下载该 artifact，校验内容同时包含上传文件标记和生成文件标记。
+
+通过表示上传文件 -> `/mnt/data` 加工 -> `output_paths` 导出 -> session artifact 下载 已经形成最小闭环。
+
+### 17.7 S3-compatible 对象存储验证
+
+这一节验证 `TMA_OBJECT_STORAGE_PROVIDER=s3` 的真实对象存储闭环。运行前需要先启动 RustFS / MinIO / S3-compatible 服务，并确保 bucket 已存在或服务端允许自动写入该 bucket。
+
+默认使用：
+
+```env
+TMA_OBJECT_STORAGE_ENDPOINT=http://localhost:9000
+TMA_OBJECT_STORAGE_REGION=local
+TMA_OBJECT_STORAGE_BUCKET=tma-artifacts
+TMA_OBJECT_STORAGE_ACCESS_KEY=tma
+TMA_OBJECT_STORAGE_SECRET_KEY=tma-secret
+TMA_OBJECT_STORAGE_USE_PATH_STYLE=true
+```
+
+执行：
+
+```bash
+make verify-objectstore-s3
+```
+
+也可以覆盖 endpoint / bucket / credentials：
+
+```bash
+TMA_OBJECT_STORAGE_ENDPOINT=http://localhost:9000 \
+TMA_OBJECT_STORAGE_BUCKET=tma-artifacts \
+TMA_OBJECT_STORAGE_ACCESS_KEY=tma \
+TMA_OBJECT_STORAGE_SECRET_KEY=tma-secret \
+make verify-objectstore-s3
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 用 `TMA_OBJECT_STORAGE_PROVIDER=s3` 启动临时 TMA server。
+- 创建 agent / environment / session。
+- 通过 `POST /v1/sessions/{session_id}/artifacts/upload` 上传一个文件 artifact。
+- 通过 `bin/tma session artifact download` 从 TMA 代理下载 artifact。
+- 比对上传和下载文件内容一致。
+- 删除验证产生的 session artifact 和 object ref metadata。
+
+通过表示 HTTP 上传、真实 S3-compatible PutObject、TMA 代理下载、真实 GetObject 和 metadata 管道已经形成最小闭环。当前删除步骤只清理 TMA metadata；底层对象物理回收后续需要单独设计 GC / retention 策略。
+
+### 17.8 Worker-backed local_system 验证
+
+这一节验证完整链路：
+
+```text
+TMA server
+  -> fake LLM 触发 default.run_command
+  -> AgentRuntime tool loop
+  -> local_system worker capability match
+  -> WorkerBackedProvider 入队 tma.work.v1 tool_execution
+  -> tma-worker outbound poll / ack / result
+  -> runtime.tool_result / agent.message
+```
+
+运行：
+
+```bash
+make verify-worker-backed-local-system
+```
+
+脚本会自动：
+
+- build `bin/tma-server`、`bin/tma` 和 `bin/tma-worker`。
+- 启动 Postgres 并执行迁移。
+- 用 fake LLM 启动临时 TMA server，并配置 `TMA_WORKER_AUTH_TOKEN`。
+- 启动一个本地 `tma-worker`，worker 只主动消费 server API，不暴露端口。
+- 创建 agent / environment / session。
+- 将 agent tools 配置为 `{"tools":["default"],"runtime":"local_system"}`。
+- 将 session `intervention_mode` 设置为 `approve_for_me`。
+- 发送 `tma.verify_tool_call`，让 fake LLM 发起 `default.run_command`。
+- 校验事件历史中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message`。
+- 从 worker 日志中取出 completed `work_id`，再用 `bin/tma work get --work ...` 校验 work 状态和 tool result。
+
+通过表示 `local_system` 工具执行已经真实经过 `tma-worker`，而不是落在 server 进程内 fallback。
+
+### 17.9 Worker-backed local export 验证
+
+这一节验证 `worker-backed local_system` 上的 `output_paths` 也能把 worker 机器生成的文件回收到 session artifact：
+
+```bash
+make verify-worker-backed-local-export
+```
+
+脚本会自动：
+
+- build `bin/tma-server`、`bin/tma` 和 `bin/tma-worker`。
+- 启动 Postgres 并执行迁移。
+- 用 fake LLM 启动临时 TMA server，并配置 `TMA_WORKER_AUTH_TOKEN`。
+- 启动一个本地 `tma-worker`。
+- 创建 agent / environment / session，并将 agent tools 配置为 `{"tools":["default"],"runtime":"local_system"}`。
+- 发送 `tma.verify_worker_export`，让 fake LLM 触发 `default.run_command` 在 worker workspace 里写 `worker-export.txt`，并通过 `output_paths` 请求保存。
+- 从 `runtime.tool_result.artifacts` 中取出生成的 `file` artifact。
+- 通过 `bin/tma session artifact download` 下载该 artifact，校验内容包含 `tma-worker-export-ok`。
+
+注意：这一节不仅是在验证 recorder / objectstore，还在验证 `output_paths` 已经从工具入参透传到 worker work payload。若未来回归成“tool result 里只有结构化 JSON artifact、没有 file artifact”，优先检查 `capability.RunCommandRequest` / `ExecuteCodeRequest` 是否仍携带 `output_paths`。
+
+通过表示 worker 机器生成文件 -> work result 回传 -> server objectstore 落盘 -> session artifact 下载 已经形成最小闭环。
+
+大文件路径额外验证 worker 不再把文件内容内联进 `worker_work.result`，而是通过 server artifact upload API 上传后只回传 artifact ref：
+
+```bash
+make verify-worker-backed-large-local-export
+```
+
+该脚本会触发 fake LLM 生成一个超过 8 MiB 的 worker 本地文件，下载 artifact 并校验内容包含 `tma-worker-large-export-ok`。通过表示大文件已经走 worker -> server artifact upload，而不是 base64 塞进 work result。
+
+### 17.10 Worker work 过期收敛
+
+第一版 worker work 不做自动重试。若 worker 掉线或长时间没有给 leased/running work 续租，可用控制面命令把过期 work 标记为 failed，方便排障和释放卡住状态：
+
+真实验收：
+
+```bash
+make verify-worker-work-reap-expired
+```
+
+该脚本会启动真实 TMA server，注册一个 worker，投递 work，用 1 秒 lease poll 并 ack 成 running，等待 lease 过期后调用 `work reap-expired`，最后用 `work get` 确认该 work 已变为 `failed` 且带 `worker work lease expired` 错误信息。
+
+手动命令：
+
+```bash
+bin/tma work reap-expired --limit 100
+```
+
+等价 HTTP：
+
+```bash
+curl -X POST "$TMA_BASE_URL/v1/worker-work/reap-expired" \
+  -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"limit":100}'
+```
+
+通过表示 `lease_expires_at` 已过期的 `leased` / `running` work 会变为 `failed`，并带 `worker work lease expired ...` 错误信息。这里故意不自动重新入队，避免命令、文件写入、外部 API 调用被重复执行。
+
+### 17.11 Worker doctor
+
+`tma-worker doctor` 用于在启动常驻 worker 前检查 outbound API、token 和 executor capabilities：
+
+```bash
+bin/tma-worker doctor --base-url http://localhost:8080 --name viito-mac
+```
+
+doctor 会：
+
+- 打印当前 executor 导出的 runtimes / APIs / capabilities。
+- 检查 `/health`。
+- 临时注册 `<name>-doctor` worker。
+- 发送 heartbeat。
+- 调用 poll endpoint 验证 worker consumer API 权限。
+- 调用 server-side worker diagnose，确认刚注册的 worker 能被控制面看见。
+- 归档临时 worker。
+
+### 17.12 cloud_sandbox 默认配置
+
+新 session 默认已经走 `cloud_sandbox`，`.env` 不需要写 `TMA_TOOL_RUNTIME=cloud_sandbox`。如果要固定 workspace root 或镜像，只配置覆盖项：
+
+```env
+TMA_CLOUD_SANDBOX_ROOT=.
+TMA_CLOUD_SANDBOX_IMAGE=coolfan1024/onlyboxes-runtime:default
+TMA_CLOUD_SANDBOX_DATA_ROOT=/private/tmp/tma-cloud-sandbox-data
+TMA_CLOUD_SANDBOX_DATA_TTL_SECONDS=3600
+```
+
+如果要临时切到本机执行面，先启动同 workspace 的 `tma-worker`，再通过 `bin/tma session runtime update --session <session_id> --tool-runtime local_system` 对单个 session 热更新，不改 `.env`。没有匹配在线 worker 时，默认会隐藏 `local_system` 工具；只有受信任开发环境显式设置 `TMA_ALLOW_SERVER_LOCAL_SYSTEM=true` 才允许 server 进程本机 fallback。
+
+---
+
+## 18. 常见问题
+
+### 18.1 `psql: command not found`
 
 不要直接运行：
 
@@ -908,7 +1372,7 @@ make migrate-up
 
 这个命令会进入 Docker 里的 Postgres 容器执行 `psql`。
 
-### 16.2 连接失败
+### 18.2 连接失败
 
 确认 server 正在运行：
 
@@ -929,11 +1393,11 @@ export TMA_BASE_URL=http://localhost:9090
 bin/tma health
 ```
 
-### 16.3 ID 不对
+### 18.3 ID 不对
 
 Postgres 会保留历史数据，ID 会继续递增。以实际命令返回的 ID 为准。
 
-### 16.4 `event stream` 没退出
+### 18.4 `event stream` 没退出
 
 这是正常行为。SSE 是持续连接，用：
 
@@ -943,7 +1407,7 @@ Ctrl+C
 
 退出监听。
 
-### 16.5 Postgres 模式下 SSE 的边界
+### 18.5 Postgres 模式下 SSE 的边界
 
 历史续传读取 `session_events`，所以 `--after` 可以跨重启使用。
 

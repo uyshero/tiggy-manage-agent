@@ -33,10 +33,12 @@ func run(args []string) error {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	authToken := os.Getenv("TMA_WORKER_CONTROL_TOKEN")
 
 	global := flag.NewFlagSet("tma", flag.ContinueOnError)
 	global.SetOutput(io.Discard)
 	global.StringVar(&baseURL, "base-url", baseURL, "TMA API base URL")
+	global.StringVar(&authToken, "auth-token", authToken, "control-plane bearer token")
 
 	if err := global.Parse(args); err != nil {
 		return err
@@ -48,7 +50,8 @@ func run(args []string) error {
 	}
 
 	client := &apiClient{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		authToken: strings.TrimSpace(authToken),
 		http: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -58,10 +61,20 @@ func run(args []string) error {
 	switch remaining[0] {
 	case "health":
 		return commandHealth(client, remaining[1:])
+	case "sandbox":
+		return commandSandbox(remaining[1:])
+	case "web":
+		return commandWeb(remaining[1:])
 	case "provider":
 		return commandProvider(client, remaining[1:])
 	case "model":
 		return commandModel(client, remaining[1:])
+	case "object":
+		return commandObject(client, remaining[1:])
+	case "worker":
+		return commandWorker(client, remaining[1:])
+	case "work":
+		return commandWork(client, remaining[1:])
 	case "agent":
 		return commandAgent(client, remaining[1:])
 	case "env":
@@ -72,6 +85,10 @@ func run(args []string) error {
 		return commandUsage(client, remaining[1:])
 	case "event":
 		return commandEvent(client, remaining[1:])
+	case "trace":
+		return commandTrace(client, remaining[1:])
+	case "observability":
+		return commandObservability(client, remaining[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -385,11 +402,13 @@ func commandAgentConfig(client *apiClient, args []string) error {
 		var llmModel string
 		var model string
 		var system string
+		var toolsConfig string
 		flags.StringVar(&agentID, "agent", "", "agent id")
 		flags.StringVar(&llmProvider, "llm-provider", "", "llm provider id")
 		flags.StringVar(&llmModel, "llm-model", "", "llm model id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.StringVar(&system, "system", "", "system prompt")
+		flags.StringVar(&toolsConfig, "tools", "", "tools config JSON")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -409,6 +428,16 @@ func commandAgentConfig(client *apiClient, args []string) error {
 		}
 		if flagWasPassed(flags, "system") {
 			request["system"] = system
+		}
+		if flagWasPassed(flags, "tools") {
+			rawTools, err := parseOptionalJSONObjectFlag(toolsConfig, "tools")
+			if err != nil {
+				return err
+			}
+			if rawTools == nil {
+				return fmt.Errorf("agent config update --tools requires a JSON object")
+			}
+			request["tools"] = rawTools
 		}
 		if len(request) == 0 {
 			return fmt.Errorf("agent config update requires at least one field flag")
@@ -566,14 +595,55 @@ func commandSession(client *apiClient, args []string) error {
 		return nil
 	case "runtime":
 		return commandSessionRuntime(client, args[1:])
+	case "config":
+		return commandSessionConfig(client, args[1:])
 	case "intervention":
 		return commandSessionIntervention(client, args[1:])
 	case "attach":
 		return commandSessionAttach(client, args[1:])
 	case "summary":
 		return commandSessionSummary(client, args[1:])
+	case "artifact":
+		return commandSessionArtifact(client, args[1:])
 	default:
 		return fmt.Errorf("unknown session subcommand %q", args[0])
+	}
+}
+
+func commandSessionConfig(client *apiClient, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("session config command requires a subcommand")
+	}
+	switch args[0] {
+	case "upgrade":
+		flags := flag.NewFlagSet("session config upgrade", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var toCurrent bool
+		var updatedBy string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.BoolVar(&toCurrent, "to-current", false, "upgrade session to agent current config version")
+		flags.StringVar(&updatedBy, "updated-by", "", "updater id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" {
+			return fmt.Errorf("session config upgrade requires --session")
+		}
+		if !toCurrent {
+			return fmt.Errorf("session config upgrade requires --to-current")
+		}
+		request := map[string]any{"to_current": true}
+		setStringIfNotEmpty(request, "updated_by", updatedBy)
+		var response any
+		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/config/upgrade"
+		if err := client.do(http.MethodPost, path, request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
+	default:
+		return fmt.Errorf("unknown session config subcommand %q", args[0])
 	}
 }
 
@@ -609,26 +679,55 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 
 		var sessionID string
 		var interventionMode string
+		var toolRuntime string
+		var cloudSandboxRoot string
+		var cloudSandboxImage string
+		var cloudSandboxAllowNetwork bool
 		flags.StringVar(&sessionID, "session", "", "session id")
 		flags.StringVar(&interventionMode, "intervention-mode", "", "request_approval | approve_for_me | full_access")
+		flags.StringVar(&toolRuntime, "tool-runtime", "", "auto | cloud_sandbox | local_system")
+		flags.StringVar(&cloudSandboxRoot, "cloud-sandbox-root", "", "workspace root path for cloud_sandbox runtime")
+		flags.StringVar(&cloudSandboxImage, "cloud-sandbox-image", "", "Onlyboxes image for cloud_sandbox runtime")
+		flags.BoolVar(&cloudSandboxAllowNetwork, "cloud-sandbox-allow-network", false, "allow full outbound network access for cloud_sandbox")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if sessionID == "" || interventionMode == "" {
-			return fmt.Errorf("session runtime update requires --session and --intervention-mode")
+		if sessionID == "" {
+			return fmt.Errorf("session runtime update requires --session")
+		}
+		if interventionMode == "" && toolRuntime == "" && cloudSandboxRoot == "" && cloudSandboxImage == "" && !flagWasPassed(flags, "cloud-sandbox-allow-network") {
+			return fmt.Errorf("session runtime update requires at least one runtime setting flag")
 		}
 
-		mode, ok := normalizeInterventionModeArg(interventionMode)
-		if !ok {
-			return fmt.Errorf("unsupported intervention mode %q", interventionMode)
+		request := map[string]any{}
+		if interventionMode != "" {
+			mode, ok := normalizeInterventionModeArg(interventionMode)
+			if !ok {
+				return fmt.Errorf("unsupported intervention mode %q", interventionMode)
+			}
+			request["intervention_mode"] = mode
+		}
+		if toolRuntime != "" {
+			mode, ok := normalizeToolRuntimeArg(toolRuntime)
+			if !ok {
+				return fmt.Errorf("unsupported tool runtime %q", toolRuntime)
+			}
+			request["tool_runtime"] = mode
+		}
+		if cloudSandboxRoot != "" {
+			request["cloud_sandbox_root"] = cloudSandboxRoot
+		}
+		if cloudSandboxImage != "" {
+			request["cloud_sandbox_image"] = cloudSandboxImage
+		}
+		if flagWasPassed(flags, "cloud-sandbox-allow-network") {
+			request["cloud_sandbox_allow_network"] = cloudSandboxAllowNetwork
 		}
 
 		var response struct {
 			RuntimeSettings json.RawMessage `json:"runtime_settings"`
 		}
-		if err := client.do(http.MethodPatch, "/v1/sessions/"+url.PathEscape(sessionID)+"/runtime-settings", map[string]any{
-			"intervention_mode": mode,
-		}, &response); err != nil {
+		if err := client.do(http.MethodPatch, "/v1/sessions/"+url.PathEscape(sessionID)+"/runtime-settings", request, &response); err != nil {
 			return err
 		}
 		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
@@ -970,6 +1069,7 @@ func commandEvent(client *apiClient, args []string) error {
 
 type apiClient struct {
 	baseURL    string
+	authToken  string
 	http       *http.Client
 	streamHTTP *http.Client
 }
@@ -991,6 +1091,9 @@ func (c *apiClient) do(method, path string, requestBody any, responseBody any) e
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if c.authToken != "" {
+		request.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
 
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -1004,6 +1107,9 @@ func (c *apiClient) do(method, path string, requestBody any, responseBody any) e
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if responseBody != nil && len(responseBytes) > 0 {
+			_ = json.Unmarshal(responseBytes, responseBody)
+		}
 		return fmt.Errorf("%s %s returned %s: %s", method, path, response.Status, strings.TrimSpace(string(responseBytes)))
 	}
 
@@ -1021,12 +1127,47 @@ func (c *apiClient) do(method, path string, requestBody any, responseBody any) e
 	return nil
 }
 
+func (c *apiClient) download(path string, output io.Writer) error {
+	request, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if c.authToken != "" {
+		request.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		responseBytes, readErr := io.ReadAll(response.Body)
+		if readErr != nil {
+			return fmt.Errorf("read error response: %w", readErr)
+		}
+		return fmt.Errorf("GET %s returned %s: %s", path, response.Status, strings.TrimSpace(string(responseBytes)))
+	}
+
+	if output == nil {
+		output = os.Stdout
+	}
+	if _, err := io.Copy(output, response.Body); err != nil {
+		return fmt.Errorf("copy download response: %w", err)
+	}
+	return nil
+}
+
 func (c *apiClient) stream(path string, output io.Writer) error {
 	request, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	request.Header.Set("Accept", "text/event-stream")
+	if c.authToken != "" {
+		request.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
 
 	response, err := c.streamHTTP.Do(request)
 	if err != nil {
@@ -1086,6 +1227,19 @@ func normalizeInterventionModeArg(value string) (string, bool) {
 	}
 }
 
+func normalizeToolRuntimeArg(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "auto":
+		return "auto", true
+	case "cloud_sandbox":
+		return "cloud_sandbox", true
+	case "local_system":
+		return "local_system", true
+	default:
+		return "", false
+	}
+}
+
 func isHelpArg(value string) bool {
 	switch value {
 	case "help", "-h", "--help":
@@ -1112,39 +1266,71 @@ func usageError() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, `Usage:
-  tma [--base-url URL] health
-  tma [--base-url URL] provider list
-  tma [--base-url URL] provider get --id PROVIDER
-  tma [--base-url URL] provider create --id PROVIDER --type TYPE [--base-url URL] [--api-key-env ENV] [--disabled]
-  tma [--base-url URL] provider update --id PROVIDER [--type TYPE] [--base-url URL] [--api-key-env ENV]
-  tma [--base-url URL] provider enable --id PROVIDER
-  tma [--base-url URL] provider disable --id PROVIDER
-  tma [--base-url URL] model list [--provider PROVIDER]
-  tma [--base-url URL] model upsert --provider PROVIDER --model MODEL [--context-window TOKENS]
-  tma [--base-url URL] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
-  tma [--base-url URL] agent get --id AGENT_ID
-  tma [--base-url URL] agent config list --agent AGENT_ID
-  tma [--base-url URL] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT]
-  tma [--base-url URL] env create --name NAME [--config JSON]
-  tma [--base-url URL] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
-  tma [--base-url URL] session get --session SESSION_ID
-  tma [--base-url URL] session attach --session SESSION_ID [--after SEQ]
-  tma [--base-url URL] session runtime get --session SESSION_ID
-  tma [--base-url URL] session runtime update --session SESSION_ID --intervention-mode MODE
-  tma [--base-url URL] session intervention list --session SESSION_ID [--status STATUS]
-  tma [--base-url URL] session intervention approve --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
-  tma [--base-url URL] session intervention reject --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
-  tma [--base-url URL] session archive --session SESSION_ID
-  tma [--base-url URL] session delete --session SESSION_ID
-  tma [--base-url URL] session summary get --session SESSION_ID
-  tma [--base-url URL] session summary upsert --session SESSION_ID --text TEXT [--until SEQ]
-  tma [--base-url URL] usage list --session SESSION_ID
-  tma [--base-url URL] usage summary [--group-by provider|model|provider_model] [--provider PROVIDER] [--model MODEL] [--from RFC3339] [--to RFC3339]
-  tma [--base-url URL] event send --session SESSION_ID --text TEXT
-  tma [--base-url URL] event interrupt --session SESSION_ID
-  tma [--base-url URL] event list --session SESSION_ID [--after SEQ]
-  tma [--base-url URL] event stream --session SESSION_ID [--after SEQ]
+  tma [--base-url URL] [--auth-token TOKEN] health
+  tma sandbox doctor [--runtime auto|cloud_sandbox|local_system] [--root PATH] [--image IMAGE] [--docker COMMAND] [--pull=false]
+  tma web doctor [--searxng-url URL] [--query TEXT] [--timeout SECONDS]
+  tma web search --query TEXT [--limit N] [--categories LIST] [--engines LIST] [--time-range RANGE] [--timeout SECONDS]
+  tma web crawl --url URL [--impl IMPL] [--max-pages N] [--timeout SECONDS] [--attempts-only|--content-only]
+  tma [--base-url URL] [--auth-token TOKEN] provider list
+  tma [--base-url URL] [--auth-token TOKEN] provider get --id PROVIDER
+  tma [--base-url URL] [--auth-token TOKEN] provider create --id PROVIDER --type TYPE [--base-url URL] [--api-key-env ENV] [--disabled]
+  tma [--base-url URL] [--auth-token TOKEN] provider update --id PROVIDER [--type TYPE] [--base-url URL] [--api-key-env ENV]
+  tma [--base-url URL] [--auth-token TOKEN] provider enable --id PROVIDER
+  tma [--base-url URL] [--auth-token TOKEN] provider disable --id PROVIDER
+  tma [--base-url URL] [--auth-token TOKEN] model list [--provider PROVIDER]
+  tma [--base-url URL] [--auth-token TOKEN] model upsert --provider PROVIDER --model MODEL [--context-window TOKENS]
+  tma [--base-url URL] [--auth-token TOKEN] object create --bucket BUCKET --key KEY [--workspace WORKSPACE] [--size BYTES] [--content-type TYPE] [--sha256 HEX] [--metadata JSON]
+  tma [--base-url URL] [--auth-token TOKEN] object get --id OBJECT_REF_ID
+  tma [--base-url URL] [--auth-token TOKEN] object download --id OBJECT_REF_ID [--session SESSION_ID] [--output PATH]
+  tma [--base-url URL] [--auth-token TOKEN] object delete --id OBJECT_REF_ID
+  tma [--base-url URL] [--auth-token TOKEN] worker register --name NAME [--workspace WORKSPACE] [--type local|shared|cloud] [--capabilities JSON] [--metadata JSON] [--lease-seconds N]
+  tma [--base-url URL] [--auth-token TOKEN] worker list [--workspace WORKSPACE] [--status STATUS] [--json]
+  tma [--base-url URL] [--auth-token TOKEN] worker get --id WORKER_ID
+  tma [--base-url URL] [--auth-token TOKEN] worker heartbeat --id WORKER_ID [--status online|offline|draining] [--lease-seconds N]
+  tma [--base-url URL] [--auth-token TOKEN] worker archive --id WORKER_ID
+  tma [--base-url URL] [--auth-token TOKEN] worker diagnose --api API [--namespace default] [--capabilities LIST] [--runtime auto|cloud_sandbox|local_system] [--workspace WORKSPACE] [--json]
+  tma [--base-url URL] [--auth-token TOKEN] work enqueue [--workspace WORKSPACE] [--worker WORKER_ID] [--env ENV_ID] [--session SESSION_ID] [--turn TURN_ID] [--type tool_execution|sandbox_command|artifact_sync] [--payload JSON]
+  tma [--base-url URL] [--auth-token TOKEN] work enqueue --api API [--namespace default] [--capabilities LIST] [--risk read|write|exec] [--runtime auto|cloud_sandbox|local_system] [--input JSON]
+  tma [--base-url URL] [--auth-token TOKEN] work get --work WORK_ID
+  tma [--base-url URL] [--auth-token TOKEN] work reap-expired [--limit N]
+  tma [--base-url URL] [--auth-token TOKEN] work poll --worker WORKER_ID [--lease-seconds N]
+  tma [--base-url URL] [--auth-token TOKEN] work ack --worker WORKER_ID --work WORK_ID
+  tma [--base-url URL] [--auth-token TOKEN] work heartbeat --worker WORKER_ID --work WORK_ID [--lease-seconds N]
+  tma [--base-url URL] [--auth-token TOKEN] work result --worker WORKER_ID --work WORK_ID --success|--failure [--error TEXT] [--result JSON]
+  tma [--base-url URL] [--auth-token TOKEN] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] agent get --id AGENT_ID
+  tma [--base-url URL] [--auth-token TOKEN] agent config list --agent AGENT_ID
+  tma [--base-url URL] [--auth-token TOKEN] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT] [--tools JSON]
+  tma [--base-url URL] [--auth-token TOKEN] env create --name NAME [--config JSON]
+  tma [--base-url URL] [--auth-token TOKEN] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
+  tma [--base-url URL] [--auth-token TOKEN] session get --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session attach --session SESSION_ID [--after SEQ]
+  tma [--base-url URL] [--auth-token TOKEN] session config upgrade --session SESSION_ID --to-current
+  tma [--base-url URL] [--auth-token TOKEN] session runtime get --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session runtime update --session SESSION_ID [--intervention-mode MODE] [--tool-runtime auto|cloud_sandbox|local_system] [--cloud-sandbox-root PATH] [--cloud-sandbox-image IMAGE]
+  tma [--base-url URL] [--auth-token TOKEN] session intervention list --session SESSION_ID [--status STATUS]
+  tma [--base-url URL] [--auth-token TOKEN] session intervention approve --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] session intervention reject --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] session archive --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session delete --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session summary get --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session summary upsert --session SESSION_ID --text TEXT [--until SEQ]
+  tma [--base-url URL] [--auth-token TOKEN] session artifact create --session SESSION_ID --object OBJECT_REF_ID [--name NAME] [--type file|snapshot|asset] [--metadata JSON]
+  tma [--base-url URL] [--auth-token TOKEN] session artifact list --session SESSION_ID [--json]
+  tma [--base-url URL] [--auth-token TOKEN] session artifact download --session SESSION_ID --artifact ARTIFACT_ID [--output PATH]
+  tma [--base-url URL] [--auth-token TOKEN] session artifact delete --session SESSION_ID --artifact ARTIFACT_ID
+  tma [--base-url URL] [--auth-token TOKEN] usage list --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] usage summary [--group-by provider|model|provider_model] [--provider PROVIDER] [--model MODEL] [--from RFC3339] [--to RFC3339]
+  tma [--base-url URL] [--auth-token TOKEN] event send --session SESSION_ID --text TEXT
+  tma [--base-url URL] [--auth-token TOKEN] event interrupt --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] event list --session SESSION_ID [--after SEQ]
+  tma [--base-url URL] [--auth-token TOKEN] event stream --session SESSION_ID [--after SEQ]
+  tma [--base-url URL] [--auth-token TOKEN] trace show --session SESSION_ID [--turn TURN_ID] [--json]
+  tma [--base-url URL] [--auth-token TOKEN] trace export --session SESSION_ID [--turn TURN_ID] [--format perfetto|otel|json] [--output FILE] [--otlp-endpoint URL]
+  tma [--base-url URL] [--auth-token TOKEN] observability status
 
 Environment:
-  TMA_BASE_URL   API base URL. Defaults to http://localhost:8080`)
+  TMA_BASE_URL               API base URL. Defaults to http://localhost:8080
+  TMA_WORKER_CONTROL_TOKEN   Optional control-plane bearer token for CLI requests
+  TMA_OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP/HTTP base URL for trace export push`)
 }

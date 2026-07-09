@@ -46,6 +46,8 @@ type TurnResult struct {
 }
 
 type Config struct {
+	WorkspaceID           string
+	EnvironmentID         string
 	LLMProvider           string
 	LLMProviderType       string
 	LLMModel              string
@@ -332,14 +334,16 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		}
 
 		executionContext := turnRequest.Config.ToolExecutionContext
+		executionContext.WorkspaceID = defaultString(executionContext.WorkspaceID, turnRequest.Config.WorkspaceID)
 		executionContext.SessionID = defaultString(executionContext.SessionID, turnRequest.SessionID)
+		executionContext.EnvironmentID = defaultString(executionContext.EnvironmentID, turnRequest.Config.EnvironmentID)
 		executionContext.TurnID = defaultString(executionContext.TurnID, turnRequest.TurnID)
 		if executionContext.Deadline == nil {
 			executionContext.Deadline = deadlineFromContext(ctx)
 		}
 
 		if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
-			decision := policy.Evaluate(manifest, api)
+			decision := policy.EvaluateCall(manifest, api, call, executionContext)
 			if decision.Required && !decision.Allowed {
 				if err := emitStep(ctx, turnRequest, Step{
 					Type:    managedagents.EventRuntimeToolInterventionRequired,
@@ -395,6 +399,8 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 				"api_name":             call.APIName,
 				"content":              executionResult.Content,
 				"state":                rawJSONObject(executionResult.State),
+				"artifacts":            executionResult.Artifacts,
+				"artifact_error":       executionResult.ArtifactError,
 				"pending_intervention": executionResult.PendingIntervention,
 				"error":                executionResult.Error,
 				"success":              executionResult.Error == nil,

@@ -2,14 +2,19 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tools"
 )
 
 func TestMockRunnerCompletesTurn(t *testing.T) {
@@ -254,17 +259,24 @@ func TestWorkerRunnerInterruptCancelsExecutor(t *testing.T) {
 }
 
 type mockStore struct {
-	mu              sync.Mutex
-	completed       int
-	failed          int
-	reason          string
-	payload         json.RawMessage
-	summaries       map[string]managedagents.SessionSummary
-	interventions   []managedagents.SaveSessionInterventionInput
-	usageRecords    []managedagents.RecordLLMUsageInput
-	runtimeEvents   []string
-	history         []managedagents.ConversationMessage
-	runtimeSettings json.RawMessage
+	mu               sync.Mutex
+	completed        int
+	failed           int
+	reason           string
+	payload          json.RawMessage
+	summaries        map[string]managedagents.SessionSummary
+	interventions    []managedagents.SaveSessionInterventionInput
+	usageRecords     []managedagents.RecordLLMUsageInput
+	runtimeEvents    []string
+	history          []managedagents.ConversationMessage
+	runtimeSettings  json.RawMessage
+	toolsConfig      json.RawMessage
+	workers          []managedagents.Worker
+	workerWork       map[string]managedagents.WorkerWork
+	enqueuedWork     []managedagents.EnqueueWorkerWorkInput
+	sessions         map[string]managedagents.Session
+	createdObjects   []managedagents.CreateObjectRefInput
+	createdArtifacts []managedagents.CreateSessionArtifactInput
 }
 
 func (s *mockStore) completeCalls() int {
@@ -301,6 +313,12 @@ func (s *mockStore) runtimeEventTypes() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.runtimeEvents...)
+}
+
+func (s *mockStore) enqueuedWorkerWork() []managedagents.EnqueueWorkerWorkInput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]managedagents.EnqueueWorkerWorkInput(nil), s.enqueuedWork...)
 }
 
 func (s *mockStore) savedInterventions() []managedagents.SaveSessionInterventionInput {
@@ -380,12 +398,24 @@ func (s *mockStore) CreateSession(managedagents.CreateSessionInput) (managedagen
 	return managedagents.Session{}, nil
 }
 
-func (s *mockStore) GetSession(string) (managedagents.Session, error) {
-	return managedagents.Session{}, nil
+func (s *mockStore) GetSession(sessionID string) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions == nil {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if session, ok := s.sessions[sessionID]; ok {
+		return session, nil
+	}
+	return managedagents.Session{}, managedagents.ErrNotFound
 }
 
 func (s *mockStore) UpdateSessionRuntimeSettings(string, managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) UpgradeSessionAgentConfig(string, managedagents.UpgradeSessionAgentConfigInput) (managedagents.UpgradeSessionAgentConfigResult, error) {
+	return managedagents.UpgradeSessionAgentConfigResult{}, nil
 }
 
 func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagents.SaveSessionInterventionInput) (managedagents.SessionIntervention, error) {
@@ -428,6 +458,7 @@ func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		WorkspaceID:           "wksp_default",
 		AgentID:               "agt_000001",
 		AgentConfigVersion:    1,
+		EnvironmentID:         "env_000001",
 		LLMProvider:           "fake",
 		LLMProviderType:       "fake",
 		LLMModel:              "fake-demo",
@@ -435,6 +466,7 @@ func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		SummaryText:           "summary from mock store",
 		SummarySourceUntilSeq: 2,
 		RuntimeSettings:       append(json.RawMessage(nil), s.runtimeSettings...),
+		Tools:                 append(json.RawMessage(nil), s.toolsConfig...),
 	}, nil
 }
 
@@ -644,6 +676,214 @@ func (s *mockStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managed
 		report.Summary.LatencyMillis += record.LatencyMillis
 	}
 	return report, nil
+}
+
+func (s *mockStore) CreateObjectRef(input managedagents.CreateObjectRefInput) (managedagents.ObjectRef, error) {
+	s.mu.Lock()
+	s.createdObjects = append(s.createdObjects, input)
+	s.mu.Unlock()
+	return managedagents.ObjectRef{
+		ID:              "obj_000001",
+		WorkspaceID:     input.WorkspaceID,
+		StorageProvider: input.StorageProvider,
+		Bucket:          input.Bucket,
+		ObjectKey:       input.ObjectKey,
+		ObjectVersion:   input.ObjectVersion,
+		ContentType:     input.ContentType,
+		SizeBytes:       input.SizeBytes,
+		ChecksumSHA256:  input.ChecksumSHA256,
+		ETag:            input.ETag,
+		Visibility:      input.Visibility,
+		Metadata:        input.Metadata,
+		CreatedBy:       input.CreatedBy,
+	}, nil
+}
+
+func (s *mockStore) GetObjectRef(string) (managedagents.ObjectRef, error) {
+	return managedagents.ObjectRef{}, nil
+}
+
+func (s *mockStore) CreateSessionArtifact(input managedagents.CreateSessionArtifactInput) (managedagents.SessionArtifact, error) {
+	s.mu.Lock()
+	s.createdArtifacts = append(s.createdArtifacts, input)
+	s.mu.Unlock()
+	return managedagents.SessionArtifact{
+		ID:            "art_000001",
+		WorkspaceID:   input.WorkspaceID,
+		SessionID:     input.SessionID,
+		EnvironmentID: input.EnvironmentID,
+		ObjectRefID:   input.ObjectRefID,
+		TurnID:        input.TurnID,
+		ToolCallID:    input.ToolCallID,
+		Name:          input.Name,
+		Description:   input.Description,
+		ArtifactType:  input.ArtifactType,
+		Metadata:      input.Metadata,
+		CreatedBy:     input.CreatedBy,
+	}, nil
+}
+
+func (s *mockStore) GetSessionArtifact(string, string) (managedagents.SessionArtifact, error) {
+	return managedagents.SessionArtifact{}, nil
+}
+
+func (s *mockStore) CountSessionArtifactsByObjectRef(string) (int, error) {
+	return 0, nil
+}
+
+func (s *mockStore) DeleteObjectRef(string) error {
+	return nil
+}
+
+func (s *mockStore) DeleteSessionArtifact(string, string) error {
+	return nil
+}
+
+func (s *mockStore) ListSessionArtifacts(string) ([]managedagents.SessionArtifact, error) {
+	return nil, nil
+}
+
+func (s *mockStore) RegisterWorker(managedagents.RegisterWorkerInput) (managedagents.Worker, error) {
+	return managedagents.Worker{}, nil
+}
+
+func (s *mockStore) GetWorker(string) (managedagents.Worker, error) {
+	return managedagents.Worker{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) ListWorkers(input managedagents.ListWorkersInput) ([]managedagents.Worker, error) {
+	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	workers := []managedagents.Worker{}
+	for _, worker := range s.workers {
+		if worker.WorkspaceID != "" && worker.WorkspaceID != workspaceID {
+			continue
+		}
+		if input.Status != "" && worker.Status != input.Status {
+			continue
+		}
+		workers = append(workers, worker)
+	}
+	return workers, nil
+}
+
+func (s *mockStore) HeartbeatWorker(string, managedagents.WorkerHeartbeatInput) (managedagents.Worker, error) {
+	return managedagents.Worker{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) ArchiveWorker(string) (managedagents.Worker, error) {
+	return managedagents.Worker{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) EnqueueWorkerWork(input managedagents.EnqueueWorkerWorkInput) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.workerWork == nil {
+		s.workerWork = make(map[string]managedagents.WorkerWork)
+	}
+	id := fmt.Sprintf("work_%06d", len(s.workerWork)+1)
+	now := time.Now().UTC()
+	work := managedagents.WorkerWork{
+		ID:            id,
+		WorkspaceID:   defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		WorkerID:      input.WorkerID,
+		EnvironmentID: input.EnvironmentID,
+		SessionID:     input.SessionID,
+		TurnID:        input.TurnID,
+		WorkType:      defaultString(input.WorkType, managedagents.WorkerWorkTypeToolExecution),
+		Status:        managedagents.WorkerWorkStatusCompleted,
+		Payload:       append(json.RawMessage(nil), input.Payload...),
+		Result:        mockCompletedWorkerToolResult(input.Payload),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		CompletedAt:   &now,
+	}
+	s.workerWork[id] = work
+	s.enqueuedWork = append(s.enqueuedWork, input)
+	return work, nil
+}
+
+func (s *mockStore) GetWorkerWork(id string) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.workerWork == nil {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	work, ok := s.workerWork[id]
+	if !ok {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	return work, nil
+}
+
+func mockCompletedWorkerToolResult(payload json.RawMessage) json.RawMessage {
+	var invocation tools.WorkInvocation
+	_ = json.Unmarshal(payload, &invocation)
+	var input struct {
+		OutputPaths []string `json:"output_paths"`
+	}
+	_ = json.Unmarshal(invocation.Input, &input)
+
+	stdout := "worker ok"
+	inputText := string(invocation.Input)
+	switch {
+	case strings.Contains(inputText, "tma-worker-export-ok"):
+		stdout = "tma-worker-export-ok"
+	case strings.Contains(inputText, "tma-session-tool-ok"):
+		stdout = "/worker\n tma-session-tool-ok"
+	}
+	state, _ := json.Marshal(capability.CommandResult{
+		ExitCode: 0,
+		Stdout:   stdout,
+		Stderr:   "",
+	})
+	exportedFiles := make([]tools.ArtifactExport, 0, len(input.OutputPaths))
+	for _, exportPath := range input.OutputPaths {
+		exportPath = strings.TrimSpace(exportPath)
+		if exportPath == "" {
+			continue
+		}
+		exportedFiles = append(exportedFiles, tools.ArtifactExport{
+			Path:          exportPath,
+			Name:          filepath.Base(exportPath),
+			ContentType:   "text/plain",
+			ContentBase64: base64.StdEncoding.EncodeToString([]byte(stdout)),
+		})
+	}
+	result, _ := json.Marshal(map[string]any{
+		"status":       "executed",
+		"work_type":    managedagents.WorkerWorkTypeToolExecution,
+		"tool_runtime": tools.ToolRuntimeLocalSystem,
+		"invocation":   invocation,
+		"tool_result": tools.ExecutionResult{
+			Identifier:    invocation.Namespace,
+			APIName:       invocation.API,
+			Content:       stdout,
+			State:         state,
+			ExportedFiles: exportedFiles,
+		},
+	})
+	return result
+}
+
+func (s *mockStore) PollWorkerWork(string, managedagents.PollWorkerWorkInput) (*managedagents.WorkerWork, error) {
+	return nil, nil
+}
+
+func (s *mockStore) AckWorkerWork(string, string) (managedagents.WorkerWork, error) {
+	return managedagents.WorkerWork{}, nil
+}
+
+func (s *mockStore) HeartbeatWorkerWork(string, string, managedagents.WorkerWorkHeartbeatInput) (managedagents.WorkerWork, error) {
+	return managedagents.WorkerWork{}, nil
+}
+
+func (s *mockStore) ReapExpiredWorkerWork(managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
+	return nil, nil
+}
+
+func (s *mockStore) CompleteWorkerWork(string, string, managedagents.CompleteWorkerWorkInput) (managedagents.WorkerWork, error) {
+	return managedagents.WorkerWork{}, nil
 }
 
 func (s *mockStore) ListEvents(string, int64) ([]managedagents.Event, error) {

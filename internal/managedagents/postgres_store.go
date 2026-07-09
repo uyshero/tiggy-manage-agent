@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -644,6 +645,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 			s.workspace_id,
 			s.agent_id,
 			s.agent_config_version,
+			s.environment_id,
 			av.llm_provider,
 			av.llm_model,
 			av.system,
@@ -674,6 +676,7 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 		&config.WorkspaceID,
 		&config.AgentID,
 		&config.AgentConfigVersion,
+		&config.EnvironmentID,
 		&config.LLMProvider,
 		&config.LLMModel,
 		&config.System,
@@ -905,6 +908,96 @@ func (s *PostgresStore) UpdateSessionRuntimeSettings(id string, input UpdateSess
 		return Session{}, err
 	}
 	return s.GetSession(id)
+}
+
+func (s *PostgresStore) UpgradeSessionAgentConfig(id string, input UpgradeSessionAgentConfigInput) (UpgradeSessionAgentConfigResult, error) {
+	if id == "" {
+		return UpgradeSessionAgentConfigResult{}, fmt.Errorf("%w: session_id is required", ErrInvalid)
+	}
+	if !input.ToCurrent {
+		return UpgradeSessionAgentConfigResult{}, fmt.Errorf("%w: only to_current upgrade is supported", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	defer tx.Rollback()
+
+	session, err := getSessionForUpdateTx(ctx, tx, id)
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	if session.Status == SessionStatusTerminated {
+		return UpgradeSessionAgentConfigResult{}, ErrTerminated
+	}
+	if session.Status != SessionStatusIdle {
+		return UpgradeSessionAgentConfigResult{}, fmt.Errorf("%w: session config upgrade requires idle session", ErrConflict)
+	}
+
+	var latestVersion int
+	err = tx.QueryRowContext(ctx, `
+		SELECT current_config_version
+		FROM agents
+		WHERE id = $1 AND archived_at IS NULL
+	`, session.AgentID).Scan(&latestVersion)
+	if err == sql.ErrNoRows {
+		return UpgradeSessionAgentConfigResult{}, ErrNotFound
+	}
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+
+	result := UpgradeSessionAgentConfigResult{
+		Session:                  session,
+		OldAgentConfigVersion:    session.AgentConfigVersion,
+		NewAgentConfigVersion:    session.AgentConfigVersion,
+		LatestAgentConfigVersion: latestVersion,
+		Changed:                  false,
+	}
+	if latestVersion == session.AgentConfigVersion {
+		if err := tx.Commit(); err != nil {
+			return UpgradeSessionAgentConfigResult{}, err
+		}
+		return result, nil
+	}
+	if latestVersion < session.AgentConfigVersion {
+		return UpgradeSessionAgentConfigResult{}, fmt.Errorf("%w: latest agent config version %d is older than session version %d", ErrConflict, latestVersion, session.AgentConfigVersion)
+	}
+
+	now := time.Now().UTC()
+	_, err = tx.ExecContext(ctx, `
+		UPDATE sessions
+		SET agent_config_version = $2
+		WHERE id = $1
+	`, session.ID, latestVersion)
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	session.AgentConfigVersion = latestVersion
+	payload, err := json.Marshal(map[string]any{
+		"old_agent_config_version": result.OldAgentConfigVersion,
+		"new_agent_config_version": latestVersion,
+		"updated_by":               defaultString(input.UpdatedBy, "system"),
+	})
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	event, err := s.appendEventTx(ctx, tx, session.ID, EventSessionConfigUpdated, json.RawMessage(payload), now)
+	if err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return UpgradeSessionAgentConfigResult{}, err
+	}
+	s.hub.publish(event)
+
+	result.Session = session
+	result.Event = event
+	result.NewAgentConfigVersion = latestVersion
+	result.Changed = true
+	return result, nil
 }
 
 func (s *PostgresStore) SaveSessionIntervention(sessionID string, input SaveSessionInterventionInput) (SessionIntervention, error) {
@@ -1683,6 +1776,941 @@ func (s *PostgresStore) ListLLMUsage(input ListLLMUsageInput) (LLMUsageAggregate
 	return report, nil
 }
 
+func (s *PostgresStore) CreateObjectRef(input CreateObjectRefInput) (ObjectRef, error) {
+	if input.Bucket == "" {
+		return ObjectRef{}, fmt.Errorf("%w: object bucket is required", ErrInvalid)
+	}
+	if input.ObjectKey == "" {
+		return ObjectRef{}, fmt.Errorf("%w: object_key is required", ErrInvalid)
+	}
+	if input.SizeBytes < 0 {
+		return ObjectRef{}, fmt.Errorf("%w: object size_bytes must be non-negative", ErrInvalid)
+	}
+	visibility := normalizeObjectVisibility(input.Visibility)
+	if visibility == "" {
+		return ObjectRef{}, fmt.Errorf("%w: unsupported object visibility %q", ErrInvalid, input.Visibility)
+	}
+
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "obj", "tma_object_ref_id_seq")
+	if err != nil {
+		return ObjectRef{}, err
+	}
+
+	object := ObjectRef{
+		ID:              id,
+		WorkspaceID:     defaultString(input.WorkspaceID, DefaultWorkspaceID),
+		StorageProvider: defaultString(input.StorageProvider, ObjectStorageProviderS3),
+		Bucket:          input.Bucket,
+		ObjectKey:       input.ObjectKey,
+		ObjectVersion:   input.ObjectVersion,
+		ContentType:     input.ContentType,
+		SizeBytes:       input.SizeBytes,
+		ChecksumSHA256:  input.ChecksumSHA256,
+		ETag:            input.ETag,
+		Visibility:      visibility,
+		Metadata:        metadataJSON(input.Metadata),
+		CreatedBy:       defaultString(input.CreatedBy, "system"),
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO object_refs (
+			id,
+			workspace_id,
+			storage_provider,
+			bucket,
+			object_key,
+			object_version,
+			content_type,
+			size_bytes,
+			checksum_sha256,
+			etag,
+			visibility,
+			metadata_json,
+			created_by,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		RETURNING
+			id,
+			workspace_id,
+			storage_provider,
+			bucket,
+			object_key,
+			object_version,
+			content_type,
+			size_bytes,
+			checksum_sha256,
+			etag,
+			visibility,
+			metadata_json,
+			created_by,
+			created_at
+	`, object.ID,
+		object.WorkspaceID,
+		object.StorageProvider,
+		object.Bucket,
+		object.ObjectKey,
+		object.ObjectVersion,
+		object.ContentType,
+		object.SizeBytes,
+		object.ChecksumSHA256,
+		object.ETag,
+		object.Visibility,
+		object.Metadata,
+		object.CreatedBy,
+		object.CreatedAt,
+	)
+	return scanObjectRef(row)
+}
+
+func (s *PostgresStore) GetObjectRef(id string) (ObjectRef, error) {
+	if id == "" {
+		return ObjectRef{}, fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			storage_provider,
+			bucket,
+			object_key,
+			object_version,
+			content_type,
+			size_bytes,
+			checksum_sha256,
+			etag,
+			visibility,
+			metadata_json,
+			created_by,
+			created_at
+		FROM object_refs
+		WHERE id = $1
+	`, id)
+	object, err := scanObjectRef(row)
+	if err == sql.ErrNoRows {
+		return ObjectRef{}, ErrNotFound
+	}
+	return object, err
+}
+
+func (s *PostgresStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
+	if objectRefID == "" {
+		return 0, fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	var count int
+	if err := s.db.QueryRowContext(context.Background(), `
+		SELECT COUNT(*)
+		FROM session_artifacts
+		WHERE object_ref_id = $1
+	`, objectRefID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (s *PostgresStore) DeleteObjectRef(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	result, err := s.db.ExecContext(context.Background(), `DELETE FROM object_refs WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) CreateSessionArtifact(input CreateSessionArtifactInput) (SessionArtifact, error) {
+	if input.SessionID == "" {
+		return SessionArtifact{}, fmt.Errorf("%w: artifact session_id is required", ErrInvalid)
+	}
+	if input.ObjectRefID == "" {
+		return SessionArtifact{}, fmt.Errorf("%w: artifact object_ref_id is required", ErrInvalid)
+	}
+	artifactType := normalizeArtifactType(input.ArtifactType)
+	if artifactType == "" {
+		return SessionArtifact{}, fmt.Errorf("%w: unsupported artifact_type %q", ErrInvalid, input.ArtifactType)
+	}
+
+	session, err := s.GetSession(input.SessionID)
+	if err != nil {
+		return SessionArtifact{}, err
+	}
+	object, err := s.GetObjectRef(input.ObjectRefID)
+	if err != nil {
+		return SessionArtifact{}, err
+	}
+	workspaceID := defaultString(input.WorkspaceID, session.WorkspaceID)
+	if workspaceID != session.WorkspaceID || workspaceID != object.WorkspaceID {
+		return SessionArtifact{}, fmt.Errorf("%w: artifact workspace mismatch", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "art", "tma_session_artifact_id_seq")
+	if err != nil {
+		return SessionArtifact{}, err
+	}
+	name := input.Name
+	if name == "" {
+		name = object.ObjectKey
+	}
+	artifact := SessionArtifact{
+		ID:            id,
+		WorkspaceID:   workspaceID,
+		SessionID:     input.SessionID,
+		EnvironmentID: defaultString(input.EnvironmentID, session.EnvironmentID),
+		ObjectRefID:   input.ObjectRefID,
+		TurnID:        input.TurnID,
+		ToolCallID:    input.ToolCallID,
+		Name:          name,
+		Description:   input.Description,
+		ArtifactType:  artifactType,
+		Metadata:      metadataJSON(input.Metadata),
+		CreatedBy:     defaultString(input.CreatedBy, "system"),
+		CreatedAt:     time.Now().UTC(),
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO session_artifacts (
+			id,
+			workspace_id,
+			session_id,
+			environment_id,
+			object_ref_id,
+			turn_id,
+			tool_call_id,
+			name,
+			description,
+			artifact_type,
+			metadata_json,
+			created_by,
+			created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING
+			id,
+			workspace_id,
+			session_id,
+			environment_id,
+			object_ref_id,
+			turn_id,
+			tool_call_id,
+			name,
+			description,
+			artifact_type,
+			metadata_json,
+			created_by,
+			created_at
+	`, artifact.ID,
+		artifact.WorkspaceID,
+		artifact.SessionID,
+		nullableString(artifact.EnvironmentID),
+		artifact.ObjectRefID,
+		artifact.TurnID,
+		artifact.ToolCallID,
+		artifact.Name,
+		artifact.Description,
+		artifact.ArtifactType,
+		artifact.Metadata,
+		artifact.CreatedBy,
+		artifact.CreatedAt,
+	)
+	return scanSessionArtifact(row)
+}
+
+func (s *PostgresStore) GetSessionArtifact(sessionID string, artifactID string) (SessionArtifact, error) {
+	if sessionID == "" {
+		return SessionArtifact{}, fmt.Errorf("%w: artifact session_id is required", ErrInvalid)
+	}
+	if artifactID == "" {
+		return SessionArtifact{}, fmt.Errorf("%w: artifact id is required", ErrInvalid)
+	}
+
+	row := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			session_id,
+			environment_id,
+			object_ref_id,
+			turn_id,
+			tool_call_id,
+			name,
+			description,
+			artifact_type,
+			metadata_json,
+			created_by,
+			created_at
+		FROM session_artifacts
+		WHERE session_id = $1 AND id = $2
+	`, sessionID, artifactID)
+	artifact, err := scanSessionArtifact(row)
+	if err == sql.ErrNoRows {
+		return SessionArtifact{}, ErrNotFound
+	}
+	return artifact, err
+}
+
+func (s *PostgresStore) DeleteSessionArtifact(sessionID string, artifactID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("%w: artifact session_id is required", ErrInvalid)
+	}
+	if artifactID == "" {
+		return fmt.Errorf("%w: artifact id is required", ErrInvalid)
+	}
+	result, err := s.db.ExecContext(context.Background(), `DELETE FROM session_artifacts WHERE session_id = $1 AND id = $2`, sessionID, artifactID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *PostgresStore) ListSessionArtifacts(sessionID string) ([]SessionArtifact, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("%w: artifact session_id is required", ErrInvalid)
+	}
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			session_id,
+			environment_id,
+			object_ref_id,
+			turn_id,
+			tool_call_id,
+			name,
+			description,
+			artifact_type,
+			metadata_json,
+			created_by,
+			created_at
+		FROM session_artifacts
+		WHERE session_id = $1
+		ORDER BY created_at ASC, id ASC
+	`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	artifacts := []SessionArtifact{}
+	for rows.Next() {
+		artifact, err := scanSessionArtifact(rows)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func (s *PostgresStore) RegisterWorker(input RegisterWorkerInput) (Worker, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return Worker{}, fmt.Errorf("%w: worker name is required", ErrInvalid)
+	}
+	workerType := normalizeWorkerType(input.WorkerType)
+	if workerType == "" {
+		return Worker{}, fmt.Errorf("%w: unsupported worker_type %q", ErrInvalid, input.WorkerType)
+	}
+
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "wrk", "tma_worker_id_seq")
+	if err != nil {
+		return Worker{}, err
+	}
+	now := time.Now().UTC()
+	leaseExpiresAt := workerLeaseExpiresAt(now, input.LeaseSeconds)
+	worker := Worker{
+		ID:             id,
+		WorkspaceID:    defaultString(input.WorkspaceID, DefaultWorkspaceID),
+		Name:           strings.TrimSpace(input.Name),
+		WorkerType:     workerType,
+		Status:         WorkerStatusOnline,
+		Capabilities:   metadataJSON(input.Capabilities),
+		Metadata:       metadataJSON(input.Metadata),
+		RegisteredBy:   defaultString(input.RegisteredBy, "system"),
+		RegisteredAt:   now,
+		LastSeenAt:     &now,
+		LeaseExpiresAt: &leaseExpiresAt,
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO workers (
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at,
+			archived_at
+	`, worker.ID,
+		worker.WorkspaceID,
+		worker.Name,
+		worker.WorkerType,
+		worker.Status,
+		worker.Capabilities,
+		worker.Metadata,
+		worker.RegisteredBy,
+		worker.RegisteredAt,
+		worker.LastSeenAt,
+		worker.LeaseExpiresAt,
+	)
+	return scanWorker(row)
+}
+
+func (s *PostgresStore) GetWorker(id string) (Worker, error) {
+	if id == "" {
+		return Worker{}, fmt.Errorf("%w: worker id is required", ErrInvalid)
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at,
+			archived_at
+		FROM workers
+		WHERE id = $1
+	`, id)
+	worker, err := scanWorker(row)
+	if err == sql.ErrNoRows {
+		return Worker{}, ErrNotFound
+	}
+	return worker, err
+}
+
+func (s *PostgresStore) ListWorkers(input ListWorkersInput) ([]Worker, error) {
+	workspaceID := defaultString(input.WorkspaceID, DefaultWorkspaceID)
+	status := strings.TrimSpace(input.Status)
+	if status != "" && normalizeWorkerStatus(status) == "" {
+		return nil, fmt.Errorf("%w: unsupported worker status %q", ErrInvalid, input.Status)
+	}
+
+	query := `
+		SELECT
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at,
+			archived_at
+		FROM workers
+		WHERE workspace_id = $1
+	`
+	args := []any{workspaceID}
+	if status != "" {
+		query += ` AND status = $2`
+		args = append(args, normalizeWorkerStatus(status))
+	}
+	query += ` ORDER BY registered_at DESC, id DESC`
+
+	rows, err := s.db.QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	workers := []Worker{}
+	for rows.Next() {
+		worker, err := scanWorker(rows)
+		if err != nil {
+			return nil, err
+		}
+		workers = append(workers, worker)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
+func (s *PostgresStore) HeartbeatWorker(id string, input WorkerHeartbeatInput) (Worker, error) {
+	if id == "" {
+		return Worker{}, fmt.Errorf("%w: worker id is required", ErrInvalid)
+	}
+	status := normalizeWorkerStatus(input.Status)
+	if status == "" {
+		return Worker{}, fmt.Errorf("%w: unsupported worker status %q", ErrInvalid, input.Status)
+	}
+	if status == WorkerStatusArchived {
+		return Worker{}, fmt.Errorf("%w: archived status requires archive endpoint", ErrInvalid)
+	}
+	now := time.Now().UTC()
+	leaseExpiresAt := workerLeaseExpiresAt(now, input.LeaseSeconds)
+
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE workers
+		SET
+			status = $2,
+			capabilities_json = CASE WHEN $3::jsonb IS NULL THEN capabilities_json ELSE $3::jsonb END,
+			metadata_json = CASE WHEN $4::jsonb IS NULL THEN metadata_json ELSE $4::jsonb END,
+			last_seen_at = $5,
+			lease_expires_at = $6
+		WHERE id = $1 AND archived_at IS NULL
+		RETURNING
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at,
+			archived_at
+	`, id,
+		status,
+		nullableJSON(input.Capabilities),
+		nullableJSON(input.Metadata),
+		now,
+		leaseExpiresAt,
+	)
+	worker, err := scanWorker(row)
+	if err == sql.ErrNoRows {
+		return Worker{}, ErrNotFound
+	}
+	return worker, err
+}
+
+func (s *PostgresStore) ArchiveWorker(id string) (Worker, error) {
+	if id == "" {
+		return Worker{}, fmt.Errorf("%w: worker id is required", ErrInvalid)
+	}
+	now := time.Now().UTC()
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE workers
+		SET status = 'archived', archived_at = $2
+		WHERE id = $1 AND archived_at IS NULL
+		RETURNING
+			id,
+			workspace_id,
+			name,
+			worker_type,
+			status,
+			capabilities_json,
+			metadata_json,
+			registered_by,
+			registered_at,
+			last_seen_at,
+			lease_expires_at,
+			archived_at
+	`, id, now)
+	worker, err := scanWorker(row)
+	if err == sql.ErrNoRows {
+		return Worker{}, ErrNotFound
+	}
+	return worker, err
+}
+
+func (s *PostgresStore) EnqueueWorkerWork(input EnqueueWorkerWorkInput) (WorkerWork, error) {
+	workType := normalizeWorkerWorkType(input.WorkType)
+	if workType == "" {
+		return WorkerWork{}, fmt.Errorf("%w: unsupported worker work_type %q", ErrInvalid, input.WorkType)
+	}
+
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "work", "tma_worker_work_id_seq")
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	now := time.Now().UTC()
+	work := WorkerWork{
+		ID:            id,
+		WorkspaceID:   defaultString(input.WorkspaceID, DefaultWorkspaceID),
+		WorkerID:      input.WorkerID,
+		EnvironmentID: input.EnvironmentID,
+		SessionID:     input.SessionID,
+		TurnID:        input.TurnID,
+		WorkType:      workType,
+		Status:        WorkerWorkStatusPending,
+		Payload:       metadataJSON(input.Payload),
+		Result:        json.RawMessage(`{}`),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+
+	row := s.db.QueryRowContext(ctx, `
+		INSERT INTO worker_work (
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}'::jsonb, $10, $11)
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, work.ID,
+		work.WorkspaceID,
+		nullableString(work.WorkerID),
+		nullableString(work.EnvironmentID),
+		nullableString(work.SessionID),
+		work.TurnID,
+		work.WorkType,
+		work.Status,
+		work.Payload,
+		work.CreatedAt,
+		work.UpdatedAt,
+	)
+	return scanWorkerWork(row)
+}
+
+func (s *PostgresStore) GetWorkerWork(id string) (WorkerWork, error) {
+	if id == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker work id is required", ErrInvalid)
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+		FROM worker_work
+		WHERE id = $1
+	`, id)
+	work, err := scanWorkerWork(row)
+	if err == sql.ErrNoRows {
+		return WorkerWork{}, ErrNotFound
+	}
+	return work, err
+}
+
+func (s *PostgresStore) PollWorkerWork(workerID string, input PollWorkerWorkInput) (*WorkerWork, error) {
+	if workerID == "" {
+		return nil, fmt.Errorf("%w: worker id is required", ErrInvalid)
+	}
+	worker, err := s.GetWorker(workerID)
+	if err != nil {
+		return nil, err
+	}
+	if worker.Status == WorkerStatusArchived {
+		return nil, ErrNotFound
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var workID string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id
+		FROM worker_work
+		WHERE workspace_id = $1
+			AND status = 'pending'
+			AND (worker_id IS NULL OR worker_id = $2)
+		ORDER BY created_at ASC, id ASC
+		LIMIT 1
+		FOR UPDATE SKIP LOCKED
+	`, worker.WorkspaceID, workerID).Scan(&workID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	leaseExpiresAt := workerLeaseExpiresAt(now, input.LeaseSeconds)
+	row := tx.QueryRowContext(ctx, `
+		UPDATE worker_work
+		SET
+			worker_id = $2,
+			status = 'leased',
+			lease_expires_at = $3,
+			updated_at = $4
+		WHERE id = $1
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, workID, workerID, leaseExpiresAt, now)
+	work, err := scanWorkerWork(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &work, nil
+}
+
+func (s *PostgresStore) AckWorkerWork(workerID string, workID string) (WorkerWork, error) {
+	if workerID == "" || workID == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker id and work id are required", ErrInvalid)
+	}
+	now := time.Now().UTC()
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE worker_work
+		SET status = 'running', started_at = COALESCE(started_at, $3), updated_at = $3
+		WHERE id = $2 AND worker_id = $1 AND status IN ('leased', 'running')
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, workerID, workID, now)
+	work, err := scanWorkerWork(row)
+	if err == sql.ErrNoRows {
+		return WorkerWork{}, ErrNotFound
+	}
+	return work, err
+}
+
+func (s *PostgresStore) HeartbeatWorkerWork(workerID string, workID string, input WorkerWorkHeartbeatInput) (WorkerWork, error) {
+	if workerID == "" || workID == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker id and work id are required", ErrInvalid)
+	}
+	now := time.Now().UTC()
+	leaseExpiresAt := workerLeaseExpiresAt(now, input.LeaseSeconds)
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE worker_work
+		SET lease_expires_at = $3, updated_at = $4
+		WHERE id = $2 AND worker_id = $1 AND status IN ('leased', 'running')
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, workerID, workID, leaseExpiresAt, now)
+	work, err := scanWorkerWork(row)
+	if err == sql.ErrNoRows {
+		return WorkerWork{}, ErrNotFound
+	}
+	return work, err
+}
+
+func (s *PostgresStore) ReapExpiredWorkerWork(input ReapExpiredWorkerWorkInput) ([]WorkerWork, error) {
+	limit := workerWorkReapLimit(input.Limit)
+	now := time.Now().UTC()
+	rows, err := s.db.QueryContext(context.Background(), `
+		WITH expired AS (
+			SELECT id
+			FROM worker_work
+			WHERE status IN ('leased', 'running')
+				AND lease_expires_at IS NOT NULL
+				AND lease_expires_at < $1
+			ORDER BY lease_expires_at ASC, id ASC
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE worker_work AS work
+		SET
+			status = 'failed',
+			error_message = COALESCE(NULLIF(work.error_message, ''), 'worker work lease expired at ' || work.lease_expires_at::text),
+			updated_at = $1,
+			completed_at = $1
+		FROM expired
+		WHERE work.id = expired.id
+		RETURNING
+			work.id,
+			work.workspace_id,
+			work.worker_id,
+			work.environment_id,
+			work.session_id,
+			work.turn_id,
+			work.work_type,
+			work.status,
+			work.payload_json,
+			work.result_json,
+			work.error_message,
+			work.lease_expires_at,
+			work.created_at,
+			work.updated_at,
+			work.started_at,
+			work.completed_at
+	`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var works []WorkerWork
+	for rows.Next() {
+		work, err := scanWorkerWork(rows)
+		if err != nil {
+			return nil, err
+		}
+		works = append(works, work)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return works, nil
+}
+
+func (s *PostgresStore) CompleteWorkerWork(workerID string, workID string, input CompleteWorkerWorkInput) (WorkerWork, error) {
+	if workerID == "" || workID == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker id and work id are required", ErrInvalid)
+	}
+	status := WorkerWorkStatusFailed
+	if input.Success {
+		status = WorkerWorkStatusCompleted
+	}
+	now := time.Now().UTC()
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE worker_work
+		SET
+			status = $3,
+			result_json = $4,
+			error_message = $5,
+			updated_at = $6,
+			completed_at = $6
+		WHERE id = $2 AND worker_id = $1 AND status IN ('leased', 'running')
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, workerID, workID, status, metadataJSON(input.Result), input.ErrorMessage, now)
+	work, err := scanWorkerWork(row)
+	if err == sql.ErrNoRows {
+		return WorkerWork{}, ErrNotFound
+	}
+	return work, err
+}
+
 func (s *PostgresStore) ListEvents(sessionID string, afterSeq int64) ([]Event, error) {
 	if _, err := s.GetSession(sessionID); err != nil {
 		return nil, err
@@ -1963,6 +2991,145 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
+func scanObjectRef(scanner rowScanner) (ObjectRef, error) {
+	var object ObjectRef
+	var metadata []byte
+	err := scanner.Scan(
+		&object.ID,
+		&object.WorkspaceID,
+		&object.StorageProvider,
+		&object.Bucket,
+		&object.ObjectKey,
+		&object.ObjectVersion,
+		&object.ContentType,
+		&object.SizeBytes,
+		&object.ChecksumSHA256,
+		&object.ETag,
+		&object.Visibility,
+		&metadata,
+		&object.CreatedBy,
+		&object.CreatedAt,
+	)
+	if err != nil {
+		return ObjectRef{}, err
+	}
+	object.Metadata = cloneRaw(metadata)
+	return object, nil
+}
+
+func scanSessionArtifact(scanner rowScanner) (SessionArtifact, error) {
+	var artifact SessionArtifact
+	var environmentID sql.NullString
+	var metadata []byte
+	err := scanner.Scan(
+		&artifact.ID,
+		&artifact.WorkspaceID,
+		&artifact.SessionID,
+		&environmentID,
+		&artifact.ObjectRefID,
+		&artifact.TurnID,
+		&artifact.ToolCallID,
+		&artifact.Name,
+		&artifact.Description,
+		&artifact.ArtifactType,
+		&metadata,
+		&artifact.CreatedBy,
+		&artifact.CreatedAt,
+	)
+	if err != nil {
+		return SessionArtifact{}, err
+	}
+	artifact.EnvironmentID = environmentID.String
+	artifact.Metadata = cloneRaw(metadata)
+	return artifact, nil
+}
+
+func scanWorker(scanner rowScanner) (Worker, error) {
+	var worker Worker
+	var capabilities []byte
+	var metadata []byte
+	var lastSeenAt sql.NullTime
+	var leaseExpiresAt sql.NullTime
+	var archivedAt sql.NullTime
+	err := scanner.Scan(
+		&worker.ID,
+		&worker.WorkspaceID,
+		&worker.Name,
+		&worker.WorkerType,
+		&worker.Status,
+		&capabilities,
+		&metadata,
+		&worker.RegisteredBy,
+		&worker.RegisteredAt,
+		&lastSeenAt,
+		&leaseExpiresAt,
+		&archivedAt,
+	)
+	if err != nil {
+		return Worker{}, err
+	}
+	worker.Capabilities = cloneRaw(capabilities)
+	worker.Metadata = cloneRaw(metadata)
+	if lastSeenAt.Valid {
+		worker.LastSeenAt = &lastSeenAt.Time
+	}
+	if leaseExpiresAt.Valid {
+		worker.LeaseExpiresAt = &leaseExpiresAt.Time
+	}
+	if archivedAt.Valid {
+		worker.ArchivedAt = &archivedAt.Time
+	}
+	return worker, nil
+}
+
+func scanWorkerWork(scanner rowScanner) (WorkerWork, error) {
+	var work WorkerWork
+	var workerID sql.NullString
+	var environmentID sql.NullString
+	var sessionID sql.NullString
+	var payload []byte
+	var result []byte
+	var leaseExpiresAt sql.NullTime
+	var startedAt sql.NullTime
+	var completedAt sql.NullTime
+	err := scanner.Scan(
+		&work.ID,
+		&work.WorkspaceID,
+		&workerID,
+		&environmentID,
+		&sessionID,
+		&work.TurnID,
+		&work.WorkType,
+		&work.Status,
+		&payload,
+		&result,
+		&work.ErrorMessage,
+		&leaseExpiresAt,
+		&work.CreatedAt,
+		&work.UpdatedAt,
+		&startedAt,
+		&completedAt,
+	)
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	work.WorkerID = workerID.String
+	work.EnvironmentID = environmentID.String
+	work.SessionID = sessionID.String
+	work.Payload = cloneRaw(payload)
+	work.Result = cloneRaw(result)
+	if leaseExpiresAt.Valid {
+		work.LeaseExpiresAt = &leaseExpiresAt.Time
+	}
+	if startedAt.Valid {
+		work.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		work.CompletedAt = &completedAt.Time
+	}
+	return work, nil
+}
+
 func getSessionInterventionForUpdateTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, callID string) (SessionIntervention, error) {
 	row := tx.QueryRowContext(ctx, `
 		SELECT
@@ -2096,6 +3263,37 @@ func nullableRaw(value json.RawMessage) any {
 		return json.RawMessage(`null`)
 	}
 	return value
+}
+
+func nullableJSON(value json.RawMessage) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return cloneRaw(value)
+}
+
+func metadataJSON(value json.RawMessage) json.RawMessage {
+	if len(value) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return cloneRaw(value)
+}
+
+func workerLeaseExpiresAt(now time.Time, leaseSeconds int) time.Time {
+	if leaseSeconds <= 0 {
+		leaseSeconds = 60
+	}
+	return now.Add(time.Duration(leaseSeconds) * time.Second)
+}
+
+func workerWorkReapLimit(limit int) int {
+	if limit <= 0 {
+		return 100
+	}
+	if limit > 1000 {
+		return 1000
+	}
+	return limit
 }
 
 func rawJSONObject(raw json.RawMessage) any {

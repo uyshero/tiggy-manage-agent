@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/observability"
 )
 
 var (
@@ -210,6 +211,42 @@ func (r *WorkerRunner) runJob(job workerJob) {
 		"turn_id", job.request.TurnID,
 		"events", len(events),
 	)
+	if err := observability.RefreshSessionSummary(r.store, job.request.SessionID, job.request.TurnID); err != nil {
+		r.logger.Warn("worker runner summary refresh failed",
+			"session_id", job.request.SessionID,
+			"turn_id", job.request.TurnID,
+			"error", err,
+		)
+	}
+	if result, err := observability.ExportTurnTraceFromEnv(r.store, job.request.SessionID, job.request.TurnID); err != nil {
+		r.logger.Warn("worker runner observability export failed",
+			"session_id", job.request.SessionID,
+			"turn_id", job.request.TurnID,
+			"error", err,
+		)
+	} else if !result.Skipped {
+		r.logger.Info("worker runner observability export completed",
+			"session_id", job.request.SessionID,
+			"turn_id", job.request.TurnID,
+			"trace_id", result.TraceID,
+			"perfetto_path", resultPerfettoPath(result),
+			"otlp_endpoint", resultOTLPEndpoint(result),
+		)
+	}
+}
+
+func resultPerfettoPath(result observability.ExporterResult) string {
+	if result.Perfetto == nil {
+		return ""
+	}
+	return result.Perfetto.Path
+}
+
+func resultOTLPEndpoint(result observability.ExporterResult) string {
+	if result.OTLPPush == nil {
+		return ""
+	}
+	return result.OTLPPush.Endpoint
 }
 
 func (r *WorkerRunner) recordFailedUsage(request TurnRequest, usage *managedagents.RecordLLMUsageInput, turnErr error) {

@@ -1,0 +1,28 @@
+{"time":"2026-07-09T19:00:13.753936+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-09T19:00:13.771807+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"fake","llm_provider_type":"fake","llm_base_url":"","llm_api_key_env":""}
+{"time":"2026-07-09T19:00:13.793487+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"fake","llm_model":"fake-demo","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-09T19:00:13.79362+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-09T19:00:13.793647+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":".","cloud_sandbox_image":"coolfan1024/onlyboxes-runtime:default","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-09T19:00:13.793743+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"fake","llm_model":"fake-demo","default_context_window_tokens":128000,"queue_size":16}
+{"time":"2026-07-09T19:00:13.794594+08:00","level":"INFO","msg":"tma server listening","addr":":60553"}
+{"time":"2026-07-09T19:00:15.471494+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001109","session_id":"sesn_000076","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T19:00:15.471545+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001110","session_id":"sesn_000076","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T19:00:15.471575+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000076","turn_id":"turn_000001","event_id":"evt_001110","event_seq":4}
+{"time":"2026-07-09T19:00:15.471609+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000076","turn_id":"turn_000001"}
+{"time":"2026-07-09T19:00:15.669303+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000076","turn_id":"turn_000001"}
+{"time":"2026-07-09T19:00:20.469974+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001126","session_id":"sesn_000077","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T19:00:20.470786+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001127","session_id":"sesn_000077","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T19:00:20.470966+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000077","turn_id":"turn_000001","event_id":"evt_001127","event_seq":4}
+{"time":"2026-07-09T19:00:20.471043+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000077","turn_id":"turn_000001"}
+{"time":"2026-07-09T19:00:23.020884+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000077","turn_id":"turn_000001","events":2}
+{"time":"2026-07-09T19:00:24.549952+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001142","session_id":"sesn_000078","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T19:00:24.550018+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001143","session_id":"sesn_000078","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T19:00:24.550041+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000078","turn_id":"turn_000001","event_id":"evt_001143","event_seq":4}
+{"time":"2026-07-09T19:00:24.550066+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000078","turn_id":"turn_000001"}
+{"time":"2026-07-09T19:00:26.997806+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000078","turn_id":"turn_000001","events":2}
+{"time":"2026-07-09T19:00:27.506973+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001157","session_id":"sesn_000079","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-09T19:00:27.507028+08:00","level":"INFO","msg":"session events appended","event_id":"evt_001158","session_id":"sesn_000079","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-09T19:00:27.507049+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000079","turn_id":"turn_000001","event_id":"evt_001158","event_seq":4}
+{"time":"2026-07-09T19:00:27.50707+08:00","level":"INFO","msg":"worker runner turn queued","session_id":"sesn_000079","turn_id":"turn_000001"}
+{"time":"2026-07-09T19:00:29.761175+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000079","turn_id":"turn_000001","events":2}
+{"time":"2026-07-09T19:00:30.152469+08:00","level":"INFO","msg":"server stopped"}

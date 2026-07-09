@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,11 +12,14 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
+	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/httpapi"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/serverconfig"
+	"tiggy-manage-agent/internal/tools"
 )
 
 func main() {
@@ -35,7 +39,9 @@ func main() {
 		logger.Error("ensure default llm provider failed", "error", err)
 		os.Exit(1)
 	}
-	turnRunner, runnerCleanup, err := buildRunner(config, store, logger)
+	objectStore := buildObjectStore(config, logger)
+	executionResolver := buildExecutionResolver(config, store, objectStore, logger)
+	turnRunner, runnerCleanup, err := buildRunner(config, store, objectStore, executionResolver, logger)
 	if err != nil {
 		logger.Error("build runner failed", "error", err)
 		os.Exit(1)
@@ -44,9 +50,10 @@ func main() {
 
 	server := &http.Server{
 		Addr:              config.HTTPAddr,
-		Handler:           httpapi.NewServerWithStoreRunnerAndLLMDefaults(store, turnRunner, logger, config.LLM.Provider, config.LLM.Model),
+		Handler:           httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(store, turnRunner, logger, config.LLM.Provider, config.LLM.Model, objectStore, executionResolver, config.Worker.AuthToken, config.Worker.ControlAuthToken),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	stopWorkerWorkReaper := startWorkerWorkReaper(config.Worker.WorkReaper, store, logger)
 
 	go func() {
 		logger.Info("tma server listening", "addr", config.HTTPAddr)
@@ -57,6 +64,7 @@ func main() {
 	}()
 
 	<-shutdownSignal()
+	stopWorkerWorkReaper()
 
 	// 收到退出信号后给连接一点时间完成，避免直接中断 SSE / HTTP 请求。
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -68,6 +76,61 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+func startWorkerWorkReaper(config serverconfig.WorkerWorkReaperConfig, store managedagents.Store, logger *slog.Logger) func() {
+	if !config.Enabled {
+		logger.Info("worker work reaper disabled")
+		return func() {}
+	}
+	if config.Interval <= 0 || config.Limit <= 0 {
+		logger.Warn("worker work reaper disabled by invalid config",
+			"interval", config.Interval,
+			"limit", config.Limit,
+		)
+		return func() {}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		logger.Info("worker work reaper started",
+			"interval", config.Interval.String(),
+			"limit", config.Limit,
+		)
+		reapExpiredWorkerWork(store, logger, config.Limit)
+		ticker := time.NewTicker(config.Interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("worker work reaper stopped")
+				return
+			case <-ticker.C:
+				reapExpiredWorkerWork(store, logger, config.Limit)
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func reapExpiredWorkerWork(store managedagents.Store, logger *slog.Logger, limit int) {
+	expired, err := store.ReapExpiredWorkerWork(managedagents.ReapExpiredWorkerWorkInput{Limit: limit})
+	if err != nil {
+		logger.Warn("worker work reaper failed", "error", err)
+		return
+	}
+	if len(expired) == 0 {
+		return
+	}
+	logger.Info("worker work reaper expired work",
+		"count", len(expired),
+	)
 }
 
 func mustOpenStore(databaseURL string, logger *slog.Logger) (managedagents.Store, func()) {
@@ -127,7 +190,65 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 	return nil
 }
 
-func buildRunner(config serverconfig.Config, store managedagents.Store, logger *slog.Logger) (runner.Runner, func(), error) {
+func buildObjectStore(config serverconfig.Config, logger *slog.Logger) objectstore.Client {
+	objectStoreConfig := objectstore.Config{
+		Provider:     config.ObjectStore.Provider,
+		Endpoint:     config.ObjectStore.Endpoint,
+		Region:       config.ObjectStore.Region,
+		Bucket:       config.ObjectStore.Bucket,
+		RootDir:      config.ObjectStore.RootDir,
+		AccessKey:    config.ObjectStore.AccessKey,
+		SecretKey:    config.ObjectStore.SecretKey,
+		UsePathStyle: config.ObjectStore.UsePathStyle,
+	}
+	client, err := objectstore.NewClient(objectStoreConfig)
+	if err != nil {
+		logger.Error("build object store client failed", "error", err)
+		os.Exit(1)
+	}
+	logger.Info("using object store client",
+		"object_store_provider", objectStoreConfig.Provider,
+		"object_store_endpoint", objectStoreConfig.Endpoint,
+		"object_store_region", objectStoreConfig.Region,
+		"object_store_bucket", objectStoreConfig.Bucket,
+		"object_store_root_dir", objectStoreConfig.RootDir,
+		"object_store_use_path_style", objectStoreConfig.UsePathStyle,
+		"object_store_client", fmt.Sprintf("%T", client),
+	)
+	return client
+}
+
+func buildExecutionResolver(config serverconfig.Config, store managedagents.Store, objectStore objectstore.Client, logger *slog.Logger) execution.ProviderResolver {
+	runtime, ok := tools.NormalizeToolRuntime(config.ToolRuntime.Runtime)
+	if !ok {
+		logger.Warn("invalid default tool runtime, falling back to cloud_sandbox",
+			"tool_runtime", config.ToolRuntime.Runtime,
+		)
+		runtime = tools.ToolRuntimeCloudSandbox
+	}
+	logger.Info("using default tool runtime",
+		"tool_runtime", runtime,
+		"cloud_sandbox_root", config.ToolRuntime.Root,
+		"cloud_sandbox_image", config.ToolRuntime.Image,
+		"cloud_sandbox_data_root", config.ToolRuntime.DataRoot,
+		"cloud_sandbox_data_ttl_seconds", config.ToolRuntime.DataTTLSeconds,
+		"cloud_sandbox_allow_network", config.ToolRuntime.AllowNetwork,
+		"allow_server_local_system", config.ToolRuntime.AllowLocalSystem,
+	)
+	return execution.SessionProviderResolver{
+		Store:                      store,
+		ObjectStore:                objectStore,
+		DefaultRuntime:             runtime,
+		CloudSandboxRoot:           config.ToolRuntime.Root,
+		CloudSandboxImage:          config.ToolRuntime.Image,
+		CloudSandboxDataRoot:       config.ToolRuntime.DataRoot,
+		CloudSandboxDataTTL:        config.ToolRuntime.DataTTL,
+		CloudSandboxDisableNetwork: !config.ToolRuntime.AllowNetwork,
+		AllowLocalSystem:           config.ToolRuntime.AllowLocalSystem,
+	}
+}
+
+func buildRunner(config serverconfig.Config, store managedagents.Store, objectStore objectstore.Client, executionResolver execution.ProviderResolver, logger *slog.Logger) (runner.Runner, func(), error) {
 	llmManager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
 		Provider:     config.LLM.Provider,
 		ProviderType: config.LLM.ProviderType,
@@ -144,8 +265,11 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, logger *
 		Runtime: agentruntime.DemoRuntime{
 			Client: llmManager,
 		},
-		Store:   store,
-		Timeout: config.Turn.Timeout,
+		Store:            store,
+		ObjectStore:      objectStore,
+		ArtifactBucket:   config.ObjectStore.Bucket,
+		Timeout:          config.Turn.Timeout,
+		ProviderResolver: executionResolver,
 	}
 	worker := runner.NewWorkerRunner(store, turnExecutor, config.Turn.QueueSize, logger)
 	logger.Info("using worker runner",

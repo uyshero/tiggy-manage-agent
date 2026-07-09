@@ -342,8 +342,59 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 	default:
 	}
 
+	if toolText := lastToolText(request.Messages); strings.Contains(toolText, `"id":"call_verify_network_download"`) {
+		return Response{
+			Message: Message{
+				Role: "assistant",
+				Content: []ContentPart{{
+					Type: "text",
+					Text: "Network download verification result: " + toolText,
+				}},
+			},
+		}, nil
+	}
+
+	if toolText := lastToolText(request.Messages); containsAny(toolText, "tma-session-tool-ok", "tma-upload-sync-ok", "tma-session-data-seeded", "tma-session-data-persisted", "tma-worker-export-ok", "tma-worker-large-export-ok", "tma-web-search-ok", "tma-web-crawl-ok") {
+		return Response{
+			Message: Message{
+				Role: "assistant",
+				Content: []ContentPart{{
+					Type: "text",
+					Text: "Tool verification result: " + toolText,
+				}},
+			},
+		}, nil
+	}
+
 	text := "Agent runtime received your message."
 	if userText := lastUserText(request.Messages); userText != "" {
+		if strings.Contains(userText, "tma.verify_tool_call") {
+			return fakeToolCallResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_uploaded_file_seed") {
+			return fakeUploadedFileSeedResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_uploaded_file_read") {
+			return fakeUploadedFileReadResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_uploaded_file_export") {
+			return fakeUploadedFileExportResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_worker_export") {
+			return fakeWorkerExportResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_worker_large_export") {
+			return fakeWorkerLargeExportResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_web_crawl") {
+			return fakeWebCrawlResponse(userText), nil
+		}
+		if strings.Contains(userText, "tma.verify_web_search") {
+			return fakeWebSearchResponse(userText), nil
+		}
+		if strings.Contains(userText, "tma.verify_network_download") {
+			return fakeNetworkDownloadResponse(userText), nil
+		}
 		text = "Agent runtime received: " + userText
 	}
 
@@ -356,6 +407,236 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 			}},
 		},
 	}, nil
+}
+
+func fakeToolCallResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Running tool verification command.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_tool",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","pwd && printf '\\n' && printf tma-session-tool-ok"],"work_dir":"."}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeUploadedFileSeedResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Seeding session data verification command.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_upload_seed",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; printf tma-session-data-seeded > /mnt/data/state.txt; cat /mnt/data/state.txt"],"work_dir":"."}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeUploadedFileReadResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Reading session data verification command.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_upload_read",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; cat /mnt/data/state.txt; printf '\\n'; printf tma-session-data-persisted"],"work_dir":"."}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeUploadedFileExportResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Exporting generated sandbox file as a session artifact.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_upload_export",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","mkdir -p /mnt/data/outputs && { for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf 'tma-session-output-exported\\n'; } > /mnt/data/outputs/export.txt && cat /mnt/data/outputs/export.txt"],"work_dir":".","output_paths":["/mnt/data/outputs/export.txt"]}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeWorkerExportResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Exporting worker-generated file as a session artifact.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_worker_export",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf tma-worker-export-ok > worker-export.txt && cat worker-export.txt"],"work_dir":".","output_paths":["worker-export.txt"]}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeWorkerLargeExportResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Exporting large worker-generated file as a session artifact.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_worker_large_export",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.run_command",
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf 'tma-worker-large-export-ok\n' > worker-large-export.txt && dd if=/dev/zero bs=1048576 count=9 >> worker-large-export.txt 2>/dev/null && printf tma-worker-large-export-ok"],"work_dir":".","output_paths":["worker-large-export.txt"]}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeWebCrawlResponse(userText string) Response {
+	targetURL := ""
+	if markerIndex := strings.Index(userText, "tma.verify_web_crawl"); markerIndex >= 0 {
+		targetURL = strings.TrimSpace(userText[markerIndex+len("tma.verify_web_crawl"):])
+	}
+	if targetURL == "" {
+		targetURL = "http://127.0.0.1:18084/"
+	}
+	arguments, _ := json.Marshal(map[string]any{
+		"url": targetURL,
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Crawling web verification page.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_web_crawl",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "web.crawl",
+					Arguments: arguments,
+				},
+			}},
+		},
+	}
+}
+
+func fakeWebSearchResponse(userText string) Response {
+	query := ""
+	if markerIndex := strings.Index(userText, "tma.verify_web_search"); markerIndex >= 0 {
+		query = strings.TrimSpace(userText[markerIndex+len("tma.verify_web_search"):])
+	}
+	if query == "" {
+		query = "tma-web-search-ok"
+	}
+	arguments, _ := json.Marshal(map[string]any{
+		"query": query,
+		"limit": 3,
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Searching web verification provider.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_web_search",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "web.search",
+					Arguments: arguments,
+				},
+			}},
+		},
+	}
+}
+
+func fakeNetworkDownloadResponse(userText string) Response {
+	targetURL := ""
+	if markerIndex := strings.Index(userText, "tma.verify_network_download"); markerIndex >= 0 {
+		targetURL = strings.TrimSpace(userText[markerIndex+len("tma.verify_network_download"):])
+	}
+	if targetURL == "" {
+		targetURL = "https://example.com/"
+	}
+	code := fmt.Sprintf(`import urllib.request
+url = %q
+with urllib.request.urlopen(url, timeout=10) as response:
+    data = response.read(128)
+    print("tma-network-download-ok")
+    print("status=%%s" %% getattr(response, "status", ""))
+    print("bytes=%%d" %% len(data))
+`, targetURL)
+	arguments, _ := json.Marshal(map[string]any{
+		"language": "python3",
+		"code":     code,
+		"work_dir": ".",
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Running network download verification code.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_network_download",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "default.execute_code",
+					Arguments: arguments,
+				},
+			}},
+		},
+	}
+}
+
+func containsAny(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type OpenAICompatibleClient struct {
@@ -686,6 +967,21 @@ func lastUserText(messages []Message) string {
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
 		if message.Role != "user" {
+			continue
+		}
+		for _, part := range message.Content {
+			if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+				return part.Text
+			}
+		}
+	}
+	return ""
+}
+
+func lastToolText(messages []Message) string {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if message.Role != "tool" {
 			continue
 		}
 		for _, part := range message.Content {

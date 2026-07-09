@@ -1,0 +1,209 @@
+package capability
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type PathGuardPolicy struct {
+	RootDir       string
+	WritableRoots []string
+}
+
+type WorkspacePathGuardProvider struct {
+	Inner         Provider
+	RootDir       string
+	WritableRoots []string
+}
+
+func NewWorkspacePathGuardProvider(inner Provider, rootDir string) (WorkspacePathGuardProvider, error) {
+	if inner == nil {
+		inner = LocalSystemProvider{}
+	}
+	root, err := cleanWorkspaceRoot(rootDir)
+	if err != nil {
+		return WorkspacePathGuardProvider{}, err
+	}
+	return WorkspacePathGuardProvider{Inner: inner, RootDir: root, WritableRoots: []string{root}}, nil
+}
+
+func NewDefaultWorkspacePathGuardProvider() Provider {
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, "")
+	if err != nil {
+		return LocalSystemProvider{}
+	}
+	return provider
+}
+
+func (p WorkspacePathGuardProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
+	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))
+	if err != nil {
+		return CommandResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
+	}
+	request.WorkDir = workDir
+	return p.inner().RunCommand(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) ExecuteCode(ctx context.Context, request ExecuteCodeRequest) (CommandResult, error) {
+	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))
+	if err != nil {
+		return CommandResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
+	}
+	request.WorkDir = workDir
+	return p.inner().ExecuteCode(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
+	path, err := p.resolveReadPath(request.Path)
+	if err != nil {
+		return FileResult{}, fmt.Errorf("workspace path guard read denied: %w", err)
+	}
+	request.Path = path
+	return p.inner().ReadFile(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {
+	path, err := p.resolveWritePath(request.Path)
+	if err != nil {
+		return FileResult{}, fmt.Errorf("workspace path guard write denied: %w", err)
+	}
+	request.Path = path
+	return p.inner().WriteFile(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error) {
+	workDir := request.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+	resolvedWorkDir, err := p.resolveReadPath(workDir)
+	if err != nil {
+		return EditFileResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
+	}
+	rawPath := request.Path
+	if rawPath == "" {
+		rawPath = request.FilePath
+	}
+	path, err := p.resolveWritePath(resolveAgainstWorkDir(rawPath, resolvedWorkDir))
+	if err != nil {
+		return EditFileResult{}, fmt.Errorf("workspace path guard edit denied: %w", err)
+	}
+	request.Path = path
+	request.FilePath = ""
+	request.WorkDir = ""
+	return p.inner().EditFile(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) inner() Provider {
+	if p.Inner == nil {
+		return LocalSystemProvider{}
+	}
+	return p.Inner
+}
+
+func (p WorkspacePathGuardProvider) root() (string, error) {
+	return cleanWorkspaceRoot(p.RootDir)
+}
+
+func (p WorkspacePathGuardProvider) writableRoots() ([]string, error) {
+	root, err := p.root()
+	if err != nil {
+		return nil, err
+	}
+	if len(p.WritableRoots) == 0 {
+		return []string{root}, nil
+	}
+	roots := make([]string, 0, len(p.WritableRoots))
+	for _, value := range p.WritableRoots {
+		resolved, err := resolvePathInside(root, value)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, resolved)
+	}
+	return roots, nil
+}
+
+func (p WorkspacePathGuardProvider) resolveReadPath(value string) (string, error) {
+	root, err := p.root()
+	if err != nil {
+		return "", err
+	}
+	return resolvePathInside(root, value)
+}
+
+func (p WorkspacePathGuardProvider) resolveWritePath(value string) (string, error) {
+	path, err := p.resolveReadPath(value)
+	if err != nil {
+		return "", err
+	}
+	writableRoots, err := p.writableRoots()
+	if err != nil {
+		return "", err
+	}
+	for _, root := range writableRoots {
+		if pathInsideRoot(path, root) {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("%q is outside writable workspace roots", value)
+}
+
+func cleanWorkspaceRoot(rootDir string) (string, error) {
+	if strings.TrimSpace(rootDir) == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve workspace cwd: %w", err)
+		}
+		rootDir = cwd
+	}
+	root, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root symlink: %w", err)
+	}
+	return filepath.Clean(root), nil
+}
+
+func resolvePathInside(root string, value string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	path := value
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve path: %w", err)
+	}
+	cleanPath := filepath.Clean(absPath)
+	if !pathInsideRoot(cleanPath, root) {
+		return "", fmt.Errorf("%q is outside workspace root %q", value, root)
+	}
+	return cleanPath, nil
+}
+
+func pathInsideRoot(path string, root string) bool {
+	if path == root {
+		return true
+	}
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return relative != "." && !strings.HasPrefix(relative, "..") && !filepath.IsAbs(relative)
+}
+
+func defaultGuardString(value string, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}

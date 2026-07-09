@@ -11,16 +11,24 @@ import (
 	"tiggy-manage-agent/internal/capability"
 )
 
-func TestDefaultRegistryIncludesLocalSystemManifest(t *testing.T) {
+func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 	registry := DefaultRegistry()
 
-	runtime, ok := registry.Get(LocalSystemIdentifier)
+	runtime, ok := registry.Get(DefaultIdentifier)
 	if !ok {
-		t.Fatalf("expected %s runtime", LocalSystemIdentifier)
+		t.Fatalf("expected %s runtime", DefaultIdentifier)
 	}
 	manifest := runtime.Manifest()
-	if manifest.Identifier != LocalSystemIdentifier || len(manifest.API) != 5 {
-		t.Fatalf("unexpected local system manifest: %#v", manifest)
+	if manifest.Identifier != DefaultIdentifier || len(manifest.API) != 5 {
+		t.Fatalf("unexpected default manifest: %#v", manifest)
+	}
+
+	webRuntime, ok := registry.Get(WebIdentifier)
+	if !ok {
+		t.Fatalf("expected %s runtime", WebIdentifier)
+	}
+	if manifest := webRuntime.Manifest(); manifest.Identifier != WebIdentifier || len(manifest.API) != 2 {
+		t.Fatalf("unexpected web manifest: %#v", manifest)
 	}
 }
 
@@ -46,15 +54,19 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	if decoded.ToolCallFormat.ProtocolVersion != ToolCallProtocolVersion {
 		t.Fatalf("unexpected tool call format: %#v", decoded.ToolCallFormat)
 	}
-	if len(decoded.Tools) != 1 || decoded.Tools[0].Identifier != LocalSystemIdentifier {
+	identifiers := map[string]bool{}
+	for _, manifest := range decoded.Tools {
+		identifiers[manifest.Identifier] = true
+	}
+	if len(decoded.Tools) != 2 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
 }
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 5 {
-		t.Fatalf("expected local system APIs as model tools, got %#v", modelTools)
+	if len(modelTools) != 7 {
+		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
 	names := make(map[string]bool)
@@ -67,7 +79,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[LocalSystemIdentifier+".run_command"] || !names[LocalSystemIdentifier+".edit_file"] {
+	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }
@@ -84,17 +96,128 @@ func TestParseInterventionModeDefaultsAndNormalizes(t *testing.T) {
 	}
 }
 
-func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
-	manifest, api, ok := DefaultRegistry().GetAPI(LocalSystemIdentifier, "edit_file")
+func TestInterventionPolicyAddsNetworkApprovalLayer(t *testing.T) {
+	manifest, api, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "run_command")
 	if !ok {
-		t.Fatal("expected edit_file api")
+		t.Fatal("expected run_command api")
 	}
-	if manifest.Identifier != LocalSystemIdentifier || api.Name != "edit_file" || api.HumanIntervention != "optional" {
-		t.Fatalf("unexpected api lookup result: manifest=%#v api=%#v", manifest, api)
+	call := Call{
+		APIName:   "default.run_command",
+		Arguments: json.RawMessage(`{"command":"python3","args":["download.py"]}`),
+	}
+	context := ExecutionContext{Provider: capability.OnlyboxesProvider{}}
+
+	manual := InterventionPolicy{Mode: InterventionModeRequestApproval}.EvaluateCall(manifest, api, call, context)
+	if manual.Allowed || !manual.Required || manual.Reason != InterventionReasonNetworkAccess {
+		t.Fatalf("expected network access to require approval, got %#v", manual)
+	}
+
+	auto := InterventionPolicy{Mode: InterventionModeApproveForMe}.EvaluateCall(manifest, api, call, context)
+	if !auto.Allowed || !auto.Required || auto.Reason != InterventionReasonNetworkAccess {
+		t.Fatalf("expected approve_for_me to auto-approve network access, got %#v", auto)
+	}
+
+	fullAccess := InterventionPolicy{Mode: InterventionModeFullAccess}.EvaluateCall(manifest, api, call, context)
+	if !fullAccess.Allowed || fullAccess.Required || fullAccess.Reason != "" {
+		t.Fatalf("expected full_access to skip network intervention, got %#v", fullAccess)
+	}
+
+	codeCall := Call{
+		APIName:   "default.execute_code",
+		Arguments: json.RawMessage(`{"language":"python3","code":"import urllib.request; urllib.request.urlopen('https://example.com')"}`),
+	}
+	codeManifest, codeAPI, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "execute_code")
+	if !ok {
+		t.Fatal("expected execute_code api")
+	}
+	codeDecision := InterventionPolicy{Mode: InterventionModeRequestApproval}.EvaluateCall(codeManifest, codeAPI, codeCall, context)
+	if codeDecision.Allowed || !codeDecision.Required || codeDecision.Reason != InterventionReasonNetworkAccess {
+		t.Fatalf("expected execute_code network-capable sandbox to require approval, got %#v", codeDecision)
+	}
+
+	offline := InterventionPolicy{Mode: InterventionModeRequestApproval}.EvaluateCall(manifest, api, call, ExecutionContext{
+		Provider: capability.OnlyboxesProvider{DisableNetwork: true},
+	})
+	if offline.Reason == InterventionReasonNetworkAccess {
+		t.Fatalf("expected disabled network sandbox not to use network reason, got %#v", offline)
 	}
 }
 
-func TestRegistryExecutorRunsLocalSystemCommand(t *testing.T) {
+func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
+	manifest, api, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "edit_file")
+	if !ok {
+		t.Fatal("expected edit_file api")
+	}
+	if manifest.Identifier != DefaultIdentifier || api.Name != "edit_file" || api.HumanIntervention != "optional" {
+		t.Fatalf("unexpected api lookup result: manifest=%#v api=%#v", manifest, api)
+	}
+	if api.Namespace != NamespaceDefault || api.APIName != "edit_file" || !containsString(api.Capabilities, CapabilityFilesystemWrite) {
+		t.Fatalf("expected standard metadata on edit_file api, got %#v", api)
+	}
+	if api.Risk != ToolRiskWrite || api.Runtime == nil || api.Runtime.Preferred != ToolRuntimeCloudSandbox {
+		t.Fatalf("expected risk/runtime metadata on edit_file api, got %#v", api)
+	}
+}
+
+func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
+	registry, policy := DefaultRegistry().Configured(json.RawMessage(`{
+		"tools": ["default.read_file", "default.edit_file"],
+		"runtime": "local_system"
+	}`))
+
+	if !policy.Explicit || policy.Runtime != ToolRuntimeLocalSystem {
+		t.Fatalf("unexpected policy: %#v", policy)
+	}
+	modelTools := registry.ModelTools()
+	if len(modelTools) != 2 {
+		t.Fatalf("expected 2 configured model tools, got %#v", modelTools)
+	}
+	names := map[string]bool{}
+	for _, modelTool := range modelTools {
+		names[modelTool.Function.Name] = true
+	}
+	if !names[DefaultIdentifier+".read_file"] || !names[DefaultIdentifier+".edit_file"] || names[DefaultIdentifier+".run_command"] {
+		t.Fatalf("unexpected configured tool names: %#v", names)
+	}
+}
+
+func TestRegistryAvailableFiltersByCapabilities(t *testing.T) {
+	registry := DefaultRegistry().Available(AvailableCapabilities{
+		Runtime:      ToolRuntimeLocalSystem,
+		Capabilities: []string{CapabilityFilesystemRead},
+	})
+
+	modelTools := registry.ModelTools()
+	names := map[string]bool{}
+	for _, modelTool := range modelTools {
+		names[modelTool.Function.Name] = true
+	}
+	if len(modelTools) != 3 || !names[DefaultIdentifier+".read_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] {
+		t.Fatalf("expected read_file plus server builtin web tools, got %#v", modelTools)
+	}
+	if _, _, ok := registry.GetAPI(DefaultIdentifier, "run_command"); ok {
+		t.Fatal("expected run_command to be unavailable without exec capability")
+	}
+}
+
+func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
+	registry := DefaultRegistry().Available(AvailableCapabilities{
+		Runtime: ToolRuntimeLocalSystem,
+		Capabilities: []string{
+			CapabilityFilesystemRead,
+			CapabilityFilesystemWrite,
+			CapabilityExec,
+			CapabilityCodeExecute,
+		},
+	})
+
+	modelTools := registry.ModelTools()
+	if len(modelTools) != 7 {
+		t.Fatalf("expected all default tools to be available for local_system provider, got %#v", modelTools)
+	}
+}
+
+func TestRegistryExecutorRunsDefaultCommand(t *testing.T) {
 	executor := NewDefaultExecutor()
 
 	result, err := executor.Execute(context.Background(), Call{
@@ -112,7 +235,7 @@ func TestRegistryExecutorRunsLocalSystemCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute tool: %v", err)
 	}
-	if result.Identifier != LocalSystemIdentifier || result.APIName != "run_command" || result.Content != "tool-output" {
+	if result.Identifier != DefaultIdentifier || result.APIName != "run_command" || result.Content != "tool-output" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 
@@ -125,17 +248,71 @@ func TestRegistryExecutorRunsLocalSystemCommand(t *testing.T) {
 	}
 }
 
-func TestNormalizeCallSplitsLocalSystemFunctionName(t *testing.T) {
+func TestRegistryExecutorCapturesRequestedOutputPaths(t *testing.T) {
+	executor := NewDefaultExecutor()
+	workDir := t.TempDir()
+	withoutExport, err := json.Marshal(map[string]any{
+		"command":  "sh",
+		"args":     []string{"-c", "printf artifact-file > result.txt && printf ok"},
+		"work_dir": workDir,
+	})
+	if err != nil {
+		t.Fatalf("marshal no-export arguments: %v", err)
+	}
+
+	result, err := executor.Execute(context.Background(), Call{
+		ID:        "call_1",
+		Name:      "run_command",
+		Arguments: withoutExport,
+	}, ExecutionContext{
+		SessionID: "sesn_000001",
+		TurnID:    "turn_000001",
+		Provider:  capability.LocalSystemProvider{},
+	})
+	if err != nil {
+		t.Fatalf("execute tool: %v", err)
+	}
+	if len(result.ExportedFiles) != 0 {
+		t.Fatalf("expected no exported files when output_paths is omitted, got %#v", result.ExportedFiles)
+	}
+
+	arguments, err := json.Marshal(map[string]any{
+		"command":      "sh",
+		"args":         []string{"-c", "printf artifact-file > result.txt && printf ok"},
+		"work_dir":     workDir,
+		"output_paths": []string{"result.txt"},
+	})
+	if err != nil {
+		t.Fatalf("marshal arguments: %v", err)
+	}
+	result, err = executor.Execute(context.Background(), Call{
+		ID:        "call_2",
+		Name:      "run_command",
+		Arguments: arguments,
+	}, ExecutionContext{
+		SessionID: "sesn_000001",
+		TurnID:    "turn_000001",
+		Provider:  capability.LocalSystemProvider{},
+	})
+	if err != nil {
+		t.Fatalf("execute tool with output_paths: %v", err)
+	}
+	if len(result.ExportedFiles) != 1 || result.ExportedFiles[0].Path != "result.txt" || result.ExportedFiles[0].WorkDir != workDir {
+		t.Fatalf("unexpected exported files: %#v", result.ExportedFiles)
+	}
+}
+
+func TestNormalizeCallSplitsDefaultFunctionName(t *testing.T) {
 	call := NormalizeCall(Call{
-		APIName: "tma.local_system.run_command",
+		APIName: "default.run_command",
 	})
 
-	if call.Identifier != LocalSystemIdentifier || call.APIName != "run_command" {
+	if call.Identifier != DefaultIdentifier || call.APIName != "run_command" {
 		t.Fatalf("unexpected normalized call: %#v", call)
 	}
 }
 
-func TestRegistryExecutorRunsLocalSystemEditFile(t *testing.T) {
+func TestRegistryExecutorRunsDefaultEditFile(t *testing.T) {
 	executor := NewDefaultExecutor()
 	path := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(path, []byte("hello world"), 0o644); err != nil {
@@ -193,4 +370,13 @@ func TestRegistryExecutorReturnsStableUnsupportedToolError(t *testing.T) {
 	if result.Error == nil || result.Error.Type != "unsupported_tool" {
 		t.Fatalf("expected unsupported tool error result, got %#v", result)
 	}
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }

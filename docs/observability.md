@@ -11,6 +11,30 @@
 3. **单一事实源**：`session_events` 为权威记录；导出器可关、可采样，挂掉不影响 turn 执行。
 4. **渐进落地**：先 `ProjectForModel`，再 `/trace` API，再按需接 Perfetto / Langfuse / OTel。
 
+## 当前实现状态（2026-07-09）
+
+已落地：
+
+- `session_events` 仍是唯一事实源。
+- `GET /v1/sessions/{id}/trace?turn_id=...` 已可把单个 turn 投影成 trace JSON，包含 `stats`、`turns`、timeline steps 与 span tree。
+- `bin/tma trace show --session ... [--turn ...]` 已可终端查看 turn timeline、tool/artifact 线索。
+- `GET /v1/sessions/{id}/trace?turn_id=...&format=perfetto|otel` 已可导出 Perfetto / OTel 风格 JSON。
+- `bin/tma trace export --format perfetto|otel|json --output FILE` 已可把导出落盘；`--otlp-endpoint URL` 已可把 OTel JSON 通过 OTLP/HTTP 推到 collector。
+- turn 完成后已可按环境变量自动 fan-out exporter：`TMA_PERFETTO=1` 写 Perfetto 文件，`TMA_OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` 推 OTLP/HTTP traces。
+- `GET /metrics` 已可输出 Prometheus 文本指标，覆盖 LLM usage、worker 数量，以及指定 `session_id` / `turn_id` 的 event、trace、span、tool、approval 指标。
+- `GET /v1/observability/status` 与 `bin/tma observability status` 已可查看 exporter 启用状态和目的地，token 只暴露是否配置。
+- `GET /inspector` 已提供内置 Inspector 页面，可查看 turn 列表、trace stats、span table、usage、summary、pending approvals、artifacts、events、metrics 与 raw export。
+- turn 完成后会把本轮 tool / approval 轨迹摘要追加到 `session_summaries`，供后续 `ContextBuilder` 注入。
+- `reject` 决策在存在 continuation messages 时，会生成 rejected tool observation 并继续同一条 LLM continuation loop。
+- `/trace` 返回里已包含第一版 `spans`，不再只是纯 timeline steps。
+
+仍待做：
+
+- 专门的 `internal/observability` bus / exporter 分层。
+- 事件 payload 内原生 `duration_ms` / `trace_id` / `span_id` 字段，而不是当前投影时推导。
+- Inspector 进一步补 artifact preview、上下文 diff、浏览器端视觉回归验证。
+- 后台异步 observability bus / exporter 分层、生产级采样、Langfuse exporter。
+
 ## 两类观测，不要混成一个
 
 ```text
@@ -99,7 +123,7 @@ runtime.completed / failed
 {
   "protocol_version": "tma.tool_result.v1",
   "call_id": "call_edit",
-  "identifier": "tma.local_system",
+  "identifier": "default",
   "api_name": "edit_file",
   "outcome": "error",
   "error": {
@@ -292,7 +316,8 @@ observability:
 
 ```bash
 TMA_PERFETTO=1
-# 输出：~/.tma/traces/{session_id}/{turn_id}.json
+TMA_PERFETTO_DIR=~/.tma/traces
+# 输出：~/.tma/traces/{session_id}/{turn_id}.perfetto.json
 # 打开：https://ui.perfetto.dev
 ```
 
@@ -310,11 +335,11 @@ TMA_LANGFUSE_LOG_TOOL_CONTENT=0
 **OTel（生产监控）**
 
 ```bash
-TMA_OTEL_ENABLED=1
 OTEL_SERVICE_NAME=tiggy-manage-agent
+TMA_OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.corp:4318
+TMA_OTEL_EXPORTER_OTLP_TOKEN=...
+# 或使用 OpenTelemetry 约定的环境变量：
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.corp:4318
-OTEL_TRACES_EXPORTER=otlp
-OTEL_METRICS_EXPORTER=otlp
 ```
 
 ### 按场景启用
@@ -331,11 +356,16 @@ OTEL_METRICS_EXPORTER=otlp
 
 ```text
 GET  /v1/sessions/{id}/trace?turn_id=...     # JSON span 树（给人）
-GET  /metrics                                 # Prometheus（OTel 开启时）
+GET  /metrics                                 # Prometheus
+GET  /metrics?session_id=...&turn_id=...      # Session / turn 维度指标
+GET  /v1/observability/status                 # Exporter 配置状态
 
 bin/tma trace show --session ... --turn ...   # 终端树形输出
-bin/tma trace export --session ... --format perfetto --open
-bin/tma observability status                  # exporter 健康检查
+bin/tma trace export --session ... --format perfetto --output trace.json
+bin/tma trace export --session ... --format otel --otlp-endpoint http://collector:4318
+bin/tma observability status                  # Exporter 状态
+TMA_PERFETTO=1 TMA_PERFETTO_DIR=./traces bin/tma-server
+TMA_OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 bin/tma-server
 bin/tma debug bundle --session ...            # 脱敏 events + logs（规划）
 ```
 
