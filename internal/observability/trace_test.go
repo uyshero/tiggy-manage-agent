@@ -57,11 +57,23 @@ func TestProjectTurnTraceBuildsToolSummary(t *testing.T) {
 	if trace.Spans[0].Name != "tma.interaction" || trace.Spans[1].ParentSpanID != trace.Spans[0].SpanID {
 		t.Fatalf("unexpected span tree: %#v", trace.Spans)
 	}
+	if trace.Spans[1].Depth != 1 || !trace.Spans[0].Critical || trace.Spans[0].SelfDurationMillis < 0 {
+		t.Fatalf("expected span graph annotations, got %#v", trace.Spans)
+	}
+	if len(trace.Spans[0].ChildSpanIDs) != 3 || len(trace.Spans[0].Events) != 3 {
+		t.Fatalf("expected root span children and events, got %#v", trace.Spans[0])
+	}
+	if len(trace.Spans[1].Events) == 0 || trace.Spans[1].Events[0].Seq != 1 {
+		t.Fatalf("expected span events to reference source steps, got %#v", trace.Spans[1].Events)
+	}
 	if trace.Stats.StepCount != 3 || trace.Stats.Errors != 2 || trace.Stats.ArtifactCount != 1 {
 		t.Fatalf("unexpected trace stats: %#v", trace.Stats)
 	}
 	if len(trace.Turns) != 1 || trace.Turns[0].TurnID != "turn_1" || trace.Turns[0].Status != managedagents.TurnStatusFailed {
 		t.Fatalf("expected turn catalog entry, got %#v", trace.Turns)
+	}
+	if len(trace.Graph.RootSpanIDs) != 1 || len(trace.Graph.Edges) != 3 || len(trace.Graph.CriticalSpanIDs) == 0 || trace.Graph.MaxDepth != 1 {
+		t.Fatalf("expected trace graph metadata, got %#v", trace.Graph)
 	}
 	perfetto := ExportPerfetto(trace)
 	if _, ok := perfetto["traceEvents"]; !ok {
@@ -70,12 +82,74 @@ func TestProjectTurnTraceBuildsToolSummary(t *testing.T) {
 	if _, ok := perfetto["metadata"]; !ok {
 		t.Fatalf("expected perfetto metadata, got %#v", perfetto)
 	}
+	encodedPerfetto, err := json.Marshal(perfetto)
+	if err != nil {
+		t.Fatalf("marshal perfetto: %v", err)
+	}
+	if !strings.Contains(string(encodedPerfetto), `"critical":true`) || !strings.Contains(string(encodedPerfetto), `"self_duration_ms"`) || !strings.Contains(string(encodedPerfetto), `"graph"`) {
+		t.Fatalf("expected perfetto graph annotations, got %s", string(encodedPerfetto))
+	}
 	otel := ExportOTel(trace)
 	if _, ok := otel["resourceSpans"]; !ok {
 		t.Fatalf("expected otel resourceSpans, got %#v", otel)
 	}
 	if _, ok := otel["metadata"]; !ok {
 		t.Fatalf("expected otel metadata, got %#v", otel)
+	}
+	encodedOTel, err := json.Marshal(otel)
+	if err != nil {
+		t.Fatalf("marshal otel: %v", err)
+	}
+	if !strings.Contains(string(encodedOTel), `"name":"tma.tool.result"`) ||
+		!strings.Contains(string(encodedOTel), `"tma.event_seq"`) ||
+		!strings.Contains(string(encodedOTel), `"tma.critical"`) ||
+		!strings.Contains(string(encodedOTel), `"tma.self_duration_ms"`) ||
+		!strings.Contains(string(encodedOTel), `"graph"`) {
+		t.Fatalf("expected otel span events, got %s", string(encodedOTel))
+	}
+}
+
+func TestProjectTurnTracePrefersNativeSpanFields(t *testing.T) {
+	now := time.Now().UTC()
+	events := []managedagents.Event{
+		{
+			Seq:       1,
+			Type:      managedagents.EventRuntimeStarted,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_native","span_id":"span_root","span_name":"tma.interaction","span_kind":"interaction","span_status":"running","message":"started"}`),
+			CreatedAt: now,
+		},
+		{
+			Seq:       2,
+			Type:      managedagents.EventRuntimeToolCall,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_native","span_id":"span_tool","parent_span_id":"span_root","span_name":"tma.tool.default.read_file","span_kind":"tool","span_status":"point","message":"tool call","data":{"id":"call_read","identifier":"default","api_name":"read_file"}}`),
+			CreatedAt: now.Add(10 * time.Millisecond),
+		},
+		{
+			Seq:       3,
+			Type:      managedagents.EventRuntimeToolResult,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_native","span_id":"span_tool","parent_span_id":"span_root","span_name":"tma.tool.default.read_file","span_kind":"tool","span_status":"ok","duration_ms":42,"message":"tool result","data":{"id":"call_read","identifier":"default","api_name":"read_file","success":true}}`),
+			CreatedAt: now.Add(20 * time.Millisecond),
+		},
+	}
+
+	trace := ProjectTurnTrace("sesn_1", "turn_1", events)
+	if len(trace.Spans) != 2 {
+		t.Fatalf("expected native root and tool spans, got %#v", trace.Spans)
+	}
+	if trace.Spans[0].SpanID != "span_root" || trace.Spans[0].Name != "tma.interaction" {
+		t.Fatalf("expected native root span, got %#v", trace.Spans[0])
+	}
+	if trace.Spans[1].SpanID != "span_tool" || trace.Spans[1].ParentSpanID != "span_root" || trace.Spans[1].DurationMillis != 42 {
+		t.Fatalf("expected native tool span, got %#v", trace.Spans[1])
+	}
+	if len(trace.Spans[0].ChildSpanIDs) != 1 || trace.Spans[0].ChildSpanIDs[0] != "span_tool" {
+		t.Fatalf("expected native child span linkage, got %#v", trace.Spans[0].ChildSpanIDs)
+	}
+	if len(trace.Spans[0].Events) != 1 || trace.Spans[0].Events[0].Seq != 1 {
+		t.Fatalf("expected native root event, got %#v", trace.Spans[0].Events)
+	}
+	if len(trace.Spans[1].Events) != 2 || trace.Spans[1].Events[0].Seq != 2 || trace.Spans[1].Events[1].Seq != 3 {
+		t.Fatalf("expected native tool span events, got %#v", trace.Spans[1].Events)
 	}
 }
 

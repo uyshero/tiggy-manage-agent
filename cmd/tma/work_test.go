@@ -224,6 +224,62 @@ func TestCommandWorkReapExpired(t *testing.T) {
 	}
 }
 
+func TestCommandWorkCancel(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work/work_000001/cancel" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["reason"] != "user stopped it" {
+			t.Fatalf("unexpected cancel body: %#v", body)
+		}
+		return jsonResponse(`{"id":"work_000001","status":"canceled","error_message":"user stopped it"}`), nil
+	})
+
+	stdout := captureStdout(t, func() {
+		if err := commandWork(client, []string{"cancel", "--work", "work_000001", "--reason", "user stopped it"}); err != nil {
+			t.Fatalf("work cancel: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, `"status": "canceled"`) || !strings.Contains(stdout, `"error_message": "user stopped it"`) {
+		t.Fatalf("expected cancel output to include canceled work, got %q", stdout)
+	}
+}
+
+func TestCommandWorkDiagnose(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/worker-work/work_000001/diagnose" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		return jsonResponse(`{
+			"work":{"id":"work_000001","workspace_id":"wksp_default","worker_id":"wrk_000001","work_type":"tool_execution","status":"leased","lease_expires_at":"2026-07-09T00:00:00Z"},
+			"worker":{"id":"wrk_000001","workspace_id":"wksp_default","name":"viito-mac","worker_type":"local","status":"online","lease_expires_at":"2026-07-09T00:00:00Z"},
+			"reasons":["work is leased but not acknowledged","work lease expired at 2026-07-09T00:00:00Z"],
+			"actions":["run: bin/tma work reap-expired"]
+		}`), nil
+	})
+
+	stdout := captureStdout(t, func() {
+		if err := commandWork(client, []string{"diagnose", "--work", "work_000001"}); err != nil {
+			t.Fatalf("work diagnose: %v", err)
+		}
+	})
+	for _, expected := range []string{
+		"work diagnose work_000001",
+		"status: leased",
+		"worker: wrk_000001 viito-mac [local/online]",
+		"work lease expired",
+		"run: bin/tma work reap-expired",
+	} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected output to contain %q, got %q", expected, stdout)
+		}
+	}
+}
+
 func TestCommandWorkAck(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/workers/wrk_000001/work/work_000001/ack" {

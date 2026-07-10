@@ -51,6 +51,23 @@ func TestAgentRuntimeTurnExecutorReturnsRuntimePayload(t *testing.T) {
 		got[4] != "runtime.completed" {
 		t.Fatalf("unexpected runtime events: %#v", got)
 	}
+	if len(store.runtimePayloads) != 5 {
+		t.Fatalf("expected runtime payloads, got %d", len(store.runtimePayloads))
+	}
+	var started map[string]any
+	if err := json.Unmarshal(store.runtimePayloads[0], &started); err != nil {
+		t.Fatalf("decode started payload: %v", err)
+	}
+	if started["trace_id"] == "" || started["span_id"] == "" || started["span_name"] != "tma.interaction" {
+		t.Fatalf("expected native trace fields on runtime event, got %#v", started)
+	}
+	var responsePayload map[string]any
+	if err := json.Unmarshal(store.runtimePayloads[3], &responsePayload); err != nil {
+		t.Fatalf("decode llm response payload: %v", err)
+	}
+	if responsePayload["span_name"] != "tma.llm" || responsePayload["duration_ms"] == nil {
+		t.Fatalf("expected native llm span fields, got %#v", responsePayload)
+	}
 }
 
 func TestAgentRuntimeTurnExecutorRequiresRuntime(t *testing.T) {

@@ -110,7 +110,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /health", healthHandler)
 	s.mux.HandleFunc("GET /metrics", s.getMetrics)
 	s.mux.HandleFunc("GET /inspector", s.getInspector)
+	s.mux.Handle("GET /inspector/assets/", inspectorAssetHandler())
+	s.mux.HandleFunc("GET /v1/traces", s.listTraces)
+	s.mux.HandleFunc("GET /v1/traces/{trace_id}", s.getTrace)
+	s.mux.HandleFunc("GET /v1/traces/{trace_id}/spans/{span_id}", s.getTraceSpan)
+	s.mux.HandleFunc("GET /v1/spans", s.listSpans)
 	s.mux.HandleFunc("GET /v1/observability/status", s.getObservabilityStatus)
+	s.mux.HandleFunc("POST /v1/observability/retry", s.requireControlAuth(s.retryObservabilityExporters))
 
 	s.mux.HandleFunc("GET /v1/llm-providers", s.listLLMProviders)
 	s.mux.HandleFunc("POST /v1/llm-providers", s.createLLMProvider)
@@ -122,15 +128,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/llm-models", s.upsertLLMModel)
 	s.mux.HandleFunc("GET /v1/llm-usage", s.listLLMUsage)
 	s.mux.HandleFunc("POST /v1/workers", s.requireWorkerAuth(s.registerWorker))
-	s.mux.HandleFunc("GET /v1/workers", s.listWorkers)
-	s.mux.HandleFunc("POST /v1/workers/diagnose", s.diagnoseWorkers)
-	s.mux.HandleFunc("GET /v1/workers/{worker_id}", s.getWorker)
+	s.mux.HandleFunc("GET /v1/workers", s.requireControlAuth(s.listWorkers))
+	s.mux.HandleFunc("POST /v1/workers/diagnose", s.requireWorkerOrControlAuth(s.diagnoseWorkers))
+	s.mux.HandleFunc("POST /v1/workers/reap-expired", s.requireControlAuth(s.reapExpiredWorkers))
+	s.mux.HandleFunc("GET /v1/workers/{worker_id}", s.requireControlAuth(s.getWorker))
 	s.mux.HandleFunc("POST /v1/workers/{worker_id}/heartbeat", s.requireWorkerAuth(s.heartbeatWorker))
-	s.mux.HandleFunc("POST /v1/workers/{worker_id}/archive", s.archiveWorker)
+	s.mux.HandleFunc("POST /v1/workers/{worker_id}/archive", s.requireWorkerOrControlAuth(s.archiveWorker))
 	s.mux.HandleFunc("POST /v1/worker-work", s.requireControlAuth(s.enqueueWorkerWork))
 	s.mux.HandleFunc("POST /v1/worker-work/reap-expired", s.requireControlAuth(s.reapExpiredWorkerWork))
 	s.mux.HandleFunc("GET /v1/worker-work/{work_id}", s.requireControlAuth(s.getWorkerWork))
 	s.mux.HandleFunc("GET /v1/worker-work/{work_id}/diagnose", s.requireControlAuth(s.diagnoseWorkerWork))
+	s.mux.HandleFunc("POST /v1/worker-work/{work_id}/cancel", s.requireControlAuth(s.cancelWorkerWork))
 	s.mux.HandleFunc("GET /v1/workers/{worker_id}/work/poll", s.requireWorkerAuth(s.pollWorkerWork))
 	s.mux.HandleFunc("POST /v1/workers/{worker_id}/work/{work_id}/ack", s.requireWorkerAuth(s.ackWorkerWork))
 	s.mux.HandleFunc("POST /v1/workers/{worker_id}/work/{work_id}/heartbeat", s.requireWorkerAuth(s.heartbeatWorkerWork))
@@ -174,6 +182,22 @@ func (s *Server) requireWorkerAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) requireControlAuth(next http.HandlerFunc) http.HandlerFunc {
 	return s.requireBearerAuth(next, s.controlAuthToken, "tma-control", "control authorization required")
+}
+
+func (s *Server) requireWorkerOrControlAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s == nil || (s.workerAuthToken == "" && s.controlAuthToken == "") {
+			next(w, r)
+			return
+		}
+		header := r.Header.Get("Authorization")
+		if bearerTokenMatches(header, s.workerAuthToken) || bearerTokenMatches(header, s.controlAuthToken) {
+			next(w, r)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer realm="tma-worker-or-control"`)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "worker or control authorization required"})
+	}
 }
 
 func (s *Server) requireBearerAuth(next http.HandlerFunc, token string, realm string, errorMessage string) http.HandlerFunc {

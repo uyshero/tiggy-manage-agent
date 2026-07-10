@@ -41,6 +41,61 @@ func TestPrometheusTextIncludesUsageAndWorkers(t *testing.T) {
 	}
 }
 
+func TestPrometheusTextIncludesObservabilityExporterHealth(t *testing.T) {
+	text := PrometheusText(MetricsSnapshot{
+		Observability: Status{
+			Sampling: SamplingStatus{
+				SampleRate: 0.25,
+			},
+			Retry: RetryStatus{
+				MaxAttempts:          3,
+				PendingRecentRetries: 1,
+			},
+			Perfetto: ExporterStatus{
+				Enabled: true,
+				LastSuccess: &ExporterHealth{
+					At: time.Unix(123, 0).UTC(),
+				},
+				LastAttempt: &ExporterHealth{
+					At: time.Unix(125, 0).UTC(),
+				},
+			},
+			OTLP: ExporterStatus{
+				Enabled: true,
+				LastFailure: &ExporterHealth{
+					At: time.Unix(124, 0).UTC(),
+				},
+				LastAttempt: &ExporterHealth{
+					At: time.Unix(124, 0).UTC(),
+				},
+			},
+			RecentRuns: []managedagents.ObservabilityExporterRun{
+				{Exporter: managedagents.ObservabilityExporterPerfetto, Status: managedagents.ObservabilityExporterRunSucceeded},
+				{Exporter: managedagents.ObservabilityExporterOTLP, Status: managedagents.ObservabilityExporterRunFailed},
+				{Exporter: managedagents.ObservabilityExporterOTLP, Status: managedagents.ObservabilityExporterRunSkipped},
+			},
+		},
+	})
+	for _, expected := range []string{
+		`tma_observability_exporter_enabled{exporter="perfetto"} 1`,
+		`tma_observability_exporter_enabled{exporter="otlp"} 1`,
+		`tma_observability_exporter_sample_rate 0.25`,
+		`tma_observability_exporter_retry_max_attempts 3`,
+		`tma_observability_exporter_pending_recent_retries 1`,
+		`tma_observability_exporter_last_success_timestamp_seconds{exporter="perfetto"} 123`,
+		`tma_observability_exporter_last_failure_timestamp_seconds{exporter="otlp"} 124`,
+		`tma_observability_exporter_last_attempt_timestamp_seconds{exporter="perfetto"} 125`,
+		`tma_observability_exporter_last_attempt_timestamp_seconds{exporter="otlp"} 124`,
+		`tma_observability_exporter_recent_runs_total{exporter="otlp",status="failed"} 1`,
+		`tma_observability_exporter_recent_runs_total{exporter="otlp",status="skipped"} 1`,
+		`tma_observability_exporter_recent_runs_total{exporter="perfetto",status="succeeded"} 1`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected metrics to contain %q, got:\n%s", expected, text)
+		}
+	}
+}
+
 func TestPrometheusTextIncludesSessionTraceMetrics(t *testing.T) {
 	now := time.Now().UTC()
 	trace := ProjectTurnTrace("sesn_1", "turn_1", []managedagents.Event{
@@ -83,7 +138,12 @@ func TestPrometheusTextIncludesSessionTraceMetrics(t *testing.T) {
 	for _, expected := range []string{
 		`tma_session_events_total{event_type="runtime.tool_call",session_id="sesn_1"} 1`,
 		`tma_trace_duration_milliseconds{session_id="sesn_1",status="running",turn_id="turn_1"} 120`,
+		`tma_trace_critical_path_duration_milliseconds{session_id="sesn_1",status="running",turn_id="turn_1"}`,
+		`tma_trace_max_span_depth{session_id="sesn_1",turn_id="turn_1"} 1`,
+		`tma_trace_critical_spans_total{session_id="sesn_1",turn_id="turn_1"}`,
 		`tma_trace_spans_total{kind="tool",session_id="sesn_1",turn_id="turn_1"} 1`,
+		`tma_trace_span_duration_milliseconds_max{kind="tool",session_id="sesn_1",turn_id="turn_1"} 70`,
+		`tma_trace_span_self_duration_milliseconds_max{kind="tool",session_id="sesn_1",turn_id="turn_1"} 70`,
 		`tma_tool_calls_total{api_name="read_file",outcome="success",session_id="sesn_1",tool_identifier="default",turn_id="turn_1"} 1`,
 		`tma_tool_approvals_total{api_name="read_file",decision="approved",session_id="sesn_1",tool_identifier="default",turn_id="turn_1"} 1`,
 		`tma_pending_interventions_total{session_id="sesn_1"} 0`,

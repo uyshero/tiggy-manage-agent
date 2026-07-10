@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMA Inspector</title>
+<link rel="stylesheet" href="/inspector/assets/styles.css">
+</head>
+<body>
+<header><h1>TMA Inspector</h1><div class="meta" id="status">idle</div></header>
+<div class="layout">
+<aside>
+<section class="panel">
+<h2>Query</h2>
+<div class="content toolbar">
+<div class="field"><label for="session">Session</label><input id="session" autocomplete="off" placeholder="sesn_000001"></div>
+<div class="field"><label for="traceId">Trace ID</label><input id="traceId" autocomplete="off" placeholder="trace_id"></div>
+<div class="field"><label for="turn">Turn</label><select id="turn"><option value="">latest</option></select></div>
+<div class="field"><label for="format">Export Format</label><select id="format"><option value="json">Trace JSON</option><option value="perfetto">Perfetto JSON</option><option value="otel">OTel JSON</option></select></div>
+<label class="toggle"><input type="checkbox" id="autoRefresh">Auto refresh every 5s</label>
+<div class="actions"><button id="load">Load</button><button class="secondary" id="loadTrace">Load Trace</button><button class="secondary" id="export">Preview Export</button><button class="secondary" id="download">Download</button></div>
+</div>
+</section>
+<section class="panel">
+<h2>Recent Traces</h2>
+<div class="content turn-list" id="traceCatalog"><span class="empty">No recent traces loaded.</span></div>
+</section>
+<section class="panel">
+<h2>Span Search</h2>
+<div class="content stack">
+<div class="field"><label for="globalSpanQuery">Search</label><input id="globalSpanQuery" autocomplete="off" placeholder="name, id, attribute"></div>
+<div class="span-search-controls">
+<div class="field"><label for="globalSpanKind">Kind</label><select id="globalSpanKind"><option value="">all</option><option value="interaction">interaction</option><option value="llm">llm</option><option value="tool">tool</option><option value="approval">approval</option><option value="context">context</option><option value="event">event</option></select></div>
+<div class="field"><label for="globalSpanStatus">Status</label><input id="globalSpanStatus" autocomplete="off" placeholder="ok, error, open"></div>
+<div class="field"><label for="globalSpanCritical">Critical</label><select id="globalSpanCritical"><option value="">all</option><option value="true">critical</option><option value="false">non-critical</option></select></div>
+<div class="field"><label for="globalSpanMinDuration">Min Duration</label><input id="globalSpanMinDuration" type="number" min="0" step="1" inputmode="numeric" placeholder="ms"></div>
+</div>
+<div class="actions"><button class="secondary" id="searchSpans" type="button">Search Spans</button></div>
+<div class="meta" id="spanAggregates"><span class="empty">No span aggregates loaded.</span></div>
+<div class="turn-list" id="spanCatalog"><span class="empty">No span search loaded.</span></div>
+</div>
+</section>
+<section class="panel">
+<h2>Turns</h2>
+<div class="content turn-list" id="turns"><span class="empty">No turns loaded.</span></div>
+</section>
+</aside>
+<main>
+<section class="overview" id="overviewCards">
+<div class="stat-card"><div class="stat-label">Turn</div><div class="stat-value">-</div><div class="stat-sub">Load a session.</div></div>
+</section>
+<section class="split">
+<section class="panel"><h2>Session</h2><div class="content stack" id="sessionMeta"><span class="empty">No session loaded.</span></div></section>
+<section class="panel"><h2>Trace Summary</h2><div class="content stack"><div id="traceMeta"><span class="empty">No trace loaded.</span></div><div class="summary compact" id="summary">No trace summary loaded.</div></div></section>
+</section>
+<section class="split">
+<section class="panel"><h2>Context Summary</h2><div class="content summary" id="sessionSummary">No session summary loaded.</div></section>
+<section class="panel"><h2>Usage</h2><div class="content stack"><div id="usageSummary" class="meta"><span class="empty">No usage loaded.</span></div><pre id="usage">No usage loaded.</pre></div></section>
+</section>
+<section class="panel"><h2>Context Coverage</h2><div class="content stack" id="contextCoverage"><span class="empty">No context coverage loaded.</span></div></section>
+<section class="panel"><h2>Waterfall</h2><div class="content stack" id="waterfall"><span class="empty">No span waterfall loaded.</span></div></section>
+<section class="panel"><h2>Spans</h2><div class="content stack"><div class="span-controls"><div class="field"><label for="spanFilter">Filter</label><input id="spanFilter" autocomplete="off" placeholder="name, id, attribute, event"></div><div class="field"><label for="spanKind">Kind</label><select id="spanKind"><option value="">all kinds</option></select></div><button class="secondary" id="clearSpanFilter" type="button">Clear</button></div><div class="span-detail" id="spanDetail"><span class="empty">Select a span to inspect events and attributes.</span></div><div class="table-wrap" id="spans"><span class="empty">No spans loaded.</span></div></div></section>
+<section class="panel"><h2>Timeline</h2><div class="content timeline" id="timeline"><span class="empty">No timeline loaded.</span></div></section>
+<section class="triple">
+<section class="panel"><h2>Pending Approvals</h2><div class="content list" id="interventions"><span class="empty">No interventions loaded.</span></div></section>
+<section class="panel"><h2>Artifacts</h2><div class="content list" id="artifacts"><span class="empty">No artifacts loaded.</span></div></section>
+<section class="panel"><h2>Recent Events</h2><div class="content list" id="events"><span class="empty">No events loaded.</span></div></section>
+</section>
+<section class="panel"><h2>Artifact Preview</h2><div class="content" id="artifactPreview"><span class="empty">Select an artifact preview.</span></div></section>
+<section class="triple">
+<section class="panel"><h2>Metrics</h2><div class="content"><pre id="metrics" class="code">No metrics loaded.</pre></div></section>
+<section class="panel"><h2>Exporters</h2><div class="content list" id="exporters"><span class="empty">No exporter status loaded.</span></div></section>
+<section class="panel"><h2>Raw Export</h2><div class="content"><pre id="raw" class="code">No raw export loaded.</pre></div></section>
+</section>
+</main>
+</div>
+<script src="/inspector/assets/api.js"></script>
+<script src="/inspector/assets/utils.js"></script>
+<script src="/inspector/assets/app.js"></script>
+</body>
+</html>

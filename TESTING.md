@@ -1292,9 +1292,11 @@ make verify-worker-backed-large-local-export
 
 该脚本会触发 fake LLM 生成一个超过 8 MiB 的 worker 本地文件，下载 artifact 并校验内容包含 `tma-worker-large-export-ok`。通过表示大文件已经走 worker -> server artifact upload，而不是 base64 塞进 work result。
 
-### 17.10 Worker work 过期收敛
+### 17.10 Worker / worker work 过期收敛
 
-第一版 worker work 不做自动重试。若 worker 掉线或长时间没有给 leased/running work 续租，可用控制面命令把过期 work 标记为 failed，方便排障和释放卡住状态：
+第一版 worker work 不做自动重试。若 worker 掉线或长时间没有给 leased/running work 续租，后台 reaper 会把过期 work 标记为 failed，方便排障和释放卡住状态。若 worker 自身长时间没有 heartbeat，后台 worker reaper 会把过期 online worker 标记为 offline，避免 capability match / diagnose 继续把陈旧 worker 当作在线能力。
+
+正常 `tma-worker` 执行长任务时会在 ack 后、result 前按 `TMA_WORKER_WORK_HEARTBEAT_INTERVAL` 周期性调用 work heartbeat；这里的过期回收脚本故意不续租，用来验证 reaper 兜底路径。
 
 真实验收：
 
@@ -1302,17 +1304,74 @@ make verify-worker-backed-large-local-export
 make verify-worker-work-reap-expired
 ```
 
-该脚本会启动真实 TMA server，注册一个 worker，投递 work，用 1 秒 lease poll 并 ack 成 running，等待 lease 过期后调用 `work reap-expired`，最后用 `work get` 确认该 work 已变为 `failed` 且带 `worker work lease expired` 错误信息。
+该脚本会启动真实 TMA server，打开后台 worker reaper 与 worker work reaper，注册一个 worker，投递 work，用短 lease poll 并 ack 成 running，等待 work lease 过期后由 server 自动回收，再用 `work get` 确认该 work 已变为 `failed` 且带 `worker work lease expired` 错误信息。随后脚本还会注册一个 1 秒 lease 的 worker，不发送 heartbeat，确认 server 自动把它标记为 `offline`。
+
+反向验证真实 `tma-worker` 的 running work heartbeat：
+
+```bash
+make verify-worker-work-heartbeat
+```
+
+该脚本会启动真实 TMA server、后台 worker work reaper 和一个真实 `tma-worker`，用 3 秒 work lease 执行一个 6 秒 `sandbox_command`。worker 每 1 秒续租 running work；最终 `work get` 必须显示 `completed`，worker 日志里也必须至少出现两条 `worker work heartbeat`。通过表示长任务不会因为执行时间超过初始 lease 而被 reaper 误标为 failed。
+
+相关配置：
+
+```env
+TMA_WORKER_REAPER_ENABLED=true
+TMA_WORKER_REAPER_INTERVAL_MS=30000
+TMA_WORKER_REAPER_LIMIT=100
+TMA_WORKER_WORK_REAPER_ENABLED=true
+TMA_WORKER_WORK_REAPER_INTERVAL_MS=30000
+TMA_WORKER_WORK_REAPER_LIMIT=100
+```
+
+脚本也会在 running 与 failed 两个阶段调用：
+
+```bash
+bin/tma work diagnose --work WORK_ID
+```
+
+`work diagnose` 面向队列中的单个 work/job，展示当前状态、assigned worker、lease、原因和建议动作；它不同于 `worker diagnose`，后者诊断的是某次 tool invocation 能否匹配到 worker。
+
+`tma-worker` 默认串行消费队列；需要让同一个 worker 同时处理多条 work 时，可以设置：
+
+```bash
+bin/tma-worker --base-url http://localhost:8080 --name viito-mac --concurrency 2
+```
+
+或：
+
+```env
+TMA_WORKER_CONCURRENCY=2
+```
+
+并发只改变 worker 本地 poll/execute slot 数量，不改变 server 队列协议。提高并发前要确认多个 work 不会写同一文件或争用同一外部资源。
+
+worker 收到 SIGINT / SIGTERM 后会进入 drain：停止继续 poll，heartbeat `draining`，并在 `TMA_WORKER_SHUTDOWN_TIMEOUT` 内等待已 running 的 work 完成并提交 result。单元测试 `TestRunWorkerDrainsRunningWorkOnShutdown` 覆盖该行为；如果超过 timeout，剩余 work 仍由 lease + reaper 兜底转为 failed。
+
+真实验收：
+
+```bash
+make verify-worker-shutdown-drain
+```
+
+该脚本会启动真实 TMA server 和真实 `tma-worker`，在 work running 时向 worker 发送 SIGTERM；worker 必须 heartbeat `draining`、等待 long-running work completed、再正常退出。通过表示发布 / 重启 worker 时不会立即丢掉已经 ack 的 running work。
 
 手动命令：
 
 ```bash
+bin/tma worker reap-expired --limit 100
 bin/tma work reap-expired --limit 100
 ```
 
 等价 HTTP：
 
 ```bash
+curl -X POST "$TMA_BASE_URL/v1/workers/reap-expired" \
+  -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"limit":100}'
+
 curl -X POST "$TMA_BASE_URL/v1/worker-work/reap-expired" \
   -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \

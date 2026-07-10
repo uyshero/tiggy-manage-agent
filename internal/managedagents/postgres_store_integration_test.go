@@ -299,6 +299,119 @@ func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreCancelsWorkerWork(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	worker, err := store.RegisterWorker(RegisterWorkerInput{
+		Name:         "integration-cancel-worker-" + time.Now().UTC().Format("20060102150405.000000000"),
+		WorkerType:   WorkerTypeLocal,
+		RegisteredBy: "integration-test",
+		LeaseSeconds: 30,
+	})
+	if err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE worker_id = $1`, worker.ID); err != nil {
+			t.Fatalf("cleanup worker work for %s: %v", worker.ID, err)
+		}
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workers WHERE id = $1`, worker.ID); err != nil {
+			t.Fatalf("cleanup worker %s: %v", worker.ID, err)
+		}
+	})
+
+	queued, err := store.EnqueueWorkerWork(EnqueueWorkerWorkInput{
+		WorkspaceID: DefaultWorkspaceID,
+		WorkerID:    worker.ID,
+		WorkType:    WorkerWorkTypeSandboxCommand,
+		Payload:     json.RawMessage(`{"command":"sh","args":["-c","sleep 100"]}`),
+	})
+	if err != nil {
+		t.Fatalf("enqueue worker work: %v", err)
+	}
+	polled, err := store.PollWorkerWork(worker.ID, PollWorkerWorkInput{LeaseSeconds: 30})
+	if err != nil {
+		t.Fatalf("poll worker work: %v", err)
+	}
+	if polled == nil || polled.ID != queued.ID || polled.Status != WorkerWorkStatusLeased {
+		t.Fatalf("expected leased work, got %+v", polled)
+	}
+
+	canceled, err := store.CancelWorkerWork(queued.ID, CancelWorkerWorkInput{Reason: "integration canceled"})
+	if err != nil {
+		t.Fatalf("cancel worker work: %v", err)
+	}
+	if canceled.Status != WorkerWorkStatusCanceled || canceled.ErrorMessage != "integration canceled" || canceled.CompletedAt == nil {
+		t.Fatalf("unexpected canceled work: %+v", canceled)
+	}
+	heartbeat, err := store.HeartbeatWorkerWork(worker.ID, queued.ID, WorkerWorkHeartbeatInput{LeaseSeconds: 30})
+	if err != nil {
+		t.Fatalf("heartbeat canceled worker work: %v", err)
+	}
+	if heartbeat.Status != WorkerWorkStatusCanceled {
+		t.Fatalf("expected heartbeat to return canceled work, got %+v", heartbeat)
+	}
+
+	completed, err := store.CompleteWorkerWork(worker.ID, queued.ID, CompleteWorkerWorkInput{
+		Success: true,
+		Result:  json.RawMessage(`{"ok":true}`),
+	})
+	if err != nil {
+		t.Fatalf("complete canceled worker work: %v", err)
+	}
+	if completed.Status != WorkerWorkStatusCanceled || string(completed.Result) == `{"ok":true}` {
+		t.Fatalf("expected canceled work result to be preserved, got %+v result=%s", completed, string(completed.Result))
+	}
+
+	again, err := store.CancelWorkerWork(queued.ID, CancelWorkerWorkInput{Reason: "second reason"})
+	if err != nil {
+		t.Fatalf("cancel terminal worker work: %v", err)
+	}
+	if again.ErrorMessage != "integration canceled" {
+		t.Fatalf("expected terminal cancel to preserve reason, got %+v", again)
+	}
+}
+
+func TestPostgresStoreReapsExpiredWorkers(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	worker, err := store.RegisterWorker(RegisterWorkerInput{
+		Name:         "integration-expired-worker-" + time.Now().UTC().Format("20060102150405.000000000"),
+		WorkerType:   WorkerTypeLocal,
+		RegisteredBy: "integration-test",
+		LeaseSeconds: 30,
+	})
+	if err != nil {
+		t.Fatalf("register worker: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workers WHERE id = $1`, worker.ID); err != nil {
+			t.Fatalf("cleanup worker %s: %v", worker.ID, err)
+		}
+	})
+
+	expiredAt := time.Unix(0, 0).UTC()
+	if _, err := store.db.ExecContext(context.Background(), `UPDATE workers SET lease_expires_at = $1 WHERE id = $2`, expiredAt, worker.ID); err != nil {
+		t.Fatalf("force expired lease: %v", err)
+	}
+	expired, err := store.ReapExpiredWorkers(ReapExpiredWorkersInput{Limit: 1})
+	if err != nil {
+		t.Fatalf("reap expired workers: %v", err)
+	}
+	if len(expired) != 1 || expired[0].ID != worker.ID {
+		t.Fatalf("expected only test worker to expire, got %+v", expired)
+	}
+	if expired[0].Status != WorkerStatusOffline {
+		t.Fatalf("expected expired worker offline, got %+v", expired[0])
+	}
+
+	fetched, err := store.GetWorker(worker.ID)
+	if err != nil {
+		t.Fatalf("get worker: %v", err)
+	}
+	if fetched.Status != WorkerStatusOffline {
+		t.Fatalf("expected fetched worker offline, got %+v", fetched)
+	}
+}
+
 func newPostgresIntegrationStore(t *testing.T) *PostgresStore {
 	t.Helper()
 

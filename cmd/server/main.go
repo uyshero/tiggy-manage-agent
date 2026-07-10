@@ -17,6 +17,7 @@ import (
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
+	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/serverconfig"
 	"tiggy-manage-agent/internal/tools"
@@ -53,7 +54,9 @@ func main() {
 		Handler:           httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(store, turnRunner, logger, config.LLM.Provider, config.LLM.Model, objectStore, executionResolver, config.Worker.AuthToken, config.Worker.ControlAuthToken),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	stopWorkerReaper := startWorkerReaper(config.Worker.Reaper, store, logger)
 	stopWorkerWorkReaper := startWorkerWorkReaper(config.Worker.WorkReaper, store, logger)
+	stopObservabilityRetry := startObservabilityExporterRetry(config.Observability.ExporterRetry, store, logger)
 
 	go func() {
 		logger.Info("tma server listening", "addr", config.HTTPAddr)
@@ -64,6 +67,8 @@ func main() {
 	}()
 
 	<-shutdownSignal()
+	stopObservabilityRetry()
+	stopWorkerReaper()
 	stopWorkerWorkReaper()
 
 	// 收到退出信号后给连接一点时间完成，避免直接中断 SSE / HTTP 请求。
@@ -78,7 +83,56 @@ func main() {
 	logger.Info("server stopped")
 }
 
-func startWorkerWorkReaper(config serverconfig.WorkerWorkReaperConfig, store managedagents.Store, logger *slog.Logger) func() {
+type workerWorkReaperStore interface {
+	ReapExpiredWorkerWork(input managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error)
+}
+
+type workerReaperStore interface {
+	ReapExpiredWorkers(input managedagents.ReapExpiredWorkersInput) ([]managedagents.Worker, error)
+}
+
+func startWorkerReaper(config serverconfig.WorkerReaperConfig, store workerReaperStore, logger *slog.Logger) func() {
+	if !config.Enabled {
+		logger.Info("worker reaper disabled")
+		return func() {}
+	}
+	if config.Interval <= 0 || config.Limit <= 0 {
+		logger.Warn("worker reaper disabled by invalid config",
+			"interval", config.Interval,
+			"limit", config.Limit,
+		)
+		return func() {}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		logger.Info("worker reaper started",
+			"interval", config.Interval.String(),
+			"limit", config.Limit,
+		)
+		reapExpiredWorkers(store, logger, config.Limit)
+		ticker := time.NewTicker(config.Interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("worker reaper stopped")
+				return
+			case <-ticker.C:
+				reapExpiredWorkers(store, logger, config.Limit)
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func startWorkerWorkReaper(config serverconfig.WorkerWorkReaperConfig, store workerWorkReaperStore, logger *slog.Logger) func() {
 	if !config.Enabled {
 		logger.Info("worker work reaper disabled")
 		return func() {}
@@ -119,7 +173,21 @@ func startWorkerWorkReaper(config serverconfig.WorkerWorkReaperConfig, store man
 	}
 }
 
-func reapExpiredWorkerWork(store managedagents.Store, logger *slog.Logger, limit int) {
+func reapExpiredWorkers(store workerReaperStore, logger *slog.Logger, limit int) {
+	expired, err := store.ReapExpiredWorkers(managedagents.ReapExpiredWorkersInput{Limit: limit})
+	if err != nil {
+		logger.Warn("worker reaper failed", "error", err)
+		return
+	}
+	if len(expired) == 0 {
+		return
+	}
+	logger.Info("worker reaper expired workers",
+		"count", len(expired),
+	)
+}
+
+func reapExpiredWorkerWork(store workerWorkReaperStore, logger *slog.Logger, limit int) {
 	expired, err := store.ReapExpiredWorkerWork(managedagents.ReapExpiredWorkerWorkInput{Limit: limit})
 	if err != nil {
 		logger.Warn("worker work reaper failed", "error", err)
@@ -130,6 +198,64 @@ func reapExpiredWorkerWork(store managedagents.Store, logger *slog.Logger, limit
 	}
 	logger.Info("worker work reaper expired work",
 		"count", len(expired),
+	)
+}
+
+func startObservabilityExporterRetry(config serverconfig.ObservabilityExporterRetryConfig, store observability.ExporterRunStore, logger *slog.Logger) func() {
+	if !config.Enabled {
+		logger.Info("observability exporter retry worker disabled")
+		return func() {}
+	}
+	if config.Interval <= 0 || config.Limit <= 0 {
+		logger.Warn("observability exporter retry worker disabled by invalid config",
+			"interval", config.Interval,
+			"limit", config.Limit,
+		)
+		return func() {}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		logger.Info("observability exporter retry worker started",
+			"interval", config.Interval.String(),
+			"limit", config.Limit,
+		)
+		retryObservabilityExporters(store, logger, config.Limit)
+		ticker := time.NewTicker(config.Interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("observability exporter retry worker stopped")
+				return
+			case <-ticker.C:
+				retryObservabilityExporters(store, logger, config.Limit)
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func retryObservabilityExporters(store observability.ExporterRunStore, logger *slog.Logger, limit int) {
+	result, err := observability.RetryFailedExporterRuns(store, observability.EnvExporterConfig(), time.Now().UTC(), limit)
+	if err != nil {
+		logger.Warn("observability exporter retry worker failed", "error", err)
+		return
+	}
+	if result.Attempted == 0 && result.Skipped == 0 {
+		return
+	}
+	logger.Info("observability exporter retry worker completed",
+		"attempted", result.Attempted,
+		"succeeded", result.Succeeded,
+		"failed", result.Failed,
+		"skipped", result.Skipped,
 	)
 }
 

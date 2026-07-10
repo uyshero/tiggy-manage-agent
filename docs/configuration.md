@@ -68,7 +68,7 @@ TMA_WORKER_CONTROL_TOKEN=change-me
 
 ## Worker
 
-`tma-worker` 是常驻 worker 入口。当前版本先用于 worker 可见性和 work 轮询闭环：注册、心跳、poll、ack、result。它不直连数据库，也不对外暴露 HTTP 端口；所有交互都是 worker 主动向 `tma-server` 发起 outbound HTTP 请求。
+`tma-worker` 是常驻 worker 入口。当前版本先用于 worker 可见性和 work 轮询闭环：注册、心跳、poll、ack、running work heartbeat、result。它不直连数据库，也不对外暴露 HTTP 端口；所有交互都是 worker 主动向 `tma-server` 发起 outbound HTTP 请求。默认一次执行 1 条 work；可用 `--concurrency N` 或 `TMA_WORKER_CONCURRENCY=N` 让同一 worker 同时 lease/execute 多条队列 job。收到 SIGINT / SIGTERM 后，worker 会停止 poll，把自身标记为 `draining`，并在 shutdown timeout 内等待已 running 的 work 完成和提交 result。
 
 启动常驻 worker 前可以先运行 doctor：
 
@@ -77,6 +77,16 @@ bin/tma-worker doctor --base-url http://localhost:8080 --name viito-mac
 ```
 
 doctor 会展示当前 executor 导出的 runtimes / APIs / capabilities，并主动检查 server health、worker register、heartbeat、poll、diagnose 和 archive。它会临时注册一个 `<name>-doctor` worker，检查完成后归档，不进入常驻 poll loop。
+
+### `TMA_WORKER_CONCURRENCY`
+
+控制单个 `tma-worker` 进程的本地并发执行数。默认 `1`，保持串行消费；大于 `1` 时 worker 会补满可用 slot，连续 poll 多条 work 并并发执行。
+
+```env
+TMA_WORKER_CONCURRENCY=2
+```
+
+提高并发前应确认 worker 机器资源、工具实现和 workspace 文件写入路径能承受并行执行，避免多个 work 写同一文件或争用外部凭据。
 
 ### `TMA_WORKER_AUTH_TOKEN`
 
@@ -160,6 +170,26 @@ Worker 心跳间隔，使用 Go duration 格式。
 
 ```env
 TMA_WORKER_HEARTBEAT_INTERVAL=30s
+```
+
+### `TMA_WORKER_WORK_HEARTBEAT_INTERVAL`
+
+Running work 续租间隔，使用 Go duration 格式。worker 在 ack 某条 work 后、提交 result 前会周期性调用 work heartbeat，避免长任务仍在执行时被 server 侧 work reaper 当作 lease 过期标记为 failed。
+
+默认：
+
+```env
+TMA_WORKER_WORK_HEARTBEAT_INTERVAL=15s
+```
+
+### `TMA_WORKER_SHUTDOWN_TIMEOUT`
+
+Worker 收到 SIGINT / SIGTERM 后的 drain 等待时间，使用 Go duration 格式。shutdown 时 worker 会停止领取新 work，向 server heartbeat `draining`，并等待当前 running work 完成；超时后进程退出，未完成 work 后续会按 lease 过期由 server 侧 reaper 标记为 failed。
+
+默认：
+
+```env
+TMA_WORKER_SHUTDOWN_TIMEOUT=30s
 ```
 
 ## Turn

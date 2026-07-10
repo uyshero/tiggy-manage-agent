@@ -13,6 +13,7 @@ import (
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
+	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -137,6 +138,7 @@ func llmAPIKey(envName string) string {
 }
 
 func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Context, agentruntime.Step) error {
+	traceState := newRuntimeTraceState(request.SessionID, request.TurnID)
 	return func(ctx context.Context, step agentruntime.Step) error {
 		if e.Store == nil {
 			return nil
@@ -156,9 +158,20 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 				return err
 			}
 		}
+		if step.Data == nil {
+			step.Data = map[string]any{}
+		}
+		traceState.decorate(eventType, step.Data)
 		payload, err := json.Marshal(map[string]any{
-			"message": step.Message,
-			"data":    step.Data,
+			"trace_id":       step.Data["trace_id"],
+			"span_id":        step.Data["span_id"],
+			"parent_span_id": step.Data["parent_span_id"],
+			"span_name":      step.Data["span_name"],
+			"span_kind":      step.Data["span_kind"],
+			"span_status":    step.Data["span_status"],
+			"duration_ms":    step.Data["duration_ms"],
+			"message":        step.Message,
+			"data":           step.Data,
 		})
 		if err != nil {
 			return fmt.Errorf("encode runtime step: %w", err)
@@ -168,6 +181,102 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 			Payload: payload,
 		})
 		return err
+	}
+}
+
+type runtimeTraceState struct {
+	sessionID string
+	turnID    string
+	llmStart  map[string]time.Time
+	toolStart map[string]time.Time
+}
+
+func newRuntimeTraceState(sessionID string, turnID string) *runtimeTraceState {
+	return &runtimeTraceState{
+		sessionID: sessionID,
+		turnID:    turnID,
+		llmStart:  map[string]time.Time{},
+		toolStart: map[string]time.Time{},
+	}
+}
+
+func (s *runtimeTraceState) decorate(eventType string, data map[string]any) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	now := time.Now()
+	callID, _ := data["id"].(string)
+	identifier, _ := data["identifier"].(string)
+	apiName, _ := data["api_name"].(string)
+	roundKey := fmt.Sprintf("%v", data["tool_round"])
+	if roundKey == "<nil>" {
+		roundKey = "0"
+	}
+	status := spanStatusForRuntimeEvent(eventType, data)
+	duration := time.Duration(0)
+	switch eventType {
+	case managedagents.EventRuntimeLLMRequest:
+		s.llmStart[roundKey] = now
+	case managedagents.EventRuntimeLLMResponse:
+		if startedAt, ok := s.llmStart[roundKey]; ok {
+			duration = now.Sub(startedAt)
+		}
+	case managedagents.EventRuntimeToolCall:
+		if callID != "" {
+			s.toolStart[callID] = now
+		}
+	case managedagents.EventRuntimeToolResult:
+		if startedAt, ok := s.toolStart[callID]; ok {
+			duration = now.Sub(startedAt)
+		}
+	}
+	fields := observability.EventTraceFields(observability.EventTraceFieldsInput{
+		SessionID:       s.sessionID,
+		TurnID:          s.turnID,
+		EventType:       eventType,
+		CallID:          defaultString(callID, roundKey),
+		Identifier:      identifier,
+		APIName:         apiName,
+		Status:          status,
+		Duration:        duration,
+		ParentSpanID:    parentSpanForRuntimeEvent(s.turnID, eventType, callID),
+		InteractionRoot: eventType == managedagents.EventRuntimeStarted,
+	})
+	for key, value := range fields {
+		data[key] = value
+	}
+}
+
+func spanStatusForRuntimeEvent(eventType string, data map[string]any) string {
+	switch eventType {
+	case managedagents.EventRuntimeCompleted, managedagents.EventRuntimeLLMResponse:
+		return "ok"
+	case managedagents.EventRuntimeFailed, managedagents.EventRuntimeContextCompactionFailed:
+		return "error"
+	case managedagents.EventRuntimeToolResult:
+		if success, ok := data["success"].(bool); ok && success {
+			return "ok"
+		}
+		return "error"
+	case managedagents.EventRuntimeToolInterventionApproved:
+		return "approved"
+	case managedagents.EventRuntimeToolInterventionRejected:
+		return "rejected"
+	case managedagents.EventRuntimeToolInterventionRequired:
+		return "waiting"
+	default:
+		return "point"
+	}
+}
+
+func parentSpanForRuntimeEvent(turnID string, eventType string, callID string) string {
+	switch eventType {
+	case managedagents.EventRuntimeStarted:
+		return ""
+	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected:
+		return observability.ToolSpanID(turnID, callID, 0)
+	default:
+		return observability.InteractionSpanID(turnID)
 	}
 }
 

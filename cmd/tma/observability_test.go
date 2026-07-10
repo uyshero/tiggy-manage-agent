@@ -39,3 +39,38 @@ func TestCommandObservabilityStatusPrintsJSON(t *testing.T) {
 		t.Fatalf("expected observability status json, got %q", text)
 	}
 }
+
+func TestCommandObservabilityRetryPrintsJSON(t *testing.T) {
+	client := newTestAPIClient(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", request.Method)
+		}
+		if request.URL.Path != "/v1/observability/retry" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		return jsonResponse(`{"attempted":1,"succeeded":1,"failed":0,"skipped":0}`), nil
+	})
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = writer
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := commandObservability(client, []string{"retry"}); err != nil {
+		t.Fatalf("commandObservability(retry): %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	text := string(out)
+	if !strings.Contains(text, `"attempted": 1`) || !strings.Contains(text, `"succeeded": 1`) {
+		t.Fatalf("expected observability retry json, got %q", text)
+	}
+}

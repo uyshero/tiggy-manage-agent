@@ -20,6 +20,7 @@ type TurnTrace struct {
 	Summary   string          `json:"summary,omitempty"`
 	Stats     TurnTraceStats  `json:"stats,omitempty"`
 	Turns     []TraceTurnInfo `json:"turns,omitempty"`
+	Graph     TraceGraph      `json:"graph,omitempty"`
 	Steps     []TraceStep     `json:"steps"`
 	Spans     []TraceSpan     `json:"spans,omitempty"`
 }
@@ -51,10 +52,88 @@ type TraceTurnInfo struct {
 	Errors         int       `json:"errors"`
 }
 
+type TraceCatalogEntry struct {
+	TraceID        string    `json:"trace_id"`
+	SessionID      string    `json:"session_id"`
+	TurnID         string    `json:"turn_id"`
+	SessionTitle   string    `json:"session_title,omitempty"`
+	SessionStatus  string    `json:"session_status,omitempty"`
+	TurnStatus     string    `json:"turn_status,omitempty"`
+	Summary        string    `json:"summary,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	EndedAt        time.Time `json:"ended_at,omitempty"`
+	DurationMillis int64     `json:"duration_ms"`
+	StepCount      int       `json:"step_count"`
+	SpanCount      int       `json:"span_count"`
+	ToolCalls      int       `json:"tool_calls"`
+	Errors         int       `json:"errors"`
+}
+
+type TraceSpanCatalogEntry struct {
+	TraceID            string            `json:"trace_id"`
+	SessionID          string            `json:"session_id"`
+	TurnID             string            `json:"turn_id"`
+	SessionTitle       string            `json:"session_title,omitempty"`
+	SpanID             string            `json:"span_id"`
+	ParentSpanID       string            `json:"parent_span_id,omitempty"`
+	Name               string            `json:"name"`
+	Kind               string            `json:"kind"`
+	Status             string            `json:"status,omitempty"`
+	Depth              int               `json:"depth,omitempty"`
+	StartTime          time.Time         `json:"start_time"`
+	StartOffsetMillis  int64             `json:"start_offset_ms,omitempty"`
+	DurationMillis     int64             `json:"duration_ms"`
+	SelfDurationMillis int64             `json:"self_duration_ms,omitempty"`
+	Critical           bool              `json:"critical,omitempty"`
+	EventCount         int               `json:"event_count"`
+	Attributes         map[string]string `json:"attributes,omitempty"`
+}
+
+type TraceSpanCatalogFilter struct {
+	TraceID               string
+	SessionID             string
+	TurnID                string
+	Kind                  string
+	Status                string
+	Query                 string
+	Critical              *bool
+	MinDurationMillis     int64
+	MaxDurationMillis     int64
+	MinSelfDurationMillis int64
+	Limit                 int
+}
+
+type TraceSpanCatalog struct {
+	Spans          []TraceSpanCatalogEntry `json:"spans"`
+	KindCounts     map[string]int          `json:"kind_counts"`
+	StatusCounts   map[string]int          `json:"status_counts"`
+	CriticalCounts map[string]int          `json:"critical_counts"`
+}
+
+type TraceGraph struct {
+	RootSpanIDs                []string        `json:"root_span_ids,omitempty"`
+	Edges                      []TraceSpanEdge `json:"edges,omitempty"`
+	CriticalSpanIDs            []string        `json:"critical_span_ids,omitempty"`
+	CriticalPathDurationMillis int64           `json:"critical_path_duration_ms,omitempty"`
+	MaxDepth                   int             `json:"max_depth,omitempty"`
+}
+
+type TraceSpanEdge struct {
+	ParentSpanID string `json:"parent_span_id"`
+	ChildSpanID  string `json:"child_span_id"`
+}
+
 type TraceStep struct {
 	Seq            int64           `json:"seq"`
 	Type           string          `json:"type"`
 	CreatedAt      time.Time       `json:"created_at"`
+	TraceID        string          `json:"trace_id,omitempty"`
+	SpanID         string          `json:"span_id,omitempty"`
+	ParentSpanID   string          `json:"parent_span_id,omitempty"`
+	SpanName       string          `json:"span_name,omitempty"`
+	SpanKind       string          `json:"span_kind,omitempty"`
+	SpanStatus     string          `json:"span_status,omitempty"`
+	DurationMillis int64           `json:"duration_ms,omitempty"`
 	Message        string          `json:"message,omitempty"`
 	Summary        string          `json:"summary,omitempty"`
 	CallID         string          `json:"call_id,omitempty"`
@@ -76,18 +155,34 @@ type TraceArtifact struct {
 }
 
 type TraceSpan struct {
-	TraceID        string            `json:"trace_id"`
-	SpanID         string            `json:"span_id"`
-	ParentSpanID   string            `json:"parent_span_id,omitempty"`
-	Name           string            `json:"name"`
-	Kind           string            `json:"kind"`
-	Status         string            `json:"status,omitempty"`
-	StartSeq       int64             `json:"start_seq,omitempty"`
-	EndSeq         int64             `json:"end_seq,omitempty"`
-	StartTime      time.Time         `json:"start_time"`
-	EndTime        time.Time         `json:"end_time"`
-	DurationMillis int64             `json:"duration_ms"`
-	Attributes     map[string]string `json:"attributes,omitempty"`
+	TraceID            string            `json:"trace_id"`
+	SpanID             string            `json:"span_id"`
+	ParentSpanID       string            `json:"parent_span_id,omitempty"`
+	ChildSpanIDs       []string          `json:"child_span_ids,omitempty"`
+	Name               string            `json:"name"`
+	Kind               string            `json:"kind"`
+	Status             string            `json:"status,omitempty"`
+	StartSeq           int64             `json:"start_seq,omitempty"`
+	EndSeq             int64             `json:"end_seq,omitempty"`
+	Depth              int               `json:"depth,omitempty"`
+	StartOffsetMillis  int64             `json:"start_offset_ms,omitempty"`
+	StartTime          time.Time         `json:"start_time"`
+	EndTime            time.Time         `json:"end_time"`
+	DurationMillis     int64             `json:"duration_ms"`
+	SelfDurationMillis int64             `json:"self_duration_ms,omitempty"`
+	Critical           bool              `json:"critical,omitempty"`
+	Attributes         map[string]string `json:"attributes,omitempty"`
+	Events             []TraceSpanEvent  `json:"events,omitempty"`
+}
+
+type TraceSpanEvent struct {
+	Seq        int64             `json:"seq"`
+	Type       string            `json:"type"`
+	Name       string            `json:"name"`
+	Time       time.Time         `json:"time"`
+	Message    string            `json:"message,omitempty"`
+	Summary    string            `json:"summary,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 type summaryStore interface {
@@ -111,6 +206,7 @@ func ProjectTurnTrace(sessionID string, turnID string, events []managedagents.Ev
 	trace.Summary = BuildTurnSummary(trace)
 	trace.Spans = BuildTraceSpans(trace)
 	trace.Stats = BuildTraceStats(trace)
+	trace.Graph = BuildTraceGraph(trace.Spans)
 	return trace
 }
 
@@ -145,6 +241,156 @@ func BuildTurnCatalog(sessionID string, events []managedagents.Event) []TraceTur
 		})
 	}
 	return turns
+}
+
+func BuildTraceCatalog(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, limit int) []TraceCatalogEntry {
+	if limit <= 0 {
+		limit = 50
+	}
+	entries := []TraceCatalogEntry{}
+	for _, session := range sessions {
+		turns := BuildTurnCatalog(session.ID, eventsBySession[session.ID])
+		for _, turn := range turns {
+			entries = append(entries, TraceCatalogEntry{
+				TraceID:        TraceIDForTurn(session.ID, turn.TurnID),
+				SessionID:      session.ID,
+				TurnID:         turn.TurnID,
+				SessionTitle:   session.Title,
+				SessionStatus:  session.Status,
+				TurnStatus:     turn.Status,
+				Summary:        turn.Summary,
+				StartedAt:      turn.StartedAt,
+				EndedAt:        turn.EndedAt,
+				DurationMillis: turn.DurationMillis,
+				StepCount:      turn.StepCount,
+				SpanCount:      turn.SpanCount,
+				ToolCalls:      turn.ToolCalls,
+				Errors:         turn.Errors,
+			})
+		}
+	}
+	sort.SliceStable(entries, func(i int, j int) bool {
+		left := entries[i].StartedAt
+		right := entries[j].StartedAt
+		if left.Equal(right) {
+			if entries[i].SessionID == entries[j].SessionID {
+				return entries[i].TurnID > entries[j].TurnID
+			}
+			return entries[i].SessionID > entries[j].SessionID
+		}
+		return left.After(right)
+	})
+	if len(entries) > limit {
+		return entries[:limit]
+	}
+	return entries
+}
+
+func BuildTraceSpanCatalog(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, filter TraceSpanCatalogFilter) TraceSpanCatalog {
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	traceID := strings.TrimSpace(filter.TraceID)
+	sessionID := strings.TrimSpace(filter.SessionID)
+	turnID := strings.TrimSpace(filter.TurnID)
+	kind := strings.TrimSpace(strings.ToLower(filter.Kind))
+	status := strings.TrimSpace(strings.ToLower(filter.Status))
+	query := strings.TrimSpace(strings.ToLower(filter.Query))
+	catalog := TraceSpanCatalog{
+		Spans:          []TraceSpanCatalogEntry{},
+		KindCounts:     map[string]int{},
+		StatusCounts:   map[string]int{},
+		CriticalCounts: map[string]int{},
+	}
+	for _, session := range sessions {
+		if sessionID != "" && session.ID != sessionID {
+			continue
+		}
+		for _, turn := range BuildTurnCatalog(session.ID, eventsBySession[session.ID]) {
+			if turnID != "" && turn.TurnID != turnID {
+				continue
+			}
+			trace := ProjectTurnTrace(session.ID, turn.TurnID, eventsBySession[session.ID])
+			if traceID != "" && trace.TraceID != traceID {
+				continue
+			}
+			for _, span := range trace.Spans {
+				catalog.KindCounts[defaultString(span.Kind, "unknown")]++
+				catalog.StatusCounts[defaultString(span.Status, "unknown")]++
+				if span.Critical {
+					catalog.CriticalCounts["true"]++
+				} else {
+					catalog.CriticalCounts["false"]++
+				}
+				entry := TraceSpanCatalogEntry{
+					TraceID:            trace.TraceID,
+					SessionID:          session.ID,
+					TurnID:             turn.TurnID,
+					SessionTitle:       session.Title,
+					SpanID:             span.SpanID,
+					ParentSpanID:       span.ParentSpanID,
+					Name:               span.Name,
+					Kind:               span.Kind,
+					Status:             span.Status,
+					Depth:              span.Depth,
+					StartTime:          span.StartTime,
+					StartOffsetMillis:  span.StartOffsetMillis,
+					DurationMillis:     span.DurationMillis,
+					SelfDurationMillis: span.SelfDurationMillis,
+					Critical:           span.Critical,
+					EventCount:         len(span.Events),
+					Attributes:         span.Attributes,
+				}
+				if !spanCatalogEntryMatches(entry, filter, kind, status, query) {
+					continue
+				}
+				catalog.Spans = append(catalog.Spans, entry)
+			}
+		}
+	}
+	sort.SliceStable(catalog.Spans, func(i int, j int) bool {
+		if catalog.Spans[i].StartTime.Equal(catalog.Spans[j].StartTime) {
+			return catalog.Spans[i].SpanID < catalog.Spans[j].SpanID
+		}
+		return catalog.Spans[i].StartTime.After(catalog.Spans[j].StartTime)
+	})
+	if len(catalog.Spans) > limit {
+		catalog.Spans = catalog.Spans[:limit]
+	}
+	return catalog
+}
+
+func spanCatalogEntryMatches(entry TraceSpanCatalogEntry, filter TraceSpanCatalogFilter, kind string, status string, query string) bool {
+	if kind != "" && strings.ToLower(entry.Kind) != kind {
+		return false
+	}
+	if status != "" && strings.ToLower(entry.Status) != status {
+		return false
+	}
+	if filter.Critical != nil && entry.Critical != *filter.Critical {
+		return false
+	}
+	if filter.MinDurationMillis > 0 && entry.DurationMillis < filter.MinDurationMillis {
+		return false
+	}
+	if filter.MaxDurationMillis > 0 && entry.DurationMillis > filter.MaxDurationMillis {
+		return false
+	}
+	if filter.MinSelfDurationMillis > 0 && entry.SelfDurationMillis < filter.MinSelfDurationMillis {
+		return false
+	}
+	if query == "" {
+		return true
+	}
+	values := []string{entry.TraceID, entry.SessionID, entry.TurnID, entry.SpanID, entry.ParentSpanID, entry.Name, entry.Kind, entry.Status, entry.SessionTitle}
+	if entry.Critical {
+		values = append(values, "critical")
+	}
+	for key, value := range entry.Attributes {
+		values = append(values, key, value)
+	}
+	return strings.Contains(strings.ToLower(strings.Join(values, " ")), query)
 }
 
 func BuildTraceStats(trace TurnTrace) TurnTraceStats {
@@ -193,9 +439,367 @@ func BuildTraceStats(trace TurnTrace) TurnTraceStats {
 	return stats
 }
 
+func BuildTraceGraph(spans []TraceSpan) TraceGraph {
+	indexes := buildSpanGraphIndexes(spans)
+	return TraceGraph{
+		RootSpanIDs:                indexes.rootSpanIDs,
+		Edges:                      indexes.edges,
+		CriticalSpanIDs:            indexes.criticalSpanIDs,
+		CriticalPathDurationMillis: indexes.criticalPathDurationMillis,
+		MaxDepth:                   indexes.maxDepth,
+	}
+}
+
+type spanGraphIndexes struct {
+	rootSpanIDs                []string
+	edges                      []TraceSpanEdge
+	childIDsByParent           map[string][]string
+	depthBySpanID              map[string]int
+	criticalSpanIDs            []string
+	criticalSpanIDSet          map[string]struct{}
+	criticalPathDurationMillis int64
+	maxDepth                   int
+}
+
+func buildSpanGraphIndexes(spans []TraceSpan) spanGraphIndexes {
+	indexes := spanGraphIndexes{
+		childIDsByParent:  map[string][]string{},
+		depthBySpanID:     map[string]int{},
+		criticalSpanIDSet: map[string]struct{}{},
+	}
+	byID := make(map[string]TraceSpan, len(spans))
+	for _, span := range spans {
+		if span.SpanID == "" {
+			continue
+		}
+		byID[span.SpanID] = span
+	}
+	for _, span := range spans {
+		if span.SpanID == "" {
+			continue
+		}
+		if span.ParentSpanID == "" {
+			indexes.rootSpanIDs = append(indexes.rootSpanIDs, span.SpanID)
+			continue
+		}
+		if _, ok := byID[span.ParentSpanID]; !ok {
+			indexes.rootSpanIDs = append(indexes.rootSpanIDs, span.SpanID)
+			continue
+		}
+		indexes.childIDsByParent[span.ParentSpanID] = append(indexes.childIDsByParent[span.ParentSpanID], span.SpanID)
+		indexes.edges = append(indexes.edges, TraceSpanEdge{ParentSpanID: span.ParentSpanID, ChildSpanID: span.SpanID})
+	}
+	sort.Strings(indexes.rootSpanIDs)
+	for parentID := range indexes.childIDsByParent {
+		sort.Strings(indexes.childIDsByParent[parentID])
+	}
+	for _, rootID := range indexes.rootSpanIDs {
+		assignSpanDepth(rootID, 0, indexes.childIDsByParent, indexes.depthBySpanID, map[string]struct{}{})
+	}
+	for _, depth := range indexes.depthBySpanID {
+		if depth > indexes.maxDepth {
+			indexes.maxDepth = depth
+		}
+	}
+	indexes.criticalPathDurationMillis, indexes.criticalSpanIDs = longestSpanPath(indexes.rootSpanIDs, byID, indexes.childIDsByParent)
+	for _, spanID := range indexes.criticalSpanIDs {
+		indexes.criticalSpanIDSet[spanID] = struct{}{}
+	}
+	return indexes
+}
+
+func assignSpanDepth(spanID string, depth int, childIDsByParent map[string][]string, depthBySpanID map[string]int, visiting map[string]struct{}) {
+	if _, ok := visiting[spanID]; ok {
+		return
+	}
+	if current, ok := depthBySpanID[spanID]; ok && current <= depth {
+		return
+	}
+	depthBySpanID[spanID] = depth
+	visiting[spanID] = struct{}{}
+	for _, childID := range childIDsByParent[spanID] {
+		assignSpanDepth(childID, depth+1, childIDsByParent, depthBySpanID, visiting)
+	}
+	delete(visiting, spanID)
+}
+
+func longestSpanPath(rootSpanIDs []string, byID map[string]TraceSpan, childIDsByParent map[string][]string) (int64, []string) {
+	var bestDuration int64
+	var bestPath []string
+	for _, rootID := range rootSpanIDs {
+		duration, path := longestSpanPathFrom(rootID, byID, childIDsByParent, map[string]struct{}{})
+		if len(bestPath) == 0 || duration > bestDuration || (duration == bestDuration && strings.Join(path, "\x00") < strings.Join(bestPath, "\x00")) {
+			bestDuration = duration
+			bestPath = path
+		}
+	}
+	return bestDuration, bestPath
+}
+
+func longestSpanPathFrom(spanID string, byID map[string]TraceSpan, childIDsByParent map[string][]string, visiting map[string]struct{}) (int64, []string) {
+	span, ok := byID[spanID]
+	if !ok {
+		return 0, nil
+	}
+	if _, ok := visiting[spanID]; ok {
+		return 0, nil
+	}
+	visiting[spanID] = struct{}{}
+	var childBestDuration int64
+	var childBestPath []string
+	for _, childID := range childIDsByParent[spanID] {
+		duration, path := longestSpanPathFrom(childID, byID, childIDsByParent, visiting)
+		if len(childBestPath) == 0 || duration > childBestDuration || (duration == childBestDuration && strings.Join(path, "\x00") < strings.Join(childBestPath, "\x00")) {
+			childBestDuration = duration
+			childBestPath = path
+		}
+	}
+	delete(visiting, spanID)
+	return span.DurationMillis + childBestDuration, append([]string{spanID}, childBestPath...)
+}
+
+func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
+	type aggregate struct {
+		span       TraceSpan
+		attributes map[string]string
+	}
+	aggregates := map[string]*aggregate{}
+	order := []string{}
+	for _, step := range trace.Steps {
+		if strings.TrimSpace(step.SpanID) == "" {
+			continue
+		}
+		spanID := step.SpanID
+		current, ok := aggregates[spanID]
+		if !ok {
+			start := step.CreatedAt
+			if start.IsZero() {
+				start = firstStepTime(trace.Steps)
+			}
+			current = &aggregate{
+				span: TraceSpan{
+					TraceID:        defaultString(step.TraceID, trace.TraceID),
+					SpanID:         spanID,
+					ParentSpanID:   step.ParentSpanID,
+					Name:           defaultString(step.SpanName, spanName(step)),
+					Kind:           defaultString(step.SpanKind, spanKind(step.Type)),
+					Status:         defaultString(step.SpanStatus, pointSpanStatus(step)),
+					StartSeq:       step.Seq,
+					EndSeq:         step.Seq,
+					StartTime:      start,
+					EndTime:        start,
+					DurationMillis: step.DurationMillis,
+					Attributes:     map[string]string{},
+				},
+				attributes: map[string]string{},
+			}
+			aggregates[spanID] = current
+			order = append(order, spanID)
+		}
+		if step.ParentSpanID != "" {
+			current.span.ParentSpanID = step.ParentSpanID
+		}
+		if step.SpanName != "" {
+			current.span.Name = step.SpanName
+		}
+		if step.SpanKind != "" {
+			current.span.Kind = step.SpanKind
+		}
+		if step.SpanStatus != "" {
+			current.span.Status = step.SpanStatus
+		}
+		if step.Seq < current.span.StartSeq {
+			current.span.StartSeq = step.Seq
+		}
+		if step.Seq > current.span.EndSeq {
+			current.span.EndSeq = step.Seq
+		}
+		if !step.CreatedAt.IsZero() {
+			if current.span.StartTime.IsZero() || step.CreatedAt.Before(current.span.StartTime) {
+				current.span.StartTime = step.CreatedAt
+			}
+			if step.CreatedAt.After(current.span.EndTime) {
+				current.span.EndTime = step.CreatedAt
+			}
+		}
+		for key, value := range nativeStepAttributes(step) {
+			if value != "" {
+				current.attributes[key] = value
+			}
+		}
+		if step.DurationMillis > current.span.DurationMillis {
+			current.span.DurationMillis = step.DurationMillis
+		}
+	}
+	if len(order) == 0 {
+		return nil
+	}
+	for _, spanID := range order {
+		current := aggregates[spanID]
+		if current.span.DurationMillis > 0 {
+			current.span.EndTime = current.span.StartTime.Add(time.Duration(current.span.DurationMillis) * time.Millisecond)
+		} else {
+			current.span.DurationMillis = durationMillis(current.span.StartTime, current.span.EndTime)
+		}
+		current.span.Attributes = current.attributes
+	}
+	sort.SliceStable(order, func(i int, j int) bool {
+		left := aggregates[order[i]].span
+		right := aggregates[order[j]].span
+		if left.ParentSpanID == "" && right.ParentSpanID != "" {
+			return true
+		}
+		if right.ParentSpanID == "" && left.ParentSpanID != "" {
+			return false
+		}
+		if !left.StartTime.Equal(right.StartTime) {
+			return left.StartTime.Before(right.StartTime)
+		}
+		if left.StartSeq != right.StartSeq {
+			return left.StartSeq < right.StartSeq
+		}
+		return left.Name < right.Name
+	})
+	spans := make([]TraceSpan, 0, len(order))
+	for _, spanID := range order {
+		spans = append(spans, aggregates[spanID].span)
+	}
+	return spans
+}
+
+func enrichTraceSpans(trace TurnTrace, spans []TraceSpan) []TraceSpan {
+	if len(spans) == 0 {
+		return spans
+	}
+	childIDs := map[string][]string{}
+	for _, span := range spans {
+		if span.ParentSpanID == "" {
+			continue
+		}
+		childIDs[span.ParentSpanID] = append(childIDs[span.ParentSpanID], span.SpanID)
+	}
+	nativeSpanIDs := map[string]struct{}{}
+	for _, step := range trace.Steps {
+		if step.SpanID != "" {
+			nativeSpanIDs[step.SpanID] = struct{}{}
+		}
+	}
+	usesNativeStepIDs := len(nativeSpanIDs) > 0
+	for index := range spans {
+		span := &spans[index]
+		span.ChildSpanIDs = append([]string(nil), childIDs[span.SpanID]...)
+		for _, step := range trace.Steps {
+			if !stepBelongsToSpan(step, *span, usesNativeStepIDs) {
+				continue
+			}
+			span.Events = append(span.Events, traceSpanEventForStep(step))
+		}
+	}
+	annotateTraceSpans(trace, spans)
+	return spans
+}
+
+func annotateTraceSpans(trace TurnTrace, spans []TraceSpan) {
+	indexes := buildSpanGraphIndexes(spans)
+	traceStart := firstStepTime(trace.Steps)
+	durationByID := make(map[string]int64, len(spans))
+	for _, span := range spans {
+		durationByID[span.SpanID] = span.DurationMillis
+	}
+	for index := range spans {
+		span := &spans[index]
+		span.Depth = indexes.depthBySpanID[span.SpanID]
+		if !traceStart.IsZero() && !span.StartTime.IsZero() {
+			span.StartOffsetMillis = durationMillis(traceStart, span.StartTime)
+		}
+		childDurationMillis := int64(0)
+		for _, childID := range indexes.childIDsByParent[span.SpanID] {
+			childDurationMillis += durationByID[childID]
+		}
+		span.SelfDurationMillis = span.DurationMillis - childDurationMillis
+		if span.SelfDurationMillis < 0 {
+			span.SelfDurationMillis = 0
+		}
+		_, span.Critical = indexes.criticalSpanIDSet[span.SpanID]
+	}
+}
+
+func stepBelongsToSpan(step TraceStep, span TraceSpan, usesNativeStepIDs bool) bool {
+	if usesNativeStepIDs {
+		return step.SpanID != "" && step.SpanID == span.SpanID
+	}
+	if span.StartSeq == 0 && span.EndSeq == 0 {
+		return false
+	}
+	return step.Seq >= span.StartSeq && step.Seq <= span.EndSeq
+}
+
+func traceSpanEventForStep(step TraceStep) TraceSpanEvent {
+	attributes := nativeStepAttributes(step)
+	if step.TraceID != "" {
+		attributes["trace_id"] = step.TraceID
+	}
+	if step.SpanID != "" {
+		attributes["span_id"] = step.SpanID
+	}
+	if step.ParentSpanID != "" {
+		attributes["parent_span_id"] = step.ParentSpanID
+	}
+	if step.DurationMillis > 0 {
+		attributes["duration_ms"] = fmt.Sprintf("%d", step.DurationMillis)
+	}
+	return TraceSpanEvent{
+		Seq:        step.Seq,
+		Type:       step.Type,
+		Name:       spanName(step),
+		Time:       step.CreatedAt,
+		Message:    step.Message,
+		Summary:    step.Summary,
+		Attributes: attributes,
+	}
+}
+
+func nativeStepAttributes(step TraceStep) map[string]string {
+	attributes := map[string]string{
+		"event_type": step.Type,
+		"event_seq":  fmt.Sprintf("%d", step.Seq),
+	}
+	if step.CallID != "" {
+		attributes["tool_call_id"] = step.CallID
+	}
+	if step.Identifier != "" {
+		attributes["tool_identifier"] = step.Identifier
+	}
+	if step.APIName != "" {
+		attributes["tool_api"] = step.APIName
+	}
+	if step.Outcome != "" {
+		attributes["outcome"] = step.Outcome
+	}
+	if step.DecisionReason != "" {
+		attributes["decision_reason"] = step.DecisionReason
+	}
+	if step.ApprovalSource != "" {
+		attributes["approval_source"] = step.ApprovalSource
+	}
+	if len(step.Artifacts) > 0 {
+		attributes["artifact_count"] = fmt.Sprintf("%d", len(step.Artifacts))
+	}
+	if step.ArtifactError != "" {
+		attributes["artifact_error"] = step.ArtifactError
+	}
+	if step.Message != "" {
+		attributes["message"] = singleLineSummary(step.Message)
+	}
+	return attributes
+}
+
 func BuildTraceSpans(trace TurnTrace) []TraceSpan {
 	if trace.TraceID == "" || trace.TurnID == "" || len(trace.Steps) == 0 {
 		return nil
+	}
+	if native := buildNativeTraceSpans(trace); len(native) > 0 {
+		return enrichTraceSpans(trace, native)
 	}
 
 	start := firstStepTime(trace.Steps)
@@ -395,7 +999,7 @@ func BuildTraceSpans(trace TurnTrace) []TraceSpan {
 		}
 		return spans[i].Name < spans[j].Name
 	})
-	return spans
+	return enrichTraceSpans(trace, spans)
 }
 
 func ExportPerfetto(trace TurnTrace) map[string]any {
@@ -417,7 +1021,15 @@ func ExportPerfetto(trace TurnTrace) map[string]any {
 	}
 	for _, span := range trace.Spans {
 		args := map[string]any{
-			"status": span.Status,
+			"status":           span.Status,
+			"span_id":          span.SpanID,
+			"parent_span_id":   span.ParentSpanID,
+			"depth":            span.Depth,
+			"start_offset_ms":  span.StartOffsetMillis,
+			"duration_ms":      span.DurationMillis,
+			"self_duration_ms": span.SelfDurationMillis,
+			"critical":         span.Critical,
+			"event_count":      len(span.Events),
 		}
 		for key, value := range span.Attributes {
 			args[key] = value
@@ -440,6 +1052,7 @@ func ExportPerfetto(trace TurnTrace) map[string]any {
 			"trace_id": trace.TraceID,
 			"summary":  trace.Summary,
 			"stats":    trace.Stats,
+			"graph":    trace.Graph,
 		},
 	}
 }
@@ -447,12 +1060,18 @@ func ExportPerfetto(trace TurnTrace) map[string]any {
 func ExportOTel(trace TurnTrace) map[string]any {
 	spans := make([]map[string]any, 0, len(trace.Spans))
 	for _, span := range trace.Spans {
-		attributes := make([]map[string]any, 0, len(span.Attributes)+6)
+		attributes := make([]map[string]any, 0, len(span.Attributes)+12)
 		attributes = append(attributes,
 			stringAttribute("tma.session_id", trace.SessionID),
 			stringAttribute("tma.turn_id", trace.TurnID),
 			stringAttribute("tma.span_kind", span.Kind),
 			stringAttribute("tma.status", span.Status),
+			intAttribute("tma.span_depth", int64(span.Depth)),
+			intAttribute("tma.start_offset_ms", span.StartOffsetMillis),
+			intAttribute("tma.duration_ms", span.DurationMillis),
+			intAttribute("tma.self_duration_ms", span.SelfDurationMillis),
+			boolAttribute("tma.critical", span.Critical),
+			intAttribute("tma.event_count", int64(len(span.Events))),
 		)
 		for key, value := range span.Attributes {
 			if value == "" {
@@ -473,14 +1092,7 @@ func ExportOTel(trace TurnTrace) map[string]any {
 				"code":    otelStatusCode(span.Status),
 				"message": span.Status,
 			},
-			"events": []map[string]any{
-				{
-					"name":              "tma.span_range",
-					"timeUnixNano":      fmt.Sprintf("%d", span.EndTime.UnixNano()),
-					"attributes":        []map[string]any{stringAttribute("tma.start_seq", fmt.Sprintf("%d", span.StartSeq)), stringAttribute("tma.end_seq", fmt.Sprintf("%d", span.EndSeq))},
-					"droppedAttributes": 0,
-				},
-			},
+			"events": otelSpanEvents(span),
 		})
 	}
 	return map[string]any{
@@ -503,8 +1115,56 @@ func ExportOTel(trace TurnTrace) map[string]any {
 		"metadata": map[string]any{
 			"summary": trace.Summary,
 			"stats":   trace.Stats,
+			"graph":   trace.Graph,
 		},
 	}
+}
+
+func otelSpanEvents(span TraceSpan) []map[string]any {
+	events := []map[string]any{
+		{
+			"name":         "tma.span_range",
+			"timeUnixNano": fmt.Sprintf("%d", span.EndTime.UnixNano()),
+			"attributes": []map[string]any{
+				stringAttribute("tma.start_seq", fmt.Sprintf("%d", span.StartSeq)),
+				stringAttribute("tma.end_seq", fmt.Sprintf("%d", span.EndSeq)),
+				intAttribute("tma.span_depth", int64(span.Depth)),
+				intAttribute("tma.start_offset_ms", span.StartOffsetMillis),
+				intAttribute("tma.self_duration_ms", span.SelfDurationMillis),
+				boolAttribute("tma.critical", span.Critical),
+			},
+			"droppedAttributes": 0,
+		},
+	}
+	for _, event := range span.Events {
+		attributes := []map[string]any{
+			stringAttribute("tma.event_type", event.Type),
+			stringAttribute("tma.event_seq", fmt.Sprintf("%d", event.Seq)),
+		}
+		if event.Message != "" {
+			attributes = append(attributes, stringAttribute("tma.message", singleLineSummary(event.Message)))
+		}
+		if event.Summary != "" {
+			attributes = append(attributes, stringAttribute("tma.summary", singleLineSummary(event.Summary)))
+		}
+		for key, value := range event.Attributes {
+			if value == "" || key == "event_type" || key == "event_seq" || key == "message" {
+				continue
+			}
+			attributes = append(attributes, stringAttribute("tma."+key, value))
+		}
+		eventTime := event.Time
+		if eventTime.IsZero() {
+			eventTime = span.StartTime
+		}
+		events = append(events, map[string]any{
+			"name":              event.Name,
+			"timeUnixNano":      fmt.Sprintf("%d", eventTime.UnixNano()),
+			"attributes":        attributes,
+			"droppedAttributes": 0,
+		})
+	}
+	return events
 }
 
 func RefreshSessionSummary(store summaryStore, sessionID string, turnID string) error {
@@ -631,6 +1291,13 @@ func projectStep(event managedagents.Event) TraceStep {
 		Type:      event.Type,
 		CreatedAt: event.CreatedAt,
 	}
+	step.TraceID = payloadString(event.Payload, "trace_id")
+	step.SpanID = payloadString(event.Payload, "span_id")
+	step.ParentSpanID = payloadString(event.Payload, "parent_span_id")
+	step.SpanName = payloadString(event.Payload, "span_name")
+	step.SpanKind = payloadString(event.Payload, "span_kind")
+	step.SpanStatus = payloadString(event.Payload, "span_status")
+	step.DurationMillis = payloadInt64(event.Payload, "duration_ms")
 	switch event.Type {
 	case managedagents.EventUserMessage, managedagents.EventAgentMessage:
 		step.Message = firstTextContent(event.Payload)
@@ -779,6 +1446,10 @@ func inferTraceStatus(steps []TraceStep) string {
 func traceID(sessionID string, turnID string) string {
 	sum := sha256.Sum256([]byte(sessionID + ":" + turnID))
 	return hex.EncodeToString(sum[:16])
+}
+
+func TraceIDForTurn(sessionID string, turnID string) string {
+	return traceID(sessionID, turnID)
 }
 
 func spanIDFromKey(key string) string {
@@ -1015,6 +1686,24 @@ func stringAttribute(key string, value string) map[string]any {
 	}
 }
 
+func intAttribute(key string, value int64) map[string]any {
+	return map[string]any{
+		"key": key,
+		"value": map[string]any{
+			"intValue": fmt.Sprintf("%d", value),
+		},
+	}
+}
+
+func boolAttribute(key string, value bool) map[string]any {
+	return map[string]any{
+		"key": key,
+		"value": map[string]any{
+			"boolValue": value,
+		},
+	}
+}
+
 func payloadTurnID(raw json.RawMessage) string {
 	return payloadString(raw, "turn_id")
 }
@@ -1033,6 +1722,27 @@ func payloadString(raw json.RawMessage, key string) string {
 	}
 	value, _ := object[key].(string)
 	return value
+}
+
+func payloadInt64(raw json.RawMessage, key string) int64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var object map[string]any
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return 0
+	}
+	switch value := object[key].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func payloadDataString(raw json.RawMessage, key string) string {

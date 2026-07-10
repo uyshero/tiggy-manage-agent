@@ -11,6 +11,7 @@ import (
 type MetricsSnapshot struct {
 	Usage         managedagents.LLMUsageAggregateReport
 	Workers       []managedagents.Worker
+	Observability Status
 	Trace         *TurnTrace
 	Events        []managedagents.Event
 	Interventions []managedagents.SessionIntervention
@@ -20,6 +21,7 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	var builder strings.Builder
 	writeUsageMetrics(&builder, snapshot.Usage)
 	writeWorkerMetrics(&builder, snapshot.Workers)
+	writeObservabilityMetrics(&builder, snapshot.Observability)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
 }
@@ -75,6 +77,73 @@ func writeWorkerMetrics(builder *strings.Builder, workers []managedagents.Worker
 	}
 }
 
+func writeObservabilityMetrics(builder *strings.Builder, status Status) {
+	writeMetricHelp(builder, "tma_observability_exporter_enabled", "Whether an observability exporter is enabled.")
+	writeMetricType(builder, "tma_observability_exporter_enabled", "gauge")
+	writeMetric(builder, "tma_observability_exporter_enabled", map[string]string{"exporter": "perfetto"}, boolMetric(status.Perfetto.Enabled))
+	writeMetric(builder, "tma_observability_exporter_enabled", map[string]string{"exporter": "otlp"}, boolMetric(status.OTLP.Enabled))
+
+	writeMetricHelp(builder, "tma_observability_exporter_sample_rate", "Automatic observability exporter sampling rate.")
+	writeMetricType(builder, "tma_observability_exporter_sample_rate", "gauge")
+	writeFloatMetric(builder, "tma_observability_exporter_sample_rate", nil, status.Sampling.SampleRate)
+
+	writeMetricHelp(builder, "tma_observability_exporter_retry_max_attempts", "Maximum exporter attempts including the original try.")
+	writeMetricType(builder, "tma_observability_exporter_retry_max_attempts", "gauge")
+	writeMetric(builder, "tma_observability_exporter_retry_max_attempts", nil, int64(status.Retry.MaxAttempts))
+
+	writeMetricHelp(builder, "tma_observability_exporter_pending_recent_retries", "Recent failed exporter runs with a scheduled retry.")
+	writeMetricType(builder, "tma_observability_exporter_pending_recent_retries", "gauge")
+	writeMetric(builder, "tma_observability_exporter_pending_recent_retries", nil, int64(status.Retry.PendingRecentRetries))
+
+	writeMetricHelp(builder, "tma_observability_exporter_last_success_timestamp_seconds", "Unix timestamp of the last successful exporter run.")
+	writeMetricType(builder, "tma_observability_exporter_last_success_timestamp_seconds", "gauge")
+	writeMetric(builder, "tma_observability_exporter_last_success_timestamp_seconds", map[string]string{"exporter": "perfetto"}, healthTimestamp(status.Perfetto.LastSuccess))
+	writeMetric(builder, "tma_observability_exporter_last_success_timestamp_seconds", map[string]string{"exporter": "otlp"}, healthTimestamp(status.OTLP.LastSuccess))
+
+	writeMetricHelp(builder, "tma_observability_exporter_last_failure_timestamp_seconds", "Unix timestamp of the last failed exporter run.")
+	writeMetricType(builder, "tma_observability_exporter_last_failure_timestamp_seconds", "gauge")
+	writeMetric(builder, "tma_observability_exporter_last_failure_timestamp_seconds", map[string]string{"exporter": "perfetto"}, healthTimestamp(status.Perfetto.LastFailure))
+	writeMetric(builder, "tma_observability_exporter_last_failure_timestamp_seconds", map[string]string{"exporter": "otlp"}, healthTimestamp(status.OTLP.LastFailure))
+
+	writeMetricHelp(builder, "tma_observability_exporter_last_attempt_timestamp_seconds", "Unix timestamp of the last exporter run attempt.")
+	writeMetricType(builder, "tma_observability_exporter_last_attempt_timestamp_seconds", "gauge")
+	writeMetric(builder, "tma_observability_exporter_last_attempt_timestamp_seconds", map[string]string{"exporter": "perfetto"}, healthTimestamp(status.Perfetto.LastAttempt))
+	writeMetric(builder, "tma_observability_exporter_last_attempt_timestamp_seconds", map[string]string{"exporter": "otlp"}, healthTimestamp(status.OTLP.LastAttempt))
+
+	writeMetricHelp(builder, "tma_observability_exporter_recent_runs_total", "Recent persisted exporter runs by exporter and status.")
+	writeMetricType(builder, "tma_observability_exporter_recent_runs_total", "gauge")
+	runCounts := map[string]int64{}
+	for _, run := range status.RecentRuns {
+		if run.Exporter == "" || run.Status == "" {
+			continue
+		}
+		runCounts[run.Exporter+"\x00"+run.Status]++
+	}
+	runKeys := make([]string, 0, len(runCounts))
+	for key := range runCounts {
+		runKeys = append(runKeys, key)
+	}
+	sort.Strings(runKeys)
+	for _, key := range runKeys {
+		exporter, runStatus, _ := strings.Cut(key, "\x00")
+		writeMetric(builder, "tma_observability_exporter_recent_runs_total", map[string]string{"exporter": exporter, "status": runStatus}, runCounts[key])
+	}
+}
+
+func boolMetric(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func healthTimestamp(health *ExporterHealth) int64 {
+	if health == nil || health.At.IsZero() {
+		return 0
+	}
+	return health.At.Unix()
+}
+
 func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []managedagents.Event, interventions []managedagents.SessionIntervention) {
 	if trace == nil || trace.SessionID == "" {
 		return
@@ -124,11 +193,39 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 		"turn_id": trace.TurnID,
 	}), int64(trace.Stats.StepCount))
 
+	writeMetricHelp(builder, "tma_trace_critical_path_duration_milliseconds", "Projected critical path duration in milliseconds.")
+	writeMetricType(builder, "tma_trace_critical_path_duration_milliseconds", "gauge")
+	writeMetric(builder, "tma_trace_critical_path_duration_milliseconds", mergeLabels(sessionLabels, map[string]string{
+		"turn_id": trace.TurnID,
+		"status":  defaultTraceLabel(trace.Status, "running"),
+	}), trace.Graph.CriticalPathDurationMillis)
+
+	writeMetricHelp(builder, "tma_trace_max_span_depth", "Maximum projected span tree depth by turn.")
+	writeMetricType(builder, "tma_trace_max_span_depth", "gauge")
+	writeMetric(builder, "tma_trace_max_span_depth", mergeLabels(sessionLabels, map[string]string{
+		"turn_id": trace.TurnID,
+	}), int64(trace.Graph.MaxDepth))
+
+	writeMetricHelp(builder, "tma_trace_critical_spans_total", "Projected critical path span count by turn.")
+	writeMetricType(builder, "tma_trace_critical_spans_total", "gauge")
+	writeMetric(builder, "tma_trace_critical_spans_total", mergeLabels(sessionLabels, map[string]string{
+		"turn_id": trace.TurnID,
+	}), int64(len(trace.Graph.CriticalSpanIDs)))
+
 	writeMetricHelp(builder, "tma_trace_spans_total", "Projected span totals by turn and kind.")
 	writeMetricType(builder, "tma_trace_spans_total", "gauge")
 	spanCounts := map[string]int64{}
+	spanMaxDuration := map[string]int64{}
+	spanMaxSelfDuration := map[string]int64{}
 	for _, span := range trace.Spans {
-		spanCounts[span.Kind]++
+		kind := defaultTraceLabel(span.Kind, "unknown")
+		spanCounts[kind]++
+		if span.DurationMillis > spanMaxDuration[kind] {
+			spanMaxDuration[kind] = span.DurationMillis
+		}
+		if span.SelfDurationMillis > spanMaxSelfDuration[kind] {
+			spanMaxSelfDuration[kind] = span.SelfDurationMillis
+		}
 	}
 	spanKinds := make([]string, 0, len(spanCounts))
 	for kind := range spanCounts {
@@ -140,6 +237,18 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 			"turn_id": trace.TurnID,
 			"kind":    kind,
 		}), spanCounts[kind])
+	}
+	writeMetricHelp(builder, "tma_trace_span_duration_milliseconds_max", "Maximum projected span duration by turn and kind.")
+	writeMetricType(builder, "tma_trace_span_duration_milliseconds_max", "gauge")
+	writeMetricHelp(builder, "tma_trace_span_self_duration_milliseconds_max", "Maximum projected span self duration by turn and kind.")
+	writeMetricType(builder, "tma_trace_span_self_duration_milliseconds_max", "gauge")
+	for _, kind := range spanKinds {
+		labels := mergeLabels(sessionLabels, map[string]string{
+			"turn_id": trace.TurnID,
+			"kind":    kind,
+		})
+		writeMetric(builder, "tma_trace_span_duration_milliseconds_max", labels, spanMaxDuration[kind])
+		writeMetric(builder, "tma_trace_span_self_duration_milliseconds_max", labels, spanMaxSelfDuration[kind])
 	}
 
 	writeMetricHelp(builder, "tma_tool_calls_total", "Tool call totals by tool and outcome for the selected session turn.")
@@ -205,6 +314,10 @@ func writeMetricType(builder *strings.Builder, name string, metricType string) {
 
 func writeMetric(builder *strings.Builder, name string, labels map[string]string, value int64) {
 	fmt.Fprintf(builder, "%s%s %d\n", name, prometheusLabels(labels), value)
+}
+
+func writeFloatMetric(builder *strings.Builder, name string, labels map[string]string, value float64) {
+	fmt.Fprintf(builder, "%s%s %g\n", name, prometheusLabels(labels), value)
 }
 
 func prometheusLabels(labels map[string]string) string {

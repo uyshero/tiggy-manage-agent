@@ -245,6 +245,30 @@ type UpsertSessionSummaryResult struct {
 	Events  []Event        `json:"events"`
 }
 
+const (
+	ObservabilityExporterPerfetto = "perfetto"
+	ObservabilityExporterOTLP     = "otlp"
+
+	ObservabilityExporterRunSucceeded = "succeeded"
+	ObservabilityExporterRunFailed    = "failed"
+	ObservabilityExporterRunSkipped   = "skipped"
+)
+
+type ObservabilityExporterRun struct {
+	ID           string     `json:"id"`
+	Exporter     string     `json:"exporter"`
+	Status       string     `json:"status"`
+	SessionID    string     `json:"session_id"`
+	TurnID       string     `json:"turn_id"`
+	TraceID      string     `json:"trace_id,omitempty"`
+	Destination  string     `json:"destination,omitempty"`
+	Message      string     `json:"message,omitempty"`
+	AttemptCount int        `json:"attempt_count"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+	StartedAt    time.Time  `json:"started_at"`
+	FinishedAt   time.Time  `json:"finished_at"`
+}
+
 type LLMUsageRecord struct {
 	ID                 string    `json:"id"`
 	WorkspaceID        string    `json:"workspace_id"`
@@ -396,6 +420,17 @@ type ListWorkersInput struct {
 	Status      string `json:"status,omitempty"`
 }
 
+type ListSessionsInput struct {
+	WorkspaceID     string `json:"workspace_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+}
+
+type ReapExpiredWorkersInput struct {
+	Limit int `json:"limit,omitempty"`
+}
+
 type WorkerWork struct {
 	ID             string          `json:"id"`
 	WorkspaceID    string          `json:"workspace_id"`
@@ -433,6 +468,10 @@ type WorkerWorkHeartbeatInput struct {
 	LeaseSeconds int `json:"lease_seconds,omitempty"`
 }
 
+type CancelWorkerWorkInput struct {
+	Reason string `json:"reason,omitempty"`
+}
+
 type ReapExpiredWorkerWorkInput struct {
 	Limit int `json:"limit,omitempty"`
 }
@@ -455,6 +494,30 @@ type CreateSessionArtifactInput struct {
 	ArtifactType  string          `json:"artifact_type,omitempty"`
 	Metadata      json.RawMessage `json:"metadata,omitempty"`
 	CreatedBy     string          `json:"created_by,omitempty"`
+}
+
+type RecordObservabilityExporterRunInput struct {
+	Exporter     string     `json:"exporter"`
+	Status       string     `json:"status"`
+	SessionID    string     `json:"session_id"`
+	TurnID       string     `json:"turn_id"`
+	TraceID      string     `json:"trace_id,omitempty"`
+	Destination  string     `json:"destination,omitempty"`
+	Message      string     `json:"message,omitempty"`
+	AttemptCount int        `json:"attempt_count,omitempty"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+	StartedAt    time.Time  `json:"started_at,omitempty"`
+	FinishedAt   time.Time  `json:"finished_at,omitempty"`
+}
+
+type ListObservabilityExporterRunsInput struct {
+	Exporter        string    `json:"exporter,omitempty"`
+	Status          string    `json:"status,omitempty"`
+	SessionID       string    `json:"session_id,omitempty"`
+	TurnID          string    `json:"turn_id,omitempty"`
+	RetryDueBefore  time.Time `json:"retry_due_before,omitempty"`
+	MaxAttemptCount int       `json:"max_attempt_count,omitempty"`
+	Limit           int       `json:"limit,omitempty"`
 }
 
 type RecordLLMUsageInput struct {

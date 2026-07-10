@@ -1288,10 +1288,13 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] worker get --id WORKER_ID
   tma [--base-url URL] [--auth-token TOKEN] worker heartbeat --id WORKER_ID [--status online|offline|draining] [--lease-seconds N]
   tma [--base-url URL] [--auth-token TOKEN] worker archive --id WORKER_ID
+  tma [--base-url URL] [--auth-token TOKEN] worker reap-expired [--limit N]
   tma [--base-url URL] [--auth-token TOKEN] worker diagnose --api API [--namespace default] [--capabilities LIST] [--runtime auto|cloud_sandbox|local_system] [--workspace WORKSPACE] [--json]
   tma [--base-url URL] [--auth-token TOKEN] work enqueue [--workspace WORKSPACE] [--worker WORKER_ID] [--env ENV_ID] [--session SESSION_ID] [--turn TURN_ID] [--type tool_execution|sandbox_command|artifact_sync] [--payload JSON]
   tma [--base-url URL] [--auth-token TOKEN] work enqueue --api API [--namespace default] [--capabilities LIST] [--risk read|write|exec] [--runtime auto|cloud_sandbox|local_system] [--input JSON]
   tma [--base-url URL] [--auth-token TOKEN] work get --work WORK_ID
+  tma [--base-url URL] [--auth-token TOKEN] work diagnose --work WORK_ID [--json]
+  tma [--base-url URL] [--auth-token TOKEN] work cancel --work WORK_ID [--reason TEXT]
   tma [--base-url URL] [--auth-token TOKEN] work reap-expired [--limit N]
   tma [--base-url URL] [--auth-token TOKEN] work poll --worker WORKER_ID [--lease-seconds N]
   tma [--base-url URL] [--auth-token TOKEN] work ack --worker WORKER_ID --work WORK_ID
@@ -1328,6 +1331,7 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] trace show --session SESSION_ID [--turn TURN_ID] [--json]
   tma [--base-url URL] [--auth-token TOKEN] trace export --session SESSION_ID [--turn TURN_ID] [--format perfetto|otel|json] [--output FILE] [--otlp-endpoint URL]
   tma [--base-url URL] [--auth-token TOKEN] observability status
+  tma [--base-url URL] [--auth-token TOKEN] observability retry
 
 Environment:
   TMA_BASE_URL               API base URL. Defaults to http://localhost:8080

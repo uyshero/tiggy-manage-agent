@@ -11,39 +11,46 @@ import (
 )
 
 const (
-	DefaultHTTPAddr                  = ":8080"
-	DefaultTurnQueueSize             = 16
-	DefaultTurnTimeoutMS             = 3600000
-	DefaultLLMProvider               = "fake"
-	DefaultLLMModel                  = "fake-demo"
-	DefaultLLMBaseURL                = "https://api.openai.com/v1"
-	DefaultLLMAPIKeyEnv              = "TMA_LLM_API_KEY"
-	DefaultContextWindowTokens       = 128000
-	DefaultObjectStorageProvider     = "localfs"
-	DefaultObjectStorageEndpoint     = "http://localhost:9000"
-	DefaultObjectStorageRegion       = "us-east-1"
-	DefaultObjectStorageBucket       = "tma-artifacts"
-	DefaultObjectStorageRootDir      = "/private/tmp/tma-object-store"
-	DefaultObjectStorageAccessKeyEnv = "TMA_OBJECT_STORAGE_ACCESS_KEY"
-	DefaultObjectStorageSecretKeyEnv = "TMA_OBJECT_STORAGE_SECRET_KEY"
-	DefaultToolRuntime               = "cloud_sandbox"
-	DefaultCloudSandboxDataRoot      = "/private/tmp/tma-cloud-sandbox-data"
-	DefaultCloudSandboxDataTTLSec    = 3600
-	DefaultCloudSandboxAllowNetwork  = true
-	DefaultWorkerWorkReaperEnabled   = true
-	DefaultWorkerWorkReaperIntervalMS = 30000
-	DefaultWorkerWorkReaperLimit      = 100
+	DefaultHTTPAddr                     = ":8080"
+	DefaultTurnQueueSize                = 16
+	DefaultTurnTimeoutMS                = 3600000
+	DefaultLLMProvider                  = "fake"
+	DefaultLLMModel                     = "fake-demo"
+	DefaultLLMBaseURL                   = "https://api.openai.com/v1"
+	DefaultLLMAPIKeyEnv                 = "TMA_LLM_API_KEY"
+	DefaultContextWindowTokens          = 128000
+	DefaultObjectStorageProvider        = "localfs"
+	DefaultObjectStorageEndpoint        = "http://localhost:9000"
+	DefaultObjectStorageRegion          = "us-east-1"
+	DefaultObjectStorageBucket          = "tma-artifacts"
+	DefaultObjectStorageRootDir         = "/private/tmp/tma-object-store"
+	DefaultObjectStorageAccessKeyEnv    = "TMA_OBJECT_STORAGE_ACCESS_KEY"
+	DefaultObjectStorageSecretKeyEnv    = "TMA_OBJECT_STORAGE_SECRET_KEY"
+	DefaultToolRuntime                  = "cloud_sandbox"
+	DefaultCloudSandboxDataRoot         = "/private/tmp/tma-cloud-sandbox-data"
+	DefaultCloudSandboxDataTTLSec       = 3600
+	DefaultCloudSandboxAllowNetwork     = true
+	DefaultWorkerReaperEnabled          = true
+	DefaultWorkerReaperIntervalMS       = 30000
+	DefaultWorkerReaperLimit            = 100
+	DefaultWorkerWorkReaperEnabled      = true
+	DefaultWorkerWorkReaperIntervalMS   = 30000
+	DefaultWorkerWorkReaperLimit        = 100
+	DefaultObservabilityRetryEnabled    = true
+	DefaultObservabilityRetryIntervalMS = 30000
+	DefaultObservabilityRetryLimit      = 20
 )
 
 type Config struct {
-	HTTPAddr    string
-	DatabaseURL string
-	Turn        TurnConfig
-	Context     ContextConfig
-	LLM         LLMConfig
-	ObjectStore ObjectStorageConfig
-	ToolRuntime ToolRuntimeConfig
-	Worker      WorkerConfig
+	HTTPAddr      string
+	DatabaseURL   string
+	Turn          TurnConfig
+	Context       ContextConfig
+	LLM           LLMConfig
+	ObjectStore   ObjectStorageConfig
+	ToolRuntime   ToolRuntimeConfig
+	Worker        WorkerConfig
+	Observability ObservabilityConfig
 }
 
 type TurnConfig struct {
@@ -92,10 +99,29 @@ type ToolRuntimeConfig struct {
 type WorkerConfig struct {
 	AuthToken        string
 	ControlAuthToken string
+	Reaper           WorkerReaperConfig
 	WorkReaper       WorkerWorkReaperConfig
 }
 
+type WorkerReaperConfig struct {
+	Enabled        bool
+	Interval       time.Duration
+	IntervalMillis int
+	Limit          int
+}
+
 type WorkerWorkReaperConfig struct {
+	Enabled        bool
+	Interval       time.Duration
+	IntervalMillis int
+	Limit          int
+}
+
+type ObservabilityConfig struct {
+	ExporterRetry ObservabilityExporterRetryConfig
+}
+
+type ObservabilityExporterRetryConfig struct {
 	Enabled        bool
 	Interval       time.Duration
 	IntervalMillis int
@@ -149,16 +175,30 @@ func FromEnv() (Config, error) {
 		Worker: WorkerConfig{
 			AuthToken:        os.Getenv("TMA_WORKER_AUTH_TOKEN"),
 			ControlAuthToken: os.Getenv("TMA_WORKER_CONTROL_AUTH_TOKEN"),
+			Reaper: WorkerReaperConfig{
+				Enabled:        envBoolOrDefault("TMA_WORKER_REAPER_ENABLED", DefaultWorkerReaperEnabled),
+				IntervalMillis: envIntOrDefault("TMA_WORKER_REAPER_INTERVAL_MS", DefaultWorkerReaperIntervalMS),
+				Limit:          envIntOrDefault("TMA_WORKER_REAPER_LIMIT", DefaultWorkerReaperLimit),
+			},
 			WorkReaper: WorkerWorkReaperConfig{
 				Enabled:        envBoolOrDefault("TMA_WORKER_WORK_REAPER_ENABLED", DefaultWorkerWorkReaperEnabled),
 				IntervalMillis: envIntOrDefault("TMA_WORKER_WORK_REAPER_INTERVAL_MS", DefaultWorkerWorkReaperIntervalMS),
 				Limit:          envIntOrDefault("TMA_WORKER_WORK_REAPER_LIMIT", DefaultWorkerWorkReaperLimit),
 			},
 		},
+		Observability: ObservabilityConfig{
+			ExporterRetry: ObservabilityExporterRetryConfig{
+				Enabled:        envBoolOrDefault("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED", DefaultObservabilityRetryEnabled),
+				IntervalMillis: envIntOrDefault("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS", DefaultObservabilityRetryIntervalMS),
+				Limit:          envIntOrDefault("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT", DefaultObservabilityRetryLimit),
+			},
+		},
 	}
 	config.Turn.Timeout = time.Duration(config.Turn.TimeoutMillis) * time.Millisecond
 	config.ToolRuntime.DataTTL = time.Duration(config.ToolRuntime.DataTTLSeconds) * time.Second
+	config.Worker.Reaper.Interval = time.Duration(config.Worker.Reaper.IntervalMillis) * time.Millisecond
 	config.Worker.WorkReaper.Interval = time.Duration(config.Worker.WorkReaper.IntervalMillis) * time.Millisecond
+	config.Observability.ExporterRetry.Interval = time.Duration(config.Observability.ExporterRetry.IntervalMillis) * time.Millisecond
 	config.LLM.APIKey = os.Getenv(config.LLM.APIKeyEnv)
 	config.ObjectStore.AccessKey = os.Getenv(config.ObjectStore.AccessKeyEnv)
 	config.ObjectStore.SecretKey = os.Getenv(config.ObjectStore.SecretKeyEnv)

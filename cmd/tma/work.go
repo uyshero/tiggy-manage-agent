@@ -144,6 +144,29 @@ func commandWork(client *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(response)
+	case "cancel":
+		flags := flag.NewFlagSet("work cancel", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var workID string
+		var reason string
+		flags.StringVar(&workID, "work", "", "work id")
+		flags.StringVar(&reason, "reason", "", "cancel reason")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if workID == "" {
+			return fmt.Errorf("work cancel requires --work")
+		}
+		request := map[string]any{}
+		if strings.TrimSpace(reason) != "" {
+			request["reason"] = reason
+		}
+		var response any
+		if err := client.do(http.MethodPost, "/v1/worker-work/"+url.PathEscape(workID)+"/cancel", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
 	case "diagnose":
 		flags := flag.NewFlagSet("work diagnose", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)

@@ -19,6 +19,15 @@ func commandObservability(client *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(response)
+	case "retry":
+		if len(args) != 1 {
+			return fmt.Errorf("observability retry does not accept arguments")
+		}
+		var response any
+		if err := client.do(http.MethodPost, "/v1/observability/retry", nil, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
 	default:
 		return fmt.Errorf("unknown observability subcommand %q", args[0])
 	}

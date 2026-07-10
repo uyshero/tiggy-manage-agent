@@ -59,6 +59,20 @@ type sessionSummaryRequest struct {
 	SourceUntilSeq int64  `json:"source_until_seq"`
 }
 
+type traceLookupResult struct {
+	Session managedagents.Session
+	Trace   observability.TurnTrace
+}
+
+type traceSpanDetailResponse struct {
+	SessionID    string                       `json:"session_id"`
+	TurnID       string                       `json:"turn_id"`
+	TraceID      string                       `json:"trace_id"`
+	SessionTitle string                       `json:"session_title,omitempty"`
+	Span         observability.TraceSpan      `json:"span"`
+	TraceStats   observability.TurnTraceStats `json:"trace_stats,omitempty"`
+}
+
 type sessionRuntimeSettingsRequest struct {
 	InterventionMode  *string `json:"intervention_mode"`
 	ToolRuntime       *string `json:"tool_runtime"`
@@ -295,6 +309,205 @@ func (s *Server) getSessionTrace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
 		return
 	}
+	s.writeTraceFormat(w, r, trace)
+}
+
+func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
+	limit, err := optionalPositiveInt(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid limit: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	sessions, eventsBySession, err := s.recentSessionEvents(r, limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"traces": observability.BuildTraceCatalog(sessions, eventsBySession, limit),
+	})
+}
+
+func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
+	limit, err := optionalPositiveInt(r.URL.Query().Get("limit"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid limit: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	minDuration, err := optionalPositiveInt(r.URL.Query().Get("min_duration_ms"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid min_duration_ms: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	maxDuration, err := optionalPositiveInt(r.URL.Query().Get("max_duration_ms"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid max_duration_ms: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	minSelfDuration, err := optionalPositiveInt(r.URL.Query().Get("min_self_duration_ms"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid min_self_duration_ms: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	critical, err := optionalBool(r.URL.Query().Get("critical"))
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: invalid critical: %v", managedagents.ErrInvalid, err))
+		return
+	}
+	sessions, eventsBySession, err := s.recentSessionEvents(r, limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, observability.BuildTraceSpanCatalog(sessions, eventsBySession, observability.TraceSpanCatalogFilter{
+		TraceID:               r.URL.Query().Get("trace_id"),
+		SessionID:             r.URL.Query().Get("session_id"),
+		TurnID:                r.URL.Query().Get("turn_id"),
+		Kind:                  r.URL.Query().Get("kind"),
+		Status:                r.URL.Query().Get("status"),
+		Query:                 r.URL.Query().Get("q"),
+		Critical:              critical,
+		MinDurationMillis:     int64(minDuration),
+		MaxDurationMillis:     int64(maxDuration),
+		MinSelfDurationMillis: int64(minSelfDuration),
+		Limit:                 limit,
+	}))
+}
+
+func (s *Server) recentSessionEvents(r *http.Request, limit int) ([]managedagents.Session, map[string][]managedagents.Event, error) {
+	sessions, err := s.store.ListSessions(managedagents.ListSessionsInput{
+		WorkspaceID:     r.URL.Query().Get("workspace_id"),
+		Status:          r.URL.Query().Get("session_status"),
+		IncludeArchived: strings.EqualFold(r.URL.Query().Get("include_archived"), "true") || r.URL.Query().Get("include_archived") == "1",
+		Limit:           limit,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	eventsBySession := make(map[string][]managedagents.Event, len(sessions))
+	for _, session := range sessions {
+		events, err := s.store.ListEvents(session.ID, 0)
+		if err != nil {
+			return nil, nil, err
+		}
+		eventsBySession[session.ID] = events
+	}
+	return sessions, eventsBySession, nil
+}
+
+func (s *Server) getTrace(w http.ResponseWriter, r *http.Request) {
+	traceID := strings.TrimSpace(r.PathValue("trace_id"))
+	if traceID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
+		return
+	}
+	limit, err := traceSearchLimit(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	lookup, err := s.findTraceByID(traceID, limit)
+	if err != nil {
+		if errors.Is(err, managedagents.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
+			return
+		}
+		writeError(w, err)
+		return
+	}
+	s.writeTraceFormat(w, r, lookup.Trace)
+}
+
+func (s *Server) getTraceSpan(w http.ResponseWriter, r *http.Request) {
+	traceID := strings.TrimSpace(r.PathValue("trace_id"))
+	spanID := strings.TrimSpace(r.PathValue("span_id"))
+	if traceID == "" || spanID == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "span not found"})
+		return
+	}
+	limit, err := traceSearchLimit(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	lookup, err := s.findTraceByID(traceID, limit)
+	if err != nil {
+		if errors.Is(err, managedagents.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "span not found"})
+			return
+		}
+		writeError(w, err)
+		return
+	}
+	for _, span := range lookup.Trace.Spans {
+		if span.SpanID != spanID {
+			continue
+		}
+		writeJSON(w, http.StatusOK, traceSpanDetailResponse{
+			SessionID:    lookup.Trace.SessionID,
+			TurnID:       lookup.Trace.TurnID,
+			TraceID:      lookup.Trace.TraceID,
+			SessionTitle: lookup.Session.Title,
+			Span:         span,
+			TraceStats:   lookup.Trace.Stats,
+		})
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "span not found"})
+}
+
+func traceSearchLimit(r *http.Request) (int, error) {
+	limit, err := optionalPositiveInt(r.URL.Query().Get("search_limit"))
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid search_limit: %v", managedagents.ErrInvalid, err)
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	return limit, nil
+}
+
+func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, error) {
+	traceID = strings.TrimSpace(traceID)
+	if traceID == "" {
+		return traceLookupResult{}, managedagents.ErrNotFound
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	sessions, err := s.store.ListSessions(managedagents.ListSessionsInput{IncludeArchived: true, Limit: limit})
+	if err != nil {
+		return traceLookupResult{}, err
+	}
+	for _, session := range sessions {
+		events, err := s.store.ListEvents(session.ID, 0)
+		if err != nil {
+			return traceLookupResult{}, err
+		}
+		for _, turn := range observability.BuildTurnCatalog(session.ID, events) {
+			if observability.TraceIDForTurn(session.ID, turn.TurnID) != traceID {
+				continue
+			}
+			trace := observability.ProjectTurnTrace(session.ID, turn.TurnID, events)
+			if trace.TurnID == "" || len(trace.Steps) == 0 {
+				break
+			}
+			return traceLookupResult{
+				Session: session,
+				Trace:   trace,
+			}, nil
+		}
+	}
+	return traceLookupResult{}, managedagents.ErrNotFound
+}
+
+func (s *Server) writeTraceFormat(w http.ResponseWriter, r *http.Request, trace observability.TurnTrace) {
 	switch strings.TrimSpace(strings.ToLower(r.URL.Query().Get("format"))) {
 	case "", "json", "trace":
 		writeJSON(w, http.StatusOK, trace)
@@ -325,8 +538,9 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot := observability.MetricsSnapshot{
-		Usage:   usage,
-		Workers: workers,
+		Usage:         usage,
+		Workers:       workers,
+		Observability: s.observabilityStatus(),
 	}
 	if sessionID := strings.TrimSpace(query.Get("session_id")); sessionID != "" {
 		events, err := s.store.ListEvents(sessionID, 0)
@@ -352,147 +566,40 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getInspector(w http.ResponseWriter, r *http.Request) {
+	content, err := inspectorAssets.ReadFile("inspector/index.html")
+	if err != nil {
+		s.logger.Error("inspector index read failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "inspector unavailable"})
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write([]byte(inspectorHTML)); err != nil {
+	if _, err := w.Write(content); err != nil {
 		s.logger.Warn("inspector response write failed", "error", err)
 	}
 }
 
 func (s *Server) getObservabilityStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, observability.StatusFromEnv())
+	writeJSON(w, http.StatusOK, s.observabilityStatus())
 }
 
-const inspectorHTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TMA Inspector</title>
-<style>
-:root{color-scheme:light;--bg:#f3f4f6;--ink:#111827;--muted:#6b7280;--line:#d1d5db;--panel:#fff;--accent:#0f766e;--accent-soft:#ecfdf5;--warn:#b45309;--warn-soft:#fffbeb;--err:#b42318;--err-soft:#fef2f2}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;letter-spacing:0}
-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border-bottom:1px solid var(--line);background:#fff;position:sticky;top:0;z-index:10}
-h1{margin:0;font-size:18px;font-weight:650}.layout{display:grid;grid-template-columns:320px minmax(0,1fr);min-height:calc(100vh - 57px)}
-aside{border-right:1px solid var(--line);background:#fff;padding:16px;display:grid;gap:16px;align-content:start}main{padding:16px;display:grid;gap:16px;align-content:start}
-label{display:block;font-size:12px;font-weight:650;color:var(--muted);margin:0 0 6px}input,select,button{font:inherit}
-input,select{width:100%;height:34px;border:1px solid var(--line);border-radius:6px;padding:6px 8px;background:#fff;color:var(--ink)}
-button{height:34px;border:1px solid #0b5f59;border-radius:6px;background:var(--accent);color:#fff;padding:0 12px;font-weight:650;cursor:pointer}button.secondary{background:#fff;color:var(--ink);border-color:var(--line)}
-.actions{display:flex;gap:8px;flex-wrap:wrap}.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.panel h2{margin:0;padding:10px 12px;border-bottom:1px solid var(--line);font-size:14px;background:#f9fafb}.content{padding:12px}
-.stack{display:grid;gap:12px}.meta{color:var(--muted);font-size:12px;display:flex;gap:8px;flex-wrap:wrap}.pill{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:12px}
-.pill.ok{background:var(--accent-soft);border-color:#a7f3d0;color:#065f46}.pill.warn{background:var(--warn-soft);border-color:#fcd34d;color:#92400e}.pill.err{background:var(--err-soft);border-color:#fecaca;color:#991b1b}
-.overview{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat-card{border:1px solid var(--line);border-radius:8px;background:#fff;padding:10px 12px;min-height:82px}.stat-label{font-size:12px;color:var(--muted)}.stat-value{font-size:20px;font-weight:650;margin-top:6px}.stat-sub{font-size:12px;color:var(--muted);margin-top:6px}
-.split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.triple{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
-.timeline,.list,.turn-list{display:grid;gap:8px}.step,.list-item,.turn-item{border:1px solid var(--line);border-radius:6px;background:#f9fafb;padding:10px}
-.step{border-left:3px solid #94a3b8}.step.tool{border-left-color:var(--accent)}.step.approval{border-left-color:var(--warn)}.step.error{border-left-color:var(--err)}
-.turn-item{cursor:pointer}.turn-item.active{border-color:var(--accent);background:#f0fdfa}.turn-item:hover{border-color:#9ca3af}
-.summary{white-space:pre-wrap;line-height:1.45}.summary.compact{font-size:13px}.empty{color:var(--muted)}pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.code{background:#111827;color:#e5e7eb;border-radius:8px;padding:12px;max-height:420px;overflow:auto}
-.table-wrap{overflow:auto}.span-table{width:100%;border-collapse:collapse;font-size:13px}.span-table th,.span-table td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.span-table th{font-size:12px;color:var(--muted);font-weight:650;background:#f9fafb;position:sticky;top:0}
-.toolbar{display:grid;gap:12px}.field{display:grid;gap:6px}.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink)}.toggle input{width:auto;height:auto}
-a.link{color:#0f766e;text-decoration:none}a.link:hover{text-decoration:underline}.subtle{font-size:12px;color:var(--muted)}.artifact-list{display:grid;gap:6px;margin-top:8px}.artifact-line{border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px}
-@media(max-width:1200px){.overview{grid-template-columns:repeat(3,minmax(0,1fr))}.triple{grid-template-columns:1fr}.split{grid-template-columns:1fr}}
-@media(max-width:860px){.layout{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--line)}.overview{grid-template-columns:repeat(2,minmax(0,1fr))}}
-</style>
-</head>
-<body>
-<header><h1>TMA Inspector</h1><div class="meta" id="status">idle</div></header>
-<div class="layout">
-<aside>
-<section class="panel">
-<h2>Query</h2>
-<div class="content toolbar">
-<div class="field"><label for="session">Session</label><input id="session" autocomplete="off" placeholder="sesn_000001"></div>
-<div class="field"><label for="turn">Turn</label><select id="turn"><option value="">latest</option></select></div>
-<div class="field"><label for="format">Export Format</label><select id="format"><option value="json">Trace JSON</option><option value="perfetto">Perfetto JSON</option><option value="otel">OTel JSON</option></select></div>
-<label class="toggle"><input type="checkbox" id="autoRefresh">Auto refresh every 5s</label>
-<div class="actions"><button id="load">Load</button><button class="secondary" id="export">Preview Export</button><button class="secondary" id="download">Download</button></div>
-</div>
-</section>
-<section class="panel">
-<h2>Turns</h2>
-<div class="content turn-list" id="turns"><span class="empty">No turns loaded.</span></div>
-</section>
-</aside>
-<main>
-<section class="overview" id="overviewCards">
-<div class="stat-card"><div class="stat-label">Turn</div><div class="stat-value">-</div><div class="stat-sub">Load a session.</div></div>
-</section>
-<section class="split">
-<section class="panel"><h2>Session</h2><div class="content stack" id="sessionMeta"><span class="empty">No session loaded.</span></div></section>
-<section class="panel"><h2>Trace Summary</h2><div class="content stack"><div id="traceMeta"><span class="empty">No trace loaded.</span></div><div class="summary compact" id="summary">No trace summary loaded.</div></div></section>
-</section>
-<section class="split">
-<section class="panel"><h2>Context Summary</h2><div class="content summary" id="sessionSummary">No session summary loaded.</div></section>
-<section class="panel"><h2>Usage</h2><div class="content stack"><div id="usageSummary" class="meta"><span class="empty">No usage loaded.</span></div><pre id="usage">No usage loaded.</pre></div></section>
-</section>
-<section class="panel"><h2>Spans</h2><div class="content table-wrap" id="spans"><span class="empty">No spans loaded.</span></div></section>
-<section class="panel"><h2>Timeline</h2><div class="content timeline" id="timeline"><span class="empty">No timeline loaded.</span></div></section>
-<section class="triple">
-<section class="panel"><h2>Pending Approvals</h2><div class="content list" id="interventions"><span class="empty">No interventions loaded.</span></div></section>
-<section class="panel"><h2>Artifacts</h2><div class="content list" id="artifacts"><span class="empty">No artifacts loaded.</span></div></section>
-<section class="panel"><h2>Recent Events</h2><div class="content list" id="events"><span class="empty">No events loaded.</span></div></section>
-</section>
-<section class="triple">
-<section class="panel"><h2>Metrics</h2><div class="content"><pre id="metrics" class="code">No metrics loaded.</pre></div></section>
-<section class="panel"><h2>Exporters</h2><div class="content list" id="exporters"><span class="empty">No exporter status loaded.</span></div></section>
-<section class="panel"><h2>Raw Export</h2><div class="content"><pre id="raw" class="code">No raw export loaded.</pre></div></section>
-</section>
-</main>
-</div>
-<script>
-const $=id=>document.getElementById(id);
-let refreshHandle=0;
-function status(text){$("status").textContent=text}
-function activeSession(){return $("session").value.trim()}
-function activeTurn(){return $("turn").value.trim()}
-function tracePath(format){const session=activeSession();const query=[];if(activeTurn())query.push("turn_id="+encodeURIComponent(activeTurn()));if(format)query.push("format="+encodeURIComponent(format));return "/v1/sessions/"+encodeURIComponent(session)+"/trace"+(query.length?"?"+query.join("&"):"")}
-function metricsPath(){const session=activeSession();const query=["session_id="+encodeURIComponent(session)];if(activeTurn())query.push("turn_id="+encodeURIComponent(activeTurn()));return "/metrics?"+query.join("&")}
-async function getJSON(path){const response=await fetch(path);if(!response.ok)throw new Error(await response.text());return response.json()}
-async function getText(path){const response=await fetch(path);if(!response.ok)throw new Error(await response.text());return response.text()}
-async function postJSON(path,body){const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});if(!response.ok)throw new Error(await response.text());return response.json()}
-function escapeHTML(text){return String(text||"").replace(/[&<>]/g,function(c){return({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])})}
-function escapeAttr(text){return escapeHTML(text).replace(/"/g,"&quot;")}
-function pretty(value){return JSON.stringify(value,null,2)}
-function formatTime(value){if(!value)return"-";const date=new Date(value);if(Number.isNaN(date.getTime()))return String(value);return date.toLocaleString()}
-function formatDuration(ms){const value=Number(ms||0);if(value<1000)return value+" ms";const seconds=(value/1000).toFixed(value<10000?2:1);return seconds+" s"}
-function pillClass(statusValue){if(statusValue==="completed"||statusValue==="ok"||statusValue==="success"||statusValue==="approved")return"pill ok";if(statusValue==="waiting_approval"||statusValue==="pending"||statusValue==="blocked")return"pill warn";if(statusValue==="failed"||statusValue==="error"||statusValue==="rejected")return"pill err";return"pill"}
-function stepClass(step){if(step.outcome==="error"||step.type==="runtime.failed")return"step error";if(step.type&&step.type.indexOf("intervention")!==-1)return"step approval";if(step.type&&step.type.indexOf("tool")!==-1)return"step tool";return"step"}
-function sessionArtifactCLI(downloadPath){downloadPath=String(downloadPath||"").trim();if(!downloadPath)return"";downloadPath=downloadPath.split("?")[0].split("#")[0];const prefix="/v1/sessions/";if(!downloadPath.startsWith(prefix))return"";const parts=downloadPath.slice(prefix.length).split("/");if(parts.length!==4||parts[1]!=="artifacts"||parts[3]!=="download")return"";if(!parts[0]||!parts[2])return"";return "bin/tma session artifact download --session "+parts[0]+" --artifact "+parts[2]}
-function sessionArtifactCommand(sessionId,artifactId){sessionId=String(sessionId||"").trim();artifactId=String(artifactId||"").trim();if(!sessionId||!artifactId)return"";return "bin/tma session artifact download --session "+sessionId+" --artifact "+artifactId}
-function artifactActions(href,command){let html='<div class="actions" style="margin-top:6px">';if(href){html+='<a class="link" href="'+escapeAttr(href)+'" target="_blank" rel="noreferrer">Download</a>'}if(command){html+='<button class="secondary" type="button" data-copy="'+escapeAttr(command)+'">Copy CLI</button>'}return html+'</div>'}
-function renderArtifactLine(artifact){const label=[artifact.artifact_id||artifact.id||"(unknown)",artifact.name||"",artifact.artifact_type?("["+artifact.artifact_type+"]"):""].filter(Boolean).join(" ");const href=artifact.download_path||"";const command=sessionArtifactCLI(href);return'<div class="artifact-line"><div>'+escapeHTML(label)+'</div>'+(href?'<div class="subtle">download: '+escapeHTML(href)+'</div>':"")+(command?'<div class="subtle">cli: '+escapeHTML(command)+'</div>':"")+artifactActions(href,command)+'</div>'}
-async function copyText(text){text=String(text||"");if(!text)return;if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(text)}else{const input=document.createElement("textarea");input.value=text;document.body.appendChild(input);input.select();document.execCommand("copy");input.remove()}status("copied command")}
-function renderOverview(trace){const stats=trace.stats||{};const cards=[{label:"Turn",value:trace.turn_id||"-",sub:trace.status||"running"},{label:"Duration",value:formatDuration(stats.duration_ms),sub:(stats.start_time?formatTime(stats.start_time):"-")+" -> "+(stats.end_time?formatTime(stats.end_time):"-")},{label:"Steps",value:String(stats.step_count||0),sub:"timeline events"},{label:"Spans",value:String(stats.span_count||0),sub:"projected trace spans"},{label:"Tools",value:String(stats.tool_calls||0),sub:String(stats.approval_waits||0)+" approval waits"},{label:"Errors",value:String(stats.errors||0),sub:String(stats.artifact_count||0)+" artifacts"}];$("overviewCards").innerHTML=cards.map(function(card){return'<div class="stat-card"><div class="stat-label">'+escapeHTML(card.label)+'</div><div class="stat-value">'+escapeHTML(card.value)+'</div><div class="stat-sub">'+escapeHTML(card.sub)+'</div></div>'}).join("")}
-function renderTraceMeta(trace){const stats=trace.stats||{};$("traceMeta").innerHTML='<div class="meta"><span>'+escapeHTML(trace.session_id)+'</span><span class="'+pillClass(trace.status||"running")+'">'+escapeHTML(trace.status||"running")+'</span><span>'+escapeHTML(trace.trace_id||"")+'</span></div><div class="meta"><span>'+String(stats.step_count||0)+' steps</span><span>'+String(stats.span_count||0)+' spans</span><span>'+String(stats.llm_requests||0)+' llm</span><span>'+String(stats.tool_calls||0)+' tools</span><span>'+String(stats.pending_approvals||0)+' pending approvals</span></div>'}
-function renderTimeline(trace){const steps=trace.steps||[];$("timeline").innerHTML=steps.length?steps.map(function(step){const subject=step.identifier?(escapeHTML(step.identifier)+(step.api_name?"."+escapeHTML(step.api_name):"")):"";const artifacts=(step.artifacts&&step.artifacts.length)?'<div class="artifact-list">'+step.artifacts.map(renderArtifactLine).join("")+'</div>':"";const artifactError=step.artifact_error?'<div class="subtle" style="margin-top:6px">artifact error: '+escapeHTML(step.artifact_error)+'</div>':"";return'<div class="'+stepClass(step)+'"><div class="meta"><span>seq '+step.seq+'</span><span>'+escapeHTML(step.type)+'</span><span>'+subject+'</span><span>'+escapeHTML(step.outcome||"")+'</span><span>'+formatTime(step.created_at)+'</span></div><div style="margin-top:6px">'+escapeHTML(step.message||step.summary||"")+'</div>'+artifacts+artifactError+'</div>'}).join(""):'<span class="empty">No timeline steps.</span>'}
-function renderSpans(trace){const spans=trace.spans||[];if(!spans.length){$("spans").innerHTML='<span class="empty">No spans loaded.</span>';return}$("spans").innerHTML='<table class="span-table"><thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Duration</th><th>Range</th><th>Attributes</th></tr></thead><tbody>'+spans.map(function(span){const attrs=Object.entries(span.attributes||{}).slice(0,6).map(function(entry){return escapeHTML(entry[0])+': '+escapeHTML(entry[1])}).join('<br>');return'<tr><td><strong>'+escapeHTML(span.name)+'</strong><div class="subtle">'+escapeHTML(span.span_id)+'</div></td><td>'+escapeHTML(span.kind)+'</td><td><span class="'+pillClass(span.status||"unknown")+'">'+escapeHTML(span.status||"unknown")+'</span></td><td>'+escapeHTML(formatDuration(span.duration_ms))+'</td><td>'+escapeHTML(String(span.start_seq||0))+' -> '+escapeHTML(String(span.end_seq||0))+'</td><td>'+(attrs||'<span class="subtle">No attributes</span>')+'</td></tr>'}).join("")+'</tbody></table>'}
-function setTurnOptions(turns,selectedTurn){const previous=selectedTurn||activeTurn();const options=['<option value="">latest</option>'];(turns||[]).forEach(function(turn){options.push('<option value="'+escapeHTML(turn.turn_id)+'">'+escapeHTML(turn.turn_id)+' ('+escapeHTML(turn.status||"running")+')</option>')});$("turn").innerHTML=options.join("");$("turn").value=previous||""}
-function renderTurns(turns,active){$("turns").innerHTML=(turns&&turns.length)?turns.map(function(turn){return'<div class="turn-item'+(turn.turn_id===active?' active':'')+'" data-turn="'+escapeHTML(turn.turn_id)+'"><div class="meta"><span>'+escapeHTML(turn.turn_id)+'</span><span class="'+pillClass(turn.status||"running")+'">'+escapeHTML(turn.status||"running")+'</span></div><div class="subtle" style="margin-top:6px">'+escapeHTML(formatDuration(turn.duration_ms))+' | '+turn.step_count+' steps | '+turn.span_count+' spans</div><div class="summary compact" style="margin-top:8px">'+escapeHTML(turn.summary||"No summary.")+'</div></div>'}).join(""):'<span class="empty">No turns loaded.</span>';Array.from(document.querySelectorAll(".turn-item")).forEach(function(node){node.addEventListener("click",function(){const turn=node.getAttribute("data-turn")||"";$("turn").value=turn;load().catch(function(error){status(error.message)})})})}
-function renderTrace(trace){renderOverview(trace);renderTraceMeta(trace);$("summary").textContent=trace.summary||"No trace summary loaded.";setTurnOptions(trace.turns||[],trace.turn_id||"");renderTurns(trace.turns||[],trace.turn_id||"");renderTimeline(trace);renderSpans(trace);$("raw").textContent=pretty(trace)}
-function renderSession(session){const runtime=session.runtime_settings?pretty(session.runtime_settings):"{}";$("sessionMeta").innerHTML='<div class="meta"><span>'+escapeHTML(session.id)+'</span><span class="'+pillClass(session.status||"unknown")+'">'+escapeHTML(session.status||"unknown")+'</span><span>'+escapeHTML(session.agent_id)+'</span><span>'+escapeHTML(session.environment_id)+'</span></div><div><strong>'+escapeHTML(session.title||"Untitled session")+'</strong></div><div class="meta"><span>created '+escapeHTML(formatTime(session.created_at))+'</span><span>'+escapeHTML(session.created_by||"")+'</span></div><pre>'+escapeHTML(runtime)+'</pre>'}
-function renderSessionSummary(summary){$("sessionSummary").textContent=(summary&&summary.summary_text)||"No session summary loaded."}
-function renderUsage(usage){const summary=(usage&&usage.summary)||{};$("usageSummary").innerHTML='<span>'+String(summary.record_count||0)+' records</span><span>'+String(summary.total_tokens||0)+' tokens</span><span>'+formatDuration(summary.latency_ms||0)+'</span>';$("usage").textContent=pretty(usage||{})}
-function renderArtifacts(sessionId,response){const artifacts=response.artifacts||[];$("artifacts").innerHTML=artifacts.length?artifacts.map(function(artifact){const href='/v1/sessions/'+encodeURIComponent(sessionId)+'/artifacts/'+encodeURIComponent(artifact.id)+'/download';const command=sessionArtifactCommand(sessionId,artifact.id);return'<div class="list-item"><div><strong>'+escapeHTML(artifact.name||artifact.id)+'</strong></div><div class="meta"><span>'+escapeHTML(artifact.artifact_type)+'</span><span>'+escapeHTML(artifact.object_ref_id||"")+'</span><span>'+escapeHTML(artifact.turn_id||"")+'</span></div><div class="subtle">cli: '+escapeHTML(command)+'</div>'+artifactActions(href,command)+'</div>'}).join(""):'<span class="empty">No artifacts.</span>'}
-function renderEvents(response){const events=(response.events||[]).slice(-18).reverse();$("events").innerHTML=events.length?events.map(function(event){return'<div class="list-item"><div class="meta"><span>seq '+event.seq+'</span><span>'+escapeHTML(event.type)+'</span><span>'+escapeHTML(formatTime(event.created_at))+'</span></div><pre style="margin-top:8px">'+escapeHTML(pretty(event.payload||{}))+'</pre></div>'}).join(""):'<span class="empty">No events.</span>'}
-function renderExporterStatus(response){const perfetto=(response&&response.perfetto)||{};const otlp=(response&&response.otlp)||{};function item(name,entry){const state=entry.enabled?"enabled":"disabled";const destination=entry.destination||"not configured";const token=entry.token_provided?'<span>token configured</span>':"";return'<div class="list-item"><div><strong>'+escapeHTML(name)+'</strong> <span class="'+pillClass(state==="enabled"?"ok":"unknown")+'">'+escapeHTML(state)+'</span></div><div class="meta" style="margin-top:6px"><span>'+escapeHTML(destination)+'</span>'+token+'</div></div>'}$("exporters").innerHTML=item("Perfetto",perfetto)+item("OTLP HTTP",otlp)}
-function approvalButtons(sessionId,intervention){const approve="approveIntervention('"+encodeURIComponent(sessionId)+"','"+encodeURIComponent(intervention.turn_id)+"','"+encodeURIComponent(intervention.call_id)+"')";const reject="rejectIntervention('"+encodeURIComponent(sessionId)+"','"+encodeURIComponent(intervention.turn_id)+"','"+encodeURIComponent(intervention.call_id)+"')";return '<div class="actions"><button onclick="'+approve+'">Approve</button><button class="secondary" onclick="'+reject+'">Reject</button></div>'}
-function renderInterventions(sessionId,response){const interventions=response.interventions||[];$("interventions").innerHTML=interventions.length?interventions.map(function(intervention){return'<div class="list-item"><div><strong>'+escapeHTML(intervention.tool_identifier)+'.'+escapeHTML(intervention.api_name)+'</strong></div><div class="meta"><span>'+escapeHTML(intervention.call_id)+'</span><span class="'+pillClass(intervention.status||"pending")+'">'+escapeHTML(intervention.status||"pending")+'</span><span>'+escapeHTML(intervention.reason||"")+'</span></div><pre style="margin-top:8px">'+escapeHTML(pretty(intervention.arguments||{}))+'</pre>'+approvalButtons(sessionId,intervention)+'</div>'}).join(""):'<span class="empty">No pending approvals.</span>'}
-async function approveIntervention(sessionId,turnId,callId){status("approving");await postJSON("/v1/sessions/"+sessionId+"/interventions/"+turnId+"/"+callId+"/approve",{reason:"approved from inspector"});await load();status("approved")}
-async function rejectIntervention(sessionId,turnId,callId){const reason=window.prompt("Reject reason","rejected from inspector");if(reason===null)return;status("rejecting");await postJSON("/v1/sessions/"+sessionId+"/interventions/"+turnId+"/"+callId+"/reject",{reason:reason});await load();status("rejected")}
-async function load(){const session=activeSession();if(!session){status("session required");return}status("loading "+session);const trace=await getJSON(tracePath(""));renderTrace(trace);const requests=[getJSON("/v1/sessions/"+encodeURIComponent(session)),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/usage").catch(function(error){return{error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/summary").catch(function(){return{summary_text:""}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/artifacts").catch(function(error){return{artifacts:[],error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/events").catch(function(error){return{events:[],error:String(error)}}),getJSON("/v1/sessions/"+encodeURIComponent(session)+"/interventions?status=pending").catch(function(error){return{interventions:[],error:String(error)}}),getText(metricsPath()).catch(function(error){return String(error)}),getJSON("/v1/observability/status").catch(function(error){return{error:String(error)}})];const results=await Promise.all(requests);renderSession(results[0]);renderUsage(results[1]);renderSessionSummary(results[2]);renderArtifacts(session,results[3]);renderEvents(results[4]);renderInterventions(session,results[5]);$("metrics").textContent=results[6];renderExporterStatus(results[7]);status("loaded "+session+" / "+(trace.turn_id||"latest"))}
-async function exportTrace(download){const session=activeSession();if(!session){status("session required");return}const format=$("format").value;const data=await getJSON(tracePath(format));const text=pretty(data);$("raw").textContent=text;if(download){const filename=[session,activeTurn()||"latest",format].join("-")+".json";const blob=new Blob([text],{type:"application/json"});const url=URL.createObjectURL(blob);const anchor=document.createElement("a");anchor.href=url;anchor.download=filename;anchor.click();window.setTimeout(function(){URL.revokeObjectURL(url)},1000)}status((download?"downloaded ":"previewed ")+format)}
-function updateRefresh(){if(refreshHandle){window.clearInterval(refreshHandle);refreshHandle=0}if($("autoRefresh").checked){refreshHandle=window.setInterval(function(){if(activeSession())load().catch(function(error){status(error.message)})},5000)}}
-$("load").addEventListener("click",function(){load().catch(function(error){status(error.message)})});
-$("turn").addEventListener("change",function(){if(activeSession())load().catch(function(error){status(error.message)})});
-$("export").addEventListener("click",function(){exportTrace(false).catch(function(error){status(error.message)})});
-$("download").addEventListener("click",function(){exportTrace(true).catch(function(error){status(error.message)})});
-$("autoRefresh").addEventListener("change",updateRefresh);
-document.addEventListener("click",function(event){const target=event.target.closest("[data-copy]");if(!target)return;copyText(target.getAttribute("data-copy")||"").catch(function(error){status(error.message)})});
-</script>
-</body>
-</html>`
+func (s *Server) retryObservabilityExporters(w http.ResponseWriter, r *http.Request) {
+	result, err := observability.RetryFailedExporterRunsFromEnv(s.store)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) observabilityStatus() observability.Status {
+	runs, err := s.store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{Limit: 20})
+	if err != nil {
+		s.logger.Warn("list observability exporter runs failed", "error", err)
+		return observability.StatusFromEnv()
+	}
+	return observability.StatusFromEnvWithRuns(runs)
+}
 
 func (s *Server) upsertSessionSummary(w http.ResponseWriter, r *http.Request) {
 	var request sessionSummaryRequest
@@ -573,6 +680,23 @@ func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"workers": workers})
+}
+
+func (s *Server) reapExpiredWorkers(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.ReapExpiredWorkersInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	expired, err := s.store.ReapExpiredWorkers(input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"count":   len(expired),
+		"expired": expired,
+	})
 }
 
 func (s *Server) diagnoseWorkers(w http.ResponseWriter, r *http.Request) {
@@ -766,6 +890,20 @@ func (s *Server) diagnoseWorkerWork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *Server) cancelWorkerWork(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.CancelWorkerWorkInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	work, err := s.store.CancelWorkerWork(r.PathValue("work_id"), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, work)
+}
+
 func diagnoseWorkerWorkState(store managedagents.Store, work managedagents.WorkerWork, now time.Time) workerWorkDiagnoseResponse {
 	response := workerWorkDiagnoseResponse{Work: work}
 	if strings.TrimSpace(work.WorkerID) != "" {
@@ -803,6 +941,7 @@ func diagnoseWorkerWorkState(store managedagents.Store, work managedagents.Worke
 		response.Reasons = append(response.Reasons, "work failed")
 	case managedagents.WorkerWorkStatusCanceled:
 		response.Reasons = append(response.Reasons, "work was canceled")
+		response.Actions = append(response.Actions, "no worker result is expected; enqueue a new work item if the operation should be retried")
 	default:
 		response.Reasons = append(response.Reasons, "work has unknown status "+work.Status)
 	}
@@ -1061,6 +1200,21 @@ func optionalPositiveInt(value string) (int, error) {
 		return 0, fmt.Errorf("must be non-negative")
 	}
 	return parsed, nil
+}
+
+func optionalBool(value string) (*bool, error) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "":
+		return nil, nil
+	case "1", "true", "yes":
+		parsed := true
+		return &parsed, nil
+	case "0", "false", "no":
+		parsed := false
+		return &parsed, nil
+	default:
+		return nil, fmt.Errorf("must be true or false")
+	}
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -1616,6 +1770,7 @@ func (s *Server) executeApprovedIntervention(r *http.Request, intervention manag
 	}
 	registry, _, executionContext := s.resolveToolExecution(config, intervention.SessionID, intervention.TurnID)
 	executor := tools.RegistryExecutor{Registry: registry}
+	startedAt := time.Now()
 	executionResult, err := executor.Execute(r.Context(), tools.Call{
 		ID:         intervention.CallID,
 		Identifier: intervention.ToolIdentifier,
@@ -1625,23 +1780,47 @@ func (s *Server) executeApprovedIntervention(r *http.Request, intervention manag
 	if err != nil {
 		return tools.ExecutionResult{}, nil, err
 	}
+	duration := time.Since(startedAt)
+	data := map[string]any{
+		"id":                   intervention.CallID,
+		"identifier":           intervention.ToolIdentifier,
+		"api_name":             intervention.APIName,
+		"duration_ms":          duration.Milliseconds(),
+		"content":              executionResult.Content,
+		"state":                rawJSONValue(executionResult.State),
+		"artifacts":            executionResult.Artifacts,
+		"artifact_error":       executionResult.ArtifactError,
+		"pending_intervention": executionResult.PendingIntervention,
+		"error":                executionResult.Error,
+		"success":              executionResult.Error == nil,
+		"approval_source":      "user",
+	}
+	fields := observability.EventTraceFields(observability.EventTraceFieldsInput{
+		SessionID:    intervention.SessionID,
+		TurnID:       intervention.TurnID,
+		EventType:    managedagents.EventRuntimeToolResult,
+		CallID:       intervention.CallID,
+		Identifier:   intervention.ToolIdentifier,
+		APIName:      intervention.APIName,
+		Status:       spanStatusForHTTPRuntimeEvent(managedagents.EventRuntimeToolResult, data),
+		Duration:     duration,
+		ParentSpanID: observability.InteractionSpanID(intervention.TurnID),
+	})
+	for key, value := range fields {
+		data[key] = value
+	}
 
 	payload, err := json.Marshal(map[string]any{
-		"turn_id": intervention.TurnID,
-		"message": "Received approved tool result.",
-		"data": map[string]any{
-			"id":                   intervention.CallID,
-			"identifier":           intervention.ToolIdentifier,
-			"api_name":             intervention.APIName,
-			"content":              executionResult.Content,
-			"state":                rawJSONValue(executionResult.State),
-			"artifacts":            executionResult.Artifacts,
-			"artifact_error":       executionResult.ArtifactError,
-			"pending_intervention": executionResult.PendingIntervention,
-			"error":                executionResult.Error,
-			"success":              executionResult.Error == nil,
-			"approval_source":      "user",
-		},
+		"turn_id":        intervention.TurnID,
+		"trace_id":       data["trace_id"],
+		"span_id":        data["span_id"],
+		"parent_span_id": data["parent_span_id"],
+		"span_name":      data["span_name"],
+		"span_kind":      data["span_kind"],
+		"span_status":    data["span_status"],
+		"duration_ms":    data["duration_ms"],
+		"message":        "Received approved tool result.",
+		"data":           data,
 	})
 	if err != nil {
 		return tools.ExecutionResult{}, nil, err
@@ -1721,13 +1900,15 @@ func (s *Server) continueIntervention(r *http.Request, intervention managedagent
 			s.recordContinuationUsage(intervention, config, llm.Usage{}, time.Since(startedAt), "failed", err.Error())
 			return allEvents, err
 		}
-		s.recordContinuationUsage(intervention, config, llmResponse.Usage, time.Since(startedAt), "completed", "")
+		llmDuration := time.Since(startedAt)
+		s.recordContinuationUsage(intervention, config, llmResponse.Usage, llmDuration, "completed", "")
 
 		responseEvents, err := s.appendRuntimeEvent(intervention.SessionID, managedagents.EventRuntimeLLMResponse, intervention.TurnID, "Received resumed LLM response.", map[string]any{
 			"role":          llmResponse.Message.Role,
 			"content_count": len(llmResponse.Message.Content),
 			"usage":         llmResponse.Usage,
 			"tool_round":    round,
+			"duration_ms":   llmDuration.Milliseconds(),
 		})
 		if err != nil {
 			return allEvents, err
@@ -1793,11 +1974,12 @@ func (s *Server) continueIntervention(r *http.Request, intervention managedagent
 				}
 			}
 
+			toolStartedAt := time.Now()
 			result, err := executor.Execute(r.Context(), call, executionContext)
 			if err != nil {
 				return allEvents, err
 			}
-			resultEvents, err := s.appendToolResultEvent(intervention.SessionID, intervention.TurnID, call, result, "Received continuation tool result.")
+			resultEvents, err := s.appendToolResultEvent(intervention.SessionID, intervention.TurnID, call, result, "Received continuation tool result.", time.Since(toolStartedAt))
 			if err != nil {
 				return allEvents, err
 			}
@@ -1874,10 +2056,38 @@ func (s *Server) recordContinuationUsage(intervention managedagents.SessionInter
 }
 
 func (s *Server) appendRuntimeEvent(sessionID string, eventType string, turnID string, message string, data map[string]any) ([]managedagents.Event, error) {
+	if data == nil {
+		data = map[string]any{}
+	}
+	callID, _ := data["id"].(string)
+	identifier, _ := data["identifier"].(string)
+	apiName, _ := data["api_name"].(string)
+	fields := observability.EventTraceFields(observability.EventTraceFieldsInput{
+		SessionID:       sessionID,
+		TurnID:          turnID,
+		EventType:       eventType,
+		CallID:          fallbackString(callID, fmt.Sprintf("%v", data["tool_round"])),
+		Identifier:      identifier,
+		APIName:         apiName,
+		Status:          spanStatusForHTTPRuntimeEvent(eventType, data),
+		Duration:        durationFromData(data),
+		ParentSpanID:    parentSpanForHTTPRuntimeEvent(turnID, eventType, callID),
+		InteractionRoot: eventType == managedagents.EventRuntimeStarted,
+	})
+	for key, value := range fields {
+		data[key] = value
+	}
 	payload, err := json.Marshal(map[string]any{
-		"turn_id": turnID,
-		"message": message,
-		"data":    data,
+		"turn_id":        turnID,
+		"trace_id":       data["trace_id"],
+		"span_id":        data["span_id"],
+		"parent_span_id": data["parent_span_id"],
+		"span_name":      data["span_name"],
+		"span_kind":      data["span_kind"],
+		"span_status":    data["span_status"],
+		"duration_ms":    data["duration_ms"],
+		"message":        message,
+		"data":           data,
 	})
 	if err != nil {
 		return nil, err
@@ -1888,11 +2098,12 @@ func (s *Server) appendRuntimeEvent(sessionID string, eventType string, turnID s
 	}})
 }
 
-func (s *Server) appendToolResultEvent(sessionID string, turnID string, call tools.Call, executionResult tools.ExecutionResult, message string) ([]managedagents.Event, error) {
+func (s *Server) appendToolResultEvent(sessionID string, turnID string, call tools.Call, executionResult tools.ExecutionResult, message string, duration time.Duration) ([]managedagents.Event, error) {
 	return s.appendRuntimeEvent(sessionID, managedagents.EventRuntimeToolResult, turnID, message, map[string]any{
 		"id":                   call.ID,
 		"identifier":           call.Identifier,
 		"api_name":             call.APIName,
+		"duration_ms":          duration.Milliseconds(),
 		"content":              executionResult.Content,
 		"state":                rawJSONValue(executionResult.State),
 		"artifacts":            executionResult.Artifacts,
@@ -1901,6 +2112,52 @@ func (s *Server) appendToolResultEvent(sessionID string, turnID string, call too
 		"error":                executionResult.Error,
 		"success":              executionResult.Error == nil,
 	})
+}
+
+func spanStatusForHTTPRuntimeEvent(eventType string, data map[string]any) string {
+	switch eventType {
+	case managedagents.EventRuntimeCompleted, managedagents.EventRuntimeLLMResponse:
+		return "ok"
+	case managedagents.EventRuntimeFailed, managedagents.EventRuntimeContextCompactionFailed:
+		return "error"
+	case managedagents.EventRuntimeToolResult:
+		if success, ok := data["success"].(bool); ok && success {
+			return "ok"
+		}
+		return "error"
+	case managedagents.EventRuntimeToolInterventionApproved:
+		return "approved"
+	case managedagents.EventRuntimeToolInterventionRejected:
+		return "rejected"
+	case managedagents.EventRuntimeToolInterventionRequired:
+		return "waiting"
+	default:
+		return "point"
+	}
+}
+
+func parentSpanForHTTPRuntimeEvent(turnID string, eventType string, callID string) string {
+	switch eventType {
+	case managedagents.EventRuntimeStarted:
+		return ""
+	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected:
+		return observability.ToolSpanID(turnID, callID, 0)
+	default:
+		return observability.InteractionSpanID(turnID)
+	}
+}
+
+func durationFromData(data map[string]any) time.Duration {
+	switch value := data["duration_ms"].(type) {
+	case int64:
+		return time.Duration(value) * time.Millisecond
+	case int:
+		return time.Duration(value) * time.Millisecond
+	case float64:
+		return time.Duration(int64(value)) * time.Millisecond
+	default:
+		return 0
+	}
 }
 
 func (s *Server) pauseContinuationForIntervention(intervention managedagents.SessionIntervention, call tools.Call, decision tools.InterventionDecision, continuationMessages []llm.Message, round int) ([]managedagents.Event, error) {

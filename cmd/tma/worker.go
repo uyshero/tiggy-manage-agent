@@ -228,6 +228,24 @@ func commandWorker(client *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(response)
+	case "reap-expired":
+		flags := flag.NewFlagSet("worker reap-expired", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var limit int
+		flags.IntVar(&limit, "limit", 0, "maximum expired workers to mark offline")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		request := map[string]any{}
+		if limit > 0 {
+			request["limit"] = limit
+		}
+		var response any
+		if err := client.do(http.MethodPost, "/v1/workers/reap-expired", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
 	case "diagnose":
 		flags := flag.NewFlagSet("worker diagnose", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)

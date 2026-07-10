@@ -154,3 +154,28 @@ func TestCommandWorkerArchive(t *testing.T) {
 		t.Fatalf("worker archive: %v", err)
 	}
 }
+
+func TestCommandWorkerReapExpired(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/workers/reap-expired" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["limit"].(float64) != 25 {
+			t.Fatalf("unexpected worker reap request: %#v", body)
+		}
+		return jsonResponse(`{"count":1,"expired":[{"id":"wrk_000001","status":"offline"}]}`), nil
+	})
+
+	stdout := captureStdout(t, func() {
+		if err := commandWorker(client, []string{"reap-expired", "--limit", "25"}); err != nil {
+			t.Fatalf("worker reap-expired: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, `"count": 1`) || !strings.Contains(stdout, `"status": "offline"`) {
+		t.Fatalf("expected reap output, got %q", stdout)
+	}
+}

@@ -890,6 +890,38 @@ func (s *PostgresStore) GetSession(id string) (Session, error) {
 	return session, nil
 }
 
+func (s *PostgresStore) ListSessions(input ListSessionsInput) ([]Session, error) {
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT id, workspace_id, agent_id, agent_config_version, environment_id, status, title, sandbox_id, runtime_settings_json, created_by, created_at, archived_at
+		FROM sessions
+		WHERE ($1 = '' OR workspace_id = $1)
+			AND ($2 = '' OR status = $2)
+			AND ($3 OR archived_at IS NULL)
+		ORDER BY created_at DESC, id DESC
+		LIMIT $4
+	`, input.WorkspaceID, input.Status, input.IncludeArchived, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	sessions := []Session{}
+	for rows.Next() {
+		session, err := scanSessionRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
 func (s *PostgresStore) UpdateSessionRuntimeSettings(id string, input UpdateSessionRuntimeSettingsInput) (Session, error) {
 	if len(input.RuntimeSettings) == 0 {
 		input.RuntimeSettings = json.RawMessage(`{}`)
@@ -1776,6 +1808,141 @@ func (s *PostgresStore) ListLLMUsage(input ListLLMUsageInput) (LLMUsageAggregate
 	return report, nil
 }
 
+func (s *PostgresStore) RecordObservabilityExporterRun(input RecordObservabilityExporterRunInput) (ObservabilityExporterRun, error) {
+	if input.Exporter == "" {
+		return ObservabilityExporterRun{}, fmt.Errorf("%w: exporter is required", ErrInvalid)
+	}
+	if input.Status == "" {
+		return ObservabilityExporterRun{}, fmt.Errorf("%w: exporter status is required", ErrInvalid)
+	}
+	if input.SessionID == "" {
+		return ObservabilityExporterRun{}, fmt.Errorf("%w: exporter session_id is required", ErrInvalid)
+	}
+	if input.TurnID == "" {
+		return ObservabilityExporterRun{}, fmt.Errorf("%w: exporter turn_id is required", ErrInvalid)
+	}
+	startedAt := input.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	finishedAt := input.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = startedAt
+	}
+	attemptCount := input.AttemptCount
+	if attemptCount <= 0 {
+		attemptCount = 1
+	}
+	ctx := context.Background()
+	id, err := nextSequenceID(ctx, s.db, "oexp", "tma_observability_exporter_run_id_seq")
+	if err != nil {
+		return ObservabilityExporterRun{}, err
+	}
+	var run ObservabilityExporterRun
+	err = s.db.QueryRowContext(ctx, `
+		INSERT INTO observability_exporter_runs (
+			id,
+			exporter,
+			status,
+			session_id,
+			turn_id,
+			trace_id,
+			destination,
+			message,
+			attempt_count,
+			next_retry_at,
+			started_at,
+			finished_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, exporter, status, session_id, turn_id, trace_id, destination, message, attempt_count, next_retry_at, started_at, finished_at
+	`, id,
+		input.Exporter,
+		input.Status,
+		input.SessionID,
+		input.TurnID,
+		input.TraceID,
+		input.Destination,
+		input.Message,
+		attemptCount,
+		input.NextRetryAt,
+		startedAt,
+		finishedAt,
+	).Scan(
+		&run.ID,
+		&run.Exporter,
+		&run.Status,
+		&run.SessionID,
+		&run.TurnID,
+		&run.TraceID,
+		&run.Destination,
+		&run.Message,
+		&run.AttemptCount,
+		&run.NextRetryAt,
+		&run.StartedAt,
+		&run.FinishedAt,
+	)
+	if err != nil {
+		return ObservabilityExporterRun{}, err
+	}
+	return run, nil
+}
+
+func (s *PostgresStore) ListObservabilityExporterRuns(input ListObservabilityExporterRunsInput) ([]ObservabilityExporterRun, error) {
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT id, exporter, status, session_id, turn_id, trace_id, destination, message, attempt_count, next_retry_at, started_at, finished_at
+		FROM observability_exporter_runs
+		WHERE ($1 = '' OR exporter = $1)
+			AND ($2 = '' OR status = $2)
+			AND ($3 = '' OR session_id = $3)
+			AND ($4 = '' OR turn_id = $4)
+			AND ($5::timestamptz IS NULL OR (status = 'failed' AND next_retry_at IS NOT NULL AND next_retry_at <= $5))
+			AND ($6 = 0 OR attempt_count < $6)
+		ORDER BY finished_at DESC, id DESC
+		LIMIT $7
+	`, input.Exporter, input.Status, input.SessionID, input.TurnID, nullableTime(input.RetryDueBefore), input.MaxAttemptCount, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := []ObservabilityExporterRun{}
+	for rows.Next() {
+		var run ObservabilityExporterRun
+		if err := rows.Scan(
+			&run.ID,
+			&run.Exporter,
+			&run.Status,
+			&run.SessionID,
+			&run.TurnID,
+			&run.TraceID,
+			&run.Destination,
+			&run.Message,
+			&run.AttemptCount,
+			&run.NextRetryAt,
+			&run.StartedAt,
+			&run.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
+func nullableTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
 func (s *PostgresStore) CreateObjectRef(input CreateObjectRefInput) (ObjectRef, error) {
 	if input.Bucket == "" {
 		return ObjectRef{}, fmt.Errorf("%w: object bucket is required", ErrInvalid)
@@ -2358,6 +2525,58 @@ func (s *PostgresStore) ArchiveWorker(id string) (Worker, error) {
 	return worker, err
 }
 
+func (s *PostgresStore) ReapExpiredWorkers(input ReapExpiredWorkersInput) ([]Worker, error) {
+	limit := reapLimit(input.Limit)
+	now := time.Now().UTC()
+	rows, err := s.db.QueryContext(context.Background(), `
+		WITH expired AS (
+			SELECT id
+			FROM workers
+			WHERE status = 'online'
+				AND archived_at IS NULL
+				AND lease_expires_at IS NOT NULL
+				AND lease_expires_at < $1
+			ORDER BY lease_expires_at ASC, id ASC
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE workers AS worker
+		SET status = 'offline'
+		FROM expired
+		WHERE worker.id = expired.id
+		RETURNING
+			worker.id,
+			worker.workspace_id,
+			worker.name,
+			worker.worker_type,
+			worker.status,
+			worker.capabilities_json,
+			worker.metadata_json,
+			worker.registered_by,
+			worker.registered_at,
+			worker.last_seen_at,
+			worker.lease_expires_at,
+			worker.archived_at
+	`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var workers []Worker
+	for rows.Next() {
+		worker, err := scanWorker(rows)
+		if err != nil {
+			return nil, err
+		}
+		workers = append(workers, worker)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
 func (s *PostgresStore) EnqueueWorkerWork(input EnqueueWorkerWorkInput) (WorkerWork, error) {
 	workType := normalizeWorkerWorkType(input.WorkType)
 	if workType == "" {
@@ -2604,13 +2823,62 @@ func (s *PostgresStore) HeartbeatWorkerWork(workerID string, workID string, inpu
 	`, workerID, workID, leaseExpiresAt, now)
 	work, err := scanWorkerWork(row)
 	if err == sql.ErrNoRows {
+		canceled, getErr := s.getCanceledWorkerWorkForWorker(workerID, workID)
+		if getErr == nil {
+			return canceled, nil
+		}
 		return WorkerWork{}, ErrNotFound
 	}
 	return work, err
 }
 
+func (s *PostgresStore) CancelWorkerWork(workID string, input CancelWorkerWorkInput) (WorkerWork, error) {
+	if workID == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker work id is required", ErrInvalid)
+	}
+	now := time.Now().UTC()
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "worker work canceled"
+	}
+	row := s.db.QueryRowContext(context.Background(), `
+		UPDATE worker_work
+		SET
+			status = 'canceled',
+			error_message = $2,
+			updated_at = $3,
+			completed_at = $3
+		WHERE id = $1 AND status IN ('pending', 'leased', 'running')
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, workID, reason, now)
+	work, err := scanWorkerWork(row)
+	if err == nil {
+		return work, nil
+	}
+	if err != sql.ErrNoRows {
+		return WorkerWork{}, err
+	}
+	return s.GetWorkerWork(workID)
+}
+
 func (s *PostgresStore) ReapExpiredWorkerWork(input ReapExpiredWorkerWorkInput) ([]WorkerWork, error) {
-	limit := workerWorkReapLimit(input.Limit)
+	limit := reapLimit(input.Limit)
 	now := time.Now().UTC()
 	rows, err := s.db.QueryContext(context.Background(), `
 		WITH expired AS (
@@ -2706,9 +2974,24 @@ func (s *PostgresStore) CompleteWorkerWork(workerID string, workID string, input
 	`, workerID, workID, status, metadataJSON(input.Result), input.ErrorMessage, now)
 	work, err := scanWorkerWork(row)
 	if err == sql.ErrNoRows {
+		canceled, getErr := s.getCanceledWorkerWorkForWorker(workerID, workID)
+		if getErr == nil {
+			return canceled, nil
+		}
 		return WorkerWork{}, ErrNotFound
 	}
 	return work, err
+}
+
+func (s *PostgresStore) getCanceledWorkerWorkForWorker(workerID string, workID string) (WorkerWork, error) {
+	work, err := s.GetWorkerWork(workID)
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	if work.WorkerID != workerID || work.Status != WorkerWorkStatusCanceled {
+		return WorkerWork{}, ErrNotFound
+	}
+	return work, nil
 }
 
 func (s *PostgresStore) ListEvents(sessionID string, afterSeq int64) ([]Event, error) {
@@ -3251,6 +3534,39 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 	return session, nil
 }
 
+func scanSessionRow(scanner interface {
+	Scan(dest ...any) error
+}) (Session, error) {
+	var session Session
+	var title sql.NullString
+	var sandboxID sql.NullString
+	var runtimeSettings []byte
+	var archivedAt sql.NullTime
+	if err := scanner.Scan(
+		&session.ID,
+		&session.WorkspaceID,
+		&session.AgentID,
+		&session.AgentConfigVersion,
+		&session.EnvironmentID,
+		&session.Status,
+		&title,
+		&sandboxID,
+		&runtimeSettings,
+		&session.CreatedBy,
+		&session.CreatedAt,
+		&archivedAt,
+	); err != nil {
+		return Session{}, err
+	}
+	session.Title = title.String
+	session.SandboxID = sandboxID.String
+	session.RuntimeSettings = cloneRaw(runtimeSettings)
+	if archivedAt.Valid {
+		session.ArchivedAt = &archivedAt.Time
+	}
+	return session, nil
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil
@@ -3286,7 +3602,7 @@ func workerLeaseExpiresAt(now time.Time, leaseSeconds int) time.Time {
 	return now.Add(time.Duration(leaseSeconds) * time.Second)
 }
 
-func workerWorkReapLimit(limit int) int {
+func reapLimit(limit int) int {
 	if limit <= 0 {
 		return 100
 	}

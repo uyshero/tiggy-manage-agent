@@ -22,6 +22,7 @@ type testStore struct {
 	nextArtifactID    int64
 	nextWorkerID      int64
 	nextWorkID        int64
+	nextExporterRunID int64
 
 	agents              map[string]managedagents.Agent
 	agentConfigVersions map[string][]managedagents.AgentConfigVersion
@@ -33,6 +34,7 @@ type testStore struct {
 	interventions       map[string]managedagents.SessionIntervention
 	events              map[string][]managedagents.Event
 	usageRecords        []managedagents.RecordLLMUsageInput
+	exporterRuns        []managedagents.ObservabilityExporterRun
 	objectRefs          map[string]managedagents.ObjectRef
 	sessionArtifacts    map[string][]managedagents.SessionArtifact
 	workers             map[string]managedagents.Worker
@@ -388,6 +390,39 @@ func (s *testStore) GetSession(id string) (managedagents.Session, error) {
 		return managedagents.Session{}, managedagents.ErrNotFound
 	}
 	return session, nil
+}
+
+func (s *testStore) ListSessions(input managedagents.ListSessionsInput) ([]managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	sessions := make([]managedagents.Session, 0, len(s.sessions))
+	for _, session := range s.sessions {
+		if input.WorkspaceID != "" && session.WorkspaceID != input.WorkspaceID {
+			continue
+		}
+		if input.Status != "" && session.Status != input.Status {
+			continue
+		}
+		if !input.IncludeArchived && session.ArchivedAt != nil {
+			continue
+		}
+		sessions = append(sessions, session)
+	}
+	sort.Slice(sessions, func(i int, j int) bool {
+		if sessions[i].CreatedAt.Equal(sessions[j].CreatedAt) {
+			return sessions[i].ID > sessions[j].ID
+		}
+		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+	})
+	if len(sessions) > limit {
+		sessions = sessions[:limit]
+	}
+	return sessions, nil
 }
 
 func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
@@ -817,6 +852,81 @@ func (s *testStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managed
 	return report, nil
 }
 
+func (s *testStore) RecordObservabilityExporterRun(input managedagents.RecordObservabilityExporterRunInput) (managedagents.ObservabilityExporterRun, error) {
+	if input.Exporter == "" || input.Status == "" || input.SessionID == "" || input.TurnID == "" {
+		return managedagents.ObservabilityExporterRun{}, managedagents.ErrInvalid
+	}
+	startedAt := input.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	finishedAt := input.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = startedAt
+	}
+	attemptCount := input.AttemptCount
+	if attemptCount <= 0 {
+		attemptCount = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextExporterRunID++
+	run := managedagents.ObservabilityExporterRun{
+		ID:           fmt.Sprintf("oexp_%06d", s.nextExporterRunID),
+		Exporter:     input.Exporter,
+		Status:       input.Status,
+		SessionID:    input.SessionID,
+		TurnID:       input.TurnID,
+		TraceID:      input.TraceID,
+		Destination:  input.Destination,
+		Message:      input.Message,
+		AttemptCount: attemptCount,
+		NextRetryAt:  input.NextRetryAt,
+		StartedAt:    startedAt,
+		FinishedAt:   finishedAt,
+	}
+	s.exporterRuns = append(s.exporterRuns, run)
+	return run, nil
+}
+
+func (s *testStore) ListObservabilityExporterRuns(input managedagents.ListObservabilityExporterRunsInput) ([]managedagents.ObservabilityExporterRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	runs := make([]managedagents.ObservabilityExporterRun, 0, limit)
+	for index := len(s.exporterRuns) - 1; index >= 0; index-- {
+		run := s.exporterRuns[index]
+		if input.Exporter != "" && run.Exporter != input.Exporter {
+			continue
+		}
+		if input.Status != "" && run.Status != input.Status {
+			continue
+		}
+		if input.SessionID != "" && run.SessionID != input.SessionID {
+			continue
+		}
+		if input.TurnID != "" && run.TurnID != input.TurnID {
+			continue
+		}
+		if !input.RetryDueBefore.IsZero() {
+			if run.Status != managedagents.ObservabilityExporterRunFailed || run.NextRetryAt == nil || run.NextRetryAt.After(input.RetryDueBefore) {
+				continue
+			}
+		}
+		if input.MaxAttemptCount > 0 && run.AttemptCount >= input.MaxAttemptCount {
+			continue
+		}
+		runs = append(runs, run)
+		if len(runs) >= limit {
+			break
+		}
+	}
+	return runs, nil
+}
+
 func (s *testStore) CreateObjectRef(input managedagents.CreateObjectRefInput) (managedagents.ObjectRef, error) {
 	if input.Bucket == "" {
 		return managedagents.ObjectRef{}, fmt.Errorf("%w: object bucket is required", managedagents.ErrInvalid)
@@ -1108,6 +1218,43 @@ func (s *testStore) ArchiveWorker(id string) (managedagents.Worker, error) {
 	return worker, nil
 }
 
+func (s *testStore) ReapExpiredWorkers(input managedagents.ReapExpiredWorkersInput) ([]managedagents.Worker, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	limit := reapLimit(input.Limit)
+	candidates := make([]managedagents.Worker, 0, len(s.workers))
+	for _, worker := range s.workers {
+		if worker.Status != managedagents.WorkerStatusOnline || worker.ArchivedAt != nil {
+			continue
+		}
+		if worker.LeaseExpiresAt == nil || !worker.LeaseExpiresAt.Before(now) {
+			continue
+		}
+		candidates = append(candidates, worker)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left := candidates[i].LeaseExpiresAt
+		right := candidates[j].LeaseExpiresAt
+		if left != nil && right != nil && !left.Equal(*right) {
+			return left.Before(*right)
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	if len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+
+	expired := make([]managedagents.Worker, 0, len(candidates))
+	for _, worker := range candidates {
+		worker.Status = managedagents.WorkerStatusOffline
+		s.workers[worker.ID] = worker
+		expired = append(expired, worker)
+	}
+	return expired, nil
+}
+
 func (s *testStore) EnqueueWorkerWork(input managedagents.EnqueueWorkerWorkInput) (managedagents.WorkerWork, error) {
 	workType := normalizeWorkerWorkType(input.WorkType)
 	if workType == "" {
@@ -1218,6 +1365,9 @@ func (s *testStore) HeartbeatWorkerWork(workerID string, workID string, input ma
 	if !ok || work.WorkerID != workerID {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
 	}
+	if work.Status == managedagents.WorkerWorkStatusCanceled {
+		return work, nil
+	}
 	if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
 	}
@@ -1230,12 +1380,39 @@ func (s *testStore) HeartbeatWorkerWork(workerID string, workID string, input ma
 	return work, nil
 }
 
+func (s *testStore) CancelWorkerWork(workID string, input managedagents.CancelWorkerWorkInput) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	work, ok := s.workerWork[workID]
+	if !ok {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.Status != managedagents.WorkerWorkStatusPending &&
+		work.Status != managedagents.WorkerWorkStatusLeased &&
+		work.Status != managedagents.WorkerWorkStatusRunning {
+		return work, nil
+	}
+
+	now := time.Now().UTC()
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		reason = "worker work canceled"
+	}
+	work.Status = managedagents.WorkerWorkStatusCanceled
+	work.ErrorMessage = reason
+	work.UpdatedAt = now
+	work.CompletedAt = &now
+	s.workerWork[workID] = work
+	return work, nil
+}
+
 func (s *testStore) ReapExpiredWorkerWork(input managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	limit := workerWorkReapLimit(input.Limit)
+	limit := reapLimit(input.Limit)
 	candidates := make([]managedagents.WorkerWork, 0, len(s.workerWork))
 	for _, work := range s.workerWork {
 		if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
@@ -1279,6 +1456,9 @@ func (s *testStore) CompleteWorkerWork(workerID string, workID string, input man
 	work, ok := s.workerWork[workID]
 	if !ok || work.WorkerID != workerID {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.Status == managedagents.WorkerWorkStatusCanceled {
+		return work, nil
 	}
 	if work.Status != managedagents.WorkerWorkStatusLeased && work.Status != managedagents.WorkerWorkStatusRunning {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
@@ -1722,7 +1902,7 @@ func workerLeaseDuration(seconds int) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-func workerWorkReapLimit(limit int) int {
+func reapLimit(limit int) int {
 	if limit <= 0 {
 		return 100
 	}

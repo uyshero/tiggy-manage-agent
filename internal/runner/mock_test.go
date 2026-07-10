@@ -267,7 +267,9 @@ type mockStore struct {
 	summaries        map[string]managedagents.SessionSummary
 	interventions    []managedagents.SaveSessionInterventionInput
 	usageRecords     []managedagents.RecordLLMUsageInput
+	exporterRuns     []managedagents.ObservabilityExporterRun
 	runtimeEvents    []string
+	runtimePayloads  []json.RawMessage
 	history          []managedagents.ConversationMessage
 	runtimeSettings  json.RawMessage
 	toolsConfig      json.RawMessage
@@ -410,6 +412,10 @@ func (s *mockStore) GetSession(sessionID string) (managedagents.Session, error) 
 	return managedagents.Session{}, managedagents.ErrNotFound
 }
 
+func (s *mockStore) ListSessions(managedagents.ListSessionsInput) ([]managedagents.Session, error) {
+	return nil, nil
+}
+
 func (s *mockStore) UpdateSessionRuntimeSettings(string, managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
 }
@@ -519,6 +525,7 @@ func (s *mockStore) AppendEvents(string, []managedagents.AppendEventInput) ([]ma
 func (s *mockStore) AppendRuntimeEvent(sessionID string, turnID string, input managedagents.AppendEventInput) ([]managedagents.Event, error) {
 	s.mu.Lock()
 	s.runtimeEvents = append(s.runtimeEvents, input.Type)
+	s.runtimePayloads = append(s.runtimePayloads, append(json.RawMessage(nil), input.Payload...))
 	s.mu.Unlock()
 
 	return []managedagents.Event{{
@@ -526,7 +533,7 @@ func (s *mockStore) AppendRuntimeEvent(sessionID string, turnID string, input ma
 		SessionID: sessionID,
 		Seq:       1,
 		Type:      input.Type,
-		Payload:   json.RawMessage(`{"turn_id":"` + turnID + `"}`),
+		Payload:   append(json.RawMessage(nil), input.Payload...),
 	}}, nil
 }
 
@@ -676,6 +683,62 @@ func (s *mockStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managed
 		report.Summary.LatencyMillis += record.LatencyMillis
 	}
 	return report, nil
+}
+
+func (s *mockStore) RecordObservabilityExporterRun(input managedagents.RecordObservabilityExporterRunInput) (managedagents.ObservabilityExporterRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	startedAt := input.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
+	finishedAt := input.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = startedAt
+	}
+	run := managedagents.ObservabilityExporterRun{
+		ID:          fmt.Sprintf("oexp_%06d", len(s.exporterRuns)+1),
+		Exporter:    input.Exporter,
+		Status:      input.Status,
+		SessionID:   input.SessionID,
+		TurnID:      input.TurnID,
+		TraceID:     input.TraceID,
+		Destination: input.Destination,
+		Message:     input.Message,
+		StartedAt:   startedAt,
+		FinishedAt:  finishedAt,
+	}
+	s.exporterRuns = append(s.exporterRuns, run)
+	return run, nil
+}
+
+func (s *mockStore) ListObservabilityExporterRuns(input managedagents.ListObservabilityExporterRunsInput) ([]managedagents.ObservabilityExporterRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	runs := make([]managedagents.ObservabilityExporterRun, 0, len(s.exporterRuns))
+	for i := len(s.exporterRuns) - 1; i >= 0 && len(runs) < limit; i-- {
+		run := s.exporterRuns[i]
+		if input.Exporter != "" && run.Exporter != input.Exporter {
+			continue
+		}
+		if input.Status != "" && run.Status != input.Status {
+			continue
+		}
+		if input.SessionID != "" && run.SessionID != input.SessionID {
+			continue
+		}
+		if input.TurnID != "" && run.TurnID != input.TurnID {
+			continue
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
 }
 
 func (s *mockStore) CreateObjectRef(input managedagents.CreateObjectRefInput) (managedagents.ObjectRef, error) {
@@ -878,7 +941,15 @@ func (s *mockStore) HeartbeatWorkerWork(string, string, managedagents.WorkerWork
 	return managedagents.WorkerWork{}, nil
 }
 
+func (s *mockStore) CancelWorkerWork(string, managedagents.CancelWorkerWorkInput) (managedagents.WorkerWork, error) {
+	return managedagents.WorkerWork{}, nil
+}
+
 func (s *mockStore) ReapExpiredWorkerWork(managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
+	return nil, nil
+}
+
+func (s *mockStore) ReapExpiredWorkers(managedagents.ReapExpiredWorkersInput) ([]managedagents.Worker, error) {
 	return nil, nil
 }
 

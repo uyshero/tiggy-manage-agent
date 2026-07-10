@@ -151,7 +151,7 @@ Build the minimal worker:
 make build-worker
 ```
 
-The worker currently registers itself, sends heartbeat, polls `/v1/workers/{id}/work/poll`, acknowledges work, and completes work. `tool_execution` work uses the `tma.work.v1` invocation format; `default.*` tools run through `tools.DefaultRuntime + LocalSystemProvider` on the machine running `tma-worker`. When an agent config enables `local_system`, AgentRuntime only exposes those tools if a matching online worker exists, unless trusted local development explicitly enables server-local fallback.
+The worker registers itself, sends worker heartbeat, polls `/v1/workers/{id}/work/poll`, acknowledges work, heartbeats running work leases, and completes work. `tool_execution` work uses the `tma.work.v1` invocation format; `default.*` tools run through `tools.DefaultRuntime + LocalSystemProvider` on the machine running `tma-worker`. By default a worker executes one work item at a time; use `--concurrency N` or `TMA_WORKER_CONCURRENCY=N` to lease and execute multiple queue jobs concurrently. Long-running work is renewed with `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL` while it is executing. On SIGINT/SIGTERM, the worker marks itself `draining`, stops polling, and waits up to `--shutdown-timeout` / `TMA_WORKER_SHUTDOWN_TIMEOUT` for running work to finish. When an agent config enables `local_system`, AgentRuntime only exposes those tools if a matching online worker exists, unless trusted local development explicitly enables server-local fallback.
 
 ```bash
 bin/tma-worker --base-url http://localhost:8080 --name viito-mac

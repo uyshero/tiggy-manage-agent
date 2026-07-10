@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +25,8 @@ import (
 	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/internal/workruntime"
 )
+
+var errWorkerWorkCanceled = errors.New("worker work canceled")
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -73,6 +76,9 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 	global.IntVar(&cfg.LeaseSeconds, "lease-seconds", getenvDefaultInt("TMA_WORKER_LEASE_SECONDS", 60), "lease seconds")
 	global.DurationVar(&cfg.PollInterval, "poll-interval", getenvDefaultDuration("TMA_WORKER_POLL_INTERVAL", 3*time.Second), "poll interval")
 	global.DurationVar(&cfg.HeartbeatInterval, "heartbeat-interval", getenvDefaultDuration("TMA_WORKER_HEARTBEAT_INTERVAL", 30*time.Second), "heartbeat interval")
+	global.DurationVar(&cfg.WorkHeartbeatInterval, "work-heartbeat-interval", getenvDefaultDuration("TMA_WORKER_WORK_HEARTBEAT_INTERVAL", 15*time.Second), "running work heartbeat interval")
+	global.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", getenvDefaultDuration("TMA_WORKER_SHUTDOWN_TIMEOUT", 30*time.Second), "time to drain running work on shutdown")
+	global.IntVar(&cfg.Concurrency, "concurrency", getenvDefaultInt("TMA_WORKER_CONCURRENCY", 1), "maximum concurrent work executions")
 	if err := global.Parse(args); err != nil {
 		return workerConfig{}, err
 	}
@@ -80,19 +86,23 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 	if cfg.Name == "" {
 		return workerConfig{}, fmt.Errorf("worker name is required")
 	}
+	cfg.Concurrency = workerConcurrency(cfg.Concurrency)
 	return cfg, nil
 }
 
 type workerConfig struct {
-	BaseURL           string
-	Token             string
-	Name              string
-	WorkspaceID       string
-	WorkerType        string
-	RegisteredBy      string
-	LeaseSeconds      int
-	PollInterval      time.Duration
-	HeartbeatInterval time.Duration
+	BaseURL               string
+	Token                 string
+	Name                  string
+	WorkspaceID           string
+	WorkerType            string
+	RegisteredBy          string
+	LeaseSeconds          int
+	PollInterval          time.Duration
+	HeartbeatInterval     time.Duration
+	WorkHeartbeatInterval time.Duration
+	ShutdownTimeout       time.Duration
+	Concurrency           int
 }
 
 type workerAPI interface {
@@ -100,6 +110,7 @@ type workerAPI interface {
 	HeartbeatWorker(context.Context, string, managedagents.WorkerHeartbeatInput) (managedagents.Worker, error)
 	PollWorkerWork(context.Context, string, managedagents.PollWorkerWorkInput) (*managedagents.WorkerWork, error)
 	AckWorkerWork(context.Context, string, string) (managedagents.WorkerWork, error)
+	HeartbeatWorkerWork(context.Context, string, string, managedagents.WorkerWorkHeartbeatInput) (managedagents.WorkerWork, error)
 	CompleteWorkerWork(context.Context, string, string, managedagents.CompleteWorkerWorkInput) (managedagents.WorkerWork, error)
 }
 
@@ -140,6 +151,10 @@ type workerDiagnosisResult struct {
 }
 
 func runWorker(ctx context.Context, client workerAPI, cfg workerConfig, executor workruntime.Executor, logger *slog.Logger) error {
+	cfg.Concurrency = workerConcurrency(cfg.Concurrency)
+	workCtx, cancelWork := context.WithCancel(context.Background())
+	defer cancelWork()
+
 	worker, err := client.RegisterWorker(ctx, managedagents.RegisterWorkerInput{
 		WorkspaceID:  cfg.WorkspaceID,
 		Name:         cfg.Name,
@@ -166,25 +181,44 @@ func runWorker(ctx context.Context, client workerAPI, cfg workerConfig, executor
 	if err := heartbeatOnce(ctx, client, worker.ID, cfg.LeaseSeconds, executor, logger); err != nil {
 		return err
 	}
-	if err := pollOnce(ctx, client, cfg, worker.ID, executor, logger); err != nil {
+	workSlots := make(chan struct{}, cfg.Concurrency)
+	workDone := make(chan error, cfg.Concurrency)
+
+	if err := pollAvailable(ctx, workCtx, client, cfg, worker.ID, executor, logger, workSlots, workDone); err != nil {
 		return err
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("worker stopped", "worker_id", worker.ID)
-			return nil
+			return drainRunningWork(client, cfg, worker.ID, executor, logger, workSlots, workDone, cancelWork)
+		case err := <-workDone:
+			if err != nil {
+				return err
+			}
+			if ctx.Err() != nil {
+				return drainRunningWork(client, cfg, worker.ID, executor, logger, workSlots, workDone, cancelWork)
+			}
+			if err := pollAvailable(ctx, workCtx, client, cfg, worker.ID, executor, logger, workSlots, workDone); err != nil {
+				return err
+			}
 		case <-heartbeatTicker.C:
 			if err := heartbeatOnce(ctx, client, worker.ID, cfg.LeaseSeconds, executor, logger); err != nil {
 				return err
 			}
 		case <-pollTicker.C:
-			if err := pollOnce(ctx, client, cfg, worker.ID, executor, logger); err != nil {
+			if err := pollAvailable(ctx, workCtx, client, cfg, worker.ID, executor, logger, workSlots, workDone); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func workerConcurrency(value int) int {
+	if value <= 0 {
+		return 1
+	}
+	return value
 }
 
 func runWorkerDoctor(ctx context.Context, client workerDoctorAPI, cfg workerConfig, executor workruntime.Executor, output io.Writer) error {
@@ -314,8 +348,12 @@ func diagnosisContainsWorker(response workerDiagnoseResponse, workerID string) b
 }
 
 func heartbeatOnce(ctx context.Context, client workerAPI, workerID string, leaseSeconds int, executor workruntime.Executor, logger *slog.Logger) error {
+	return heartbeatWorkerWithStatus(ctx, client, workerID, leaseSeconds, managedagents.WorkerStatusOnline, executor, logger)
+}
+
+func heartbeatWorkerWithStatus(ctx context.Context, client workerAPI, workerID string, leaseSeconds int, status string, executor workruntime.Executor, logger *slog.Logger) error {
 	_, err := client.HeartbeatWorker(ctx, workerID, managedagents.WorkerHeartbeatInput{
-		Status:       managedagents.WorkerStatusOnline,
+		Status:       status,
 		Capabilities: executor.WorkerCapabilitiesJSON(),
 		Metadata:     workerMetadata(),
 		LeaseSeconds: leaseSeconds,
@@ -323,7 +361,7 @@ func heartbeatOnce(ctx context.Context, client workerAPI, workerID string, lease
 	if err != nil {
 		return err
 	}
-	logger.Info("worker heartbeat", "worker_id", workerID)
+	logger.Info("worker heartbeat", "worker_id", workerID, "status", status)
 	return nil
 }
 
@@ -335,7 +373,70 @@ func pollOnce(ctx context.Context, client workerAPI, cfg workerConfig, workerID 
 	if work == nil {
 		return nil
 	}
+	return processWork(ctx, client, cfg, workerID, executor, logger, *work)
+}
 
+func pollAvailable(ctx context.Context, workCtx context.Context, client workerAPI, cfg workerConfig, workerID string, executor workruntime.Executor, logger *slog.Logger, slots chan struct{}, done chan<- error) error {
+	available := cfg.Concurrency - len(slots)
+	for i := 0; i < available; i++ {
+		work, err := client.PollWorkerWork(ctx, workerID, managedagents.PollWorkerWorkInput{LeaseSeconds: cfg.LeaseSeconds})
+		if err != nil {
+			return err
+		}
+		if work == nil {
+			return nil
+		}
+		slots <- struct{}{}
+		go func(work managedagents.WorkerWork) {
+			err := processWork(workCtx, client, cfg, workerID, executor, logger, work)
+			<-slots
+			done <- err
+		}(*work)
+	}
+	return nil
+}
+
+func drainRunningWork(client workerAPI, cfg workerConfig, workerID string, executor workruntime.Executor, logger *slog.Logger, slots chan struct{}, done <-chan error, cancelWork context.CancelFunc) error {
+	active := len(slots)
+	if active == 0 {
+		logger.Info("worker stopped", "worker_id", workerID)
+		return nil
+	}
+
+	logger.Info("worker draining", "worker_id", workerID, "active_work", active)
+	heartbeatCtx, heartbeatCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := heartbeatWorkerWithStatus(heartbeatCtx, client, workerID, cfg.LeaseSeconds, managedagents.WorkerStatusDraining, executor, logger); err != nil {
+		heartbeatCancel()
+		return err
+	}
+	heartbeatCancel()
+
+	timeout := cfg.ShutdownTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for active > 0 {
+		select {
+		case err := <-done:
+			active--
+			if err != nil {
+				cancelWork()
+				return err
+			}
+		case <-timer.C:
+			cancelWork()
+			logger.Warn("worker drain timeout", "worker_id", workerID, "active_work", active, "timeout", timeout.String())
+			return nil
+		}
+	}
+	logger.Info("worker stopped", "worker_id", workerID)
+	return nil
+}
+
+func processWork(ctx context.Context, client workerAPI, cfg workerConfig, workerID string, executor workruntime.Executor, logger *slog.Logger, work managedagents.WorkerWork) error {
 	logger.Info("worker work received",
 		"worker_id", workerID,
 		"work_id", work.ID,
@@ -348,10 +449,25 @@ func pollOnce(ctx context.Context, client workerAPI, cfg workerConfig, workerID 
 	}
 	logger.Info("worker work acknowledged", "worker_id", workerID, "work_id", work.ID)
 
-	result := executeWork(ctx, executor, *work)
+	executeCtx, cancelExecute := context.WithCancel(ctx)
+	defer cancelExecute()
+
+	stopHeartbeat := startWorkHeartbeat(ctx, client, cfg, workerID, work.ID, cancelExecute, logger)
+	result := executeWork(executeCtx, executor, work)
+	if err := stopHeartbeat(); err != nil {
+		if errors.Is(err, errWorkerWorkCanceled) {
+			logger.Info("worker work canceled", "worker_id", workerID, "work_id", work.ID)
+			return nil
+		}
+		return err
+	}
 	completed, err := client.CompleteWorkerWork(ctx, workerID, work.ID, result)
 	if err != nil {
 		return err
+	}
+	if completed.Status == managedagents.WorkerWorkStatusCanceled {
+		logger.Info("worker work canceled", "worker_id", workerID, "work_id", completed.ID)
+		return nil
 	}
 	logger.Info("worker work completed",
 		"worker_id", workerID,
@@ -359,6 +475,52 @@ func pollOnce(ctx context.Context, client workerAPI, cfg workerConfig, workerID 
 		"status", completed.Status,
 	)
 	return nil
+}
+
+func startWorkHeartbeat(ctx context.Context, client workerAPI, cfg workerConfig, workerID string, workID string, cancelExecute context.CancelFunc, logger *slog.Logger) func() error {
+	interval := cfg.WorkHeartbeatInterval
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				done <- nil
+				return
+			case <-ticker.C:
+				if heartbeatCtx.Err() != nil {
+					done <- nil
+					return
+				}
+				work, err := client.HeartbeatWorkerWork(heartbeatCtx, workerID, workID, managedagents.WorkerWorkHeartbeatInput{
+					LeaseSeconds: cfg.LeaseSeconds,
+				})
+				if err != nil {
+					if heartbeatCtx.Err() != nil {
+						done <- nil
+						return
+					}
+					done <- err
+					return
+				}
+				if work.Status == managedagents.WorkerWorkStatusCanceled {
+					cancelExecute()
+					done <- errWorkerWorkCanceled
+					return
+				}
+				logger.Info("worker work heartbeat", "worker_id", workerID, "work_id", workID)
+			}
+		}
+	}()
+	return func() error {
+		cancel()
+		return <-done
+	}
 }
 
 func executeWork(ctx context.Context, executor workruntime.Executor, work managedagents.WorkerWork) managedagents.CompleteWorkerWorkInput {
@@ -432,6 +594,15 @@ func (c *workerHTTPClient) ArchiveWorker(ctx context.Context, workerID string) (
 func (c *workerHTTPClient) AckWorkerWork(ctx context.Context, workerID string, workID string) (managedagents.WorkerWork, error) {
 	var response managedagents.WorkerWork
 	if err := c.do(ctx, http.MethodPost, "/v1/workers/"+url.PathEscape(workerID)+"/work/"+url.PathEscape(workID)+"/ack", map[string]any{}, &response); err != nil {
+		return managedagents.WorkerWork{}, err
+	}
+	return response, nil
+}
+
+func (c *workerHTTPClient) HeartbeatWorkerWork(ctx context.Context, workerID string, workID string, input managedagents.WorkerWorkHeartbeatInput) (managedagents.WorkerWork, error) {
+	var response managedagents.WorkerWork
+	path := "/v1/workers/" + url.PathEscape(workerID) + "/work/" + url.PathEscape(workID) + "/heartbeat"
+	if err := c.do(ctx, http.MethodPost, path, input, &response); err != nil {
 		return managedagents.WorkerWork{}, err
 	}
 	return response, nil

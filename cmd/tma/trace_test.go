@@ -19,6 +19,12 @@ func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 			"turn_id":"turn_1",
 			"status":"completed",
 			"summary":"user: please read\ntool result: default.read_file success artifacts=1",
+			"stats":{"duration_ms":120,"step_count":2,"span_count":2,"tool_calls":1},
+			"graph":{"root_span_ids":["span_root"],"edges":[{"parent_span_id":"span_root","child_span_id":"span_tool"}],"critical_span_ids":["span_root","span_tool"],"critical_path_duration_ms":190,"max_depth":1},
+			"spans":[
+				{"span_id":"span_root","name":"tma.interaction","kind":"interaction","status":"completed","duration_ms":120,"self_duration_ms":50,"critical":true,"event_count":2},
+				{"span_id":"span_tool","parent_span_id":"span_root","name":"tma.tool.default.read_file","kind":"tool","status":"ok","depth":1,"start_offset_ms":50,"duration_ms":70,"self_duration_ms":70,"critical":true,"event_count":1}
+			],
 			"steps":[
 				{"seq":1,"type":"user.message","message":"please read"},
 				{"seq":2,"type":"runtime.tool_result","identifier":"default","api_name":"read_file","outcome":"success","message":"Received tool result.","artifacts":[{"artifact_id":"art_000001","name":"read_file.json","artifact_type":"asset","download_path":"/v1/sessions/sesn_1/artifacts/art_000001/download"}]}
@@ -47,6 +53,15 @@ func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 	text := string(out)
 	if !strings.Contains(text, "trace session=sesn_1 turn=turn_1 status=completed") {
 		t.Fatalf("expected header, got %q", text)
+	}
+	if !strings.Contains(text, "stats: steps=2 spans=2 tools=1") ||
+		!strings.Contains(text, "graph: roots=1 edges=1 max_depth=1 critical_path=190ms critical_spans=2") ||
+		!strings.Contains(text, "critical path:") ||
+		!strings.Contains(text, "span_tool tma.tool.default.read_file duration=70ms self=70ms") ||
+		!strings.Contains(text, "* span_root tma.interaction kind=interaction status=completed duration=120ms self=50ms events=2") ||
+		!strings.Contains(text, "  * span_tool tma.tool.default.read_file kind=tool status=ok duration=70ms self=70ms events=1") ||
+		!strings.Contains(text, "timeline:") {
+		t.Fatalf("expected span graph details, got %q", text)
 	}
 	if !strings.Contains(text, "runtime.tool_result default.read_file outcome=success") {
 		t.Fatalf("expected tool result line, got %q", text)

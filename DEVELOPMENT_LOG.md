@@ -2,13 +2,31 @@
 
 本文档记录 Tiggy Manage Agent (TMA) 的阶段性研发决策、实现内容、验证结果和后续待办，方便之后回溯为什么这样设计。
 
-最后更新：2026-07-09
+最后更新：2026-07-10
 
 ---
 
 ## 当前结论
 
-2026-07-09 补 worker work 过期收敛真实验收：新增 `scripts/verify_worker_work_reap_expired.sh` 与 `make verify-worker-work-reap-expired`，会启动真实 server、注册 worker、投递 work、用 1 秒 lease poll/ack 成 running、等待过期后调用 `work reap-expired`，并用 `work get` 确认最终状态为 `failed` 且错误信息包含 `worker work lease expired`。脚本同时覆盖 worker token 与 control token 分离使用。
+2026-07-10 收紧 worker registry 读接口：`GET /v1/workers` 和 `GET /v1/workers/{worker_id}` 会暴露 worker 名称、capabilities、last_seen 和 lease 信息，配置 `TMA_WORKER_CONTROL_AUTH_TOKEN` 后改为必须使用 control token。`tma-worker` 常驻进程不依赖这两个读接口；真实验收脚本中配置了 control token 的 worker list/get 调用已改用 control token。
+
+2026-07-09 给 `tma-worker` 补 running work 续租：worker 进程 heartbeat 只证明 worker 活着，长任务还需要对当前 `worker_work` lease 续约。`tma-worker` 新增 `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL`，在 ack 后、result 前周期性调用 `POST /v1/workers/{worker_id}/work/{work_id}/heartbeat`，默认 15s，lease 秒数复用 `TMA_WORKER_LEASE_SECONDS`。单元测试覆盖 handler 阻塞期间会发 work heartbeat；新增 `make verify-worker-work-heartbeat` 真实验收，在 work reaper 开启、lease 3s、任务 6s 的情况下确认真实 worker 会续租并最终 completed，避免长时间执行被 work reaper 标记为 expired。
+
+2026-07-09 给 `tma-worker` 补停机 drain：新增 `--shutdown-timeout` / `TMA_WORKER_SHUTDOWN_TIMEOUT`，默认 30s。收到 SIGINT / SIGTERM 后，worker 不再继续 poll，新任务选择侧会因为 worker heartbeat `draining` 而避开它；已 running 的 work 使用独立执行 context 继续完成并提交 result。超时后取消本地执行并退出，剩余 work 仍由 lease / reaper 兜底失败。单元测试覆盖 shutdown 时 running work 不被立即取消、release 后能正常 complete；新增 `make verify-worker-shutdown-drain` 真实验收，在 work running 时给真实 worker 发 SIGTERM，确认 draining heartbeat、result 上报和进程正常退出。
+
+2026-07-09 给 `tma-worker` 补本地并发消费：新增 `--concurrency` / `TMA_WORKER_CONCURRENCY`，默认仍为 1；大于 1 时 worker 会按可用 slot 连续 poll 多条 `worker_work`，并发 ack/execute/result，不改 server 队列协议。单元测试覆盖两个 work 同时进入执行 handler，确认不是串行消费；文档同步提醒并发前要确认本地文件路径、外部凭据和工具实现能承受并行。
+
+2026-07-09 收紧 worker archive 鉴权边界：`POST /v1/workers/{worker_id}/archive` 不再在配置 token 后公开可调用，改为允许 worker token 或 control token 二选一。worker token 保留给 `tma-worker doctor` / worker 自清理，control token 用于运维归档；未配置 token 的本地开发仍保持开放。
+
+2026-07-09 收紧 worker diagnose 鉴权边界：`POST /v1/workers/diagnose` 会暴露 worker 名称、能力和 lease 诊断信息，配置 token 后也改为 worker token 或 control token 二选一。worker token 保留给 `tma-worker doctor` 自检，control token 用于 CLI / 运维诊断。
+
+2026-07-09 给 worker 自身过期收敛补控制面兜底入口：新增 `POST /v1/workers/reap-expired` 与 `bin/tma worker reap-expired [--limit N]`，用于手动触发过期 online worker -> offline；该 endpoint 走 `TMA_WORKER_CONTROL_AUTH_TOKEN`，不允许普通 worker consumer token 修改 registry 状态。真实 `verify-worker-work-reap-expired` 脚本已覆盖该 CLI。
+
+2026-07-09 补齐 worker 自身过期收敛：新增 `Store.ReapExpiredWorkers`，把 `lease_expires_at` 已过期的 `online` worker 自动标记为 `offline`，不 archive、不删除，保留 last_seen/lease 信息用于排障；server 新增后台 worker reaper，配置为 `TMA_WORKER_REAPER_ENABLED`、`TMA_WORKER_REAPER_INTERVAL_MS`、`TMA_WORKER_REAPER_LIMIT`。`make verify-worker-work-reap-expired` 现在同时验证 worker work 过期自动 failed，以及短 lease worker 无 heartbeat 后自动 offline。
+
+2026-07-09 给 worker work 队列补单 job 诊断入口：新增 `GET /v1/worker-work/{work_id}/diagnose` 与 `bin/tma work diagnose --work ... [--json]`，会结合 work 状态、assigned worker、worker lease 和 work lease 输出 reasons/actions。`worker_work` 明确作为第一版队列，一条 work 是一个 job/task；当前 `tma-worker` 串行消费，后续可扩展 `--concurrency N` 并发 lease 多条 work。真实 `verify-worker-work-reap-expired` 验收脚本已在 running/failed 两个阶段调用 `work diagnose`。
+
+2026-07-09 把 worker work 过期收敛接成 server 内部 maintenance loop：新增 `TMA_WORKER_WORK_REAPER_ENABLED`、`TMA_WORKER_WORK_REAPER_INTERVAL_MS`、`TMA_WORKER_WORK_REAPER_LIMIT`，`tma-server` 启动后会后台周期性调用 `Store.ReapExpiredWorkerWork`，自动把 lease 已过期的 `leased/running` work 标为 `failed`，但仍不自动重试。`scripts/verify_worker_work_reap_expired.sh` / `make verify-worker-work-reap-expired` 也已切到验证“后台自动回收”而不是手动触发 CLI reap。
 
 2026-07-09 增加 Inspector UI 轻量真实验收：新增 `scripts/verify_inspector_ui.sh` 与 `make verify-inspector-ui`，会启动真实 TMA server、读取 `/inspector` HTML，并校验 `Download`、`Copy CLI`、`data-copy`、`bin/tma session artifact download --session ...` 等关键内容。用于弥补本地浏览器插件可能拦截 localhost 时无法点检的问题。
 

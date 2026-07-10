@@ -19,7 +19,46 @@ type turnTraceResponse struct {
 	TurnID    string          `json:"turn_id"`
 	Status    string          `json:"status,omitempty"`
 	Summary   string          `json:"summary,omitempty"`
+	Stats     turnTraceStats  `json:"stats,omitempty"`
+	Graph     turnTraceGraph  `json:"graph,omitempty"`
 	Steps     []turnTraceStep `json:"steps"`
+	Spans     []turnTraceSpan `json:"spans,omitempty"`
+}
+
+type turnTraceStats struct {
+	DurationMillis   int64 `json:"duration_ms"`
+	StepCount        int   `json:"step_count"`
+	SpanCount        int   `json:"span_count"`
+	ToolCalls        int   `json:"tool_calls"`
+	PendingApprovals int   `json:"pending_approvals"`
+	Errors           int   `json:"errors"`
+}
+
+type turnTraceGraph struct {
+	RootSpanIDs                []string            `json:"root_span_ids,omitempty"`
+	Edges                      []turnTraceSpanEdge `json:"edges,omitempty"`
+	CriticalSpanIDs            []string            `json:"critical_span_ids,omitempty"`
+	CriticalPathDurationMillis int64               `json:"critical_path_duration_ms,omitempty"`
+	MaxDepth                   int                 `json:"max_depth,omitempty"`
+}
+
+type turnTraceSpanEdge struct {
+	ParentSpanID string `json:"parent_span_id"`
+	ChildSpanID  string `json:"child_span_id"`
+}
+
+type turnTraceSpan struct {
+	SpanID             string `json:"span_id"`
+	ParentSpanID       string `json:"parent_span_id,omitempty"`
+	Name               string `json:"name"`
+	Kind               string `json:"kind"`
+	Status             string `json:"status,omitempty"`
+	Depth              int    `json:"depth,omitempty"`
+	StartOffsetMillis  int64  `json:"start_offset_ms,omitempty"`
+	DurationMillis     int64  `json:"duration_ms"`
+	SelfDurationMillis int64  `json:"self_duration_ms,omitempty"`
+	Critical           bool   `json:"critical,omitempty"`
+	EventCount         int    `json:"event_count,omitempty"`
 }
 
 type turnTraceStep struct {
@@ -166,11 +205,31 @@ func printTrace(trace turnTraceResponse, output io.Writer) error {
 			return err
 		}
 	}
+	if trace.Stats.DurationMillis > 0 {
+		if _, err := fmt.Fprintf(output, " duration=%dms", trace.Stats.DurationMillis); err != nil {
+			return err
+		}
+	}
 	if _, err := fmt.Fprintln(output); err != nil {
 		return err
 	}
+	if trace.Stats.StepCount > 0 || trace.Stats.SpanCount > 0 || trace.Stats.ToolCalls > 0 || trace.Stats.PendingApprovals > 0 || trace.Stats.Errors > 0 {
+		if _, err := fmt.Fprintf(output, "stats: steps=%d spans=%d tools=%d pending_approvals=%d errors=%d\n", trace.Stats.StepCount, trace.Stats.SpanCount, trace.Stats.ToolCalls, trace.Stats.PendingApprovals, trace.Stats.Errors); err != nil {
+			return err
+		}
+	}
+	if len(trace.Spans) > 0 || len(trace.Graph.Edges) > 0 || len(trace.Graph.CriticalSpanIDs) > 0 {
+		if err := printTraceGraph(trace, output); err != nil {
+			return err
+		}
+	}
 	if trace.Summary != "" {
 		if _, err := fmt.Fprintf(output, "summary:\n%s\n", indentTraceText(trace.Summary)); err != nil {
+			return err
+		}
+	}
+	if len(trace.Steps) > 0 {
+		if _, err := fmt.Fprintln(output, "timeline:"); err != nil {
 			return err
 		}
 	}
@@ -225,6 +284,48 @@ func printTrace(trace turnTraceResponse, output io.Writer) error {
 			if _, err := fmt.Fprintf(output, "  artifact error: %s\n", step.ArtifactError); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func printTraceGraph(trace turnTraceResponse, output io.Writer) error {
+	if _, err := fmt.Fprintf(output, "graph: roots=%d edges=%d max_depth=%d critical_path=%dms critical_spans=%d\n", len(trace.Graph.RootSpanIDs), len(trace.Graph.Edges), trace.Graph.MaxDepth, trace.Graph.CriticalPathDurationMillis, len(trace.Graph.CriticalSpanIDs)); err != nil {
+		return err
+	}
+	spansByID := make(map[string]turnTraceSpan, len(trace.Spans))
+	for _, span := range trace.Spans {
+		spansByID[span.SpanID] = span
+	}
+	if len(trace.Graph.CriticalSpanIDs) > 0 {
+		if _, err := fmt.Fprintln(output, "critical path:"); err != nil {
+			return err
+		}
+		for _, spanID := range trace.Graph.CriticalSpanIDs {
+			span := spansByID[spanID]
+			if span.SpanID == "" {
+				span.SpanID = spanID
+				span.Name = spanID
+			}
+			if _, err := fmt.Fprintf(output, "  - %s %s duration=%dms self=%dms\n", span.SpanID, defaultLabel(span.Name, "(unknown)"), span.DurationMillis, span.SelfDurationMillis); err != nil {
+				return err
+			}
+		}
+	}
+	if len(trace.Spans) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "spans:"); err != nil {
+		return err
+	}
+	for _, span := range trace.Spans {
+		prefix := strings.Repeat("  ", span.Depth)
+		marker := "-"
+		if span.Critical {
+			marker = "*"
+		}
+		if _, err := fmt.Fprintf(output, "%s%s %s %s kind=%s status=%s duration=%dms self=%dms events=%d\n", prefix, marker, span.SpanID, defaultLabel(span.Name, "(unknown)"), defaultLabel(span.Kind, "unknown"), defaultLabel(span.Status, "unknown"), span.DurationMillis, span.SelfDurationMillis, span.EventCount); err != nil {
+			return err
 		}
 	}
 	return nil

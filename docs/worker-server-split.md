@@ -31,14 +31,16 @@ Worker registry 已开始落地：
 POST /v1/workers
 GET  /v1/workers
 POST /v1/workers/diagnose
+POST /v1/workers/reap-expired
 GET  /v1/workers/{worker_id}
 POST /v1/workers/{worker_id}/heartbeat
 POST /v1/workers/{worker_id}/archive
 ```
 
 这些接口由 `tma-server` 写入数据库。`tma-worker` 只调用 HTTP API，不直连 Postgres。
+配置 token 后，`GET /v1/workers*` 和 `reap-expired` 属于控制面，只接受 control token；`diagnose` / `archive` 需要 worker token 或 control token。
 
-`cmd/worker` 已有最小常驻入口：启动后注册 worker、发送 heartbeat、轮询 work、ack work，并把结果提交回 server。`tool_execution` work 必须使用 `tma.work.v1` 标准 payload；当前 worker 支持 `default.*`，并通过 `tools.DefaultRuntime + LocalSystemProvider` 在运行 `tma-worker` 的机器上执行。AgentRuntime 在 `local_system` 且存在同 workspace 匹配 worker 时，会通过 `execution.WorkerBackedProvider` 把工具调用桥接成 `tool_execution` work 并等待 worker result；没有 worker 时默认隐藏 `local_system` 工具，只有受信任开发环境显式开启 `TMA_ALLOW_SERVER_LOCAL_SYSTEM=true` 才允许 server 进程内 fallback。`sandbox_command` 仍作为调试/兼容 work type 保留，会通过 worker 侧 `LocalSystemProvider.RunCommand` 执行。
+`cmd/worker` 已有最小常驻入口：启动后注册 worker、发送 worker heartbeat、轮询 work、ack work、执行期间发送 running work heartbeat，并把结果提交回 server。`tool_execution` work 必须使用 `tma.work.v1` 标准 payload；当前 worker 支持 `default.*`，并通过 `tools.DefaultRuntime + LocalSystemProvider` 在运行 `tma-worker` 的机器上执行。AgentRuntime 在 `local_system` 且存在同 workspace 匹配 worker 时，会通过 `execution.WorkerBackedProvider` 把工具调用桥接成 `tool_execution` work 并等待 worker result；没有 worker 时默认隐藏 `local_system` 工具，只有受信任开发环境显式开启 `TMA_ALLOW_SERVER_LOCAL_SYSTEM=true` 才允许 server 进程内 fallback。`sandbox_command` 仍作为调试/兼容 work type 保留，会通过 worker 侧 `LocalSystemProvider.RunCommand` 执行。`tma-worker` 默认一次执行 1 条 work，也可以通过 `--concurrency N` / `TMA_WORKER_CONCURRENCY=N` 同时 lease/execute 多条队列 job；长任务执行期间会按 `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL` 续租当前 work。收到 SIGINT / SIGTERM 时，worker 会停止 poll，把 worker 状态 heartbeat 为 `draining`，并在 `--shutdown-timeout` / `TMA_WORKER_SHUTDOWN_TIMEOUT` 内等待 running work 完成。
 
 Worker work 协议也已经先落了一层最小实现：
 
@@ -182,23 +184,28 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 ### Worker 可见性
 
 - `POST /v1/workers` 能注册 worker。
-- `GET /v1/workers` 能按 workspace / status 列出 worker。
+- `GET /v1/workers` 能按 workspace / status 列出 worker，配置 token 后需要 control token。
 - `POST /v1/workers/{id}/heartbeat` 能刷新 `last_seen_at` 和 `lease_expires_at`。
-- `POST /v1/workers/{id}/archive` 能撤销 worker。
-- `bin/tma worker register/list/heartbeat/archive` 可用。
+- `POST /v1/workers/{id}/archive` 能撤销 worker，配置 token 后需要 worker token 或 control token。
+- `POST /v1/workers/reap-expired` 能把 lease 过期的 online worker 标记为 offline，配置 token 后需要 control token。
+- `bin/tma worker register/list/heartbeat/archive/reap-expired` 可用。
 - `bin/tma worker list` 能展示 worker 声明的 runtimes / APIs / capabilities。
-- `POST /v1/workers/diagnose` 能按一次 tool invocation 解释每个在线 worker 是否匹配，以及缺少 runtime / API / capability / lease 等原因。
+- `POST /v1/workers/diagnose` 能按一次 tool invocation 解释每个在线 worker 是否匹配，以及缺少 runtime / API / capability / lease 等原因；配置 token 后需要 worker token 或 control token。
 - `bin/tma worker diagnose --api ...` 调用 server 侧诊断接口并展示结果，不在 CLI 里复制 selector 逻辑。
 - `POST /v1/worker-work` 能写入待执行 work。
 - `tool_execution` 未指定 worker 时，server 能按 worker capabilities 自动选择匹配 worker；无匹配时返回带 diagnostics 的 `409`。
 - `bin/tma work enqueue` 可用，能指定 workspace / worker / environment / session / turn / work_type / payload，也能通过 `--api` / `--capabilities` / `--risk` / `--runtime` / `--input` 生成标准 `tma.work.v1` invocation；server 返回 worker-selection `409` 时会展示诊断结果。
 - `GET /v1/worker-work/{work_id}` 和 `bin/tma work get --work ...` 能查看 work 当前状态和 result，便于排查 worker-backed execution。
+- `GET /v1/worker-work/{work_id}/diagnose` 和 `bin/tma work diagnose --work ...` 能诊断队列中单个 work/job 当前卡在 pending / leased / running / failed 的原因、assigned worker 状态、lease 状态和建议动作。
 - `POST /v1/worker-work/reap-expired` 和 `bin/tma work reap-expired` 能把 lease 已过期的 leased/running work 标记为 failed；第一版不自动重新入队，避免重复执行有副作用的工具。
 - `GET /v1/workers/{worker_id}/work/poll` 能返回待执行 work 或 `null`。
 - `POST /v1/workers/{worker_id}/work/{work_id}/ack` 能把 work 标记为 running。
 - `POST /v1/workers/{worker_id}/work/{work_id}/heartbeat` 能续租 work。
 - `POST /v1/workers/{worker_id}/work/{work_id}/result` 能提交 work 结果。
-- `bin/tma-worker` 能注册、心跳、轮询、ack 和提交 result。
+- `bin/tma-worker` 能注册、worker 心跳、轮询、ack、running work 心跳和提交 result。
+- `make verify-worker-work-heartbeat` 能证明真实 `tma-worker` 执行超过初始 lease 的长任务时会续租 running work，并且在 work reaper 开启时仍最终 completed。
+- `bin/tma-worker` 收到 SIGINT / SIGTERM 后停止 poll，heartbeat `draining`，并在 shutdown timeout 内等待 running work 提交 result；超时后退出，由 work lease/reaper 兜底。
+- `make verify-worker-shutdown-drain` 能证明真实 `tma-worker` 在 running work 期间收到 SIGTERM 后会 drain、完成 result 上报，再正常退出。
 - `bin/tma-worker doctor` 能用 outbound API 检查 server health、register、heartbeat、poll、diagnose 和 archive，并展示 executor capabilities。
 - `bin/tma-worker` 注册和 heartbeat 使用同一个 `workruntime.Executor` 导出的 capabilities；默认能力来自 tools manifest，自定义 executor 可以显式声明 capabilities。
 - `tool_execution` work 必须通过 `tma.work.v1` 校验；坏 payload 不能入队。
@@ -210,6 +217,7 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 ### Tool / Capability 选择
 
 - Work 标准表达 tool / api / capabilities / risk / input。
+- `worker_work` 是第一版队列；一条 work 是一个队列 job/task。`tma-worker` 默认串行消费，一次 poll/ack/execute/result 一条 work；配置 `--concurrency N` 后同一 worker 可以同时 lease/execute 多条 work。每条 running work 在执行期间独立 heartbeat 续租，避免长任务被 reaper 误判为过期。
 - Worker 注册表达自身 tools / capabilities / constraints。
 - AgentRuntime 发给模型的工具集会先按 Agent 配置和当前 provider / worker 可提供能力过滤，避免模型选择当前执行面无法提供的工具。
 - Server 根据 agent config、tool policy、runtime、审批状态和 worker capabilities 选择 server 内置、cloud_sandbox 或 local_system 的某个实现。
@@ -221,7 +229,7 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 - worker 不直连数据库。
 - worker 不暴露端口，只能主动消费 server。
 - worker 注册、heartbeat、poll、ack、result 在 server 配置 `TMA_WORKER_AUTH_TOKEN` 后必须带 Bearer token。
-- `POST /v1/worker-work`、`GET /v1/worker-work/{work_id}`、`POST /v1/worker-work/reap-expired` 在 server 配置 `TMA_WORKER_CONTROL_AUTH_TOKEN` 后必须带独立 Bearer token。
+- `POST /v1/worker-work`、`GET /v1/worker-work/{work_id}`、`GET /v1/worker-work/{work_id}/diagnose`、`POST /v1/worker-work/reap-expired` 在 server 配置 `TMA_WORKER_CONTROL_AUTH_TOKEN` 后必须带独立 Bearer token。
 - worker token 不进入 LLM 上下文、不进入 event payload。
 - 默认禁止跨 workspace worker 调度。
 - approval 决策仍在 server 控制面。

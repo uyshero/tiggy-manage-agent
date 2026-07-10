@@ -42,9 +42,15 @@ var configEnvKeys = []string{
 	"TMA_ALLOW_SERVER_LOCAL_SYSTEM",
 	"TMA_WORKER_AUTH_TOKEN",
 	"TMA_WORKER_CONTROL_AUTH_TOKEN",
+	"TMA_WORKER_REAPER_ENABLED",
+	"TMA_WORKER_REAPER_INTERVAL_MS",
+	"TMA_WORKER_REAPER_LIMIT",
 	"TMA_WORKER_WORK_REAPER_ENABLED",
 	"TMA_WORKER_WORK_REAPER_INTERVAL_MS",
 	"TMA_WORKER_WORK_REAPER_LIMIT",
+	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED",
+	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS",
+	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT",
 }
 
 func TestFromEnvUsesDefaults(t *testing.T) {
@@ -119,6 +125,18 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Worker.ControlAuthToken != "" {
 		t.Fatalf("expected empty default worker control auth token, got %q", config.Worker.ControlAuthToken)
 	}
+	if config.Worker.Reaper.Enabled != DefaultWorkerReaperEnabled {
+		t.Fatalf("expected default worker reaper enabled %t, got %t", DefaultWorkerReaperEnabled, config.Worker.Reaper.Enabled)
+	}
+	if config.Worker.Reaper.IntervalMillis != DefaultWorkerReaperIntervalMS {
+		t.Fatalf("expected default worker reaper interval ms %d, got %d", DefaultWorkerReaperIntervalMS, config.Worker.Reaper.IntervalMillis)
+	}
+	if config.Worker.Reaper.Interval != time.Duration(DefaultWorkerReaperIntervalMS)*time.Millisecond {
+		t.Fatalf("expected default worker reaper interval %s, got %s", time.Duration(DefaultWorkerReaperIntervalMS)*time.Millisecond, config.Worker.Reaper.Interval)
+	}
+	if config.Worker.Reaper.Limit != DefaultWorkerReaperLimit {
+		t.Fatalf("expected default worker reaper limit %d, got %d", DefaultWorkerReaperLimit, config.Worker.Reaper.Limit)
+	}
 	if config.Worker.WorkReaper.Enabled != DefaultWorkerWorkReaperEnabled {
 		t.Fatalf("expected default worker work reaper enabled %t, got %t", DefaultWorkerWorkReaperEnabled, config.Worker.WorkReaper.Enabled)
 	}
@@ -130,6 +148,18 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.Worker.WorkReaper.Limit != DefaultWorkerWorkReaperLimit {
 		t.Fatalf("expected default worker work reaper limit %d, got %d", DefaultWorkerWorkReaperLimit, config.Worker.WorkReaper.Limit)
+	}
+	if !config.Observability.ExporterRetry.Enabled {
+		t.Fatal("expected observability exporter retry worker to be enabled by default")
+	}
+	if config.Observability.ExporterRetry.IntervalMillis != DefaultObservabilityRetryIntervalMS {
+		t.Fatalf("expected default observability retry interval %d, got %d", DefaultObservabilityRetryIntervalMS, config.Observability.ExporterRetry.IntervalMillis)
+	}
+	if config.Observability.ExporterRetry.Interval != time.Duration(DefaultObservabilityRetryIntervalMS)*time.Millisecond {
+		t.Fatalf("expected default observability retry interval duration, got %s", config.Observability.ExporterRetry.Interval)
+	}
+	if config.Observability.ExporterRetry.Limit != DefaultObservabilityRetryLimit {
+		t.Fatalf("expected default observability retry limit %d, got %d", DefaultObservabilityRetryLimit, config.Observability.ExporterRetry.Limit)
 	}
 }
 
@@ -335,18 +365,36 @@ func TestFromEnvParsesTurnTimeout(t *testing.T) {
 	}
 }
 
-func TestFromEnvParsesWorkerWorkReaperConfig(t *testing.T) {
+func TestFromEnvParsesBackgroundWorkerConfig(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_WORKER_REAPER_ENABLED", "false")
+	t.Setenv("TMA_WORKER_REAPER_INTERVAL_MS", "1250")
+	t.Setenv("TMA_WORKER_REAPER_LIMIT", "15")
 	t.Setenv("TMA_WORKER_WORK_REAPER_ENABLED", "false")
 	t.Setenv("TMA_WORKER_WORK_REAPER_INTERVAL_MS", "1500")
 	t.Setenv("TMA_WORKER_WORK_REAPER_LIMIT", "25")
+	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED", "false")
+	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS", "1750")
+	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT", "35")
 
 	config, err := FromEnv()
 	if err != nil {
 		t.Fatalf("from env: %v", err)
 	}
 
+	if config.Worker.Reaper.Enabled {
+		t.Fatal("expected worker reaper disabled")
+	}
+	if config.Worker.Reaper.IntervalMillis != 1250 {
+		t.Fatalf("expected worker reaper interval ms 1250, got %d", config.Worker.Reaper.IntervalMillis)
+	}
+	if config.Worker.Reaper.Interval != 1250*time.Millisecond {
+		t.Fatalf("expected worker reaper interval 1250ms, got %s", config.Worker.Reaper.Interval)
+	}
+	if config.Worker.Reaper.Limit != 15 {
+		t.Fatalf("expected worker reaper limit 15, got %d", config.Worker.Reaper.Limit)
+	}
 	if config.Worker.WorkReaper.Enabled {
 		t.Fatal("expected worker work reaper disabled")
 	}
@@ -358,6 +406,18 @@ func TestFromEnvParsesWorkerWorkReaperConfig(t *testing.T) {
 	}
 	if config.Worker.WorkReaper.Limit != 25 {
 		t.Fatalf("expected worker work reaper limit 25, got %d", config.Worker.WorkReaper.Limit)
+	}
+	if config.Observability.ExporterRetry.Enabled {
+		t.Fatal("expected observability exporter retry worker disabled")
+	}
+	if config.Observability.ExporterRetry.IntervalMillis != 1750 {
+		t.Fatalf("expected observability retry interval ms 1750, got %d", config.Observability.ExporterRetry.IntervalMillis)
+	}
+	if config.Observability.ExporterRetry.Interval != 1750*time.Millisecond {
+		t.Fatalf("expected observability retry interval 1750ms, got %s", config.Observability.ExporterRetry.Interval)
+	}
+	if config.Observability.ExporterRetry.Limit != 35 {
+		t.Fatalf("expected observability retry limit 35, got %d", config.Observability.ExporterRetry.Limit)
 	}
 }
 

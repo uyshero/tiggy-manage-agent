@@ -136,6 +136,40 @@ func TestWorkerRegistryLifecycle(t *testing.T) {
 	}
 }
 
+func TestReapExpiredWorkers(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "expired-worker",
+		"worker_type": "local",
+		"lease_seconds": 30
+	}`)
+	store.mu.Lock()
+	expiredAt := time.Now().UTC().Add(-time.Minute)
+	workerRecord := store.workers[worker.ID]
+	workerRecord.LeaseExpiresAt = &expiredAt
+	store.workers[worker.ID] = workerRecord
+	store.mu.Unlock()
+
+	response := postJSONWithStatus[struct {
+		Count   int                    `json:"count"`
+		Expired []managedagents.Worker `json:"expired"`
+	}](t, server, http.MethodPost, "/v1/workers/reap-expired", `{"limit":10}`, http.StatusOK)
+	if response.Count != 1 || len(response.Expired) != 1 {
+		t.Fatalf("expected one expired worker, got %+v", response)
+	}
+	expired := response.Expired[0]
+	if expired.ID != worker.ID || expired.Status != managedagents.WorkerStatusOffline {
+		t.Fatalf("unexpected expired worker: %+v", expired)
+	}
+
+	fetched := getJSON[managedagents.Worker](t, server, "/v1/workers/"+worker.ID)
+	if fetched.Status != managedagents.WorkerStatusOffline {
+		t.Fatalf("expected fetched worker offline, got %+v", fetched)
+	}
+}
+
 func TestWorkerDiagnoseAPI(t *testing.T) {
 	server := newTestServer()
 
@@ -240,11 +274,109 @@ func TestWorkerAuthProtectsWorkerConsumerEndpoints(t *testing.T) {
 		t.Fatalf("expected unauthenticated poll status %d, got %d: %s", http.StatusUnauthorized, pollResponse.Code, pollResponse.Body.String())
 	}
 
-	listed := getJSON[struct {
+	listRequest := httptest.NewRequest(http.MethodGet, "/v1/workers", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected worker list to remain open without control token configured, got %d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	var listed struct {
 		Workers []managedagents.Worker `json:"workers"`
-	}](t, server, "/v1/workers")
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&listed); err != nil {
+		t.Fatalf("decode workers: %v", err)
+	}
 	if len(listed.Workers) != 1 || listed.Workers[0].ID != worker.ID {
-		t.Fatalf("expected worker list to remain control-plane visible, got %+v", listed.Workers)
+		t.Fatalf("expected worker list to remain visible without control token configured, got %+v", listed.Workers)
+	}
+}
+
+func TestWorkerRegistrySensitiveEndpointsRequireWorkerOrControlAuth(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(
+		store,
+		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		nil,
+		"fake",
+		"fake-demo",
+		nil,
+		nil,
+		"worker-secret",
+		"control-secret",
+	)
+	diagnoseBody := `{
+		"workspace_id": "wksp_default",
+		"namespace": "default",
+		"api": "run_command",
+		"runtime": "local_system",
+		"capabilities": ["exec"],
+		"input": {}
+	}`
+
+	registerWorker := func(name string) managedagents.Worker {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/v1/workers", bytes.NewBufferString(`{
+			"name": "`+name+`",
+			"worker_type": "local"
+		}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer worker-secret")
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("expected worker register status %d, got %d: %s", http.StatusCreated, response.Code, response.Body.String())
+		}
+		var worker managedagents.Worker
+		if err := json.NewDecoder(response.Body).Decode(&worker); err != nil {
+			t.Fatalf("decode worker: %v", err)
+		}
+		return worker
+	}
+
+	workerArchivedByWorker := registerWorker("archive-by-worker")
+	unauthorizedDiagnose := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/workers/diagnose", diagnoseBody, http.StatusUnauthorized)
+	if unauthorizedDiagnose["error"] != "worker or control authorization required" {
+		t.Fatalf("expected diagnose auth error, got %#v", unauthorizedDiagnose)
+	}
+	workerDiagnoseRequest := httptest.NewRequest(http.MethodPost, "/v1/workers/diagnose", bytes.NewBufferString(diagnoseBody))
+	workerDiagnoseRequest.Header.Set("Content-Type", "application/json")
+	workerDiagnoseRequest.Header.Set("Authorization", "Bearer worker-secret")
+	workerDiagnoseResponse := httptest.NewRecorder()
+	server.ServeHTTP(workerDiagnoseResponse, workerDiagnoseRequest)
+	if workerDiagnoseResponse.Code != http.StatusOK {
+		t.Fatalf("expected worker token diagnose status %d, got %d: %s", http.StatusOK, workerDiagnoseResponse.Code, workerDiagnoseResponse.Body.String())
+	}
+	controlDiagnoseRequest := httptest.NewRequest(http.MethodPost, "/v1/workers/diagnose", bytes.NewBufferString(diagnoseBody))
+	controlDiagnoseRequest.Header.Set("Content-Type", "application/json")
+	controlDiagnoseRequest.Header.Set("Authorization", "Bearer control-secret")
+	controlDiagnoseResponse := httptest.NewRecorder()
+	server.ServeHTTP(controlDiagnoseResponse, controlDiagnoseRequest)
+	if controlDiagnoseResponse.Code != http.StatusOK {
+		t.Fatalf("expected control token diagnose status %d, got %d: %s", http.StatusOK, controlDiagnoseResponse.Code, controlDiagnoseResponse.Body.String())
+	}
+
+	unauthorized := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/workers/"+workerArchivedByWorker.ID+"/archive", `{}`, http.StatusUnauthorized)
+	if unauthorized["error"] != "worker or control authorization required" {
+		t.Fatalf("expected archive auth error, got %#v", unauthorized)
+	}
+
+	workerRequest := httptest.NewRequest(http.MethodPost, "/v1/workers/"+workerArchivedByWorker.ID+"/archive", bytes.NewBufferString(`{}`))
+	workerRequest.Header.Set("Content-Type", "application/json")
+	workerRequest.Header.Set("Authorization", "Bearer worker-secret")
+	workerResponse := httptest.NewRecorder()
+	server.ServeHTTP(workerResponse, workerRequest)
+	if workerResponse.Code != http.StatusOK {
+		t.Fatalf("expected worker token archive status %d, got %d: %s", http.StatusOK, workerResponse.Code, workerResponse.Body.String())
+	}
+
+	workerArchivedByControl := registerWorker("archive-by-control")
+	controlRequest := httptest.NewRequest(http.MethodPost, "/v1/workers/"+workerArchivedByControl.ID+"/archive", bytes.NewBufferString(`{}`))
+	controlRequest.Header.Set("Content-Type", "application/json")
+	controlRequest.Header.Set("Authorization", "Bearer control-secret")
+	controlResponse := httptest.NewRecorder()
+	server.ServeHTTP(controlResponse, controlRequest)
+	if controlResponse.Code != http.StatusOK {
+		t.Fatalf("expected control token archive status %d, got %d: %s", http.StatusOK, controlResponse.Code, controlResponse.Body.String())
 	}
 }
 
@@ -319,6 +451,34 @@ func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
 		t.Fatalf("expected selected worker %q, got %+v", worker.ID, work)
 	}
 
+	listRequest := httptest.NewRequest(http.MethodGet, "/v1/workers", nil)
+	listResponse := httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated worker list status %d, got %d: %s", http.StatusUnauthorized, listResponse.Code, listResponse.Body.String())
+	}
+	listRequest = httptest.NewRequest(http.MethodGet, "/v1/workers", nil)
+	listRequest.Header.Set("Authorization", "Bearer control-secret")
+	listResponse = httptest.NewRecorder()
+	server.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized worker list status %d, got %d: %s", http.StatusOK, listResponse.Code, listResponse.Body.String())
+	}
+
+	workerGetRequest := httptest.NewRequest(http.MethodGet, "/v1/workers/"+worker.ID, nil)
+	workerGetResponse := httptest.NewRecorder()
+	server.ServeHTTP(workerGetResponse, workerGetRequest)
+	if workerGetResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated worker get status %d, got %d: %s", http.StatusUnauthorized, workerGetResponse.Code, workerGetResponse.Body.String())
+	}
+	workerGetRequest = httptest.NewRequest(http.MethodGet, "/v1/workers/"+worker.ID, nil)
+	workerGetRequest.Header.Set("Authorization", "Bearer control-secret")
+	workerGetResponse = httptest.NewRecorder()
+	server.ServeHTTP(workerGetResponse, workerGetRequest)
+	if workerGetResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized worker get status %d, got %d: %s", http.StatusOK, workerGetResponse.Code, workerGetResponse.Body.String())
+	}
+
 	getRequest := httptest.NewRequest(http.MethodGet, "/v1/worker-work/"+work.ID, nil)
 	getResponse := httptest.NewRecorder()
 	server.ServeHTTP(getResponse, getRequest)
@@ -332,6 +492,68 @@ func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
 	server.ServeHTTP(getResponse, getRequest)
 	if getResponse.Code != http.StatusOK {
 		t.Fatalf("expected authorized work get status %d, got %d: %s", http.StatusOK, getResponse.Code, getResponse.Body.String())
+	}
+
+	diagnoseRequest := httptest.NewRequest(http.MethodGet, "/v1/worker-work/"+work.ID+"/diagnose", nil)
+	diagnoseResponse := httptest.NewRecorder()
+	server.ServeHTTP(diagnoseResponse, diagnoseRequest)
+	if diagnoseResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated work diagnose status %d, got %d: %s", http.StatusUnauthorized, diagnoseResponse.Code, diagnoseResponse.Body.String())
+	}
+	diagnoseRequest = httptest.NewRequest(http.MethodGet, "/v1/worker-work/"+work.ID+"/diagnose", nil)
+	diagnoseRequest.Header.Set("Authorization", "Bearer control-secret")
+	diagnoseResponse = httptest.NewRecorder()
+	server.ServeHTTP(diagnoseResponse, diagnoseRequest)
+	if diagnoseResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized work diagnose status %d, got %d: %s", http.StatusOK, diagnoseResponse.Code, diagnoseResponse.Body.String())
+	}
+
+	cancelRequest := httptest.NewRequest(http.MethodPost, "/v1/worker-work/"+work.ID+"/cancel", bytes.NewBufferString(`{"reason":"test cancel"}`))
+	cancelRequest.Header.Set("Content-Type", "application/json")
+	cancelResponse := httptest.NewRecorder()
+	server.ServeHTTP(cancelResponse, cancelRequest)
+	if cancelResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated work cancel status %d, got %d: %s", http.StatusUnauthorized, cancelResponse.Code, cancelResponse.Body.String())
+	}
+	cancelRequest = httptest.NewRequest(http.MethodPost, "/v1/worker-work/"+work.ID+"/cancel", bytes.NewBufferString(`{"reason":"test cancel"}`))
+	cancelRequest.Header.Set("Content-Type", "application/json")
+	cancelRequest.Header.Set("Authorization", "Bearer control-secret")
+	cancelResponse = httptest.NewRecorder()
+	server.ServeHTTP(cancelResponse, cancelRequest)
+	if cancelResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized work cancel status %d, got %d: %s", http.StatusOK, cancelResponse.Code, cancelResponse.Body.String())
+	}
+
+	reapRequest := httptest.NewRequest(http.MethodPost, "/v1/worker-work/reap-expired", bytes.NewBufferString(`{}`))
+	reapRequest.Header.Set("Content-Type", "application/json")
+	reapResponse := httptest.NewRecorder()
+	server.ServeHTTP(reapResponse, reapRequest)
+	if reapResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated work reap status %d, got %d: %s", http.StatusUnauthorized, reapResponse.Code, reapResponse.Body.String())
+	}
+	reapRequest = httptest.NewRequest(http.MethodPost, "/v1/worker-work/reap-expired", bytes.NewBufferString(`{}`))
+	reapRequest.Header.Set("Content-Type", "application/json")
+	reapRequest.Header.Set("Authorization", "Bearer control-secret")
+	reapResponse = httptest.NewRecorder()
+	server.ServeHTTP(reapResponse, reapRequest)
+	if reapResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized work reap status %d, got %d: %s", http.StatusOK, reapResponse.Code, reapResponse.Body.String())
+	}
+
+	workerReapRequest := httptest.NewRequest(http.MethodPost, "/v1/workers/reap-expired", bytes.NewBufferString(`{}`))
+	workerReapRequest.Header.Set("Content-Type", "application/json")
+	workerReapResponse := httptest.NewRecorder()
+	server.ServeHTTP(workerReapResponse, workerReapRequest)
+	if workerReapResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated worker reap status %d, got %d: %s", http.StatusUnauthorized, workerReapResponse.Code, workerReapResponse.Body.String())
+	}
+	workerReapRequest = httptest.NewRequest(http.MethodPost, "/v1/workers/reap-expired", bytes.NewBufferString(`{}`))
+	workerReapRequest.Header.Set("Content-Type", "application/json")
+	workerReapRequest.Header.Set("Authorization", "Bearer control-secret")
+	workerReapResponse = httptest.NewRecorder()
+	server.ServeHTTP(workerReapResponse, workerReapRequest)
+	if workerReapResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized worker reap status %d, got %d: %s", http.StatusOK, workerReapResponse.Code, workerReapResponse.Body.String())
 	}
 }
 
@@ -460,6 +682,115 @@ func TestReapExpiredWorkerWork(t *testing.T) {
 	fetched := getJSON[managedagents.WorkerWork](t, server, "/v1/worker-work/"+queued.ID)
 	if fetched.Status != managedagents.WorkerWorkStatusFailed || fetched.CompletedAt == nil {
 		t.Fatalf("expected fetched work to remain failed, got %+v", fetched)
+	}
+}
+
+func TestCancelWorkerWork(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"lease_seconds": 30
+	}`)
+	queued := postJSON[managedagents.WorkerWork](t, server, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"worker_id": "`+worker.ID+`",
+		"work_type": "sandbox_command",
+		"payload": {"command": "sh", "args": ["-c", "sleep 100"]}
+	}`)
+	polled := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll?lease_seconds=30")
+	if polled.Work == nil || polled.Work.ID != queued.ID {
+		t.Fatalf("expected queued work from poll, got %+v", polled.Work)
+	}
+
+	canceled := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/worker-work/"+queued.ID+"/cancel", `{
+		"reason": "user stopped it"
+	}`, http.StatusOK)
+	if canceled.Status != managedagents.WorkerWorkStatusCanceled || canceled.ErrorMessage != "user stopped it" || canceled.CompletedAt == nil {
+		t.Fatalf("expected canceled work, got %+v", canceled)
+	}
+
+	heartbeat := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/workers/"+worker.ID+"/work/"+queued.ID+"/heartbeat", `{
+		"lease_seconds": 30
+	}`, http.StatusOK)
+	if heartbeat.Status != managedagents.WorkerWorkStatusCanceled {
+		t.Fatalf("expected heartbeat to return canceled work, got %+v", heartbeat)
+	}
+
+	completed := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/workers/"+worker.ID+"/work/"+queued.ID+"/result", `{
+		"success": true,
+		"result": {"ok": true}
+	}`, http.StatusOK)
+	if completed.Status != managedagents.WorkerWorkStatusCanceled || string(completed.Result) == `{"ok":true}` {
+		t.Fatalf("expected result after cancel to be ignored, got %+v result=%s", completed, string(completed.Result))
+	}
+
+	diagnosis := getJSON[workerWorkDiagnoseResponse](t, server, "/v1/worker-work/"+queued.ID+"/diagnose")
+	if diagnosis.Work.Status != managedagents.WorkerWorkStatusCanceled || !containsString(diagnosis.Reasons, "work was canceled") {
+		t.Fatalf("expected canceled diagnosis, got %+v", diagnosis)
+	}
+}
+
+func TestDiagnoseWorkerWorkReportsExpiredLease(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"lease_seconds": 30
+	}`)
+	queued := postJSON[managedagents.WorkerWork](t, server, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"worker_id": "`+worker.ID+`",
+		"work_type": "sandbox_command",
+		"payload": {"command": "sh", "args": ["-c", "sleep 100"]}
+	}`)
+	polled := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll?lease_seconds=1")
+	if polled.Work == nil || polled.Work.ID != queued.ID {
+		t.Fatalf("expected queued work from poll, got %+v", polled.Work)
+	}
+
+	store.mu.Lock()
+	expiredAt := time.Now().UTC().Add(-time.Minute)
+	work := store.workerWork[queued.ID]
+	work.LeaseExpiresAt = &expiredAt
+	store.workerWork[queued.ID] = work
+	workerRecord := store.workers[worker.ID]
+	workerRecord.LeaseExpiresAt = &expiredAt
+	store.workers[worker.ID] = workerRecord
+	store.mu.Unlock()
+
+	response := getJSON[struct {
+		Work struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"work"`
+		Worker *struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"worker"`
+		Reasons []string `json:"reasons"`
+		Actions []string `json:"actions"`
+	}](t, server, "/v1/worker-work/"+queued.ID+"/diagnose")
+	if response.Work.ID != queued.ID || response.Work.Status != managedagents.WorkerWorkStatusLeased {
+		t.Fatalf("unexpected diagnosed work: %+v", response.Work)
+	}
+	if response.Worker == nil || response.Worker.ID != worker.ID {
+		t.Fatalf("expected assigned worker summary, got %+v", response.Worker)
+	}
+	joinedReasons := strings.Join(response.Reasons, "\n")
+	if !strings.Contains(joinedReasons, "work lease expired") || !strings.Contains(joinedReasons, "assigned worker lease expired") {
+		t.Fatalf("expected lease expiry reasons, got %+v", response.Reasons)
+	}
+	if len(response.Actions) == 0 || !strings.Contains(strings.Join(response.Actions, "\n"), "work reap-expired") {
+		t.Fatalf("expected reap action, got %+v", response.Actions)
 	}
 }
 
@@ -1154,13 +1485,32 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 			TurnID string `json:"turn_id"`
 			Status string `json:"status"`
 		} `json:"turns"`
+		Graph struct {
+			RootSpanIDs []string `json:"root_span_ids"`
+			Edges       []struct {
+				ParentSpanID string `json:"parent_span_id"`
+				ChildSpanID  string `json:"child_span_id"`
+			} `json:"edges"`
+			CriticalSpanIDs []string `json:"critical_span_ids"`
+			MaxDepth        int      `json:"max_depth"`
+		} `json:"graph"`
 		Steps []struct {
 			Type    string `json:"type"`
 			APIName string `json:"api_name"`
 			Outcome string `json:"outcome"`
 		} `json:"steps"`
 		Spans []struct {
-			Name string `json:"name"`
+			Name               string   `json:"name"`
+			Depth              int      `json:"depth"`
+			StartOffsetMillis  int64    `json:"start_offset_ms"`
+			SelfDurationMillis int64    `json:"self_duration_ms"`
+			Critical           bool     `json:"critical"`
+			ChildSpanIDs       []string `json:"child_span_ids"`
+			Events             []struct {
+				Seq  int64  `json:"seq"`
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"events"`
 		} `json:"spans"`
 	}](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID)
 	if trace.SessionID != session.ID || trace.TurnID != turnID {
@@ -1168,6 +1518,15 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	}
 	if trace.TraceID == "" || len(trace.Spans) == 0 || trace.Spans[0].Name != "tma.interaction" {
 		t.Fatalf("expected span trace projection, got %+v", trace)
+	}
+	if len(trace.Spans[0].ChildSpanIDs) == 0 || len(trace.Spans[0].Events) == 0 {
+		t.Fatalf("expected span tree details, got %+v", trace.Spans[0])
+	}
+	if len(trace.Graph.RootSpanIDs) == 0 || len(trace.Graph.Edges) == 0 || len(trace.Graph.CriticalSpanIDs) == 0 || trace.Graph.MaxDepth == 0 {
+		t.Fatalf("expected trace graph metadata, got %+v", trace.Graph)
+	}
+	if !trace.Spans[0].Critical || trace.Spans[0].SelfDurationMillis < 0 || trace.Spans[1].Depth == 0 || trace.Spans[1].StartOffsetMillis < 0 {
+		t.Fatalf("expected span waterfall annotations, got %+v", trace.Spans)
 	}
 	if trace.Status != managedagents.TurnStatusCompleted || trace.Stats.StepCount < 4 || trace.Stats.ToolCalls != 1 {
 		t.Fatalf("expected projected trace stats, got %+v", trace)
@@ -1189,6 +1548,91 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	otel := getJSON[map[string]any](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID+"&format=otel")
 	if _, ok := otel["resourceSpans"]; !ok {
 		t.Fatalf("expected otel resourceSpans, got %+v", otel)
+	}
+
+	catalog := getJSON[struct {
+		Traces []struct {
+			TraceID   string `json:"trace_id"`
+			SessionID string `json:"session_id"`
+			TurnID    string `json:"turn_id"`
+			SpanCount int    `json:"span_count"`
+		} `json:"traces"`
+	}](t, server, "/v1/traces?limit=10")
+	if len(catalog.Traces) == 0 || catalog.Traces[0].TraceID != trace.TraceID || catalog.Traces[0].SessionID != session.ID || catalog.Traces[0].TurnID != turnID || catalog.Traces[0].SpanCount == 0 {
+		t.Fatalf("expected trace catalog entry, got %+v", catalog.Traces)
+	}
+	direct := getJSON[struct {
+		SessionID string `json:"session_id"`
+		TurnID    string `json:"turn_id"`
+		TraceID   string `json:"trace_id"`
+	}](t, server, "/v1/traces/"+trace.TraceID)
+	if direct.SessionID != session.ID || direct.TurnID != turnID || direct.TraceID != trace.TraceID {
+		t.Fatalf("expected direct trace lookup, got %+v", direct)
+	}
+
+	spans := getJSON[struct {
+		Spans []struct {
+			TraceID            string `json:"trace_id"`
+			SessionID          string `json:"session_id"`
+			TurnID             string `json:"turn_id"`
+			SpanID             string `json:"span_id"`
+			Name               string `json:"name"`
+			Kind               string `json:"kind"`
+			Depth              int    `json:"depth"`
+			SelfDurationMillis int64  `json:"self_duration_ms"`
+			Critical           bool   `json:"critical"`
+		} `json:"spans"`
+		KindCounts     map[string]int `json:"kind_counts"`
+		CriticalCounts map[string]int `json:"critical_counts"`
+	}](t, server, "/v1/spans?q=read_file&limit=10")
+	if len(spans.Spans) == 0 || spans.Spans[0].TraceID != trace.TraceID || spans.Spans[0].SessionID != session.ID || spans.Spans[0].TurnID != turnID {
+		t.Fatalf("expected span search result, got %+v", spans.Spans)
+	}
+	if spans.KindCounts["tool"] == 0 {
+		t.Fatalf("expected span kind aggregate, got %+v", spans.KindCounts)
+	}
+	if spans.CriticalCounts["true"] == 0 {
+		t.Fatalf("expected critical span aggregate, got %+v", spans.CriticalCounts)
+	}
+	if spans.Spans[0].SpanID == "" {
+		t.Fatalf("expected span search result to include span_id, got %+v", spans.Spans[0])
+	}
+	criticalSpans := getJSON[struct {
+		Spans []struct {
+			TraceID   string `json:"trace_id"`
+			SessionID string `json:"session_id"`
+			TurnID    string `json:"turn_id"`
+			Critical  bool   `json:"critical"`
+		} `json:"spans"`
+	}](t, server, "/v1/spans?trace_id="+trace.TraceID+"&session_id="+session.ID+"&turn_id="+turnID+"&critical=true&min_duration_ms=0&limit=10")
+	if len(criticalSpans.Spans) == 0 {
+		t.Fatalf("expected critical span search results, got %+v", criticalSpans.Spans)
+	}
+	for _, span := range criticalSpans.Spans {
+		if span.TraceID != trace.TraceID || span.SessionID != session.ID || span.TurnID != turnID || !span.Critical {
+			t.Fatalf("expected filtered critical span, got %+v", span)
+		}
+	}
+	spanDetail := getJSON[struct {
+		SessionID string `json:"session_id"`
+		TurnID    string `json:"turn_id"`
+		TraceID   string `json:"trace_id"`
+		Span      struct {
+			SpanID     string            `json:"span_id"`
+			Name       string            `json:"name"`
+			Kind       string            `json:"kind"`
+			Attributes map[string]string `json:"attributes"`
+			Events     []struct {
+				Seq  int64  `json:"seq"`
+				Type string `json:"type"`
+			} `json:"events"`
+		} `json:"span"`
+	}](t, server, "/v1/traces/"+trace.TraceID+"/spans/"+spans.Spans[0].SpanID)
+	if spanDetail.SessionID != session.ID || spanDetail.TurnID != turnID || spanDetail.TraceID != trace.TraceID {
+		t.Fatalf("expected span detail trace identity, got %+v", spanDetail)
+	}
+	if spanDetail.Span.SpanID != spans.Spans[0].SpanID || spanDetail.Span.Kind != "tool" || spanDetail.Span.Attributes["tool_api"] != "read_file" || len(spanDetail.Span.Events) == 0 {
+		t.Fatalf("expected detailed tool span with events and attributes, got %+v", spanDetail.Span)
 	}
 }
 
@@ -1276,6 +1720,11 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	if !strings.Contains(metrics, `tma_workers_total{status="online",type="local"} 1`) {
 		t.Fatalf("expected worker gauge, got:\n%s", metrics)
 	}
+	if !strings.Contains(metrics, `tma_observability_exporter_enabled{exporter="perfetto"}`) ||
+		!strings.Contains(metrics, `tma_observability_exporter_sample_rate 1`) ||
+		!strings.Contains(metrics, `tma_observability_exporter_last_attempt_timestamp_seconds{exporter="otlp"}`) {
+		t.Fatalf("expected observability exporter metrics, got:\n%s", metrics)
+	}
 	sessionMetricsRequest := httptest.NewRequest(http.MethodGet, "/metrics?session_id="+session.ID+"&turn_id="+turnID, nil)
 	sessionMetricsResponse := httptest.NewRecorder()
 	server.ServeHTTP(sessionMetricsResponse, sessionMetricsRequest)
@@ -1286,6 +1735,9 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	for _, expected := range []string{
 		`tma_session_events_total{event_type="runtime.tool_call",session_id="` + session.ID + `"} 1`,
 		`tma_trace_steps_total{session_id="` + session.ID + `",turn_id="` + turnID + `"} 6`,
+		`tma_trace_critical_path_duration_milliseconds{session_id="` + session.ID + `",status="completed",turn_id="` + turnID + `"}`,
+		`tma_trace_max_span_depth{session_id="` + session.ID + `",turn_id="` + turnID + `"}`,
+		`tma_trace_critical_spans_total{session_id="` + session.ID + `",turn_id="` + turnID + `"}`,
 		`tma_tool_calls_total{api_name="read_file",outcome="success",session_id="` + session.ID + `",tool_identifier="default",turn_id="` + turnID + `"} 1`,
 	} {
 		if !strings.Contains(sessionMetrics, expected) {
@@ -1303,16 +1755,139 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		t.Fatalf("expected html content type, got %q", contentType)
 	}
 	if body := inspectorResponse.Body.String(); !strings.Contains(body, "TMA Inspector") ||
+		!strings.Contains(body, `href="/inspector/assets/styles.css"`) ||
+		!strings.Contains(body, `src="/inspector/assets/api.js"`) ||
+		!strings.Contains(body, `src="/inspector/assets/utils.js"`) ||
+		!strings.Contains(body, `src="/inspector/assets/app.js"`) ||
 		!strings.Contains(body, "Turns") ||
+		!strings.Contains(body, "Recent Traces") ||
+		!strings.Contains(body, "Trace ID") ||
+		!strings.Contains(body, "Span Search") ||
+		!strings.Contains(body, "globalSpanKind") ||
+		!strings.Contains(body, "globalSpanCritical") ||
+		!strings.Contains(body, "globalSpanMinDuration") ||
 		!strings.Contains(body, "Spans") ||
+		!strings.Contains(body, "Waterfall") ||
+		!strings.Contains(body, "waterfall") ||
+		!strings.Contains(body, "Select a span to inspect events and attributes.") ||
+		!strings.Contains(body, "spanFilter") ||
+		!strings.Contains(body, "spanKind") ||
+		!strings.Contains(body, "Artifact Preview") ||
+		!strings.Contains(body, "Context Coverage") ||
 		!strings.Contains(body, "Exporters") ||
-		!strings.Contains(body, "/v1/observability/status") ||
-		!strings.Contains(body, "OTLP HTTP") ||
-		!strings.Contains(body, "Auto refresh every 5s") ||
-		!strings.Contains(body, "Copy CLI") ||
-		!strings.Contains(body, "data-copy") ||
-		!strings.Contains(body, "bin/tma session artifact download --session") {
+		!strings.Contains(body, "Auto refresh every 5s") {
 		t.Fatalf("expected inspector UI body, got %q", body)
+	}
+	inspectorJSRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/app.js", nil)
+	inspectorJSResponse := httptest.NewRecorder()
+	server.ServeHTTP(inspectorJSResponse, inspectorJSRequest)
+	if inspectorJSResponse.Code != http.StatusOK {
+		t.Fatalf("inspector app.js expected status 200, got %d: %s", inspectorJSResponse.Code, inspectorJSResponse.Body.String())
+	}
+	if contentType := inspectorJSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
+		t.Fatalf("expected javascript content type, got %q", contentType)
+	}
+	if appJS := inspectorJSResponse.Body.String(); !strings.Contains(appJS, "TMAInspectorAPI") ||
+		!strings.Contains(appJS, "TMAInspectorUtils") ||
+		!strings.Contains(appJS, "inspectorAPI.traceCatalog") ||
+		!strings.Contains(appJS, "inspectorAPI.spanCatalog") ||
+		!strings.Contains(appJS, "inspectorAPI.observabilityStatus") ||
+		!strings.Contains(appJS, "loadTraceCatalog") ||
+		!strings.Contains(appJS, "inspectorHashParams") ||
+		!strings.Contains(appJS, "syncInspectorHash") ||
+		!strings.Contains(appJS, "bootInspectorFromHash") ||
+		!strings.Contains(appJS, "hashchange") ||
+		!strings.Contains(appJS, "URLSearchParams") ||
+		!strings.Contains(appJS, "data-trace-id") ||
+		!strings.Contains(appJS, "loadTraceByID") ||
+		!strings.Contains(appJS, "loadTrace") ||
+		!strings.Contains(appJS, "renderSpanCatalog") ||
+		!strings.Contains(appJS, "critical_counts") ||
+		!strings.Contains(appJS, "globalSpanKind") ||
+		!strings.Contains(appJS, "globalSpanCritical") ||
+		!strings.Contains(appJS, "self_duration_ms") ||
+		!strings.Contains(appJS, "data-span-trace-id") ||
+		!strings.Contains(appJS, "data-span-id") ||
+		!strings.Contains(appJS, "loadSpanByID") ||
+		!strings.Contains(appJS, "renderWaterfall") ||
+		!strings.Contains(appJS, "start_offset_ms") ||
+		!strings.Contains(appJS, "critical_path_duration_ms") ||
+		!strings.Contains(appJS, "data-waterfall-span") ||
+		!strings.Contains(appJS, "data-span") ||
+		!strings.Contains(appJS, "data-span-select") ||
+		!strings.Contains(appJS, "data-preview") ||
+		!strings.Contains(appJS, "previewArtifact") ||
+		!strings.Contains(appJS, "source_until_seq") ||
+		!strings.Contains(appJS, "unsummarized events") ||
+		!strings.Contains(appJS, "renderContextCoverage") ||
+		!strings.Contains(appJS, "Sampling") ||
+		!strings.Contains(appJS, "sample_rate") ||
+		!strings.Contains(appJS, "Retry due exporters") ||
+		!strings.Contains(appJS, "OTLP HTTP") ||
+		!strings.Contains(appJS, "Recent exporter runs") ||
+		!strings.Contains(appJS, "No persisted exporter runs.") ||
+		!strings.Contains(appJS, "last success") ||
+		!strings.Contains(appJS, "last failure") ||
+		!strings.Contains(appJS, "No exporter attempts recorded.") ||
+		!strings.Contains(appJS, "Copy CLI") ||
+		!strings.Contains(appJS, "data-copy") {
+		t.Fatalf("expected inspector app.js behavior, got %q", appJS)
+	}
+	inspectorAPIRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/api.js", nil)
+	inspectorAPIResponse := httptest.NewRecorder()
+	server.ServeHTTP(inspectorAPIResponse, inspectorAPIRequest)
+	if inspectorAPIResponse.Code != http.StatusOK {
+		t.Fatalf("inspector api.js expected status 200, got %d: %s", inspectorAPIResponse.Code, inspectorAPIResponse.Body.String())
+	}
+	if contentType := inspectorAPIResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
+		t.Fatalf("expected javascript content type, got %q", contentType)
+	}
+	if apiJS := inspectorAPIResponse.Body.String(); !strings.Contains(apiJS, "TMAInspectorAPI") ||
+		!strings.Contains(apiJS, "/v1/traces?limit=") ||
+		!strings.Contains(apiJS, "/v1/traces/") ||
+		!strings.Contains(apiJS, "/spans/") ||
+		!strings.Contains(apiJS, "/v1/spans?") ||
+		!strings.Contains(apiJS, "min_duration_ms") ||
+		!strings.Contains(apiJS, "/v1/observability/status") ||
+		!strings.Contains(apiJS, "/v1/observability/retry") ||
+		!strings.Contains(apiJS, "approve") ||
+		!strings.Contains(apiJS, "reject") {
+		t.Fatalf("expected inspector api.js behavior, got %q", apiJS)
+	}
+	inspectorUtilsRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/utils.js", nil)
+	inspectorUtilsResponse := httptest.NewRecorder()
+	server.ServeHTTP(inspectorUtilsResponse, inspectorUtilsRequest)
+	if inspectorUtilsResponse.Code != http.StatusOK {
+		t.Fatalf("inspector utils.js expected status 200, got %d: %s", inspectorUtilsResponse.Code, inspectorUtilsResponse.Body.String())
+	}
+	if contentType := inspectorUtilsResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
+		t.Fatalf("expected javascript content type, got %q", contentType)
+	}
+	if utilsJS := inspectorUtilsResponse.Body.String(); !strings.Contains(utilsJS, "TMAInspectorUtils") ||
+		!strings.Contains(utilsJS, "escapeHTML") ||
+		!strings.Contains(utilsJS, "formatDuration") ||
+		!strings.Contains(utilsJS, "pillClass") ||
+		!strings.Contains(utilsJS, "stepClass") ||
+		!strings.Contains(utilsJS, "bin/tma session artifact download --session") {
+		t.Fatalf("expected inspector utils.js behavior, got %q", utilsJS)
+	}
+	inspectorCSSRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/styles.css", nil)
+	inspectorCSSResponse := httptest.NewRecorder()
+	server.ServeHTTP(inspectorCSSResponse, inspectorCSSRequest)
+	if inspectorCSSResponse.Code != http.StatusOK {
+		t.Fatalf("inspector styles.css expected status 200, got %d: %s", inspectorCSSResponse.Code, inspectorCSSResponse.Body.String())
+	}
+	if contentType := inspectorCSSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "text/css") {
+		t.Fatalf("expected css content type, got %q", contentType)
+	}
+	if styles := inspectorCSSResponse.Body.String(); !strings.Contains(styles, ".span-controls") ||
+		!strings.Contains(styles, ".span-search-controls") ||
+		!strings.Contains(styles, ".waterfall-row") ||
+		!strings.Contains(styles, ".waterfall-bar.critical") ||
+		!strings.Contains(styles, ".coverage-grid") ||
+		!strings.Contains(styles, ".preview-media") ||
+		!strings.Contains(styles, ".health-line") {
+		t.Fatalf("expected inspector styles, got %q", styles)
 	}
 }
 
@@ -1321,23 +1896,144 @@ func TestObservabilityStatusEndpoint(t *testing.T) {
 	t.Setenv("TMA_PERFETTO_DIR", "/tmp/tma-traces")
 	t.Setenv("TMA_OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector.test")
 	t.Setenv("TMA_OTEL_EXPORTER_OTLP_TOKEN", "secret-token")
+	t.Setenv("TMA_OBSERVABILITY_SAMPLE_RATE", "0.25")
+	store := newTestStore()
+	if _, err := store.RecordObservabilityExporterRun(managedagents.RecordObservabilityExporterRunInput{
+		Exporter:    managedagents.ObservabilityExporterPerfetto,
+		Status:      managedagents.ObservabilityExporterRunSucceeded,
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		TraceID:     "trace_test",
+		Destination: "/tmp/tma-traces/turn_000001.perfetto.json",
+		Message:     "exported",
+		StartedAt:   time.Unix(100, 0).UTC(),
+		FinishedAt:  time.Unix(101, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("record exporter run: %v", err)
+	}
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
 
 	response := getJSON[struct {
 		Perfetto struct {
 			Enabled     bool   `json:"enabled"`
 			Destination string `json:"destination"`
+			LastSuccess *struct {
+				SessionID string `json:"session_id"`
+				TurnID    string `json:"turn_id"`
+				TraceID   string `json:"trace_id"`
+			} `json:"last_success"`
 		} `json:"perfetto"`
 		OTLP struct {
 			Enabled       bool   `json:"enabled"`
 			Destination   string `json:"destination"`
 			TokenProvided bool   `json:"token_provided"`
 		} `json:"otlp"`
-	}](t, newTestServer(), "/v1/observability/status")
+		Sampling struct {
+			Enabled    bool    `json:"enabled"`
+			SampleRate float64 `json:"sample_rate"`
+			Configured bool    `json:"configured"`
+		} `json:"sampling"`
+		Retry struct {
+			Enabled     bool `json:"enabled"`
+			MaxAttempts int  `json:"max_attempts"`
+		} `json:"retry"`
+		RecentRuns []managedagents.ObservabilityExporterRun `json:"recent_runs"`
+	}](t, server, "/v1/observability/status")
 	if !response.Perfetto.Enabled || response.Perfetto.Destination != "/tmp/tma-traces" {
 		t.Fatalf("unexpected perfetto status: %+v", response.Perfetto)
 	}
+	if response.Perfetto.LastSuccess == nil || response.Perfetto.LastSuccess.TraceID != "trace_test" {
+		t.Fatalf("expected persisted perfetto last_success, got %+v", response.Perfetto.LastSuccess)
+	}
+	if len(response.RecentRuns) != 1 || response.RecentRuns[0].Exporter != managedagents.ObservabilityExporterPerfetto {
+		t.Fatalf("expected recent exporter runs, got %+v", response.RecentRuns)
+	}
 	if !response.OTLP.Enabled || response.OTLP.Destination != "http://collector.test/v1/traces" || !response.OTLP.TokenProvided {
 		t.Fatalf("unexpected otlp status: %+v", response.OTLP)
+	}
+	if !response.Sampling.Enabled || response.Sampling.SampleRate != 0.25 || !response.Sampling.Configured {
+		t.Fatalf("unexpected sampling status: %+v", response.Sampling)
+	}
+	if !response.Retry.Enabled || response.Retry.MaxAttempts != 3 {
+		t.Fatalf("unexpected retry status: %+v", response.Retry)
+	}
+}
+
+func TestObservabilityRetryEndpoint(t *testing.T) {
+	t.Setenv("TMA_PERFETTO", "1")
+	traceDir := t.TempDir()
+	t.Setenv("TMA_PERFETTO_DIR", traceDir)
+	store := newTestStore()
+	store.sessions["sesn_retry"] = managedagents.Session{
+		ID:                 "sesn_retry",
+		WorkspaceID:        managedagents.DefaultWorkspaceID,
+		AgentID:            "agt_retry",
+		AgentConfigVersion: 1,
+		EnvironmentID:      "env_retry",
+		Status:             managedagents.SessionStatusIdle,
+		CreatedAt:          time.Now().Add(-5 * time.Minute).UTC(),
+	}
+	store.events["sesn_retry"] = []managedagents.Event{
+		{
+			ID:        "evt_retry_1",
+			Seq:       1,
+			SessionID: "sesn_retry",
+			Type:      managedagents.EventUserMessage,
+			Payload:   json.RawMessage(`{"turn_id":"turn_retry","content":[{"type":"text","text":"retry"}]}`),
+			CreatedAt: time.Now().Add(-3 * time.Minute).UTC(),
+		},
+	}
+	nextRetry := time.Now().Add(-time.Minute).UTC()
+	if _, err := store.RecordObservabilityExporterRun(managedagents.RecordObservabilityExporterRunInput{
+		Exporter:     managedagents.ObservabilityExporterPerfetto,
+		Status:       managedagents.ObservabilityExporterRunFailed,
+		SessionID:    "sesn_retry",
+		TurnID:       "turn_retry",
+		TraceID:      "trace_retry",
+		Destination:  traceDir,
+		Message:      "write failed",
+		AttemptCount: 1,
+		NextRetryAt:  &nextRetry,
+		StartedAt:    time.Now().Add(-2 * time.Minute).UTC(),
+		FinishedAt:   time.Now().Add(-2 * time.Minute).UTC(),
+	}); err != nil {
+		t.Fatalf("record exporter run: %v", err)
+	}
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/observability/retry", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("retry expected status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Attempted int `json:"attempted"`
+		Succeeded int `json:"succeeded"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode retry response: %v", err)
+	}
+	if result.Attempted != 1 || result.Succeeded != 1 {
+		runs, _ := store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{
+			Exporter:  managedagents.ObservabilityExporterPerfetto,
+			SessionID: "sesn_retry",
+			TurnID:    "turn_retry",
+			Limit:     3,
+		})
+		t.Fatalf("expected successful retry attempt, got %+v runs=%+v", result, runs)
+	}
+	runs, err := store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{
+		Exporter:  managedagents.ObservabilityExporterPerfetto,
+		SessionID: "sesn_retry",
+		TurnID:    "turn_retry",
+		Limit:     1,
+	})
+	if err != nil {
+		t.Fatalf("list retry runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Status != managedagents.ObservabilityExporterRunSucceeded || runs[0].AttemptCount != 2 {
+		t.Fatalf("expected retry attempt to be persisted, got %+v", runs)
 	}
 }
 
@@ -2482,6 +3178,15 @@ func assertRuntimeSettings(t *testing.T, raw json.RawMessage, expected map[strin
 			t.Fatalf("unexpected runtime setting %s: got %q want %q in %#v", key, actual[key], value, actual)
 		}
 	}
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func waitFor(t *testing.T, condition func() bool) {
