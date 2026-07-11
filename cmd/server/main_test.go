@@ -2,226 +2,73 @@ package main
 
 import (
 	"errors"
-	"io"
+	"flag"
 	"log/slog"
-	"sync"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
-
-	"tiggy-manage-agent/internal/managedagents"
-	"tiggy-manage-agent/internal/serverconfig"
 )
 
-type testWorkerWorkReaperStore struct {
-	mu      sync.Mutex
-	calls   int
-	results []managedagents.WorkerWork
-	err     error
-}
-
-func (s *testWorkerWorkReaperStore) ReapExpiredWorkerWork(input managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	if s.err != nil {
-		return nil, s.err
-	}
-	results := make([]managedagents.WorkerWork, len(s.results))
-	copy(results, s.results)
-	return results, nil
-}
-
-func (s *testWorkerWorkReaperStore) CallCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-type testWorkerReaperStore struct {
-	mu      sync.Mutex
-	calls   int
-	results []managedagents.Worker
-	err     error
-}
-
-func (s *testWorkerReaperStore) ReapExpiredWorkers(input managedagents.ReapExpiredWorkersInput) ([]managedagents.Worker, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	if s.err != nil {
-		return nil, s.err
-	}
-	results := make([]managedagents.Worker, len(s.results))
-	copy(results, s.results)
-	return results, nil
-}
-
-func (s *testWorkerReaperStore) CallCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-type testObservabilityExporterRetryStore struct {
-	mu    sync.Mutex
-	calls int
-	err   error
-}
-
-func (s *testObservabilityExporterRetryStore) ListEvents(string, int64) ([]managedagents.Event, error) {
-	return nil, nil
-}
-
-func (s *testObservabilityExporterRetryStore) RecordObservabilityExporterRun(input managedagents.RecordObservabilityExporterRunInput) (managedagents.ObservabilityExporterRun, error) {
-	return managedagents.ObservabilityExporterRun{}, nil
-}
-
-func (s *testObservabilityExporterRetryStore) ListObservabilityExporterRuns(input managedagents.ListObservabilityExporterRunsInput) ([]managedagents.ObservabilityExporterRun, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.calls++
-	if s.err != nil {
-		return nil, s.err
-	}
-	return nil, nil
-}
-
-func (s *testObservabilityExporterRetryStore) CallCount() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.calls
-}
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(io.Discard, nil))
-}
-
-func TestStartWorkerReaperDisabled(t *testing.T) {
-	store := &testWorkerReaperStore{}
-	stop := startWorkerReaper(serverconfig.WorkerReaperConfig{
-		Enabled:  false,
-		Interval: time.Millisecond,
-		Limit:    1,
-	}, store, testLogger())
-	defer stop()
-
-	time.Sleep(20 * time.Millisecond)
-	if store.CallCount() != 0 {
-		t.Fatalf("expected disabled reaper not to call store, got %d", store.CallCount())
+func TestParseServerCLIOptionsRequiresPIDFileForRestart(t *testing.T) {
+	_, err := parseServerCLIOptions([]string{"--restart"})
+	if err == nil || err.Error() != "--restart requires --pid-file" {
+		t.Fatalf("expected pid file validation error, got %v", err)
 	}
 }
 
-func TestStartWorkerReaperRunsImmediatelyAndOnTicker(t *testing.T) {
-	store := &testWorkerReaperStore{
-		results: []managedagents.Worker{{ID: "wrk_1"}},
+func TestParseServerCLIOptionsParsesRestartFlags(t *testing.T) {
+	options, err := parseServerCLIOptions([]string{"--pid-file", ".tma-server.pid", "--restart", "--restart-wait", "20s"})
+	if err != nil {
+		t.Fatalf("parse flags: %v", err)
 	}
-	stop := startWorkerReaper(serverconfig.WorkerReaperConfig{
-		Enabled:  true,
-		Interval: 10 * time.Millisecond,
-		Limit:    2,
-	}, store, testLogger())
-	defer stop()
-
-	deadline := time.Now().Add(80 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if store.CallCount() >= 2 {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("expected reaper to call store at least twice, got %d", store.CallCount())
-}
-
-func TestReapExpiredWorkersSwallowsStoreErrors(t *testing.T) {
-	store := &testWorkerReaperStore{err: errors.New("boom")}
-	reapExpiredWorkers(store, testLogger(), 5)
-	if store.CallCount() != 1 {
-		t.Fatalf("expected one store call, got %d", store.CallCount())
+	if options.PIDFile != ".tma-server.pid" || !options.Restart || options.RestartWait != 20*time.Second {
+		t.Fatalf("unexpected options: %#v", options)
 	}
 }
 
-func TestStartWorkerWorkReaperDisabled(t *testing.T) {
-	store := &testWorkerWorkReaperStore{}
-	stop := startWorkerWorkReaper(serverconfig.WorkerWorkReaperConfig{
-		Enabled:  false,
-		Interval: time.Millisecond,
-		Limit:    1,
-	}, store, testLogger())
-	defer stop()
-
-	time.Sleep(20 * time.Millisecond)
-	if store.CallCount() != 0 {
-		t.Fatalf("expected disabled reaper not to call store, got %d", store.CallCount())
+func TestParseServerCLIOptionsHelp(t *testing.T) {
+	_, err := parseServerCLIOptions([]string{"--help"})
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected flag.ErrHelp, got %v", err)
 	}
 }
 
-func TestStartWorkerWorkReaperRunsImmediatelyAndOnTicker(t *testing.T) {
-	store := &testWorkerWorkReaperStore{
-		results: []managedagents.WorkerWork{{ID: "work_1"}},
-	}
-	stop := startWorkerWorkReaper(serverconfig.WorkerWorkReaperConfig{
-		Enabled:  true,
-		Interval: 10 * time.Millisecond,
-		Limit:    2,
-	}, store, testLogger())
-	defer stop()
+func TestWritePIDFileCleanupOnlyRemovesOwnedFile(t *testing.T) {
+	tempDir := t.TempDir()
+	pidFile := filepath.Join(tempDir, "server.pid")
 
-	deadline := time.Now().Add(80 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if store.CallCount() >= 2 {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+	cleanup, err := writePIDFile(pidFile, 12345)
+	if err != nil {
+		t.Fatalf("write pid file: %v", err)
 	}
-	t.Fatalf("expected reaper to call store at least twice, got %d", store.CallCount())
-}
+	if pid, err := readPIDFile(pidFile); err != nil || pid != 12345 {
+		t.Fatalf("unexpected pid file content: pid=%d err=%v", pid, err)
+	}
 
-func TestReapExpiredWorkerWorkSwallowsStoreErrors(t *testing.T) {
-	store := &testWorkerWorkReaperStore{err: errors.New("boom")}
-	reapExpiredWorkerWork(store, testLogger(), 5)
-	if store.CallCount() != 1 {
-		t.Fatalf("expected one store call, got %d", store.CallCount())
+	if err := os.WriteFile(pidFile, []byte("99999\n"), 0o644); err != nil {
+		t.Fatalf("overwrite pid file: %v", err)
+	}
+	cleanup()
+
+	if _, err := os.Stat(pidFile); err != nil {
+		t.Fatalf("expected foreign pid file to remain, got %v", err)
+	}
+
+	removePIDFileIfOwned(pidFile, 99999)
+	if _, err := os.Stat(pidFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected pid file to be removed, got %v", err)
 	}
 }
 
-func TestStartObservabilityExporterRetryDisabled(t *testing.T) {
-	store := &testObservabilityExporterRetryStore{}
-	stop := startObservabilityExporterRetry(serverconfig.ObservabilityExporterRetryConfig{
-		Enabled:  false,
-		Interval: time.Millisecond,
-		Limit:    1,
-	}, store, testLogger())
-	defer stop()
-
-	time.Sleep(20 * time.Millisecond)
-	if store.CallCount() != 0 {
-		t.Fatalf("expected disabled observability retry worker not to call store, got %d", store.CallCount())
+func TestMaybeRestartExistingServerIgnoresMissingPIDFile(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	options := serverCLIOptions{
+		PIDFile:     filepath.Join(t.TempDir(), "missing.pid"),
+		Restart:     true,
+		RestartWait: time.Second,
 	}
-}
-
-func TestStartObservabilityExporterRetryRunsImmediatelyAndOnTicker(t *testing.T) {
-	store := &testObservabilityExporterRetryStore{}
-	stop := startObservabilityExporterRetry(serverconfig.ObservabilityExporterRetryConfig{
-		Enabled:  true,
-		Interval: 10 * time.Millisecond,
-		Limit:    2,
-	}, store, testLogger())
-	defer stop()
-
-	deadline := time.Now().Add(80 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		if store.CallCount() >= 2 {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("expected observability retry worker to call store at least twice, got %d", store.CallCount())
-}
-
-func TestRetryObservabilityExportersSwallowsStoreErrors(t *testing.T) {
-	store := &testObservabilityExporterRetryStore{err: errors.New("boom")}
-	retryObservabilityExporters(store, testLogger(), 5)
-	if store.CallCount() != 1 {
-		t.Fatalf("expected one store call, got %d", store.CallCount())
+	if err := maybeRestartExistingServer(options, logger); err != nil {
+		t.Fatalf("expected missing pid file to be ignored, got %v", err)
 	}
 }

@@ -167,6 +167,37 @@ func commandWork(client *apiClient, args []string) error {
 			return err
 		}
 		return printJSON(response)
+	case "requeue":
+		flags := flag.NewFlagSet("work requeue", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var workID string
+		var workerID string
+		var clearWorker bool
+		flags.StringVar(&workID, "work", "", "work id")
+		flags.StringVar(&workerID, "worker", "", "target worker id for the new work")
+		flags.BoolVar(&clearWorker, "clear-worker", false, "do not copy the original worker assignment")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if workID == "" {
+			return fmt.Errorf("work requeue requires --work")
+		}
+		if clearWorker && strings.TrimSpace(workerID) != "" {
+			return fmt.Errorf("work requeue accepts either --worker or --clear-worker, not both")
+		}
+		request := map[string]any{}
+		if strings.TrimSpace(workerID) != "" {
+			request["worker_id"] = workerID
+		}
+		if clearWorker {
+			request["clear_worker"] = true
+		}
+		var response any
+		if err := client.do(http.MethodPost, "/v1/worker-work/"+url.PathEscape(workID)+"/requeue", request, &response); err != nil {
+			return err
+		}
+		return printJSON(response)
 	case "diagnose":
 		flags := flag.NewFlagSet("work diagnose", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)

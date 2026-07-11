@@ -26,6 +26,12 @@ func (LocalSystemProvider) ToolCapabilities() []string {
 		"filesystem.write",
 		"exec",
 		"code.execute",
+		"browser.open",
+		"browser.read",
+		"browser.interact",
+		"browser.capture",
+		"browser.takeover",
+		"browser.close",
 	}
 }
 

@@ -25,10 +25,13 @@ func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 		ID:              "sesn_000001",
 		RuntimeSettings: json.RawMessage(`{"tool_runtime":"cloud_sandbox","cloud_sandbox_image":"onlyboxes/test:latest","cloud_sandbox_allow_network":true}`),
 	}}
+	containerManager := capability.NewOnlyboxesContainerManager(capability.OnlyboxesContainerManagerConfig{CleanupInterval: time.Hour})
+	t.Cleanup(containerManager.Close)
 	provider := SessionProviderResolver{
-		Store:                store,
-		CloudSandboxDataRoot: "/tmp/tma-sandbox-data",
-		CloudSandboxDataTTL:  30 * time.Minute,
+		Store:                  store,
+		CloudSandboxDataRoot:   "/tmp/tma-sandbox-data",
+		CloudSandboxDataTTL:    30 * time.Minute,
+		CloudSandboxContainers: containerManager,
 	}.ResolveProvider(ProviderRequest{SessionID: "sesn_000001"})
 	onlyboxesProvider, ok := provider.(capability.OnlyboxesProvider)
 	if !ok {
@@ -48,6 +51,9 @@ func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 	}
 	if onlyboxesProvider.SessionID != "sesn_000001" {
 		t.Fatalf("unexpected onlyboxes session id %q", onlyboxesProvider.SessionID)
+	}
+	if onlyboxesProvider.ContainerManager != containerManager {
+		t.Fatal("expected shared cloud sandbox container manager")
 	}
 }
 

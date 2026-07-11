@@ -77,6 +77,62 @@ func TestExecutorRunsDefaultToolExecution(t *testing.T) {
 	}
 }
 
+func TestExecutorRunsProcessPluginToolExecution(t *testing.T) {
+	plugin := writeExecutable(t, `#!/bin/sh
+case "$1" in
+  manifest)
+    printf '%s' '{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot control plugin."},"system_role":"Use robot.* tools only for robot control tasks.","api":[{"name":"get_state","description":"Read robot state.","parameters":{"type":"object","properties":{}},"capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}'
+    ;;
+  execute)
+    cat >/dev/null
+    printf '%s' '{"protocol_version":"tma.plugin_result.v1","success":true,"content":"robot state: idle","state":{"status":"idle"}}'
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+`)
+	pluginRuntime, err := tools.LoadProcessPluginRuntime(t.Context(), plugin)
+	if err != nil {
+		t.Fatalf("load plugin runtime: %v", err)
+	}
+	registry := tools.DefaultRegistry()
+	registry.Register(pluginRuntime)
+	executor := DefaultExecutor("test-worker")
+	executor.Registry = registry
+
+	capabilities := executor.WorkerCapabilities()
+	if !contains(capabilities.Namespaces, "robot") ||
+		!contains(capabilities.APIs, "robot.get_state") ||
+		!contains(capabilities.Capabilities, "robot.state") {
+		t.Fatalf("expected plugin capabilities to be advertised, got %#v", capabilities)
+	}
+	if len(capabilities.Manifests) == 0 || capabilities.Manifests[len(capabilities.Manifests)-1].Identifier != "robot" {
+		t.Fatalf("expected plugin manifest to be advertised, got %#v", capabilities.Manifests)
+	}
+
+	result := executor.Execute(t.Context(), managedagents.WorkerWork{
+		ID:       "work_plugin_000001",
+		WorkType: managedagents.WorkerWorkTypeToolExecution,
+		Payload:  json.RawMessage(`{"protocol_version":"tma.work.v1","namespace":"robot","api":"get_state","capabilities":["robot.state"],"risk":"read","runtime":"local_system","input":{}}`),
+	})
+	if !result.Success {
+		t.Fatalf("expected successful plugin execution, got error %q result %s", result.ErrorMessage, string(result.Result))
+	}
+	var body struct {
+		ToolResult struct {
+			Content string          `json:"content"`
+			State   json.RawMessage `json:"state"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(result.Result, &body); err != nil {
+		t.Fatalf("decode plugin result: %v", err)
+	}
+	if body.ToolResult.Content != "robot state: idle" || !strings.Contains(string(body.ToolResult.State), `"status":"idle"`) {
+		t.Fatalf("unexpected plugin result: %+v", body.ToolResult)
+	}
+}
+
 func TestExecutorEmbedsExportedFilesInToolResult(t *testing.T) {
 	workDir := t.TempDir()
 	result := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
@@ -199,6 +255,56 @@ func TestExecutorUploadsOversizedExportedFilesWhenUploaderIsConfigured(t *testin
 	}
 }
 
+func TestExecutorUploadsImageExportedFilesWhenUploaderIsConfigured(t *testing.T) {
+	workDir := t.TempDir()
+	uploader := &recordingArtifactUploader{
+		ref: tools.ArtifactRef{
+			ArtifactID:   "art_image",
+			ObjectRefID:  "obj_image",
+			Name:         "screen.png",
+			ArtifactType: "asset",
+			DownloadPath: "/v1/sessions/sesn_000001/artifacts/art_image/download",
+		},
+	}
+	executor := DefaultExecutor("test-worker")
+	executor.ArtifactUploader = uploader
+
+	result := executor.Execute(t.Context(), managedagents.WorkerWork{
+		ID:            "work_000005",
+		WorkspaceID:   "wksp_default",
+		SessionID:     "sesn_000001",
+		EnvironmentID: "env_000001",
+		TurnID:        "turn_000001",
+		WorkType:      managedagents.WorkerWorkTypeToolExecution,
+		Payload:       json.RawMessage(`{"protocol_version":"tma.work.v1","namespace":"default","api":"run_command","capabilities":["exec"],"risk":"exec","runtime":"local_system","input":{"command":"sh","args":["-c","printf '\\211PNG\\r\\n\\032\\n' > screen.png && printf ok"],"work_dir":` + `"` + workDir + `"` + `,"output_paths":["screen.png"]}}`),
+	})
+	if !result.Success {
+		t.Fatalf("expected command success, got error %q result %s", result.ErrorMessage, string(result.Result))
+	}
+	var body struct {
+		ToolResult struct {
+			ExportedFiles []tools.ArtifactExport `json:"exported_files"`
+			Artifacts     []tools.ArtifactRef    `json:"artifacts"`
+			ArtifactError string                 `json:"artifact_error"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(result.Result, &body); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if len(body.ToolResult.ExportedFiles) != 0 {
+		t.Fatalf("expected image export not to include inline content, got %#v", body.ToolResult.ExportedFiles)
+	}
+	if len(body.ToolResult.Artifacts) != 1 || body.ToolResult.Artifacts[0].ArtifactID != "art_image" {
+		t.Fatalf("expected uploaded image artifact ref, got %#v", body.ToolResult.Artifacts)
+	}
+	if body.ToolResult.ArtifactError != "" {
+		t.Fatalf("expected no artifact error, got %q", body.ToolResult.ArtifactError)
+	}
+	if len(uploader.uploads) != 1 || uploader.uploads[0].ContentType != "image/png" || string(uploader.uploads[0].Content) != "\x89PNG\r\n\x1a\n" {
+		t.Fatalf("unexpected upload input: %#v", uploader.uploads)
+	}
+}
+
 func TestExecutorUsesCustomWorkHandler(t *testing.T) {
 	executor := Executor{
 		WorkerName: "custom-worker",
@@ -247,4 +353,13 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func writeExecutable(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "plugin.sh")
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+	return path
 }

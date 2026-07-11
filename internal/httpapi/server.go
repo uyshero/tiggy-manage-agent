@@ -11,7 +11,6 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
-	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
@@ -27,7 +26,6 @@ type Server struct {
 	defaultLLMProvider string
 	defaultLLMModel    string
 	objectStore        objectstore.Client
-	continuationClient llm.Client
 	executionResolver  execution.ProviderResolver
 	workerAuthToken    string
 	controlAuthToken   string
@@ -107,8 +105,12 @@ func (s *Server) executionProviderForRequest(request execution.ProviderRequest) 
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("GET /{$}", redirectUserApp)
 	s.mux.HandleFunc("GET /health", healthHandler)
 	s.mux.HandleFunc("GET /metrics", s.getMetrics)
+	s.mux.HandleFunc("GET /app", s.getUserApp)
+	s.mux.HandleFunc("GET /app/{$}", redirectUserApp)
+	s.mux.Handle("GET /app/assets/", appAssetHandler())
 	s.mux.HandleFunc("GET /inspector", s.getInspector)
 	s.mux.Handle("GET /inspector/assets/", inspectorAssetHandler())
 	s.mux.HandleFunc("GET /v1/traces", s.listTraces)
@@ -139,6 +141,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/worker-work/{work_id}", s.requireControlAuth(s.getWorkerWork))
 	s.mux.HandleFunc("GET /v1/worker-work/{work_id}/diagnose", s.requireControlAuth(s.diagnoseWorkerWork))
 	s.mux.HandleFunc("POST /v1/worker-work/{work_id}/cancel", s.requireControlAuth(s.cancelWorkerWork))
+	s.mux.HandleFunc("POST /v1/worker-work/{work_id}/requeue", s.requireControlAuth(s.requeueWorkerWork))
 	s.mux.HandleFunc("GET /v1/workers/{worker_id}/work/poll", s.requireWorkerAuth(s.pollWorkerWork))
 	s.mux.HandleFunc("POST /v1/workers/{worker_id}/work/{work_id}/ack", s.requireWorkerAuth(s.ackWorkerWork))
 	s.mux.HandleFunc("POST /v1/workers/{worker_id}/work/{work_id}/heartbeat", s.requireWorkerAuth(s.heartbeatWorkerWork))
@@ -149,12 +152,17 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/object-refs/{object_ref_id}", s.deleteObjectRef)
 
 	s.mux.HandleFunc("POST /v1/agents", s.createAgent)
+	s.mux.HandleFunc("GET /v1/agents/default", s.getDefaultAgent)
+	s.mux.HandleFunc("GET /v1/agents", s.listAgents)
 	s.mux.HandleFunc("GET /v1/agents/{agent_id}", s.getAgent)
 	s.mux.HandleFunc("GET /v1/agents/{agent_id}/config-versions", s.listAgentConfigVersions)
 	s.mux.HandleFunc("POST /v1/agents/{agent_id}/config-versions", s.createAgentConfigVersion)
 	s.mux.HandleFunc("POST /v1/environments", s.createEnvironment)
 	s.mux.HandleFunc("POST /v1/sessions", s.createSession)
+	s.mux.HandleFunc("GET /v1/sessions", s.listSessions)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}", s.getSession)
+	s.mux.HandleFunc("GET /v1/sessions/{session_id}/runtime-config", s.getSessionRuntimeConfig)
+	s.mux.HandleFunc("GET /v1/sessions/{session_id}/runtime-capabilities", s.getSessionRuntimeCapabilities)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/config/upgrade", s.upgradeSessionAgentConfig)
 	s.mux.HandleFunc("PATCH /v1/sessions/{session_id}/runtime-settings", s.updateSessionRuntimeSettings)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/interventions", s.listSessionInterventions)
@@ -174,6 +182,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/events", s.appendSessionEvents)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/events", s.listSessionEvents)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/events/stream", s.streamSessionEvents)
+}
+
+func redirectUserApp(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/app", http.StatusTemporaryRedirect)
 }
 
 func (s *Server) requireWorkerAuth(next http.HandlerFunc) http.HandlerFunc {

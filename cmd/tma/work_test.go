@@ -249,6 +249,31 @@ func TestCommandWorkCancel(t *testing.T) {
 	}
 }
 
+func TestCommandWorkRequeue(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work/work_000001/requeue" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["clear_worker"] != true {
+			t.Fatalf("unexpected requeue body: %#v", body)
+		}
+		return jsonResponse(`{"id":"work_000002","status":"pending","payload":{"ok":true}}`), nil
+	})
+
+	stdout := captureStdout(t, func() {
+		if err := commandWork(client, []string{"requeue", "--work", "work_000001", "--clear-worker"}); err != nil {
+			t.Fatalf("work requeue: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, `"id": "work_000002"`) || !strings.Contains(stdout, `"status": "pending"`) {
+		t.Fatalf("expected requeue output to include new pending work, got %q", stdout)
+	}
+}
+
 func TestCommandWorkDiagnose(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/worker-work/work_000001/diagnose" {

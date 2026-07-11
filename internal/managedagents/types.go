@@ -42,6 +42,9 @@ const (
 	EventRuntimeToolInterventionApproved = "runtime.tool_intervention_approved"
 	EventRuntimeToolInterventionRejected = "runtime.tool_intervention_rejected"
 	EventRuntimeToolResult               = "runtime.tool_result"
+	EventRuntimeSpanStarted              = "runtime.span_started"
+	EventRuntimeSpanEvent                = "runtime.span_event"
+	EventRuntimeSpanEnded                = "runtime.span_ended"
 	EventRuntimeContextCompacting        = "runtime.context_compacting"
 	EventRuntimeContextCompacted         = "runtime.context_compacted"
 	EventRuntimeContextCompactionFailed  = "runtime.context_compaction_failed"
@@ -180,6 +183,34 @@ type Event struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type SessionTurnWork struct {
+	SessionID          string               `json:"session_id"`
+	TurnID             string               `json:"turn_id"`
+	UserEventSeq       int64                `json:"user_event_seq"`
+	UserPayload        json.RawMessage      `json:"user_payload"`
+	ResumeIntervention *SessionIntervention `json:"resume_intervention,omitempty"`
+	Attempt            int                  `json:"attempt"`
+}
+
+type ClaimSessionTurnsInput struct {
+	LeaseOwner    string
+	LeaseDuration time.Duration
+	Limit         int
+}
+
+type RenewSessionTurnLeaseInput struct {
+	SessionID     string
+	TurnID        string
+	LeaseOwner    string
+	LeaseDuration time.Duration
+}
+
+type ReleaseSessionTurnLeaseInput struct {
+	SessionID  string
+	TurnID     string
+	LeaseOwner string
+}
+
 type SessionIntervention struct {
 	SessionID         string          `json:"session_id"`
 	TurnID            string          `json:"turn_id"`
@@ -243,6 +274,85 @@ type UpsertSessionSummaryInput struct {
 type UpsertSessionSummaryResult struct {
 	Summary SessionSummary `json:"summary"`
 	Events  []Event        `json:"events"`
+}
+
+type TraceIndexEntry struct {
+	TraceID        string    `json:"trace_id"`
+	WorkspaceID    string    `json:"workspace_id"`
+	SessionID      string    `json:"session_id"`
+	TurnID         string    `json:"turn_id"`
+	SessionTitle   string    `json:"session_title,omitempty"`
+	SessionStatus  string    `json:"session_status,omitempty"`
+	TurnStatus     string    `json:"turn_status,omitempty"`
+	Summary        string    `json:"summary,omitempty"`
+	StartedAt      time.Time `json:"started_at,omitempty"`
+	EndedAt        time.Time `json:"ended_at,omitempty"`
+	DurationMillis int64     `json:"duration_ms"`
+	StepCount      int       `json:"step_count"`
+	SpanCount      int       `json:"span_count"`
+	ToolCalls      int       `json:"tool_calls"`
+	Errors         int       `json:"errors"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type TraceSpanIndexEntry struct {
+	TraceID            string            `json:"trace_id"`
+	WorkspaceID        string            `json:"workspace_id"`
+	SessionID          string            `json:"session_id"`
+	TurnID             string            `json:"turn_id"`
+	SessionTitle       string            `json:"session_title,omitempty"`
+	SpanID             string            `json:"span_id"`
+	ParentSpanID       string            `json:"parent_span_id,omitempty"`
+	Name               string            `json:"name"`
+	Kind               string            `json:"kind"`
+	Status             string            `json:"status,omitempty"`
+	Depth              int               `json:"depth,omitempty"`
+	StartTime          time.Time         `json:"start_time"`
+	StartOffsetMillis  int64             `json:"start_offset_ms,omitempty"`
+	DurationMillis     int64             `json:"duration_ms"`
+	SelfDurationMillis int64             `json:"self_duration_ms,omitempty"`
+	Critical           bool              `json:"critical,omitempty"`
+	EventCount         int               `json:"event_count"`
+	Attributes         map[string]string `json:"attributes,omitempty"`
+	UpdatedAt          time.Time         `json:"updated_at"`
+}
+
+type UpsertTraceIndexInput struct {
+	Trace TraceIndexEntry       `json:"trace"`
+	Spans []TraceSpanIndexEntry `json:"spans"`
+}
+
+type ListTraceIndexInput struct {
+	WorkspaceID     string `json:"workspace_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	TurnID          string `json:"turn_id,omitempty"`
+	TraceID         string `json:"trace_id,omitempty"`
+	SessionStatus   string `json:"session_status,omitempty"`
+	IncludeArchived bool   `json:"include_archived,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Offset          int    `json:"offset,omitempty"`
+}
+
+type ListTraceSpanIndexInput struct {
+	WorkspaceID           string `json:"workspace_id,omitempty"`
+	TraceID               string `json:"trace_id,omitempty"`
+	SessionID             string `json:"session_id,omitempty"`
+	TurnID                string `json:"turn_id,omitempty"`
+	Kind                  string `json:"kind,omitempty"`
+	Status                string `json:"status,omitempty"`
+	Query                 string `json:"q,omitempty"`
+	Critical              *bool  `json:"critical,omitempty"`
+	MinDurationMillis     int64  `json:"min_duration_ms,omitempty"`
+	MaxDurationMillis     int64  `json:"max_duration_ms,omitempty"`
+	MinSelfDurationMillis int64  `json:"min_self_duration_ms,omitempty"`
+	IncludeArchived       bool   `json:"include_archived,omitempty"`
+	Limit                 int    `json:"limit,omitempty"`
+	Offset                int    `json:"offset,omitempty"`
+}
+
+type PruneTraceIndexInput struct {
+	Before time.Time `json:"before"`
+	Limit  int       `json:"limit,omitempty"`
 }
 
 const (
@@ -472,6 +582,11 @@ type CancelWorkerWorkInput struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type RequeueWorkerWorkInput struct {
+	WorkerID    string `json:"worker_id,omitempty"`
+	ClearWorker bool   `json:"clear_worker,omitempty"`
+}
+
 type ReapExpiredWorkerWorkInput struct {
 	Limit int `json:"limit,omitempty"`
 }
@@ -548,6 +663,17 @@ type CreateAgentInput struct {
 	System      string          `json:"system"`
 	Tools       json.RawMessage `json:"tools,omitempty"`
 	Skills      json.RawMessage `json:"skills,omitempty"`
+}
+
+type EnsureAgentInput struct {
+	ID          string
+	WorkspaceID string
+	Name        string
+	LLMProvider string
+	LLMModel    string
+	System      string
+	Tools       json.RawMessage
+	Skills      json.RawMessage
 }
 
 type CreateAgentConfigVersionInput struct {

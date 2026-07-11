@@ -10,8 +10,10 @@ type Store interface {
 	SetLLMProviderEnabled(id string, enabled bool) (LLMProvider, error)
 	UpsertLLMModel(input UpsertLLMModelInput) (LLMModel, error)
 	ListLLMModels(providerID string) ([]LLMModel, error)
+	EnsureAgent(input EnsureAgentInput) (Agent, error)
 	CreateAgent(input CreateAgentInput) (Agent, error)
 	GetAgent(id string) (Agent, error)
+	ListAgents() ([]Agent, error)
 	ListAgentConfigVersions(agentID string) ([]AgentConfigVersion, error)
 	CreateAgentConfigVersion(input CreateAgentConfigVersionInput) (Agent, error)
 	CreateEnvironment(input CreateEnvironmentInput) (Environment, error)
@@ -59,9 +61,24 @@ type Store interface {
 	AckWorkerWork(workerID string, workID string) (WorkerWork, error)
 	HeartbeatWorkerWork(workerID string, workID string, input WorkerWorkHeartbeatInput) (WorkerWork, error)
 	CancelWorkerWork(workID string, input CancelWorkerWorkInput) (WorkerWork, error)
+	RequeueWorkerWork(workID string, input RequeueWorkerWorkInput) (WorkerWork, error)
 	ReapExpiredWorkerWork(input ReapExpiredWorkerWorkInput) ([]WorkerWork, error)
 	CompleteWorkerWork(workerID string, workID string, input CompleteWorkerWorkInput) (WorkerWork, error)
 	ListEvents(sessionID string, afterSeq int64) ([]Event, error)
 	ListConversationMessages(sessionID string, beforeSeq int64) ([]ConversationMessage, error)
-	SubscribeEvents(sessionID string) (<-chan Event, func(), error)
+	SubscribeEvents(sessionID string, afterSeq int64) (<-chan Event, func(), error)
+}
+
+type TraceIndexStore interface {
+	UpsertTraceIndex(input UpsertTraceIndexInput) error
+	GetTraceIndex(traceID string) (TraceIndexEntry, error)
+	ListTraceIndexes(input ListTraceIndexInput) ([]TraceIndexEntry, error)
+	ListTraceSpanIndexes(input ListTraceSpanIndexInput) ([]TraceSpanIndexEntry, error)
+	PruneTraceIndexes(input PruneTraceIndexInput) (int, error)
+}
+
+type SessionTurnQueueStore interface {
+	ClaimSessionTurns(input ClaimSessionTurnsInput) ([]SessionTurnWork, error)
+	RenewSessionTurnLease(input RenewSessionTurnLeaseInput) (bool, error)
+	ReleaseSessionTurnLease(input ReleaseSessionTurnLeaseInput) error
 }

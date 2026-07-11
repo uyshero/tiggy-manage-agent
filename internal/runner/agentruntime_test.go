@@ -572,6 +572,48 @@ func TestAgentRuntimeTurnExecutorSavesPendingInterventionSteps(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorPassesPersistedInterventionResume(t *testing.T) {
+	store := &mockStore{}
+	runtime := &captureRuntime{}
+	executor := AgentRuntimeTurnExecutor{
+		Runtime: runtime,
+		Store:   store,
+	}
+
+	_, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001",
+		TurnID:    "turn_000003",
+		ResumeIntervention: &managedagents.SessionIntervention{
+			SessionID:         "sesn_000001",
+			TurnID:            "turn_000003",
+			CallID:            "call_edit",
+			ToolIdentifier:    "default",
+			APIName:           "edit_file",
+			Arguments:         json.RawMessage(`{"path":"README.md"}`),
+			Status:            managedagents.InterventionStatusApproved,
+			DecisionReason:    "safe",
+			Continuation:      json.RawMessage(`[{"role":"assistant","content":[{"type":"text","text":"calling tool"}]}]`),
+			ContinuationRound: 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run resumed turn: %v", err)
+	}
+	resume := runtime.request.ResumeIntervention
+	if resume == nil {
+		t.Fatal("expected runtime resume input")
+	}
+	if resume.Call.ID != "call_edit" || resume.Call.Identifier != "default" || resume.Call.APIName != "edit_file" {
+		t.Fatalf("unexpected resumed call: %#v", resume.Call)
+	}
+	if resume.Status != managedagents.InterventionStatusApproved || resume.DecisionReason != "safe" || resume.ContinuationRound != 2 {
+		t.Fatalf("unexpected resume decision: %#v", resume)
+	}
+	if len(resume.Continuation) != 1 || resume.Continuation[0].Role != "assistant" {
+		t.Fatalf("unexpected decoded continuation: %#v", resume.Continuation)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorSavesRuntimeSummary(t *testing.T) {
 	store := &mockStore{}
 	executor := AgentRuntimeTurnExecutor{

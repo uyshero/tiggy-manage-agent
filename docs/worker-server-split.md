@@ -79,6 +79,8 @@ Work 的标准语义应该是一次 **tool / capability invocation**：
 - 风险等级和审批需求是什么。
 - result / artifact refs 如何回传。
 
+新增能力时优先扩展 `namespace.api`，不要扩展 `work_type`。`work_type` 只表达队列 job 的生命周期语义，例如 `tool_execution`、`sandbox_command`、`artifact_sync`；业务动作如 `computer.click`、`robot.move_to`、`office.excel_export` 都应该是 `tool_execution` 的工具调用。这样 `worker_work` 保持轻量稳定，具体能力通过 worker tool registry / plugin 扩展。
+
 它可以表达 runtime 偏好，但不应该把 runtime 当成 tool namespace：
 
 - `namespace` / `api` 表达要做什么。
@@ -101,6 +103,8 @@ Worker registry 里的 `capabilities` 应该描述 worker 当前能提供的 too
 ```
 
 `tma-worker` 不应该手写一份与实际执行逻辑脱节的 capabilities。默认 worker 会从 `workruntime.Executor.WorkerCapabilities()` 导出注册和 heartbeat 使用的能力；默认 executor 会从 `tools` manifest 推导 `default.*` 的 local_system 能力。未来 browser、artifact 或 specialized runtime 可以通过自定义 executor 显式声明 `tools.WorkerCapabilities`。
+
+当前第一版已支持进程型工具插件：`tma-worker --plugin /path/to/plugin` 会加载插件 `manifest`，注册为 worker 本地 tool runtime，并把插件声明的 namespace / API / capabilities 通过 worker heartbeat 上报。插件执行仍走标准 `tool_execution` work，不新增 work type。协议草案见 [tool-plugin-sdk.md](./tool-plugin-sdk.md)。
 
 Server 调度按 workspace、agent config、tool policy、worker capabilities、runtime 和审批状态匹配。当前 `POST /v1/worker-work` 在 `tool_execution` 未指定 `worker_id` 时，已经会按在线 worker 的 `namespaces` / `apis` / `runtimes` / `capabilities` 做第一版匹配并绑定 worker；找不到匹配 worker 会返回 `409`。`environment_id` 仍然作为 Session / artifact / resource 归属字段，不等同于 runtime kind。
 
@@ -206,6 +210,9 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 - `make verify-worker-work-heartbeat` 能证明真实 `tma-worker` 执行超过初始 lease 的长任务时会续租 running work，并且在 work reaper 开启时仍最终 completed。
 - `bin/tma-worker` 收到 SIGINT / SIGTERM 后停止 poll，heartbeat `draining`，并在 shutdown timeout 内等待 running work 提交 result；超时后退出，由 work lease/reaper 兜底。
 - `make verify-worker-shutdown-drain` 能证明真实 `tma-worker` 在 running work 期间收到 SIGTERM 后会 drain、完成 result 上报，再正常退出。
+- `POST /v1/worker-work/{work_id}/cancel` 和 `bin/tma work cancel --work ...` 能从控制面取消 pending/leased/running work；worker 后续 running work heartbeat/result 会看到 `canceled`，不再覆盖成 completed。
+- `make verify-worker-work-cancel` 能证明真实 `tma-worker` 在 running work 被取消后会停止本地执行、不提交 completed result，最终 work 保持 `canceled`。
+- `POST /v1/worker-work/{work_id}/requeue` 和 `bin/tma work requeue --work ...` 能把 failed/canceled work 复制成新的 pending work；原 work 不改，第一版只做显式人工 requeue，不做自动 retry。
 - `bin/tma-worker doctor` 能用 outbound API 检查 server health、register、heartbeat、poll、diagnose 和 archive，并展示 executor capabilities。
 - `bin/tma-worker` 注册和 heartbeat 使用同一个 `workruntime.Executor` 导出的 capabilities；默认能力来自 tools manifest，自定义 executor 可以显式声明 capabilities。
 - `tool_execution` work 必须通过 `tma.work.v1` 校验；坏 payload 不能入队。

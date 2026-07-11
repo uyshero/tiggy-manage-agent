@@ -8,7 +8,29 @@
 
 ## 当前结论
 
+2026-07-10 补上真实浏览器 Inspector smoke：新增 `make verify-inspector-browser-smoke`，会 build `web/`、启动真实 TMA server、启动 headless Chrome，通过 HTTP API 造 25 条 trace、25 个 session 内 span 和一个大文本 artifact，然后在 `/inspector` 页面实际点击 Recent Traces `Load more`、Session filter、Span Search `Load more`、trace card、artifact `Preview`，并校验 Timeline 截断提示、artifact 10KB 截断提示和 console error 计数。`web/` 前端源码未被 `.gitignore` 忽略，后续提交需要把 `web/index.html`、`web/app.html`、`web/src`、`web/public`、`web/package*.json`、`web/vite*.config.js` 一并纳入版本控制。
+
+2026-07-10 继续推进 Inspector 四项完善：`GET /v1/traces` / `GET /v1/spans` 增加 `offset` 分页并返回 `limit`、`offset`、`next_offset`、`has_more`，React Inspector 的 Recent Traces / Span Search 增加 `Load more`；新增 `runtime.span_started` / `runtime.span_event` / `runtime.span_ended` 常量和投影测试，trace projector 可按原生生命周期事件生成 span；`verify-inspector-ui` 现在依赖 `build-inspector-ui`，静态资源从 `web/src` 经 Vite 构建；Timeline 和 Artifact Preview 会显示截断元数据，避免误判大结果内容。
+
+2026-07-10 收敛审批 continuation 执行边界：approve/reject HTTP Handler 现在只持久化决定并唤醒后台 `WorkerRunner`，不再绑定 `r.Context()` 直接执行工具、调用 LLM 或维护独立 Tool Loop。Postgres 决策事务把 turn 标记为可恢复并保存 `resume_intervention_call_id`，Runner 通过 lease/claim 在当前进程或服务重启后领取；`runner.TurnRequest` 携带持久化 intervention，`AgentRuntimeTurnExecutor` 解码 continuation 后统一交给 `agentruntime.Runtime`，批准、拒绝 observation、后续 Tool Loop 和二次审批共享同一套运行语义。相同决定支持幂等重试，已完成 turn 不会重复执行。
+
+2026-07-10 收敛 Inspector 大文本展示和事件体积：artifact 文本/JSON/XML/YAML inline preview 从 64KB 降到 10KB，只用于页面快速查看，完整内容仍通过 Download / Copy CLI 获取；runtime tool result 事件和 intervention continuation 工具结果事件统一使用截断后的 observable payload，避免大文件、大日志、长文本结果直接撑爆 Timeline / Raw JSON，完整工具结果仍保存在 session artifact。
+
+2026-07-10 对 Inspector 做了一轮真实浏览器 smoke：`make verify-inspector-ui` 通过后，用 `/inspector` 页面实际点击 Recent Traces 和 Span Search 卡片，确认能加载 trace、定位 span、渲染 Waterfall/Spans/Timeline/Raw JSON，且 console 无 error。过程中修正了 Inspector catalog 卡片的点击可访问性与布局溢出问题：可点击 trace/span/turn 条目改为语义化 `button.turn-item`，turn 事件绑定限定在 `#turns`，catalog 卡片绑定限定在各自容器；CSS 补 `min-width:0` / `overflow-wrap:anywhere`，避免长 JSON/路径把侧栏卡片撑到主内容区导致点击落点错误。`TESTING.md` 已补浏览器 smoke 步骤。
+
+2026-07-10 继续完善 Inspector catalog 收窄工作流：`GET /v1/traces` 支持 `session_id` / `turn_id` 过滤，索引命中和 fallback 投影路径都按 session 收敛；Inspector 的 Recent Traces 增加 `Filter by Session` / `Clear`，并让 Span Search 跟随当前 Session / Turn。Session 输入框按 Enter 可直接过滤，Trace ID 按 Enter 可加载，Span Search 输入框按 Enter 可搜索。静态验收和浏览器 smoke 文档已同步。
+
+2026-07-10 补上 trace/span index retention 的 server 后台 worker：新增 `TMA_TRACE_INDEX_RETENTION_ENABLED`、`TMA_TRACE_INDEX_RETENTION_DAYS`、`TMA_TRACE_INDEX_RETENTION_INTERVAL_MS`、`TMA_TRACE_INDEX_RETENTION_LIMIT`。默认关闭；开启后只删除过期 `trace_indexes` 并级联 `trace_span_indexes`，不删除 `session_events` 事实源，缺失索引仍可由 HTTP fallback 重新投影回填。`cmd/server` 与 `serverconfig` 单元测试、配置文档和 observability 文档已同步。
+
+2026-07-10 给 trace/span 补第一版持久索引和 retention 能力：新增 `trace_indexes` / `trace_span_indexes` migration、可选 `TraceIndexStore`、Postgres/testStore 实现，以及 `PruneTraceIndexes(before, limit)`。`session_events` 仍是事实源；`GET /v1/sessions/{id}/trace` 生成完整 trace 后会刷新索引，`/v1/traces` 和 `/v1/spans` 优先读索引，索引不足时回退投影并回填。测试文档已补 focused 命令和 Postgres 点检 SQL。
+
+2026-07-10 给 worker work 补显式 requeue：新增控制面 `POST /v1/worker-work/{work_id}/requeue` 与 `bin/tma work requeue --work ... [--worker WORKER_ID|--clear-worker]`。第一版不做自动 retry，只允许 failed/canceled work 被人工复制成新的 pending work，原记录保留用于审计；默认复制原 worker 绑定，`--clear-worker` 可让新 work 重新被同 workspace worker poll。
+
+2026-07-10 收口 worker work cancel 验证脚本和配置文档：`make verify-worker-work-cancel` 作为独立真实验收目标保留，脚本里的 worker registry 读操作使用 control token，避免与 `GET /v1/workers` 的控制面鉴权策略冲突；`docs/configuration.md` 补齐 worker / worker work reaper、worker 控制面 token 覆盖范围和 cancel/reap-expired 维护边界。
+
 2026-07-10 收紧 worker registry 读接口：`GET /v1/workers` 和 `GET /v1/workers/{worker_id}` 会暴露 worker 名称、capabilities、last_seen 和 lease 信息，配置 `TMA_WORKER_CONTROL_AUTH_TOKEN` 后改为必须使用 control token。`tma-worker` 常驻进程不依赖这两个读接口；真实验收脚本中配置了 control token 的 worker list/get 调用已改用 control token。
+
+2026-07-10 补齐 worker work cancel 的验收与文档：已有 `POST /v1/worker-work/{work_id}/cancel` / `bin/tma work cancel --work ...` 现在补上控制面鉴权测试、API 文档、TESTING 手动命令和 `make verify-worker-work-cancel` 真实脚本覆盖。取消后的 work 状态为 `canceled`，worker 后续 heartbeat/result 会看到 canceled 状态，不会覆盖成 completed。
 
 2026-07-09 给 `tma-worker` 补 running work 续租：worker 进程 heartbeat 只证明 worker 活着，长任务还需要对当前 `worker_work` lease 续约。`tma-worker` 新增 `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL`，在 ack 后、result 前周期性调用 `POST /v1/workers/{worker_id}/work/{work_id}/heartbeat`，默认 15s，lease 秒数复用 `TMA_WORKER_LEASE_SECONDS`。单元测试覆盖 handler 阻塞期间会发 work heartbeat；新增 `make verify-worker-work-heartbeat` 真实验收，在 work reaper 开启、lease 3s、任务 6s 的情况下确认真实 worker 会续租并最终 completed，避免长时间执行被 work reaper 标记为 expired。
 

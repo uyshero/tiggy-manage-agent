@@ -39,7 +39,8 @@ func TestDefaultContextBuilderBuildsSystemHistoryAndCurrentUser(t *testing.T) {
 	if len(result.Messages) != 4 {
 		t.Fatalf("expected 4 messages, got %#v", result.Messages)
 	}
-	assertMessage(t, result.Messages[0], "system", "remember user facts")
+	assertMessageContains(t, result.Messages[0], "system", "remember user facts")
+	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
 	assertMessage(t, result.Messages[1], "user", "my name is Alice")
 	assertMessage(t, result.Messages[2], "assistant", "Nice to meet you, Alice.")
 	assertMessage(t, result.Messages[3], "user", "what is my name?")
@@ -119,6 +120,50 @@ func TestDefaultContextBuilderKeepsRecentHistoryWithinBudget(t *testing.T) {
 	}
 }
 
+func TestDefaultContextBuilderKeepsTurnHistoryAtomicWhenBudgeted(t *testing.T) {
+	currentText := "current"
+	assistantText := "paired answer"
+	builder := DefaultContextBuilder{
+		MaxInputTokens: estimateMessageTokens(llm.Message{
+			Role:    "user",
+			Content: []llm.ContentPart{{Type: "text", Text: currentText}},
+		}) + estimateMessageTokens(llm.Message{
+			Role:    "assistant",
+			Content: []llm.ContentPart{{Type: "text", Text: assistantText}},
+		}) + 1,
+	}
+
+	result, err := builder.Build(ContextBuildRequest{
+		History: []managedagents.ConversationMessage{
+			{
+				Seq:     1,
+				Role:    "user",
+				Payload: json.RawMessage(`{"turn_id":"turn_1","content":[{"type":"text","text":"` + strings.Repeat("paired question ", 8) + `"}]}`),
+			},
+			{
+				Seq:     2,
+				Role:    "assistant",
+				Payload: json.RawMessage(`{"turn_id":"turn_1","content":[{"type":"text","text":"` + assistantText + `"}]}`),
+			},
+		},
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"` + currentText + `"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+
+	if !result.Truncated {
+		t.Fatal("expected context to be truncated")
+	}
+	if result.HistoryMessageCount != 0 || result.OmittedHistoryMessageCount != 2 || result.OmittedHistoryUntilSeq != 2 {
+		t.Fatalf("expected whole turn history to be omitted, got %+v", result)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected only current user message, got %#v", result.Messages)
+	}
+	assertMessage(t, result.Messages[0], "user", currentText)
+}
+
 func TestDefaultContextBuilderInjectsSummaryBeforeHistory(t *testing.T) {
 	builder := DefaultContextBuilder{}
 
@@ -142,10 +187,46 @@ func TestDefaultContextBuilderInjectsSummaryBeforeHistory(t *testing.T) {
 	if len(result.Messages) != 4 {
 		t.Fatalf("expected system, summary, history and current, got %#v", result.Messages)
 	}
-	assertMessage(t, result.Messages[0], "system", "system")
+	assertMessageContains(t, result.Messages[0], "system", "system")
+	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
 	assertMessage(t, result.Messages[1], "system", "Conversation summary:\nEarlier conversation established the repo layout.")
 	assertMessage(t, result.Messages[2], "user", "recent history")
 	assertMessage(t, result.Messages[3], "user", "current")
+}
+
+func TestDefaultContextBuilderKeepsPinnedContextOutsideHistoryBudget(t *testing.T) {
+	builder := DefaultContextBuilder{MaxInputTokens: 1}
+
+	result, err := builder.Build(ContextBuildRequest{
+		System:        "system",
+		PinnedContext: "repo root is /workspace/project\nnever discard approval policy",
+		History: []managedagents.ConversationMessage{{
+			Seq:     1,
+			Role:    "assistant",
+			Payload: json.RawMessage(`{"content":[{"type":"text","text":"history"}]}`),
+		}},
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"current"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+
+	if !result.PinnedContextIncluded {
+		t.Fatal("expected pinned context to be included")
+	}
+	if result.HistoryMessageCount != 0 || result.OmittedHistoryMessageCount != 1 {
+		t.Fatalf("expected history to be omitted while pinned context remains, got %+v", result)
+	}
+	if len(result.Messages) != 3 {
+		t.Fatalf("expected system, pinned context and current user, got %#v", result.Messages)
+	}
+	assertMessageContains(t, result.Messages[0], "system", "system")
+	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
+	assertMessage(t, result.Messages[1], "system", "Pinned context:\nrepo root is /workspace/project\nnever discard approval policy")
+	assertMessage(t, result.Messages[2], "user", "current")
+	if result.Budget.PinnedContextTokens == 0 {
+		t.Fatalf("expected pinned context token breakdown, got %+v", result.Budget)
+	}
 }
 
 func TestDefaultContextBuilderInjectsToolsAndSkillsBeforeHistory(t *testing.T) {
@@ -169,13 +250,61 @@ func TestDefaultContextBuilderInjectsToolsAndSkillsBeforeHistory(t *testing.T) {
 	if len(result.Messages) != 5 {
 		t.Fatalf("expected system, tools, skills, history and current, got %#v", result.Messages)
 	}
-	assertMessage(t, result.Messages[0], "system", "system")
+	assertMessageContains(t, result.Messages[0], "system", "system")
+	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
 	assertMessageContains(t, result.Messages[1], "system", "Available tools:\n")
 	assertMessageContains(t, result.Messages[1], "system", "\"identifier\": \"default\"")
 	assertMessageContains(t, result.Messages[1], "system", "\"name\": \"tool namespace plus api name, for example default.run_command\"")
 	assertMessage(t, result.Messages[2], "system", "Available skills:\n[\n  \"code-review\",\n  \"search\"\n]")
 	assertMessage(t, result.Messages[3], "assistant", "history")
 	assertMessage(t, result.Messages[4], "user", "current")
+	if result.Budget.ToolsTokens == 0 || result.Budget.SkillsTokens == 0 {
+		t.Fatalf("expected tools and skills token breakdown, got %+v", result.Budget)
+	}
+	if result.Budget.EstimatedTokenCount != result.EstimatedTokenCount {
+		t.Fatalf("expected budget estimated tokens to match result, got %+v", result.Budget)
+	}
+}
+
+func TestDefaultContextBuilderBudgetsNativeToolSchemas(t *testing.T) {
+	currentText := "current"
+	modelTools := []llm.Tool{{
+		Type: "function",
+		Function: llm.ToolFunction{
+			Name:        "default_large_tool",
+			Description: strings.Repeat("schema ", 80),
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
+		},
+	}}
+	currentTokens := estimateMessageTokens(llm.Message{
+		Role:    "user",
+		Content: []llm.ContentPart{{Type: "text", Text: currentText}},
+	})
+	toolSchemaTokens := estimateToolsTokens(modelTools)
+	builder := DefaultContextBuilder{MaxInputTokens: currentTokens + toolSchemaTokens + 1}
+
+	result, err := builder.Build(ContextBuildRequest{
+		ModelTools: modelTools,
+		History: []managedagents.ConversationMessage{{
+			Seq:     1,
+			Role:    "assistant",
+			Payload: json.RawMessage(`{"content":[{"type":"text","text":"recent history"}]}`),
+		}},
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"` + currentText + `"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+
+	if !result.Truncated || result.HistoryMessageCount != 0 || result.OmittedHistoryMessageCount != 1 {
+		t.Fatalf("expected tool schema cost to force history truncation, got %+v", result)
+	}
+	if result.Budget.ToolSchemaCount != 1 || result.Budget.ToolSchemaTokens != toolSchemaTokens {
+		t.Fatalf("expected tool schema budget breakdown, got %+v", result.Budget)
+	}
+	if result.Budget.MessageTokens+result.Budget.ToolSchemaTokens != result.EstimatedTokenCount {
+		t.Fatalf("expected estimated token count to include messages and tool schema, got %+v", result.Budget)
+	}
 }
 
 func TestDefaultContextBuilderAlwaysKeepsSystemAndCurrentUser(t *testing.T) {
@@ -200,10 +329,37 @@ func TestDefaultContextBuilderAlwaysKeepsSystemAndCurrentUser(t *testing.T) {
 	if len(result.Messages) != 2 {
 		t.Fatalf("expected system and current user, got %#v", result.Messages)
 	}
-	assertMessage(t, result.Messages[0], "system", "system prompt that is already over budget")
+	assertMessageContains(t, result.Messages[0], "system", "system prompt that is already over budget")
+	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
 	assertMessage(t, result.Messages[1], "user", "current")
 	if result.EstimatedTokenCount <= builder.MaxInputTokens {
 		t.Fatalf("expected base messages to exceed tiny budget, got %d", result.EstimatedTokenCount)
+	}
+	if result.Budget.OmittedHistoryTokens == 0 || result.Budget.HistoryTokens != 0 {
+		t.Fatalf("expected omitted history token breakdown, got %+v", result.Budget)
+	}
+}
+
+func TestBuildSystemPromptAppendsLatestMessagePolicyOnce(t *testing.T) {
+	system := "be concise"
+
+	prompt := buildSystemPrompt(system)
+	if !strings.Contains(prompt, system) || !strings.Contains(prompt, "Latest user message policy:") {
+		t.Fatalf("expected appended policy, got %q", prompt)
+	}
+
+	again := buildSystemPrompt(prompt)
+	if strings.Count(again, "Latest user message policy:") != 1 {
+		t.Fatalf("expected latest-message policy once, got %q", again)
+	}
+}
+
+func TestEstimateToolsTokensCountsNativeToolSchemas(t *testing.T) {
+	if got := estimateToolsTokens(nil); got != 0 {
+		t.Fatalf("expected nil tools to cost 0 tokens, got %d", got)
+	}
+	if got := estimateToolsTokens(tools.DefaultRegistry().ModelTools()); got == 0 {
+		t.Fatal("expected default model tools to have a positive token estimate")
 	}
 }
 

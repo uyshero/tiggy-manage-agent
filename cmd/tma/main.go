@@ -1295,6 +1295,7 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] work get --work WORK_ID
   tma [--base-url URL] [--auth-token TOKEN] work diagnose --work WORK_ID [--json]
   tma [--base-url URL] [--auth-token TOKEN] work cancel --work WORK_ID [--reason TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] work requeue --work WORK_ID [--worker WORKER_ID|--clear-worker]
   tma [--base-url URL] [--auth-token TOKEN] work reap-expired [--limit N]
   tma [--base-url URL] [--auth-token TOKEN] work poll --worker WORKER_ID [--lease-seconds N]
   tma [--base-url URL] [--auth-token TOKEN] work ack --worker WORKER_ID --work WORK_ID

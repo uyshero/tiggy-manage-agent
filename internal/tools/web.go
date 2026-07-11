@@ -636,7 +636,7 @@ func (provider searxngSearchProvider) Query(ctx context.Context, query string, p
 		values.Set("engines", strings.Join(params.Engines, ","))
 	}
 	if params.TimeRange != "" {
-		values.Set("time_range", params.TimeRange)
+		values.Set("time_range", normalizeSearXNGTimeRange(params.TimeRange))
 	}
 	body, err := provider.client.doJSONRequest(ctx, http.MethodGet, provider.client.BaseURL+"/search?"+values.Encode(), nil, nil)
 	if err != nil {
@@ -653,6 +653,21 @@ func (provider searxngSearchProvider) Query(ctx context.Context, query string, p
 		Results:             searchResultsFromMaps(payload.Results, provider.Name()),
 		UnresponsiveEngines: webSearchUnresponsiveEnginesFromPairs(payload.UnresponsiveEngines),
 	}, nil
+}
+
+func normalizeSearXNGTimeRange(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "d1":
+		return "day"
+	case "w1":
+		return "week"
+	case "m1":
+		return "month"
+	case "y1":
+		return "year"
+	default:
+		return value
+	}
 }
 
 func newTavilyProvider(client *http.Client, baseURL string, apiKey string) webSearchProvider {
@@ -1125,7 +1140,13 @@ func (client httpWebClient) doJSONRequest(ctx context.Context, method string, ta
 	if client.Client == nil {
 		client.Client = &http.Client{Timeout: defaultHTTPTimeout}
 	}
-	response, err := client.Client.Do(request)
+	httpClient := client.Client
+	if _, hasDeadline := ctx.Deadline(); hasDeadline && httpClient.Timeout > 0 {
+		cloned := *httpClient
+		cloned.Timeout = 0
+		httpClient = &cloned
+	}
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, err
 	}

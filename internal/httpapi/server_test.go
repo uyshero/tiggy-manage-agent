@@ -14,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"tiggy-manage-agent/internal/execution"
-	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
@@ -48,6 +46,72 @@ func TestHealth(t *testing.T) {
 
 	if body["service"] != serviceName {
 		t.Fatalf("expected service %q, got %q", serviceName, body["service"])
+	}
+}
+
+func TestRootRedirectsToUserApp(t *testing.T) {
+	for _, path := range []string{"/", "/app/"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		newTestServer().ServeHTTP(response, request)
+		if response.Code != http.StatusTemporaryRedirect {
+			t.Fatalf("expected %s to redirect, got %d", path, response.Code)
+		}
+		if location := response.Header().Get("Location"); location != "/app" {
+			t.Fatalf("expected %s to redirect to /app, got %q", path, location)
+		}
+	}
+}
+
+func TestBuiltinGeneralAgentIsDefaultForNewSessions(t *testing.T) {
+	server := newTestServer()
+	agent := getJSON[managedagents.Agent](t, server, "/v1/agents/default")
+	if agent.ID != managedagents.BuiltinGeneralAgentID || agent.Name != managedagents.BuiltinGeneralAgentName {
+		t.Fatalf("unexpected builtin agent: %+v", agent)
+	}
+	if agent.ConfigVersion.LLMProvider != "fake" || agent.ConfigVersion.LLMModel != "fake-demo" {
+		t.Fatalf("unexpected builtin agent model: %+v", agent.ConfigVersion)
+	}
+	if agent.ConfigVersion.System != managedagents.BuiltinGeneralAgentSystem {
+		t.Fatalf("unexpected builtin agent system prompt: %q", agent.ConfigVersion.System)
+	}
+
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"environment_id": "`+environment.ID+`",
+		"title": "uses builtin agent"
+	}`)
+	if session.AgentID != managedagents.BuiltinGeneralAgentID {
+		t.Fatalf("expected builtin agent %q, got %q", managedagents.BuiltinGeneralAgentID, session.AgentID)
+	}
+}
+
+func TestListSessionsReturnsMostRecentFirst(t *testing.T) {
+	server := newTestServer()
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "history-environment",
+		"config": {"type": "cloud"}
+	}`)
+	first := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"environment_id": "`+environment.ID+`",
+		"title": "first chat"
+	}`)
+	second := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"environment_id": "`+environment.ID+`",
+		"title": "second chat"
+	}`)
+
+	response := getJSON[struct {
+		Sessions []managedagents.Session `json:"sessions"`
+	}](t, server, "/v1/sessions?limit=10")
+	if len(response.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(response.Sessions))
+	}
+	if response.Sessions[0].ID != second.ID || response.Sessions[1].ID != first.ID {
+		t.Fatalf("unexpected session order: %+v", response.Sessions)
 	}
 }
 
@@ -524,6 +588,22 @@ func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
 		t.Fatalf("expected authorized work cancel status %d, got %d: %s", http.StatusOK, cancelResponse.Code, cancelResponse.Body.String())
 	}
 
+	requeueRequest := httptest.NewRequest(http.MethodPost, "/v1/worker-work/"+work.ID+"/requeue", bytes.NewBufferString(`{}`))
+	requeueRequest.Header.Set("Content-Type", "application/json")
+	requeueResponse := httptest.NewRecorder()
+	server.ServeHTTP(requeueResponse, requeueRequest)
+	if requeueResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated work requeue status %d, got %d: %s", http.StatusUnauthorized, requeueResponse.Code, requeueResponse.Body.String())
+	}
+	requeueRequest = httptest.NewRequest(http.MethodPost, "/v1/worker-work/"+work.ID+"/requeue", bytes.NewBufferString(`{}`))
+	requeueRequest.Header.Set("Content-Type", "application/json")
+	requeueRequest.Header.Set("Authorization", "Bearer control-secret")
+	requeueResponse = httptest.NewRecorder()
+	server.ServeHTTP(requeueResponse, requeueRequest)
+	if requeueResponse.Code != http.StatusCreated {
+		t.Fatalf("expected authorized work requeue status %d, got %d: %s", http.StatusCreated, requeueResponse.Code, requeueResponse.Body.String())
+	}
+
 	reapRequest := httptest.NewRequest(http.MethodPost, "/v1/worker-work/reap-expired", bytes.NewBufferString(`{}`))
 	reapRequest.Header.Set("Content-Type", "application/json")
 	reapResponse := httptest.NewRecorder()
@@ -732,6 +812,66 @@ func TestCancelWorkerWork(t *testing.T) {
 	diagnosis := getJSON[workerWorkDiagnoseResponse](t, server, "/v1/worker-work/"+queued.ID+"/diagnose")
 	if diagnosis.Work.Status != managedagents.WorkerWorkStatusCanceled || !containsString(diagnosis.Reasons, "work was canceled") {
 		t.Fatalf("expected canceled diagnosis, got %+v", diagnosis)
+	}
+}
+
+func TestRequeueWorkerWork(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+
+	worker := postJSON[managedagents.Worker](t, server, "/v1/workers", `{
+		"name": "viito-mac",
+		"worker_type": "local",
+		"lease_seconds": 30
+	}`)
+	queued := postJSON[managedagents.WorkerWork](t, server, "/v1/worker-work", `{
+		"workspace_id": "wksp_default",
+		"worker_id": "`+worker.ID+`",
+		"environment_id": "env_local",
+		"session_id": "sess_000001",
+		"turn_id": "turn_000001",
+		"work_type": "sandbox_command",
+		"payload": {"command": "sh", "args": ["-c", "printf retry"]}
+	}`)
+	if queued.Status != managedagents.WorkerWorkStatusPending {
+		t.Fatalf("expected queued work, got %+v", queued)
+	}
+
+	conflict := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/worker-work/"+queued.ID+"/requeue", `{}`, http.StatusConflict)
+	if !strings.Contains(conflict["error"], "only failed or canceled") {
+		t.Fatalf("expected non-terminal requeue conflict, got %+v", conflict)
+	}
+
+	canceled := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/worker-work/"+queued.ID+"/cancel", `{
+		"reason": "operator retry"
+	}`, http.StatusOK)
+	if canceled.Status != managedagents.WorkerWorkStatusCanceled {
+		t.Fatalf("expected canceled work, got %+v", canceled)
+	}
+
+	requeued := postJSONWithStatus[managedagents.WorkerWork](t, server, http.MethodPost, "/v1/worker-work/"+queued.ID+"/requeue", `{
+		"clear_worker": true
+	}`, http.StatusCreated)
+	if requeued.ID == queued.ID || requeued.Status != managedagents.WorkerWorkStatusPending || requeued.WorkerID != "" {
+		t.Fatalf("unexpected requeued work: %+v", requeued)
+	}
+	if requeued.WorkspaceID != queued.WorkspaceID || requeued.EnvironmentID != queued.EnvironmentID || requeued.SessionID != queued.SessionID || requeued.TurnID != queued.TurnID || requeued.WorkType != queued.WorkType {
+		t.Fatalf("requeued work did not preserve original routing fields: original=%+v requeued=%+v", queued, requeued)
+	}
+	if string(requeued.Payload) != string(queued.Payload) || string(requeued.Result) != `{}` || requeued.CompletedAt != nil || requeued.StartedAt != nil || requeued.LeaseExpiresAt != nil {
+		t.Fatalf("requeued work did not reset execution fields: %+v payload=%s result=%s", requeued, string(requeued.Payload), string(requeued.Result))
+	}
+
+	original := getJSON[managedagents.WorkerWork](t, server, "/v1/worker-work/"+queued.ID)
+	if original.Status != managedagents.WorkerWorkStatusCanceled || original.ErrorMessage != "operator retry" {
+		t.Fatalf("expected original work to remain canceled, got %+v", original)
+	}
+
+	polled := getJSON[struct {
+		Work *managedagents.WorkerWork `json:"work"`
+	}](t, server, "/v1/workers/"+worker.ID+"/work/poll?lease_seconds=30")
+	if polled.Work == nil || polled.Work.ID != requeued.ID {
+		t.Fatalf("expected worker to poll requeued work, got %+v", polled.Work)
 	}
 }
 
@@ -1202,15 +1342,8 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 
 func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	store := newTestStore()
-	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreAndExecutionResolver(
-		store,
-		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
-		nil,
-		"fake",
-		"fake-demo",
-		objectstore.NewNoopClient(objectstore.Config{}),
-		execution.SessionProviderResolver{Store: store, AllowLocalSystem: true},
-	)
+	recorder := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(store, recorder, nil)
 
 	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
 		"name": "Code Assistant",
@@ -1225,11 +1358,6 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
-	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
-	}); err != nil {
-		t.Fatalf("set local_system tool runtime: %v", err)
-	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please read"}]}`),
@@ -1238,32 +1366,19 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 		t.Fatalf("start turn: %v", err)
 	}
 	turnID := payloadString(startEvents[1].Payload, "turn_id")
-	if turnID == "" {
-		t.Fatal("expected started turn id")
-	}
-
+	continuation := json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"README.md"}}}]}]`)
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:            turnID,
 		CallID:            "call_read",
 		ToolIdentifier:    "default",
 		APIName:           "read_file",
-		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
+		Arguments:         json.RawMessage(`{"path":"README.md"}`),
 		InterventionMode:  "request_approval",
 		Reason:            "optional",
-		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"../../README.md"}}}]}]`),
-		ContinuationRound: 0,
+		Continuation:      continuation,
+		ContinuationRound: 1,
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
-	}
-
-	listed := getJSON[struct {
-		Interventions []managedagents.SessionIntervention `json:"interventions"`
-	}](t, server, "/v1/sessions/"+session.ID+"/interventions?status=pending")
-	if len(listed.Interventions) != 1 {
-		t.Fatalf("expected 1 pending intervention, got %#v", listed.Interventions)
-	}
-	if listed.Interventions[0].Status != managedagents.InterventionStatusPending {
-		t.Fatalf("expected pending intervention, got %#v", listed.Interventions[0])
 	}
 
 	approved := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{
@@ -1272,59 +1387,74 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	if approved.Intervention.Status != managedagents.InterventionStatusApproved {
 		t.Fatalf("expected approved intervention, got %#v", approved.Intervention)
 	}
-	expectedEventTypes := []string{
-		managedagents.EventRuntimeToolInterventionApproved,
-		managedagents.EventRuntimeToolResult,
-		managedagents.EventRuntimeLLMRequest,
-		managedagents.EventRuntimeLLMResponse,
-		managedagents.EventRuntimeCompleted,
-		managedagents.EventAgentMessage,
-		managedagents.EventSessionStatusIdle,
+	if len(approved.Events) != 1 || approved.Events[0].Type != managedagents.EventRuntimeToolInterventionApproved {
+		t.Fatalf("expected only persisted decision event in response, got %#v", approved.Events)
 	}
-	if len(approved.Events) != len(expectedEventTypes) {
-		t.Fatalf("expected %d events, got %#v", len(expectedEventTypes), approved.Events)
+	if len(recorder.starts) != 1 || recorder.starts[0].ResumeIntervention == nil {
+		t.Fatalf("expected intervention resume to be scheduled, got %#v", recorder.starts)
 	}
-	for index, eventType := range expectedEventTypes {
-		if approved.Events[index].Type != eventType {
-			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, approved.Events)
-		}
+	resume := recorder.starts[0].ResumeIntervention
+	if resume.SessionID != session.ID || resume.TurnID != turnID || resume.CallID != "call_read" || resume.DecisionReason != "looks safe" {
+		t.Fatalf("unexpected scheduled intervention: %#v", resume)
 	}
-	var toolResult struct {
-		Data struct {
-			Success bool `json:"success"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(approved.Events[1].Payload, &toolResult); err != nil {
-		t.Fatalf("decode tool result event: %v", err)
-	}
-	if !toolResult.Data.Success {
-		t.Fatalf("expected approved tool execution to succeed, got payload %s", string(approved.Events[1].Payload))
-	}
-	var agentPayload struct {
-		TurnID  string `json:"turn_id"`
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(approved.Events[5].Payload, &agentPayload); err != nil {
-		t.Fatalf("decode resumed agent message: %v", err)
-	}
-	if agentPayload.TurnID != turnID || len(agentPayload.Content) == 0 || !strings.Contains(agentPayload.Content[0].Text, "please read") {
-		t.Fatalf("unexpected resumed agent payload: %s", string(approved.Events[5].Payload))
-	}
-	if len(store.usageRecords) != 1 {
-		t.Fatalf("expected 1 continuation usage record, got %#v", store.usageRecords)
-	}
-	if usage := store.usageRecords[0]; usage.SessionID != session.ID || usage.TurnID != turnID || usage.Status != "completed" || usage.ProviderID != "fake" || usage.Model != "fake-demo" {
-		t.Fatalf("unexpected continuation usage record: %#v", usage)
+	if string(resume.Continuation) != string(continuation) || resume.ContinuationRound != 1 {
+		t.Fatalf("expected persisted continuation to reach runner, got %#v", resume)
 	}
 
+	retried := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{
+		"reason": "retry after disconnect"
+	}`, http.StatusOK)
+	if len(retried.Events) != 0 || len(recorder.starts) != 2 {
+		t.Fatalf("expected idempotent retry to reschedule without duplicate event, response=%#v starts=%#v", retried, recorder.starts)
+	}
+	if _, err := store.CompleteSessionTurn(session.ID, turnID, json.RawMessage(`{"content":[{"type":"text","text":"done"}]}`)); err != nil {
+		t.Fatalf("complete resumed turn: %v", err)
+	}
+	postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{}`, http.StatusOK)
+	if len(recorder.starts) != 2 {
+		t.Fatalf("expected completed turn retry not to execute again, got %#v", recorder.starts)
+	}
 	postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/reject", `{}`, http.StatusBadRequest)
+}
+
+func TestSessionInterventionDecisionRetriesAfterSchedulingFailure(t *testing.T) {
+	store := newTestStore()
+	runner := &flakyStartRunner{failures: 1}
+	server := NewServerWithStoreAndRunner(store, runner, nil)
+	agent, err := store.CreateAgent(managedagents.CreateAgentInput{Name: "retry-agent", LLMProvider: "fake", LLMModel: "fake-demo"})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	environment, err := store.CreateEnvironment(managedagents.CreateEnvironmentInput{Name: "retry-env", Config: json.RawMessage(`{"type":"cloud"}`)})
+	if err != nil {
+		t.Fatalf("create environment: %v", err)
+	}
+	session, err := store.CreateSession(managedagents.CreateSessionInput{AgentID: agent.ID, EnvironmentID: environment.ID})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	events, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[]}`)}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(events[1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_retry", ToolIdentifier: "default", APIName: "read_file", InterventionMode: "request_approval",
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_retry/approve", `{}`, http.StatusInternalServerError)
+	retried := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_retry/approve", `{}`, http.StatusOK)
+	if len(retried.Events) != 0 || len(runner.starts) != 2 || runner.starts[1].ResumeIntervention == nil {
+		t.Fatalf("expected persisted decision to be resumable after scheduling failure, response=%#v starts=%#v", retried, runner.starts)
+	}
 }
 
 func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 	store := newTestStore()
-	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	recorder := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(store, recorder, nil)
 
 	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
 		"name": "Code Assistant",
@@ -1339,11 +1469,6 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
-	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
-	}); err != nil {
-		t.Fatalf("set local_system tool runtime: %v", err)
-	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
@@ -1352,7 +1477,6 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 		t.Fatalf("start turn: %v", err)
 	}
 	turnID := payloadString(startEvents[1].Payload, "turn_id")
-
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:           turnID,
 		CallID:           "call_edit",
@@ -1361,7 +1485,7 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 		InterventionMode: "request_approval",
 		Reason:           "optional",
-		Continuation:     json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md","old_string":"x","new_string":"y"}}}]}]`),
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}
@@ -1369,55 +1493,15 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 	rejected := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_edit/reject", `{
 		"reason": "unsafe edit"
 	}`, http.StatusOK)
-	if rejected.Intervention.Status != managedagents.InterventionStatusRejected {
-		t.Fatalf("expected rejected intervention, got %#v", rejected.Intervention)
+	if len(rejected.Events) != 1 || rejected.Events[0].Type != managedagents.EventRuntimeToolInterventionRejected {
+		t.Fatalf("expected only persisted rejection event, got %#v", rejected.Events)
 	}
-	expectedEventTypes := []string{
-		managedagents.EventRuntimeToolInterventionRejected,
-		managedagents.EventRuntimeToolResult,
-		managedagents.EventRuntimeLLMRequest,
-		managedagents.EventRuntimeLLMResponse,
-		managedagents.EventRuntimeCompleted,
-		managedagents.EventAgentMessage,
-		managedagents.EventSessionStatusIdle,
+	if len(recorder.starts) != 1 || recorder.starts[0].ResumeIntervention == nil {
+		t.Fatalf("expected rejected continuation to be scheduled, got %#v", recorder.starts)
 	}
-	if len(rejected.Events) != len(expectedEventTypes) {
-		t.Fatalf("expected %d rejected continuation events, got %#v", len(expectedEventTypes), rejected.Events)
-	}
-	for index, eventType := range expectedEventTypes {
-		if rejected.Events[index].Type != eventType {
-			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, rejected.Events[index])
-		}
-	}
-	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
-	if fetched.Status != managedagents.SessionStatusIdle {
-		t.Fatalf("expected session idle after reject, got %q", fetched.Status)
-	}
-	var toolResult struct {
-		Data struct {
-			Success        bool   `json:"success"`
-			DecisionReason string `json:"decision_reason"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rejected.Events[1].Payload, &toolResult); err != nil {
-		t.Fatalf("decode rejected tool result: %v", err)
-	}
-	if toolResult.Data.Success || toolResult.Data.DecisionReason != "unsafe edit" {
-		t.Fatalf("unexpected rejected tool result payload: %s", string(rejected.Events[1].Payload))
-	}
-	var agentPayload struct {
-		Content []struct {
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(rejected.Events[5].Payload, &agentPayload); err != nil {
-		t.Fatalf("decode rejected continuation agent payload: %v", err)
-	}
-	if len(agentPayload.Content) == 0 || !strings.Contains(agentPayload.Content[0].Text, "please edit") {
-		t.Fatalf("unexpected rejected continuation payload: %s", string(rejected.Events[5].Payload))
-	}
-	if len(store.usageRecords) != 1 || store.usageRecords[0].Status != "completed" {
-		t.Fatalf("expected one completed continuation usage record, got %#v", store.usageRecords)
+	resume := recorder.starts[0].ResumeIntervention
+	if resume.Status != managedagents.InterventionStatusRejected || resume.DecisionReason != "unsafe edit" {
+		t.Fatalf("unexpected rejected resume input: %#v", resume)
 	}
 }
 
@@ -1540,6 +1624,20 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	if len(trace.Steps) < 4 {
 		t.Fatalf("expected projected steps, got %+v", trace.Steps)
 	}
+	indexedTrace, err := store.GetTraceIndex(trace.TraceID)
+	if err != nil {
+		t.Fatalf("expected trace index to be persisted: %v", err)
+	}
+	if indexedTrace.SessionID != session.ID || indexedTrace.TurnID != turnID || indexedTrace.SpanCount != len(trace.Spans) {
+		t.Fatalf("unexpected persisted trace index: %+v", indexedTrace)
+	}
+	indexedSpans, err := store.ListTraceSpanIndexes(managedagents.ListTraceSpanIndexInput{TraceID: trace.TraceID, Limit: 20})
+	if err != nil {
+		t.Fatalf("list trace span indexes: %v", err)
+	}
+	if len(indexedSpans) != len(trace.Spans) {
+		t.Fatalf("expected persisted span index entries, got %d want %d", len(indexedSpans), len(trace.Spans))
+	}
 
 	perfetto := getJSON[map[string]any](t, server, "/v1/sessions/"+session.ID+"/trace?turn_id="+turnID+"&format=perfetto")
 	if _, ok := perfetto["traceEvents"]; !ok {
@@ -1557,9 +1655,26 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 			TurnID    string `json:"turn_id"`
 			SpanCount int    `json:"span_count"`
 		} `json:"traces"`
+		Limit      int  `json:"limit"`
+		Offset     int  `json:"offset"`
+		NextOffset int  `json:"next_offset"`
+		HasMore    bool `json:"has_more"`
 	}](t, server, "/v1/traces?limit=10")
 	if len(catalog.Traces) == 0 || catalog.Traces[0].TraceID != trace.TraceID || catalog.Traces[0].SessionID != session.ID || catalog.Traces[0].TurnID != turnID || catalog.Traces[0].SpanCount == 0 {
 		t.Fatalf("expected trace catalog entry, got %+v", catalog.Traces)
+	}
+	if catalog.Limit != 10 || catalog.Offset != 0 || catalog.NextOffset != len(catalog.Traces) {
+		t.Fatalf("expected trace catalog pagination metadata, got %+v", catalog)
+	}
+	filteredCatalog := getJSON[struct {
+		Traces []struct {
+			TraceID   string `json:"trace_id"`
+			SessionID string `json:"session_id"`
+			TurnID    string `json:"turn_id"`
+		} `json:"traces"`
+	}](t, server, "/v1/traces?session_id="+session.ID+"&limit=10")
+	if len(filteredCatalog.Traces) != 1 || filteredCatalog.Traces[0].TraceID != trace.TraceID || filteredCatalog.Traces[0].SessionID != session.ID || filteredCatalog.Traces[0].TurnID != turnID {
+		t.Fatalf("expected session-filtered trace catalog entry, got %+v", filteredCatalog.Traces)
 	}
 	direct := getJSON[struct {
 		SessionID string `json:"session_id"`
@@ -1584,6 +1699,10 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 		} `json:"spans"`
 		KindCounts     map[string]int `json:"kind_counts"`
 		CriticalCounts map[string]int `json:"critical_counts"`
+		Limit          int            `json:"limit"`
+		Offset         int            `json:"offset"`
+		NextOffset     int            `json:"next_offset"`
+		HasMore        bool           `json:"has_more"`
 	}](t, server, "/v1/spans?q=read_file&limit=10")
 	if len(spans.Spans) == 0 || spans.Spans[0].TraceID != trace.TraceID || spans.Spans[0].SessionID != session.ID || spans.Spans[0].TurnID != turnID {
 		t.Fatalf("expected span search result, got %+v", spans.Spans)
@@ -1596,6 +1715,30 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	}
 	if spans.Spans[0].SpanID == "" {
 		t.Fatalf("expected span search result to include span_id, got %+v", spans.Spans[0])
+	}
+	if spans.Limit != 10 || spans.Offset != 0 || spans.NextOffset != len(spans.Spans) {
+		t.Fatalf("expected span catalog pagination metadata, got %+v", spans)
+	}
+	pagedSpans := getJSON[struct {
+		Spans []struct {
+			SpanID string `json:"span_id"`
+		} `json:"spans"`
+		Limit      int  `json:"limit"`
+		Offset     int  `json:"offset"`
+		NextOffset int  `json:"next_offset"`
+		HasMore    bool `json:"has_more"`
+	}](t, server, "/v1/spans?session_id="+session.ID+"&turn_id="+turnID+"&limit=1")
+	if len(pagedSpans.Spans) != 1 || pagedSpans.Limit != 1 || pagedSpans.Offset != 0 || pagedSpans.NextOffset != 1 || !pagedSpans.HasMore {
+		t.Fatalf("expected first span page with has_more, got %+v", pagedSpans)
+	}
+	nextSpans := getJSON[struct {
+		Spans []struct {
+			SpanID string `json:"span_id"`
+		} `json:"spans"`
+		Offset int `json:"offset"`
+	}](t, server, "/v1/spans?session_id="+session.ID+"&turn_id="+turnID+"&limit=1&offset=1")
+	if len(nextSpans.Spans) != 1 || nextSpans.Offset != 1 || nextSpans.Spans[0].SpanID == pagedSpans.Spans[0].SpanID {
+		t.Fatalf("expected second span page with different span, got first=%+v second=%+v", pagedSpans, nextSpans)
 	}
 	criticalSpans := getJSON[struct {
 		Spans []struct {
@@ -1633,6 +1776,16 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	}
 	if spanDetail.Span.SpanID != spans.Spans[0].SpanID || spanDetail.Span.Kind != "tool" || spanDetail.Span.Attributes["tool_api"] != "read_file" || len(spanDetail.Span.Events) == 0 {
 		t.Fatalf("expected detailed tool span with events and attributes, got %+v", spanDetail.Span)
+	}
+	pruned, err := store.PruneTraceIndexes(managedagents.PruneTraceIndexInput{Before: time.Now().UTC().Add(time.Hour), Limit: 10})
+	if err != nil {
+		t.Fatalf("prune trace indexes: %v", err)
+	}
+	if pruned != 1 {
+		t.Fatalf("expected one pruned trace index, got %d", pruned)
+	}
+	if _, err := store.GetTraceIndex(trace.TraceID); !errors.Is(err, managedagents.ErrNotFound) {
+		t.Fatalf("expected trace index pruned, got %v", err)
 	}
 }
 
@@ -1758,25 +1911,40 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(body, `href="/inspector/assets/styles.css"`) ||
 		!strings.Contains(body, `src="/inspector/assets/api.js"`) ||
 		!strings.Contains(body, `src="/inspector/assets/utils.js"`) ||
-		!strings.Contains(body, `src="/inspector/assets/app.js"`) ||
-		!strings.Contains(body, "Turns") ||
-		!strings.Contains(body, "Recent Traces") ||
-		!strings.Contains(body, "Trace ID") ||
-		!strings.Contains(body, "Span Search") ||
-		!strings.Contains(body, "globalSpanKind") ||
-		!strings.Contains(body, "globalSpanCritical") ||
-		!strings.Contains(body, "globalSpanMinDuration") ||
-		!strings.Contains(body, "Spans") ||
-		!strings.Contains(body, "Waterfall") ||
-		!strings.Contains(body, "waterfall") ||
-		!strings.Contains(body, "Select a span to inspect events and attributes.") ||
-		!strings.Contains(body, "spanFilter") ||
-		!strings.Contains(body, "spanKind") ||
-		!strings.Contains(body, "Artifact Preview") ||
-		!strings.Contains(body, "Context Coverage") ||
-		!strings.Contains(body, "Exporters") ||
-		!strings.Contains(body, "Auto refresh every 5s") {
-		t.Fatalf("expected inspector UI body, got %q", body)
+		!strings.Contains(body, `type="module" crossorigin src="/inspector/assets/app.js"`) ||
+		!strings.Contains(body, `id="root"`) {
+		t.Fatalf("expected React inspector shell, got %q", body)
+	}
+	appRequest := httptest.NewRequest(http.MethodGet, "/app", nil)
+	appResponse := httptest.NewRecorder()
+	server.ServeHTTP(appResponse, appRequest)
+	if appResponse.Code != http.StatusOK {
+		t.Fatalf("app expected status 200, got %d: %s", appResponse.Code, appResponse.Body.String())
+	}
+	if body := appResponse.Body.String(); !strings.Contains(body, "TMA Workbench") ||
+		!strings.Contains(body, `href="/app/assets/styles.css"`) ||
+		!strings.Contains(body, `src="/app/assets/api.js"`) ||
+		!strings.Contains(body, `src="/app/assets/utils.js"`) ||
+		!strings.Contains(body, `type="module" crossorigin src="/app/assets/app.js"`) ||
+		!strings.Contains(body, `id="root"`) {
+		t.Fatalf("expected React app shell, got %q", body)
+	}
+	appJSRequest := httptest.NewRequest(http.MethodGet, "/app/assets/app.js", nil)
+	appJSResponse := httptest.NewRecorder()
+	server.ServeHTTP(appJSResponse, appJSRequest)
+	if appJSResponse.Code != http.StatusOK {
+		t.Fatalf("app app.js expected status 200, got %d: %s", appJSResponse.Code, appJSResponse.Body.String())
+	}
+	if contentType := appJSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
+		t.Fatalf("expected app javascript content type, got %q", contentType)
+	}
+	if appJS := appJSResponse.Body.String(); !strings.Contains(appJS, "TMA Workbench") ||
+		!strings.Contains(appJS, "New Task") ||
+		!strings.Contains(appJS, "sendSessionMessage") ||
+		!strings.Contains(appJS, "What should TMA do?") ||
+		strings.Contains(appJS, "TMA Inspector") ||
+		strings.Contains(appJS, "Trace ID") {
+		t.Fatalf("expected standalone user app bundle, got %q", appJS)
 	}
 	inspectorJSRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/app.js", nil)
 	inspectorJSResponse := httptest.NewRecorder()
@@ -1787,11 +1955,31 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	if contentType := inspectorJSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
 		t.Fatalf("expected javascript content type, got %q", contentType)
 	}
-	if appJS := inspectorJSResponse.Body.String(); !strings.Contains(appJS, "TMAInspectorAPI") ||
+	if appJS := inspectorJSResponse.Body.String(); !strings.Contains(appJS, "React") ||
+		!strings.Contains(appJS, "createRoot") ||
+		!strings.Contains(appJS, "function App") ||
+		!strings.Contains(appJS, "TMAInspectorAPI") ||
 		!strings.Contains(appJS, "TMAInspectorUtils") ||
-		!strings.Contains(appJS, "inspectorAPI.traceCatalog") ||
-		!strings.Contains(appJS, "inspectorAPI.spanCatalog") ||
-		!strings.Contains(appJS, "inspectorAPI.observabilityStatus") ||
+		!strings.Contains(appJS, "Turns") ||
+		!strings.Contains(appJS, "Recent Traces") ||
+		!strings.Contains(appJS, "Trace ID") ||
+		!strings.Contains(appJS, "Span Search") ||
+		!strings.Contains(appJS, "globalSpanKind") ||
+		!strings.Contains(appJS, "globalSpanCritical") ||
+		!strings.Contains(appJS, "globalSpanMinDuration") ||
+		!strings.Contains(appJS, "Spans") ||
+		!strings.Contains(appJS, "Waterfall") ||
+		!strings.Contains(appJS, "Select a span to inspect events and attributes.") ||
+		!strings.Contains(appJS, "spanFilter") ||
+		!strings.Contains(appJS, "spanKind") ||
+		!strings.Contains(appJS, "Artifact Preview") ||
+		!strings.Contains(appJS, "Context Coverage") ||
+		!strings.Contains(appJS, "Context Budget") ||
+		!strings.Contains(appJS, "Exporters") ||
+		!strings.Contains(appJS, "Auto refresh every 5s") ||
+		!strings.Contains(appJS, "traceCatalog") ||
+		!strings.Contains(appJS, "spanCatalog") ||
+		!strings.Contains(appJS, "observabilityStatus") ||
 		!strings.Contains(appJS, "loadTraceCatalog") ||
 		!strings.Contains(appJS, "inspectorHashParams") ||
 		!strings.Contains(appJS, "syncInspectorHash") ||
@@ -1801,7 +1989,7 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "data-trace-id") ||
 		!strings.Contains(appJS, "loadTraceByID") ||
 		!strings.Contains(appJS, "loadTrace") ||
-		!strings.Contains(appJS, "renderSpanCatalog") ||
+		!strings.Contains(appJS, "SpanSearch") ||
 		!strings.Contains(appJS, "critical_counts") ||
 		!strings.Contains(appJS, "globalSpanKind") ||
 		!strings.Contains(appJS, "globalSpanCritical") ||
@@ -1809,7 +1997,7 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "data-span-trace-id") ||
 		!strings.Contains(appJS, "data-span-id") ||
 		!strings.Contains(appJS, "loadSpanByID") ||
-		!strings.Contains(appJS, "renderWaterfall") ||
+		!strings.Contains(appJS, "Waterfall") ||
 		!strings.Contains(appJS, "start_offset_ms") ||
 		!strings.Contains(appJS, "critical_path_duration_ms") ||
 		!strings.Contains(appJS, "data-waterfall-span") ||
@@ -1819,7 +2007,12 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "previewArtifact") ||
 		!strings.Contains(appJS, "source_until_seq") ||
 		!strings.Contains(appJS, "unsummarized events") ||
-		!strings.Contains(appJS, "renderContextCoverage") ||
+		!strings.Contains(appJS, "ContextCoverage") ||
+		!strings.Contains(appJS, "renderContextBudget") ||
+		!strings.Contains(appJS, "context_budget") ||
+		!strings.Contains(appJS, "pinned_context_included") ||
+		!strings.Contains(appJS, "runtime.context_compacting") ||
+		!strings.Contains(appJS, "runtime.tool_result") ||
 		!strings.Contains(appJS, "Sampling") ||
 		!strings.Contains(appJS, "sample_rate") ||
 		!strings.Contains(appJS, "Retry due exporters") ||
@@ -1843,7 +2036,9 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		t.Fatalf("expected javascript content type, got %q", contentType)
 	}
 	if apiJS := inspectorAPIResponse.Body.String(); !strings.Contains(apiJS, "TMAInspectorAPI") ||
-		!strings.Contains(apiJS, "/v1/traces?limit=") ||
+		!strings.Contains(apiJS, "/v1/traces?") ||
+		!strings.Contains(apiJS, "session_id") ||
+		!strings.Contains(apiJS, "turn_id") ||
 		!strings.Contains(apiJS, "/v1/traces/") ||
 		!strings.Contains(apiJS, "/spans/") ||
 		!strings.Contains(apiJS, "/v1/spans?") ||
@@ -1885,6 +2080,8 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(styles, ".waterfall-row") ||
 		!strings.Contains(styles, ".waterfall-bar.critical") ||
 		!strings.Contains(styles, ".coverage-grid") ||
+		!strings.Contains(styles, ".budget-grid") ||
+		!strings.Contains(styles, ".budget-bar") ||
 		!strings.Contains(styles, ".preview-media") ||
 		!strings.Contains(styles, ".health-line") {
 		t.Fatalf("expected inspector styles, got %q", styles)
@@ -2037,19 +2234,10 @@ func TestObservabilityRetryEndpoint(t *testing.T) {
 	}
 }
 
-func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) {
+func TestSessionInterventionDecisionUsesRunnerLifecycleContext(t *testing.T) {
 	store := newTestStore()
-	testServer := &Server{
-		mux:                http.NewServeMux(),
-		store:              store,
-		runner:             runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
-		defaultLLMProvider: "fake",
-		defaultLLMModel:    "fake-demo",
-		continuationClient: continuationToolCallClient{},
-		executionResolver:  execution.SessionProviderResolver{Store: store, AllowLocalSystem: true},
-	}
-	testServer.routes()
-	server := testServer.mux
+	recorder := &contextRecordingRunner{}
+	server := NewServerWithStoreAndRunner(store, recorder, nil)
 
 	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
 		"name": "Code Assistant",
@@ -2064,11 +2252,6 @@ func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) 
 		"agent_id": "`+agent.ID+`",
 		"environment_id": "`+environment.ID+`"
 	}`)
-	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
-	}); err != nil {
-		t.Fatalf("set local_system tool runtime: %v", err)
-	}
 	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
 		Type:    managedagents.EventUserMessage,
 		Payload: json.RawMessage(`{"content":[{"type":"text","text":"please edit"}]}`),
@@ -2077,52 +2260,33 @@ func TestSessionInterventionContinuationCanRequireAnotherApproval(t *testing.T) 
 		t.Fatalf("start turn: %v", err)
 	}
 	turnID := payloadString(startEvents[1].Payload, "turn_id")
-
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
-		TurnID:            turnID,
-		CallID:            "call_read",
-		ToolIdentifier:    "default",
-		APIName:           "read_file",
-		Arguments:         json.RawMessage(`{"path":"../../README.md"}`),
-		InterventionMode:  "request_approval",
-		Reason:            "optional",
-		Continuation:      json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please edit"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"../../README.md"}}}]}]`),
-		ContinuationRound: 0,
+		TurnID:           turnID,
+		CallID:           "call_edit",
+		ToolIdentifier:   "default",
+		APIName:          "edit_file",
+		Arguments:        json.RawMessage(`{"path":"README.md"}`),
+		InterventionMode: "request_approval",
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}
 
-	approved := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/approve", `{
-		"reason": "read first"
-	}`, http.StatusOK)
-	expectedEventTypes := []string{
-		managedagents.EventRuntimeToolInterventionApproved,
-		managedagents.EventRuntimeToolResult,
-		managedagents.EventRuntimeLLMRequest,
-		managedagents.EventRuntimeLLMResponse,
-		managedagents.EventRuntimeToolCall,
-		managedagents.EventRuntimeToolInterventionRequired,
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_edit/approve", strings.NewReader(`{"reason":"approved"}`))
+	request.Header.Set("Content-Type", "application/json")
+	requestContext, cancel := context.WithCancel(request.Context())
+	cancel()
+	request = request.WithContext(requestContext)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected decision to survive canceled request context, got %d: %s", response.Code, response.Body.String())
 	}
-	if len(approved.Events) != len(expectedEventTypes) {
-		t.Fatalf("expected %d events, got %#v", len(expectedEventTypes), approved.Events)
+	if recorder.contextErr != nil {
+		t.Fatalf("expected runner lifecycle context, got request cancellation: %v", recorder.contextErr)
 	}
-	for index, eventType := range expectedEventTypes {
-		if approved.Events[index].Type != eventType {
-			t.Fatalf("expected event %d to be %q, got %#v", index, eventType, approved.Events)
-		}
-	}
-	listed := getJSON[struct {
-		Interventions []managedagents.SessionIntervention `json:"interventions"`
-	}](t, server, "/v1/sessions/"+session.ID+"/interventions?status=pending")
-	if len(listed.Interventions) != 1 || listed.Interventions[0].CallID != "call_edit_again" {
-		t.Fatalf("expected second pending intervention, got %#v", listed.Interventions)
-	}
-	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
-	if fetched.Status != managedagents.SessionStatusRunning {
-		t.Fatalf("expected session to keep running while waiting for second approval, got %q", fetched.Status)
-	}
-	if len(store.usageRecords) != 1 || store.usageRecords[0].TotalTokens != 14 || store.usageRecords[0].Status != "completed" {
-		t.Fatalf("unexpected continuation usage records: %#v", store.usageRecords)
+	if len(recorder.starts) != 1 || recorder.starts[0].ResumeIntervention == nil {
+		t.Fatalf("expected resume scheduling, got %#v", recorder.starts)
 	}
 }
 
@@ -2717,6 +2881,66 @@ func TestAppendEventsUsesInjectedRunner(t *testing.T) {
 	}
 }
 
+func TestAppendEventsPreferLatestInterruptsRunningTurnAndStartsNewestTurn(t *testing.T) {
+	recorder := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(newTestStore(), recorder, nil)
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "gpt-4o",
+		"system": "You are a coding agent."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	startResponse := postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
+		"events": [{"type": "user.message", "payload": {"content": [{"type":"text","text":"open the desktop"}]}}]
+	}`)
+	firstTurnID := payloadString(startResponse.Events[1].Payload, "turn_id")
+
+	replaceResponse := postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
+		"prefer_latest": true,
+		"events": [{"type": "user.message", "payload": {"content": [{"type":"text","text":"just answer my question"}]}}]
+	}`)
+	if len(replaceResponse.Events) != 5 {
+		t.Fatalf("expected interrupt + newest turn events, got %+v", replaceResponse.Events)
+	}
+	if replaceResponse.Events[0].Type != managedagents.EventUserInterrupt ||
+		replaceResponse.Events[1].Type != managedagents.EventSessionStatusInterrupting ||
+		replaceResponse.Events[2].Type != managedagents.EventSessionStatusIdle ||
+		replaceResponse.Events[3].Type != managedagents.EventSessionStatusRunning ||
+		replaceResponse.Events[4].Type != managedagents.EventUserMessage {
+		t.Fatalf("unexpected prefer-latest event order: %+v", replaceResponse.Events)
+	}
+
+	if len(recorder.interrupts) != 1 {
+		t.Fatalf("expected 1 runner interrupt, got %d", len(recorder.interrupts))
+	}
+	if recorder.interrupts[0].SessionID != session.ID || recorder.interrupts[0].TurnID != firstTurnID {
+		t.Fatalf("unexpected runner interrupt request: %+v", recorder.interrupts[0])
+	}
+	if len(recorder.starts) != 2 {
+		t.Fatalf("expected 2 runner starts, got %d", len(recorder.starts))
+	}
+
+	secondTurnID := payloadString(replaceResponse.Events[4].Payload, "turn_id")
+	if secondTurnID == "" || secondTurnID == firstTurnID {
+		t.Fatalf("expected a new turn id, first=%q second=%q", firstTurnID, secondTurnID)
+	}
+	if recorder.starts[1].SessionID != session.ID || recorder.starts[1].TurnID != secondTurnID {
+		t.Fatalf("unexpected runner start request for newest turn: %+v", recorder.starts[1])
+	}
+	if recorder.starts[1].UserEventSeq != replaceResponse.Events[4].Seq {
+		t.Fatalf("expected newest user event seq %d, got %d", replaceResponse.Events[4].Seq, recorder.starts[1].UserEventSeq)
+	}
+}
+
 func TestRunnerStartFailureMarksTurnFailedAndSessionIdle(t *testing.T) {
 	server := NewServerWithStoreAndRunner(newTestStore(), failingRunner{}, nil)
 
@@ -2991,6 +3215,39 @@ func (r *recordingRunner) InterruptTurn(_ context.Context, request runner.Interr
 	return nil
 }
 
+type contextRecordingRunner struct {
+	starts     []runner.TurnRequest
+	contextErr error
+}
+
+func (r *contextRecordingRunner) StartTurn(ctx context.Context, request runner.TurnRequest) error {
+	r.contextErr = ctx.Err()
+	r.starts = append(r.starts, request)
+	return nil
+}
+
+func (r *contextRecordingRunner) InterruptTurn(context.Context, runner.InterruptRequest) error {
+	return nil
+}
+
+type flakyStartRunner struct {
+	failures int
+	starts   []runner.TurnRequest
+}
+
+func (r *flakyStartRunner) StartTurn(_ context.Context, request runner.TurnRequest) error {
+	r.starts = append(r.starts, request)
+	if r.failures > 0 {
+		r.failures--
+		return errors.New("runner unavailable")
+	}
+	return nil
+}
+
+func (r *flakyStartRunner) InterruptTurn(context.Context, runner.InterruptRequest) error {
+	return nil
+}
+
 type failingRunner struct{}
 
 func (failingRunner) StartTurn(context.Context, runner.TurnRequest) error {
@@ -3092,29 +3349,6 @@ func multipartArtifactUpload(t *testing.T, fields map[string]string, fileField s
 		t.Fatalf("close multipart writer: %v", err)
 	}
 	return &body, writer.FormDataContentType()
-}
-
-type continuationToolCallClient struct{}
-
-func (continuationToolCallClient) Generate(context.Context, llm.Request) (llm.Response, error) {
-	return llm.Response{
-		Message: llm.Message{
-			Role: "assistant",
-			ToolCalls: []llm.ToolCall{{
-				ID:   "call_edit_again",
-				Type: "function",
-				Function: llm.ToolCallFunction{
-					Name:      "default.edit_file",
-					Arguments: json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
-				},
-			}},
-		},
-		Usage: llm.Usage{
-			InputTokens:  11,
-			OutputTokens: 3,
-			TotalTokens:  14,
-		},
-	}, nil
 }
 
 func postJSON[T any](t *testing.T, handler http.Handler, path string, body string) T {

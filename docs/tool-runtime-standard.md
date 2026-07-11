@@ -102,6 +102,7 @@ Work 是一次工具调用，不是一次“环境调用”。
 | `artifact.*` | object ref、artifact metadata、上传下载、转换、索引 | metadata/下载在 server；重型处理在 cloud_sandbox |
 | `browser.*` | 浏览器导航、读取、交互、截图、上传下载 | cloud_sandbox 优先；必要时 local_system |
 | `agent.*` | session、message、event、approval、多 agent 协作 | server 内置 |
+| `computer.*` | 桌面窗口、AX/UI tree、鼠标键盘、屏幕截图 | process plugin；local_system worker |
 
 暂不把 `local_system.*`、`cloud_sandbox.*` 作为第一版用户侧 namespace。它们是 runtime / provider 实现面。后续如果确实需要“明确本机”或“明确云沙箱”的高级工具，可以再暴露实现型 namespace。
 
@@ -144,12 +145,14 @@ Browser 能力域默认优先云沙箱。只有明确允许本机浏览器时，
 
 | API | capabilities | risk | runtime 默认 | 第一版实现 |
 |---|---|---|---|---|
-| `open` | `browser.open` | `read` | `cloud_sandbox` | 待实现 |
-| `navigate` | `browser.navigate` | `read` | `cloud_sandbox` | 待实现 |
-| `read` | `browser.read` | `read` | `cloud_sandbox` | 待实现 |
-| `click` | `browser.read`, `browser.interact` | `write` | `cloud_sandbox` | 待实现 |
-| `type` | `browser.read`, `browser.interact` | `write` | `cloud_sandbox` | 待实现 |
-| `screenshot` | `browser.read`, `browser.capture` | `read` | `cloud_sandbox` | 待实现 |
+| `open` | `browser.open`, `browser.read` | `read` | `cloud_sandbox` | 已有 Playwright headless runner，支持 cloud_sandbox / local_system worker |
+| `navigate` | `browser.navigate` | `read` | `cloud_sandbox` | 暂并入 `open` / `read` 的 `url` 参数 |
+| `read` | `browser.read` | `read` | `cloud_sandbox` | 已有 Playwright headless runner，返回正文和可交互元素 |
+| `click` | `browser.read`, `browser.interact` | `write` | `cloud_sandbox` | 已有 Playwright headless runner |
+| `type` | `browser.read`, `browser.interact` | `write` | `cloud_sandbox` | 已有 Playwright headless runner |
+| `screenshot` | `browser.read`, `browser.capture` | `read` | `cloud_sandbox` | 已有 Playwright headless runner，输出 PNG artifact |
+| `takeover` | `browser.read`, `browser.interact`, `browser.takeover` | `write` | `local_system` | 已有本地长驻 headed Chromium/CDP runner，用于人工接管后返回页面状态 |
+| `close` | `browser.close` | `write` | `local_system` | 已有本地 browser session 关闭入口 |
 | `download` | `browser.download`, `artifact.write` | `write` | `cloud_sandbox` | 待实现 |
 | `upload_file` | `browser.upload`, `filesystem.read` | `write` | `cloud_sandbox` | 待实现 |
 | `network_log` | `browser.network` | `read` | `cloud_sandbox` | 待实现 |
@@ -168,6 +171,23 @@ Agent 能力域属于 server 控制面，默认不下发 worker。
 | `approve_tool` | `agent.approval.write` | `write` | server 内置 | 已有 server API |
 | `reject_tool` | `agent.approval.write` | `write` | server 内置 | 已有 server API |
 | `archive_session` | `agent.session.write` | `write` | server 内置 | 已有 server API |
+
+### `computer.*`
+
+Computer-use 能力域通过 worker process plugin 暴露，详细 contract 见 [computer-use-plugin.md](./computer-use-plugin.md)。
+
+| API | capabilities | risk | runtime 默认 | 第一版实现 |
+|---|---|---|---|---|
+| `list_windows` | `computer.window.read` | `read` | `local_system` | process plugin；CUA / AX fallback |
+| `get_state` | `computer.state.read`, `computer.ax.read` | `read` | `local_system` | process plugin；CUA / AX fallback |
+| `click` | `computer.input.mouse` | `write` | `local_system` | process plugin；CUA 优先 |
+| `type_text` | `computer.input.keyboard` | `write` | `local_system` | process plugin；CUA 优先 |
+| `hotkey` | `computer.input.keyboard` | `write` | `local_system` | process plugin；CUA 优先 |
+| `launch_app` | `computer.app.launch` | `write` | `local_system` | process plugin；CUA / OS fallback |
+| `bring_to_front` | `computer.window.focus` | `write` | `local_system` | process plugin；CUA 优先 |
+| `screenshot` | `computer.screen.capture` | `read` | `local_system` | process plugin；artifact export |
+
+`computer.*` 不新增 `work_type`。模型调用后仍下发 `tool_execution` / `tma.work.v1`。
 
 ## Manifest 要求
 

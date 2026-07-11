@@ -258,6 +258,79 @@ func TestWorkerRunnerInterruptCancelsExecutor(t *testing.T) {
 	}
 }
 
+func TestWorkerRunnerRecoversAndRunsPersistentTurnsConcurrently(t *testing.T) {
+	store := newPersistentMockStore(
+		managedagents.SessionTurnWork{SessionID: "sesn_000001", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`)},
+		managedagents.SessionTurnWork{SessionID: "sesn_000002", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`)},
+	)
+	executor := &concurrentExecutor{started: make(chan TurnRequest, 2), release: make(chan struct{})}
+	runner := NewWorkerRunnerWithConfig(store, executor, persistentRunnerTestConfig(2), nil)
+	defer runner.Close()
+
+	first := <-executor.started
+	second := <-executor.started
+	if first.SessionID == second.SessionID {
+		t.Fatalf("expected different sessions to run concurrently, got %s twice", first.SessionID)
+	}
+	close(executor.release)
+	waitFor(t, func() bool { return store.completeCalls() == 2 })
+}
+
+func TestWorkerRunnerPersistentLeaseDetectsRemoteInterrupt(t *testing.T) {
+	store := newPersistentMockStore(managedagents.SessionTurnWork{
+		SessionID: "sesn_000001", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`),
+	})
+	executor := newBlockingExecutor()
+	runner := NewWorkerRunnerWithConfig(store, executor, persistentRunnerTestConfig(1), nil)
+	defer runner.Close()
+
+	<-executor.started
+	store.setRenewable(false)
+	<-executor.canceled
+	if got := store.completeCalls(); got != 0 {
+		t.Fatalf("expected remotely interrupted turn not to complete, got %d", got)
+	}
+}
+
+func TestWorkerRunnerPersistentQueueRestoresInterventionResume(t *testing.T) {
+	store := newPersistentMockStore(managedagents.SessionTurnWork{
+		SessionID: "sesn_000001",
+		TurnID:    "turn_000001",
+		ResumeIntervention: &managedagents.SessionIntervention{
+			SessionID: "sesn_000001",
+			TurnID:    "turn_000001",
+			CallID:    "call_approved",
+			Status:    managedagents.InterventionStatusApproved,
+		},
+	})
+	executed := make(chan TurnRequest, 1)
+	runner := NewWorkerRunnerWithConfig(store, recordingExecutor{executed: executed}, persistentRunnerTestConfig(1), nil)
+	defer runner.Close()
+
+	request := <-executed
+	if request.ResumeIntervention == nil || request.ResumeIntervention.CallID != "call_approved" || request.ResumeIntervention.Status != managedagents.InterventionStatusApproved {
+		t.Fatalf("expected persisted intervention resume, got %+v", request.ResumeIntervention)
+	}
+}
+
+func TestWorkerRunnerPostProcessingDoesNotBlockTurnConsumer(t *testing.T) {
+	store := newPersistentMockStore(
+		managedagents.SessionTurnWork{SessionID: "sesn_000001", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`)},
+		managedagents.SessionTurnWork{SessionID: "sesn_000002", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`)},
+	)
+	executed := make(chan TurnRequest, 2)
+	postRelease := make(chan struct{})
+	config := persistentRunnerTestConfig(1)
+	config.PostProcess = func(string, string) { <-postRelease }
+	runner := NewWorkerRunnerWithConfig(store, recordingExecutor{executed: executed}, config, nil)
+
+	<-executed
+	<-executed
+	waitFor(t, func() bool { return store.completeCalls() == 2 })
+	close(postRelease)
+	runner.Close()
+}
+
 type mockStore struct {
 	mu               sync.Mutex
 	completed        int
@@ -333,8 +406,16 @@ func (s *mockStore) CreateAgent(managedagents.CreateAgentInput) (managedagents.A
 	return managedagents.Agent{}, nil
 }
 
+func (s *mockStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedagents.Agent, error) {
+	return managedagents.Agent{ID: input.ID, Name: input.Name}, nil
+}
+
 func (s *mockStore) GetAgent(string) (managedagents.Agent, error) {
 	return managedagents.Agent{}, nil
+}
+
+func (s *mockStore) ListAgents() ([]managedagents.Agent, error) {
+	return nil, nil
 }
 
 func (s *mockStore) ListAgentConfigVersions(string) ([]managedagents.AgentConfigVersion, error) {
@@ -945,6 +1026,10 @@ func (s *mockStore) CancelWorkerWork(string, managedagents.CancelWorkerWorkInput
 	return managedagents.WorkerWork{}, nil
 }
 
+func (s *mockStore) RequeueWorkerWork(string, managedagents.RequeueWorkerWorkInput) (managedagents.WorkerWork, error) {
+	return managedagents.WorkerWork{}, nil
+}
+
 func (s *mockStore) ReapExpiredWorkerWork(managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
 	return nil, nil
 }
@@ -965,7 +1050,7 @@ func (s *mockStore) ListConversationMessages(string, int64) ([]managedagents.Con
 	return append([]managedagents.ConversationMessage(nil), s.history...), nil
 }
 
-func (s *mockStore) SubscribeEvents(string) (<-chan managedagents.Event, func(), error) {
+func (s *mockStore) SubscribeEvents(string, int64) (<-chan managedagents.Event, func(), error) {
 	events := make(chan managedagents.Event)
 	return events, func() { close(events) }, nil
 }
@@ -1000,6 +1085,91 @@ type blockingExecutor struct {
 	started  chan struct{}
 	canceled chan struct{}
 	once     sync.Once
+}
+
+type persistentMockStore struct {
+	*mockStore
+	queueMu   sync.Mutex
+	pending   []managedagents.SessionTurnWork
+	renewable bool
+}
+
+func newPersistentMockStore(work ...managedagents.SessionTurnWork) *persistentMockStore {
+	return &persistentMockStore{
+		mockStore: &mockStore{},
+		pending:   append([]managedagents.SessionTurnWork(nil), work...),
+		renewable: true,
+	}
+}
+
+func (s *persistentMockStore) ClaimSessionTurns(input managedagents.ClaimSessionTurnsInput) ([]managedagents.SessionTurnWork, error) {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if len(s.pending) == 0 {
+		return nil, nil
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > len(s.pending) {
+		limit = len(s.pending)
+	}
+	claimed := append([]managedagents.SessionTurnWork(nil), s.pending[:limit]...)
+	s.pending = append([]managedagents.SessionTurnWork(nil), s.pending[limit:]...)
+	for index := range claimed {
+		claimed[index].Attempt++
+	}
+	return claimed, nil
+}
+
+func (s *persistentMockStore) RenewSessionTurnLease(managedagents.RenewSessionTurnLeaseInput) (bool, error) {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	return s.renewable, nil
+}
+
+func (s *persistentMockStore) ReleaseSessionTurnLease(managedagents.ReleaseSessionTurnLeaseInput) error {
+	return nil
+}
+
+func (s *persistentMockStore) setRenewable(value bool) {
+	s.queueMu.Lock()
+	s.renewable = value
+	s.queueMu.Unlock()
+}
+
+type concurrentExecutor struct {
+	started chan TurnRequest
+	release chan struct{}
+}
+
+func (e *concurrentExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
+	e.started <- request
+	select {
+	case <-ctx.Done():
+		return TurnResult{}, ctx.Err()
+	case <-e.release:
+		return TurnResult{AgentPayload: json.RawMessage(`{"content":[]}`)}, nil
+	}
+}
+
+type recordingExecutor struct {
+	executed chan TurnRequest
+}
+
+func (e recordingExecutor) RunTurn(_ context.Context, request TurnRequest) (TurnResult, error) {
+	e.executed <- request
+	return TurnResult{AgentPayload: json.RawMessage(`{"content":[]}`)}, nil
+}
+
+func persistentRunnerTestConfig(workerCount int) WorkerRunnerConfig {
+	return WorkerRunnerConfig{
+		WorkerCount:       workerCount,
+		WakeBuffer:        workerCount,
+		PollInterval:      5 * time.Millisecond,
+		LeaseDuration:     100 * time.Millisecond,
+		HeartbeatInterval: 10 * time.Millisecond,
+		InstanceID:        "test-runner",
+		PostProcess:       func(string, string) {},
+	}
 }
 
 func newBlockingExecutor() *blockingExecutor {

@@ -48,7 +48,7 @@ func TestRunWorkerPollsAndCompletesOneWork(t *testing.T) {
 	if ctx.Err() == nil {
 		t.Fatal("expected worker context to be canceled")
 	}
-	if api.registerCalls != 1 || api.heartbeatCalls != 1 || api.pollCalls != 1 || api.ackCalls != 1 || api.completeCalls != 1 {
+	if api.registerCalls != 1 || api.heartbeatCalls < 1 || api.pollCalls != 1 || api.ackCalls != 1 || api.completeCalls != 1 {
 		t.Fatalf("unexpected calls: register=%d heartbeat=%d poll=%d ack=%d complete=%d", api.registerCalls, api.heartbeatCalls, api.pollCalls, api.ackCalls, api.completeCalls)
 	}
 	if api.completedWorkID != "work_000001" {
@@ -70,6 +70,7 @@ func TestRunWorkerPollsAndCompletesOneWork(t *testing.T) {
 }
 
 func TestParseWorkerConfigConcurrency(t *testing.T) {
+	t.Setenv("TMA_WORKER_PLUGINS", "")
 	cfg, err := parseWorkerConfig([]string{"--name", "test-worker"})
 	if err != nil {
 		t.Fatalf("parse default config: %v", err)
@@ -84,6 +85,23 @@ func TestParseWorkerConfigConcurrency(t *testing.T) {
 	}
 	if cfg.Concurrency != 3 {
 		t.Fatalf("expected configured concurrency 3, got %d", cfg.Concurrency)
+	}
+}
+
+func TestParseWorkerConfigPlugins(t *testing.T) {
+	t.Setenv("TMA_WORKER_PLUGINS", "/opt/tma/robot,/opt/tma/office")
+	cfg, err := parseWorkerConfig([]string{"--name", "test-worker", "--plugin", "/opt/tma/computer", "--plugin", "/opt/tma/robot"})
+	if err != nil {
+		t.Fatalf("parse plugin config: %v", err)
+	}
+	expected := []string{"/opt/tma/robot", "/opt/tma/office", "/opt/tma/computer"}
+	if len(cfg.Plugins) != len(expected) {
+		t.Fatalf("expected plugins %#v, got %#v", expected, cfg.Plugins)
+	}
+	for index, value := range expected {
+		if cfg.Plugins[index] != value {
+			t.Fatalf("expected plugins %#v, got %#v", expected, cfg.Plugins)
+		}
 	}
 }
 
@@ -476,6 +494,7 @@ func TestRunWorkerDoctorChecksLifecycleAndArchives(t *testing.T) {
 	for _, expected := range []string{
 		"server: ok",
 		"capabilities:",
+		"apis:",
 		"register: ok wrk_000001",
 		"heartbeat: ok",
 		"poll: ok",

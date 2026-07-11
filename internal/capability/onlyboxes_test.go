@@ -358,10 +358,14 @@ func TestOnlyboxesProviderRealDocker(t *testing.T) {
 		image = DefaultOnlyboxesImage
 	}
 	dockerCommand := os.Getenv("TMA_ONLYBOXES_DOCKER_COMMAND")
+	manager := NewOnlyboxesContainerManager(OnlyboxesContainerManagerConfig{CleanupInterval: time.Hour})
+	t.Cleanup(manager.Close)
 	provider := OnlyboxesProvider{
-		Image:         image,
-		WorkspaceRoot: root,
-		DockerCommand: dockerCommand,
+		Image:            image,
+		WorkspaceRoot:    root,
+		SessionID:        "sesn_real_docker",
+		DockerCommand:    dockerCommand,
+		ContainerManager: manager,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -370,7 +374,7 @@ func TestOnlyboxesProviderRealDocker(t *testing.T) {
 		Command: "sh",
 		Args: []string{
 			"-c",
-			"pwd && cat marker.txt && printf container-output > out.txt",
+			"pwd && cat marker.txt && printf container-output > out.txt && printf session-state > /tmp/tma-session-state",
 		},
 		WorkDir: ".",
 	})
@@ -389,6 +393,17 @@ func TestOnlyboxesProviderRealDocker(t *testing.T) {
 	}
 	if string(content) != "container-output" {
 		t.Fatalf("unexpected generated output %q", string(content))
+	}
+	second, err := provider.RunCommand(ctx, RunCommandRequest{
+		Command: "sh",
+		Args:    []string{"-c", "cat /tmp/tma-session-state"},
+		WorkDir: ".",
+	})
+	if err != nil {
+		t.Fatalf("reuse onlyboxes container: %v", err)
+	}
+	if second.ExitCode != 0 || strings.TrimSpace(second.Stdout) != "session-state" {
+		t.Fatalf("expected second command to reuse container, result=%#v", second)
 	}
 }
 

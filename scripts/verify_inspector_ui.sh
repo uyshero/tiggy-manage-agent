@@ -67,25 +67,79 @@ python3 - "$BASE_URL/inspector" <<'PY'
 import sys
 import urllib.request
 
-url = sys.argv[1]
-with urllib.request.urlopen(url, timeout=10) as response:
-    body = response.read().decode("utf-8")
+base_url = sys.argv[1]
 
-expected = [
+def fetch(path):
+    with urllib.request.urlopen(base_url + path, timeout=10) as response:
+        return response.read().decode("utf-8")
+
+html = fetch("")
+html_expected = [
     "TMA Inspector",
+    'id="root"',
+    "/inspector/assets/api.js",
+    "/inspector/assets/utils.js",
+    "/inspector/assets/app.js",
+    "/inspector/assets/styles.css",
+]
+missing = [item for item in html_expected if item not in html]
+if missing:
+    print("Inspector HTML missing expected content:", ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+
+app_js = fetch("/assets/app.js")
+app_expected = [
+    "React",
+    "createRoot",
+    "function App",
     "Timeline",
     "Artifacts",
     "Download",
+    "Filter by Session",
+    "Context Budget",
     "Copy CLI",
     "data-copy",
-    "bin/tma session artifact download --session",
+    "data-preview",
+    "previewArtifact",
+    "artifactPreviewTextLimit = 10240",
+    "filterCatalogs",
+    "Load more",
+    "moreTraces",
+    "moreSpans",
+    "content_truncated",
+    "renderContextBudget",
+    "TMAInspectorAPI",
+]
+missing = [item for item in app_expected if item not in app_js]
+if missing:
+    print("Inspector app.js missing expected content:", ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+
+api_js = fetch("/assets/api.js")
+api_expected = [
     "/v1/sessions/",
+    "session_id",
+    "turn_id",
+    "offset",
     "/artifacts/",
     "/download",
+    "artifactDownloadPath",
 ]
-missing = [item for item in expected if item not in body]
+missing = [item for item in api_expected if item not in api_js]
 if missing:
-    print("Inspector HTML missing expected content:", ", ".join(missing), file=sys.stderr)
+    print("Inspector api.js missing expected content:", ", ".join(missing), file=sys.stderr)
+    raise SystemExit(1)
+
+utils_js = fetch("/assets/utils.js")
+utils_expected = [
+    "bin/tma session artifact download --session",
+    "/v1/sessions/",
+    "sessionArtifactCLI",
+    "sessionArtifactCommand",
+]
+missing = [item for item in utils_expected if item not in utils_js]
+if missing:
+    print("Inspector utils.js missing expected content:", ", ".join(missing), file=sys.stderr)
     raise SystemExit(1)
 PY
 

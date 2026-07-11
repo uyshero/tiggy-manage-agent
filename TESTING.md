@@ -39,6 +39,7 @@ make test-postgres
 - 原生 `tools` / `tool_calls` 与 `tma.tool_call.v1` fallback
 - Session 级 `intervention_mode`
 - CLI `event stream` 对审批事件的可读展示
+- Trace / span 投影、持久 span index 写入、`/v1/spans` 索引查询和 trace index retention prune
 
 ---
 
@@ -838,6 +839,76 @@ make verify-inspector-ui
 
 该验收会启动真实 TMA server，读取 `/inspector` HTML，并校验页面包含 `Download`、`Copy CLI`、`data-copy`、`bin/tma session artifact download --session ...` 等关键内容。它不依赖浏览器插件，适合作为 Inspector UI 基础交互的轻量回归。
 
+浏览器 smoke 可以在静态验收通过后手动跑：
+
+```bash
+make verify-inspector-browser-smoke
+```
+
+该验收会启动真实 TMA server 和 headless Chrome，自动造数并实际点击：
+
+- Recent Traces `Load more`
+- Session filter 后的 Span Search `Load more`
+- trace card 加载 Timeline / Artifacts
+- Timeline 的 tool result 截断提示
+- 大文本 artifact `Preview` 的 10KB 截断提示
+- 页面 console error / unhandled rejection 计数
+
+也可以手动启动页面点检：
+
+```bash
+TMA_HTTP_ADDR=:18089 \
+TMA_DATABASE_URL='postgres://tma:tma@localhost:5432/tma?sslmode=disable' \
+TMA_LLM_PROVIDER=fake \
+TMA_LLM_MODEL=fake-demo \
+bin/tma-server
+```
+
+然后打开：
+
+```text
+http://localhost:18089/inspector
+```
+
+最小点检路径：
+
+- 页面标题为 `TMA Inspector`，脚本资源来自 `/inspector/assets/api.js`、`utils.js`、`app.js`
+- `Recent Traces` 有数据时，点击 trace 卡片后应填充 Trace ID / Session / Turn，并渲染 Waterfall、Spans、Timeline 和 Raw JSON
+- `Recent Traces` / `Span Search` 返回超过第一页时应显示 `Load more`，点击后追加下一页而不是覆盖当前列表
+- 在 `Session` 输入框填入 session id 后，点 `Filter by Session` 或按 Enter，`Recent Traces` 和 `Span Search` 应只显示该 session 的结果；点 `Clear` 恢复全局 catalog
+- `Span Search` 有数据时，点击 span 卡片后应定位到对应 span，URL hash 包含 `trace` 和 `span`
+- 点击文本/JSON artifact 的 `Preview` 时，页面只 inline 展示前 10KB 左右内容；完整内容用 `Download` 或 `Copy CLI` 获取
+- 大工具结果对应的 `runtime.tool_result` data 应包含 `context.content_truncated` / `context.state_truncated` 标记，而不是把完整长文本和大 state 直接塞进事件
+- 浏览器 console 不应出现 error
+
+Trace / span index 的 focused 回归：
+
+```bash
+go test ./internal/managedagents ./internal/observability ./internal/httpapi -count=1
+```
+
+其中 `TestGetSessionTraceProjectsTurnTimeline` 会覆盖：
+
+- `GET /v1/sessions/{id}/trace` 仍从 `session_events` 投影完整 trace
+- 生成 trace 后写入 `trace_indexes` / `trace_span_indexes`
+- `/v1/traces` 和 `/v1/spans` 可从索引返回 catalog / span search，并包含 `limit`、`offset`、`next_offset`、`has_more`
+- `runtime.span_started` / `runtime.span_event` / `runtime.span_ended` 会被投影为原生 lifecycle span
+- `PruneTraceIndexes(before, limit)` 会删除过期 trace index，并级联删除 span index
+
+手动验证 Postgres 索引表：
+
+```bash
+bin/tma trace show --session sesn_000001 --turn turn_000001
+
+docker compose exec -T postgres psql -U tma -d tma \
+  -c "SELECT trace_id, session_id, turn_id, span_count, updated_at FROM trace_indexes ORDER BY updated_at DESC LIMIT 5;"
+
+docker compose exec -T postgres psql -U tma -d tma \
+  -c "SELECT trace_id, span_id, kind, status, duration_ms, critical FROM trace_span_indexes ORDER BY start_time DESC LIMIT 10;"
+```
+
+注意：`session_events` 仍是事实源；索引用于 Inspector / span search / retention，索引缺失时 HTTP 查询会回退投影并回填。
+
 ---
 
 ## 12. 使用 curl 验证 SSE
@@ -1182,7 +1253,55 @@ make verify-onlyboxes-export-artifact
 
 通过表示上传文件 -> `/mnt/data` 加工 -> `output_paths` 导出 -> session artifact 下载 已经形成最小闭环。
 
-### 17.7 S3-compatible 对象存储验证
+### 17.7 cloud_sandbox Browser Tools 验证
+
+这一节验证 `browser.*` 能在带 Playwright 的 headless 沙箱镜像中执行，并把截图回收到 session artifact。
+
+先构建浏览器沙箱镜像：
+
+```bash
+make build-browser-sandbox
+```
+
+默认镜像名：
+
+```text
+tma-browser-sandbox:playwright
+```
+
+运行验收：
+
+```bash
+make verify-browser-tools
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 用 `TMA_TOOL_RUNTIME=cloud_sandbox` 和 `TMA_CLOUD_SANDBOX_ALLOW_NETWORK=false` 启动临时 TMA server。
+- 用 `data:` URL 注入本地测试页面，不依赖外网。
+- 发送 `tma.verify_browser_flow`，让 fake LLM 触发 `browser.open`、`browser.screenshot`、`browser.type`、`browser.click`。
+- 校验事件历史中出现 browser tool call / result、页面标记 `tma-browser-flow-ok`，且截图结果包含 artifact ref。
+
+通过表示 `browser.*` 工具、Playwright runner、browser sandbox 镜像、`/mnt/data` 截图输出和 session artifact 回收链路已经形成最小闭环。
+
+需要改镜像名时：
+
+```bash
+TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright make build-browser-sandbox
+TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright make verify-browser-tools
+```
+
+人工接管浏览器需要本地桌面环境，不放进 cloud_sandbox smoke。手动点检可以运行：
+
+```bash
+make verify-browser-takeover-local
+```
+
+脚本会启动临时 server 和本地 `tma-worker`，把 agent/session tools runtime 配成 `local_system`，发送 `tma.verify_browser_takeover`，让 fake LLM 触发 `browser.takeover`。预期行为：本机弹出 headed Chromium；用户操作或关闭窗口后，工具返回最终页面标题、URL、正文片段和可交互元素。脚本会校验事件历史、agent message、worker work payload，以及结果中包含 `tma-browser-takeover-ok`。后续同一 `browser_session_id` 的 `browser.read/click/type/screenshot` 会通过 CDP 复用同一个本地长驻浏览器；脚本最后会发送 `tma.verify_browser_close` 并校验 `browser.close` 释放本地浏览器进程。
+
+### 17.8 S3-compatible 对象存储验证
 
 这一节验证 `TMA_OBJECT_STORAGE_PROVIDER=s3` 的真实对象存储闭环。运行前需要先启动 RustFS / MinIO / S3-compatible 服务，并确保 bucket 已存在或服务端允许自动写入该 bucket。
 
@@ -1226,7 +1345,7 @@ make verify-objectstore-s3
 
 通过表示 HTTP 上传、真实 S3-compatible PutObject、TMA 代理下载、真实 GetObject 和 metadata 管道已经形成最小闭环。当前删除步骤只清理 TMA metadata；底层对象物理回收后续需要单独设计 GC / retention 策略。
 
-### 17.8 Worker-backed local_system 验证
+### 17.9 Worker-backed local_system 验证
 
 这一节验证完整链路：
 
@@ -1261,7 +1380,67 @@ make verify-worker-backed-local-system
 
 通过表示 `local_system` 工具执行已经真实经过 `tma-worker`，而不是落在 server 进程内 fallback。
 
-### 17.9 Worker-backed local export 验证
+### 17.9.1 Worker process plugin 验证
+
+这一节验证 worker 进程型插件可以进入完整 AgentRuntime 链路：
+
+```text
+tma-worker --plugin
+  -> heartbeat capabilities.manifests
+  -> AgentRuntime 暴露 robot.get_state
+  -> fake LLM 调用 robot.get_state
+  -> WorkerBackedProvider 下发 tma.work.v1 tool_execution
+  -> 插件 execute 返回 tool result
+```
+
+运行：
+
+```bash
+make verify-worker-plugin-tools
+```
+
+脚本会自动创建一个临时 `robot` 插件，插件只实现 `manifest` 和 `execute` 两个命令。通过条件：
+
+- `bin/tma worker list --json` 能看到在线 worker 的 `robot.get_state` API 和 `robot` manifest。
+- agent tools 配置为 `{"tools":["robot"],"runtime":"local_system"}` 后，fake LLM 能触发 `robot.get_state`。
+- 事件历史包含 `runtime.tool_call`、`runtime.tool_result`、`agent.message`，且结果包含 `tma-worker-plugin-ok`。
+- `worker_work.payload` 是标准 `tma.work.v1`，`namespace=robot`、`api=get_state`、`capabilities=["robot.state"]`、`risk=read`。
+
+### 17.9.2 Computer-use process plugin 验证
+
+这一节验证 `computer` 插件可以作为 worker 后端能力挂入现有 `tool_execution` 链路。该 smoke 使用 fake CUA backend，不控制真实电脑，但会覆盖 CUA tool 映射、截图落 PNG 文件、以及带 session 的 screenshot artifact ref；真实运行时可切到 `auto` / `cua` / `ax`。详细标准见 [docs/computer-use-plugin.md](./docs/computer-use-plugin.md)。
+
+```bash
+make verify-computer-plugin-tools
+```
+
+脚本会自动：
+
+- 启动真实 TMA server。
+- 启动真实 `tma-worker --plugin examples/plugins/computer-use/computer-plugin.py`。
+- 校验 worker heartbeat 发布 `computer` manifest、`computer.get_state` API 和 `computer.ax.read` capability。
+- 创建启用 `{"tools":["computer"],"runtime":"local_system"}` 的 agent。
+- 发送 `tma.verify_computer_plugin_tool`，让 fake LLM 调用 `computer.get_state {"capture_mode":"ax"}`。
+- 发送 `tma.verify_computer_plugin_screenshot`，让 fake LLM 调用 `computer.screenshot`。
+- 校验事件历史包含 `runtime.tool_call`、`runtime.tool_result`、`agent.message`，且 `get_state` 结果包含 CUA `get_accessibility_tree` 映射和 `ui_tree`。
+- 校验 screenshot 结果包含 CUA `get_desktop_state` 映射、`has_screenshot=true`、无 `screenshot_png_b64`，并且有 session artifact ref。
+- 校验 `worker_work.payload` 是标准 `tma.work.v1`，`namespace=computer`、`api=get_state`、`capabilities=["computer.state.read","computer.ax.read"]`、`risk=read`、`runtime=local_system`。
+
+真实 CUA 后端手动点检：
+
+```bash
+TMA_COMPUTER_BACKEND=cua \
+TMA_COMPUTER_CUA_CMD=cua-driver \
+bin/tma-worker --base-url http://localhost:8080 --name computer-worker --plugin examples/plugins/computer-use/computer-plugin.py
+
+bin/tma worker diagnose --namespace computer --api get_state --capabilities computer.state.read,computer.ax.read --runtime local_system
+```
+
+CUA CLI 调用格式如有差异，用 `TMA_COMPUTER_CUA_TEMPLATE='...'` 适配。当前不部署 OmniParser。
+
+已验证的真实 CUA 动作包括 `computer.get_state`、`computer.list_windows`、`computer.launch_app`、`computer.bring_to_front`、`computer.type_text`、`computer.hotkey`、`computer.open_url`、`computer.search_web` 和 `computer.screenshot`。`type_text` / `hotkey` / `click` 的 `pid` 可省略，插件会尝试解析指定 app 或当前前台窗口；按键别名如 `Command` / `Return` 也会规范化。`type_text` / `hotkey` 可能返回 `verified:false`、`effect:"unverifiable"`；这表示 CUA 已发送键盘事件但无法证明目标 UI 状态变化，不表示 TMA 调用失败。`computer.screenshot` 依赖 macOS Screen Recording 权限；若返回 `screencapture failed for main display`，需要给启动 worker 的终端/CUA 授权后重启 worker。CUA screenshot 的 `screenshot_png_b64` 会在插件内落成 PNG 文件，`state.result` 只保留摘要；有 session 的 worker 路径会把 `image/*` export 上传成 artifact，避免截图 base64 进入 tool result。
+
+### 17.10 Worker-backed local export 验证
 
 这一节验证 `worker-backed local_system` 上的 `output_paths` 也能把 worker 机器生成的文件回收到 session artifact：
 
@@ -1292,7 +1471,7 @@ make verify-worker-backed-large-local-export
 
 该脚本会触发 fake LLM 生成一个超过 8 MiB 的 worker 本地文件，下载 artifact 并校验内容包含 `tma-worker-large-export-ok`。通过表示大文件已经走 worker -> server artifact upload，而不是 base64 塞进 work result。
 
-### 17.10 Worker / worker work 过期收敛
+### 17.11 Worker / worker work 过期收敛
 
 第一版 worker work 不做自动重试。若 worker 掉线或长时间没有给 leased/running work 续租，后台 reaper 会把过期 work 标记为 failed，方便排障和释放卡住状态。若 worker 自身长时间没有 heartbeat，后台 worker reaper 会把过期 online worker 标记为 offline，避免 capability match / diagnose 继续把陈旧 worker 当作在线能力。
 
@@ -1357,10 +1536,20 @@ make verify-worker-shutdown-drain
 
 该脚本会启动真实 TMA server 和真实 `tma-worker`，在 work running 时向 worker 发送 SIGTERM；worker 必须 heartbeat `draining`、等待 long-running work completed、再正常退出。通过表示发布 / 重启 worker 时不会立即丢掉已经 ack 的 running work。
 
+反向控制面取消验收：
+
+```bash
+make verify-worker-work-cancel
+```
+
+该脚本会启动真实 TMA server 和真实 `tma-worker`，投递一个长时间运行的 work，等它进入 `running` 后调用 `bin/tma work cancel --work ... --reason ...`。worker 下一次 running work heartbeat 必须观察到 `canceled`，取消本地执行，不提交 completed result；最终 `work get` 仍保持 `canceled`，错误信息为取消原因。
+
 手动命令：
 
 ```bash
 bin/tma worker reap-expired --limit 100
+bin/tma work cancel --work WORK_ID --reason "user stopped it"
+bin/tma work requeue --work WORK_ID --clear-worker
 bin/tma work reap-expired --limit 100
 ```
 
@@ -1376,11 +1565,21 @@ curl -X POST "$TMA_BASE_URL/v1/worker-work/reap-expired" \
   -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"limit":100}'
+
+curl -X POST "$TMA_BASE_URL/v1/worker-work/WORK_ID/cancel" \
+  -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"user stopped it"}'
+
+curl -X POST "$TMA_BASE_URL/v1/worker-work/WORK_ID/requeue" \
+  -H "Authorization: Bearer $TMA_WORKER_CONTROL_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"clear_worker":true}'
 ```
 
-通过表示 `lease_expires_at` 已过期的 `leased` / `running` work 会变为 `failed`，并带 `worker work lease expired ...` 错误信息。这里故意不自动重新入队，避免命令、文件写入、外部 API 调用被重复执行。
+通过表示 `lease_expires_at` 已过期的 `leased` / `running` work 会变为 `failed`，并带 `worker work lease expired ...` 错误信息。这里故意不自动重新入队，避免命令、文件写入、外部 API 调用被重复执行；需要重试时由控制面显式 `work requeue` 复制出新的 pending work，原 failed / canceled 记录保留用于审计。
 
-### 17.11 Worker doctor
+### 17.12 Worker doctor
 
 `tma-worker doctor` 用于在启动常驻 worker 前检查 outbound API、token 和 executor capabilities：
 
@@ -1398,7 +1597,7 @@ doctor 会：
 - 调用 server-side worker diagnose，确认刚注册的 worker 能被控制面看见。
 - 归档临时 worker。
 
-### 17.12 cloud_sandbox 默认配置
+### 17.13 cloud_sandbox 默认配置
 
 新 session 默认已经走 `cloud_sandbox`，`.env` 不需要写 `TMA_TOOL_RUNTIME=cloud_sandbox`。如果要固定 workspace root 或镜像，只配置覆盖项：
 

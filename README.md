@@ -1,6 +1,8 @@
 # Tiggy Manage Agent (TMA)
 
-Tiggy Manage Agent is a Go-based runtime skeleton for the TMA project.
+Tiggy Manage Agent is the Go implementation of the Agent Cloud Runtime project. It is not a chat UI; it is the cloud-side Harness runtime that lets enterprise Agents run as stable, auditable business-process nodes.
+
+The long-term product direction is to make runtime evidence useful for Agent evolution. Events, traces, tool results, summaries, artifacts, and user feedback should eventually drive monitored, tested, versioned upgrades to `system`, memory, tools, skills, multi-agent routing, and runtime policies.
 
 Current scope:
 
@@ -113,6 +115,7 @@ Server logs are JSON structured logs via Go `slog`. Event and turn logs include 
 
 ```text
 POST /v1/agents
+GET  /v1/agents/default
 POST /v1/environments
 POST /v1/sessions
 GET  /v1/sessions/{id}
@@ -126,9 +129,7 @@ GET  /v1/sessions/{id}/events/stream
 Minimal flow:
 
 ```bash
-curl -sS http://localhost:8080/v1/agents \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Code Assistant","model":"gpt-4o","system":"You are a coding agent."}'
+curl -sS http://localhost:8080/v1/agents/default
 ```
 
 ```bash
@@ -162,6 +163,35 @@ Check worker connectivity and declared capabilities without starting the long-ru
 ```bash
 bin/tma-worker doctor --base-url http://localhost:8080 --name viito-mac
 ```
+
+Workers can also load process tool plugins. A plugin contributes new `namespace.api`
+tools to the existing `tool_execution` work protocol without adding new
+`work_type` values:
+
+```bash
+bin/tma-worker --base-url http://localhost:8080 --name lab-worker --plugin /opt/tma/plugins/robot
+```
+
+If an agent enables the plugin namespace, for example `{"tools":["robot"],"runtime":"local_system"}`, online worker plugin manifests are exposed to AgentRuntime as model tools and executed through worker-backed `tool_execution` work.
+
+The repository includes a minimal robot example:
+
+```bash
+bin/tma-worker --base-url http://localhost:8080 --name robot-worker --plugin examples/plugins/robot-shell/robot-plugin.py
+bin/tma worker list --workspace wksp_default --status online
+bin/tma worker diagnose --namespace robot --api get_state --capabilities robot.state --runtime local_system
+```
+
+It also includes a `computer` example for desktop computer-use integration. This plugin is intentionally backend-pluggable: use CUA as the primary backend, local AX/UI tree as an inspect fallback, and no OmniParser dependency.
+
+```bash
+TMA_COMPUTER_BACKEND=auto \
+bin/tma-worker --base-url http://localhost:8080 --name computer-worker --plugin examples/plugins/computer-use/computer-plugin.py
+
+bin/tma worker diagnose --namespace computer --api get_state --capabilities computer.state.read,computer.ax.read --runtime local_system
+```
+
+The process plugin protocol and SDK contract are documented in [docs/tool-plugin-sdk.md](./docs/tool-plugin-sdk.md). The `computer.*` API and backend contract are documented in [docs/computer-use-plugin.md](./docs/computer-use-plugin.md). Future language SDK packages should wrap this protocol rather than changing the core `tool_execution` shape.
 
 Verify the local worker-backed path with a temporary server and worker:
 
@@ -273,7 +303,7 @@ If a Runner cannot start or complete a turn, the Store marks that turn as `faile
 `CompleteSessionTurn` stores the `agent.message` payload produced by Runner; response text lives in AgentRuntime output, not in Store.
 
 Events for the same execution carry the same `payload.turn_id`, for example `turn_000001`.
-Turn lifecycle is also persisted in `session_turns`, so the service can track whether a turn is `running`, `completed`, `interrupted`, or `failed`.
+Turn lifecycle and execution leases are persisted in `session_turns`. Server instances claim runnable turns with database row locking, renew leases while executing, recover expired/unclaimed `running` turns after restart, and observe interrupts written by other instances. Completed-turn summary refresh and trace export run outside the Turn worker pool.
 
 ```bash
 bin/tma event interrupt --session sesn_000001

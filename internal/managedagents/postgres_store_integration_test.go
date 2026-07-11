@@ -98,6 +98,59 @@ func TestPostgresStoreAppendsRuntimeEventForCurrentTurn(t *testing.T) {
 	}
 }
 
+func TestPostgresStoreStreamsCrossInstanceBurstWithoutLoss(t *testing.T) {
+	storeA := newPostgresIntegrationStore(t)
+	storeB := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, storeA)
+
+	history, err := storeA.ListEvents(session.ID, 0)
+	if err != nil {
+		t.Fatalf("list initial events: %v", err)
+	}
+	afterSeq := history[len(history)-1].Seq
+	gapEvents, err := storeB.AppendEvents(session.ID, []AppendEventInput{{
+		Type:    EventRuntimeThinking,
+		Payload: json.RawMessage(`{"message":"committed before subscribe"}`),
+	}})
+	if err != nil {
+		t.Fatalf("append event between snapshot and subscribe: %v", err)
+	}
+	stream, cancel, err := storeA.SubscribeEvents(session.ID, afterSeq)
+	if err != nil {
+		t.Fatalf("subscribe from instance A: %v", err)
+	}
+	defer cancel()
+
+	inputs := make([]AppendEventInput, 64)
+	for index := range inputs {
+		inputs[index] = AppendEventInput{
+			Type:    EventRuntimeThinking,
+			Payload: json.RawMessage(`{"message":"burst"}`),
+		}
+	}
+	appended, err := storeB.AppendEvents(session.ID, inputs)
+	if err != nil {
+		t.Fatalf("append burst from instance B: %v", err)
+	}
+	expected := append(gapEvents, appended...)
+
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for index, want := range expected {
+		select {
+		case got, ok := <-stream:
+			if !ok {
+				t.Fatalf("stream closed after %d of %d events", index, len(expected))
+			}
+			if got.ID != want.ID || got.Seq != want.Seq {
+				t.Fatalf("event %d mismatch: got %+v, want %+v", index, got, want)
+			}
+		case <-timeout.C:
+			t.Fatalf("timed out after receiving %d of %d cross-instance events", index, len(expected))
+		}
+	}
+}
+
 func TestPostgresStoreInterruptedTurnSkipsLateCompletion(t *testing.T) {
 	store := newPostgresIntegrationStore(t)
 	session := createPostgresIntegrationSession(t, store)
@@ -133,6 +186,179 @@ func TestPostgresStoreInterruptedTurnSkipsLateCompletion(t *testing.T) {
 		t.Fatalf("expected turn status interrupted, got %q", status)
 	}
 	assertNoPostgresAgentMessageForTurn(t, store, session.ID, turnID)
+}
+
+func TestPostgresStoreSessionTurnLeaseRecoveryAndRemoteInterrupt(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+
+	events, err := store.AppendEvents(session.ID, []AppendEventInput{{
+		Type:    EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"lease me"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	turnID := payloadString(events[len(events)-1].Payload, "turn_id")
+
+	first, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-a", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("claim first lease: %v", err)
+	}
+	if len(first) != 1 || first[0].SessionID != session.ID || first[0].TurnID != turnID || first[0].Attempt != 1 {
+		t.Fatalf("unexpected first claim: %+v", first)
+	}
+	second, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-b", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("claim while leased: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("expected active lease to exclude second instance, got %+v", second)
+	}
+
+	if _, err := store.db.ExecContext(context.Background(), `UPDATE session_turns SET lease_expires_at = $3 WHERE session_id = $1 AND id = $2`, session.ID, turnID, time.Now().UTC().Add(-time.Second)); err != nil {
+		t.Fatalf("expire first lease: %v", err)
+	}
+	recovered, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-b", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("recover expired lease: %v", err)
+	}
+	if len(recovered) != 1 || recovered[0].Attempt != 2 {
+		t.Fatalf("expected expired turn to be recovered on attempt 2, got %+v", recovered)
+	}
+	active, err := store.RenewSessionTurnLease(RenewSessionTurnLeaseInput{SessionID: session.ID, TurnID: turnID, LeaseOwner: "instance-a", LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatalf("renew stale owner: %v", err)
+	}
+	if active {
+		t.Fatal("expected stale lease owner to be fenced out")
+	}
+
+	if _, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}}); err != nil {
+		t.Fatalf("append remote interrupt: %v", err)
+	}
+	active, err = store.RenewSessionTurnLease(RenewSessionTurnLeaseInput{SessionID: session.ID, TurnID: turnID, LeaseOwner: "instance-b", LeaseDuration: time.Minute})
+	if err != nil {
+		t.Fatalf("renew interrupted turn: %v", err)
+	}
+	if active {
+		t.Fatal("expected interrupt persisted by another instance to stop lease renewal")
+	}
+}
+
+func TestPostgresStoreSessionTurnClaimRestoresApprovedIntervention(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	events, err := store.AppendEvents(session.ID, []AppendEventInput{{
+		Type:    EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"approve me"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	turnID := payloadString(events[len(events)-1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, SaveSessionInterventionInput{
+		TurnID:            turnID,
+		CallID:            "call_approved",
+		ToolIdentifier:    "standard.read_file",
+		APIName:           "read_file",
+		Arguments:         json.RawMessage(`{"path":"README.md"}`),
+		InterventionMode:  "request_approval",
+		Reason:            "test",
+		Continuation:      json.RawMessage(`[{"role":"assistant","content":[]}]`),
+		ContinuationRound: 2,
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+	if err := store.MarkSessionTurnWaitingApproval(session.ID, turnID); err != nil {
+		t.Fatalf("mark waiting approval: %v", err)
+	}
+	if _, err := store.DecideSessionIntervention(session.ID, DecideSessionInterventionInput{
+		TurnID: turnID, CallID: "call_approved", Status: InterventionStatusApproved, DecisionReason: "safe",
+	}); err != nil {
+		t.Fatalf("approve intervention: %v", err)
+	}
+	retried, err := store.DecideSessionIntervention(session.ID, DecideSessionInterventionInput{
+		TurnID: turnID, CallID: "call_approved", Status: InterventionStatusApproved, DecisionReason: "retry",
+	})
+	if err != nil {
+		t.Fatalf("retry approved intervention: %v", err)
+	}
+	if retried.Intervention.Status != InterventionStatusApproved || len(retried.Events) != 0 {
+		t.Fatalf("expected idempotent approved retry without duplicate event, got %+v", retried)
+	}
+
+	claimed, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-resume", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("claim resumed turn: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ResumeIntervention == nil {
+		t.Fatalf("expected claimed intervention resume, got %+v", claimed)
+	}
+	resume := claimed[0].ResumeIntervention
+	if resume.CallID != "call_approved" || resume.Status != InterventionStatusApproved || resume.DecisionReason != "safe" || resume.ContinuationRound != 2 {
+		t.Fatalf("unexpected claimed intervention: %+v", resume)
+	}
+	if _, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}}); err != nil {
+		t.Fatalf("cleanup interrupt: %v", err)
+	}
+}
+
+func TestPostgresStoreRetryOldDecisionDoesNotOverrideNewPendingIntervention(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	events, err := store.AppendEvents(session.ID, []AppendEventInput{{
+		Type:    EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"two approvals"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("append user message: %v", err)
+	}
+	turnID := payloadString(events[len(events)-1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_first", ToolIdentifier: "default", APIName: "read_file", InterventionMode: "request_approval",
+	}); err != nil {
+		t.Fatalf("save first intervention: %v", err)
+	}
+	if err := store.MarkSessionTurnWaitingApproval(session.ID, turnID); err != nil {
+		t.Fatalf("mark first waiting approval: %v", err)
+	}
+	if _, err := store.DecideSessionIntervention(session.ID, DecideSessionInterventionInput{
+		TurnID: turnID, CallID: "call_first", Status: InterventionStatusApproved,
+	}); err != nil {
+		t.Fatalf("approve first intervention: %v", err)
+	}
+	if _, err := store.SaveSessionIntervention(session.ID, SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_second", ToolIdentifier: "default", APIName: "edit_file", InterventionMode: "request_approval",
+	}); err != nil {
+		t.Fatalf("save second intervention: %v", err)
+	}
+	if err := store.MarkSessionTurnWaitingApproval(session.ID, turnID); err != nil {
+		t.Fatalf("mark second waiting approval: %v", err)
+	}
+	if _, err := store.DecideSessionIntervention(session.ID, DecideSessionInterventionInput{
+		TurnID: turnID, CallID: "call_first", Status: InterventionStatusApproved,
+	}); err != nil {
+		t.Fatalf("retry first intervention: %v", err)
+	}
+
+	claimed, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-old-retry", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("claim after old retry: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("expected second pending approval to block old resume, got %+v", claimed)
+	}
+	pending, err := store.ListSessionInterventions(session.ID, InterventionStatusPending)
+	if err != nil {
+		t.Fatalf("list pending interventions: %v", err)
+	}
+	if len(pending) != 1 || pending[0].CallID != "call_second" {
+		t.Fatalf("expected second intervention to remain pending, got %+v", pending)
+	}
+	if _, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}}); err != nil {
+		t.Fatalf("cleanup interrupt: %v", err)
+	}
 }
 
 func TestPostgresStoreFailedTurnReturnsSessionToIdle(t *testing.T) {
@@ -248,7 +474,9 @@ func TestPostgresStoreObjectRefsAndSessionArtifacts(t *testing.T) {
 
 func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
 	store := newPostgresIntegrationStore(t)
+	workspaceID := createPostgresIntegrationWorkspace(t, store, "reap-worker-work")
 	worker, err := store.RegisterWorker(RegisterWorkerInput{
+		WorkspaceID:  workspaceID,
 		Name:         "integration-worker-" + time.Now().UTC().Format("20060102150405.000000000"),
 		WorkerType:   WorkerTypeLocal,
 		RegisteredBy: "integration-test",
@@ -258,8 +486,8 @@ func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
 		t.Fatalf("register worker: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE worker_id = $1`, worker.ID); err != nil {
-			t.Fatalf("cleanup worker work for %s: %v", worker.ID, err)
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE workspace_id = $1`, workspaceID); err != nil {
+			t.Fatalf("cleanup worker work for workspace %s: %v", workspaceID, err)
 		}
 		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workers WHERE id = $1`, worker.ID); err != nil {
 			t.Fatalf("cleanup worker %s: %v", worker.ID, err)
@@ -267,7 +495,7 @@ func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
 	})
 
 	queued, err := store.EnqueueWorkerWork(EnqueueWorkerWorkInput{
-		WorkspaceID: DefaultWorkspaceID,
+		WorkspaceID: workspaceID,
 		WorkerID:    worker.ID,
 		WorkType:    WorkerWorkTypeSandboxCommand,
 		Payload:     json.RawMessage(`{"command":"sh","args":["-c","sleep 100"]}`),
@@ -301,7 +529,9 @@ func TestPostgresStoreReapsExpiredWorkerWork(t *testing.T) {
 
 func TestPostgresStoreCancelsWorkerWork(t *testing.T) {
 	store := newPostgresIntegrationStore(t)
+	workspaceID := createPostgresIntegrationWorkspace(t, store, "cancel-worker-work")
 	worker, err := store.RegisterWorker(RegisterWorkerInput{
+		WorkspaceID:  workspaceID,
 		Name:         "integration-cancel-worker-" + time.Now().UTC().Format("20060102150405.000000000"),
 		WorkerType:   WorkerTypeLocal,
 		RegisteredBy: "integration-test",
@@ -311,8 +541,8 @@ func TestPostgresStoreCancelsWorkerWork(t *testing.T) {
 		t.Fatalf("register worker: %v", err)
 	}
 	t.Cleanup(func() {
-		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE worker_id = $1`, worker.ID); err != nil {
-			t.Fatalf("cleanup worker work for %s: %v", worker.ID, err)
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM worker_work WHERE workspace_id = $1`, workspaceID); err != nil {
+			t.Fatalf("cleanup worker work for workspace %s: %v", workspaceID, err)
 		}
 		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workers WHERE id = $1`, worker.ID); err != nil {
 			t.Fatalf("cleanup worker %s: %v", worker.ID, err)
@@ -320,7 +550,7 @@ func TestPostgresStoreCancelsWorkerWork(t *testing.T) {
 	})
 
 	queued, err := store.EnqueueWorkerWork(EnqueueWorkerWorkInput{
-		WorkspaceID: DefaultWorkspaceID,
+		WorkspaceID: workspaceID,
 		WorkerID:    worker.ID,
 		WorkType:    WorkerWorkTypeSandboxCommand,
 		Payload:     json.RawMessage(`{"command":"sh","args":["-c","sleep 100"]}`),
@@ -368,6 +598,20 @@ func TestPostgresStoreCancelsWorkerWork(t *testing.T) {
 	}
 	if again.ErrorMessage != "integration canceled" {
 		t.Fatalf("expected terminal cancel to preserve reason, got %+v", again)
+	}
+
+	requeued, err := store.RequeueWorkerWork(queued.ID, RequeueWorkerWorkInput{ClearWorker: true})
+	if err != nil {
+		t.Fatalf("requeue canceled worker work: %v", err)
+	}
+	if requeued.ID == queued.ID || requeued.Status != WorkerWorkStatusPending || requeued.WorkerID != "" {
+		t.Fatalf("unexpected requeued work: %+v", requeued)
+	}
+	if requeued.WorkspaceID != queued.WorkspaceID || requeued.WorkType != queued.WorkType || string(requeued.Payload) != string(queued.Payload) {
+		t.Fatalf("requeued work did not preserve original data: original=%+v requeued=%+v", queued, requeued)
+	}
+	if string(requeued.Result) != `{}` || requeued.StartedAt != nil || requeued.CompletedAt != nil || requeued.LeaseExpiresAt != nil {
+		t.Fatalf("requeued work did not reset execution fields: %+v result=%s", requeued, string(requeued.Result))
 	}
 }
 
@@ -447,6 +691,28 @@ func requirePostgresIntegrationSchema(t *testing.T, store *PostgresStore) {
 	if !table.Valid || table.String == "" {
 		t.Fatal("session_turns table missing; run make migrate-up before integration tests")
 	}
+}
+
+func createPostgresIntegrationWorkspace(t *testing.T, store *PostgresStore, prefix string) string {
+	t.Helper()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	workspaceID := "wksp_integration_" + strings.ReplaceAll(prefix, "-", "_") + "_" + suffix
+	if _, err := store.db.ExecContext(
+		context.Background(),
+		`INSERT INTO workspaces (id, org_id, name, created_at) VALUES ($1, 'org_default', $2, $3)`,
+		workspaceID,
+		prefix+" "+suffix,
+		time.Now().UTC(),
+	); err != nil {
+		t.Fatalf("create integration workspace %s: %v", workspaceID, err)
+	}
+	t.Cleanup(func() {
+		if _, err := store.db.ExecContext(context.Background(), `DELETE FROM workspaces WHERE id = $1`, workspaceID); err != nil {
+			t.Fatalf("cleanup workspace %s: %v", workspaceID, err)
+		}
+	})
+	return workspaceID
 }
 
 func createPostgresIntegrationSession(t *testing.T, store *PostgresStore) Session {

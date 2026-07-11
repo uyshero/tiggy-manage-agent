@@ -18,7 +18,7 @@
 - `session_events` 仍是唯一事实源。
 - `GET /v1/sessions/{id}/trace?turn_id=...` 已可把单个 turn 投影成 trace JSON，包含 `stats`、`turns`、trace graph（roots / edges / critical path）、timeline steps、span tree、span depth / waterfall offsets / self duration、child span 索引与 span 内 source events。
 - `GET /v1/traces`、`GET /v1/traces/{trace_id}`、`GET /v1/spans` 与 `GET /v1/traces/{trace_id}/spans/{span_id}` 已提供近期 trace catalog、直接 trace 查找、span 搜索聚合（kind/status/critical counts）、span 详情深链；`/v1/spans` 支持 `trace_id` / `session_id` / `turn_id` / `kind` / `status` / `critical` / `min_duration_ms` / `max_duration_ms` / `min_self_duration_ms` / `q` 过滤。
-- AgentRuntime 与 continuation 关键 runtime 事件已写入原生 `trace_id` / `span_id` / `parent_span_id` / `span_name` / `span_kind` / `span_status`，LLM/tool 结果事件会尽量写入真实 `duration_ms`；旧事件仍可由投影层回退配对。
+- 主 turn 与审批 continuation 现在统一由 AgentRuntime 写出关键 runtime 事件，并携带原生 `trace_id` / `span_id` / `parent_span_id` / `span_name` / `span_kind` / `span_status`；LLM/tool 结果事件会尽量写入真实 `duration_ms`，旧事件仍可由投影层回退配对。
 - `bin/tma trace show --session ... [--turn ...]` 已可终端查看 turn stats、trace graph、critical path、span tree / self duration、timeline 与 tool/artifact 线索。
 - `GET /v1/sessions/{id}/trace?turn_id=...&format=perfetto|otel` 已可导出 Perfetto / OTel 风格 JSON；Perfetto args 与 OTel attributes 会携带 span depth / start offset / self duration / critical 标记，导出 metadata 会携带 trace graph，OTel span events 会携带关联的 session event seq/type/message。
 - `bin/tma trace export --format perfetto|otel|json --output FILE` 已可把导出落盘；`--otlp-endpoint URL` 已可把 OTel JSON 通过 OTLP/HTTP 推到 collector。
@@ -26,7 +26,7 @@
 - `GET /metrics` 已可输出 Prometheus 文本指标，覆盖 LLM usage、worker 数量、exporter 启用、自动导出采样率、最近成功/最近失败/最近尝试/最近持久化运行记录，以及指定 `session_id` / `turn_id` 的 event、trace、span、critical path、span depth、tool、approval 指标。
 - `GET /v1/observability/status` 与 `bin/tma observability status` 已可查看 exporter 启用状态、目的地、采样策略、最近成功/失败/尝试与持久化 recent runs，token 只暴露是否配置。
 - exporter 失败 run 已写入 `attempt_count` / `next_retry_at`，支持指数退避；server 默认会在后台周期性重试到期项，也可通过 `POST /v1/observability/retry`、Inspector Exporters 面板或 `bin/tma observability retry` 手动触发。
-- `GET /inspector` 已提供 embedded static Inspector UI（`internal/httpapi/inspector/index.html`、`styles.css`、`app.js`），可查看 turn 列表、trace stats、span waterfall / critical path、可过滤 span table、span 详情、span events/child counts、usage、summary、context coverage/diff、pending approvals、artifacts、artifact inline preview、events、metrics、exporter / sampling 状态与 raw export，并支持 `#session=...&turn=...&trace=...&span=...` 深链定位。
+- `GET /inspector` 已提供 embedded static Inspector UI（`internal/httpapi/inspector/index.html`、`styles.css`、`app.js`），可查看 turn 列表、trace stats、span waterfall / critical path、可过滤 span table、span 详情、span events/child counts、usage、summary、context coverage/diff、context budget 分账、pending approvals、artifacts、artifact inline preview、events、metrics、exporter / sampling 状态与 raw export，并支持 `#session=...&turn=...&trace=...&span=...` 深链定位。
 - turn 完成后会把本轮 tool / approval 轨迹摘要追加到 `session_summaries`，供后续 `ContextBuilder` 注入。
 - `reject` 决策在存在 continuation messages 时，会生成 rejected tool observation 并继续同一条 LLM continuation loop。
 - `/trace` 返回里已包含第一版 `spans`，不再只是纯 timeline steps。
@@ -365,6 +365,16 @@ TMA_OBSERVABILITY_EXPORTER_RETRY_MAX_DELAY_MS=600000
 TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED=1
 TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS=30000
 TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT=20
+```
+
+**Trace/span index retention**
+
+```bash
+# 默认关闭；开启后只清理 trace_indexes / trace_span_indexes，不删除 session_events 事实源
+TMA_TRACE_INDEX_RETENTION_ENABLED=1
+TMA_TRACE_INDEX_RETENTION_DAYS=30
+TMA_TRACE_INDEX_RETENTION_INTERVAL_MS=3600000
+TMA_TRACE_INDEX_RETENTION_LIMIT=1000
 ```
 
 ### 按场景启用

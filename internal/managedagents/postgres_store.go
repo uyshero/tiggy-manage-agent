@@ -4,16 +4,29 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+const (
+	eventNotificationChannel       = "tma_session_events"
+	eventCatchUpInterval           = time.Second
+	eventListenerReconnectInterval = time.Second
+)
+
 type PostgresStore struct {
-	db  *sql.DB
-	hub *eventHub
+	db             *sql.DB
+	hub            *eventHub
+	listenerCancel context.CancelFunc
+	listenerDone   chan struct{}
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
@@ -26,11 +39,22 @@ func NewPostgresStore(databaseURL string) (*PostgresStore, error) {
 		return nil, err
 	}
 
-	return &PostgresStore{db: db, hub: newEventHub()}, nil
+	store := &PostgresStore{db: db, hub: newEventHub()}
+	store.startEventListener(databaseURL)
+	return store, nil
 }
 
 func (s *PostgresStore) Close() error {
-	return s.db.Close()
+	s.closeOnce.Do(func() {
+		if s.listenerCancel != nil {
+			s.listenerCancel()
+		}
+		if s.listenerDone != nil {
+			<-s.listenerDone
+		}
+		s.closeErr = s.db.Close()
+	})
+	return s.closeErr
 }
 
 func (s *PostgresStore) EnsureLLMProvider(input EnsureLLMProviderInput) (LLMProvider, error) {
@@ -234,6 +258,64 @@ func (s *PostgresStore) ListLLMModels(providerID string) ([]LLMModel, error) {
 	return models, nil
 }
 
+func (s *PostgresStore) EnsureAgent(input EnsureAgentInput) (Agent, error) {
+	if input.ID == "" {
+		return Agent{}, fmt.Errorf("%w: agent id is required", ErrInvalid)
+	}
+	if input.Name == "" {
+		return Agent{}, fmt.Errorf("%w: agent name is required", ErrInvalid)
+	}
+	if input.LLMProvider == "" {
+		return Agent{}, fmt.Errorf("%w: agent llm_provider is required", ErrInvalid)
+	}
+	if input.LLMModel == "" {
+		return Agent{}, fmt.Errorf("%w: agent llm_model is required", ErrInvalid)
+	}
+	if err := s.validateLLMProvider(input.LLMProvider); err != nil {
+		return Agent{}, err
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Agent{}, err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC()
+	workspaceID := defaultString(input.WorkspaceID, DefaultWorkspaceID)
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO agents (id, workspace_id, name, current_config_version, created_at)
+		VALUES ($1, $2, $3, 1, $4)
+		ON CONFLICT (id) DO NOTHING
+	`, input.ID, workspaceID, input.Name, now)
+	if err != nil {
+		return Agent{}, err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return Agent{}, err
+	}
+	if inserted == 1 {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO agent_config_versions (agent_id, version, llm_provider, llm_model, system, tools_json, skills_json, created_at)
+			VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
+		`, input.ID, input.LLMProvider, input.LLMModel, input.System, nullableRaw(input.Tools), nullableRaw(input.Skills), now)
+		if err != nil {
+			return Agent{}, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `UPDATE agents SET archived_at = NULL WHERE id = $1`, input.ID); err != nil {
+			return Agent{}, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Agent{}, err
+	}
+	return s.GetAgent(input.ID)
+}
+
 func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	if input.Name == "" {
 		return Agent{}, fmt.Errorf("%w: agent name is required", ErrInvalid)
@@ -356,6 +438,64 @@ func (s *PostgresStore) GetAgent(id string) (Agent, error) {
 	agent.ConfigVersion.Tools = cloneRaw(tools)
 	agent.ConfigVersion.Skills = cloneRaw(skills)
 	return agent, nil
+}
+
+func (s *PostgresStore) ListAgents() ([]Agent, error) {
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT
+			a.id,
+			a.workspace_id,
+			a.name,
+			a.current_config_version,
+			a.created_at,
+			av.version,
+			av.llm_provider,
+			av.llm_model,
+			av.system,
+			av.tools_json,
+			av.skills_json,
+			av.created_at
+		FROM agents a
+		JOIN agent_config_versions av
+			ON av.agent_id = a.id
+			AND av.version = a.current_config_version
+		WHERE a.archived_at IS NULL
+		ORDER BY a.created_at DESC, a.id DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []Agent
+	for rows.Next() {
+		var agent Agent
+		var tools []byte
+		var skills []byte
+		if err := rows.Scan(
+			&agent.ID,
+			&agent.WorkspaceID,
+			&agent.Name,
+			&agent.CurrentConfigVersion,
+			&agent.CreatedAt,
+			&agent.ConfigVersion.Version,
+			&agent.ConfigVersion.LLMProvider,
+			&agent.ConfigVersion.LLMModel,
+			&agent.ConfigVersion.System,
+			&tools,
+			&skills,
+			&agent.ConfigVersion.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		agent.ConfigVersion.Tools = cloneRaw(tools)
+		agent.ConfigVersion.Skills = cloneRaw(skills)
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return agents, nil
 }
 
 func (s *PostgresStore) ListAgentConfigVersions(agentID string) ([]AgentConfigVersion, error) {
@@ -706,10 +846,76 @@ func (s *PostgresStore) ResolveAgentRuntimeConfig(sessionID string) (AgentRuntim
 	config.LLMAPIKeyEnv = apiKeyEnv.String
 	config.SummaryText = summaryText.String
 	config.SummarySourceUntilSeq = summarySourceUntilSeq.Int64
-	if enabled.Valid && !enabled.Bool {
+	overridden, err := s.applyRuntimeLLMOverrides(&config, runtimeSettings)
+	if err != nil {
+		return AgentRuntimeConfig{}, err
+	}
+	if !overridden && enabled.Valid && !enabled.Bool {
 		return AgentRuntimeConfig{}, fmt.Errorf("%w: llm provider %s is disabled", ErrInvalid, config.LLMProvider)
 	}
 	return config, nil
+}
+
+func (s *PostgresStore) applyRuntimeLLMOverrides(config *AgentRuntimeConfig, runtimeSettings []byte) (bool, error) {
+	if config == nil || len(runtimeSettings) == 0 || string(runtimeSettings) == "null" {
+		return false, nil
+	}
+	var overrides struct {
+		LLMProvider *string `json:"llm_provider"`
+		LLMModel    *string `json:"llm_model"`
+	}
+	if err := json.Unmarshal(runtimeSettings, &overrides); err != nil {
+		return false, nil
+	}
+	providerID := strings.TrimSpace(config.LLMProvider)
+	modelName := strings.TrimSpace(config.LLMModel)
+	if overrides.LLMProvider != nil {
+		providerID = strings.TrimSpace(*overrides.LLMProvider)
+	}
+	if overrides.LLMModel != nil {
+		modelName = strings.TrimSpace(*overrides.LLMModel)
+	}
+	if providerID == "" || modelName == "" || (providerID == config.LLMProvider && modelName == config.LLMModel) {
+		return false, nil
+	}
+	var providerType sql.NullString
+	var baseURL sql.NullString
+	var apiKeyEnv sql.NullString
+	var enabled sql.NullBool
+	err := s.db.QueryRowContext(context.Background(), `
+		SELECT
+			lp.provider_type,
+			lp.base_url,
+			lp.api_key_env,
+			lp.enabled,
+			COALESCE(lm.context_window_tokens, $3)
+		FROM llm_providers lp
+		LEFT JOIN llm_models lm
+			ON lm.provider_id = lp.id
+			AND lm.model = $2
+		WHERE lp.id = $1
+	`, providerID, modelName, DefaultContextWindowTokens).Scan(
+		&providerType,
+		&baseURL,
+		&apiKeyEnv,
+		&enabled,
+		&config.ContextWindowTokens,
+	)
+	if err == sql.ErrNoRows {
+		return false, fmt.Errorf("%w: runtime override provider %s not found", ErrNotFound, providerID)
+	}
+	if err != nil {
+		return false, err
+	}
+	if enabled.Valid && !enabled.Bool {
+		return false, fmt.Errorf("%w: llm provider %s is disabled", ErrInvalid, providerID)
+	}
+	config.LLMProvider = providerID
+	config.LLMModel = modelName
+	config.LLMProviderType = providerType.String
+	config.LLMBaseURL = baseURL.String
+	config.LLMAPIKeyEnv = apiKeyEnv.String
+	return true, nil
 }
 
 func (s *PostgresStore) GetSessionSummary(sessionID string) (SessionSummary, error) {
@@ -1191,6 +1397,9 @@ func (s *PostgresStore) DecideSessionIntervention(sessionID string, input Decide
 		return DecideSessionInterventionResult{}, err
 	}
 	if current.Status != InterventionStatusPending {
+		if current.Status == status {
+			return DecideSessionInterventionResult{Intervention: current}, nil
+		}
 		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention %s is already %s", ErrInvalid, input.CallID, current.Status)
 	}
 
@@ -1247,6 +1456,13 @@ func (s *PostgresStore) DecideSessionIntervention(sessionID string, input Decide
 	if err != nil {
 		return DecideSessionInterventionResult{}, err
 	}
+	resumable, err := markSessionTurnResumableTx(ctx, tx, sessionID, input.TurnID, input.CallID)
+	if err != nil {
+		return DecideSessionInterventionResult{}, err
+	}
+	if !resumable {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn is not resumable", ErrConflict)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return DecideSessionInterventionResult{}, err
@@ -1269,7 +1485,11 @@ func (s *PostgresStore) MarkSessionTurnWaitingApproval(sessionID string, turnID 
 
 	result, err := s.db.ExecContext(context.Background(), `
 		UPDATE session_turns
-		SET status = $3
+		SET status = $3,
+			resume_intervention_call_id = NULL,
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ($3, $4)
 	`, sessionID, turnID, TurnStatusWaitingApproval, TurnStatusRunning)
 	if err != nil {
@@ -1934,6 +2154,309 @@ func (s *PostgresStore) ListObservabilityExporterRuns(input ListObservabilityExp
 		return nil, err
 	}
 	return runs, nil
+}
+
+func (s *PostgresStore) UpsertTraceIndex(input UpsertTraceIndexInput) error {
+	trace := input.Trace
+	if trace.TraceID == "" {
+		return fmt.Errorf("%w: trace_id is required", ErrInvalid)
+	}
+	if trace.SessionID == "" {
+		return fmt.Errorf("%w: trace session_id is required", ErrInvalid)
+	}
+	if trace.TurnID == "" {
+		return fmt.Errorf("%w: trace turn_id is required", ErrInvalid)
+	}
+	if trace.WorkspaceID == "" {
+		trace.WorkspaceID = DefaultWorkspaceID
+	}
+	now := time.Now().UTC()
+	if trace.StartedAt.IsZero() {
+		trace.StartedAt = now
+	}
+	if trace.EndedAt.IsZero() {
+		trace.EndedAt = trace.StartedAt
+	}
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO trace_indexes (
+			trace_id,
+			workspace_id,
+			session_id,
+			turn_id,
+			session_title,
+			session_status,
+			turn_status,
+			summary,
+			started_at,
+			ended_at,
+			duration_ms,
+			step_count,
+			span_count,
+			tool_calls,
+			errors,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		ON CONFLICT (trace_id) DO UPDATE SET
+			workspace_id = EXCLUDED.workspace_id,
+			session_id = EXCLUDED.session_id,
+			turn_id = EXCLUDED.turn_id,
+			session_title = EXCLUDED.session_title,
+			session_status = EXCLUDED.session_status,
+			turn_status = EXCLUDED.turn_status,
+			summary = EXCLUDED.summary,
+			started_at = EXCLUDED.started_at,
+			ended_at = EXCLUDED.ended_at,
+			duration_ms = EXCLUDED.duration_ms,
+			step_count = EXCLUDED.step_count,
+			span_count = EXCLUDED.span_count,
+			tool_calls = EXCLUDED.tool_calls,
+			errors = EXCLUDED.errors,
+			updated_at = EXCLUDED.updated_at
+	`, trace.TraceID, trace.WorkspaceID, trace.SessionID, trace.TurnID, trace.SessionTitle, trace.SessionStatus, trace.TurnStatus, trace.Summary, trace.StartedAt, trace.EndedAt, trace.DurationMillis, trace.StepCount, trace.SpanCount, trace.ToolCalls, trace.Errors, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM trace_span_indexes WHERE trace_id = $1`, trace.TraceID); err != nil {
+		return err
+	}
+	for _, span := range input.Spans {
+		if span.SpanID == "" {
+			continue
+		}
+		if span.WorkspaceID == "" {
+			span.WorkspaceID = trace.WorkspaceID
+		}
+		if span.SessionID == "" {
+			span.SessionID = trace.SessionID
+		}
+		if span.TurnID == "" {
+			span.TurnID = trace.TurnID
+		}
+		if span.SessionTitle == "" {
+			span.SessionTitle = trace.SessionTitle
+		}
+		if span.StartTime.IsZero() {
+			span.StartTime = trace.StartedAt
+		}
+		attributes, err := json.Marshal(span.Attributes)
+		if err != nil {
+			return err
+		}
+		if len(attributes) == 0 || string(attributes) == "null" {
+			attributes = []byte("{}")
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO trace_span_indexes (
+				trace_id,
+				span_id,
+				workspace_id,
+				session_id,
+				turn_id,
+				session_title,
+				parent_span_id,
+				name,
+				kind,
+				status,
+				depth,
+				start_time,
+				start_offset_ms,
+				duration_ms,
+				self_duration_ms,
+				critical,
+				event_count,
+				attributes_json,
+				updated_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19)
+		`, trace.TraceID, span.SpanID, span.WorkspaceID, span.SessionID, span.TurnID, span.SessionTitle, span.ParentSpanID, span.Name, span.Kind, span.Status, span.Depth, span.StartTime, span.StartOffsetMillis, span.DurationMillis, span.SelfDurationMillis, span.Critical, span.EventCount, string(attributes), now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *PostgresStore) GetTraceIndex(traceID string) (TraceIndexEntry, error) {
+	if traceID == "" {
+		return TraceIndexEntry{}, fmt.Errorf("%w: trace_id is required", ErrInvalid)
+	}
+	rows, err := s.ListTraceIndexes(ListTraceIndexInput{TraceID: traceID, IncludeArchived: true, Limit: 1})
+	if err != nil {
+		return TraceIndexEntry{}, err
+	}
+	if len(rows) == 0 {
+		return TraceIndexEntry{}, ErrNotFound
+	}
+	return rows[0], nil
+}
+
+func (s *PostgresStore) ListTraceIndexes(input ListTraceIndexInput) ([]TraceIndexEntry, error) {
+	limit := input.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT t.trace_id, t.workspace_id, t.session_id, t.turn_id, t.session_title, t.session_status, t.turn_status, t.summary,
+			t.started_at, t.ended_at, t.duration_ms, t.step_count, t.span_count, t.tool_calls, t.errors, t.updated_at
+		FROM trace_indexes t
+		JOIN sessions s ON s.id = t.session_id
+		WHERE ($1 = '' OR t.workspace_id = $1)
+			AND ($2 = '' OR t.session_id = $2)
+			AND ($3 = '' OR t.turn_id = $3)
+			AND ($4 = '' OR t.trace_id = $4)
+			AND ($5 = '' OR t.session_status = $5)
+			AND ($6 OR s.archived_at IS NULL)
+		ORDER BY t.started_at DESC, t.trace_id DESC
+		LIMIT $7
+		OFFSET $8
+	`, input.WorkspaceID, input.SessionID, input.TurnID, input.TraceID, input.SessionStatus, input.IncludeArchived, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := []TraceIndexEntry{}
+	for rows.Next() {
+		var entry TraceIndexEntry
+		if err := rows.Scan(
+			&entry.TraceID,
+			&entry.WorkspaceID,
+			&entry.SessionID,
+			&entry.TurnID,
+			&entry.SessionTitle,
+			&entry.SessionStatus,
+			&entry.TurnStatus,
+			&entry.Summary,
+			&entry.StartedAt,
+			&entry.EndedAt,
+			&entry.DurationMillis,
+			&entry.StepCount,
+			&entry.SpanCount,
+			&entry.ToolCalls,
+			&entry.Errors,
+			&entry.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) ListTraceSpanIndexes(input ListTraceSpanIndexInput) ([]TraceSpanIndexEntry, error) {
+	limit := input.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	query := strings.TrimSpace(strings.ToLower(input.Query))
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT sp.trace_id, sp.workspace_id, sp.session_id, sp.turn_id, sp.session_title, sp.span_id, sp.parent_span_id, sp.name,
+			sp.kind, sp.status, sp.depth, sp.start_time, sp.start_offset_ms, sp.duration_ms, sp.self_duration_ms, sp.critical,
+			sp.event_count, sp.attributes_json, sp.updated_at
+		FROM trace_span_indexes sp
+		JOIN sessions s ON s.id = sp.session_id
+		WHERE ($1 = '' OR sp.workspace_id = $1)
+			AND ($2 = '' OR sp.trace_id = $2)
+			AND ($3 = '' OR sp.session_id = $3)
+			AND ($4 = '' OR sp.turn_id = $4)
+			AND ($5 = '' OR lower(sp.kind) = lower($5))
+			AND ($6 = '' OR lower(sp.status) = lower($6))
+			AND ($7::boolean IS NULL OR sp.critical = $7)
+			AND ($8 = 0 OR sp.duration_ms >= $8)
+			AND ($9 = 0 OR sp.duration_ms <= $9)
+			AND ($10 = 0 OR sp.self_duration_ms >= $10)
+			AND ($11 = '' OR lower(concat_ws(' ', sp.trace_id, sp.session_id, sp.turn_id, sp.session_title, sp.span_id, sp.parent_span_id, sp.name, sp.kind, sp.status, sp.attributes_json::text)) LIKE '%' || $11 || '%')
+			AND ($12 OR s.archived_at IS NULL)
+		ORDER BY sp.start_time DESC, sp.span_id
+		LIMIT $13
+		OFFSET $14
+	`, input.WorkspaceID, input.TraceID, input.SessionID, input.TurnID, input.Kind, input.Status, input.Critical, input.MinDurationMillis, input.MaxDurationMillis, input.MinSelfDurationMillis, query, input.IncludeArchived, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := []TraceSpanIndexEntry{}
+	for rows.Next() {
+		var entry TraceSpanIndexEntry
+		var attributes []byte
+		if err := rows.Scan(
+			&entry.TraceID,
+			&entry.WorkspaceID,
+			&entry.SessionID,
+			&entry.TurnID,
+			&entry.SessionTitle,
+			&entry.SpanID,
+			&entry.ParentSpanID,
+			&entry.Name,
+			&entry.Kind,
+			&entry.Status,
+			&entry.Depth,
+			&entry.StartTime,
+			&entry.StartOffsetMillis,
+			&entry.DurationMillis,
+			&entry.SelfDurationMillis,
+			&entry.Critical,
+			&entry.EventCount,
+			&attributes,
+			&entry.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if len(attributes) > 0 {
+			if err := json.Unmarshal(attributes, &entry.Attributes); err != nil {
+				return nil, err
+			}
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func (s *PostgresStore) PruneTraceIndexes(input PruneTraceIndexInput) (int, error) {
+	if input.Before.IsZero() {
+		return 0, fmt.Errorf("%w: prune before is required", ErrInvalid)
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+	var count int
+	err := s.db.QueryRowContext(context.Background(), `
+		WITH deleted AS (
+			DELETE FROM trace_indexes
+			WHERE trace_id IN (
+				SELECT trace_id
+				FROM trace_indexes
+				WHERE ended_at < $1
+				ORDER BY ended_at
+				LIMIT $2
+			)
+			RETURNING 1
+		)
+		SELECT count(*) FROM deleted
+	`, input.Before, limit).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func nullableTime(value time.Time) *time.Time {
@@ -2877,6 +3400,115 @@ func (s *PostgresStore) CancelWorkerWork(workID string, input CancelWorkerWorkIn
 	return s.GetWorkerWork(workID)
 }
 
+func (s *PostgresStore) RequeueWorkerWork(workID string, input RequeueWorkerWorkInput) (WorkerWork, error) {
+	if workID == "" {
+		return WorkerWork{}, fmt.Errorf("%w: worker work id is required", ErrInvalid)
+	}
+	workerID := strings.TrimSpace(input.WorkerID)
+	if input.ClearWorker && workerID != "" {
+		return WorkerWork{}, fmt.Errorf("%w: requeue accepts either worker_id or clear_worker, not both", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	defer tx.Rollback()
+
+	original, err := scanWorkerWork(tx.QueryRowContext(ctx, `
+		SELECT
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+		FROM worker_work
+		WHERE id = $1
+		FOR UPDATE
+	`, workID))
+	if err == sql.ErrNoRows {
+		return WorkerWork{}, ErrNotFound
+	}
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	if original.Status != WorkerWorkStatusFailed && original.Status != WorkerWorkStatusCanceled {
+		return WorkerWork{}, fmt.Errorf("%w: only failed or canceled worker work can be requeued", ErrConflict)
+	}
+	if !input.ClearWorker && workerID == "" {
+		workerID = original.WorkerID
+	}
+
+	newID, err := nextSequenceID(ctx, tx, "work", "tma_worker_work_id_seq")
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	now := time.Now().UTC()
+	row := tx.QueryRowContext(ctx, `
+		INSERT INTO worker_work (
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			created_at,
+			updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, '{}'::jsonb, $9, $9)
+		RETURNING
+			id,
+			workspace_id,
+			worker_id,
+			environment_id,
+			session_id,
+			turn_id,
+			work_type,
+			status,
+			payload_json,
+			result_json,
+			error_message,
+			lease_expires_at,
+			created_at,
+			updated_at,
+			started_at,
+			completed_at
+	`, newID,
+		original.WorkspaceID,
+		nullableString(workerID),
+		nullableString(original.EnvironmentID),
+		nullableString(original.SessionID),
+		original.TurnID,
+		original.WorkType,
+		metadataJSON(original.Payload),
+		now,
+	)
+	requeued, err := scanWorkerWork(row)
+	if err != nil {
+		return WorkerWork{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkerWork{}, err
+	}
+	return requeued, nil
+}
+
 func (s *PostgresStore) ReapExpiredWorkerWork(input ReapExpiredWorkerWorkInput) ([]WorkerWork, error) {
 	limit := reapLimit(input.Limit)
 	now := time.Now().UTC()
@@ -3063,13 +3695,223 @@ func (s *PostgresStore) ListConversationMessages(sessionID string, beforeSeq int
 	return messages, rows.Err()
 }
 
-func (s *PostgresStore) SubscribeEvents(sessionID string) (<-chan Event, func(), error) {
+func (s *PostgresStore) SubscribeEvents(sessionID string, afterSeq int64) (<-chan Event, func(), error) {
+	if afterSeq < 0 {
+		return nil, nil, fmt.Errorf("%w: after_seq must not be negative", ErrInvalid)
+	}
 	if _, err := s.GetSession(sessionID); err != nil {
 		return nil, nil, err
 	}
 
-	ch, cancel := s.hub.subscribe(sessionID)
-	return ch, cancel, nil
+	wake, cancelWake := s.hub.subscribe(sessionID)
+	ctx, cancelContext := context.WithCancel(context.Background())
+	events := make(chan Event)
+	go s.streamPersistedEvents(ctx, sessionID, afterSeq, wake, cancelWake, events)
+
+	var cancelOnce sync.Once
+	cancel := func() {
+		cancelOnce.Do(cancelContext)
+	}
+	return events, cancel, nil
+}
+
+func (s *PostgresStore) streamPersistedEvents(ctx context.Context, sessionID string, afterSeq int64, wake <-chan struct{}, cancelWake func(), events chan<- Event) {
+	defer close(events)
+	defer cancelWake()
+
+	ticker := time.NewTicker(eventCatchUpInterval)
+	defer ticker.Stop()
+	cursor := afterSeq
+
+	for {
+		persisted, err := s.ListEvents(sessionID, cursor)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) || ctx.Err() != nil {
+				return
+			}
+		} else {
+			for _, event := range persisted {
+				select {
+				case <-ctx.Done():
+					return
+				case events <- event:
+					cursor = event.Seq
+				}
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-wake:
+			if !ok {
+				return
+			}
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *PostgresStore) startEventListener(databaseURL string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.listenerCancel = cancel
+	s.listenerDone = make(chan struct{})
+	go s.listenForEventNotifications(ctx, databaseURL)
+}
+
+func (s *PostgresStore) listenForEventNotifications(ctx context.Context, databaseURL string) {
+	defer close(s.listenerDone)
+
+	for ctx.Err() == nil {
+		conn, err := pgx.Connect(ctx, databaseURL)
+		if err != nil {
+			if !waitForEventListenerRetry(ctx) {
+				return
+			}
+			continue
+		}
+
+		_, err = conn.Exec(ctx, "LISTEN "+eventNotificationChannel)
+		if err == nil {
+			for ctx.Err() == nil {
+				notification, waitErr := conn.WaitForNotification(ctx)
+				if waitErr != nil {
+					break
+				}
+				s.hub.notify(notification.Payload)
+			}
+		}
+		_ = conn.Close(context.Background())
+		if !waitForEventListenerRetry(ctx) {
+			return
+		}
+	}
+}
+
+func waitForEventListenerRetry(ctx context.Context) bool {
+	timer := time.NewTimer(eventListenerReconnectInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (s *PostgresStore) ClaimSessionTurns(input ClaimSessionTurnsInput) ([]SessionTurnWork, error) {
+	if strings.TrimSpace(input.LeaseOwner) == "" {
+		return nil, fmt.Errorf("%w: lease_owner is required", ErrInvalid)
+	}
+	if input.LeaseDuration <= 0 {
+		return nil, fmt.Errorf("%w: lease_duration must be positive", ErrInvalid)
+	}
+	if input.Limit <= 0 {
+		return nil, fmt.Errorf("%w: limit must be positive", ErrInvalid)
+	}
+
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		WITH candidates AS (
+			SELECT st.session_id, st.id, event.seq, event.payload_json, st.resume_intervention_call_id
+			FROM session_turns st
+			JOIN sessions session ON session.id = st.session_id
+			JOIN session_events event ON event.id = st.user_event_id
+			WHERE st.status = 'running'
+				AND session.status = 'running'
+				AND session.archived_at IS NULL
+				AND (st.lease_expires_at IS NULL OR st.lease_expires_at <= CURRENT_TIMESTAMP)
+			ORDER BY st.started_at ASC, st.session_id ASC
+			FOR UPDATE OF st SKIP LOCKED
+			LIMIT $1
+		)
+		UPDATE session_turns st
+		SET lease_owner = $2,
+			lease_expires_at = CURRENT_TIMESTAMP + ($3 * interval '1 millisecond'),
+			last_heartbeat_at = CURRENT_TIMESTAMP,
+			attempt_count = st.attempt_count + 1
+		FROM candidates candidate
+		WHERE st.session_id = candidate.session_id AND st.id = candidate.id
+		RETURNING st.session_id, st.id, candidate.seq, candidate.payload_json, candidate.resume_intervention_call_id, st.attempt_count
+	`, input.Limit, input.LeaseOwner, input.LeaseDuration.Milliseconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	work := make([]SessionTurnWork, 0, input.Limit)
+	resumeCallIDs := make([]string, 0, input.Limit)
+	for rows.Next() {
+		var item SessionTurnWork
+		var resumeCallID sql.NullString
+		if err := rows.Scan(&item.SessionID, &item.TurnID, &item.UserEventSeq, &item.UserPayload, &resumeCallID, &item.Attempt); err != nil {
+			return nil, err
+		}
+		item.UserPayload = cloneRaw(item.UserPayload)
+		work = append(work, item)
+		resumeCallIDs = append(resumeCallIDs, resumeCallID.String)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for index, callID := range resumeCallIDs {
+		if callID == "" {
+			continue
+		}
+		intervention, err := getSessionInterventionTx(ctx, tx, work[index].SessionID, work[index].TurnID, callID)
+		if err != nil {
+			return nil, err
+		}
+		work[index].ResumeIntervention = &intervention
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return work, nil
+}
+
+func (s *PostgresStore) RenewSessionTurnLease(input RenewSessionTurnLeaseInput) (bool, error) {
+	if input.SessionID == "" || input.TurnID == "" || strings.TrimSpace(input.LeaseOwner) == "" {
+		return false, fmt.Errorf("%w: session_id, turn_id, and lease_owner are required", ErrInvalid)
+	}
+	if input.LeaseDuration <= 0 {
+		return false, fmt.Errorf("%w: lease_duration must be positive", ErrInvalid)
+	}
+	result, err := s.db.ExecContext(context.Background(), `
+		UPDATE session_turns
+		SET lease_expires_at = CURRENT_TIMESTAMP + ($4 * interval '1 millisecond'),
+			last_heartbeat_at = CURRENT_TIMESTAMP
+		WHERE session_id = $1 AND id = $2 AND lease_owner = $3 AND status = 'running'
+	`, input.SessionID, input.TurnID, input.LeaseOwner, input.LeaseDuration.Milliseconds())
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
+}
+
+func (s *PostgresStore) ReleaseSessionTurnLease(input ReleaseSessionTurnLeaseInput) error {
+	if input.SessionID == "" || input.TurnID == "" || strings.TrimSpace(input.LeaseOwner) == "" {
+		return fmt.Errorf("%w: session_id, turn_id, and lease_owner are required", ErrInvalid)
+	}
+	_, err := s.db.ExecContext(context.Background(), `
+		UPDATE session_turns
+		SET lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+		WHERE session_id = $1 AND id = $2 AND lease_owner = $3 AND status = 'running'
+	`, input.SessionID, input.TurnID, input.LeaseOwner)
+	return err
 }
 
 func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *Session, input AppendEventInput, now time.Time) ([]Event, error) {
@@ -3171,6 +4013,9 @@ func (s *PostgresStore) appendEventTx(ctx context.Context, tx *sql.Tx, sessionID
 	if err != nil {
 		return Event{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_notify($1, $2)`, eventNotificationChannel, event.SessionID); err != nil {
+		return Event{}, err
+	}
 
 	return event, nil
 }
@@ -3246,7 +4091,8 @@ func setTurnUserEventTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, user
 func completeTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
-		SET status = 'completed', ended_at = $3
+		SET status = 'completed', ended_at = $3,
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, now)
 	return err
@@ -3255,7 +4101,8 @@ func completeTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, n
 func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
-		SET status = 'interrupted', interrupt_requested_at = $3, ended_at = $3
+		SET status = 'interrupted', interrupt_requested_at = $3, ended_at = $3,
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, now)
 	return err
@@ -3264,7 +4111,8 @@ func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, 
 func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason string, now time.Time) error {
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
-		SET status = 'failed', error_message = $3, ended_at = $4
+		SET status = 'failed', error_message = $3, ended_at = $4,
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
 	`, sessionID, turnID, nullableString(reason), now)
 	return err
@@ -3435,6 +4283,49 @@ func getSessionInterventionForUpdateTx(ctx context.Context, tx *sql.Tx, sessionI
 		FOR UPDATE
 	`, sessionID, turnID, callID)
 	return scanSessionIntervention(row)
+}
+
+func getSessionInterventionTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, callID string) (SessionIntervention, error) {
+	row := tx.QueryRowContext(ctx, `
+		SELECT
+			session_id,
+			turn_id,
+			call_id,
+			tool_identifier,
+			api_name,
+			arguments_json,
+			intervention_mode,
+			reason,
+			status,
+			decision_reason,
+			requested_at,
+			decided_at,
+			continuation_messages_json,
+			continuation_round
+		FROM session_interventions
+		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
+	`, sessionID, turnID, callID)
+	return scanSessionIntervention(row)
+}
+
+func markSessionTurnResumableTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, callID string) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE session_turns
+		SET status = $4,
+			resume_intervention_call_id = $3,
+			lease_owner = NULL,
+			lease_expires_at = NULL,
+			last_heartbeat_at = NULL
+		WHERE session_id = $1 AND id = $2 AND status IN ($4, $5)
+	`, sessionID, turnID, callID, TurnStatusRunning, TurnStatusWaitingApproval)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
 }
 
 func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {

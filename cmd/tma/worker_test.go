@@ -49,7 +49,7 @@ func TestCommandWorkerList(t *testing.T) {
 		if got := r.URL.Query().Get("status"); got != "online" {
 			t.Fatalf("unexpected status query %q", got)
 		}
-		return jsonResponse(`{"workers":[{"id":"wrk_000001","workspace_id":"wksp_default","name":"viito-mac","worker_type":"local","status":"online","last_seen_at":"2026-07-08T00:00:00Z","lease_expires_at":"2026-07-08T00:01:00Z","capabilities":{"namespaces":["default"],"apis":["default.run_command"],"runtimes":["local_system"],"capabilities":["exec"]}}]}`), nil
+		return jsonResponse(`{"workers":[{"id":"wrk_000001","workspace_id":"wksp_default","name":"viito-mac","worker_type":"local","status":"online","last_seen_at":"2026-07-08T00:00:00Z","lease_expires_at":"2026-07-08T00:01:00Z","capabilities":{"namespaces":["default","robot"],"apis":["default.run_command","robot.get_state"],"runtimes":["local_system"],"capabilities":["exec","robot.state"],"manifests":[{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot plugin."},"api":[{"name":"get_state","description":"Read robot state.","capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}]}}]}`), nil
 	})
 
 	stdout := captureStdout(t, func() {
@@ -63,8 +63,9 @@ func TestCommandWorkerList(t *testing.T) {
 		"workspace: wksp_default",
 		"lease_expires: 2026-07-08T00:01:00Z",
 		"runtimes: local_system",
-		"apis: default.run_command",
-		"capabilities: exec",
+		"apis: default.run_command, robot.get_state",
+		"capabilities: exec, robot.state",
+		"tool_manifests: robot(get_state)",
 	} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected output to contain %q, got %q", expected, stdout)

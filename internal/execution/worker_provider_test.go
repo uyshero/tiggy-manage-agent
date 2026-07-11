@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
@@ -203,6 +204,130 @@ func TestWorkerBackedProviderRunCommandDecodesUploadedArtifactRefs(t *testing.T)
 	}
 	if len(command.Artifacts) != 1 || command.Artifacts[0].ArtifactID != "art_large" {
 		t.Fatalf("unexpected artifact refs: %#v", command.Artifacts)
+	}
+}
+
+func TestWorkerBackedProviderBrowserOpenEnqueuesAndDecodesResult(t *testing.T) {
+	state, err := json.Marshal(browser.PageState{
+		BrowserSessionID: "sesn_000001",
+		URL:              "https://example.com",
+		Title:            "Example",
+	})
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	result, err := json.Marshal(map[string]any{
+		"tool_result": tools.ExecutionResult{
+			Identifier: tools.NamespaceBrowser,
+			APIName:    "open",
+			Content:    "Title: Example",
+			State:      state,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID:          "wrk_000001",
+			WorkspaceID: "wksp_000001",
+			Status:      managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, map[string]any{
+				"namespaces":   []string{"browser"},
+				"apis":         []string{"browser.open"},
+				"runtimes":     []string{"local_system"},
+				"capabilities": []string{"browser.open", "browser.read"},
+			}),
+		}},
+		completedResult: result,
+	}
+	provider := WorkerBackedProvider{
+		Store:         store,
+		WorkspaceID:   "wksp_000001",
+		SessionID:     "sesn_000001",
+		EnvironmentID: "env_000001",
+		TurnID:        "turn_000001",
+		PollInterval:  time.Millisecond,
+		WaitTimeout:   time.Second,
+	}
+
+	page, err := provider.Open(t.Context(), browser.OpenRequest{
+		BaseRequest: browser.BaseRequest{URL: "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("open browser through worker: %v", err)
+	}
+	if page.Title != "Example" || page.URL != "https://example.com" {
+		t.Fatalf("unexpected page state: %#v", page)
+	}
+	var invocation tools.WorkInvocation
+	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
+		t.Fatalf("decode enqueued invocation: %v", err)
+	}
+	if invocation.Namespace != tools.NamespaceBrowser || invocation.API != "open" || invocation.Runtime != tools.ToolRuntimeLocalSystem {
+		t.Fatalf("unexpected browser invocation: %#v", invocation)
+	}
+}
+
+func TestWorkerBackedProviderExecutesArbitraryWorkerTool(t *testing.T) {
+	state := json.RawMessage(`{"status":"idle"}`)
+	result, err := json.Marshal(map[string]any{
+		"tool_result": tools.ExecutionResult{
+			Identifier: "robot",
+			APIName:    "get_state",
+			Content:    "robot state: idle",
+			State:      state,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID:          "wrk_robot",
+			WorkspaceID: "wksp_000001",
+			Status:      managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, tools.WorkerCapabilities{
+				Namespaces:   []string{"robot"},
+				APIs:         []string{"robot.get_state"},
+				Runtimes:     []string{"local_system"},
+				Capabilities: []string{"robot.state"},
+				Manifests:    []tools.Manifest{robotManifest()},
+			}),
+		}},
+		completedResult: result,
+	}
+	provider := WorkerBackedProvider{
+		Store:         store,
+		WorkspaceID:   "wksp_000001",
+		SessionID:     "sesn_000001",
+		EnvironmentID: "env_000001",
+		TurnID:        "turn_000001",
+		PollInterval:  time.Millisecond,
+		WaitTimeout:   time.Second,
+	}
+	manifest := robotManifest()
+	executionResult, err := provider.ExecuteWorkerTool(t.Context(), manifest, manifest.API[0], tools.Call{
+		ID:         "call_robot",
+		Identifier: "robot",
+		APIName:    "get_state",
+		Arguments:  json.RawMessage(`{}`),
+	}, tools.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("execute arbitrary worker tool: %v", err)
+	}
+	if executionResult.Content != "robot state: idle" {
+		t.Fatalf("unexpected execution result: %#v", executionResult)
+	}
+	var invocation tools.WorkInvocation
+	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
+		t.Fatalf("decode enqueued invocation: %v", err)
+	}
+	if invocation.Namespace != "robot" || invocation.API != "get_state" || invocation.Runtime != tools.ToolRuntimeLocalSystem {
+		t.Fatalf("unexpected robot invocation: %#v", invocation)
+	}
+	if invocation.Risk != tools.ToolRiskRead || len(invocation.Capabilities) != 1 || invocation.Capabilities[0] != "robot.state" {
+		t.Fatalf("expected robot invocation metadata from manifest, got %#v", invocation)
 	}
 }
 

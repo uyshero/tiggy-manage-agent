@@ -153,6 +153,59 @@ func TestProjectTurnTracePrefersNativeSpanFields(t *testing.T) {
 	}
 }
 
+func TestProjectTurnTraceProjectsNativeSpanLifecycle(t *testing.T) {
+	now := time.Now().UTC()
+	events := []managedagents.Event{
+		{
+			Seq:       1,
+			Type:      managedagents.EventRuntimeSpanStarted,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_lifecycle","span_id":"span_root","span_name":"tma.interaction","span_kind":"interaction","message":"interaction started"}`),
+			CreatedAt: now,
+		},
+		{
+			Seq:       2,
+			Type:      managedagents.EventRuntimeSpanStarted,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_lifecycle","span_id":"span_child","parent_span_id":"span_root","span_name":"tma.worker.run","span_kind":"worker","message":"worker started"}`),
+			CreatedAt: now.Add(10 * time.Millisecond),
+		},
+		{
+			Seq:       3,
+			Type:      managedagents.EventRuntimeSpanEvent,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_lifecycle","span_id":"span_child","parent_span_id":"span_root","span_name":"tma.worker.run","span_kind":"worker","message":"heartbeat"}`),
+			CreatedAt: now.Add(25 * time.Millisecond),
+		},
+		{
+			Seq:       4,
+			Type:      managedagents.EventRuntimeSpanEnded,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_lifecycle","span_id":"span_child","parent_span_id":"span_root","span_name":"tma.worker.run","span_kind":"worker","message":"worker finished"}`),
+			CreatedAt: now.Add(40 * time.Millisecond),
+		},
+		{
+			Seq:       5,
+			Type:      managedagents.EventRuntimeSpanEnded,
+			Payload:   json.RawMessage(`{"turn_id":"turn_1","trace_id":"trace_lifecycle","span_id":"span_root","span_name":"tma.interaction","span_kind":"interaction","message":"interaction finished"}`),
+			CreatedAt: now.Add(50 * time.Millisecond),
+		},
+	}
+
+	trace := ProjectTurnTrace("sesn_1", "turn_1", events)
+	if len(trace.Spans) != 2 {
+		t.Fatalf("expected lifecycle root and child spans, got %#v", trace.Spans)
+	}
+	if trace.Spans[0].SpanID != "span_root" || trace.Spans[0].Status != "ok" || trace.Spans[0].DurationMillis != 50 {
+		t.Fatalf("expected completed root lifecycle span, got %#v", trace.Spans[0])
+	}
+	if trace.Spans[1].SpanID != "span_child" || trace.Spans[1].ParentSpanID != "span_root" || trace.Spans[1].Status != "ok" || trace.Spans[1].DurationMillis != 30 {
+		t.Fatalf("expected completed child lifecycle span, got %#v", trace.Spans[1])
+	}
+	if len(trace.Spans[1].Events) != 3 || trace.Spans[1].Events[1].Type != managedagents.EventRuntimeSpanEvent {
+		t.Fatalf("expected lifecycle span events, got %#v", trace.Spans[1].Events)
+	}
+	if len(trace.Graph.Edges) != 1 || trace.Graph.Edges[0].ParentSpanID != "span_root" || trace.Graph.Edges[0].ChildSpanID != "span_child" {
+		t.Fatalf("expected lifecycle span graph edge, got %#v", trace.Graph.Edges)
+	}
+}
+
 func TestRefreshSessionSummaryAppendsTurnTrace(t *testing.T) {
 	store := &stubSummaryStore{
 		events: []managedagents.Event{

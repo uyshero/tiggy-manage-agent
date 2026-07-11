@@ -19,16 +19,18 @@ const DefaultOnlyboxesImage = "coolfan1024/onlyboxes-runtime:default"
 const DefaultOnlyboxesDataDirTTL = time.Hour
 
 type OnlyboxesProvider struct {
-	Image          string
-	WorkspaceRoot  string
-	DataRoot       string
-	DataDirTTL     time.Duration
-	DisableNetwork bool
-	SessionID      string
-	DockerCommand  string
-	Store          SessionDataStore
-	ObjectStore    objectstore.Client
-	Runner         Provider
+	Image            string
+	WorkspaceRoot    string
+	DataRoot         string
+	DataDirTTL       time.Duration
+	DisableNetwork   bool
+	SessionID        string
+	ContainerScope   string
+	DockerCommand    string
+	Store            SessionDataStore
+	ObjectStore      objectstore.Client
+	Runner           Provider
+	ContainerManager *OnlyboxesContainerManager
 }
 
 type SessionDataStore interface {
@@ -47,6 +49,10 @@ func (OnlyboxesProvider) ToolCapabilities() []string {
 		"filesystem.write",
 		"exec",
 		"code.execute",
+		"browser.open",
+		"browser.read",
+		"browser.interact",
+		"browser.capture",
 	}
 }
 
@@ -57,6 +63,11 @@ func (p OnlyboxesProvider) RequiresNetworkApproval() bool {
 func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
 	if strings.TrimSpace(request.Command) == "" {
 		return CommandResult{}, fmt.Errorf("onlyboxes command is required")
+	}
+	sessionID := strings.TrimSpace(p.SessionID)
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(request.Meta.SessionID)
+		p.SessionID = sessionID
 	}
 	root, err := cleanWorkspaceRoot(p.WorkspaceRoot)
 	if err != nil {
@@ -77,6 +88,17 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if err := p.syncSessionFiles(ctx, dataDir); err != nil {
 		return CommandResult{}, err
 	}
+	if p.ContainerManager != nil && sessionID != "" {
+		return p.ContainerManager.RunCommand(ctx, onlyboxesContainerCommand{
+			Provider:         p,
+			SessionID:        sessionID,
+			Scope:            p.ContainerScope,
+			WorkspaceRoot:    root,
+			ContainerWorkDir: containerWorkDir,
+			DataDir:          dataDir,
+			Request:          request,
+		})
+	}
 
 	args := []string{
 		"run",
@@ -87,6 +109,9 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 		"--pids-limit", "256",
 		"--workdir", containerWorkDir,
 		"--volume", root + ":/workspace:rw",
+	}
+	if len(request.Stdin) > 0 {
+		args = append(args, "--interactive")
 	}
 	if p.DisableNetwork {
 		args = append(args, "--network", "none")

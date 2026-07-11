@@ -354,7 +354,7 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 		}, nil
 	}
 
-	if toolText := lastToolText(request.Messages); containsAny(toolText, "tma-session-tool-ok", "tma-upload-sync-ok", "tma-session-data-seeded", "tma-session-data-persisted", "tma-worker-export-ok", "tma-worker-large-export-ok", "tma-web-search-ok", "tma-web-crawl-ok") {
+	if toolText := lastToolText(request.Messages); containsAny(toolText, "tma-session-tool-ok", "tma-upload-sync-ok", "tma-session-data-seeded", "tma-session-data-persisted", "tma-worker-export-ok", "tma-worker-large-export-ok", "tma-worker-plugin-ok", "tma-computer-plugin-ok", "computer.get_state completed via cua", "computer.screenshot completed via cua", "tma-web-search-ok", "tma-web-crawl-ok", "tma-browser-flow-ok", "tma-browser-takeover-ok", "Browser session closed.") {
 		return Response{
 			Message: Message{
 				Role: "assistant",
@@ -386,11 +386,29 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 		if strings.Contains(userText, "tma.verify_worker_large_export") {
 			return fakeWorkerLargeExportResponse(), nil
 		}
+		if strings.Contains(userText, "tma.verify_worker_plugin_tool") {
+			return fakeWorkerPluginToolResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_computer_plugin_tool") {
+			return fakeComputerPluginToolResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_computer_plugin_screenshot") {
+			return fakeComputerPluginScreenshotResponse(), nil
+		}
 		if strings.Contains(userText, "tma.verify_web_crawl") {
 			return fakeWebCrawlResponse(userText), nil
 		}
 		if strings.Contains(userText, "tma.verify_web_search") {
 			return fakeWebSearchResponse(userText), nil
+		}
+		if strings.Contains(userText, "tma.verify_browser_flow") {
+			return fakeBrowserFlowResponse(userText), nil
+		}
+		if strings.Contains(userText, "tma.verify_browser_takeover") {
+			return fakeBrowserTakeoverResponse(userText), nil
+		}
+		if strings.Contains(userText, "tma.verify_browser_close") {
+			return fakeBrowserCloseResponse(), nil
 		}
 		if strings.Contains(userText, "tma.verify_network_download") {
 			return fakeNetworkDownloadResponse(userText), nil
@@ -529,6 +547,66 @@ func fakeWorkerLargeExportResponse() Response {
 	}
 }
 
+func fakeWorkerPluginToolResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Reading worker plugin state.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_worker_plugin",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "robot.get_state",
+					Arguments: json.RawMessage(`{}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeComputerPluginToolResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Reading computer UI tree.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_computer_plugin",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "computer.get_state",
+					Arguments: json.RawMessage(`{"capture_mode":"ax"}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeComputerPluginScreenshotResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Capturing computer screenshot.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_computer_plugin_screenshot",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "computer.screenshot",
+					Arguments: json.RawMessage(`{}`),
+				},
+			}},
+		},
+	}
+}
+
 func fakeWebCrawlResponse(userText string) Response {
 	targetURL := ""
 	if markerIndex := strings.Index(userText, "tma.verify_web_crawl"); markerIndex >= 0 {
@@ -583,6 +661,141 @@ func fakeWebSearchResponse(userText string) Response {
 				Type: "function",
 				Function: ToolCallFunction{
 					Name:      "web.search",
+					Arguments: arguments,
+				},
+			}},
+		},
+	}
+}
+
+func fakeBrowserFlowResponse(userText string) Response {
+	targetURL := ""
+	if markerIndex := strings.Index(userText, "tma.verify_browser_flow"); markerIndex >= 0 {
+		targetURL = strings.TrimSpace(userText[markerIndex+len("tma.verify_browser_flow"):])
+	}
+	if targetURL == "" {
+		targetURL = "data:text/html,<html><title>TMA browser verification</title><body><h1>tma-browser-fixture</h1><input id=verify-input><button id=verify-button onclick=\"document.body.insertAdjacentHTML('beforeend','<p>tma-browser-flow-ok</p>')\">Verify</button></body></html>"
+	}
+	sessionID := "verify-browser-flow"
+	openArguments, _ := json.Marshal(map[string]any{
+		"url":                targetURL,
+		"browser_session_id": sessionID,
+		"viewport": map[string]any{
+			"width":  1280,
+			"height": 720,
+		},
+	})
+	screenshotArguments, _ := json.Marshal(map[string]any{
+		"browser_session_id": sessionID,
+		"full_page":          true,
+	})
+	typeArguments, _ := json.Marshal(map[string]any{
+		"browser_session_id": sessionID,
+		"selector":           "#verify-input",
+		"text":               "tma-browser-typed-ok",
+		"clear":              true,
+	})
+	clickArguments, _ := json.Marshal(map[string]any{
+		"browser_session_id": sessionID,
+		"selector":           "#verify-button",
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Running browser verification flow.",
+			}},
+			ToolCalls: []ToolCall{
+				{
+					ID:   "call_verify_browser_open",
+					Type: "function",
+					Function: ToolCallFunction{
+						Name:      "browser.open",
+						Arguments: openArguments,
+					},
+				},
+				{
+					ID:   "call_verify_browser_screenshot",
+					Type: "function",
+					Function: ToolCallFunction{
+						Name:      "browser.screenshot",
+						Arguments: screenshotArguments,
+					},
+				},
+				{
+					ID:   "call_verify_browser_type",
+					Type: "function",
+					Function: ToolCallFunction{
+						Name:      "browser.type",
+						Arguments: typeArguments,
+					},
+				},
+				{
+					ID:   "call_verify_browser_click",
+					Type: "function",
+					Function: ToolCallFunction{
+						Name:      "browser.click",
+						Arguments: clickArguments,
+					},
+				},
+			},
+		},
+	}
+}
+
+func fakeBrowserTakeoverResponse(userText string) Response {
+	targetURL := ""
+	if markerIndex := strings.Index(userText, "tma.verify_browser_takeover"); markerIndex >= 0 {
+		targetURL = strings.TrimSpace(userText[markerIndex+len("tma.verify_browser_takeover"):])
+	}
+	if targetURL == "" {
+		targetURL = "data:text/html,<html><title>TMA browser takeover verification</title><body><h1>tma-browser-takeover-ok</h1><p>Close this browser window to finish verification.</p></body></html>"
+	}
+	arguments, _ := json.Marshal(map[string]any{
+		"url":                targetURL,
+		"browser_session_id": "verify-browser-takeover",
+		"wait_seconds":       300,
+		"viewport": map[string]any{
+			"width":  1280,
+			"height": 720,
+		},
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Opening local browser for manual takeover verification.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_browser_takeover",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "browser.takeover",
+					Arguments: arguments,
+				},
+			}},
+		},
+	}
+}
+
+func fakeBrowserCloseResponse() Response {
+	arguments, _ := json.Marshal(map[string]any{
+		"browser_session_id": "verify-browser-takeover",
+	})
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Closing local browser takeover verification session.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_browser_close",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "browser.close",
 					Arguments: arguments,
 				},
 			}},

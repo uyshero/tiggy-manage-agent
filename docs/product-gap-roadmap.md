@@ -36,7 +36,7 @@ Agent / Environment / Session
 | Tools | 有最小 `internal/tools` registry / executor | 工具版本、权限声明、schema 管理、错误回环、UI 展示 | Capability / Permissions / Sandbox |
 | Skills | Agent config 有 raw `skills` 字段 | skill 安装、选择、版本、注入、审计 | ContextBuilder / Plugin |
 | Memory | 有 session summary | 长期记忆、项目记忆、用户记忆、检索和遗忘策略 | Tenant / Permission / Object metadata |
-| Sandbox | `cloud_sandbox` 已落到 `OnlyboxesProvider`，当前按工具调用 `docker run --rm` 执行一次性容器 | sandbox doctor/preflight、镜像策略、网络策略、文件隔离、资源限制；per-session 常驻沙箱仅作为未来可选增强 | Capability / Object Store |
+| Sandbox | `cloud_sandbox` 已落到 `OnlyboxesProvider`，按 Session 和 scope 创建并复用容器，支持空闲 TTL 与最大寿命回收 | sandbox doctor/preflight、镜像策略、网络策略、文件隔离、资源限制，以及跨 Server 的容器归属协调 | Capability / Object Store |
 | Multi-tenant | 有默认 org/workspace 数据 | 身份、成员、角色、租户隔离、配额 | Permission / Audit |
 | Permission | 有 `intervention_mode` | RBAC、policy engine、tool/file/sandbox 权限、审批审计 | Multi-tenant / Tools |
 | Object Storage | 部分实现 | S3 兼容对象存储、artifact、workspace snapshot、跨环境文件同步；下载必须走 TMA 代理 | Sandbox / File API / Permission |
@@ -194,15 +194,19 @@ retention policy
 
 建议先写设计和 schema，再实现本地 RustFS / MinIO 可跑的最小验证。
 
-## 未来实现：Goal 驱动 Loop
+## 未来实现：监控驱动的 Agent 自动进化闭环
 
-在上面的安全、文件流、技能和观测底座之上，下一阶段可以把 `Goal` 做成 Agent 的一等对象，让系统不只是“能跑一轮”，而是“能围绕完成标准持续收敛”。
+在上面的安全、文件流、技能和观测底座之上，下一阶段要把 `Goal`、运行监控、失败检测和版本发布连接起来，让系统不只是“能跑一轮”，而是“能围绕完成标准持续收敛，并在真实业务中持续升级”。
+
+这个方向是 Agent Cloud Runtime 的长期核心：模型本身继续进化会遇到阶段性瓶颈，企业 Agent 的提升空间会更多来自 Harness 层对运行数据的利用。Runtime 需要持续观察 Agent 的执行过程，识别重复失败、工具误用、上下文缺失、Skills 不匹配、调度低效和安全风险，然后生成可测试、可审批、可回滚的升级候选。
 
 ### 目标
 
 1. 让 Session 或 Agent 配置显式携带 `goal`、验收标准、约束和预算。
 2. 让 Runtime 能根据目标自动判断继续执行、回退计划还是停止。
 3. 让完成状态可被规则或 Judge 验收，而不是只靠人工观察。
+4. 让 Event、trace、tool result、summary、artifact 和用户反馈成为 Agent 改进的证据源。
+5. 让 `system`、memory、tools、skills、多智能体 routing 和 runtime policy 的升级候选可版本化、可审批、可回滚。
 
 ### 建议的数据结构
 
@@ -223,6 +227,20 @@ goal
 2. 每轮执行后，Runtime 读取 tool result、event、summary 和 artifact 状态，判断是否满足 success_criteria。
 3. 如果未满足，则继续计划 - 执行 - 评估循环；如果接近预算上限，则降级为摘要式续跑或请求人工接管。
 4. 如果满足 stop_conditions，则写入完成事件并结束 Session。
+5. Session 结束后，后台检测器聚合运行证据，识别失败模式和能力缺口。
+6. 检测器只生成升级候选，不直接覆盖线上 Agent；候选升级进入回放、Judge、人工审批和版本发布流程。
+
+### 自动进化对象
+
+| 对象 | 示例 | 默认治理方式 |
+|------|------|--------------|
+| `baseline` | 原则、边界、质量标准 | 人工维护，不自动改 |
+| `system` | 岗位提示词、输出规范 | 候选 diff + 测试 + 审批 |
+| `memory` | 项目状态、常见偏好、失败经验 | 带证据来源、可过期 |
+| `tools` | 工具 schema、权限、默认参数 | 安全校验 + 版本化 |
+| `skills` | L1 描述、SKILL.md、脚本资产 | AgentConfigVersion 绑定 |
+| `routing` | 多智能体分工、委派策略 | Shadow 验证后灰度 |
+| `runtime_policy` | 预算、压缩、审批、重试、调度 | 策略版本化 + 审计 |
 
 ### Judge 机制
 
@@ -236,3 +254,5 @@ goal
 - 完成判断依赖 `Context`、`Events`、`Artifacts` 和 `Observability`。
 - 长期记忆可为下一轮 goal 提供历史偏好和项目状态，但不替代 goal 本身。
 - `Goal` 不应塞进 prompt 里当纯文本说明，而应成为可持久化、可版本化、可审计的运行时字段。
+- 自动进化依赖 `Observability`、`AgentConfigVersion`、`SkillVersion`、`Memory Store` 和后续 `RuntimePolicyVersion`。
+- 交互界面不是核心，SDK 和默认 UI 只负责把业务目标、运行过程、审批和结果呈现给用户；Harness 工程负责持续运行和持续改进。

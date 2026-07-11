@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSearchFallbackDropsEngineConstraintBeforeChangingProvider(t *testing.T) {
@@ -160,6 +161,65 @@ func TestSearchPreservesProviderUnresponsiveEnginesInState(t *testing.T) {
 	}
 	if len(response.UnresponsiveEngines) != 1 || response.UnresponsiveEngines[0].Name != "sogou" {
 		t.Fatalf("expected provider unresponsive engines in response state, got %#v", response)
+	}
+}
+
+func TestSearXNGProviderNormalizesTimeRangeAliases(t *testing.T) {
+	t.Run("maps short alias to searxng value", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if got := request.URL.Query().Get("time_range"); got != "month" {
+				t.Fatalf("expected mapped time_range month, got %q", got)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"results":[]}`))
+		}))
+		defer server.Close()
+
+		provider := newSearXNGProvider(server.Client(), server.URL)
+		if _, err := provider.Query(context.Background(), "harness", webSearchQueryParams{TimeRange: "m1"}); err != nil {
+			t.Fatalf("query: %v", err)
+		}
+	})
+
+	t.Run("preserves native searxng value", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if got := request.URL.Query().Get("time_range"); got != "day" {
+				t.Fatalf("expected native time_range day, got %q", got)
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"results":[]}`))
+		}))
+		defer server.Close()
+
+		provider := newSearXNGProvider(server.Client(), server.URL)
+		if _, err := provider.Query(context.Background(), "harness", webSearchQueryParams{TimeRange: "day"}); err != nil {
+			t.Fatalf("query: %v", err)
+		}
+	})
+}
+
+func TestHTTPWebClientHonorsContextDeadlineOverClientTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"results":[]}`))
+	}))
+	defer server.Close()
+
+	client := httpWebClient{
+		BaseURL: server.URL,
+		Client:  &http.Client{Timeout: 10 * time.Millisecond},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	body, err := client.doJSONRequest(ctx, http.MethodGet, server.URL, nil, nil)
+	if err != nil {
+		t.Fatalf("expected request to use context deadline, got error: %v", err)
+	}
+	if string(body) != `{"results":[]}` {
+		t.Fatalf("unexpected body: %s", string(body))
 	}
 }
 

@@ -449,6 +449,40 @@ Authorization: Bearer <control-token>
 }
 ```
 
+### `POST /v1/worker-work/{work_id}/cancel`
+
+手动取消 pending / leased / running 的 worker work。取消后 work 状态变为 `canceled`，worker 后续 heartbeat / result 会看到 canceled 状态，已完成或已失败的 work 不会被重新改写。
+
+当 server 配置了 `TMA_WORKER_CONTROL_AUTH_TOKEN` 时，请求必须带 `Authorization: Bearer <control-token>`。
+
+请求体：
+
+```json
+{
+  "reason": "user stopped it"
+}
+```
+
+响应 `200`：更新后的 `WorkerWork`。
+
+### `POST /v1/worker-work/{work_id}/requeue`
+
+从控制面把一条 `failed` / `canceled` worker work 复制成新的 `pending` work。原 work 不会被修改，新的 work 会保留 workspace / environment / session / turn / work_type / payload，清空 result / error / lease / started_at / completed_at。
+
+默认会复制原来的 `worker_id`；如果希望新 work 由同 workspace 的任意 worker 消费，可以传 `clear_worker: true`；如果要指定新 worker，可以传 `worker_id`。`clear_worker` 和 `worker_id` 不能同时使用。`completed`、`pending`、`leased`、`running` work 不允许 requeue，避免重复执行仍在进行或已成功完成的任务。
+
+当 server 配置了 `TMA_WORKER_CONTROL_AUTH_TOKEN` 时，请求必须带 `Authorization: Bearer <control-token>`。
+
+请求体：
+
+```json
+{
+  "clear_worker": true
+}
+```
+
+响应 `201`：新创建的 `WorkerWork`。
+
 ### `POST /v1/worker-work/reap-expired`
 
 控制面手动收敛过期 worker work。Server 会扫描 `status in (leased, running)` 且 `lease_expires_at` 已经过期的 work，将其标记为 `failed`，并写入 `error_message`。第一版不自动重新入队，避免重复执行有副作用的工具调用。
@@ -507,7 +541,7 @@ Worker 拉取一条待执行 work。
 | work_type | 当前 worker 行为 |
 |---|---|
 | `sandbox_command` | `tma-worker` 将 `payload` 解析为 `capability.RunCommandRequest`，并通过 `LocalSystemProvider.RunCommand` 在运行 worker 的机器上执行 |
-| `tool_execution` | `payload` 必须是 `tma.work.v1`；当前 `tma-worker` 支持 `default.*`，并通过 `tools.DefaultRuntime + LocalSystemProvider` 在运行 worker 的机器上执行 |
+| `tool_execution` | `payload` 必须是 `tma.work.v1`；`tma-worker` 通过本地 tool registry 执行 `default.*` / `browser.*` / 插件声明的 `namespace.api` |
 | `artifact_sync` | 当前返回 echo result |
 
 `tool_execution` payload 示例：
@@ -591,6 +625,12 @@ Worker 拉取一条待执行 work。
 响应 `200`：更新后的 `WorkerWork`。
 
 ## Agent
+
+服务启动时会幂等初始化内置通用智能体 `agt_general`。它绑定启动配置中的默认 LLM Provider 和 Model，未显式配置 `tools`，因此可使用当前默认内置工具集合。
+
+### `GET /v1/agents/default`
+
+返回内置通用智能体。该别名当前解析到 `agt_general`，响应 `200`：`Agent`。
 
 ### `POST /v1/agents`
 
@@ -756,6 +796,8 @@ session.status_idle
 |---|---|
 | `agent` | 旧字段；当 `agent_id` 为空时作为 Agent ID |
 
+如果 `agent_id` 和兼容字段 `agent` 都为空，服务端自动使用内置通用智能体 `agt_general`。
+
 响应 `201`：
 
 ```json
@@ -775,6 +817,18 @@ session.status_idle
 ### `GET /v1/sessions/{session_id}`
 
 响应 `200`：`Session`。
+
+### `GET /v1/sessions`
+
+按创建时间倒序返回 Session，用于工作台恢复最近聊天。支持查询参数 `workspace_id`、`status`、`include_archived` 和 `limit`（最大 100）。
+
+响应 `200`：
+
+```json
+{
+  "sessions": []
+}
+```
 
 ### `POST /v1/sessions/{session_id}/config/upgrade`
 
@@ -1028,7 +1082,7 @@ runtime.failed
 
 普通 turn 失败不会把 Session 置为 `failed`，而是把对应 turn 标记为 failed，并写一条 `session.status_idle`，payload 中包含 `last_turn_status=failed` 和失败原因。
 
-`runtime.tool_result` 的模型可见内容使用 `tools.ResultMessage()` 序列化。工具成功执行后，Runtime 会尽力把工具输出 JSON 写成 Session artifact；成功时 result 中带 `artifacts`，每个 artifact 提供 `artifact_id`、`object_ref_id`、名称、类型和 TMA 代理下载路径。artifact 记录失败只写入 `artifact_error`，不改变工具调用的 success/error 语义。
+`runtime.tool_result` 事件保留完整工具结果；继续送入模型上下文的 tool message 使用 `tools.ContextResultMessage()` 序列化，会按 `runtime_settings.tool_result_context_max_chars` 裁剪大内容并写入 `context` 元数据。工具成功执行后，Runtime 会尽力把工具输出 JSON 写成 Session artifact；成功时 result 中带 `artifacts`，每个 artifact 提供 `artifact_id`、`object_ref_id`、名称、类型和 TMA 代理下载路径。artifact 记录失败只写入 `artifact_error`，不改变工具调用的 success/error 语义。
 
 ## Tool Intervention
 
@@ -1077,7 +1131,7 @@ pending intervention 当前不过期，没有 `expires_at`。
 
 ### `POST /v1/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve`
 
-批准并执行 pending 工具调用。
+批准 pending 工具调用，并把恢复任务提交给后台 Runner。
 
 请求：
 
@@ -1102,20 +1156,24 @@ pending intervention 当前不过期，没有 `expires_at`。
     "requested_at": "2026-07-08T06:00:00Z",
     "decided_at": "2026-07-08T06:01:00Z"
   },
-  "events": []
+  "events": [
+    {
+      "type": "runtime.tool_intervention_approved"
+    }
+  ]
 }
 ```
 
-approve 成功后会写入：
+HTTP 响应只确认决策已经持久化和恢复任务已经调度，不等待工具、LLM 或后续 Tool Loop。客户端断开不会取消已经提交给 Runner 的恢复任务。Postgres Store 会同时把 turn 标记为可恢复并记录 `resume_intervention_call_id`，后台 Runner 可通过 lease/claim 在当前进程或服务重启后继续领取。首次 approve 会写入：
 
 ```text
 runtime.tool_intervention_approved
-runtime.tool_result
 ```
 
-如果 intervention 保存了 LLM continuation，服务端会继续本轮工具循环，可能继续产生：
+后台 AgentRuntime 随后可能写入：
 
 ```text
+runtime.tool_result
 runtime.llm_request
 runtime.llm_response
 runtime.tool_call
@@ -1139,11 +1197,11 @@ session.status_idle
 }
 ```
 
-响应 `200`：`DecideSessionInterventionResult`。
+响应 `200`：`DecideSessionInterventionResult`。和 approve 一样，响应只确认决策持久化和后台恢复调度。
 
-当前 reject 行为是 fail 当前 turn，并让 Session 回到 `idle`。拒绝原因会进入失败原因和 `runtime.tool_intervention_rejected` 事件，但不会作为观测继续喂回模型。
+如果 intervention 带 continuation，AgentRuntime 会生成 rejected `runtime.tool_result` observation，把 `decision_reason` 作为 tool message 继续喂回模型；没有 continuation 的旧记录仍会 fail 当前 turn 并让 Session 回到 `idle`。
 
-重复审批、审批不存在的 call、审批已经决定的 intervention 会返回 `400`。
+相同决定可以安全重试：不会重复写 approval/rejection 事件；如果 turn 仍在运行且没有新的 pending intervention，服务端会重新提交恢复任务，便于处理“决策已落库但首次调度失败或进程重启”的情况。turn 已完成时不会重新执行。对同一 intervention 改成相反决定、审批不存在的 call，仍返回 `400`。
 
 ## Session Summary
 

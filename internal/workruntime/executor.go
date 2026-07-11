@@ -91,6 +91,8 @@ func LocalSystemCapabilities(registry tools.Registry) tools.WorkerCapabilities {
 	seenAPIs := map[string]bool{}
 	seenCapabilities := map[string]bool{}
 	for _, manifest := range registry.Manifests() {
+		filteredManifest := manifest
+		filteredManifest.API = nil
 		for _, api := range manifest.API {
 			if !workerExecutable(api, tools.ToolRuntimeLocalSystem) {
 				continue
@@ -100,6 +102,10 @@ func LocalSystemCapabilities(registry tools.Registry) tools.WorkerCapabilities {
 			appendUnique(&capabilities.Namespaces, seenNamespaces, []string{namespace})
 			appendUnique(&capabilities.APIs, seenAPIs, []string{namespace + "." + apiName})
 			appendUnique(&capabilities.Capabilities, seenCapabilities, api.Capabilities)
+			filteredManifest.API = append(filteredManifest.API, api)
+		}
+		if len(filteredManifest.API) > 0 {
+			capabilities.Manifests = append(capabilities.Manifests, filteredManifest)
 		}
 	}
 	return capabilities
@@ -212,10 +218,15 @@ func (e Executor) collectExportedFiles(ctx context.Context, work managedagents.W
 			exportErrors = append(exportErrors, fmt.Sprintf("export worker artifact %q: %v", file.Path, err))
 			continue
 		}
-		if len(exportedFile.Content) > tools.MaxTransportedArtifactBytes {
+		contentType := firstNonEmpty(file.ContentType, exportedFile.ContentType)
+		if shouldUploadExportedFile(contentType, len(exportedFile.Content)) {
 			uploader := e.ArtifactUploader
 			if uploader == nil || strings.TrimSpace(work.SessionID) == "" {
-				exportErrors = append(exportErrors, fmt.Sprintf("export worker artifact %q: file size %d exceeds transported artifact limit %d", file.Path, len(exportedFile.Content), tools.MaxTransportedArtifactBytes))
+				if len(exportedFile.Content) > tools.MaxTransportedArtifactBytes {
+					exportErrors = append(exportErrors, fmt.Sprintf("export worker artifact %q: file size %d exceeds transported artifact limit %d", file.Path, len(exportedFile.Content), tools.MaxTransportedArtifactBytes))
+				} else {
+					exportErrors = append(exportErrors, fmt.Sprintf("export worker artifact %q: image exports require session artifact upload", file.Path))
+				}
 				continue
 			}
 			ref, err := uploader.UploadArtifact(ctx, ArtifactUpload{
@@ -227,7 +238,7 @@ func (e Executor) collectExportedFiles(ctx context.Context, work managedagents.W
 				Name:          firstNonEmpty(file.Name, exportedFile.Name),
 				Description:   file.Description,
 				ArtifactType:  file.ArtifactType,
-				ContentType:   exportedFile.ContentType,
+				ContentType:   contentType,
 				Content:       exportedFile.Content,
 			})
 			if err != nil {
@@ -243,7 +254,7 @@ func (e Executor) collectExportedFiles(ctx context.Context, work managedagents.W
 			Name:          firstNonEmpty(file.Name, exportedFile.Name),
 			Description:   file.Description,
 			ArtifactType:  file.ArtifactType,
-			ContentType:   exportedFile.ContentType,
+			ContentType:   contentType,
 			ContentBase64: base64.StdEncoding.EncodeToString(exportedFile.Content),
 		})
 	}
@@ -251,6 +262,13 @@ func (e Executor) collectExportedFiles(ctx context.Context, work managedagents.W
 		return exported, artifactRefs, fmt.Errorf("%s", strings.Join(exportErrors, "; "))
 	}
 	return exported, artifactRefs, nil
+}
+
+func shouldUploadExportedFile(contentType string, size int) bool {
+	if size > tools.MaxTransportedArtifactBytes {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "image/")
 }
 
 func (e Executor) executeSandboxCommand(ctx context.Context, work managedagents.WorkerWork) managedagents.CompleteWorkerWorkInput {
@@ -391,12 +409,26 @@ func cloneWorkerCapabilities(capabilities tools.WorkerCapabilities) tools.Worker
 		APIs:         append([]string(nil), capabilities.APIs...),
 		Runtimes:     append([]string(nil), capabilities.Runtimes...),
 		Capabilities: append([]string(nil), capabilities.Capabilities...),
+		Manifests:    cloneManifests(capabilities.Manifests),
 	}
 	if capabilities.Constraints != nil {
 		cloned.Constraints = make(map[string]any, len(capabilities.Constraints))
 		for key, value := range capabilities.Constraints {
 			cloned.Constraints[key] = value
 		}
+	}
+	return cloned
+}
+
+func cloneManifests(manifests []tools.Manifest) []tools.Manifest {
+	if len(manifests) == 0 {
+		return nil
+	}
+	cloned := make([]tools.Manifest, len(manifests))
+	for index, manifest := range manifests {
+		cloned[index] = manifest
+		cloned[index].API = append([]tools.API(nil), manifest.API...)
+		cloned[index].Executors = append([]string(nil), manifest.Executors...)
 	}
 	return cloned
 }

@@ -80,6 +80,27 @@ func TestFakeClientSummarizesToolVerificationResult(t *testing.T) {
 	}
 }
 
+func TestFakeClientSummarizesComputerCUAVerificationResult(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role:       "tool",
+			ToolCallID: "call_verify_computer_plugin",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: `{"id":"call_verify_computer_plugin","content":"computer.get_state completed via cua"}`,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.Content) != 1 || !strings.Contains(response.Message.Content[0].Text, "computer.get_state completed via cua") {
+		t.Fatalf("unexpected response content: %#v", response.Message.Content)
+	}
+}
+
 func TestFakeClientGeneratesUploadedFileVerificationCalls(t *testing.T) {
 	client := FakeClient{}
 
@@ -167,6 +188,137 @@ func TestFakeClientGeneratesWebSearchVerificationCall(t *testing.T) {
 	}
 	if !strings.Contains(string(call.Function.Arguments), "tma-web-search-ok") {
 		t.Fatalf("expected search query in arguments, got %s", string(call.Function.Arguments))
+	}
+}
+
+func TestFakeClientGeneratesBrowserFlowVerificationCalls(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_browser_flow data:text/html,browser",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 4 {
+		t.Fatalf("expected four browser tool calls, got %#v", response.Message.ToolCalls)
+	}
+	names := make(map[string]bool)
+	for _, call := range response.Message.ToolCalls {
+		names[call.Function.Name] = true
+	}
+	for _, expected := range []string{"browser.open", "browser.screenshot", "browser.type", "browser.click"} {
+		if !names[expected] {
+			t.Fatalf("missing %s in browser tool calls: %#v", expected, response.Message.ToolCalls)
+		}
+	}
+}
+
+func TestFakeClientGeneratesBrowserTakeoverVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_browser_takeover data:text/html,takeover",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one browser takeover tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_browser_takeover" || call.Function.Name != "browser.takeover" {
+		t.Fatalf("unexpected browser takeover tool call: %#v", call)
+	}
+	if !strings.Contains(string(call.Function.Arguments), "data:text/html,takeover") {
+		t.Fatalf("expected takeover URL in arguments, got %s", string(call.Function.Arguments))
+	}
+}
+
+func TestFakeClientGeneratesBrowserCloseVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_browser_close",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one browser close tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_browser_close" || call.Function.Name != "browser.close" {
+		t.Fatalf("unexpected browser close tool call: %#v", call)
+	}
+}
+
+func TestFakeClientGeneratesComputerPluginVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_computer_plugin_tool",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one computer tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_computer_plugin" || call.Function.Name != "computer.get_state" {
+		t.Fatalf("unexpected computer tool call: %#v", call)
+	}
+	if !strings.Contains(string(call.Function.Arguments), `"capture_mode":"ax"`) {
+		t.Fatalf("expected ax capture mode in arguments, got %s", string(call.Function.Arguments))
+	}
+}
+
+func TestFakeClientGeneratesComputerPluginScreenshotVerificationCall(t *testing.T) {
+	client := FakeClient{}
+
+	response, err := client.Generate(t.Context(), Request{
+		Messages: []Message{{
+			Role: "user",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "please run tma.verify_computer_plugin_screenshot",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one computer screenshot tool call, got %#v", response.Message.ToolCalls)
+	}
+	call := response.Message.ToolCalls[0]
+	if call.ID != "call_verify_computer_plugin_screenshot" || call.Function.Name != "computer.screenshot" {
+		t.Fatalf("unexpected computer screenshot tool call: %#v", call)
 	}
 }
 

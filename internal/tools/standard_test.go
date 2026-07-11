@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,13 @@ func TestValidateWorkInvocation(t *testing.T) {
 	}
 	if err := ValidateWorkInvocation(work); err != nil {
 		t.Fatalf("expected valid work invocation: %v", err)
+	}
+
+	work.Namespace = "robot"
+	work.API = "get_state"
+	work.Capabilities = []string{"robot.state"}
+	if err := ValidateWorkInvocation(work); err != nil {
+		t.Fatalf("expected custom plugin namespace to be valid: %v", err)
 	}
 
 	work.Runtime = "server"
@@ -135,5 +143,73 @@ func TestAPISupportsStandardManifestFields(t *testing.T) {
 	}
 	if decoded["namespace"] != NamespaceArtifact || decoded["api"] != "create" || decoded["implementation"] != ToolImplementationServerBuiltin {
 		t.Fatalf("standard manifest fields missing from JSON: %s", encoded)
+	}
+}
+
+func TestContextResultMessageTruncatesContentAndState(t *testing.T) {
+	result := ExecutionResult{
+		ID:         "call_1",
+		Identifier: DefaultIdentifier,
+		APIName:    "run_command",
+		Content:    strings.Repeat("A", 120) + "middle-marker" + strings.Repeat("Z", 120),
+		State:      json.RawMessage(`{"stdout":"` + strings.Repeat("S", 80) + `"}`),
+		Artifacts: []ArtifactRef{{
+			ArtifactID:   "art_1",
+			ObjectRefID:  "obj_1",
+			Name:         "run_command.json",
+			ArtifactType: "asset",
+			DownloadPath: "/v1/sessions/sesn_1/artifacts/art_1/download",
+		}},
+	}
+
+	encoded := ContextResultMessage(result, ResultContextOptions{
+		MaxContentChars: 150,
+		MaxStateBytes:   40,
+	})
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(encoded), &payload); err != nil {
+		t.Fatalf("decode context result message: %v", err)
+	}
+	content, _ := payload["content"].(string)
+	if strings.Contains(content, "middle-marker") {
+		t.Fatalf("expected middle content to be omitted, got %q", content)
+	}
+	if !strings.Contains(content, "Tool result truncated for model context") {
+		t.Fatalf("expected truncation notice, got %q", content)
+	}
+	contextMeta, ok := payload["context"].(map[string]any)
+	if !ok || contextMeta["content_truncated"] != true || contextMeta["state_truncated"] != true || contextMeta["full_result_in_artifacts"] != true {
+		t.Fatalf("unexpected context metadata: %#v", payload["context"])
+	}
+	state, ok := payload["state"].(map[string]any)
+	if !ok || state["truncated"] != true {
+		t.Fatalf("expected state truncation marker, got %#v", payload["state"])
+	}
+}
+
+func TestObservableResultDataTruncatesContentAndState(t *testing.T) {
+	result := ExecutionResult{
+		ID:         "call_1",
+		Identifier: DefaultIdentifier,
+		APIName:    "run_command",
+		Content:    strings.Repeat("A", 120) + "middle-marker" + strings.Repeat("Z", 120),
+		State:      json.RawMessage(`{"stdout":"` + strings.Repeat("S", 80) + `"}`),
+	}
+
+	payload := ObservableResultData(result, ResultContextOptions{
+		MaxContentChars: 150,
+		MaxStateBytes:   40,
+	})
+	content, _ := payload["content"].(string)
+	if strings.Contains(content, "middle-marker") {
+		t.Fatalf("expected observable content to omit middle marker, got %q", content)
+	}
+	contextMeta, ok := payload["context"].(map[string]any)
+	if !ok || contextMeta["content_truncated"] != true || contextMeta["state_truncated"] != true {
+		t.Fatalf("unexpected observable context metadata: %#v", payload["context"])
+	}
+	state, ok := payload["state"].(map[string]any)
+	if !ok || state["truncated"] != true {
+		t.Fatalf("expected observable state truncation marker, got %#v", payload["state"])
 	}
 }

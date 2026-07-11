@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"tiggy-manage-agent/internal/managedagents"
 )
 
 var (
@@ -14,10 +16,11 @@ var (
 // TurnRequest 是 HTTP / Store 层提交给 Runner 的一次执行请求。
 // HTTP 请求结束不代表 turn 结束，真实 Runner 后续应使用自己的生命周期管理。
 type TurnRequest struct {
-	SessionID    string
-	TurnID       string
-	UserEventSeq int64
-	UserPayload  json.RawMessage
+	SessionID          string
+	TurnID             string
+	UserEventSeq       int64
+	UserPayload        json.RawMessage
+	ResumeIntervention *managedagents.SessionIntervention
 }
 
 // InterruptRequest 表示对某次 running turn 的中断请求。
@@ -32,4 +35,8 @@ type InterruptRequest struct {
 type Runner interface {
 	StartTurn(ctx context.Context, request TurnRequest) error
 	InterruptTurn(ctx context.Context, request InterruptRequest) error
+}
+
+type TurnPostProcessor interface {
+	PostProcessTurn(sessionID string, turnID string)
 }

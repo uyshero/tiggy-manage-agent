@@ -11,6 +11,7 @@ import (
 
 	"tiggy-manage-agent/internal/agentruntime"
 	"tiggy-manage-agent/internal/execution"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
@@ -42,7 +43,15 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, request, err)
 		return TurnResult{}, err
 	}
-	history, err := e.resolveConversationHistory(request.SessionID, request.UserEventSeq)
+	var history []managedagents.ConversationMessage
+	if request.ResumeIntervention == nil {
+		history, err = e.resolveConversationHistory(request.SessionID, request.UserEventSeq)
+		if err != nil {
+			_ = e.recordRuntimeFailed(ctx, request, err)
+			return TurnResult{}, err
+		}
+	}
+	resume, err := runtimeInterventionResume(request.ResumeIntervention)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, request, err)
 		return TurnResult{}, err
@@ -58,10 +67,11 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		ArtifactRecorder: ToolArtifactRecorder{Store: e.Store, ObjectStore: e.ObjectStore, Bucket: e.ArtifactBucket},
 	})
 	result, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
-		SessionID:   request.SessionID,
-		TurnID:      request.TurnID,
-		UserPayload: request.UserPayload,
-		History:     history,
+		SessionID:          request.SessionID,
+		TurnID:             request.TurnID,
+		UserPayload:        request.UserPayload,
+		History:            history,
+		ResumeIntervention: resume,
 		Config: agentruntime.Config{
 			WorkspaceID:           config.WorkspaceID,
 			EnvironmentID:         config.EnvironmentID,
@@ -113,6 +123,30 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	return TurnResult{
 		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
 		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
+	}, nil
+}
+
+func runtimeInterventionResume(intervention *managedagents.SessionIntervention) (*agentruntime.InterventionResume, error) {
+	if intervention == nil {
+		return nil, nil
+	}
+	var continuation []llm.Message
+	if len(intervention.Continuation) > 0 {
+		if err := json.Unmarshal(intervention.Continuation, &continuation); err != nil {
+			return nil, fmt.Errorf("decode intervention continuation: %w", err)
+		}
+	}
+	return &agentruntime.InterventionResume{
+		Call: tools.Call{
+			ID:         intervention.CallID,
+			Identifier: intervention.ToolIdentifier,
+			APIName:    intervention.APIName,
+			Arguments:  append(json.RawMessage(nil), intervention.Arguments...),
+		},
+		Status:            intervention.Status,
+		DecisionReason:    intervention.DecisionReason,
+		Continuation:      continuation,
+		ContinuationRound: intervention.ContinuationRound,
 	}, nil
 }
 

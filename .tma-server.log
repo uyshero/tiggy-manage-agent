@@ -1,0 +1,834 @@
+spawned pid=97141
+{"time":"2026-07-10T16:24:21.081576+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T16:24:21.088318+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T16:24:21.09472+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T16:24:21.107631+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T16:24:21.107681+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T16:24:21.107703+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T16:24:21.108391+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-97141-325b2c2f2bf4","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:24:21.108413+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:24:21.110375+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T16:24:21.110383+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:24:21.1104+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T16:24:21.110376+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:24:21.110415+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T16:24:21.140559+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+spawned pid=98383
+{"time":"2026-07-10T16:24:38.835532+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":97141,"restart_wait":"15s"}
+{"time":"2026-07-10T16:24:38.836424+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T16:24:38.836467+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T16:24:38.836485+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T16:24:38.837007+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-10T16:24:39.051714+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T16:24:39.057628+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T16:24:39.063652+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T16:24:39.077671+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T16:24:39.077727+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T16:24:39.077745+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T16:24:39.077869+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-98383-551d052c7204","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:24:39.077886+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:24:39.078956+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T16:24:39.078946+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:24:39.078978+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T16:24:39.078976+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:24:39.079152+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T16:24:53.981656+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T16:24:53.982024+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T16:24:53.982053+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T16:24:53.98217+08:00","level":"INFO","msg":"server stopped"}
+spawned pid=329
+{"time":"2026-07-10T16:25:34.122096+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T16:25:34.127972+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T16:25:34.133993+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T16:25:34.146864+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T16:25:34.146923+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T16:25:34.146944+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T16:25:34.147071+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-329-aa6d9014ccd9","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:25:34.147088+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:25:34.148695+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T16:25:34.148714+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:25:34.148863+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T16:25:34.148894+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T16:25:34.148688+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:26:04.1872+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:28:51.503902+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T16:28:59.770566+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002360","session_id":"sesn_000137","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:28:59.770648+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002361","session_id":"sesn_000137","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T16:28:59.77068+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000137","turn_id":"turn_000001","event_id":"evt_002361","event_seq":4}
+{"time":"2026-07-10T16:28:59.775416+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-329-aa6d9014ccd9","session_id":"sesn_000137","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T16:29:17.955174+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002368","session_id":"sesn_000134","turn_id":"turn_000002","event_seq":18,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:29:17.955221+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002369","session_id":"sesn_000134","turn_id":"turn_000002","event_seq":19,"event_type":"user.message"}
+{"time":"2026-07-10T16:29:17.955241+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000134","turn_id":"turn_000002","event_id":"evt_002369","event_seq":19}
+{"time":"2026-07-10T16:29:17.961388+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-329-aa6d9014ccd9","session_id":"sesn_000134","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T16:29:51.266042+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000134","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T16:29:55.172359+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000137","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T16:30:18.195774+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002388","session_id":"sesn_000134","turn_id":"turn_000003","event_seq":32,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:30:18.195819+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002389","session_id":"sesn_000134","turn_id":"turn_000003","event_seq":33,"event_type":"user.message"}
+{"time":"2026-07-10T16:30:18.195862+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000134","turn_id":"turn_000003","event_id":"evt_002389","event_seq":33}
+{"time":"2026-07-10T16:30:18.201364+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-329-aa6d9014ccd9","session_id":"sesn_000134","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T16:31:20.465191+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000134","turn_id":"turn_000003","error":"tool loop exceeded maximum rounds","events":1}
+{"time":"2026-07-10T16:32:04.190798+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:32:11.154962+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002444","session_id":"sesn_000137","turn_id":"turn_000002","event_seq":17,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:32:11.155007+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002445","session_id":"sesn_000137","turn_id":"turn_000002","event_seq":18,"event_type":"user.message"}
+{"time":"2026-07-10T16:32:11.155026+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000137","turn_id":"turn_000002","event_id":"evt_002445","event_seq":18}
+{"time":"2026-07-10T16:32:11.161011+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-329-aa6d9014ccd9","session_id":"sesn_000137","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T16:33:34.194429+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:33:38.173394+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000137","turn_id":"turn_000002","error":"tool loop exceeded maximum rounds","events":1}
+{"time":"2026-07-10T16:35:34.198268+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:36:34.195247+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:43:04.302981+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T16:43:26.069616+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T16:43:26.069788+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T16:43:26.069817+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T16:43:26.070135+08:00","level":"INFO","msg":"server stopped"}
+spawned pid=29155
+{"time":"2026-07-10T16:43:33.938579+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T16:43:33.945116+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T16:43:33.951331+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T16:43:33.964073+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T16:43:33.964139+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T16:43:33.964161+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T16:43:33.964346+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-29155-25155b189b2e","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:43:33.964365+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:43:33.965621+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T16:43:33.965638+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:43:33.965705+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T16:43:33.965746+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T16:43:33.965633+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:44:04.035157+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T16:44:34.017262+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T16:44:38.069647+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002524","session_id":"sesn_000137","turn_id":"turn_000003","event_seq":43,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:44:38.069703+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002525","session_id":"sesn_000137","turn_id":"turn_000003","event_seq":44,"event_type":"user.message"}
+{"time":"2026-07-10T16:44:38.069729+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000137","turn_id":"turn_000003","event_id":"evt_002525","event_seq":44}
+{"time":"2026-07-10T16:44:38.07544+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-29155-25155b189b2e","session_id":"sesn_000137","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T16:45:45.629314+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000137","turn_id":"turn_000003","events":2}
+{"time":"2026-07-10T16:46:48.894803+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002550","session_id":"sesn_000143","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:46:48.894858+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002551","session_id":"sesn_000143","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T16:46:48.894878+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000143","turn_id":"turn_000001","event_id":"evt_002551","event_seq":4}
+{"time":"2026-07-10T16:46:48.900316+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-29155-25155b189b2e","session_id":"sesn_000143","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T16:46:49.006966+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000143","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T16:47:43.486866+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002559","session_id":"sesn_000143","turn_id":"turn_000002","event_seq":12,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:47:43.486909+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002560","session_id":"sesn_000143","turn_id":"turn_000002","event_seq":13,"event_type":"user.message"}
+{"time":"2026-07-10T16:47:43.486928+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000143","turn_id":"turn_000002","event_id":"evt_002560","event_seq":13}
+{"time":"2026-07-10T16:47:43.491941+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-29155-25155b189b2e","session_id":"sesn_000143","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T16:47:43.587526+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000143","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T16:50:31.126658+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T16:50:31.12701+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T16:50:31.127045+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T16:50:41.12819+08:00","level":"ERROR","msg":"server shutdown failed","error":"context deadline exceeded"}
+spawned pid=41547
+{"time":"2026-07-10T16:50:57.607959+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T16:50:57.614372+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T16:50:57.620473+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T16:50:57.63354+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T16:50:57.633627+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T16:50:57.633666+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T16:50:57.633889+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:50:57.63393+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T16:50:57.635422+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T16:50:57.635476+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T16:50:57.635476+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:50:57.63554+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T16:50:57.635475+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T16:53:17.815662+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000144","after_seq":0}
+{"time":"2026-07-10T16:54:08.535303+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002570","session_id":"sesn_000144","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:54:08.535396+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002571","session_id":"sesn_000144","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T16:54:08.535421+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000001","event_id":"evt_002571","event_seq":4}
+{"time":"2026-07-10T16:54:08.540137+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T16:54:08.831475+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000001","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 0217836736487523b2b0407ffd677ecb32e5e07988358b99602f1\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T16:54:22.088609+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002577","session_id":"sesn_000144","turn_id":"turn_000002","event_seq":10,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:54:22.088659+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002578","session_id":"sesn_000144","turn_id":"turn_000002","event_seq":11,"event_type":"user.message"}
+{"time":"2026-07-10T16:54:22.088681+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000002","event_id":"evt_002578","event_seq":11}
+{"time":"2026-07-10T16:54:22.092946+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T16:54:22.212302+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000002","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 0217836736621923b2b0407ffd677ecb32e5e07988358b98dcdef\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T16:55:30.654044+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002584","session_id":"sesn_000144","turn_id":"turn_000003","event_seq":17,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:55:30.65422+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002585","session_id":"sesn_000144","turn_id":"turn_000003","event_seq":18,"event_type":"user.message"}
+{"time":"2026-07-10T16:55:30.654272+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000003","event_id":"evt_002585","event_seq":18}
+{"time":"2026-07-10T16:55:30.660703+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T16:55:30.819242+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000003","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 0217836737308023b2b0407ffd677ecb32e5e07988358b9c401ff\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T16:58:21.975649+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002593","session_id":"sesn_000145","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:58:21.975955+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002594","session_id":"sesn_000145","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T16:58:21.975974+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000145","turn_id":"turn_000001","event_id":"evt_002594","event_seq":4}
+{"time":"2026-07-10T16:58:21.980956+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000145","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T16:58:22.083456+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000145","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T16:58:39.199801+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000144","after_seq":0}
+{"time":"2026-07-10T16:58:43.168629+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000144","after_seq":0}
+{"time":"2026-07-10T16:58:46.307538+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002602","session_id":"sesn_000144","turn_id":"turn_000004","event_seq":24,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:58:46.307582+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002603","session_id":"sesn_000144","turn_id":"turn_000004","event_seq":25,"event_type":"user.message"}
+{"time":"2026-07-10T16:58:46.307606+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000004","event_id":"evt_002603","event_seq":25}
+{"time":"2026-07-10T16:58:46.312096+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-10T16:58:46.475917+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000004","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 021783673926461d7aebdc22b756f3beceb07dc2954acf825ee0f\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T16:58:49.432621+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002609","session_id":"sesn_000144","turn_id":"turn_000005","event_seq":31,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:58:49.432676+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002610","session_id":"sesn_000144","turn_id":"turn_000005","event_seq":32,"event_type":"user.message"}
+{"time":"2026-07-10T16:58:49.432694+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000005","event_id":"evt_002610","event_seq":32}
+{"time":"2026-07-10T16:58:49.437765+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000005","attempt":1}
+{"time":"2026-07-10T16:58:49.56548+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000005","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 021783673929567d7aebdc22b756f3beceb07dc2954acf8348f71\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T16:58:52.832021+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002616","session_id":"sesn_000144","turn_id":"turn_000006","event_seq":38,"event_type":"session.status_running"}
+{"time":"2026-07-10T16:58:52.832085+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002617","session_id":"sesn_000144","turn_id":"turn_000006","event_seq":39,"event_type":"user.message"}
+{"time":"2026-07-10T16:58:52.832137+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000144","turn_id":"turn_000006","event_id":"evt_002617","event_seq":39}
+{"time":"2026-07-10T16:58:52.837684+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000144","turn_id":"turn_000006","attempt":1}
+{"time":"2026-07-10T16:58:52.931579+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000144","turn_id":"turn_000006","error":"openai-compatible chat completions returned 404 Not Found: {\"error\":{\"code\":\"UnsupportedModel\",\"message\":\"The requested model does not support the agent plan feature. Please refer to the documentation at https://www.volcengine.com/docs/82379/2366394 to select a compatible model. Request id: 021783673932940d7aebdc22b756f3beceb07dc2954acf8598cbc\",\"param\":\"\",\"type\":\"\"}}","events":1}
+{"time":"2026-07-10T17:10:00.238982+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002625","session_id":"sesn_000146","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:10:00.239289+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002626","session_id":"sesn_000146","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T17:10:00.239322+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000001","event_id":"evt_002626","event_seq":4}
+{"time":"2026-07-10T17:10:00.244172+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T17:10:12.15747+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T17:11:08.752433+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000144","after_seq":0}
+{"time":"2026-07-10T17:11:24.824902+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-10T17:11:32.322926+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002638","session_id":"sesn_000146","turn_id":"turn_000002","event_seq":16,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:11:32.322974+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002639","session_id":"sesn_000146","turn_id":"turn_000002","event_seq":17,"event_type":"user.message"}
+{"time":"2026-07-10T17:11:32.322994+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000002","event_id":"evt_002639","event_seq":17}
+{"time":"2026-07-10T17:11:32.327227+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T17:11:41.730091+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T17:12:56.918224+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002651","session_id":"sesn_000146","turn_id":"turn_000003","event_seq":29,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:12:56.918296+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002652","session_id":"sesn_000146","turn_id":"turn_000003","event_seq":30,"event_type":"user.message"}
+{"time":"2026-07-10T17:12:56.918321+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000003","event_id":"evt_002652","event_seq":30}
+{"time":"2026-07-10T17:12:56.923461+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T17:13:19.872696+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000146","turn_id":"turn_000003","error":"tool computer.hotkey failed: command failed: /Users/viito/.local/bin/cua-driver hotkey {\"keys\":[\"Command\",\"L\"]}; Missing required integer field: pid","events":1}
+{"time":"2026-07-10T17:14:11.651278+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002669","session_id":"sesn_000146","turn_id":"turn_000004","event_seq":47,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:14:11.651939+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002670","session_id":"sesn_000146","turn_id":"turn_000004","event_seq":48,"event_type":"user.message"}
+{"time":"2026-07-10T17:14:11.652002+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000004","event_id":"evt_002670","event_seq":48}
+{"time":"2026-07-10T17:14:11.654948+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-10T17:14:59.182149+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000004","events":2}
+{"time":"2026-07-10T17:15:30.534738+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002702","session_id":"sesn_000146","turn_id":"turn_000005","event_seq":80,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:15:30.535254+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002703","session_id":"sesn_000146","turn_id":"turn_000005","event_seq":81,"event_type":"user.message"}
+{"time":"2026-07-10T17:15:30.535287+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000005","event_id":"evt_002703","event_seq":81}
+{"time":"2026-07-10T17:15:30.539763+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000005","attempt":1}
+{"time":"2026-07-10T17:15:49.922058+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000146","turn_id":"turn_000005","error":"tool computer.hotkey failed: command failed: /Users/viito/.local/bin/cua-driver hotkey {\"keys\":[\"Command\",\"L\"]}; Missing required integer field: pid","events":1}
+{"time":"2026-07-10T17:16:26.545032+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002720","session_id":"sesn_000146","turn_id":"turn_000006","event_seq":98,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:16:26.545095+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002721","session_id":"sesn_000146","turn_id":"turn_000006","event_seq":99,"event_type":"user.message"}
+{"time":"2026-07-10T17:16:26.545116+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000006","event_id":"evt_002721","event_seq":99}
+{"time":"2026-07-10T17:16:26.551859+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000006","attempt":1}
+{"time":"2026-07-10T17:16:57.885946+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000006","events":2}
+{"time":"2026-07-10T17:24:55.380603+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002749","session_id":"sesn_000146","turn_id":"turn_000007","event_seq":127,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:24:55.381173+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002750","session_id":"sesn_000146","turn_id":"turn_000007","event_seq":128,"event_type":"user.message"}
+{"time":"2026-07-10T17:24:55.381213+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000007","event_id":"evt_002750","event_seq":128}
+{"time":"2026-07-10T17:24:55.385507+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000007","attempt":1}
+{"time":"2026-07-10T17:25:36.438699+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000007","events":2}
+{"time":"2026-07-10T17:27:13.080844+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002778","session_id":"sesn_000146","turn_id":"turn_000008","event_seq":156,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:27:13.081178+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002779","session_id":"sesn_000146","turn_id":"turn_000008","event_seq":157,"event_type":"user.message"}
+{"time":"2026-07-10T17:27:13.081207+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000008","event_id":"evt_002779","event_seq":157}
+{"time":"2026-07-10T17:27:13.0871+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000008","attempt":1}
+{"time":"2026-07-10T17:27:24.963943+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000008","events":2}
+{"time":"2026-07-10T17:27:38.15718+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002787","session_id":"sesn_000146","turn_id":"turn_000009","event_seq":165,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:27:38.157256+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002788","session_id":"sesn_000146","turn_id":"turn_000009","event_seq":166,"event_type":"user.message"}
+{"time":"2026-07-10T17:27:38.157279+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000009","event_id":"evt_002788","event_seq":166}
+{"time":"2026-07-10T17:27:38.162611+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-41547-3eeb6c1319ec","session_id":"sesn_000146","turn_id":"turn_000009","attempt":1}
+{"time":"2026-07-10T17:27:56.895334+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000009","events":2}
+{"time":"2026-07-10T17:28:27.702175+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T17:31:51.034296+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T17:32:57.697838+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T17:34:50.356103+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-10T17:35:05.511816+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T17:35:05.511907+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T17:35:05.511972+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T17:35:15.51227+08:00","level":"ERROR","msg":"server shutdown failed","error":"context deadline exceeded"}
+spawned pid=6140
+{"time":"2026-07-10T17:36:00.802365+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T17:36:00.808841+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-10T17:36:00.815269+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T17:36:00.829847+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-10T17:36:00.829912+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T17:36:00.829947+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T17:36:00.830068+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T17:36:00.830088+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T17:36:00.831605+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T17:36:00.831748+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T17:36:00.831829+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-10T17:36:00.831746+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T17:36:00.831916+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T17:36:00.858563+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T17:36:03.368283+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:06.750451+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:06.838658+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:07.800878+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:07.89212+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:08.601976+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:08.694152+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:09.468915+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:09.55228+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:14.396074+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":173}
+{"time":"2026-07-10T17:36:19.185411+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":0}
+{"time":"2026-07-10T17:36:19.205567+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002858","session_id":"sesn_000151","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:36:19.205609+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002859","session_id":"sesn_000151","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T17:36:19.205628+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000151","turn_id":"turn_000001","event_id":"evt_002859","event_seq":4}
+{"time":"2026-07-10T17:36:19.211021+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000151","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T17:36:31.52217+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000151","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T17:36:59.384391+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002900","session_id":"sesn_000151","turn_id":"turn_000002","event_seq":45,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:36:59.38444+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002901","session_id":"sesn_000151","turn_id":"turn_000002","event_seq":46,"event_type":"user.message"}
+{"time":"2026-07-10T17:36:59.384461+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000151","turn_id":"turn_000002","event_id":"evt_002901","event_seq":46}
+{"time":"2026-07-10T17:36:59.388996+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000151","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T17:37:05.438041+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000151","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T17:37:47.392852+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002980","session_id":"sesn_000151","turn_id":"turn_000003","event_seq":125,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:37:47.392907+08:00","level":"INFO","msg":"session events appended","event_id":"evt_002981","session_id":"sesn_000151","turn_id":"turn_000003","event_seq":126,"event_type":"user.message"}
+{"time":"2026-07-10T17:37:47.392929+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000151","turn_id":"turn_000003","event_id":"evt_002981","event_seq":126}
+{"time":"2026-07-10T17:37:47.397411+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000151","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T17:37:50.947439+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000151","turn_id":"turn_000003","events":2}
+{"time":"2026-07-10T17:38:14.54483+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003060","session_id":"sesn_000151","turn_id":"turn_000004","event_seq":205,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:38:14.544884+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003061","session_id":"sesn_000151","turn_id":"turn_000004","event_seq":206,"event_type":"user.message"}
+{"time":"2026-07-10T17:38:14.544903+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000151","turn_id":"turn_000004","event_id":"evt_003061","event_seq":206}
+{"time":"2026-07-10T17:38:14.548641+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000151","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-10T17:38:18.402588+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000151","turn_id":"turn_000004","events":2}
+{"time":"2026-07-10T17:42:57.253879+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T17:43:05.28397+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003122","session_id":"sesn_000137","turn_id":"turn_000004","event_seq":67,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:43:05.284064+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003123","session_id":"sesn_000137","turn_id":"turn_000004","event_seq":68,"event_type":"user.message"}
+{"time":"2026-07-10T17:43:05.284089+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000137","turn_id":"turn_000004","event_id":"evt_003123","event_seq":68}
+{"time":"2026-07-10T17:43:05.289872+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000137","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-10T17:43:51.72479+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":0}
+{"time":"2026-07-10T17:43:56.535424+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":0}
+{"time":"2026-07-10T17:43:56.549045+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003137","session_id":"sesn_000152","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:43:56.549092+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003138","session_id":"sesn_000152","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T17:43:56.549112+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000152","turn_id":"turn_000001","event_id":"evt_003138","event_seq":4}
+{"time":"2026-07-10T17:43:56.553093+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000152","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T17:44:00.0621+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000152","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T17:44:10.038197+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000137","turn_id":"turn_000004","events":2}
+{"time":"2026-07-10T17:44:10.108526+08:00","level":"WARN","msg":"worker runner summary refresh failed","session_id":"sesn_000137","turn_id":"turn_000004","error":"ERROR: invalid byte sequence for encoding \"UTF8\": 0x93 (SQLSTATE 22021)"}
+{"time":"2026-07-10T17:44:56.185016+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":0}
+{"time":"2026-07-10T17:44:56.208475+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-10T17:45:22.252769+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-10T17:45:28.448192+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":0}
+{"time":"2026-07-10T17:45:28.47237+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003179","session_id":"sesn_000153","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:45:28.472421+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003180","session_id":"sesn_000153","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T17:45:28.472482+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000153","turn_id":"turn_000001","event_id":"evt_003180","event_seq":4}
+{"time":"2026-07-10T17:45:28.478977+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000153","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T17:45:32.088616+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000153","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T17:45:43.519016+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003211","session_id":"sesn_000153","turn_id":"turn_000002","event_seq":35,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:45:43.519073+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003212","session_id":"sesn_000153","turn_id":"turn_000002","event_seq":36,"event_type":"user.message"}
+{"time":"2026-07-10T17:45:43.519092+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000153","turn_id":"turn_000002","event_id":"evt_003212","event_seq":36}
+{"time":"2026-07-10T17:45:43.523211+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000153","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T17:45:50.279741+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000153","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T17:45:57.735157+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":0}
+{"time":"2026-07-10T17:45:57.850721+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:45:58.719606+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:45:58.829425+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:45:59.585564+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:45:59.685913+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:46:00.371304+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:46:00.453526+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:46:02.079027+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:46:02.193176+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:46:16.617238+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003253","session_id":"sesn_000153","turn_id":"turn_000003","event_seq":77,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:46:16.617283+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003254","session_id":"sesn_000153","turn_id":"turn_000003","event_seq":78,"event_type":"user.message"}
+{"time":"2026-07-10T17:46:16.617304+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000153","turn_id":"turn_000003","event_id":"evt_003254","event_seq":78}
+{"time":"2026-07-10T17:46:16.622971+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000153","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T17:46:23.833172+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000153","turn_id":"turn_000003","events":2}
+{"time":"2026-07-10T17:48:51.559319+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":76}
+{"time":"2026-07-10T17:48:58.71633+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":0}
+{"time":"2026-07-10T17:48:58.738135+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003284","session_id":"sesn_000154","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:48:58.738184+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003285","session_id":"sesn_000154","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-10T17:48:58.738203+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000001","event_id":"evt_003285","event_seq":4}
+{"time":"2026-07-10T17:48:58.742711+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-10T17:49:01.592847+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000001","events":2}
+{"time":"2026-07-10T17:49:13.609248+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003293","session_id":"sesn_000154","turn_id":"turn_000002","event_seq":12,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:49:13.609301+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003294","session_id":"sesn_000154","turn_id":"turn_000002","event_seq":13,"event_type":"user.message"}
+{"time":"2026-07-10T17:49:13.609337+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000002","event_id":"evt_003294","event_seq":13}
+{"time":"2026-07-10T17:49:13.614026+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-10T17:49:17.711121+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000154","turn_id":"turn_000002"}
+{"time":"2026-07-10T17:49:23.357292+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000002","attempt":2}
+{"time":"2026-07-10T17:49:51.718153+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000002","events":2}
+{"time":"2026-07-10T17:50:34.944212+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003308","session_id":"sesn_000154","turn_id":"turn_000003","event_seq":27,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:50:34.944724+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003309","session_id":"sesn_000154","turn_id":"turn_000003","event_seq":28,"event_type":"user.message"}
+{"time":"2026-07-10T17:50:34.944754+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000003","event_id":"evt_003309","event_seq":28}
+{"time":"2026-07-10T17:50:34.950117+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-10T17:50:44.990172+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000003","events":2}
+{"time":"2026-07-10T17:54:00.652745+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003317","session_id":"sesn_000154","turn_id":"turn_000004","event_seq":36,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:54:00.652796+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003318","session_id":"sesn_000154","turn_id":"turn_000004","event_seq":37,"event_type":"user.message"}
+{"time":"2026-07-10T17:54:00.652816+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000004","event_id":"evt_003318","event_seq":37}
+{"time":"2026-07-10T17:54:00.657058+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-10T17:54:07.307474+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000154","turn_id":"turn_000004"}
+{"time":"2026-07-10T17:54:21.174503+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000004","attempt":2}
+{"time":"2026-07-10T17:54:45.501735+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000154","turn_id":"turn_000004"}
+{"time":"2026-07-10T17:54:54.998307+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000004","attempt":3}
+{"time":"2026-07-10T17:55:31.218152+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000154","turn_id":"turn_000004"}
+{"time":"2026-07-10T17:55:55.592624+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000154","turn_id":"turn_000004","attempt":4}
+{"time":"2026-07-10T17:56:20.90422+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000004","events":2}
+{"time":"2026-07-10T17:56:23.979365+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003344","session_id":"sesn_000137","turn_id":"turn_000005","event_seq":86,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:56:23.979426+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003345","session_id":"sesn_000137","turn_id":"turn_000005","event_seq":87,"event_type":"user.message"}
+{"time":"2026-07-10T17:56:23.979443+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000137","turn_id":"turn_000005","event_id":"evt_003345","event_seq":87}
+{"time":"2026-07-10T17:56:23.983715+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000137","turn_id":"turn_000005","attempt":1}
+{"time":"2026-07-10T17:56:30.93788+08:00","level":"INFO","msg":"onlyboxes session container created","container":"tma-onlyboxes-sesn_000137-732d478acdd0","session_id":"sesn_000137","scope":"browser"}
+{"time":"2026-07-10T17:56:31.571502+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000137","turn_id":"turn_000005","error":"tool browser.open failed: browser runner exited with code 1: Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /workspace/[eval]\n    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)\n    at packageResolve (node:internal/modules/esm/resolve:768:81)\n    at moduleResolve (node:internal/modules/esm/resolve:859:18)\n    at defaultResolve (node:internal/modules/esm/resolve:992:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:691:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:708:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:740:52)\n    at #resolve (node:internal/modules/esm/loader:673:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:593:35)\n    at node:internal/modules/esm/loader:622:32","events":1}
+{"time":"2026-07-10T17:56:45.534571+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000137","after_seq":0}
+{"time":"2026-07-10T17:57:04.145855+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-10T17:57:29.435329+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-10T17:57:30.879026+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-10T17:58:25.196499+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003354","session_id":"sesn_000146","turn_id":"turn_000010","event_seq":174,"event_type":"session.status_running"}
+{"time":"2026-07-10T17:58:25.196792+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003355","session_id":"sesn_000146","turn_id":"turn_000010","event_seq":175,"event_type":"user.message"}
+{"time":"2026-07-10T17:58:25.196821+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000010","event_id":"evt_003355","event_seq":175}
+{"time":"2026-07-10T17:58:25.200887+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000146","turn_id":"turn_000010","attempt":1}
+{"time":"2026-07-10T17:58:33.18808+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000010","events":2}
+{"time":"2026-07-10T18:16:08.454454+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":0}
+{"time":"2026-07-10T18:16:12.425822+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":0}
+{"time":"2026-07-11T11:21:26.557972+08:00","level":"INFO","msg":"onlyboxes session container removed","container":"tma-onlyboxes-sesn_000137-732d478acdd0"}
+{"time":"2026-07-11T11:34:14.073893+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003399","session_id":"sesn_000146","turn_id":"turn_000011","event_seq":219,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:34:14.073967+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003400","session_id":"sesn_000146","turn_id":"turn_000011","event_seq":220,"event_type":"user.message"}
+{"time":"2026-07-11T11:34:14.074003+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000011","event_id":"evt_003400","event_seq":220}
+{"time":"2026-07-11T11:34:14.080377+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000146","turn_id":"turn_000011","attempt":1}
+{"time":"2026-07-11T11:34:21.514249+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000011","events":2}
+{"time":"2026-07-11T11:35:00.13786+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003439","session_id":"sesn_000146","turn_id":"turn_000012","event_seq":259,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:35:00.137926+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003440","session_id":"sesn_000146","turn_id":"turn_000012","event_seq":260,"event_type":"user.message"}
+{"time":"2026-07-11T11:35:00.137961+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000012","event_id":"evt_003440","event_seq":260}
+{"time":"2026-07-11T11:35:00.144141+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"viitodeMacBook-Pro.local-6140-86f5890df7b2","session_id":"sesn_000146","turn_id":"turn_000012","attempt":1}
+{"time":"2026-07-11T11:35:06.899396+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000146","turn_id":"turn_000012","events":2}
+{"time":"2026-07-11T11:35:14.499922+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-11T11:35:52.38185+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T11:35:52.382027+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T11:35:52.38205+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T11:36:02.382992+08:00","level":"ERROR","msg":"server shutdown failed","error":"context deadline exceeded"}
+spawned pid=72852
+{"time":"2026-07-11T11:36:08.156655+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T11:36:08.16281+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T11:36:08.169695+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T11:36:08.183349+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T11:36:08.183394+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T11:36:08.183411+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T11:36:08.183488+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-72852-854dd91c37ee","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T11:36:08.183508+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T11:36:08.184567+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T11:36:08.184567+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T11:36:08.184586+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T11:36:08.184639+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T11:36:08.184575+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T11:36:08.46448+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":0}
+{"time":"2026-07-11T11:36:53.765799+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-11T11:37:16.726711+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003484","session_id":"sesn_000146","turn_id":"turn_000013","event_seq":304,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:37:16.726973+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003485","session_id":"sesn_000146","turn_id":"turn_000013","event_seq":305,"event_type":"user.message"}
+{"time":"2026-07-11T11:37:16.727009+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000146","turn_id":"turn_000013","event_id":"evt_003485","event_seq":305}
+{"time":"2026-07-11T11:37:16.731298+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000146","turn_id":"turn_000013","attempt":1}
+{"time":"2026-07-11T11:37:21.52964+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000146","turn_id":"turn_000013","error":"tool computer.bring_to_front failed: unsupported tool \"computer\"","events":1}
+{"time":"2026-07-11T11:37:57.749068+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000146","after_seq":0}
+{"time":"2026-07-11T11:38:37.179284+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":0}
+{"time":"2026-07-11T11:38:37.357372+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":62}
+{"time":"2026-07-11T11:38:48.270388+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003530","session_id":"sesn_000154","turn_id":"turn_000005","event_seq":63,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:38:48.270437+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003531","session_id":"sesn_000154","turn_id":"turn_000005","event_seq":64,"event_type":"user.message"}
+{"time":"2026-07-11T11:38:48.270457+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000005","event_id":"evt_003531","event_seq":64}
+{"time":"2026-07-11T11:38:48.274516+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000154","turn_id":"turn_000005","attempt":1}
+{"time":"2026-07-11T11:38:51.273107+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000005","events":2}
+{"time":"2026-07-11T11:39:00.800479+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003539","session_id":"sesn_000154","turn_id":"turn_000006","event_seq":72,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:39:00.800522+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003540","session_id":"sesn_000154","turn_id":"turn_000006","event_seq":73,"event_type":"user.message"}
+{"time":"2026-07-11T11:39:00.800545+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000006","event_id":"evt_003540","event_seq":73}
+{"time":"2026-07-11T11:39:00.804787+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000154","turn_id":"turn_000006","attempt":1}
+{"time":"2026-07-11T11:39:05.941833+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000006","events":2}
+{"time":"2026-07-11T11:39:24.153823+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003548","session_id":"sesn_000154","turn_id":"turn_000007","event_seq":81,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:39:24.153926+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003549","session_id":"sesn_000154","turn_id":"turn_000007","event_seq":82,"event_type":"user.message"}
+{"time":"2026-07-11T11:39:24.153949+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000007","event_id":"evt_003549","event_seq":82}
+{"time":"2026-07-11T11:39:24.158227+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000154","turn_id":"turn_000007","attempt":1}
+{"time":"2026-07-11T11:39:27.986932+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000007","events":2}
+{"time":"2026-07-11T11:39:46.82772+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003557","session_id":"sesn_000154","turn_id":"turn_000008","event_seq":90,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:39:46.827764+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003558","session_id":"sesn_000154","turn_id":"turn_000008","event_seq":91,"event_type":"user.message"}
+{"time":"2026-07-11T11:39:46.827781+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000008","event_id":"evt_003558","event_seq":91}
+{"time":"2026-07-11T11:39:46.831854+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000154","turn_id":"turn_000008","attempt":1}
+{"time":"2026-07-11T11:39:55.463909+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000008","events":2}
+{"time":"2026-07-11T11:40:30.487515+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003566","session_id":"sesn_000154","turn_id":"turn_000009","event_seq":99,"event_type":"session.status_running"}
+{"time":"2026-07-11T11:40:30.487566+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003567","session_id":"sesn_000154","turn_id":"turn_000009","event_seq":100,"event_type":"user.message"}
+{"time":"2026-07-11T11:40:30.487587+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000009","event_id":"evt_003567","event_seq":100}
+{"time":"2026-07-11T11:40:30.492169+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-72852-854dd91c37ee","session_id":"sesn_000154","turn_id":"turn_000009","attempt":1}
+{"time":"2026-07-11T11:40:36.539993+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000154","turn_id":"turn_000009","events":2}
+{"time":"2026-07-11T12:00:25.858797+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":62}
+{"time":"2026-07-11T12:00:25.971739+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:11.524448+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:11.62213+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:12.726569+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:12.828356+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+spawned pid=9494
+{"time":"2026-07-11T12:06:53.068167+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":72852,"restart_wait":"15s"}
+{"time":"2026-07-11T12:06:53.069322+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T12:06:53.069363+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T12:06:53.069381+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T12:06:56.045673+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:56.264881+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-11T12:06:56.292579+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T12:06:56.299361+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T12:06:56.305575+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T12:06:56.318586+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T12:06:56.318641+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T12:06:56.318661+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T12:06:56.318738+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-9494-5bd64399c63e","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T12:06:56.318756+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T12:06:56.319896+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T12:06:56.319912+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T12:06:56.319924+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T12:06:56.319958+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T12:06:56.319995+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T12:06:57.263765+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:59.352209+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:06:59.441973+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:07:12.156961+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:07:12.189523+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000131","after_seq":25}
+{"time":"2026-07-11T12:07:13.920457+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000131","after_seq":25}
+{"time":"2026-07-11T12:07:13.946767+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:07:14.952365+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:07:14.989325+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000131","after_seq":25}
+{"time":"2026-07-11T12:07:20.366489+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000131","turn_id":"turn_000002","attempt":3}
+{"time":"2026-07-11T12:07:21.193687+08:00","level":"INFO","msg":"onlyboxes session container removed","container":"tma-onlyboxes-sesn_000131-e6055af1e952"}
+{"time":"2026-07-11T12:07:22.759728+08:00","level":"INFO","msg":"onlyboxes session container created","container":"tma-onlyboxes-sesn_000131-e6055af1e952","session_id":"sesn_000131","scope":"default"}
+{"time":"2026-07-11T12:07:26.439974+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000131","turn_id":"turn_000002"}
+{"time":"2026-07-11T12:07:29.017932+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000131","turn_id":"turn_000002","attempt":4}
+{"time":"2026-07-11T12:07:33.248085+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000131","turn_id":"turn_000002"}
+{"time":"2026-07-11T12:07:41.881495+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000131","turn_id":"turn_000002","attempt":5}
+{"time":"2026-07-11T12:07:45.789225+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000131","turn_id":"turn_000002"}
+{"time":"2026-07-11T12:07:47.696706+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000131","turn_id":"turn_000002","attempt":6}
+{"time":"2026-07-11T12:07:55.502445+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000131","turn_id":"turn_000002","events":2}
+{"time":"2026-07-11T12:08:48.329811+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000131","after_seq":25}
+{"time":"2026-07-11T12:08:48.361035+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000125","after_seq":30}
+{"time":"2026-07-11T12:08:52.535579+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000125","turn_id":"turn_000002","attempt":3}
+{"time":"2026-07-11T12:09:03.627398+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000125","after_seq":30}
+{"time":"2026-07-11T12:09:03.652716+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:09:06.55238+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:09:06.574171+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:09:16.176727+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:09:16.203463+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T12:09:18.599863+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T12:09:18.628598+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:10:02.413848+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:10:02.452599+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:10.336225+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:10.362563+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:10:18.380131+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003603","session_id":"sesn_000125","turn_id":"turn_000002","event_seq":34,"event_type":"user.interrupt"}
+{"time":"2026-07-11T12:10:18.380645+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003604","session_id":"sesn_000125","turn_id":"turn_000002","event_seq":35,"event_type":"session.status_interrupting"}
+{"time":"2026-07-11T12:10:18.380678+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003605","session_id":"sesn_000125","turn_id":"turn_000002","event_seq":36,"event_type":"session.status_idle"}
+{"time":"2026-07-11T12:10:18.380713+08:00","level":"INFO","msg":"worker runner turn canceled","session_id":"sesn_000125","turn_id":"turn_000002"}
+{"time":"2026-07-11T12:10:18.395391+08:00","level":"INFO","msg":"worker runner turn canceled before completion","session_id":"sesn_000125","turn_id":"turn_000002"}
+{"time":"2026-07-11T12:10:24.202708+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003606","session_id":"sesn_000125","turn_id":"turn_000003","event_seq":37,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:10:24.202753+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003607","session_id":"sesn_000125","turn_id":"turn_000003","event_seq":38,"event_type":"user.message"}
+{"time":"2026-07-11T12:10:24.202773+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000125","turn_id":"turn_000003","event_id":"evt_003607","event_seq":38}
+{"time":"2026-07-11T12:10:24.206782+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000125","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-11T12:10:28.450872+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000125","turn_id":"turn_000003","events":2}
+{"time":"2026-07-11T12:10:39.85555+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000125","after_seq":31}
+{"time":"2026-07-11T12:10:39.882149+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:42.210103+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:42.239918+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:46.613371+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:46.743932+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:53.566281+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:53.603584+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:54.634025+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:54.661298+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:10:55.698249+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:10:55.727519+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:10:56.644088+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:10:56.669737+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:58.673737+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:10:58.709074+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:59.771939+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:10:59.796945+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:01.295496+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:01.321946+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:11:02.200021+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:11:02.229799+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:03.204433+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:03.231535+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:11:04.145615+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:11:04.178194+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T12:11:05.135251+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T12:11:05.167236+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:05.829161+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:05.84871+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:11:06.668167+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:11:06.693695+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:11:07.546504+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:11:07.570065+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:10.898549+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:11:10.926673+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:16:28.776162+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003615","session_id":"sesn_000154","turn_id":"turn_000010","event_seq":108,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:16:28.776208+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003616","session_id":"sesn_000154","turn_id":"turn_000010","event_seq":109,"event_type":"user.message"}
+{"time":"2026-07-11T12:16:28.776229+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000154","turn_id":"turn_000010","event_id":"evt_003616","event_seq":109}
+{"time":"2026-07-11T12:16:28.781273+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000154","turn_id":"turn_000010","attempt":1}
+{"time":"2026-07-11T12:16:35.905608+08:00","level":"INFO","msg":"onlyboxes session container created","container":"tma-onlyboxes-sesn_000154-4edeb7ad8988","session_id":"sesn_000154","scope":"browser"}
+{"time":"2026-07-11T12:16:36.758735+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000154","turn_id":"turn_000010","error":"tool browser.open failed: browser runner exited with code 1: Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /workspace/[eval]\n    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)\n    at packageResolve (node:internal/modules/esm/resolve:768:81)\n    at moduleResolve (node:internal/modules/esm/resolve:859:18)\n    at defaultResolve (node:internal/modules/esm/resolve:992:11)\n    at #cachedDefaultResolve (node:internal/modules/esm/loader:691:20)\n    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:708:38)\n    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:740:52)\n    at #resolve (node:internal/modules/esm/loader:673:17)\n    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:593:35)\n    at node:internal/modules/esm/loader:622:32","events":1}
+{"time":"2026-07-11T12:26:43.234928+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000154","after_seq":107}
+{"time":"2026-07-11T12:26:57.457741+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000155","after_seq":0}
+{"time":"2026-07-11T12:26:57.476831+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003627","session_id":"sesn_000155","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:26:57.476888+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003628","session_id":"sesn_000155","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-11T12:26:57.476909+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000155","turn_id":"turn_000001","event_id":"evt_003628","event_seq":4}
+{"time":"2026-07-11T12:26:57.481724+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000155","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-11T12:27:04.111005+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000155","turn_id":"turn_000001","events":2}
+{"time":"2026-07-11T12:27:05.517322+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003636","session_id":"sesn_000155","turn_id":"turn_000002","event_seq":12,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:27:05.517383+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003637","session_id":"sesn_000155","turn_id":"turn_000002","event_seq":13,"event_type":"user.message"}
+{"time":"2026-07-11T12:27:05.517404+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000155","turn_id":"turn_000002","event_id":"evt_003637","event_seq":13}
+{"time":"2026-07-11T12:27:05.522187+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000155","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-11T12:27:10.471471+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000155","turn_id":"turn_000002","events":2}
+{"time":"2026-07-11T12:27:13.881364+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003645","session_id":"sesn_000155","turn_id":"turn_000003","event_seq":21,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:27:13.881659+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003646","session_id":"sesn_000155","turn_id":"turn_000003","event_seq":22,"event_type":"user.message"}
+{"time":"2026-07-11T12:27:13.881688+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000155","turn_id":"turn_000003","event_id":"evt_003646","event_seq":22}
+{"time":"2026-07-11T12:27:13.885767+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000155","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-11T12:27:17.71913+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000155","turn_id":"turn_000003"}
+{"time":"2026-07-11T12:27:21.388946+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000155","turn_id":"turn_000003","attempt":2}
+{"time":"2026-07-11T12:27:45.478365+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000155","turn_id":"turn_000003"}
+{"time":"2026-07-11T12:27:47.765189+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-9494-5bd64399c63e","session_id":"sesn_000155","turn_id":"turn_000003","attempt":3}
+{"time":"2026-07-11T12:28:10.734905+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000155","turn_id":"turn_000003","events":2}
+{"time":"2026-07-11T12:37:56.970682+08:00","level":"INFO","msg":"onlyboxes session container removed","container":"tma-onlyboxes-sesn_000131-e6055af1e952"}
+spawned pid=54283
+{"time":"2026-07-11T12:42:47.152689+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":9494,"restart_wait":"15s"}
+{"time":"2026-07-11T12:42:47.153785+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T12:42:47.153854+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T12:42:47.153889+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T12:42:57.16817+08:00","level":"ERROR","msg":"server shutdown failed","error":"context deadline exceeded"}
+{"time":"2026-07-11T12:42:57.430008+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T12:42:57.436981+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T12:42:57.443083+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T12:42:57.456524+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T12:42:57.456589+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T12:42:57.456608+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T12:42:57.456739+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-54283-f4c8386f8115","workers":10,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T12:42:57.456759+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":10,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T12:42:57.459109+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T12:42:57.459153+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T12:42:57.459244+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T12:42:57.459315+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T12:42:57.459344+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T12:43:00.25147+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000155","after_seq":0}
+{"time":"2026-07-11T12:43:01.287379+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000155","after_seq":0}
+{"time":"2026-07-11T12:43:01.444841+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000155","after_seq":41}
+{"time":"2026-07-11T12:43:10.758453+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000155","after_seq":41}
+{"time":"2026-07-11T12:43:10.822885+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:01.93669+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:01.969725+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:04.351603+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:04.394902+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:05.308653+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:05.369133+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:06.196116+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:06.241902+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:06.882632+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:06.934876+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:07.672708+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:07.721485+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:09.633843+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:09.670785+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:44:19.782004+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:44:19.842908+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:20.94062+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:44:20.997566+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:31.671336+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:44:31.711526+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:45:19.203062+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003668","session_id":"sesn_000153","turn_id":"turn_000004","event_seq":106,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:45:19.203125+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003669","session_id":"sesn_000153","turn_id":"turn_000004","event_seq":107,"event_type":"user.message"}
+{"time":"2026-07-11T12:45:19.203165+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000153","turn_id":"turn_000004","event_id":"evt_003669","event_seq":107}
+{"time":"2026-07-11T12:45:19.207809+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000153","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-11T12:45:31.285994+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000153","turn_id":"turn_000004","events":2}
+{"time":"2026-07-11T12:45:42.023927+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003699","session_id":"sesn_000153","turn_id":"turn_000005","event_seq":137,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:45:42.023971+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003700","session_id":"sesn_000153","turn_id":"turn_000005","event_seq":138,"event_type":"user.message"}
+{"time":"2026-07-11T12:45:42.02399+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000153","turn_id":"turn_000005","event_id":"evt_003700","event_seq":138}
+{"time":"2026-07-11T12:45:42.028447+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000153","turn_id":"turn_000005","attempt":1}
+{"time":"2026-07-11T12:45:46.370268+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000153","turn_id":"turn_000005","events":2}
+{"time":"2026-07-11T12:45:53.733648+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":105}
+{"time":"2026-07-11T12:45:53.793137+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:46:05.703654+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:46:14.804796+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000156","after_seq":0}
+{"time":"2026-07-11T12:46:14.82391+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003749","session_id":"sesn_000156","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:46:14.823962+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003750","session_id":"sesn_000156","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-11T12:46:14.823982+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000156","turn_id":"turn_000001","event_id":"evt_003750","event_seq":4}
+{"time":"2026-07-11T12:46:14.828655+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000156","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-11T12:46:17.206374+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000156","turn_id":"turn_000001","events":2}
+{"time":"2026-07-11T12:46:34.326779+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003772","session_id":"sesn_000156","turn_id":"turn_000002","event_seq":26,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:46:34.326838+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003773","session_id":"sesn_000156","turn_id":"turn_000002","event_seq":27,"event_type":"user.message"}
+{"time":"2026-07-11T12:46:34.326867+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000156","turn_id":"turn_000002","event_id":"evt_003773","event_seq":27}
+{"time":"2026-07-11T12:46:34.330835+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000156","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-11T12:46:36.773353+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000156","turn_id":"turn_000002","events":2}
+{"time":"2026-07-11T12:47:01.367056+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000156","after_seq":0}
+{"time":"2026-07-11T12:47:01.403802+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T12:47:03.152102+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T12:47:03.224242+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:47:04.746994+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T12:47:04.815205+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:47:06.119084+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T12:47:06.171829+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000156","after_seq":50}
+{"time":"2026-07-11T12:47:24.755275+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003797","session_id":"sesn_000156","turn_id":"turn_000003","event_seq":51,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:47:24.755553+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003798","session_id":"sesn_000156","turn_id":"turn_000003","event_seq":52,"event_type":"user.message"}
+{"time":"2026-07-11T12:47:24.755585+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000156","turn_id":"turn_000003","event_id":"evt_003798","event_seq":52}
+{"time":"2026-07-11T12:47:24.759631+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000156","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-11T12:47:28.001414+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000156","turn_id":"turn_000003","events":2}
+{"time":"2026-07-11T12:47:39.188914+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000156","after_seq":50}
+{"time":"2026-07-11T12:47:46.119834+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":0}
+{"time":"2026-07-11T12:47:46.135541+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003833","session_id":"sesn_000157","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:47:46.135598+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003834","session_id":"sesn_000157","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-11T12:47:46.135619+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000157","turn_id":"turn_000001","event_id":"evt_003834","event_seq":4}
+{"time":"2026-07-11T12:47:46.142453+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000157","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-11T12:48:00.804189+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000157","turn_id":"turn_000001","events":2}
+{"time":"2026-07-11T12:48:06.419556+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003871","session_id":"sesn_000157","turn_id":"turn_000002","event_seq":41,"event_type":"session.status_running"}
+{"time":"2026-07-11T12:48:06.419597+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003872","session_id":"sesn_000157","turn_id":"turn_000002","event_seq":42,"event_type":"user.message"}
+{"time":"2026-07-11T12:48:06.419616+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000157","turn_id":"turn_000002","event_id":"evt_003872","event_seq":42}
+{"time":"2026-07-11T12:48:06.423986+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-54283-f4c8386f8115","session_id":"sesn_000157","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-11T12:48:12.256984+08:00","level":"ERROR","msg":"worker runner turn failed","session_id":"sesn_000157","turn_id":"turn_000002","error":"tool computer.get_state failed: unsupported tool \"computer\"","events":1}
+{"time":"2026-07-11T12:48:16.651496+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":0}
+spawned pid=58527
+{"time":"2026-07-11T16:44:24.063247+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":54283,"restart_wait":"15s"}
+{"time":"2026-07-11T16:44:24.064214+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T16:44:24.0643+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T16:44:24.064329+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T16:44:24.066618+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-11T16:44:24.278115+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T16:44:24.285835+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T16:44:24.291085+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T16:44:24.306221+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T16:44:24.306271+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T16:44:24.306288+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T16:44:24.30639+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-58527-c8c30c6a525f","workers":10,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T16:44:24.306407+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":10,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T16:44:24.3076+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T16:44:24.307601+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T16:44:24.307739+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T16:44:24.307805+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T16:44:24.307948+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T16:44:45.730387+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T16:45:00.295549+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T16:45:15.632556+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":0}
+{"time":"2026-07-11T16:45:15.764578+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003917","session_id":"sesn_000158","turn_id":"turn_000001","event_seq":3,"event_type":"session.status_running"}
+{"time":"2026-07-11T16:45:15.764749+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003918","session_id":"sesn_000158","turn_id":"turn_000001","event_seq":4,"event_type":"user.message"}
+{"time":"2026-07-11T16:45:15.765038+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000158","turn_id":"turn_000001","event_id":"evt_003918","event_seq":4}
+{"time":"2026-07-11T16:45:15.8244+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-58527-c8c30c6a525f","session_id":"sesn_000158","turn_id":"turn_000001","attempt":1}
+{"time":"2026-07-11T16:45:20.807156+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000158","turn_id":"turn_000001"}
+{"time":"2026-07-11T16:45:23.830801+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-58527-c8c30c6a525f","session_id":"sesn_000158","turn_id":"turn_000001","attempt":2}
+{"time":"2026-07-11T16:45:53.919563+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000158","turn_id":"turn_000001","events":2}
+{"time":"2026-07-11T16:46:19.453667+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":0}
+{"time":"2026-07-11T16:46:19.674678+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T16:48:00.585161+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T16:48:00.756174+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T16:48:41.140034+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T16:48:41.216905+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T16:48:43.788272+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T16:48:43.874042+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T16:48:44.767587+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T16:48:44.847896+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T16:48:56.788171+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T16:48:56.863339+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+spawned pid=76370
+{"time":"2026-07-11T17:00:50.189355+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":58527,"restart_wait":"15s"}
+{"time":"2026-07-11T17:00:50.190475+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T17:00:50.190511+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T17:00:50.190528+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T17:00:55.14744+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:00:55.451284+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-11T17:00:55.621288+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T17:00:55.62944+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T17:00:55.635686+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T17:00:55.648566+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T17:00:55.648613+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T17:00:55.648634+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T17:00:55.648733+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-76370-585b6c135ab8","workers":10,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:00:55.648753+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":10,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:00:55.650044+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T17:00:55.650055+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:00:55.650126+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T17:00:55.650049+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:00:55.650134+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T17:00:56.397038+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:01:50.560815+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:01:50.610504+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:01:52.948822+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:01:53.038511+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T17:01:55.072323+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T17:01:55.124818+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:01:57.934525+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:01:57.983121+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T17:02:00.559251+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000153","after_seq":184}
+{"time":"2026-07-11T17:02:00.602246+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T17:02:03.201572+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000152","after_seq":36}
+{"time":"2026-07-11T17:02:03.310042+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T17:02:04.878399+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000151","after_seq":266}
+{"time":"2026-07-11T17:02:04.980293+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T17:02:07.584786+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T17:02:07.659476+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000148","after_seq":15}
+{"time":"2026-07-11T17:02:10.744792+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000148","after_seq":15}
+{"time":"2026-07-11T17:02:10.820107+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T17:02:12.145941+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000156","after_seq":84}
+{"time":"2026-07-11T17:02:12.192144+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:02:14.811552+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:02:14.885546+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000143","after_seq":20}
+{"time":"2026-07-11T17:02:18.084591+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000143","after_seq":20}
+{"time":"2026-07-11T17:02:18.148564+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000149","after_seq":15}
+{"time":"2026-07-11T17:02:21.384247+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000149","after_seq":15}
+{"time":"2026-07-11T17:02:21.460537+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T17:02:23.930511+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000150","after_seq":15}
+{"time":"2026-07-11T17:02:23.993646+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+spawned pid=86054
+{"time":"2026-07-11T17:11:22.6547+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":76370,"restart_wait":"15s"}
+{"time":"2026-07-11T17:11:22.654969+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T17:11:22.655009+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T17:11:22.655027+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T17:11:25.297011+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:11:25.821541+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-11T17:11:25.879975+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T17:11:25.886632+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T17:11:25.893223+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T17:11:25.906431+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T17:11:25.906478+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T17:11:25.906497+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T17:11:25.906628+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-86054-7008df937b7a","workers":10,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:11:25.906664+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":10,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:11:25.907771+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T17:11:25.907798+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:11:25.907857+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:11:25.907928+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T17:11:25.908001+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T17:11:26.551654+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:11:32.624701+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:11:32.678629+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:11:35.545126+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:11:35.608958+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:12:45.343864+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003932","session_id":"sesn_000158","turn_id":"turn_000002","event_seq":18,"event_type":"session.status_running"}
+{"time":"2026-07-11T17:12:45.343958+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003933","session_id":"sesn_000158","turn_id":"turn_000002","event_seq":19,"event_type":"user.message"}
+{"time":"2026-07-11T17:12:45.343998+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000158","turn_id":"turn_000002","event_id":"evt_003933","event_seq":19}
+{"time":"2026-07-11T17:12:45.352788+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-86054-7008df937b7a","session_id":"sesn_000158","turn_id":"turn_000002","attempt":1}
+{"time":"2026-07-11T17:12:48.815923+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000158","turn_id":"turn_000002","events":2}
+{"time":"2026-07-11T17:12:55.179483+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003941","session_id":"sesn_000158","turn_id":"turn_000003","event_seq":27,"event_type":"session.status_running"}
+{"time":"2026-07-11T17:12:55.179533+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003942","session_id":"sesn_000158","turn_id":"turn_000003","event_seq":28,"event_type":"user.message"}
+{"time":"2026-07-11T17:12:55.179551+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000158","turn_id":"turn_000003","event_id":"evt_003942","event_seq":28}
+{"time":"2026-07-11T17:12:55.184393+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-86054-7008df937b7a","session_id":"sesn_000158","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-11T17:13:00.388242+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000158","turn_id":"turn_000003","events":2}
+{"time":"2026-07-11T17:43:54.600449+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":17}
+{"time":"2026-07-11T17:43:54.857418+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+spawned pid=15466
+{"time":"2026-07-11T17:44:15.02695+08:00","level":"INFO","msg":"stopping existing server before restart","pid_file":"/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent/.tma-server.pid","pid":86054,"restart_wait":"15s"}
+{"time":"2026-07-11T17:44:15.028084+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-11T17:44:15.028123+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-11T17:44:15.02814+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-11T17:44:21.269569+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:21.359074+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-11T17:44:21.459224+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-11T17:44:21.466926+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"volcengine-agent-plan","llm_provider_type":"openai","llm_base_url":"https://ark.cn-beijing.volces.com/api/plan/v3","llm_api_key_env":"TMA_LLM_API_KEY"}
+{"time":"2026-07-11T17:44:21.473272+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-11T17:44:21.488371+08:00","level":"INFO","msg":"ensured builtin general agent","agent_id":"agt_general","agent_name":"通用智能体","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro"}
+{"time":"2026-07-11T17:44:21.488417+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-11T17:44:21.488439+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_container_idle_ttl_seconds":1800,"cloud_sandbox_container_max_lifetime_seconds":14400,"cloud_sandbox_container_cleanup_interval_seconds":60,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-11T17:44:21.488558+08:00","level":"INFO","msg":"worker runner started","instance_id":"anonymous-15466-ccca578d7772","workers":10,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:44:21.488579+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"volcengine-agent-plan","llm_model":"doubao-seed-2.0-pro","default_context_window_tokens":128000,"worker_count":10,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-11T17:44:21.490002+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:44:21.490083+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-11T17:44:21.490062+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-11T17:44:21.490051+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-11T17:44:21.490646+08:00","level":"INFO","msg":"tma server listening","addr":":8080"}
+{"time":"2026-07-11T17:44:22.482401+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:35.073825+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:35.139463+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:40.233716+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:40.330999+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:46.606153+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:46.665116+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:50.663875+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:50.716046+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:54.202177+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:54.236146+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:57.498113+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:44:57.550496+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:58.87567+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:44:58.954326+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:45:15.074026+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003950","session_id":"sesn_000157","turn_id":"turn_000003","event_seq":85,"event_type":"session.status_running"}
+{"time":"2026-07-11T17:45:15.074317+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003951","session_id":"sesn_000157","turn_id":"turn_000003","event_seq":86,"event_type":"user.message"}
+{"time":"2026-07-11T17:45:15.07435+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000157","turn_id":"turn_000003","event_id":"evt_003951","event_seq":86}
+{"time":"2026-07-11T17:45:15.080233+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-15466-ccca578d7772","session_id":"sesn_000157","turn_id":"turn_000003","attempt":1}
+{"time":"2026-07-11T17:45:29.751572+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000157","after_seq":84}
+{"time":"2026-07-11T17:45:34.868136+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:45:40.844207+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000157","turn_id":"turn_000003","events":2}
+{"time":"2026-07-11T17:45:57.790989+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003990","session_id":"sesn_000158","turn_id":"turn_000004","event_seq":36,"event_type":"session.status_running"}
+{"time":"2026-07-11T17:45:57.791041+08:00","level":"INFO","msg":"session events appended","event_id":"evt_003991","session_id":"sesn_000158","turn_id":"turn_000004","event_seq":37,"event_type":"user.message"}
+{"time":"2026-07-11T17:45:57.79106+08:00","level":"INFO","msg":"session turn starting","session_id":"sesn_000158","turn_id":"turn_000004","event_id":"evt_003991","event_seq":37}
+{"time":"2026-07-11T17:45:57.795185+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-15466-ccca578d7772","session_id":"sesn_000158","turn_id":"turn_000004","attempt":1}
+{"time":"2026-07-11T17:46:01.073262+08:00","level":"INFO","msg":"worker runner turn waiting for approval","session_id":"sesn_000158","turn_id":"turn_000004"}
+{"time":"2026-07-11T17:46:20.865325+08:00","level":"INFO","msg":"worker runner turn claimed","instance_id":"anonymous-15466-ccca578d7772","session_id":"sesn_000158","turn_id":"turn_000004","attempt":2}
+{"time":"2026-07-11T17:46:31.165924+08:00","level":"INFO","msg":"worker runner turn completed","session_id":"sesn_000158","turn_id":"turn_000004","events":2}
+{"time":"2026-07-11T17:47:27.936957+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":35}
+{"time":"2026-07-11T17:48:08.124821+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000158","after_seq":50}
+{"time":"2026-07-11T17:53:58.910546+08:00","level":"INFO","msg":"sse stream closed","session_id":"sesn_000158","after_seq":50}
+{"time":"2026-07-11T17:53:59.028978+08:00","level":"INFO","msg":"sse stream opened","session_id":"sesn_000157","after_seq":124}

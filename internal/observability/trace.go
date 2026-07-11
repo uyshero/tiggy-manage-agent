@@ -101,6 +101,7 @@ type TraceSpanCatalogFilter struct {
 	MaxDurationMillis     int64
 	MinSelfDurationMillis int64
 	Limit                 int
+	Offset                int
 }
 
 type TraceSpanCatalog struct {
@@ -108,6 +109,10 @@ type TraceSpanCatalog struct {
 	KindCounts     map[string]int          `json:"kind_counts"`
 	StatusCounts   map[string]int          `json:"status_counts"`
 	CriticalCounts map[string]int          `json:"critical_counts"`
+	Limit          int                     `json:"limit,omitempty"`
+	Offset         int                     `json:"offset,omitempty"`
+	NextOffset     int                     `json:"next_offset,omitempty"`
+	HasMore        bool                    `json:"has_more,omitempty"`
 }
 
 type TraceGraph struct {
@@ -144,6 +149,12 @@ type TraceStep struct {
 	DecisionReason string          `json:"decision_reason,omitempty"`
 	ArtifactError  string          `json:"artifact_error,omitempty"`
 	Artifacts      []TraceArtifact `json:"artifacts,omitempty"`
+
+	ContentTruncated     bool  `json:"content_truncated,omitempty"`
+	StateTruncated       bool  `json:"state_truncated,omitempty"`
+	OriginalContentChars int64 `json:"original_content_chars,omitempty"`
+	VisibleContentChars  int64 `json:"visible_content_chars,omitempty"`
+	OriginalStateBytes   int64 `json:"original_state_bytes,omitempty"`
 }
 
 type TraceArtifact struct {
@@ -244,8 +255,15 @@ func BuildTurnCatalog(sessionID string, events []managedagents.Event) []TraceTur
 }
 
 func BuildTraceCatalog(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, limit int) []TraceCatalogEntry {
+	return BuildTraceCatalogPage(sessions, eventsBySession, limit, 0)
+}
+
+func BuildTraceCatalogPage(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, limit int, offset int) []TraceCatalogEntry {
 	if limit <= 0 {
 		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	entries := []TraceCatalogEntry{}
 	for _, session := range sessions {
@@ -280,6 +298,10 @@ func BuildTraceCatalog(sessions []managedagents.Session, eventsBySession map[str
 		}
 		return left.After(right)
 	})
+	if offset >= len(entries) {
+		return []TraceCatalogEntry{}
+	}
+	entries = entries[offset:]
 	if len(entries) > limit {
 		return entries[:limit]
 	}
@@ -290,6 +312,10 @@ func BuildTraceSpanCatalog(sessions []managedagents.Session, eventsBySession map
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = 100
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	traceID := strings.TrimSpace(filter.TraceID)
 	sessionID := strings.TrimSpace(filter.SessionID)
@@ -355,9 +381,19 @@ func BuildTraceSpanCatalog(sessions []managedagents.Session, eventsBySession map
 		}
 		return catalog.Spans[i].StartTime.After(catalog.Spans[j].StartTime)
 	})
+	catalog.Limit = limit
+	catalog.Offset = offset
+	if offset >= len(catalog.Spans) {
+		catalog.Spans = []TraceSpanCatalogEntry{}
+		return catalog
+	}
+	hasMore := len(catalog.Spans) > offset+limit
+	catalog.Spans = catalog.Spans[offset:]
 	if len(catalog.Spans) > limit {
 		catalog.Spans = catalog.Spans[:limit]
 	}
+	catalog.HasMore = hasMore
+	catalog.NextOffset = offset + len(catalog.Spans)
 	return catalog
 }
 
@@ -583,7 +619,7 @@ func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
 					ParentSpanID:   step.ParentSpanID,
 					Name:           defaultString(step.SpanName, spanName(step)),
 					Kind:           defaultString(step.SpanKind, spanKind(step.Type)),
-					Status:         defaultString(step.SpanStatus, pointSpanStatus(step)),
+					Status:         defaultString(step.SpanStatus, nativeSpanStatus(step, "")),
 					StartSeq:       step.Seq,
 					EndSeq:         step.Seq,
 					StartTime:      start,
@@ -605,8 +641,8 @@ func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
 		if step.SpanKind != "" {
 			current.span.Kind = step.SpanKind
 		}
-		if step.SpanStatus != "" {
-			current.span.Status = step.SpanStatus
+		if status := nativeSpanStatus(step, current.span.Status); status != "" {
+			current.span.Status = status
 		}
 		if step.Seq < current.span.StartSeq {
 			current.span.StartSeq = step.Seq
@@ -1305,6 +1341,9 @@ func projectStep(event managedagents.Event) TraceStep {
 	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse, managedagents.EventRuntimeStarted, managedagents.EventRuntimeThinking, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
 		step.Message = payloadMessage(event.Payload)
 		step.Summary = step.Message
+	case managedagents.EventRuntimeSpanStarted, managedagents.EventRuntimeSpanEvent, managedagents.EventRuntimeSpanEnded:
+		step.Message = payloadMessage(event.Payload)
+		step.Summary = defaultString(step.Message, step.SpanName)
 	case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolInterventionRequired:
 		step.Message = payloadMessage(event.Payload)
 		step.CallID = payloadDataString(event.Payload, "id")
@@ -1337,6 +1376,12 @@ func projectStep(event managedagents.Event) TraceStep {
 		step.DecisionReason = payloadDataString(event.Payload, "decision_reason")
 		step.ArtifactError = payloadDataString(event.Payload, "artifact_error")
 		step.Artifacts = payloadDataArtifacts(event.Payload)
+		context := payloadDataContext(event.Payload)
+		step.ContentTruncated = mapBool(context, "content_truncated")
+		step.StateTruncated = mapBool(context, "state_truncated")
+		step.OriginalContentChars = mapInt64(context, "original_content_chars")
+		step.VisibleContentChars = mapInt64(context, "visible_content_chars")
+		step.OriginalStateBytes = mapInt64(context, "original_state_bytes")
 		switch payloadDataBoolPtr(event.Payload, "success"); {
 		case payloadDataBool(event.Payload, "pending_intervention"):
 			step.Outcome = "pending_intervention"
@@ -1480,6 +1525,23 @@ func pointSpanStatus(step TraceStep) string {
 	default:
 		return "point"
 	}
+}
+
+func nativeSpanStatus(step TraceStep, current string) string {
+	if step.SpanStatus != "" {
+		return step.SpanStatus
+	}
+	switch step.Type {
+	case managedagents.EventRuntimeSpanStarted:
+		if current == "" {
+			return "open"
+		}
+	case managedagents.EventRuntimeSpanEnded:
+		return "ok"
+	case managedagents.EventRuntimeFailed:
+		return "error"
+	}
+	return current
 }
 
 func approvalSpanStatus(step TraceStep) string {
@@ -1763,6 +1825,33 @@ func payloadDataBoolPtr(raw json.RawMessage, key string) *bool {
 		return nil
 	}
 	return &value
+}
+
+func payloadDataContext(raw json.RawMessage) map[string]any {
+	data := payloadData(raw)
+	context, _ := data["context"].(map[string]any)
+	return context
+}
+
+func mapBool(values map[string]any, key string) bool {
+	value, _ := values[key].(bool)
+	return value
+}
+
+func mapInt64(values map[string]any, key string) int64 {
+	switch value := values[key].(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case json.Number:
+		parsed, _ := value.Int64()
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func payloadDataArtifacts(raw json.RawMessage) []TraceArtifact {

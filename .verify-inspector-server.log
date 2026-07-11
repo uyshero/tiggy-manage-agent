@@ -1,8 +1,17 @@
-{"time":"2026-07-09T18:49:05.903399+08:00","level":"INFO","msg":"using postgres store"}
-{"time":"2026-07-09T18:49:05.909314+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"fake","llm_provider_type":"fake","llm_base_url":"","llm_api_key_env":""}
-{"time":"2026-07-09T18:49:05.916836+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"fake","llm_model":"fake-demo","context_window_tokens":128000,"context_budget_ratio_percent":60}
-{"time":"2026-07-09T18:49:05.916877+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
-{"time":"2026-07-09T18:49:05.916896+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
-{"time":"2026-07-09T18:49:05.916947+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"fake","llm_model":"fake-demo","default_context_window_tokens":128000,"queue_size":16}
-{"time":"2026-07-09T18:49:05.917276+08:00","level":"INFO","msg":"tma server listening","addr":":18089"}
-{"time":"2026-07-09T18:49:07.051545+08:00","level":"INFO","msg":"server stopped"}
+{"time":"2026-07-10T11:58:58.205954+08:00","level":"INFO","msg":"using postgres store"}
+{"time":"2026-07-10T11:58:58.212732+08:00","level":"INFO","msg":"ensured default llm provider","llm_provider":"fake","llm_provider_type":"fake","llm_base_url":"","llm_api_key_env":""}
+{"time":"2026-07-10T11:58:58.219287+08:00","level":"INFO","msg":"ensured default llm model","llm_provider":"fake","llm_model":"fake-demo","context_window_tokens":128000,"context_budget_ratio_percent":60}
+{"time":"2026-07-10T11:58:58.219321+08:00","level":"INFO","msg":"using object store client","object_store_provider":"s3","object_store_endpoint":"http://localhost:9000","object_store_region":"local","object_store_bucket":"tma-artifacts","object_store_root_dir":"/private/tmp/tma-object-store","object_store_use_path_style":true,"object_store_client":"*objectstore.S3Client"}
+{"time":"2026-07-10T11:58:58.219336+08:00","level":"INFO","msg":"using default tool runtime","tool_runtime":"cloud_sandbox","cloud_sandbox_root":"","cloud_sandbox_image":"","cloud_sandbox_data_root":"/private/tmp/tma-cloud-sandbox-data","cloud_sandbox_data_ttl_seconds":3600,"cloud_sandbox_allow_network":true,"allow_server_local_system":false}
+{"time":"2026-07-10T11:58:58.219398+08:00","level":"INFO","msg":"worker runner started","instance_id":"viitodeMacBook-Pro.local-74227-40263871aa29","workers":4,"persistent_queue":true,"lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T11:58:58.219429+08:00","level":"INFO","msg":"using worker runner","turn_executor":"agent_runtime","agent_runtime":"demo","llm_provider":"fake","llm_model":"fake-demo","default_context_window_tokens":128000,"worker_count":4,"wake_buffer":16,"poll_interval":"500ms","lease_duration":"10s","heartbeat_interval":"1s"}
+{"time":"2026-07-10T11:58:58.220028+08:00","level":"INFO","msg":"trace index retention worker disabled"}
+{"time":"2026-07-10T11:58:58.220079+08:00","level":"INFO","msg":"worker reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T11:58:58.22026+08:00","level":"INFO","msg":"observability exporter retry worker started","interval":"30s","limit":20}
+{"time":"2026-07-10T11:58:58.220317+08:00","level":"INFO","msg":"tma server listening","addr":":18089"}
+{"time":"2026-07-10T11:58:58.220375+08:00","level":"INFO","msg":"worker work reaper started","interval":"30s","limit":100}
+{"time":"2026-07-10T11:58:58.245409+08:00","level":"INFO","msg":"worker reaper expired workers","count":1}
+{"time":"2026-07-10T11:58:59.004356+08:00","level":"INFO","msg":"observability exporter retry worker stopped"}
+{"time":"2026-07-10T11:58:59.004441+08:00","level":"INFO","msg":"worker reaper stopped"}
+{"time":"2026-07-10T11:58:59.004451+08:00","level":"INFO","msg":"worker work reaper stopped"}
+{"time":"2026-07-10T11:58:59.004523+08:00","level":"INFO","msg":"server stopped"}

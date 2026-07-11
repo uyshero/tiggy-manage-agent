@@ -346,6 +346,32 @@ func printWorkerCapabilities(raw json.RawMessage, indent string) {
 	if len(capabilities.Capabilities) > 0 {
 		fmt.Printf("%scapabilities: %s\n", indent, strings.Join(capabilities.Capabilities, ", "))
 	}
+	printWorkerPluginManifests(capabilities.Manifests, indent)
+}
+
+func printWorkerPluginManifests(manifests []tools.Manifest, indent string) {
+	if len(manifests) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(manifests))
+	for _, manifest := range manifests {
+		apis := make([]string, 0, len(manifest.API))
+		for _, api := range manifest.API {
+			apiName := api.APIName
+			if strings.TrimSpace(apiName) == "" {
+				apiName = api.Name
+			}
+			if strings.TrimSpace(apiName) != "" {
+				apis = append(apis, apiName)
+			}
+		}
+		if len(apis) == 0 {
+			parts = append(parts, manifest.Identifier)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s(%s)", manifest.Identifier, strings.Join(apis, ", ")))
+	}
+	fmt.Printf("%stool_manifests: %s\n", indent, strings.Join(parts, "; "))
 }
 
 func printWorkerDiagnosis(response workerDiagnoseResponse) {

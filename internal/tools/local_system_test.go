@@ -30,6 +30,14 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 	if manifest := webRuntime.Manifest(); manifest.Identifier != WebIdentifier || len(manifest.API) != 2 {
 		t.Fatalf("unexpected web manifest: %#v", manifest)
 	}
+
+	browserRuntime, ok := registry.Get(BrowserIdentifier)
+	if !ok {
+		t.Fatalf("expected %s runtime", BrowserIdentifier)
+	}
+	if manifest := browserRuntime.Manifest(); manifest.Identifier != BrowserIdentifier || len(manifest.API) != 7 {
+		t.Fatalf("unexpected browser manifest: %#v", manifest)
+	}
 }
 
 func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
@@ -58,14 +66,14 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	for _, manifest := range decoded.Tools {
 		identifiers[manifest.Identifier] = true
 	}
-	if len(decoded.Tools) != 2 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] {
+	if len(decoded.Tools) != 3 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[BrowserIdentifier] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
 }
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 7 {
+	if len(modelTools) != 14 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -79,7 +87,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] {
+	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }

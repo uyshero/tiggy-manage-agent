@@ -149,7 +149,7 @@ Runtime resolution:
   auto          -> cloud_sandbox for default.* in v1
 ```
 
-第一版 `cloud_sandbox` 采用 just-in-time 执行模型：工具调用到来时由 `OnlyboxesProvider` 按需执行 `docker run --rm`，命令结束后容器删除。TMA 不负责自动启动 Docker daemon、Onlyboxes Console 或 per-session 常驻容器。
+`cloud_sandbox` 采用 Session 级容器复用模型：第一次工具调用由 `OnlyboxesProvider` 执行 `docker run -d`，后续同一 Session 和 scope 使用 `docker exec`。容器按空闲 TTL、最大寿命和 Server 关闭事件回收；TMA 仍不负责自动启动 Docker daemon 或 Onlyboxes Console。
 
 容器内目前有两类挂载：
 

@@ -12,7 +12,12 @@ var configEnvKeys = []string{
 	"TMA_HTTP_ADDR",
 	"TMA_DATABASE_URL",
 	"TMA_TURN_QUEUE_SIZE",
+	"TMA_TURN_WORKER_COUNT",
+	"TMA_TURN_POLL_INTERVAL_MS",
+	"TMA_TURN_LEASE_DURATION_MS",
+	"TMA_TURN_HEARTBEAT_INTERVAL_MS",
 	"TMA_TURN_TIMEOUT_MS",
+	"TMA_MAX_TOOL_ROUNDS",
 	"TMA_DEFAULT_CONTEXT_WINDOW_TOKENS",
 	"TMA_LLM_PROVIDER",
 	"TMA_LLM_PROVIDER_TYPE",
@@ -38,6 +43,9 @@ var configEnvKeys = []string{
 	"TMA_CLOUD_SANDBOX_IMAGE",
 	"TMA_CLOUD_SANDBOX_DATA_ROOT",
 	"TMA_CLOUD_SANDBOX_DATA_TTL_SECONDS",
+	"TMA_CLOUD_SANDBOX_CONTAINER_IDLE_TTL_SECONDS",
+	"TMA_CLOUD_SANDBOX_CONTAINER_MAX_LIFETIME_SECONDS",
+	"TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS",
 	"TMA_CLOUD_SANDBOX_ALLOW_NETWORK",
 	"TMA_ALLOW_SERVER_LOCAL_SYSTEM",
 	"TMA_WORKER_AUTH_TOKEN",
@@ -51,6 +59,10 @@ var configEnvKeys = []string{
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED",
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS",
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT",
+	"TMA_TRACE_INDEX_RETENTION_ENABLED",
+	"TMA_TRACE_INDEX_RETENTION_DAYS",
+	"TMA_TRACE_INDEX_RETENTION_INTERVAL_MS",
+	"TMA_TRACE_INDEX_RETENTION_LIMIT",
 }
 
 func TestFromEnvUsesDefaults(t *testing.T) {
@@ -67,6 +79,15 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.Turn.QueueSize != DefaultTurnQueueSize {
 		t.Fatalf("expected default queue size %d, got %d", DefaultTurnQueueSize, config.Turn.QueueSize)
+	}
+	if config.Turn.WorkerCount != DefaultTurnWorkerCount {
+		t.Fatalf("expected default turn worker count %d, got %d", DefaultTurnWorkerCount, config.Turn.WorkerCount)
+	}
+	if config.Turn.MaxToolRounds != DefaultMaxToolRounds {
+		t.Fatalf("expected default max tool rounds %d, got %d", DefaultMaxToolRounds, config.Turn.MaxToolRounds)
+	}
+	if config.Turn.PollInterval != time.Duration(DefaultTurnPollIntervalMS)*time.Millisecond || config.Turn.LeaseDuration != time.Duration(DefaultTurnLeaseDurationMS)*time.Millisecond || config.Turn.HeartbeatInterval != time.Duration(DefaultTurnHeartbeatIntervalMS)*time.Millisecond {
+		t.Fatalf("unexpected default turn lease config: %+v", config.Turn)
 	}
 	if config.LLM.Provider != DefaultLLMProvider {
 		t.Fatalf("expected default llm provider %q, got %q", DefaultLLMProvider, config.LLM.Provider)
@@ -103,6 +124,15 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.ToolRuntime.Root != "" || config.ToolRuntime.Image != "" {
 		t.Fatalf("expected empty default cloud sandbox root/image, got %+v", config.ToolRuntime)
+	}
+	if config.ToolRuntime.ContainerIdleTTL != time.Duration(DefaultCloudSandboxContainerIdleTTLSec)*time.Second {
+		t.Fatalf("expected default cloud sandbox container idle ttl, got %s", config.ToolRuntime.ContainerIdleTTL)
+	}
+	if config.ToolRuntime.ContainerMaxLifetime != time.Duration(DefaultCloudSandboxContainerMaxLifetimeSec)*time.Second {
+		t.Fatalf("expected default cloud sandbox container max lifetime, got %s", config.ToolRuntime.ContainerMaxLifetime)
+	}
+	if config.ToolRuntime.ContainerCleanupInterval != time.Duration(DefaultCloudSandboxContainerCleanupIntervalSec)*time.Second {
+		t.Fatalf("expected default cloud sandbox container cleanup interval, got %s", config.ToolRuntime.ContainerCleanupInterval)
 	}
 	if config.ToolRuntime.DataRoot != DefaultCloudSandboxDataRoot {
 		t.Fatalf("expected default cloud sandbox data root %q, got %q", DefaultCloudSandboxDataRoot, config.ToolRuntime.DataRoot)
@@ -161,6 +191,24 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Observability.ExporterRetry.Limit != DefaultObservabilityRetryLimit {
 		t.Fatalf("expected default observability retry limit %d, got %d", DefaultObservabilityRetryLimit, config.Observability.ExporterRetry.Limit)
 	}
+	if config.Observability.TraceIndexRetention.Enabled != DefaultTraceIndexRetentionEnabled {
+		t.Fatalf("expected default trace index retention enabled %t, got %t", DefaultTraceIndexRetentionEnabled, config.Observability.TraceIndexRetention.Enabled)
+	}
+	if config.Observability.TraceIndexRetention.RetentionDays != DefaultTraceIndexRetentionDays {
+		t.Fatalf("expected default trace index retention days %d, got %d", DefaultTraceIndexRetentionDays, config.Observability.TraceIndexRetention.RetentionDays)
+	}
+	if config.Observability.TraceIndexRetention.Retention != time.Duration(DefaultTraceIndexRetentionDays)*24*time.Hour {
+		t.Fatalf("expected default trace index retention duration, got %s", config.Observability.TraceIndexRetention.Retention)
+	}
+	if config.Observability.TraceIndexRetention.IntervalMillis != DefaultTraceIndexRetentionIntervalMS {
+		t.Fatalf("expected default trace index retention interval %d, got %d", DefaultTraceIndexRetentionIntervalMS, config.Observability.TraceIndexRetention.IntervalMillis)
+	}
+	if config.Observability.TraceIndexRetention.Interval != time.Duration(DefaultTraceIndexRetentionIntervalMS)*time.Millisecond {
+		t.Fatalf("expected default trace index retention interval duration, got %s", config.Observability.TraceIndexRetention.Interval)
+	}
+	if config.Observability.TraceIndexRetention.Limit != DefaultTraceIndexRetentionLimit {
+		t.Fatalf("expected default trace index retention limit %d, got %d", DefaultTraceIndexRetentionLimit, config.Observability.TraceIndexRetention.Limit)
+	}
 }
 
 func TestLoadReadsDotEnv(t *testing.T) {
@@ -190,6 +238,9 @@ TMA_CLOUD_SANDBOX_ROOT=/workspace/tma
 TMA_CLOUD_SANDBOX_IMAGE=onlyboxes/tma-tool-sandbox:test
 TMA_CLOUD_SANDBOX_DATA_ROOT=/tmp/tma-sandbox-data
 TMA_CLOUD_SANDBOX_DATA_TTL_SECONDS=1800
+TMA_CLOUD_SANDBOX_CONTAINER_IDLE_TTL_SECONDS=900
+TMA_CLOUD_SANDBOX_CONTAINER_MAX_LIFETIME_SECONDS=7200
+TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS=30
 TMA_CLOUD_SANDBOX_ALLOW_NETWORK=true
 TMA_ALLOW_SERVER_LOCAL_SYSTEM=true
 TMA_WORKER_AUTH_TOKEN=worker-dotenv-token
@@ -248,6 +299,15 @@ TMA_WORKER_CONTROL_AUTH_TOKEN=worker-control-dotenv-token
 	}
 	if config.ToolRuntime.DataTTLSeconds != 1800 || config.ToolRuntime.DataTTL != 30*time.Minute {
 		t.Fatalf("expected dotenv cloud sandbox data ttl 1800s, got seconds=%d ttl=%s", config.ToolRuntime.DataTTLSeconds, config.ToolRuntime.DataTTL)
+	}
+	if config.ToolRuntime.ContainerIdleTTLSeconds != 900 || config.ToolRuntime.ContainerIdleTTL != 15*time.Minute {
+		t.Fatalf("expected dotenv cloud sandbox container idle ttl 900s, got seconds=%d ttl=%s", config.ToolRuntime.ContainerIdleTTLSeconds, config.ToolRuntime.ContainerIdleTTL)
+	}
+	if config.ToolRuntime.ContainerMaxLifetimeSeconds != 7200 || config.ToolRuntime.ContainerMaxLifetime != 2*time.Hour {
+		t.Fatalf("expected dotenv cloud sandbox container max lifetime 7200s, got seconds=%d ttl=%s", config.ToolRuntime.ContainerMaxLifetimeSeconds, config.ToolRuntime.ContainerMaxLifetime)
+	}
+	if config.ToolRuntime.ContainerCleanupIntervalSeconds != 30 || config.ToolRuntime.ContainerCleanupInterval != 30*time.Second {
+		t.Fatalf("expected dotenv cloud sandbox container cleanup interval 30s, got seconds=%d interval=%s", config.ToolRuntime.ContainerCleanupIntervalSeconds, config.ToolRuntime.ContainerCleanupInterval)
 	}
 	if !config.ToolRuntime.AllowNetwork {
 		t.Fatal("expected dotenv cloud sandbox allow network override true")
@@ -377,6 +437,10 @@ func TestFromEnvParsesBackgroundWorkerConfig(t *testing.T) {
 	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED", "false")
 	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS", "1750")
 	t.Setenv("TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT", "35")
+	t.Setenv("TMA_TRACE_INDEX_RETENTION_ENABLED", "true")
+	t.Setenv("TMA_TRACE_INDEX_RETENTION_DAYS", "7")
+	t.Setenv("TMA_TRACE_INDEX_RETENTION_INTERVAL_MS", "2250")
+	t.Setenv("TMA_TRACE_INDEX_RETENTION_LIMIT", "45")
 
 	config, err := FromEnv()
 	if err != nil {
@@ -418,6 +482,24 @@ func TestFromEnvParsesBackgroundWorkerConfig(t *testing.T) {
 	}
 	if config.Observability.ExporterRetry.Limit != 35 {
 		t.Fatalf("expected observability retry limit 35, got %d", config.Observability.ExporterRetry.Limit)
+	}
+	if !config.Observability.TraceIndexRetention.Enabled {
+		t.Fatal("expected trace index retention enabled")
+	}
+	if config.Observability.TraceIndexRetention.RetentionDays != 7 {
+		t.Fatalf("expected trace index retention days 7, got %d", config.Observability.TraceIndexRetention.RetentionDays)
+	}
+	if config.Observability.TraceIndexRetention.Retention != 7*24*time.Hour {
+		t.Fatalf("expected trace index retention 7 days, got %s", config.Observability.TraceIndexRetention.Retention)
+	}
+	if config.Observability.TraceIndexRetention.IntervalMillis != 2250 {
+		t.Fatalf("expected trace index retention interval ms 2250, got %d", config.Observability.TraceIndexRetention.IntervalMillis)
+	}
+	if config.Observability.TraceIndexRetention.Interval != 2250*time.Millisecond {
+		t.Fatalf("expected trace index retention interval 2250ms, got %s", config.Observability.TraceIndexRetention.Interval)
+	}
+	if config.Observability.TraceIndexRetention.Limit != 45 {
+		t.Fatalf("expected trace index retention limit 45, got %d", config.Observability.TraceIndexRetention.Limit)
 	}
 }
 
@@ -464,7 +546,9 @@ func TestFromEnvInvalidIntUsesDefault(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("TMA_DATABASE_URL", "postgres://example")
 	t.Setenv("TMA_TURN_QUEUE_SIZE", "nope")
+	t.Setenv("TMA_TURN_WORKER_COUNT", "nope")
 	t.Setenv("TMA_TURN_TIMEOUT_MS", "-1")
+	t.Setenv("TMA_MAX_TOOL_ROUNDS", "-1")
 
 	config, err := FromEnv()
 	if err != nil {
@@ -474,8 +558,14 @@ func TestFromEnvInvalidIntUsesDefault(t *testing.T) {
 	if config.Turn.QueueSize != DefaultTurnQueueSize {
 		t.Fatalf("expected default queue size, got %d", config.Turn.QueueSize)
 	}
+	if config.Turn.WorkerCount != DefaultTurnWorkerCount {
+		t.Fatalf("expected default worker count, got %d", config.Turn.WorkerCount)
+	}
 	if config.Turn.TimeoutMillis != DefaultTurnTimeoutMS {
 		t.Fatalf("expected default turn timeout millis, got %d", config.Turn.TimeoutMillis)
+	}
+	if config.Turn.MaxToolRounds != DefaultMaxToolRounds {
+		t.Fatalf("expected default max tool rounds, got %d", config.Turn.MaxToolRounds)
 	}
 }
 

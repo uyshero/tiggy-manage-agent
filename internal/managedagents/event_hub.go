@@ -4,20 +4,20 @@ import "sync"
 
 type eventHub struct {
 	mu          sync.Mutex
-	subscribers map[string]map[chan Event]struct{}
+	subscribers map[string]map[chan struct{}]struct{}
 }
 
 func newEventHub() *eventHub {
-	return &eventHub{subscribers: make(map[string]map[chan Event]struct{})}
+	return &eventHub{subscribers: make(map[string]map[chan struct{}]struct{})}
 }
 
-func (h *eventHub) subscribe(sessionID string) (<-chan Event, func()) {
+func (h *eventHub) subscribe(sessionID string) (<-chan struct{}, func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	ch := make(chan Event, 16)
+	ch := make(chan struct{}, 1)
 	if h.subscribers[sessionID] == nil {
-		h.subscribers[sessionID] = make(map[chan Event]struct{})
+		h.subscribers[sessionID] = make(map[chan struct{}]struct{})
 	}
 	h.subscribers[sessionID][ch] = struct{}{}
 
@@ -25,6 +25,9 @@ func (h *eventHub) subscribe(sessionID string) (<-chan Event, func()) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 
+		if _, ok := h.subscribers[sessionID][ch]; !ok {
+			return
+		}
 		delete(h.subscribers[sessionID], ch)
 		if len(h.subscribers[sessionID]) == 0 {
 			delete(h.subscribers, sessionID)
@@ -36,12 +39,16 @@ func (h *eventHub) subscribe(sessionID string) (<-chan Event, func()) {
 }
 
 func (h *eventHub) publish(event Event) {
+	h.notify(event.SessionID)
+}
+
+func (h *eventHub) notify(sessionID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for ch := range h.subscribers[event.SessionID] {
+	for ch := range h.subscribers[sessionID] {
 		select {
-		case ch <- event:
+		case ch <- struct{}{}:
 		default:
 		}
 	}

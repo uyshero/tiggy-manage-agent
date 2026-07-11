@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,11 +15,13 @@ import (
 )
 
 const (
-	ExecutorServer              = "server"
-	ManifestProtocolVersion     = "tma.tools.manifest.v1"
-	ToolCallProtocolVersion     = "tma.tool_call.v1"
-	ToolResultProtocolVersion   = "tma.tool_result.v1"
-	MaxTransportedArtifactBytes = 8 << 20
+	ExecutorServer               = "server"
+	ManifestProtocolVersion      = "tma.tools.manifest.v1"
+	ToolCallProtocolVersion      = "tma.tool_call.v1"
+	ToolResultProtocolVersion    = "tma.tool_result.v1"
+	MaxTransportedArtifactBytes  = 8 << 20
+	DefaultResultContextMaxChars = 12000
+	DefaultResultStateMaxBytes   = 12000
 
 	CapabilityFilesystemRead  = "filesystem.read"
 	CapabilityFilesystemWrite = "filesystem.write"
@@ -113,6 +116,11 @@ type ExecutionError struct {
 	Message string `json:"message"`
 }
 
+type ResultContextOptions struct {
+	MaxContentChars int
+	MaxStateBytes   int
+}
+
 type Runtime interface {
 	Manifest() Manifest
 	Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error)
@@ -172,6 +180,7 @@ type WorkerCapabilities struct {
 	APIs         []string       `json:"apis"`
 	Runtimes     []string       `json:"runtimes"`
 	Capabilities []string       `json:"capabilities"`
+	Manifests    []Manifest     `json:"manifests,omitempty"`
 	Constraints  map[string]any `json:"constraints,omitempty"`
 }
 
@@ -195,7 +204,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, WebRuntime{})
+	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{})
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -571,7 +580,15 @@ func splitFunctionName(name string) (string, string) {
 }
 
 func ResultMessage(result ExecutionResult) string {
-	encoded, err := json.Marshal(map[string]any{
+	encoded, err := json.Marshal(ResultData(result))
+	if err != nil {
+		return `{"success":false,"error":{"type":"encode_failed","message":"encode tool result failed"}}`
+	}
+	return string(encoded)
+}
+
+func ResultData(result ExecutionResult) map[string]any {
+	return map[string]any{
 		"protocol_version":     ToolResultProtocolVersion,
 		"id":                   result.ID,
 		"identifier":           result.Identifier,
@@ -583,11 +600,104 @@ func ResultMessage(result ExecutionResult) string {
 		"pending_intervention": result.PendingIntervention,
 		"error":                result.Error,
 		"success":              result.Error == nil,
-	})
+	}
+}
+
+func ContextResultMessage(result ExecutionResult, options ResultContextOptions) string {
+	encoded, err := json.Marshal(ObservableResultData(result, options))
 	if err != nil {
 		return `{"success":false,"error":{"type":"encode_failed","message":"encode tool result failed"}}`
 	}
 	return string(encoded)
+}
+
+func ObservableResultData(result ExecutionResult, options ResultContextOptions) map[string]any {
+	maxContentChars := options.MaxContentChars
+	if maxContentChars <= 0 {
+		maxContentChars = DefaultResultContextMaxChars
+	}
+	maxStateBytes := options.MaxStateBytes
+	if maxStateBytes <= 0 {
+		maxStateBytes = DefaultResultStateMaxBytes
+	}
+	content, contentTruncated := truncateResultTextForContext(result.Content, maxContentChars)
+	state := rawJSONObject(result.State)
+	stateTruncated := false
+	if len(result.State) > maxStateBytes {
+		stateTruncated = true
+		state = map[string]any{
+			"truncated":      true,
+			"original_bytes": len(result.State),
+			"message":        "Tool state omitted from model context; inspect the persisted tool artifact for full state.",
+		}
+	}
+	return map[string]any{
+		"protocol_version":     ToolResultProtocolVersion,
+		"id":                   result.ID,
+		"identifier":           result.Identifier,
+		"api_name":             result.APIName,
+		"content":              content,
+		"state":                state,
+		"artifacts":            result.Artifacts,
+		"artifact_error":       result.ArtifactError,
+		"pending_intervention": result.PendingIntervention,
+		"error":                result.Error,
+		"success":              result.Error == nil,
+		"context": map[string]any{
+			"content_truncated":        contentTruncated,
+			"original_content_chars":   textRuneCount(result.Content),
+			"visible_content_chars":    textRuneCount(content),
+			"state_truncated":          stateTruncated,
+			"original_state_bytes":     len(result.State),
+			"full_result_in_artifacts": len(result.Artifacts) > 0,
+		},
+	}
+}
+
+func truncateResultTextForContext(text string, maxChars int) (string, bool) {
+	if maxChars <= 0 {
+		maxChars = DefaultResultContextMaxChars
+	}
+	if textRuneCount(text) <= maxChars {
+		return text, false
+	}
+	if maxChars < 120 {
+		return firstRunes(text, maxChars) + "\n\n[Tool result truncated for model context. Full result is available in session artifacts when present.]", true
+	}
+	headChars := maxChars * 2 / 3
+	tailChars := maxChars - headChars
+	omitted := textRuneCount(text) - headChars - tailChars
+	return firstRunes(text, headChars) +
+		"\n\n[Tool result truncated for model context: " + strconv.Itoa(omitted) + " characters omitted. Full result is available in session artifacts when present.]\n\n" +
+		lastRunes(text, tailChars), true
+}
+
+func firstRunes(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	for index := range text {
+		if limit == 0 {
+			return text[:index]
+		}
+		limit--
+	}
+	return text
+}
+
+func lastRunes(text string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[len(runes)-limit:])
+}
+
+func textRuneCount(text string) int {
+	return len([]rune(text))
 }
 
 func failedResult(call Call, errorType string, message string) ExecutionResult {

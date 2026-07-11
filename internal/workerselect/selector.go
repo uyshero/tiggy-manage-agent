@@ -69,6 +69,7 @@ func AvailableRegistryFromWorkers(registry tools.Registry, workers []managedagen
 	if normalized, ok := tools.NormalizeToolRuntime(runtime); ok {
 		runtime = normalized
 	}
+	registry = registryWithWorkerManifests(registry, workers, now)
 	return registry.FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
 		invocation := tools.WorkInvocationFromAPI(manifest, api, runtime, nil)
 		for _, worker := range workers {
@@ -81,6 +82,25 @@ func AvailableRegistryFromWorkers(registry tools.Registry, workers []managedagen
 		}
 		return false
 	})
+}
+
+func registryWithWorkerManifests(registry tools.Registry, workers []managedagents.Worker, now time.Time) tools.Registry {
+	for _, worker := range workers {
+		if !workerAvailable(worker, now) {
+			continue
+		}
+		capabilities, err := decodeCapabilities(worker)
+		if err != nil {
+			continue
+		}
+		for _, manifest := range capabilities.Manifests {
+			if _, exists := registry.Get(manifest.Identifier); exists {
+				continue
+			}
+			registry.Register(tools.ManifestRuntime{ManifestData: manifest})
+		}
+	}
+	return registry
 }
 
 func (s Selector) SelectWorkerID(input Request) (string, error) {

@@ -26,9 +26,15 @@ const (
 	ToolRiskWrite = "write"
 	ToolRiskExec  = "exec"
 
-	CapabilityExec        = "exec"
-	CapabilityCodeExecute = "code.execute"
-	CapabilityNetworkHTTP = "network.http"
+	CapabilityExec            = "exec"
+	CapabilityCodeExecute     = "code.execute"
+	CapabilityNetworkHTTP     = "network.http"
+	CapabilityBrowserOpen     = "browser.open"
+	CapabilityBrowserRead     = "browser.read"
+	CapabilityBrowserInteract = "browser.interact"
+	CapabilityBrowserCapture  = "browser.capture"
+	CapabilityBrowserTakeover = "browser.takeover"
+	CapabilityBrowserClose    = "browser.close"
 )
 
 type RuntimePolicy struct {
@@ -73,7 +79,8 @@ func NormalizeToolRisk(value string) (string, bool) {
 }
 
 func NormalizeToolNamespace(value string) (string, bool) {
-	switch strings.TrimSpace(strings.ToLower(value)) {
+	namespace := strings.TrimSpace(strings.ToLower(value))
+	switch namespace {
 	case NamespaceDefault:
 		return NamespaceDefault, true
 	case NamespaceArtifact:
@@ -84,9 +91,43 @@ func NormalizeToolNamespace(value string) (string, bool) {
 		return NamespaceAgent, true
 	case NamespaceWeb:
 		return NamespaceWeb, true
+	case ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem:
+		return "", false
 	default:
+		if isValidToolNamespace(namespace) {
+			return namespace, true
+		}
 		return "", false
 	}
+}
+
+func isValidToolNamespace(value string) bool {
+	if value == "" {
+		return false
+	}
+	parts := strings.Split(value, ".")
+	for _, part := range parts {
+		if !isValidToolIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidToolIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, r := range value {
+		valid := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
+		if !valid {
+			return false
+		}
+		if index == 0 && !((r >= 'a' && r <= 'z') || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func fallbackString(value string, fallback string) string {

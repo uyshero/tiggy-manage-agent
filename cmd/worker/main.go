@@ -47,7 +47,11 @@ func run(args []string, logger *slog.Logger) error {
 		client := newWorkerAPIClient(cfg.BaseURL, cfg.Token)
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
-		return runWorkerDoctor(ctx, client, cfg, workruntime.DefaultExecutor(cfg.Name), os.Stdout)
+		executor, err := workerExecutor(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		return runWorkerDoctor(ctx, client, cfg, executor, os.Stdout)
 	}
 
 	cfg, err := parseWorkerConfig(args)
@@ -58,7 +62,10 @@ func run(args []string, logger *slog.Logger) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	executor := workruntime.DefaultExecutor(cfg.Name)
+	executor, err := workerExecutor(ctx, cfg)
+	if err != nil {
+		return err
+	}
 	executor.ArtifactUploader = client
 	return runWorker(ctx, client, cfg, executor, logger)
 }
@@ -79,6 +86,8 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 	global.DurationVar(&cfg.WorkHeartbeatInterval, "work-heartbeat-interval", getenvDefaultDuration("TMA_WORKER_WORK_HEARTBEAT_INTERVAL", 15*time.Second), "running work heartbeat interval")
 	global.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", getenvDefaultDuration("TMA_WORKER_SHUTDOWN_TIMEOUT", 30*time.Second), "time to drain running work on shutdown")
 	global.IntVar(&cfg.Concurrency, "concurrency", getenvDefaultInt("TMA_WORKER_CONCURRENCY", 1), "maximum concurrent work executions")
+	pluginFlag := stringListFlag(splitCSV(os.Getenv("TMA_WORKER_PLUGINS")))
+	global.Var(&pluginFlag, "plugin", "path to a process tool plugin executable; repeatable or comma-separated via TMA_WORKER_PLUGINS")
 	if err := global.Parse(args); err != nil {
 		return workerConfig{}, err
 	}
@@ -87,6 +96,7 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 		return workerConfig{}, fmt.Errorf("worker name is required")
 	}
 	cfg.Concurrency = workerConcurrency(cfg.Concurrency)
+	cfg.Plugins = pluginFlag.values()
 	return cfg, nil
 }
 
@@ -103,6 +113,69 @@ type workerConfig struct {
 	WorkHeartbeatInterval time.Duration
 	ShutdownTimeout       time.Duration
 	Concurrency           int
+	Plugins               []string
+}
+
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	for _, item := range splitCSV(value) {
+		*f = append(*f, item)
+	}
+	return nil
+}
+
+func (f stringListFlag) values() []string {
+	values := make([]string, 0, len(f))
+	seen := map[string]bool{}
+	for _, value := range f {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	return values
+}
+
+func splitCSV(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			values = append(values, part)
+		}
+	}
+	return values
+}
+
+func workerExecutor(ctx context.Context, cfg workerConfig) (workruntime.Executor, error) {
+	executor := workruntime.DefaultExecutor(cfg.Name)
+	if len(cfg.Plugins) == 0 {
+		return executor, nil
+	}
+	registry := tools.DefaultRegistry()
+	for _, plugin := range cfg.Plugins {
+		runtime, err := tools.LoadProcessPluginRuntime(ctx, plugin)
+		if err != nil {
+			return workruntime.Executor{}, err
+		}
+		registry.Register(runtime)
+	}
+	executor.Registry = registry
+	return executor, nil
 }
 
 type workerAPI interface {
@@ -308,6 +381,31 @@ func printDoctorCapabilities(output io.Writer, capabilities tools.WorkerCapabili
 	if len(capabilities.Capabilities) > 0 {
 		fmt.Fprintf(output, "  capabilities: %s\n", strings.Join(capabilities.Capabilities, ", "))
 	}
+	if len(capabilities.Manifests) > 0 {
+		fmt.Fprintf(output, "  tool_manifests: %s\n", workerManifestSummary(capabilities.Manifests))
+	}
+}
+
+func workerManifestSummary(manifests []tools.Manifest) string {
+	parts := make([]string, 0, len(manifests))
+	for _, manifest := range manifests {
+		apis := make([]string, 0, len(manifest.API))
+		for _, api := range manifest.API {
+			apiName := api.APIName
+			if strings.TrimSpace(apiName) == "" {
+				apiName = api.Name
+			}
+			if strings.TrimSpace(apiName) != "" {
+				apis = append(apis, apiName)
+			}
+		}
+		if len(apis) == 0 {
+			parts = append(parts, manifest.Identifier)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s(%s)", manifest.Identifier, strings.Join(apis, ", ")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func doctorDiagnoseRequest(workspaceID string, capabilities tools.WorkerCapabilities) workerDiagnoseRequest {

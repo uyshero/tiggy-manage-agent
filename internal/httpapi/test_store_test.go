@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -35,11 +36,13 @@ type testStore struct {
 	events              map[string][]managedagents.Event
 	usageRecords        []managedagents.RecordLLMUsageInput
 	exporterRuns        []managedagents.ObservabilityExporterRun
+	traceIndexes        map[string]managedagents.TraceIndexEntry
+	traceSpanIndexes    map[string][]managedagents.TraceSpanIndexEntry
 	objectRefs          map[string]managedagents.ObjectRef
 	sessionArtifacts    map[string][]managedagents.SessionArtifact
 	workers             map[string]managedagents.Worker
 	workerWork          map[string]managedagents.WorkerWork
-	subscribers         map[string]map[chan managedagents.Event]struct{}
+	subscribers         map[string]map[chan struct{}]struct{}
 }
 
 func newTestStore() *testStore {
@@ -53,11 +56,13 @@ func newTestStore() *testStore {
 		summaries:           make(map[string]managedagents.SessionSummary),
 		interventions:       make(map[string]managedagents.SessionIntervention),
 		events:              make(map[string][]managedagents.Event),
+		traceIndexes:        make(map[string]managedagents.TraceIndexEntry),
+		traceSpanIndexes:    make(map[string][]managedagents.TraceSpanIndexEntry),
 		objectRefs:          make(map[string]managedagents.ObjectRef),
 		sessionArtifacts:    make(map[string][]managedagents.SessionArtifact),
 		workers:             make(map[string]managedagents.Worker),
 		workerWork:          make(map[string]managedagents.WorkerWork),
-		subscribers:         make(map[string]map[chan managedagents.Event]struct{}),
+		subscribers:         make(map[string]map[chan struct{}]struct{}),
 	}
 	store.providers["fake"] = managedagents.LLMProvider{
 		ID:           "fake",
@@ -195,6 +200,48 @@ func llmModelKey(providerID string, model string) string {
 	return providerID + "\x00" + model
 }
 
+func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedagents.Agent, error) {
+	if input.ID == "" || input.Name == "" || input.LLMProvider == "" || input.LLMModel == "" {
+		return managedagents.Agent{}, managedagents.ErrInvalid
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if agent, ok := s.agents[input.ID]; ok {
+		agent.ArchivedAt = nil
+		s.agents[input.ID] = agent
+		return agent, nil
+	}
+	provider, ok := s.providers[input.LLMProvider]
+	if !ok {
+		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	if !provider.Enabled {
+		return managedagents.Agent{}, managedagents.ErrInvalid
+	}
+
+	now := time.Now().UTC()
+	agent := managedagents.Agent{
+		ID:                   input.ID,
+		WorkspaceID:          defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		Name:                 input.Name,
+		CurrentConfigVersion: 1,
+		ConfigVersion: managedagents.AgentConfigVersion{
+			Version:     1,
+			LLMProvider: input.LLMProvider,
+			LLMModel:    input.LLMModel,
+			System:      input.System,
+			Tools:       cloneRaw(input.Tools),
+			Skills:      cloneRaw(input.Skills),
+			CreatedAt:   now,
+		},
+		CreatedAt: now,
+	}
+	s.agents[input.ID] = agent
+	s.agentConfigVersions[input.ID] = []managedagents.AgentConfigVersion{agent.ConfigVersion}
+	return agent, nil
+}
+
 func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedagents.Agent, error) {
 	if input.Name == "" {
 		return managedagents.Agent{}, fmt.Errorf("%w: agent name is required", managedagents.ErrInvalid)
@@ -252,6 +299,26 @@ func (s *testStore) GetAgent(id string) (managedagents.Agent, error) {
 		return managedagents.Agent{}, managedagents.ErrNotFound
 	}
 	return agent, nil
+}
+
+func (s *testStore) ListAgents() ([]managedagents.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agents := make([]managedagents.Agent, 0, len(s.agents))
+	for _, agent := range s.agents {
+		if agent.ArchivedAt != nil {
+			continue
+		}
+		agents = append(agents, agent)
+	}
+	sort.Slice(agents, func(i, j int) bool {
+		if agents[i].CreatedAt.Equal(agents[j].CreatedAt) {
+			return agents[i].ID > agents[j].ID
+		}
+		return agents[i].CreatedAt.After(agents[j].CreatedAt)
+	})
+	return agents, nil
 }
 
 func (s *testStore) ListAgentConfigVersions(agentID string) ([]managedagents.AgentConfigVersion, error) {
@@ -570,6 +637,9 @@ func (s *testStore) DecideSessionIntervention(sessionID string, input managedage
 		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrNotFound
 	}
 	if intervention.Status != managedagents.InterventionStatusPending {
+		if intervention.Status == input.Status {
+			return managedagents.DecideSessionInterventionResult{Intervention: intervention}, nil
+		}
 		return managedagents.DecideSessionInterventionResult{}, managedagents.ErrInvalid
 	}
 
@@ -925,6 +995,223 @@ func (s *testStore) ListObservabilityExporterRuns(input managedagents.ListObserv
 		}
 	}
 	return runs, nil
+}
+
+func (s *testStore) UpsertTraceIndex(input managedagents.UpsertTraceIndexInput) error {
+	if input.Trace.TraceID == "" || input.Trace.SessionID == "" || input.Trace.TurnID == "" {
+		return managedagents.ErrInvalid
+	}
+	trace := input.Trace
+	if trace.WorkspaceID == "" {
+		trace.WorkspaceID = managedagents.DefaultWorkspaceID
+	}
+	now := time.Now().UTC()
+	if trace.StartedAt.IsZero() {
+		trace.StartedAt = now
+	}
+	if trace.EndedAt.IsZero() {
+		trace.EndedAt = trace.StartedAt
+	}
+	trace.UpdatedAt = now
+	spans := make([]managedagents.TraceSpanIndexEntry, 0, len(input.Spans))
+	for _, span := range input.Spans {
+		if span.SpanID == "" {
+			continue
+		}
+		if span.TraceID == "" {
+			span.TraceID = trace.TraceID
+		}
+		if span.WorkspaceID == "" {
+			span.WorkspaceID = trace.WorkspaceID
+		}
+		if span.SessionID == "" {
+			span.SessionID = trace.SessionID
+		}
+		if span.TurnID == "" {
+			span.TurnID = trace.TurnID
+		}
+		if span.SessionTitle == "" {
+			span.SessionTitle = trace.SessionTitle
+		}
+		if span.StartTime.IsZero() {
+			span.StartTime = trace.StartedAt
+		}
+		span.UpdatedAt = now
+		spans = append(spans, span)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.traceIndexes[trace.TraceID] = trace
+	s.traceSpanIndexes[trace.TraceID] = spans
+	return nil
+}
+
+func (s *testStore) GetTraceIndex(traceID string) (managedagents.TraceIndexEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	trace, ok := s.traceIndexes[traceID]
+	if !ok {
+		return managedagents.TraceIndexEntry{}, managedagents.ErrNotFound
+	}
+	return trace, nil
+}
+
+func (s *testStore) ListTraceIndexes(input managedagents.ListTraceIndexInput) ([]managedagents.TraceIndexEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	limit := input.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	entries := []managedagents.TraceIndexEntry{}
+	for _, entry := range s.traceIndexes {
+		if input.WorkspaceID != "" && entry.WorkspaceID != input.WorkspaceID {
+			continue
+		}
+		if input.SessionID != "" && entry.SessionID != input.SessionID {
+			continue
+		}
+		if input.TurnID != "" && entry.TurnID != input.TurnID {
+			continue
+		}
+		if input.TraceID != "" && entry.TraceID != input.TraceID {
+			continue
+		}
+		if input.SessionStatus != "" && entry.SessionStatus != input.SessionStatus {
+			continue
+		}
+		if !input.IncludeArchived {
+			if session, ok := s.sessions[entry.SessionID]; ok && session.ArchivedAt != nil {
+				continue
+			}
+		}
+		entries = append(entries, entry)
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].StartedAt.Equal(entries[j].StartedAt) {
+			return entries[i].TraceID > entries[j].TraceID
+		}
+		return entries[i].StartedAt.After(entries[j].StartedAt)
+	})
+	if offset >= len(entries) {
+		return []managedagents.TraceIndexEntry{}, nil
+	}
+	entries = entries[offset:]
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
+func (s *testStore) ListTraceSpanIndexes(input managedagents.ListTraceSpanIndexInput) ([]managedagents.TraceSpanIndexEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	limit := input.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	query := strings.TrimSpace(strings.ToLower(input.Query))
+	entries := []managedagents.TraceSpanIndexEntry{}
+	for _, spans := range s.traceSpanIndexes {
+		for _, entry := range spans {
+			if input.WorkspaceID != "" && entry.WorkspaceID != input.WorkspaceID {
+				continue
+			}
+			if input.TraceID != "" && entry.TraceID != input.TraceID {
+				continue
+			}
+			if input.SessionID != "" && entry.SessionID != input.SessionID {
+				continue
+			}
+			if input.TurnID != "" && entry.TurnID != input.TurnID {
+				continue
+			}
+			if input.Kind != "" && !strings.EqualFold(entry.Kind, input.Kind) {
+				continue
+			}
+			if input.Status != "" && !strings.EqualFold(entry.Status, input.Status) {
+				continue
+			}
+			if input.Critical != nil && entry.Critical != *input.Critical {
+				continue
+			}
+			if input.MinDurationMillis > 0 && entry.DurationMillis < input.MinDurationMillis {
+				continue
+			}
+			if input.MaxDurationMillis > 0 && entry.DurationMillis > input.MaxDurationMillis {
+				continue
+			}
+			if input.MinSelfDurationMillis > 0 && entry.SelfDurationMillis < input.MinSelfDurationMillis {
+				continue
+			}
+			if !input.IncludeArchived {
+				if session, ok := s.sessions[entry.SessionID]; ok && session.ArchivedAt != nil {
+					continue
+				}
+			}
+			if query != "" {
+				values := []string{entry.TraceID, entry.SessionID, entry.TurnID, entry.SessionTitle, entry.SpanID, entry.ParentSpanID, entry.Name, entry.Kind, entry.Status}
+				for key, value := range entry.Attributes {
+					values = append(values, key, value)
+				}
+				if !strings.Contains(strings.ToLower(strings.Join(values, " ")), query) {
+					continue
+				}
+			}
+			entries = append(entries, entry)
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].StartTime.Equal(entries[j].StartTime) {
+			return entries[i].SpanID < entries[j].SpanID
+		}
+		return entries[i].StartTime.After(entries[j].StartTime)
+	})
+	if offset >= len(entries) {
+		return []managedagents.TraceSpanIndexEntry{}, nil
+	}
+	entries = entries[offset:]
+	if len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
+func (s *testStore) PruneTraceIndexes(input managedagents.PruneTraceIndexInput) (int, error) {
+	if input.Before.IsZero() {
+		return 0, managedagents.ErrInvalid
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 10000 {
+		limit = 1000
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	traceIDs := make([]string, 0, len(s.traceIndexes))
+	for traceID, entry := range s.traceIndexes {
+		if entry.EndedAt.Before(input.Before) {
+			traceIDs = append(traceIDs, traceID)
+		}
+	}
+	sort.Slice(traceIDs, func(i, j int) bool {
+		return s.traceIndexes[traceIDs[i]].EndedAt.Before(s.traceIndexes[traceIDs[j]].EndedAt)
+	})
+	if len(traceIDs) > limit {
+		traceIDs = traceIDs[:limit]
+	}
+	for _, traceID := range traceIDs {
+		delete(s.traceIndexes, traceID)
+		delete(s.traceSpanIndexes, traceID)
+	}
+	return len(traceIDs), nil
 }
 
 func (s *testStore) CreateObjectRef(input managedagents.CreateObjectRefInput) (managedagents.ObjectRef, error) {
@@ -1407,6 +1694,45 @@ func (s *testStore) CancelWorkerWork(workID string, input managedagents.CancelWo
 	return work, nil
 }
 
+func (s *testStore) RequeueWorkerWork(workID string, input managedagents.RequeueWorkerWorkInput) (managedagents.WorkerWork, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	original, ok := s.workerWork[workID]
+	if !ok {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if original.Status != managedagents.WorkerWorkStatusFailed && original.Status != managedagents.WorkerWorkStatusCanceled {
+		return managedagents.WorkerWork{}, fmt.Errorf("%w: only failed or canceled worker work can be requeued", managedagents.ErrConflict)
+	}
+	workerID := strings.TrimSpace(input.WorkerID)
+	if input.ClearWorker && workerID != "" {
+		return managedagents.WorkerWork{}, fmt.Errorf("%w: requeue accepts either worker_id or clear_worker, not both", managedagents.ErrInvalid)
+	}
+	if !input.ClearWorker && workerID == "" {
+		workerID = original.WorkerID
+	}
+
+	now := time.Now().UTC()
+	id := s.nextID("work", &s.nextWorkID)
+	work := managedagents.WorkerWork{
+		ID:            id,
+		WorkspaceID:   original.WorkspaceID,
+		WorkerID:      workerID,
+		EnvironmentID: original.EnvironmentID,
+		SessionID:     original.SessionID,
+		TurnID:        original.TurnID,
+		WorkType:      original.WorkType,
+		Status:        managedagents.WorkerWorkStatusPending,
+		Payload:       metadataJSON(original.Payload),
+		Result:        json.RawMessage(`{}`),
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	s.workerWork[id] = work
+	return work, nil
+}
+
 func (s *testStore) ReapExpiredWorkerWork(input managedagents.ReapExpiredWorkerWorkInput) ([]managedagents.WorkerWork, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1752,31 +2078,77 @@ func (s *testStore) ListConversationMessages(sessionID string, beforeSeq int64) 
 	return messages, nil
 }
 
-func (s *testStore) SubscribeEvents(sessionID string) (<-chan managedagents.Event, func(), error) {
+func (s *testStore) SubscribeEvents(sessionID string, afterSeq int64) (<-chan managedagents.Event, func(), error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if _, ok := s.sessions[sessionID]; !ok {
+		s.mu.Unlock()
 		return nil, nil, managedagents.ErrNotFound
 	}
 
-	ch := make(chan managedagents.Event, 16)
+	wake := make(chan struct{}, 1)
 	if s.subscribers[sessionID] == nil {
-		s.subscribers[sessionID] = make(map[chan managedagents.Event]struct{})
+		s.subscribers[sessionID] = make(map[chan struct{}]struct{})
 	}
-	s.subscribers[sessionID][ch] = struct{}{}
+	s.subscribers[sessionID][wake] = struct{}{}
+	s.mu.Unlock()
 
-	cancel := func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	events := make(chan managedagents.Event)
+	go s.streamEvents(ctx, sessionID, afterSeq, wake, events)
+	return events, cancel, nil
+}
+
+func (s *testStore) streamEvents(ctx context.Context, sessionID string, afterSeq int64, wake chan struct{}, events chan<- managedagents.Event) {
+	defer close(events)
+	defer s.cancelSubscriber(sessionID, wake)
+	cursor := afterSeq
+
+	for {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		delete(s.subscribers[sessionID], ch)
-		if len(s.subscribers[sessionID]) == 0 {
-			delete(s.subscribers, sessionID)
+		if _, ok := s.sessions[sessionID]; !ok {
+			s.mu.Unlock()
+			return
 		}
-		close(ch)
+		persisted := make([]managedagents.Event, 0, len(s.events[sessionID]))
+		for _, event := range s.events[sessionID] {
+			if event.Seq > cursor {
+				persisted = append(persisted, event)
+			}
+		}
+		s.mu.Unlock()
+
+		for _, event := range persisted {
+			select {
+			case <-ctx.Done():
+				return
+			case events <- event:
+				cursor = event.Seq
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case _, ok := <-wake:
+			if !ok {
+				return
+			}
+		}
 	}
-	return ch, cancel, nil
+}
+
+func (s *testStore) cancelSubscriber(sessionID string, wake chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.subscribers[sessionID][wake]; !ok {
+		return
+	}
+	delete(s.subscribers[sessionID], wake)
+	if len(s.subscribers[sessionID]) == 0 {
+		delete(s.subscribers, sessionID)
+	}
+	close(wake)
 }
 
 func (s *testStore) applyEventLocked(session *managedagents.Session, input managedagents.AppendEventInput, now time.Time) ([]managedagents.Event, error) {
@@ -1834,7 +2206,7 @@ func (s *testStore) appendEventLocked(sessionID, eventType string, payload json.
 func (s *testStore) publishLocked(event managedagents.Event) {
 	for ch := range s.subscribers[event.SessionID] {
 		select {
-		case ch <- event:
+		case ch <- struct{}{}:
 		default:
 		}
 	}

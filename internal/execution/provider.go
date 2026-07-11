@@ -56,6 +56,7 @@ type SessionProviderResolver struct {
 	CloudSandboxDataRoot       string
 	CloudSandboxDataTTL        time.Duration
 	CloudSandboxDisableNetwork bool
+	CloudSandboxContainers     *capability.OnlyboxesContainerManager
 	AllowLocalSystem           bool
 }
 
@@ -81,14 +82,15 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 		root = r.CloudSandboxRoot
 	}
 	return capability.OnlyboxesProvider{
-		Image:          settings.Image,
-		WorkspaceRoot:  root,
-		DataRoot:       r.CloudSandboxDataRoot,
-		DataDirTTL:     r.CloudSandboxDataTTL,
-		DisableNetwork: !settings.Network,
-		SessionID:      request.SessionID,
-		Store:          r.sessionDataStore(),
-		ObjectStore:    r.ObjectStore,
+		Image:            settings.Image,
+		WorkspaceRoot:    root,
+		DataRoot:         r.CloudSandboxDataRoot,
+		DataDirTTL:       r.CloudSandboxDataTTL,
+		DisableNetwork:   !settings.Network,
+		SessionID:        request.SessionID,
+		Store:            r.sessionDataStore(),
+		ObjectStore:      r.ObjectStore,
+		ContainerManager: r.CloudSandboxContainers,
 	}
 }
 

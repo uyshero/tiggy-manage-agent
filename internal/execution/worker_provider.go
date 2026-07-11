@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
@@ -41,7 +42,9 @@ func (p WorkerBackedProvider) ToolRuntime() string {
 }
 
 func (p WorkerBackedProvider) ToolCapabilities() []string {
-	return capability.LocalSystemProvider{}.ToolCapabilities()
+	capabilities := capability.LocalSystemProvider{}.ToolCapabilities()
+	capabilities = append(capabilities, browser.BrowserCapabilities()...)
+	return capabilities
 }
 
 func (p WorkerBackedProvider) RunCommand(ctx context.Context, request capability.RunCommandRequest) (capability.CommandResult, error) {
@@ -84,7 +87,71 @@ func (p WorkerBackedProvider) EditFile(ctx context.Context, request capability.E
 	return result, nil
 }
 
+func (p WorkerBackedProvider) Open(ctx context.Context, request browser.OpenRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "open", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Read(ctx context.Context, request browser.ReadRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "read", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Click(ctx context.Context, request browser.ClickRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "click", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Type(ctx context.Context, request browser.TypeRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "type", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Screenshot(ctx context.Context, request browser.ScreenshotRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "screenshot", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Takeover(ctx context.Context, request browser.TakeoverRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "takeover", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) Close(ctx context.Context, request browser.CloseRequest) (browser.PageState, error) {
+	var result browser.PageState
+	if err := p.executeBrowserTool(ctx, "close", request, &result); err != nil {
+		return browser.PageState{}, err
+	}
+	return result, nil
+}
+
 func (p WorkerBackedProvider) executeDefaultTool(ctx context.Context, api string, input any, state any) error {
+	return p.executeTool(ctx, tools.NamespaceDefault, api, input, state)
+}
+
+func (p WorkerBackedProvider) executeBrowserTool(ctx context.Context, api string, input any, state any) error {
+	return p.executeTool(ctx, tools.NamespaceBrowser, api, input, state)
+}
+
+func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string, api string, input any, state any) error {
 	if p.Store == nil {
 		return fmt.Errorf("worker-backed provider store is required")
 	}
@@ -92,34 +159,11 @@ func (p WorkerBackedProvider) executeDefaultTool(ctx context.Context, api string
 	if err != nil {
 		return fmt.Errorf("encode worker tool input: %w", err)
 	}
-	invocation, ok := tools.DefaultRegistry().WorkInvocation(tools.NamespaceDefault, api, tools.ToolRuntimeLocalSystem, inputJSON)
+	invocation, ok := tools.DefaultRegistry().WorkInvocation(namespace, api, tools.ToolRuntimeLocalSystem, inputJSON)
 	if !ok {
-		return fmt.Errorf("default tool api %q is not registered", api)
+		return fmt.Errorf("%s tool api %q is not registered", namespace, api)
 	}
-	workerID, err := workerselect.Selector{Store: p.Store}.SelectWorkerID(workerselect.Request{
-		WorkspaceID: p.workspaceID(),
-		Invocation:  invocation,
-	})
-	if err != nil {
-		return err
-	}
-	payload, err := json.Marshal(invocation)
-	if err != nil {
-		return fmt.Errorf("encode worker invocation: %w", err)
-	}
-	work, err := p.Store.EnqueueWorkerWork(managedagents.EnqueueWorkerWorkInput{
-		WorkspaceID:   p.workspaceID(),
-		WorkerID:      workerID,
-		EnvironmentID: p.EnvironmentID,
-		SessionID:     p.sessionID(input),
-		TurnID:        p.turnID(input),
-		WorkType:      managedagents.WorkerWorkTypeToolExecution,
-		Payload:       payload,
-	})
-	if err != nil {
-		return err
-	}
-	result, err := p.waitForToolResult(ctx, work.ID)
+	result, err := p.executeInvocation(ctx, invocation, p.sessionID(input), p.turnID(input))
 	if err != nil {
 		return err
 	}
@@ -140,6 +184,61 @@ func (p WorkerBackedProvider) executeDefaultTool(ctx context.Context, api string
 		}
 	}
 	return nil
+}
+
+func (p WorkerBackedProvider) ExecuteWorkerTool(ctx context.Context, manifest tools.Manifest, api tools.API, call tools.Call, _ tools.ExecutionContext) (tools.ExecutionResult, error) {
+	if len(call.Arguments) == 0 {
+		call.Arguments = json.RawMessage(`{}`)
+	}
+	invocation := tools.WorkInvocationFromAPI(manifest, api, tools.ToolRuntimeLocalSystem, call.Arguments)
+	result, err := p.executeInvocation(ctx, invocation, p.SessionID, p.TurnID)
+	if err != nil {
+		return tools.ExecutionResult{}, err
+	}
+	if result.ID == "" {
+		result.ID = call.ID
+	}
+	if result.Identifier == "" {
+		result.Identifier = call.Identifier
+	}
+	if result.APIName == "" {
+		result.APIName = call.APIName
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) executeInvocation(ctx context.Context, invocation tools.WorkInvocation, sessionID string, turnID string) (tools.ExecutionResult, error) {
+	if p.Store == nil {
+		return tools.ExecutionResult{}, fmt.Errorf("worker-backed provider store is required")
+	}
+	workerID, err := workerselect.Selector{Store: p.Store}.SelectWorkerID(workerselect.Request{
+		WorkspaceID: p.workspaceID(),
+		Invocation:  invocation,
+	})
+	if err != nil {
+		return tools.ExecutionResult{}, err
+	}
+	payload, err := json.Marshal(invocation)
+	if err != nil {
+		return tools.ExecutionResult{}, fmt.Errorf("encode worker invocation: %w", err)
+	}
+	work, err := p.Store.EnqueueWorkerWork(managedagents.EnqueueWorkerWorkInput{
+		WorkspaceID:   p.workspaceID(),
+		WorkerID:      workerID,
+		EnvironmentID: p.EnvironmentID,
+		SessionID:     sessionID,
+		TurnID:        turnID,
+		WorkType:      managedagents.WorkerWorkTypeToolExecution,
+		Payload:       payload,
+	})
+	if err != nil {
+		return tools.ExecutionResult{}, err
+	}
+	result, err := p.waitForToolResult(ctx, work.ID)
+	if err != nil {
+		return tools.ExecutionResult{}, err
+	}
+	return result, nil
 }
 
 func (p WorkerBackedProvider) waitForToolResult(ctx context.Context, workID string) (tools.ExecutionResult, error) {
@@ -262,6 +361,20 @@ func requestMeta(input any) capability.RequestMeta {
 	case capability.WriteFileRequest:
 		return request.Meta
 	case capability.EditFileRequest:
+		return request.Meta
+	case browser.OpenRequest:
+		return request.Meta
+	case browser.ReadRequest:
+		return request.Meta
+	case browser.ClickRequest:
+		return request.Meta
+	case browser.TypeRequest:
+		return request.Meta
+	case browser.ScreenshotRequest:
+		return request.Meta
+	case browser.TakeoverRequest:
+		return request.Meta
+	case browser.CloseRequest:
 		return request.Meta
 	default:
 		return capability.RequestMeta{}
