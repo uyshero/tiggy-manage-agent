@@ -1,6 +1,7 @@
 package workerselect
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -104,6 +105,10 @@ func registryWithWorkerManifests(registry tools.Registry, workers []managedagent
 }
 
 func (s Selector) SelectWorkerID(input Request) (string, error) {
+	return s.SelectWorkerIDContext(context.Background(), input)
+}
+
+func (s Selector) SelectWorkerIDContext(ctx context.Context, input Request) (string, error) {
 	if s.Store == nil {
 		return "", fmt.Errorf("%w: worker selector store is required", managedagents.ErrInvalid)
 	}
@@ -111,7 +116,7 @@ func (s Selector) SelectWorkerID(input Request) (string, error) {
 	if workspaceID == "" {
 		workspaceID = managedagents.DefaultWorkspaceID
 	}
-	workers, err := s.Store.ListWorkers(managedagents.ListWorkersInput{
+	workers, err := managedagents.ListWorkersWithContext(ctx, s.Store, managedagents.ListWorkersInput{
 		WorkspaceID: workspaceID,
 		Status:      managedagents.WorkerStatusOnline,
 	})

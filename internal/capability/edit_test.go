@@ -81,6 +81,30 @@ func TestEditLocalFileOldStringNotFound(t *testing.T) {
 	}
 }
 
+func TestEditLocalFileIdempotencyRequiresRecordedPlaceholderHash(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.txt")
+	placeholder := "__TMA_PLACEHOLDER_REPORT_001__"
+	replacement := "same content already elsewhere"
+	if err := os.WriteFile(path, []byte(replacement+"\n"+placeholder), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
+	if !first.Success || first.AlreadyApplied {
+		t.Fatalf("expected first replacement, got %#v", first)
+	}
+	retry := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
+	if !retry.Success || !retry.AlreadyApplied {
+		t.Fatalf("expected hash-backed replay, got %#v", retry)
+	}
+
+	ResetSegmentEditState(path)
+	withoutEvidence := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
+	if withoutEvidence.Success || withoutEvidence.AlreadyApplied {
+		t.Fatalf("matching content elsewhere must not imply already_applied: %#v", withoutEvidence)
+	}
+}
+
 func TestEditLocalFileCRLFCompatibility(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "note.txt")
 	if err := os.WriteFile(path, []byte("line one\r\nline two\r\n"), 0o644); err != nil {

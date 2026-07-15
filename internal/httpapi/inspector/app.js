@@ -1,3 +1,7 @@
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+var _a, _b;
 (function polyfill() {
   const relList = document.createElement("link").relList;
   if (relList && relList.supports && relList.supports("modulepreload")) {
@@ -147,7 +151,7 @@ function requireReact_production() {
   assign(pureComponentPrototype, Component.prototype);
   pureComponentPrototype.isPureReactComponent = true;
   var isArrayImpl = Array.isArray;
-  function noop() {
+  function noop2() {
   }
   var ReactSharedInternals = { H: null, A: null, T: null, S: null }, hasOwnProperty = Object.prototype.hasOwnProperty;
   function ReactElement(type, key, props) {
@@ -183,7 +187,7 @@ function requireReact_production() {
       case "rejected":
         throw thenable.reason;
       default:
-        switch ("string" === typeof thenable.status ? thenable.then(noop, noop) : (thenable.status = "pending", thenable.then(
+        switch ("string" === typeof thenable.status ? thenable.then(noop2, noop2) : (thenable.status = "pending", thenable.then(
           function(fulfilledValue) {
             "pending" === thenable.status && (thenable.status = "fulfilled", thenable.value = fulfilledValue);
           },
@@ -446,7 +450,7 @@ function requireReact_production() {
     try {
       var returnValue = scope(), onStartTransitionFinish = ReactSharedInternals.S;
       null !== onStartTransitionFinish && onStartTransitionFinish(currentTransition, returnValue);
-      "object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then && returnValue.then(noop, reportGlobalError);
+      "object" === typeof returnValue && null !== returnValue && "function" === typeof returnValue.then && returnValue.then(noop2, reportGlobalError);
     } catch (error) {
       reportGlobalError(error);
     } finally {
@@ -576,9 +580,9 @@ function requireScheduler_production() {
       }
       return first;
     }
-    function compare(a, b) {
-      var diff = a.sortIndex - b.sortIndex;
-      return 0 !== diff ? diff : a.id - b.id;
+    function compare(a, b2) {
+      var diff = a.sortIndex - b2.sortIndex;
+      return 0 !== diff ? diff : a.id - b2.id;
     }
     exports.unstable_now = void 0;
     if ("object" === typeof performance && "function" === typeof performance.now) {
@@ -831,21 +835,21 @@ function requireReactDom_production() {
     }
     return "Minified React error #" + code + "; visit " + url + " for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
   }
-  function noop() {
+  function noop2() {
   }
   var Internals = {
     d: {
-      f: noop,
+      f: noop2,
       r: function() {
         throw Error(formatProdErrorMessage(522));
       },
-      D: noop,
-      C: noop,
-      L: noop,
-      m: noop,
-      X: noop,
-      S: noop,
-      M: noop
+      D: noop2,
+      C: noop2,
+      L: noop2,
+      m: noop2,
+      X: noop2,
+      S: noop2,
+      M: noop2
     },
     p: 0,
     findDOMNode: null
@@ -1048,14 +1052,14 @@ function requireReactDomClient_production() {
       if (null === alternate) throw Error(formatProdErrorMessage(188));
       return alternate !== fiber ? null : fiber;
     }
-    for (var a = fiber, b = alternate; ; ) {
+    for (var a = fiber, b2 = alternate; ; ) {
       var parentA = a.return;
       if (null === parentA) break;
       var parentB = parentA.alternate;
       if (null === parentB) {
-        b = parentA.return;
-        if (null !== b) {
-          a = b;
+        b2 = parentA.return;
+        if (null !== b2) {
+          a = b2;
           continue;
         }
         break;
@@ -1063,23 +1067,23 @@ function requireReactDomClient_production() {
       if (parentA.child === parentB.child) {
         for (parentB = parentA.child; parentB; ) {
           if (parentB === a) return assertIsMounted(parentA), fiber;
-          if (parentB === b) return assertIsMounted(parentA), alternate;
+          if (parentB === b2) return assertIsMounted(parentA), alternate;
           parentB = parentB.sibling;
         }
         throw Error(formatProdErrorMessage(188));
       }
-      if (a.return !== b.return) a = parentA, b = parentB;
+      if (a.return !== b2.return) a = parentA, b2 = parentB;
       else {
         for (var didFindChild = false, child$0 = parentA.child; child$0; ) {
           if (child$0 === a) {
             didFindChild = true;
             a = parentA;
-            b = parentB;
+            b2 = parentB;
             break;
           }
-          if (child$0 === b) {
+          if (child$0 === b2) {
             didFindChild = true;
-            b = parentA;
+            b2 = parentA;
             a = parentB;
             break;
           }
@@ -1090,12 +1094,12 @@ function requireReactDomClient_production() {
             if (child$0 === a) {
               didFindChild = true;
               a = parentB;
-              b = parentA;
+              b2 = parentA;
               break;
             }
-            if (child$0 === b) {
+            if (child$0 === b2) {
               didFindChild = true;
-              b = parentB;
+              b2 = parentB;
               a = parentA;
               break;
             }
@@ -1104,7 +1108,7 @@ function requireReactDomClient_production() {
           if (!didFindChild) throw Error(formatProdErrorMessage(189));
         }
       }
-      if (a.alternate !== b) throw Error(formatProdErrorMessage(190));
+      if (a.alternate !== b2) throw Error(formatProdErrorMessage(190));
     }
     if (3 !== a.tag) throw Error(formatProdErrorMessage(188));
     return a.stateNode.current === a ? fiber : alternate;
@@ -1168,7 +1172,7 @@ function requireReactDomClient_production() {
           type = type._init;
           try {
             return getComponentNameFromType(type(innerType));
-          } catch (x) {
+          } catch (x2) {
           }
       }
     return null;
@@ -1238,10 +1242,10 @@ function requireReactDomClient_production() {
     if (void 0 === prefix)
       try {
         throw Error();
-      } catch (x) {
-        var match = x.stack.trim().match(/\n( *(at )?)/);
+      } catch (x2) {
+        var match = x2.stack.trim().match(/\n( *(at )?)/);
         prefix = match && match[1] || "";
-        suffix = -1 < x.stack.indexOf("\n    at") ? " (<anonymous>)" : -1 < x.stack.indexOf("@") ? "@unknown:0:0" : "";
+        suffix = -1 < x2.stack.indexOf("\n    at") ? " (<anonymous>)" : -1 < x2.stack.indexOf("@") ? "@unknown:0:0" : "";
       }
     return "\n" + prefix + name + suffix;
   }
@@ -1267,8 +1271,8 @@ function requireReactDomClient_production() {
               if ("object" === typeof Reflect && Reflect.construct) {
                 try {
                   Reflect.construct(Fake, []);
-                } catch (x) {
-                  var control = x;
+                } catch (x2) {
+                  var control = x2;
                 }
                 Reflect.construct(fn, [], Fake);
               } else {
@@ -1368,8 +1372,8 @@ function requireReactDomClient_production() {
         info += describeFiber(workInProgress2, previous), previous = workInProgress2, workInProgress2 = workInProgress2.return;
       while (workInProgress2);
       return info;
-    } catch (x) {
-      return "\nError generating stack: " + x.message + "\n" + x.stack;
+    } catch (x2) {
+      return "\nError generating stack: " + x2.message + "\n" + x2.stack;
     }
   }
   var hasOwnProperty = Object.prototype.hasOwnProperty, scheduleCallback$3 = Scheduler.unstable_scheduleCallback, cancelCallback$1 = Scheduler.unstable_cancelCallback, shouldYield = Scheduler.unstable_shouldYield, requestPaint = Scheduler.unstable_requestPaint, now = Scheduler.unstable_now, getCurrentPriorityLevel = Scheduler.unstable_getCurrentPriorityLevel, ImmediatePriority = Scheduler.unstable_ImmediatePriority, UserBlockingPriority = Scheduler.unstable_UserBlockingPriority, NormalPriority$1 = Scheduler.unstable_NormalPriority, LowPriority = Scheduler.unstable_LowPriority, IdlePriority = Scheduler.unstable_IdlePriority, log$1 = Scheduler.log, unstable_setDisableYieldValue = Scheduler.unstable_setDisableYieldValue, rendererID = null, injectedHook = null;
@@ -1382,9 +1386,9 @@ function requireReactDomClient_production() {
       }
   }
   var clz32 = Math.clz32 ? Math.clz32 : clz32Fallback, log = Math.log, LN2 = Math.LN2;
-  function clz32Fallback(x) {
-    x >>>= 0;
-    return 0 === x ? 32 : 31 - (log(x) / LN2 | 0) | 0;
+  function clz32Fallback(x2) {
+    x2 >>>= 0;
+    return 0 === x2 ? 32 : 31 - (log(x2) / LN2 | 0) | 0;
   }
   var nextTransitionUpdateLane = 256, nextTransitionDeferredLane = 262144, nextRetryLane = 4194304;
   function getHighestPriorityLanes(lanes) {
@@ -2099,8 +2103,8 @@ function requireReactDomClient_production() {
     }
   }
   var isInsideEventHandler = false;
-  function batchedUpdates$1(fn, a, b) {
-    if (isInsideEventHandler) return fn(a, b);
+  function batchedUpdates$1(fn, a, b2) {
+    if (isInsideEventHandler) return fn(a, b2);
     isInsideEventHandler = true;
     try {
       var JSCompiler_inline_result = fn(a);
@@ -2516,8 +2520,8 @@ function requireReactDomClient_production() {
     if ("input" === domEventName || "change" === domEventName)
       return getInstIfValueChanged(targetInst);
   }
-  function is(x, y) {
-    return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
+  function is(x2, y2) {
+    return x2 === y2 && (0 !== x2 || 1 / x2 === 1 / y2) || x2 !== x2 && y2 !== y2;
   }
   var objectIs = "function" === typeof Object.is ? Object.is : is;
   function shallowEqual(objA, objB) {
@@ -3317,10 +3321,10 @@ function requireReactDomClient_production() {
     try {
       var init = lazyType._init;
       return init(lazyType._payload);
-    } catch (x) {
-      if (null !== x && "object" === typeof x && "function" === typeof x.then)
-        throw suspendedThenable = x, SuspenseException;
-      throw x;
+    } catch (x2) {
+      if (null !== x2 && "object" === typeof x2 && "function" === typeof x2.then)
+        throw suspendedThenable = x2, SuspenseException;
+      throw x2;
     }
   }
   var suspendedThenable = null;
@@ -3783,9 +3787,9 @@ function requireReactDomClient_production() {
         );
         thenableState$1 = null;
         return firstChildFiber;
-      } catch (x) {
-        if (x === SuspenseException || x === SuspenseActionException) throw x;
-        var fiber = createFiberImplClass(29, x, null, returnFiber.mode);
+      } catch (x2) {
+        if (x2 === SuspenseException || x2 === SuspenseActionException) throw x2;
+        var fiber = createFiberImplClass(29, x2, null, returnFiber.mode);
         fiber.lanes = lanes;
         fiber.return = returnFiber;
         return fiber;
@@ -4581,9 +4585,9 @@ function requireReactDomClient_production() {
     if ("object" === typeof currentStateHook && null !== currentStateHook && "function" === typeof currentStateHook.then)
       try {
         var state = useThenable(currentStateHook);
-      } catch (x) {
-        if (x === SuspenseException) throw SuspenseActionException;
-        throw x;
+      } catch (x2) {
+        if (x2 === SuspenseException) throw SuspenseActionException;
+        throw x2;
       }
     else state = currentStateHook;
     currentStateHook = updateWorkInProgressHook();
@@ -4777,7 +4781,7 @@ function requireReactDomClient_production() {
       ReactDOMSharedInternals.p = previousPriority, null !== prevTransition && null !== currentTransition.types && (prevTransition.types = currentTransition.types), ReactSharedInternals.T = prevTransition;
     }
   }
-  function noop() {
+  function noop2() {
   }
   function startHostTransition(formFiber, pendingState, action, formData) {
     if (5 !== formFiber.tag) throw Error(formatProdErrorMessage(476));
@@ -4787,7 +4791,7 @@ function requireReactDomClient_production() {
       queue,
       pendingState,
       sharedNotPendingObject,
-      null === action ? noop : function() {
+      null === action ? noop2 : function() {
         requestFormReset$1(formFiber);
         return action(formData);
       }
@@ -12531,24 +12535,2841 @@ function requireClient() {
   return client.exports;
 }
 var clientExports = requireClient();
+function L() {
+  return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
+}
+var T = L();
+function G(l3) {
+  T = l3;
+}
+var E = { exec: () => null };
+function d(l3, e = "") {
+  let t = typeof l3 == "string" ? l3 : l3.source, n = { replace: (r, i) => {
+    let s = typeof i == "string" ? i : i.source;
+    return s = s.replace(m.caret, "$1"), t = t.replace(r, s), n;
+  }, getRegex: () => new RegExp(t, e) };
+  return n;
+}
+var be = (() => {
+  try {
+    return !!new RegExp("(?<=1)(?<!1)");
+  } catch {
+    return false;
+  }
+})(), m = { codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm, outputLinkReplace: /\\([\[\]])/g, indentCodeCompensation: /^(\s+)(?:```)/, beginningSpace: /^\s+/, endingHash: /#$/, startingSpaceChar: /^ /, endingSpaceChar: / $/, nonSpaceChar: /[^ ]/, newLineCharGlobal: /\n/g, tabCharGlobal: /\t/g, multipleSpaceGlobal: /\s+/g, blankLine: /^[ \t]*$/, doubleBlankLine: /\n[ \t]*\n[ \t]*$/, blockquoteStart: /^ {0,3}>/, blockquoteSetextReplace: /\n {0,3}((?:=+|-+) *)(?=\n|$)/g, blockquoteSetextReplace2: /^ {0,3}>[ \t]?/gm, listReplaceTabs: /^\t+/, listReplaceNesting: /^ {1,4}(?=( {4})*[^ ])/g, listIsTask: /^\[[ xX]\] /, listReplaceTask: /^\[[ xX]\] +/, anyLine: /\n.*\n/, hrefBrackets: /^<(.*)>$/, tableDelimiter: /[:|]/, tableAlignChars: /^\||\| *$/g, tableRowBlankLine: /\n[ \t]*$/, tableAlignRight: /^ *-+: *$/, tableAlignCenter: /^ *:-+: *$/, tableAlignLeft: /^ *:-+ *$/, startATag: /^<a /i, endATag: /^<\/a>/i, startPreScriptTag: /^<(pre|code|kbd|script)(\s|>)/i, endPreScriptTag: /^<\/(pre|code|kbd|script)(\s|>)/i, startAngleBracket: /^</, endAngleBracket: />$/, pedanticHrefTitle: /^([^'"]*[^\s])\s+(['"])(.*)\2/, unicodeAlphaNumeric: /[\p{L}\p{N}]/u, escapeTest: /[&<>"']/, escapeReplace: /[&<>"']/g, escapeTestNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/, escapeReplaceNoEncode: /[<>"']|&(?!(#\d{1,7}|#[Xx][a-fA-F0-9]{1,6}|\w+);)/g, unescapeTest: /&(#(?:\d+)|(?:#x[0-9A-Fa-f]+)|(?:\w+));?/ig, caret: /(^|[^\[])\^/g, percentDecode: /%25/g, findPipe: /\|/g, splitPipe: / \|/, slashPipe: /\\\|/g, carriageReturn: /\r\n|\r/g, spaceLine: /^ +$/gm, notSpaceStart: /^\S*/, endingNewline: /\n$/, listItemRegex: (l3) => new RegExp(`^( {0,3}${l3})((?:[	 ][^\\n]*)?(?:\\n|$))`), nextBulletRegex: (l3) => new RegExp(`^ {0,${Math.min(3, l3 - 1)}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`), hrRegex: (l3) => new RegExp(`^ {0,${Math.min(3, l3 - 1)}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`), fencesBeginRegex: (l3) => new RegExp(`^ {0,${Math.min(3, l3 - 1)}}(?:\`\`\`|~~~)`), headingBeginRegex: (l3) => new RegExp(`^ {0,${Math.min(3, l3 - 1)}}#`), htmlBeginRegex: (l3) => new RegExp(`^ {0,${Math.min(3, l3 - 1)}}<(?:[a-z].*>|!--)`, "i") }, Re = /^(?:[ \t]*(?:\n|$))+/, Te = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/, Oe = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/, I = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/, we = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/, F = /(?:[*+-]|\d{1,9}[.)])/, ie = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/, oe = d(ie).replace(/bull/g, F).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex(), ye = d(ie).replace(/bull/g, F).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(), j = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/, Pe = /^[^\n]+/, Q = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/, Se = d(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", Q).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(), $e = d(/^( {0,3}bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g, F).getRegex(), v = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul", U = /<!--(?:-?>|[\s\S]*?(?:-->|$))/, _e = d("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", U).replace("tag", v).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(), ae = d(j).replace("hr", I).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)]) ").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", v).getRegex(), Le = d(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", ae).getRegex(), K = { blockquote: Le, code: Te, def: Se, fences: Oe, heading: we, hr: I, html: _e, lheading: oe, list: $e, newline: Re, paragraph: ae, table: E, text: Pe }, re = d("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", I).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)]) ").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", v).getRegex(), Me = { ...K, lheading: ye, table: re, paragraph: d(j).replace("hr", I).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", re).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)]) ").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", v).getRegex() }, ze = { ...K, html: d(`^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:"[^"]*"|'[^']*'|\\s[^'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))`).replace("comment", U).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(), def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/, heading: /^(#{1,6})(.*)(?:\n+|$)/, fences: E, lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/, paragraph: d(j).replace("hr", I).replace("heading", ` *#{1,6} *[^
+]`).replace("lheading", oe).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex() }, Ae = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/, Ee = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/, le = /^( {2,}|\\)\n(?!\s*$)/, Ie = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/, D = /[\p{P}\p{S}]/u, W = /[\s\p{P}\p{S}]/u, ue = /[^\s\p{P}\p{S}]/u, Ce = d(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, W).getRegex(), pe = /(?!~)[\p{P}\p{S}]/u, Be = /(?!~)[\s\p{P}\p{S}]/u, qe = /(?:[^\s\p{P}\p{S}]|~)/u, ve = d(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", be ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex(), ce = /^(?:\*+(?:((?!\*)punct)|[^\s*]))|^_+(?:((?!_)punct)|([^\s_]))/, De = d(ce, "u").replace(/punct/g, D).getRegex(), He = d(ce, "u").replace(/punct/g, pe).getRegex(), he = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)", Ze = d(he, "gu").replace(/notPunctSpace/g, ue).replace(/punctSpace/g, W).replace(/punct/g, D).getRegex(), Ge = d(he, "gu").replace(/notPunctSpace/g, qe).replace(/punctSpace/g, Be).replace(/punct/g, pe).getRegex(), Ne = d("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, ue).replace(/punctSpace/g, W).replace(/punct/g, D).getRegex(), Fe = d(/\\(punct)/, "gu").replace(/punct/g, D).getRegex(), je = d(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(), Qe = d(U).replace("(?:-->|$)", "-->").getRegex(), Ue = d("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", Qe).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(), q = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+[^`]*?`+(?!`)|[^\[\]\\`])*?/, Ke = d(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]*(?:\n[ \t]*)?)(title))?\s*\)/).replace("label", q).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(), de = d(/^!?\[(label)\]\[(ref)\]/).replace("label", q).replace("ref", Q).getRegex(), ke = d(/^!?\[(ref)\](?:\[\])?/).replace("ref", Q).getRegex(), We = d("reflink|nolink(?!\\()", "g").replace("reflink", de).replace("nolink", ke).getRegex(), se = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/, X = { _backpedal: E, anyPunctuation: Fe, autolink: je, blockSkip: ve, br: le, code: Ee, del: E, emStrongLDelim: De, emStrongRDelimAst: Ze, emStrongRDelimUnd: Ne, escape: Ae, link: Ke, nolink: ke, punctuation: Ce, reflink: de, reflinkSearch: We, tag: Ue, text: Ie, url: E }, Xe = { ...X, link: d(/^!?\[(label)\]\((.*?)\)/).replace("label", q).getRegex(), reflink: d(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", q).getRegex() }, N = { ...X, emStrongRDelimAst: Ge, emStrongLDelim: He, url: d(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", se).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(), _backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/, del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/, text: d(/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", se).getRegex() }, Je = { ...N, br: d(le).replace("{2,}", "*").getRegex(), text: d(N.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex() }, C = { normal: K, gfm: Me, pedantic: ze }, M = { normal: X, gfm: N, breaks: Je, pedantic: Xe };
+var Ve = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }, ge = (l3) => Ve[l3];
+function w(l3, e) {
+  if (e) {
+    if (m.escapeTest.test(l3)) return l3.replace(m.escapeReplace, ge);
+  } else if (m.escapeTestNoEncode.test(l3)) return l3.replace(m.escapeReplaceNoEncode, ge);
+  return l3;
+}
+function J(l3) {
+  try {
+    l3 = encodeURI(l3).replace(m.percentDecode, "%");
+  } catch {
+    return null;
+  }
+  return l3;
+}
+function V(l3, e) {
+  var _a2;
+  let t = l3.replace(m.findPipe, (i, s, a) => {
+    let o = false, p = s;
+    for (; --p >= 0 && a[p] === "\\"; ) o = !o;
+    return o ? "|" : " |";
+  }), n = t.split(m.splitPipe), r = 0;
+  if (n[0].trim() || n.shift(), n.length > 0 && !((_a2 = n.at(-1)) == null ? void 0 : _a2.trim()) && n.pop(), e) if (n.length > e) n.splice(e);
+  else for (; n.length < e; ) n.push("");
+  for (; r < n.length; r++) n[r] = n[r].trim().replace(m.slashPipe, "|");
+  return n;
+}
+function z(l3, e, t) {
+  let n = l3.length;
+  if (n === 0) return "";
+  let r = 0;
+  for (; r < n; ) {
+    let i = l3.charAt(n - r - 1);
+    if (i === e && true) r++;
+    else break;
+  }
+  return l3.slice(0, n - r);
+}
+function fe(l3, e) {
+  if (l3.indexOf(e[1]) === -1) return -1;
+  let t = 0;
+  for (let n = 0; n < l3.length; n++) if (l3[n] === "\\") n++;
+  else if (l3[n] === e[0]) t++;
+  else if (l3[n] === e[1] && (t--, t < 0)) return n;
+  return t > 0 ? -2 : -1;
+}
+function me(l3, e, t, n, r) {
+  let i = e.href, s = e.title || null, a = l3[1].replace(r.other.outputLinkReplace, "$1");
+  n.state.inLink = true;
+  let o = { type: l3[0].charAt(0) === "!" ? "image" : "link", raw: t, href: i, title: s, text: a, tokens: n.inlineTokens(a) };
+  return n.state.inLink = false, o;
+}
+function Ye(l3, e, t) {
+  let n = l3.match(t.other.indentCodeCompensation);
+  if (n === null) return e;
+  let r = n[1];
+  return e.split(`
+`).map((i) => {
+    let s = i.match(t.other.beginningSpace);
+    if (s === null) return i;
+    let [a] = s;
+    return a.length >= r.length ? i.slice(r.length) : i;
+  }).join(`
+`);
+}
+var y = class {
+  constructor(e) {
+    __publicField(this, "options");
+    __publicField(this, "rules");
+    __publicField(this, "lexer");
+    this.options = e || T;
+  }
+  space(e) {
+    let t = this.rules.block.newline.exec(e);
+    if (t && t[0].length > 0) return { type: "space", raw: t[0] };
+  }
+  code(e) {
+    let t = this.rules.block.code.exec(e);
+    if (t) {
+      let n = t[0].replace(this.rules.other.codeRemoveIndent, "");
+      return { type: "code", raw: t[0], codeBlockStyle: "indented", text: this.options.pedantic ? n : z(n, `
+`) };
+    }
+  }
+  fences(e) {
+    let t = this.rules.block.fences.exec(e);
+    if (t) {
+      let n = t[0], r = Ye(n, t[3] || "", this.rules);
+      return { type: "code", raw: n, lang: t[2] ? t[2].trim().replace(this.rules.inline.anyPunctuation, "$1") : t[2], text: r };
+    }
+  }
+  heading(e) {
+    let t = this.rules.block.heading.exec(e);
+    if (t) {
+      let n = t[2].trim();
+      if (this.rules.other.endingHash.test(n)) {
+        let r = z(n, "#");
+        (this.options.pedantic || !r || this.rules.other.endingSpaceChar.test(r)) && (n = r.trim());
+      }
+      return { type: "heading", raw: t[0], depth: t[1].length, text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  hr(e) {
+    let t = this.rules.block.hr.exec(e);
+    if (t) return { type: "hr", raw: z(t[0], `
+`) };
+  }
+  blockquote(e) {
+    let t = this.rules.block.blockquote.exec(e);
+    if (t) {
+      let n = z(t[0], `
+`).split(`
+`), r = "", i = "", s = [];
+      for (; n.length > 0; ) {
+        let a = false, o = [], p;
+        for (p = 0; p < n.length; p++) if (this.rules.other.blockquoteStart.test(n[p])) o.push(n[p]), a = true;
+        else if (!a) o.push(n[p]);
+        else break;
+        n = n.slice(p);
+        let u = o.join(`
+`), c = u.replace(this.rules.other.blockquoteSetextReplace, `
+    $1`).replace(this.rules.other.blockquoteSetextReplace2, "");
+        r = r ? `${r}
+${u}` : u, i = i ? `${i}
+${c}` : c;
+        let g = this.lexer.state.top;
+        if (this.lexer.state.top = true, this.lexer.blockTokens(c, s, true), this.lexer.state.top = g, n.length === 0) break;
+        let h = s.at(-1);
+        if ((h == null ? void 0 : h.type) === "code") break;
+        if ((h == null ? void 0 : h.type) === "blockquote") {
+          let R = h, f = R.raw + `
+` + n.join(`
+`), O = this.blockquote(f);
+          s[s.length - 1] = O, r = r.substring(0, r.length - R.raw.length) + O.raw, i = i.substring(0, i.length - R.text.length) + O.text;
+          break;
+        } else if ((h == null ? void 0 : h.type) === "list") {
+          let R = h, f = R.raw + `
+` + n.join(`
+`), O = this.list(f);
+          s[s.length - 1] = O, r = r.substring(0, r.length - h.raw.length) + O.raw, i = i.substring(0, i.length - R.raw.length) + O.raw, n = f.substring(s.at(-1).raw.length).split(`
+`);
+          continue;
+        }
+      }
+      return { type: "blockquote", raw: r, tokens: s, text: i };
+    }
+  }
+  list(e) {
+    let t = this.rules.block.list.exec(e);
+    if (t) {
+      let n = t[1].trim(), r = n.length > 1, i = { type: "list", raw: "", ordered: r, start: r ? +n.slice(0, -1) : "", loose: false, items: [] };
+      n = r ? `\\d{1,9}\\${n.slice(-1)}` : `\\${n}`, this.options.pedantic && (n = r ? n : "[*+-]");
+      let s = this.rules.other.listItemRegex(n), a = false;
+      for (; e; ) {
+        let p = false, u = "", c = "";
+        if (!(t = s.exec(e)) || this.rules.block.hr.test(e)) break;
+        u = t[0], e = e.substring(u.length);
+        let g = t[2].split(`
+`, 1)[0].replace(this.rules.other.listReplaceTabs, (H) => " ".repeat(3 * H.length)), h = e.split(`
+`, 1)[0], R = !g.trim(), f = 0;
+        if (this.options.pedantic ? (f = 2, c = g.trimStart()) : R ? f = t[1].length + 1 : (f = t[2].search(this.rules.other.nonSpaceChar), f = f > 4 ? 1 : f, c = g.slice(f), f += t[1].length), R && this.rules.other.blankLine.test(h) && (u += h + `
+`, e = e.substring(h.length + 1), p = true), !p) {
+          let H = this.rules.other.nextBulletRegex(f), ee = this.rules.other.hrRegex(f), te = this.rules.other.fencesBeginRegex(f), ne = this.rules.other.headingBeginRegex(f), xe = this.rules.other.htmlBeginRegex(f);
+          for (; e; ) {
+            let Z = e.split(`
+`, 1)[0], A;
+            if (h = Z, this.options.pedantic ? (h = h.replace(this.rules.other.listReplaceNesting, "  "), A = h) : A = h.replace(this.rules.other.tabCharGlobal, "    "), te.test(h) || ne.test(h) || xe.test(h) || H.test(h) || ee.test(h)) break;
+            if (A.search(this.rules.other.nonSpaceChar) >= f || !h.trim()) c += `
+` + A.slice(f);
+            else {
+              if (R || g.replace(this.rules.other.tabCharGlobal, "    ").search(this.rules.other.nonSpaceChar) >= 4 || te.test(g) || ne.test(g) || ee.test(g)) break;
+              c += `
+` + h;
+            }
+            !R && !h.trim() && (R = true), u += Z + `
+`, e = e.substring(Z.length + 1), g = A.slice(f);
+          }
+        }
+        i.loose || (a ? i.loose = true : this.rules.other.doubleBlankLine.test(u) && (a = true));
+        let O = null, Y;
+        this.options.gfm && (O = this.rules.other.listIsTask.exec(c), O && (Y = O[0] !== "[ ] ", c = c.replace(this.rules.other.listReplaceTask, ""))), i.items.push({ type: "list_item", raw: u, task: !!O, checked: Y, loose: false, text: c, tokens: [] }), i.raw += u;
+      }
+      let o = i.items.at(-1);
+      if (o) o.raw = o.raw.trimEnd(), o.text = o.text.trimEnd();
+      else return;
+      i.raw = i.raw.trimEnd();
+      for (let p = 0; p < i.items.length; p++) if (this.lexer.state.top = false, i.items[p].tokens = this.lexer.blockTokens(i.items[p].text, []), !i.loose) {
+        let u = i.items[p].tokens.filter((g) => g.type === "space"), c = u.length > 0 && u.some((g) => this.rules.other.anyLine.test(g.raw));
+        i.loose = c;
+      }
+      if (i.loose) for (let p = 0; p < i.items.length; p++) i.items[p].loose = true;
+      return i;
+    }
+  }
+  html(e) {
+    let t = this.rules.block.html.exec(e);
+    if (t) return { type: "html", block: true, raw: t[0], pre: t[1] === "pre" || t[1] === "script" || t[1] === "style", text: t[0] };
+  }
+  def(e) {
+    let t = this.rules.block.def.exec(e);
+    if (t) {
+      let n = t[1].toLowerCase().replace(this.rules.other.multipleSpaceGlobal, " "), r = t[2] ? t[2].replace(this.rules.other.hrefBrackets, "$1").replace(this.rules.inline.anyPunctuation, "$1") : "", i = t[3] ? t[3].substring(1, t[3].length - 1).replace(this.rules.inline.anyPunctuation, "$1") : t[3];
+      return { type: "def", tag: n, raw: t[0], href: r, title: i };
+    }
+  }
+  table(e) {
+    var _a2;
+    let t = this.rules.block.table.exec(e);
+    if (!t || !this.rules.other.tableDelimiter.test(t[2])) return;
+    let n = V(t[1]), r = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), i = ((_a2 = t[3]) == null ? void 0 : _a2.trim()) ? t[3].replace(this.rules.other.tableRowBlankLine, "").split(`
+`) : [], s = { type: "table", raw: t[0], header: [], align: [], rows: [] };
+    if (n.length === r.length) {
+      for (let a of r) this.rules.other.tableAlignRight.test(a) ? s.align.push("right") : this.rules.other.tableAlignCenter.test(a) ? s.align.push("center") : this.rules.other.tableAlignLeft.test(a) ? s.align.push("left") : s.align.push(null);
+      for (let a = 0; a < n.length; a++) s.header.push({ text: n[a], tokens: this.lexer.inline(n[a]), header: true, align: s.align[a] });
+      for (let a of i) s.rows.push(V(a, s.header.length).map((o, p) => ({ text: o, tokens: this.lexer.inline(o), header: false, align: s.align[p] })));
+      return s;
+    }
+  }
+  lheading(e) {
+    let t = this.rules.block.lheading.exec(e);
+    if (t) return { type: "heading", raw: t[0], depth: t[2].charAt(0) === "=" ? 1 : 2, text: t[1], tokens: this.lexer.inline(t[1]) };
+  }
+  paragraph(e) {
+    let t = this.rules.block.paragraph.exec(e);
+    if (t) {
+      let n = t[1].charAt(t[1].length - 1) === `
+` ? t[1].slice(0, -1) : t[1];
+      return { type: "paragraph", raw: t[0], text: n, tokens: this.lexer.inline(n) };
+    }
+  }
+  text(e) {
+    let t = this.rules.block.text.exec(e);
+    if (t) return { type: "text", raw: t[0], text: t[0], tokens: this.lexer.inline(t[0]) };
+  }
+  escape(e) {
+    let t = this.rules.inline.escape.exec(e);
+    if (t) return { type: "escape", raw: t[0], text: t[1] };
+  }
+  tag(e) {
+    let t = this.rules.inline.tag.exec(e);
+    if (t) return !this.lexer.state.inLink && this.rules.other.startATag.test(t[0]) ? this.lexer.state.inLink = true : this.lexer.state.inLink && this.rules.other.endATag.test(t[0]) && (this.lexer.state.inLink = false), !this.lexer.state.inRawBlock && this.rules.other.startPreScriptTag.test(t[0]) ? this.lexer.state.inRawBlock = true : this.lexer.state.inRawBlock && this.rules.other.endPreScriptTag.test(t[0]) && (this.lexer.state.inRawBlock = false), { type: "html", raw: t[0], inLink: this.lexer.state.inLink, inRawBlock: this.lexer.state.inRawBlock, block: false, text: t[0] };
+  }
+  link(e) {
+    let t = this.rules.inline.link.exec(e);
+    if (t) {
+      let n = t[2].trim();
+      if (!this.options.pedantic && this.rules.other.startAngleBracket.test(n)) {
+        if (!this.rules.other.endAngleBracket.test(n)) return;
+        let s = z(n.slice(0, -1), "\\");
+        if ((n.length - s.length) % 2 === 0) return;
+      } else {
+        let s = fe(t[2], "()");
+        if (s === -2) return;
+        if (s > -1) {
+          let o = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + s;
+          t[2] = t[2].substring(0, s), t[0] = t[0].substring(0, o).trim(), t[3] = "";
+        }
+      }
+      let r = t[2], i = "";
+      if (this.options.pedantic) {
+        let s = this.rules.other.pedanticHrefTitle.exec(r);
+        s && (r = s[1], i = s[3]);
+      } else i = t[3] ? t[3].slice(1, -1) : "";
+      return r = r.trim(), this.rules.other.startAngleBracket.test(r) && (this.options.pedantic && !this.rules.other.endAngleBracket.test(n) ? r = r.slice(1) : r = r.slice(1, -1)), me(t, { href: r && r.replace(this.rules.inline.anyPunctuation, "$1"), title: i && i.replace(this.rules.inline.anyPunctuation, "$1") }, t[0], this.lexer, this.rules);
+    }
+  }
+  reflink(e, t) {
+    let n;
+    if ((n = this.rules.inline.reflink.exec(e)) || (n = this.rules.inline.nolink.exec(e))) {
+      let r = (n[2] || n[1]).replace(this.rules.other.multipleSpaceGlobal, " "), i = t[r.toLowerCase()];
+      if (!i) {
+        let s = n[0].charAt(0);
+        return { type: "text", raw: s, text: s };
+      }
+      return me(n, i, n[0], this.lexer, this.rules);
+    }
+  }
+  emStrong(e, t, n = "") {
+    let r = this.rules.inline.emStrongLDelim.exec(e);
+    if (!r || r[3] && n.match(this.rules.other.unicodeAlphaNumeric)) return;
+    if (!(r[1] || r[2] || "") || !n || this.rules.inline.punctuation.exec(n)) {
+      let s = [...r[0]].length - 1, a, o, p = s, u = 0, c = r[0][0] === "*" ? this.rules.inline.emStrongRDelimAst : this.rules.inline.emStrongRDelimUnd;
+      for (c.lastIndex = 0, t = t.slice(-1 * e.length + s); (r = c.exec(t)) != null; ) {
+        if (a = r[1] || r[2] || r[3] || r[4] || r[5] || r[6], !a) continue;
+        if (o = [...a].length, r[3] || r[4]) {
+          p += o;
+          continue;
+        } else if ((r[5] || r[6]) && s % 3 && !((s + o) % 3)) {
+          u += o;
+          continue;
+        }
+        if (p -= o, p > 0) continue;
+        o = Math.min(o, o + p + u);
+        let g = [...r[0]][0].length, h = e.slice(0, s + r.index + g + o);
+        if (Math.min(s, o) % 2) {
+          let f = h.slice(1, -1);
+          return { type: "em", raw: h, text: f, tokens: this.lexer.inlineTokens(f) };
+        }
+        let R = h.slice(2, -2);
+        return { type: "strong", raw: h, text: R, tokens: this.lexer.inlineTokens(R) };
+      }
+    }
+  }
+  codespan(e) {
+    let t = this.rules.inline.code.exec(e);
+    if (t) {
+      let n = t[2].replace(this.rules.other.newLineCharGlobal, " "), r = this.rules.other.nonSpaceChar.test(n), i = this.rules.other.startingSpaceChar.test(n) && this.rules.other.endingSpaceChar.test(n);
+      return r && i && (n = n.substring(1, n.length - 1)), { type: "codespan", raw: t[0], text: n };
+    }
+  }
+  br(e) {
+    let t = this.rules.inline.br.exec(e);
+    if (t) return { type: "br", raw: t[0] };
+  }
+  del(e) {
+    let t = this.rules.inline.del.exec(e);
+    if (t) return { type: "del", raw: t[0], text: t[2], tokens: this.lexer.inlineTokens(t[2]) };
+  }
+  autolink(e) {
+    let t = this.rules.inline.autolink.exec(e);
+    if (t) {
+      let n, r;
+      return t[2] === "@" ? (n = t[1], r = "mailto:" + n) : (n = t[1], r = n), { type: "link", raw: t[0], text: n, href: r, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  url(e) {
+    var _a2;
+    let t;
+    if (t = this.rules.inline.url.exec(e)) {
+      let n, r;
+      if (t[2] === "@") n = t[0], r = "mailto:" + n;
+      else {
+        let i;
+        do
+          i = t[0], t[0] = ((_a2 = this.rules.inline._backpedal.exec(t[0])) == null ? void 0 : _a2[0]) ?? "";
+        while (i !== t[0]);
+        n = t[0], t[1] === "www." ? r = "http://" + t[0] : r = t[0];
+      }
+      return { type: "link", raw: t[0], text: n, href: r, tokens: [{ type: "text", raw: n, text: n }] };
+    }
+  }
+  inlineText(e) {
+    let t = this.rules.inline.text.exec(e);
+    if (t) {
+      let n = this.lexer.state.inRawBlock;
+      return { type: "text", raw: t[0], text: t[0], escaped: n };
+    }
+  }
+};
+var x = class l {
+  constructor(e) {
+    __publicField(this, "tokens");
+    __publicField(this, "options");
+    __publicField(this, "state");
+    __publicField(this, "tokenizer");
+    __publicField(this, "inlineQueue");
+    this.tokens = [], this.tokens.links = /* @__PURE__ */ Object.create(null), this.options = e || T, this.options.tokenizer = this.options.tokenizer || new y(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = { inLink: false, inRawBlock: false, top: true };
+    let t = { other: m, block: C.normal, inline: M.normal };
+    this.options.pedantic ? (t.block = C.pedantic, t.inline = M.pedantic) : this.options.gfm && (t.block = C.gfm, this.options.breaks ? t.inline = M.breaks : t.inline = M.gfm), this.tokenizer.rules = t;
+  }
+  static get rules() {
+    return { block: C, inline: M };
+  }
+  static lex(e, t) {
+    return new l(t).lex(e);
+  }
+  static lexInline(e, t) {
+    return new l(t).inlineTokens(e);
+  }
+  lex(e) {
+    e = e.replace(m.carriageReturn, `
+`), this.blockTokens(e, this.tokens);
+    for (let t = 0; t < this.inlineQueue.length; t++) {
+      let n = this.inlineQueue[t];
+      this.inlineTokens(n.src, n.tokens);
+    }
+    return this.inlineQueue = [], this.tokens;
+  }
+  blockTokens(e, t = [], n = false) {
+    var _a2, _b2, _c;
+    for (this.options.pedantic && (e = e.replace(m.tabCharGlobal, "    ").replace(m.spaceLine, "")); e; ) {
+      let r;
+      if ((_b2 = (_a2 = this.options.extensions) == null ? void 0 : _a2.block) == null ? void 0 : _b2.some((s) => (r = s.call({ lexer: this }, e, t)) ? (e = e.substring(r.raw.length), t.push(r), true) : false)) continue;
+      if (r = this.tokenizer.space(e)) {
+        e = e.substring(r.raw.length);
+        let s = t.at(-1);
+        r.raw.length === 1 && s !== void 0 ? s.raw += `
+` : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.code(e)) {
+        e = e.substring(r.raw.length);
+        let s = t.at(-1);
+        (s == null ? void 0 : s.type) === "paragraph" || (s == null ? void 0 : s.type) === "text" ? (s.raw += (s.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, s.text += `
+` + r.text, this.inlineQueue.at(-1).src = s.text) : t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.fences(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.heading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.hr(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.blockquote(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.list(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.html(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.def(e)) {
+        e = e.substring(r.raw.length);
+        let s = t.at(-1);
+        (s == null ? void 0 : s.type) === "paragraph" || (s == null ? void 0 : s.type) === "text" ? (s.raw += (s.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, s.text += `
+` + r.raw, this.inlineQueue.at(-1).src = s.text) : this.tokens.links[r.tag] || (this.tokens.links[r.tag] = { href: r.href, title: r.title }, t.push(r));
+        continue;
+      }
+      if (r = this.tokenizer.table(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      if (r = this.tokenizer.lheading(e)) {
+        e = e.substring(r.raw.length), t.push(r);
+        continue;
+      }
+      let i = e;
+      if ((_c = this.options.extensions) == null ? void 0 : _c.startBlock) {
+        let s = 1 / 0, a = e.slice(1), o;
+        this.options.extensions.startBlock.forEach((p) => {
+          o = p.call({ lexer: this }, a), typeof o == "number" && o >= 0 && (s = Math.min(s, o));
+        }), s < 1 / 0 && s >= 0 && (i = e.substring(0, s + 1));
+      }
+      if (this.state.top && (r = this.tokenizer.paragraph(i))) {
+        let s = t.at(-1);
+        n && (s == null ? void 0 : s.type) === "paragraph" ? (s.raw += (s.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, s.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = s.text) : t.push(r), n = i.length !== e.length, e = e.substring(r.raw.length);
+        continue;
+      }
+      if (r = this.tokenizer.text(e)) {
+        e = e.substring(r.raw.length);
+        let s = t.at(-1);
+        (s == null ? void 0 : s.type) === "text" ? (s.raw += (s.raw.endsWith(`
+`) ? "" : `
+`) + r.raw, s.text += `
+` + r.text, this.inlineQueue.pop(), this.inlineQueue.at(-1).src = s.text) : t.push(r);
+        continue;
+      }
+      if (e) {
+        let s = "Infinite loop on byte: " + e.charCodeAt(0);
+        if (this.options.silent) {
+          console.error(s);
+          break;
+        } else throw new Error(s);
+      }
+    }
+    return this.state.top = true, t;
+  }
+  inline(e, t = []) {
+    return this.inlineQueue.push({ src: e, tokens: t }), t;
+  }
+  inlineTokens(e, t = []) {
+    var _a2, _b2, _c, _d, _e2;
+    let n = e, r = null;
+    if (this.tokens.links) {
+      let o = Object.keys(this.tokens.links);
+      if (o.length > 0) for (; (r = this.tokenizer.rules.inline.reflinkSearch.exec(n)) != null; ) o.includes(r[0].slice(r[0].lastIndexOf("[") + 1, -1)) && (n = n.slice(0, r.index) + "[" + "a".repeat(r[0].length - 2) + "]" + n.slice(this.tokenizer.rules.inline.reflinkSearch.lastIndex));
+    }
+    for (; (r = this.tokenizer.rules.inline.anyPunctuation.exec(n)) != null; ) n = n.slice(0, r.index) + "++" + n.slice(this.tokenizer.rules.inline.anyPunctuation.lastIndex);
+    let i;
+    for (; (r = this.tokenizer.rules.inline.blockSkip.exec(n)) != null; ) i = r[2] ? r[2].length : 0, n = n.slice(0, r.index + i) + "[" + "a".repeat(r[0].length - i - 2) + "]" + n.slice(this.tokenizer.rules.inline.blockSkip.lastIndex);
+    n = ((_b2 = (_a2 = this.options.hooks) == null ? void 0 : _a2.emStrongMask) == null ? void 0 : _b2.call({ lexer: this }, n)) ?? n;
+    let s = false, a = "";
+    for (; e; ) {
+      s || (a = ""), s = false;
+      let o;
+      if ((_d = (_c = this.options.extensions) == null ? void 0 : _c.inline) == null ? void 0 : _d.some((u) => (o = u.call({ lexer: this }, e, t)) ? (e = e.substring(o.raw.length), t.push(o), true) : false)) continue;
+      if (o = this.tokenizer.escape(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.tag(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.link(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.reflink(e, this.tokens.links)) {
+        e = e.substring(o.raw.length);
+        let u = t.at(-1);
+        o.type === "text" && (u == null ? void 0 : u.type) === "text" ? (u.raw += o.raw, u.text += o.text) : t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.emStrong(e, n, a)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.codespan(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.br(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.del(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (o = this.tokenizer.autolink(e)) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      if (!this.state.inLink && (o = this.tokenizer.url(e))) {
+        e = e.substring(o.raw.length), t.push(o);
+        continue;
+      }
+      let p = e;
+      if ((_e2 = this.options.extensions) == null ? void 0 : _e2.startInline) {
+        let u = 1 / 0, c = e.slice(1), g;
+        this.options.extensions.startInline.forEach((h) => {
+          g = h.call({ lexer: this }, c), typeof g == "number" && g >= 0 && (u = Math.min(u, g));
+        }), u < 1 / 0 && u >= 0 && (p = e.substring(0, u + 1));
+      }
+      if (o = this.tokenizer.inlineText(p)) {
+        e = e.substring(o.raw.length), o.raw.slice(-1) !== "_" && (a = o.raw.slice(-1)), s = true;
+        let u = t.at(-1);
+        (u == null ? void 0 : u.type) === "text" ? (u.raw += o.raw, u.text += o.text) : t.push(o);
+        continue;
+      }
+      if (e) {
+        let u = "Infinite loop on byte: " + e.charCodeAt(0);
+        if (this.options.silent) {
+          console.error(u);
+          break;
+        } else throw new Error(u);
+      }
+    }
+    return t;
+  }
+};
+var P = class {
+  constructor(e) {
+    __publicField(this, "options");
+    __publicField(this, "parser");
+    this.options = e || T;
+  }
+  space(e) {
+    return "";
+  }
+  code({ text: e, lang: t, escaped: n }) {
+    var _a2;
+    let r = (_a2 = (t || "").match(m.notSpaceStart)) == null ? void 0 : _a2[0], i = e.replace(m.endingNewline, "") + `
+`;
+    return r ? '<pre><code class="language-' + w(r) + '">' + (n ? i : w(i, true)) + `</code></pre>
+` : "<pre><code>" + (n ? i : w(i, true)) + `</code></pre>
+`;
+  }
+  blockquote({ tokens: e }) {
+    return `<blockquote>
+${this.parser.parse(e)}</blockquote>
+`;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  def(e) {
+    return "";
+  }
+  heading({ tokens: e, depth: t }) {
+    return `<h${t}>${this.parser.parseInline(e)}</h${t}>
+`;
+  }
+  hr(e) {
+    return `<hr>
+`;
+  }
+  list(e) {
+    let t = e.ordered, n = e.start, r = "";
+    for (let a = 0; a < e.items.length; a++) {
+      let o = e.items[a];
+      r += this.listitem(o);
+    }
+    let i = t ? "ol" : "ul", s = t && n !== 1 ? ' start="' + n + '"' : "";
+    return "<" + i + s + `>
+` + r + "</" + i + `>
+`;
+  }
+  listitem(e) {
+    var _a2;
+    let t = "";
+    if (e.task) {
+      let n = this.checkbox({ checked: !!e.checked });
+      e.loose ? ((_a2 = e.tokens[0]) == null ? void 0 : _a2.type) === "paragraph" ? (e.tokens[0].text = n + " " + e.tokens[0].text, e.tokens[0].tokens && e.tokens[0].tokens.length > 0 && e.tokens[0].tokens[0].type === "text" && (e.tokens[0].tokens[0].text = n + " " + w(e.tokens[0].tokens[0].text), e.tokens[0].tokens[0].escaped = true)) : e.tokens.unshift({ type: "text", raw: n + " ", text: n + " ", escaped: true }) : t += n + " ";
+    }
+    return t += this.parser.parse(e.tokens, !!e.loose), `<li>${t}</li>
+`;
+  }
+  checkbox({ checked: e }) {
+    return "<input " + (e ? 'checked="" ' : "") + 'disabled="" type="checkbox">';
+  }
+  paragraph({ tokens: e }) {
+    return `<p>${this.parser.parseInline(e)}</p>
+`;
+  }
+  table(e) {
+    let t = "", n = "";
+    for (let i = 0; i < e.header.length; i++) n += this.tablecell(e.header[i]);
+    t += this.tablerow({ text: n });
+    let r = "";
+    for (let i = 0; i < e.rows.length; i++) {
+      let s = e.rows[i];
+      n = "";
+      for (let a = 0; a < s.length; a++) n += this.tablecell(s[a]);
+      r += this.tablerow({ text: n });
+    }
+    return r && (r = `<tbody>${r}</tbody>`), `<table>
+<thead>
+` + t + `</thead>
+` + r + `</table>
+`;
+  }
+  tablerow({ text: e }) {
+    return `<tr>
+${e}</tr>
+`;
+  }
+  tablecell(e) {
+    let t = this.parser.parseInline(e.tokens), n = e.header ? "th" : "td";
+    return (e.align ? `<${n} align="${e.align}">` : `<${n}>`) + t + `</${n}>
+`;
+  }
+  strong({ tokens: e }) {
+    return `<strong>${this.parser.parseInline(e)}</strong>`;
+  }
+  em({ tokens: e }) {
+    return `<em>${this.parser.parseInline(e)}</em>`;
+  }
+  codespan({ text: e }) {
+    return `<code>${w(e, true)}</code>`;
+  }
+  br(e) {
+    return "<br>";
+  }
+  del({ tokens: e }) {
+    return `<del>${this.parser.parseInline(e)}</del>`;
+  }
+  link({ href: e, title: t, tokens: n }) {
+    let r = this.parser.parseInline(n), i = J(e);
+    if (i === null) return r;
+    e = i;
+    let s = '<a href="' + e + '"';
+    return t && (s += ' title="' + w(t) + '"'), s += ">" + r + "</a>", s;
+  }
+  image({ href: e, title: t, text: n, tokens: r }) {
+    r && (n = this.parser.parseInline(r, this.parser.textRenderer));
+    let i = J(e);
+    if (i === null) return w(n);
+    e = i;
+    let s = `<img src="${e}" alt="${n}"`;
+    return t && (s += ` title="${w(t)}"`), s += ">", s;
+  }
+  text(e) {
+    return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : w(e.text);
+  }
+};
+var $ = class {
+  strong({ text: e }) {
+    return e;
+  }
+  em({ text: e }) {
+    return e;
+  }
+  codespan({ text: e }) {
+    return e;
+  }
+  del({ text: e }) {
+    return e;
+  }
+  html({ text: e }) {
+    return e;
+  }
+  text({ text: e }) {
+    return e;
+  }
+  link({ text: e }) {
+    return "" + e;
+  }
+  image({ text: e }) {
+    return "" + e;
+  }
+  br() {
+    return "";
+  }
+};
+var b = class l2 {
+  constructor(e) {
+    __publicField(this, "options");
+    __publicField(this, "renderer");
+    __publicField(this, "textRenderer");
+    this.options = e || T, this.options.renderer = this.options.renderer || new P(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new $();
+  }
+  static parse(e, t) {
+    return new l2(t).parse(e);
+  }
+  static parseInline(e, t) {
+    return new l2(t).parseInline(e);
+  }
+  parse(e, t = true) {
+    var _a2, _b2;
+    let n = "";
+    for (let r = 0; r < e.length; r++) {
+      let i = e[r];
+      if ((_b2 = (_a2 = this.options.extensions) == null ? void 0 : _a2.renderers) == null ? void 0 : _b2[i.type]) {
+        let a = i, o = this.options.extensions.renderers[a.type].call({ parser: this }, a);
+        if (o !== false || !["space", "hr", "heading", "code", "table", "blockquote", "list", "html", "def", "paragraph", "text"].includes(a.type)) {
+          n += o || "";
+          continue;
+        }
+      }
+      let s = i;
+      switch (s.type) {
+        case "space": {
+          n += this.renderer.space(s);
+          continue;
+        }
+        case "hr": {
+          n += this.renderer.hr(s);
+          continue;
+        }
+        case "heading": {
+          n += this.renderer.heading(s);
+          continue;
+        }
+        case "code": {
+          n += this.renderer.code(s);
+          continue;
+        }
+        case "table": {
+          n += this.renderer.table(s);
+          continue;
+        }
+        case "blockquote": {
+          n += this.renderer.blockquote(s);
+          continue;
+        }
+        case "list": {
+          n += this.renderer.list(s);
+          continue;
+        }
+        case "html": {
+          n += this.renderer.html(s);
+          continue;
+        }
+        case "def": {
+          n += this.renderer.def(s);
+          continue;
+        }
+        case "paragraph": {
+          n += this.renderer.paragraph(s);
+          continue;
+        }
+        case "text": {
+          let a = s, o = this.renderer.text(a);
+          for (; r + 1 < e.length && e[r + 1].type === "text"; ) a = e[++r], o += `
+` + this.renderer.text(a);
+          t ? n += this.renderer.paragraph({ type: "paragraph", raw: o, text: o, tokens: [{ type: "text", raw: o, text: o, escaped: true }] }) : n += o;
+          continue;
+        }
+        default: {
+          let a = 'Token with "' + s.type + '" type was not found.';
+          if (this.options.silent) return console.error(a), "";
+          throw new Error(a);
+        }
+      }
+    }
+    return n;
+  }
+  parseInline(e, t = this.renderer) {
+    var _a2, _b2;
+    let n = "";
+    for (let r = 0; r < e.length; r++) {
+      let i = e[r];
+      if ((_b2 = (_a2 = this.options.extensions) == null ? void 0 : _a2.renderers) == null ? void 0 : _b2[i.type]) {
+        let a = this.options.extensions.renderers[i.type].call({ parser: this }, i);
+        if (a !== false || !["escape", "html", "link", "image", "strong", "em", "codespan", "br", "del", "text"].includes(i.type)) {
+          n += a || "";
+          continue;
+        }
+      }
+      let s = i;
+      switch (s.type) {
+        case "escape": {
+          n += t.text(s);
+          break;
+        }
+        case "html": {
+          n += t.html(s);
+          break;
+        }
+        case "link": {
+          n += t.link(s);
+          break;
+        }
+        case "image": {
+          n += t.image(s);
+          break;
+        }
+        case "strong": {
+          n += t.strong(s);
+          break;
+        }
+        case "em": {
+          n += t.em(s);
+          break;
+        }
+        case "codespan": {
+          n += t.codespan(s);
+          break;
+        }
+        case "br": {
+          n += t.br(s);
+          break;
+        }
+        case "del": {
+          n += t.del(s);
+          break;
+        }
+        case "text": {
+          n += t.text(s);
+          break;
+        }
+        default: {
+          let a = 'Token with "' + s.type + '" type was not found.';
+          if (this.options.silent) return console.error(a), "";
+          throw new Error(a);
+        }
+      }
+    }
+    return n;
+  }
+};
+var S = (_a = class {
+  constructor(e) {
+    __publicField(this, "options");
+    __publicField(this, "block");
+    this.options = e || T;
+  }
+  preprocess(e) {
+    return e;
+  }
+  postprocess(e) {
+    return e;
+  }
+  processAllTokens(e) {
+    return e;
+  }
+  emStrongMask(e) {
+    return e;
+  }
+  provideLexer() {
+    return this.block ? x.lex : x.lexInline;
+  }
+  provideParser() {
+    return this.block ? b.parse : b.parseInline;
+  }
+}, __publicField(_a, "passThroughHooks", /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens", "emStrongMask"])), __publicField(_a, "passThroughHooksRespectAsync", /* @__PURE__ */ new Set(["preprocess", "postprocess", "processAllTokens"])), _a);
+var B = class {
+  constructor(...e) {
+    __publicField(this, "defaults", L());
+    __publicField(this, "options", this.setOptions);
+    __publicField(this, "parse", this.parseMarkdown(true));
+    __publicField(this, "parseInline", this.parseMarkdown(false));
+    __publicField(this, "Parser", b);
+    __publicField(this, "Renderer", P);
+    __publicField(this, "TextRenderer", $);
+    __publicField(this, "Lexer", x);
+    __publicField(this, "Tokenizer", y);
+    __publicField(this, "Hooks", S);
+    this.use(...e);
+  }
+  walkTokens(e, t) {
+    var _a2, _b2;
+    let n = [];
+    for (let r of e) switch (n = n.concat(t.call(this, r)), r.type) {
+      case "table": {
+        let i = r;
+        for (let s of i.header) n = n.concat(this.walkTokens(s.tokens, t));
+        for (let s of i.rows) for (let a of s) n = n.concat(this.walkTokens(a.tokens, t));
+        break;
+      }
+      case "list": {
+        let i = r;
+        n = n.concat(this.walkTokens(i.items, t));
+        break;
+      }
+      default: {
+        let i = r;
+        ((_b2 = (_a2 = this.defaults.extensions) == null ? void 0 : _a2.childTokens) == null ? void 0 : _b2[i.type]) ? this.defaults.extensions.childTokens[i.type].forEach((s) => {
+          let a = i[s].flat(1 / 0);
+          n = n.concat(this.walkTokens(a, t));
+        }) : i.tokens && (n = n.concat(this.walkTokens(i.tokens, t)));
+      }
+    }
+    return n;
+  }
+  use(...e) {
+    let t = this.defaults.extensions || { renderers: {}, childTokens: {} };
+    return e.forEach((n) => {
+      let r = { ...n };
+      if (r.async = this.defaults.async || r.async || false, n.extensions && (n.extensions.forEach((i) => {
+        if (!i.name) throw new Error("extension name required");
+        if ("renderer" in i) {
+          let s = t.renderers[i.name];
+          s ? t.renderers[i.name] = function(...a) {
+            let o = i.renderer.apply(this, a);
+            return o === false && (o = s.apply(this, a)), o;
+          } : t.renderers[i.name] = i.renderer;
+        }
+        if ("tokenizer" in i) {
+          if (!i.level || i.level !== "block" && i.level !== "inline") throw new Error("extension level must be 'block' or 'inline'");
+          let s = t[i.level];
+          s ? s.unshift(i.tokenizer) : t[i.level] = [i.tokenizer], i.start && (i.level === "block" ? t.startBlock ? t.startBlock.push(i.start) : t.startBlock = [i.start] : i.level === "inline" && (t.startInline ? t.startInline.push(i.start) : t.startInline = [i.start]));
+        }
+        "childTokens" in i && i.childTokens && (t.childTokens[i.name] = i.childTokens);
+      }), r.extensions = t), n.renderer) {
+        let i = this.defaults.renderer || new P(this.defaults);
+        for (let s in n.renderer) {
+          if (!(s in i)) throw new Error(`renderer '${s}' does not exist`);
+          if (["options", "parser"].includes(s)) continue;
+          let a = s, o = n.renderer[a], p = i[a];
+          i[a] = (...u) => {
+            let c = o.apply(i, u);
+            return c === false && (c = p.apply(i, u)), c || "";
+          };
+        }
+        r.renderer = i;
+      }
+      if (n.tokenizer) {
+        let i = this.defaults.tokenizer || new y(this.defaults);
+        for (let s in n.tokenizer) {
+          if (!(s in i)) throw new Error(`tokenizer '${s}' does not exist`);
+          if (["options", "rules", "lexer"].includes(s)) continue;
+          let a = s, o = n.tokenizer[a], p = i[a];
+          i[a] = (...u) => {
+            let c = o.apply(i, u);
+            return c === false && (c = p.apply(i, u)), c;
+          };
+        }
+        r.tokenizer = i;
+      }
+      if (n.hooks) {
+        let i = this.defaults.hooks || new S();
+        for (let s in n.hooks) {
+          if (!(s in i)) throw new Error(`hook '${s}' does not exist`);
+          if (["options", "block"].includes(s)) continue;
+          let a = s, o = n.hooks[a], p = i[a];
+          S.passThroughHooks.has(s) ? i[a] = (u) => {
+            if (this.defaults.async && S.passThroughHooksRespectAsync.has(s)) return (async () => {
+              let g = await o.call(i, u);
+              return p.call(i, g);
+            })();
+            let c = o.call(i, u);
+            return p.call(i, c);
+          } : i[a] = (...u) => {
+            if (this.defaults.async) return (async () => {
+              let g = await o.apply(i, u);
+              return g === false && (g = await p.apply(i, u)), g;
+            })();
+            let c = o.apply(i, u);
+            return c === false && (c = p.apply(i, u)), c;
+          };
+        }
+        r.hooks = i;
+      }
+      if (n.walkTokens) {
+        let i = this.defaults.walkTokens, s = n.walkTokens;
+        r.walkTokens = function(a) {
+          let o = [];
+          return o.push(s.call(this, a)), i && (o = o.concat(i.call(this, a))), o;
+        };
+      }
+      this.defaults = { ...this.defaults, ...r };
+    }), this;
+  }
+  setOptions(e) {
+    return this.defaults = { ...this.defaults, ...e }, this;
+  }
+  lexer(e, t) {
+    return x.lex(e, t ?? this.defaults);
+  }
+  parser(e, t) {
+    return b.parse(e, t ?? this.defaults);
+  }
+  parseMarkdown(e) {
+    return (n, r) => {
+      let i = { ...r }, s = { ...this.defaults, ...i }, a = this.onError(!!s.silent, !!s.async);
+      if (this.defaults.async === true && i.async === false) return a(new Error("marked(): The async option was set to true by an extension. Remove async: false from the parse options object to return a Promise."));
+      if (typeof n > "u" || n === null) return a(new Error("marked(): input parameter is undefined or null"));
+      if (typeof n != "string") return a(new Error("marked(): input parameter is of type " + Object.prototype.toString.call(n) + ", string expected"));
+      if (s.hooks && (s.hooks.options = s, s.hooks.block = e), s.async) return (async () => {
+        let o = s.hooks ? await s.hooks.preprocess(n) : n, u = await (s.hooks ? await s.hooks.provideLexer() : e ? x.lex : x.lexInline)(o, s), c = s.hooks ? await s.hooks.processAllTokens(u) : u;
+        s.walkTokens && await Promise.all(this.walkTokens(c, s.walkTokens));
+        let h = await (s.hooks ? await s.hooks.provideParser() : e ? b.parse : b.parseInline)(c, s);
+        return s.hooks ? await s.hooks.postprocess(h) : h;
+      })().catch(a);
+      try {
+        s.hooks && (n = s.hooks.preprocess(n));
+        let p = (s.hooks ? s.hooks.provideLexer() : e ? x.lex : x.lexInline)(n, s);
+        s.hooks && (p = s.hooks.processAllTokens(p)), s.walkTokens && this.walkTokens(p, s.walkTokens);
+        let c = (s.hooks ? s.hooks.provideParser() : e ? b.parse : b.parseInline)(p, s);
+        return s.hooks && (c = s.hooks.postprocess(c)), c;
+      } catch (o) {
+        return a(o);
+      }
+    };
+  }
+  onError(e, t) {
+    return (n) => {
+      if (n.message += `
+Please report this to https://github.com/markedjs/marked.`, e) {
+        let r = "<p>An error occurred:</p><pre>" + w(n.message + "", true) + "</pre>";
+        return t ? Promise.resolve(r) : r;
+      }
+      if (t) return Promise.reject(n);
+      throw n;
+    };
+  }
+};
+var _ = new B();
+function k(l3, e) {
+  return _.parse(l3, e);
+}
+k.options = k.setOptions = function(l3) {
+  return _.setOptions(l3), k.defaults = _.defaults, G(k.defaults), k;
+};
+k.getDefaults = L;
+k.defaults = T;
+k.use = function(...l3) {
+  return _.use(...l3), k.defaults = _.defaults, G(k.defaults), k;
+};
+k.walkTokens = function(l3, e) {
+  return _.walkTokens(l3, e);
+};
+k.parseInline = _.parseInline;
+k.Parser = b;
+k.parser = b.parse;
+k.Renderer = P;
+k.TextRenderer = $;
+k.Lexer = x;
+k.lexer = x.lex;
+k.Tokenizer = y;
+k.Hooks = S;
+k.parse = k;
+k.options;
+k.setOptions;
+k.use;
+k.walkTokens;
+k.parseInline;
+b.parse;
+x.lex;
+const PATH_PARAM_RE = /\{[^{}]+\}/g;
+const supportsRequestInitExt = () => {
+  var _a2, _b2;
+  return typeof process === "object" && Number.parseInt((_b2 = (_a2 = process == null ? void 0 : process.versions) == null ? void 0 : _a2.node) == null ? void 0 : _b2.substring(0, 2)) >= 18 && process.versions.undici;
+};
+function randomID() {
+  return Math.random().toString(36).slice(2, 11);
+}
+function createClient(clientOptions) {
+  let {
+    baseUrl = "",
+    Request: CustomRequest = globalThis.Request,
+    fetch: baseFetch = globalThis.fetch,
+    querySerializer: globalQuerySerializer,
+    bodySerializer: globalBodySerializer,
+    pathSerializer: globalPathSerializer,
+    headers: baseHeaders,
+    requestInitExt = void 0,
+    ...baseOptions
+  } = { ...clientOptions };
+  requestInitExt = supportsRequestInitExt() ? requestInitExt : void 0;
+  baseUrl = removeTrailingSlash(baseUrl);
+  const globalMiddlewares = [];
+  async function coreFetch(schemaPath, fetchOptions) {
+    var _a2;
+    const {
+      baseUrl: localBaseUrl,
+      fetch: fetch2 = baseFetch,
+      Request: Request2 = CustomRequest,
+      headers,
+      params = {},
+      parseAs = "json",
+      querySerializer: requestQuerySerializer,
+      bodySerializer = globalBodySerializer ?? defaultBodySerializer,
+      pathSerializer: requestPathSerializer,
+      body,
+      middleware: requestMiddlewares = [],
+      ...init
+    } = fetchOptions || {};
+    let finalBaseUrl = baseUrl;
+    if (localBaseUrl) {
+      finalBaseUrl = removeTrailingSlash(localBaseUrl) ?? baseUrl;
+    }
+    let querySerializer = typeof globalQuerySerializer === "function" ? globalQuerySerializer : createQuerySerializer(globalQuerySerializer);
+    if (requestQuerySerializer) {
+      querySerializer = typeof requestQuerySerializer === "function" ? requestQuerySerializer : createQuerySerializer({
+        ...typeof globalQuerySerializer === "object" ? globalQuerySerializer : {},
+        ...requestQuerySerializer
+      });
+    }
+    const pathSerializer = requestPathSerializer || globalPathSerializer || defaultPathSerializer;
+    const serializedBody = body === void 0 ? void 0 : bodySerializer(
+      body,
+      // Note: we declare mergeHeaders() both here and below because it’s a bit of a chicken-or-egg situation:
+      // bodySerializer() needs all headers so we aren’t dropping ones set by the user, however,
+      // the result of this ALSO sets the lowest-priority content-type header. So we re-merge below,
+      // setting the content-type at the very beginning to be overwritten.
+      // Lastly, based on the way headers work, it’s not a simple “present-or-not” check becauase null intentionally un-sets headers.
+      mergeHeaders(baseHeaders, headers, params.header)
+    );
+    const finalHeaders = mergeHeaders(
+      // with no body, we should not to set Content-Type
+      serializedBody === void 0 || // if serialized body is FormData; browser will correctly set Content-Type & boundary expression
+      serializedBody instanceof FormData ? {} : {
+        "Content-Type": "application/json"
+      },
+      baseHeaders,
+      headers,
+      params.header
+    );
+    const finalMiddlewares = [...globalMiddlewares, ...requestMiddlewares];
+    const requestInit = {
+      redirect: "follow",
+      ...baseOptions,
+      ...init,
+      body: serializedBody,
+      headers: finalHeaders
+    };
+    let id;
+    let options;
+    let request = new Request2(
+      createFinalURL(schemaPath, { baseUrl: finalBaseUrl, params, querySerializer, pathSerializer }),
+      requestInit
+    );
+    let response;
+    for (const key in init) {
+      if (!(key in request)) {
+        request[key] = init[key];
+      }
+    }
+    if (finalMiddlewares.length) {
+      id = randomID();
+      options = Object.freeze({
+        baseUrl: finalBaseUrl,
+        fetch: fetch2,
+        parseAs,
+        querySerializer,
+        bodySerializer,
+        pathSerializer
+      });
+      for (const m2 of finalMiddlewares) {
+        if (m2 && typeof m2 === "object" && typeof m2.onRequest === "function") {
+          const result = await m2.onRequest({
+            request,
+            schemaPath,
+            params,
+            options,
+            id
+          });
+          if (result) {
+            if (result instanceof Request2) {
+              request = result;
+            } else if (result instanceof Response) {
+              response = result;
+              break;
+            } else {
+              throw new Error("onRequest: must return new Request() or Response() when modifying the request");
+            }
+          }
+        }
+      }
+    }
+    if (!response) {
+      try {
+        response = await fetch2(request, requestInitExt);
+      } catch (error2) {
+        let errorAfterMiddleware = error2;
+        if (finalMiddlewares.length) {
+          for (let i = finalMiddlewares.length - 1; i >= 0; i--) {
+            const m2 = finalMiddlewares[i];
+            if (m2 && typeof m2 === "object" && typeof m2.onError === "function") {
+              const result = await m2.onError({
+                request,
+                error: errorAfterMiddleware,
+                schemaPath,
+                params,
+                options,
+                id
+              });
+              if (result) {
+                if (result instanceof Response) {
+                  errorAfterMiddleware = void 0;
+                  response = result;
+                  break;
+                }
+                if (result instanceof Error) {
+                  errorAfterMiddleware = result;
+                  continue;
+                }
+                throw new Error("onError: must return new Response() or instance of Error");
+              }
+            }
+          }
+        }
+        if (errorAfterMiddleware) {
+          throw errorAfterMiddleware;
+        }
+      }
+      if (finalMiddlewares.length) {
+        for (let i = finalMiddlewares.length - 1; i >= 0; i--) {
+          const m2 = finalMiddlewares[i];
+          if (m2 && typeof m2 === "object" && typeof m2.onResponse === "function") {
+            const result = await m2.onResponse({
+              request,
+              response,
+              schemaPath,
+              params,
+              options,
+              id
+            });
+            if (result) {
+              if (!(result instanceof Response)) {
+                throw new Error("onResponse: must return new Response() when modifying the response");
+              }
+              response = result;
+            }
+          }
+        }
+      }
+    }
+    const contentLength = response.headers.get("Content-Length");
+    if (response.status === 204 || request.method === "HEAD" || contentLength === "0" && !((_a2 = response.headers.get("Transfer-Encoding")) == null ? void 0 : _a2.includes("chunked"))) {
+      return response.ok ? { data: void 0, response } : { error: void 0, response };
+    }
+    if (response.ok) {
+      const getResponseData = async () => {
+        if (parseAs === "stream") {
+          return response.body;
+        }
+        if (parseAs === "json" && !contentLength) {
+          const raw = await response.text();
+          return raw ? JSON.parse(raw) : void 0;
+        }
+        return await response[parseAs]();
+      };
+      return { data: await getResponseData(), response };
+    }
+    let error = await response.text();
+    try {
+      error = JSON.parse(error);
+    } catch {
+    }
+    return { error, response };
+  }
+  return {
+    request(method, url, init) {
+      return coreFetch(url, { ...init, method: method.toUpperCase() });
+    },
+    /** Call a GET endpoint */
+    GET(url, init) {
+      return coreFetch(url, { ...init, method: "GET" });
+    },
+    /** Call a PUT endpoint */
+    PUT(url, init) {
+      return coreFetch(url, { ...init, method: "PUT" });
+    },
+    /** Call a POST endpoint */
+    POST(url, init) {
+      return coreFetch(url, { ...init, method: "POST" });
+    },
+    /** Call a DELETE endpoint */
+    DELETE(url, init) {
+      return coreFetch(url, { ...init, method: "DELETE" });
+    },
+    /** Call a OPTIONS endpoint */
+    OPTIONS(url, init) {
+      return coreFetch(url, { ...init, method: "OPTIONS" });
+    },
+    /** Call a HEAD endpoint */
+    HEAD(url, init) {
+      return coreFetch(url, { ...init, method: "HEAD" });
+    },
+    /** Call a PATCH endpoint */
+    PATCH(url, init) {
+      return coreFetch(url, { ...init, method: "PATCH" });
+    },
+    /** Call a TRACE endpoint */
+    TRACE(url, init) {
+      return coreFetch(url, { ...init, method: "TRACE" });
+    },
+    /** Register middleware */
+    use(...middleware) {
+      for (const m2 of middleware) {
+        if (!m2) {
+          continue;
+        }
+        if (typeof m2 !== "object" || !("onRequest" in m2 || "onResponse" in m2 || "onError" in m2)) {
+          throw new Error("Middleware must be an object with one of `onRequest()`, `onResponse() or `onError()`");
+        }
+        globalMiddlewares.push(m2);
+      }
+    },
+    /** Unregister middleware */
+    eject(...middleware) {
+      for (const m2 of middleware) {
+        const i = globalMiddlewares.indexOf(m2);
+        if (i !== -1) {
+          globalMiddlewares.splice(i, 1);
+        }
+      }
+    }
+  };
+}
+function serializePrimitiveParam(name, value, options) {
+  if (value === void 0 || value === null) {
+    return "";
+  }
+  if (typeof value === "object") {
+    throw new Error(
+      "Deeply-nested arrays/objects aren’t supported. Provide your own `querySerializer()` to handle these."
+    );
+  }
+  return `${name}=${(options == null ? void 0 : options.allowReserved) === true ? value : encodeURIComponent(value)}`;
+}
+function serializeObjectParam(name, value, options) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+  const values = [];
+  const joiner = {
+    simple: ",",
+    label: ".",
+    matrix: ";"
+  }[options.style] || "&";
+  if (options.style !== "deepObject" && options.explode === false) {
+    for (const k2 in value) {
+      values.push(k2, options.allowReserved === true ? value[k2] : encodeURIComponent(value[k2]));
+    }
+    const final2 = values.join(",");
+    switch (options.style) {
+      case "form": {
+        return `${name}=${final2}`;
+      }
+      case "label": {
+        return `.${final2}`;
+      }
+      case "matrix": {
+        return `;${name}=${final2}`;
+      }
+      default: {
+        return final2;
+      }
+    }
+  }
+  for (const k2 in value) {
+    const finalName = options.style === "deepObject" ? `${name}[${k2}]` : k2;
+    values.push(serializePrimitiveParam(finalName, value[k2], options));
+  }
+  const final = values.join(joiner);
+  return options.style === "label" || options.style === "matrix" ? `${joiner}${final}` : final;
+}
+function serializeArrayParam(name, value, options) {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+  if (options.explode === false) {
+    const joiner2 = { form: ",", spaceDelimited: "%20", pipeDelimited: "|" }[options.style] || ",";
+    const final = (options.allowReserved === true ? value : value.map((v2) => encodeURIComponent(v2))).join(joiner2);
+    switch (options.style) {
+      case "simple": {
+        return final;
+      }
+      case "label": {
+        return `.${final}`;
+      }
+      case "matrix": {
+        return `;${name}=${final}`;
+      }
+      // case "spaceDelimited":
+      // case "pipeDelimited":
+      default: {
+        return `${name}=${final}`;
+      }
+    }
+  }
+  const joiner = { simple: ",", label: ".", matrix: ";" }[options.style] || "&";
+  const values = [];
+  for (const v2 of value) {
+    if (options.style === "simple" || options.style === "label") {
+      values.push(options.allowReserved === true ? v2 : encodeURIComponent(v2));
+    } else {
+      values.push(serializePrimitiveParam(name, v2, options));
+    }
+  }
+  return options.style === "label" || options.style === "matrix" ? `${joiner}${values.join(joiner)}` : values.join(joiner);
+}
+function createQuerySerializer(options) {
+  return function querySerializer(queryParams) {
+    const search = [];
+    if (queryParams && typeof queryParams === "object") {
+      for (const name in queryParams) {
+        const value = queryParams[name];
+        if (value === void 0 || value === null) {
+          continue;
+        }
+        if (Array.isArray(value)) {
+          if (value.length === 0) {
+            continue;
+          }
+          search.push(
+            serializeArrayParam(name, value, {
+              style: "form",
+              explode: true,
+              ...options == null ? void 0 : options.array,
+              allowReserved: (options == null ? void 0 : options.allowReserved) || false
+            })
+          );
+          continue;
+        }
+        if (typeof value === "object") {
+          search.push(
+            serializeObjectParam(name, value, {
+              style: "deepObject",
+              explode: true,
+              ...options == null ? void 0 : options.object,
+              allowReserved: (options == null ? void 0 : options.allowReserved) || false
+            })
+          );
+          continue;
+        }
+        search.push(serializePrimitiveParam(name, value, options));
+      }
+    }
+    return search.join("&");
+  };
+}
+function defaultPathSerializer(pathname, pathParams) {
+  let nextURL = pathname;
+  for (const match of pathname.match(PATH_PARAM_RE) ?? []) {
+    let name = match.substring(1, match.length - 1);
+    let explode = false;
+    let style = "simple";
+    if (name.endsWith("*")) {
+      explode = true;
+      name = name.substring(0, name.length - 1);
+    }
+    if (name.startsWith(".")) {
+      style = "label";
+      name = name.substring(1);
+    } else if (name.startsWith(";")) {
+      style = "matrix";
+      name = name.substring(1);
+    }
+    if (!pathParams || pathParams[name] === void 0 || pathParams[name] === null) {
+      continue;
+    }
+    const value = pathParams[name];
+    if (Array.isArray(value)) {
+      nextURL = nextURL.replace(match, serializeArrayParam(name, value, { style, explode }));
+      continue;
+    }
+    if (typeof value === "object") {
+      nextURL = nextURL.replace(match, serializeObjectParam(name, value, { style, explode }));
+      continue;
+    }
+    if (style === "matrix") {
+      nextURL = nextURL.replace(match, `;${serializePrimitiveParam(name, value)}`);
+      continue;
+    }
+    nextURL = nextURL.replace(match, style === "label" ? `.${encodeURIComponent(value)}` : encodeURIComponent(value));
+  }
+  return nextURL;
+}
+function defaultBodySerializer(body, headers) {
+  if (body instanceof FormData) {
+    return body;
+  }
+  if (headers) {
+    const contentType = headers.get instanceof Function ? headers.get("Content-Type") ?? headers.get("content-type") : headers["Content-Type"] ?? headers["content-type"];
+    if (contentType === "application/x-www-form-urlencoded") {
+      return new URLSearchParams(body).toString();
+    }
+  }
+  return JSON.stringify(body);
+}
+function createFinalURL(pathname, options) {
+  var _a2;
+  let finalURL = `${options.baseUrl}${pathname}`;
+  if ((_a2 = options.params) == null ? void 0 : _a2.path) {
+    finalURL = options.pathSerializer(finalURL, options.params.path);
+  }
+  let search = options.querySerializer(options.params.query ?? {});
+  if (search.startsWith("?")) {
+    search = search.substring(1);
+  }
+  if (search) {
+    finalURL += `?${search}`;
+  }
+  return finalURL;
+}
+function mergeHeaders(...allHeaders) {
+  const finalHeaders = new Headers();
+  for (const h of allHeaders) {
+    if (!h || typeof h !== "object") {
+      continue;
+    }
+    const iterator = h instanceof Headers ? h.entries() : Object.entries(h);
+    for (const [k2, v2] of iterator) {
+      if (v2 === null) {
+        finalHeaders.delete(k2);
+      } else if (Array.isArray(v2)) {
+        for (const v22 of v2) {
+          finalHeaders.append(k2, v22);
+        }
+      } else if (v2 !== void 0) {
+        finalHeaders.set(k2, v2);
+      }
+    }
+  }
+  return finalHeaders;
+}
+function removeTrailingSlash(url) {
+  if (url.endsWith("/")) {
+    return url.substring(0, url.length - 1);
+  }
+  return url;
+}
+function createLowLevelClient(baseUrl, fetchImpl) {
+  return createClient({
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    ...fetchImpl === void 0 ? {} : { fetch: fetchImpl }
+  });
+}
+class APIError extends Error {
+  constructor(status, body) {
+    super(body.message || `TMA request failed with HTTP ${status}`);
+    __publicField(this, "status");
+    __publicField(this, "code");
+    __publicField(this, "requestId");
+    __publicField(this, "retryable");
+    __publicField(this, "details");
+    this.name = "APIError";
+    this.status = status;
+    this.code = body.code || defaultErrorCode(status);
+    this.requestId = body.request_id ?? "";
+    this.retryable = body.retryable ?? defaultRetryable(status);
+    if (body.details !== void 0)
+      this.details = body.details;
+  }
+  static async fromResponse(response) {
+    let body;
+    try {
+      const decoded = await response.json();
+      body = "error" in decoded && decoded.error ? decoded.error : decoded;
+    } catch {
+      body = void 0;
+    }
+    return new APIError(response.status, body ?? {
+      code: defaultErrorCode(response.status),
+      message: response.statusText || `TMA request failed with HTTP ${response.status}`,
+      request_id: response.headers.get("x-request-id") ?? "",
+      retryable: defaultRetryable(response.status)
+    });
+  }
+}
+class SSESchemaError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "SSESchemaError";
+  }
+}
+function defaultErrorCode(status) {
+  if (status === 400 || status === 422)
+    return "invalid_request";
+  if (status === 401)
+    return "unauthorized";
+  if (status === 403)
+    return "forbidden";
+  if (status === 404)
+    return "not_found";
+  if (status === 409)
+    return "conflict";
+  if (status === 412)
+    return "revision_conflict";
+  if (status === 413)
+    return "payload_too_large";
+  if (status === 415)
+    return "unsupported_media_type";
+  if (status === 429)
+    return "rate_limited";
+  if (status === 502)
+    return "upstream_error";
+  if (status === 503)
+    return "service_unavailable";
+  if (status === 504)
+    return "upstream_timeout";
+  return "internal_error";
+}
+function defaultRetryable(status) {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+class Transport {
+  constructor(baseURL2, options = {}) {
+    __publicField(this, "baseURL");
+    __publicField(this, "staticToken");
+    __publicField(this, "tokenSource");
+    __publicField(this, "fetchImpl");
+    __publicField(this, "defaultHeaders");
+    __publicField(this, "fetch", async (input, init = {}) => {
+      var _a2;
+      const headers = new Headers(input instanceof Request ? input.headers : void 0);
+      for (const [key, value] of this.defaultHeaders) {
+        if (!headers.has(key))
+          headers.set(key, value);
+      }
+      for (const [key, value] of new Headers(init.headers))
+        headers.set(key, value);
+      const token = this.staticToken || await ((_a2 = this.tokenSource) == null ? void 0 : _a2.call(this, init.signal ?? void 0)) || "";
+      if (token)
+        headers.set("Authorization", `Bearer ${token}`);
+      return this.fetchImpl(input, { ...init, headers });
+    });
+    var _a2;
+    const parsed = new URL(baseURL2.trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new TypeError("TMA baseURL must be an absolute HTTP(S) URL");
+    }
+    this.baseURL = baseURL2.trim().replace(/\/+$/, "");
+    this.staticToken = ((_a2 = options.token) == null ? void 0 : _a2.trim()) ?? "";
+    this.tokenSource = options.tokenSource;
+    this.fetchImpl = options.fetch ?? globalThis.fetch;
+    if (!this.fetchImpl)
+      throw new TypeError("A Fetch API implementation is required");
+    this.defaultHeaders = new Headers(options.headers);
+  }
+  url(path) {
+    return `${this.baseURL}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  async requestJSON(method, path, body, options = {}) {
+    const headers = new Headers(options.headers);
+    headers.set("Accept", "application/json");
+    let encoded;
+    if (body !== void 0) {
+      headers.set("Content-Type", "application/json");
+      encoded = JSON.stringify(body);
+    }
+    const response = await this.fetch(this.url(path), {
+      method,
+      headers,
+      ...encoded === void 0 ? {} : { body: encoded },
+      ...options.signal === void 0 ? {} : { signal: options.signal }
+    });
+    if (!response.ok)
+      throw await APIError.fromResponse(response);
+    if (response.status === 204)
+      return void 0;
+    return await response.json();
+  }
+  async request(method, path, init = {}) {
+    const response = await this.fetch(this.url(path), { ...init, method });
+    if (!response.ok)
+      throw await APIError.fromResponse(response);
+    return response;
+  }
+}
+class ServiceBase {
+  constructor(transport) {
+    __publicField(this, "transport");
+    this.transport = transport;
+  }
+}
+function resourcePath(base, ...ids) {
+  return [base.replace(/\/$/, ""), ...ids.map((id) => encodeURIComponent(String(id)))].join("/");
+}
+function withQuery(path, values) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value === void 0 || value === "")
+      continue;
+    query.set(key, String(value));
+  }
+  const encoded = query.toString();
+  return encoded ? `${path}?${encoded}` : path;
+}
+class AgentsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/agents", request, signal ? { signal } : {});
+  }
+  default(signal) {
+    return this.transport.requestJSON("GET", "/v2/agents/default", void 0, signal ? { signal } : {});
+  }
+  list(signal) {
+    return this.transport.requestJSON("GET", "/v2/agents", void 0, signal ? { signal } : {}).then((value) => value.agents);
+  }
+  get(agentId, signal) {
+    return this.transport.requestJSON("GET", agentPath(agentId), void 0, signal ? { signal } : {});
+  }
+  update(agentId, request, signal) {
+    return this.transport.requestJSON("PATCH", agentPath(agentId), request, signal ? { signal } : {});
+  }
+  import(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/agents/import", request, signal ? { signal } : {});
+  }
+  export(agentId, signal) {
+    return this.transport.requestJSON("GET", `${agentPath(agentId)}/export`, void 0, signal ? { signal } : {});
+  }
+  listConfigVersions(agentId, signal) {
+    return this.transport.requestJSON("GET", `${agentPath(agentId)}/config-versions`, void 0, signal ? { signal } : {}).then((value) => value.config_versions);
+  }
+  createConfigVersion(agentId, request, signal) {
+    return this.transport.requestJSON("POST", `${agentPath(agentId)}/config-versions`, request, signal ? { signal } : {});
+  }
+  rollback(agentId, version, signal) {
+    return this.transport.requestJSON("POST", resourcePath(`${agentPath(agentId)}/config-versions`, version) + "/rollback", {}, signal ? { signal } : {});
+  }
+  toolingHealth(agentId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${agentPath(agentId)}/tooling-health`, request, signal ? { signal } : {});
+  }
+}
+function agentPath(agentId) {
+  return resourcePath("/v2/agents", agentId);
+}
+class ParseError extends Error {
+  constructor(message, options) {
+    super(message), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
+  }
+}
+const LF = 10, CR = 13, SPACE = 32;
+function noop(_arg) {
+}
+function createParser(config) {
+  if (typeof config == "function")
+    throw new TypeError(
+      "`config` must be an object, got a function instead. Did you mean `createParser({onEvent: fn})`?"
+    );
+  const { onEvent = noop, onError = noop, onRetry = noop, onComment, maxBufferSize } = config, pendingFragments = [];
+  let pendingFragmentsLength = 0, isFirstChunk = true, id, data = "", dataLines = 0, eventType, terminated = false;
+  function feed(chunk) {
+    if (terminated)
+      throw new Error(
+        "Cannot feed parser: it was terminated after exceeding the configured max buffer size. Call `reset()` to resume parsing."
+      );
+    if (isFirstChunk && (isFirstChunk = false, chunk.charCodeAt(0) === 239 && chunk.charCodeAt(1) === 187 && chunk.charCodeAt(2) === 191 && (chunk = chunk.slice(3))), pendingFragments.length === 0) {
+      const trailing2 = processLines(chunk);
+      trailing2 !== "" && (pendingFragments.push(trailing2), pendingFragmentsLength = trailing2.length), checkBufferSize();
+      return;
+    }
+    if (chunk.indexOf(`
+`) === -1 && chunk.indexOf("\r") === -1) {
+      pendingFragments.push(chunk), pendingFragmentsLength += chunk.length, checkBufferSize();
+      return;
+    }
+    pendingFragments.push(chunk);
+    const input = pendingFragments.join("");
+    pendingFragments.length = 0, pendingFragmentsLength = 0;
+    const trailing = processLines(input);
+    trailing !== "" && (pendingFragments.push(trailing), pendingFragmentsLength = trailing.length), checkBufferSize();
+  }
+  function checkBufferSize() {
+    maxBufferSize !== void 0 && (pendingFragmentsLength + data.length <= maxBufferSize || (terminated = true, pendingFragments.length = 0, pendingFragmentsLength = 0, id = void 0, data = "", dataLines = 0, eventType = void 0, onError(
+      new ParseError(`Buffered data exceeded max buffer size of ${maxBufferSize} characters`, {
+        type: "max-buffer-size-exceeded"
+      })
+    )));
+  }
+  function processLines(chunk) {
+    let searchIndex = 0;
+    if (chunk.indexOf("\r") === -1) {
+      let lfIndex = chunk.indexOf(`
+`, searchIndex);
+      for (; lfIndex !== -1; ) {
+        if (searchIndex === lfIndex) {
+          dataLines > 0 && onEvent({ id, event: eventType, data }), id = void 0, data = "", dataLines = 0, eventType = void 0, searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
+`, searchIndex);
+          continue;
+        }
+        const firstCharCode = chunk.charCodeAt(searchIndex);
+        if (isDataPrefix(chunk, searchIndex, firstCharCode)) {
+          const valueStart = chunk.charCodeAt(searchIndex + 5) === SPACE ? searchIndex + 6 : searchIndex + 5, value = chunk.slice(valueStart, lfIndex);
+          if (dataLines === 0 && chunk.charCodeAt(lfIndex + 1) === LF) {
+            onEvent({ id, event: eventType, data: value }), id = void 0, data = "", eventType = void 0, searchIndex = lfIndex + 2, lfIndex = chunk.indexOf(`
+`, searchIndex);
+            continue;
+          }
+          data = dataLines === 0 ? value : `${data}
+${value}`, dataLines++;
+        } else isEventPrefix(chunk, searchIndex, firstCharCode) ? eventType = chunk.slice(
+          chunk.charCodeAt(searchIndex + 6) === SPACE ? searchIndex + 7 : searchIndex + 6,
+          lfIndex
+        ) || void 0 : parseLine(chunk, searchIndex, lfIndex);
+        searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
+`, searchIndex);
+      }
+      return chunk.slice(searchIndex);
+    }
+    for (; searchIndex < chunk.length; ) {
+      const crIndex = chunk.indexOf("\r", searchIndex), lfIndex = chunk.indexOf(`
+`, searchIndex);
+      let lineEnd = -1;
+      if (crIndex !== -1 && lfIndex !== -1 ? lineEnd = crIndex < lfIndex ? crIndex : lfIndex : crIndex !== -1 ? crIndex === chunk.length - 1 ? lineEnd = -1 : lineEnd = crIndex : lfIndex !== -1 && (lineEnd = lfIndex), lineEnd === -1)
+        break;
+      parseLine(chunk, searchIndex, lineEnd), searchIndex = lineEnd + 1, chunk.charCodeAt(searchIndex - 1) === CR && chunk.charCodeAt(searchIndex) === LF && searchIndex++;
+    }
+    return chunk.slice(searchIndex);
+  }
+  function parseLine(chunk, start, end) {
+    if (start === end) {
+      dispatchEvent();
+      return;
+    }
+    const firstCharCode = chunk.charCodeAt(start);
+    if (isDataPrefix(chunk, start, firstCharCode)) {
+      const valueStart = chunk.charCodeAt(start + 5) === SPACE ? start + 6 : start + 5, value2 = chunk.slice(valueStart, end);
+      data = dataLines === 0 ? value2 : `${data}
+${value2}`, dataLines++;
+      return;
+    }
+    if (isEventPrefix(chunk, start, firstCharCode)) {
+      eventType = chunk.slice(chunk.charCodeAt(start + 6) === SPACE ? start + 7 : start + 6, end) || void 0;
+      return;
+    }
+    if (firstCharCode === 105 && chunk.charCodeAt(start + 1) === 100 && chunk.charCodeAt(start + 2) === 58) {
+      const value2 = chunk.slice(chunk.charCodeAt(start + 3) === SPACE ? start + 4 : start + 3, end);
+      id = value2.includes("\0") ? void 0 : value2;
+      return;
+    }
+    if (firstCharCode === 58) {
+      if (onComment) {
+        const line2 = chunk.slice(start, end);
+        onComment(line2.slice(chunk.charCodeAt(start + 1) === SPACE ? 2 : 1));
+      }
+      return;
+    }
+    const line = chunk.slice(start, end), fieldSeparatorIndex = line.indexOf(":");
+    if (fieldSeparatorIndex === -1) {
+      processField(line, "", line);
+      return;
+    }
+    const field = line.slice(0, fieldSeparatorIndex), offset = line.charCodeAt(fieldSeparatorIndex + 1) === SPACE ? 2 : 1, value = line.slice(fieldSeparatorIndex + offset);
+    processField(field, value, line);
+  }
+  function processField(field, value, line) {
+    switch (field) {
+      case "event":
+        eventType = value || void 0;
+        break;
+      case "data":
+        data = dataLines === 0 ? value : `${data}
+${value}`, dataLines++;
+        break;
+      case "id":
+        id = value.includes("\0") ? void 0 : value;
+        break;
+      case "retry":
+        /^\d+$/.test(value) ? onRetry(parseInt(value, 10)) : onError(
+          new ParseError(`Invalid \`retry\` value: "${value}"`, {
+            type: "invalid-retry",
+            value,
+            line
+          })
+        );
+        break;
+      default:
+        onError(
+          new ParseError(
+            `Unknown field "${field.length > 20 ? `${field.slice(0, 20)}…` : field}"`,
+            { type: "unknown-field", field, value, line }
+          )
+        );
+        break;
+    }
+  }
+  function dispatchEvent() {
+    dataLines > 0 && onEvent({
+      id,
+      event: eventType,
+      data
+    }), id = void 0, data = "", dataLines = 0, eventType = void 0;
+  }
+  function reset(options = {}) {
+    if (options.consume && pendingFragments.length > 0) {
+      const incompleteLine = pendingFragments.join("");
+      parseLine(incompleteLine, 0, incompleteLine.length);
+    }
+    isFirstChunk = true, id = void 0, data = "", dataLines = 0, eventType = void 0, pendingFragments.length = 0, pendingFragmentsLength = 0, terminated = false;
+  }
+  return { feed, reset };
+}
+function isDataPrefix(chunk, i, firstCharCode) {
+  return firstCharCode === 100 && chunk.charCodeAt(i + 1) === 97 && chunk.charCodeAt(i + 2) === 116 && chunk.charCodeAt(i + 3) === 97 && chunk.charCodeAt(i + 4) === 58;
+}
+function isEventPrefix(chunk, i, firstCharCode) {
+  return firstCharCode === 101 && chunk.charCodeAt(i + 1) === 118 && chunk.charCodeAt(i + 2) === 101 && chunk.charCodeAt(i + 3) === 110 && chunk.charCodeAt(i + 4) === 116 && chunk.charCodeAt(i + 5) === 58;
+}
+async function* streamEvents(transport, path, options = {}) {
+  var _a2, _b2, _c;
+  let afterSeq = options.afterSeq ?? 0;
+  let retryDelay = options.retryInitialMs ?? 250;
+  const retryMax = options.retryMaxMs ?? 1e4;
+  while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
+    try {
+      const url = new URL(transport.url(path));
+      if (afterSeq > 0)
+        url.searchParams.set("after_seq", String(afterSeq));
+      const response = await transport.fetch(url, {
+        method: "GET",
+        headers: { Accept: "text/event-stream" },
+        ...options.signal === void 0 ? {} : { signal: options.signal }
+      });
+      if (!response.ok) {
+        if (response.status < 500 || response.status > 599)
+          throw await APIError.fromResponse(response);
+        await ((_b2 = response.body) == null ? void 0 : _b2.cancel());
+        throw new RetryableSSEError(`SSE endpoint returned HTTP ${response.status}`);
+      }
+      if (!response.body)
+        throw new SSESchemaError("SSE response has no body");
+      retryDelay = options.retryInitialMs ?? 250;
+      const messages = [];
+      let parserError;
+      const parser = createParser({
+        onEvent: (message) => messages.push(message),
+        onError: (error) => {
+          parserError = new SSESchemaError(error.message);
+        }
+      });
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done)
+            break;
+          parser.feed(decoder.decode(value, { stream: true }));
+          if (parserError)
+            throw parserError;
+          while (messages.length > 0) {
+            const message = messages.shift();
+            if (!message)
+              continue;
+            const event = decodeEvent(message.data);
+            if (event.seq <= afterSeq)
+              continue;
+            afterSeq = event.seq;
+            yield event;
+          }
+        }
+      } finally {
+        await reader.cancel().catch(() => void 0);
+        reader.releaseLock();
+      }
+      parser.feed(decoder.decode());
+      if (parserError)
+        throw parserError;
+      throw new RetryableSSEError("SSE connection closed");
+    } catch (error) {
+      if ((_c = options.signal) == null ? void 0 : _c.aborted)
+        throw abortError();
+      if (error instanceof SSESchemaError)
+        throw error;
+      if (error instanceof APIError && (error.status < 500 || error.status > 599))
+        throw error;
+      await abortableDelay(retryDelay, options.signal);
+      retryDelay = Math.min(retryDelay * 2, retryMax);
+    }
+  }
+  throw abortError();
+}
+function decodeEvent(data) {
+  let decoded;
+  try {
+    decoded = JSON.parse(data);
+  } catch (error) {
+    throw new SSESchemaError(`SSE event is not valid JSON: ${String(error)}`);
+  }
+  if (!decoded || typeof decoded !== "object")
+    throw new SSESchemaError("SSE event must be an object");
+  const event = decoded;
+  if (!Number.isSafeInteger(event.seq) || typeof event.type !== "string" || typeof event.created_at !== "string") {
+    throw new SSESchemaError("SSE event is missing seq, type, or created_at");
+  }
+  return event;
+}
+class RetryableSSEError extends Error {
+}
+async function abortableDelay(delay, signal) {
+  if (signal == null ? void 0 : signal.aborted)
+    throw abortError();
+  await new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(abortError());
+    };
+    const timeout = setTimeout(() => {
+      signal == null ? void 0 : signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delay);
+    signal == null ? void 0 : signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+function abortError() {
+  return new DOMException("The operation was aborted", "AbortError");
+}
+class SessionsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/sessions", request, signal ? { signal } : {});
+  }
+  list(query = {}, signal) {
+    const path = withQuery("/v2/sessions", {
+      workspace_id: query.workspaceId,
+      owner_id: query.ownerId,
+      status: query.status,
+      include_archived: query.includeArchived || void 0,
+      limit: query.limit
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.sessions);
+  }
+  get(sessionId, signal) {
+    return this.transport.requestJSON("GET", sessionPath(sessionId), void 0, signal ? { signal } : {});
+  }
+  updateMetadata(sessionId, request, signal) {
+    return this.transport.requestJSON("PATCH", sessionPath(sessionId), request, signal ? { signal } : {});
+  }
+  delete(sessionId, signal) {
+    return this.transport.requestJSON("DELETE", sessionPath(sessionId), void 0, signal ? { signal } : {});
+  }
+  archive(sessionId, signal) {
+    return this.transport.requestJSON("POST", `${sessionPath(sessionId)}/archive`, {}, signal ? { signal } : {});
+  }
+  restore(sessionId, signal) {
+    return this.transport.requestJSON("POST", `${sessionPath(sessionId)}/restore`, {}, signal ? { signal } : {});
+  }
+  rerun(sessionId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${sessionPath(sessionId)}/rerun`, request, signal ? { signal } : {});
+  }
+  compare(leftSessionId, rightSessionId, signal) {
+    const path = withQuery("/v2/session-comparisons", { left_session_id: leftSessionId, right_session_id: rightSessionId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  updateRuntimeSettings(sessionId, request, signal) {
+    return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, signal ? { signal } : {});
+  }
+  runtimeConfig(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/runtime-config`, void 0, signal ? { signal } : {});
+  }
+  runtimeCapabilities(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/runtime-capabilities`, void 0, signal ? { signal } : {});
+  }
+  summary(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/summary`, void 0, signal ? { signal } : {});
+  }
+  usage(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/usage`, void 0, signal ? { signal } : {});
+  }
+  listEvents(sessionId, afterSeq = 0, signal) {
+    const path = withQuery(`${sessionPath(sessionId)}/events`, { after_seq: afterSeq > 0 ? afterSeq : void 0 });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.events);
+  }
+  events(sessionId, options = {}) {
+    return streamEvents(this.transport, `${sessionPath(sessionId)}/events/stream`, options);
+  }
+}
+function sessionPath(sessionId) {
+  return resourcePath("/v2/sessions", sessionId);
+}
+class ObservabilityService extends ServiceBase {
+  status(signal) {
+    return this.transport.requestJSON("GET", "/v2/observability/status", void 0, signal ? { signal } : {});
+  }
+  retry(signal) {
+    return this.transport.requestJSON("POST", "/v2/observability/retry", void 0, signal ? { signal } : {});
+  }
+  integrityKeys(signal) {
+    return this.transport.requestJSON("GET", "/v2/observability/security-audit/integrity-keys", void 0, signal ? { signal } : {});
+  }
+}
+class AuditService extends ServiceBase {
+  list(query = {}, signal) {
+    const path = withQuery("/v2/operator-audit", {
+      workspace_id: query.workspaceId,
+      session_id: query.sessionId,
+      principal_id: query.principalId,
+      action: query.action,
+      limit: query.limit
+    });
+    return this.listPath(path, signal);
+  }
+  listSession(sessionId, signal) {
+    return this.listPath(`${sessionPath(sessionId)}/operator-audit`, signal);
+  }
+  integrityKeys(signal) {
+    return this.transport.requestJSON("GET", "/v2/observability/security-audit/integrity-keys", void 0, signal ? { signal } : {});
+  }
+  replayDeadLetters(limit, signal) {
+    const path = withQuery("/v2/observability/security-audit/replay", { limit });
+    return this.transport.requestJSON("POST", path, void 0, signal ? { signal } : {});
+  }
+  listPath(path, signal) {
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.audit_records);
+  }
+}
+class EnvironmentVariablesService extends ServiceBase {
+  list(query = {}, signal) {
+    return this.transport.requestJSON("GET", variablesPath(query), void 0, signal ? { signal } : {}).then((value) => value.variables);
+  }
+  put(name, request, query = {}, signal) {
+    return this.transport.requestJSON("PUT", variablePath(name, query), request, signal ? { signal } : {});
+  }
+  delete(name, query = {}, signal) {
+    return this.transport.requestJSON("DELETE", variablePath(name, query), void 0, signal ? { signal } : {});
+  }
+}
+function variablesPath(query) {
+  return withQuery("/v2/environment-variables", { workspace_id: query.workspaceId });
+}
+function variablePath(name, query) {
+  return withQuery(resourcePath("/v2/environment-variables", name), { workspace_id: query.workspaceId });
+}
+class ArtifactsService extends ServiceBase {
+  create(sessionId, request, signal) {
+    return this.transport.requestJSON("POST", artifactsPath(sessionId), request, signal ? { signal } : {});
+  }
+  list(sessionId, signal) {
+    return this.transport.requestJSON("GET", artifactsPath(sessionId), void 0, signal ? { signal } : {}).then((value) => value.artifacts);
+  }
+  async upload(sessionId, fields, file, signal) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields))
+      form.set(key, value);
+    const body = file.contentType && file.body.type !== file.contentType ? new Blob([file.body], { type: file.contentType }) : file.body;
+    form.set("file", body, file.filename);
+    const response = await this.transport.request("POST", `${artifactsPath(sessionId)}/upload`, {
+      body: form,
+      ...signal === void 0 ? {} : { signal }
+    });
+    return await response.json();
+  }
+  download(sessionId, artifactId, signal) {
+    return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/download`, signal ? { signal } : {});
+  }
+  async delete(sessionId, artifactId, signal) {
+    await this.transport.request("DELETE", artifactPath(sessionId, artifactId), signal ? { signal } : {});
+  }
+}
+function artifactsPath(sessionId) {
+  return `${sessionPath(sessionId)}/artifacts`;
+}
+function artifactPath(sessionId, artifactId) {
+  return resourcePath(artifactsPath(sessionId), artifactId);
+}
+class AuthService extends ServiceBase {
+  configuration(signal) {
+    return this.transport.requestJSON("GET", "/v2/auth/config", void 0, signal ? { signal } : {});
+  }
+  me(signal) {
+    return this.transport.requestJSON("GET", "/v2/auth/me", void 0, signal ? { signal } : {});
+  }
+}
+class EnvironmentsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/environments", request, signal ? { signal } : {});
+  }
+}
+class InterventionsService extends ServiceBase {
+  list(sessionId, status, signal) {
+    const path = withQuery(`${sessionPath(sessionId)}/interventions`, { status });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.interventions);
+  }
+  decide(sessionId, turnId, callId, decision, reason = "", signal) {
+    const path = resourcePath(`${sessionPath(sessionId)}/interventions`, turnId, callId) + `/${decision}`;
+    return this.transport.requestJSON("POST", path, { reason }, signal ? { signal } : {});
+  }
+  approve(sessionId, turnId, callId, reason = "", signal) {
+    return this.decide(sessionId, turnId, callId, "approve", reason, signal);
+  }
+  reject(sessionId, turnId, callId, reason = "", signal) {
+    return this.decide(sessionId, turnId, callId, "reject", reason, signal);
+  }
+}
+class LLMService extends ServiceBase {
+  listProviders(signal) {
+    return this.transport.requestJSON("GET", "/v2/llm-providers", void 0, signal ? { signal } : {}).then((value) => value.providers);
+  }
+  getProvider(providerId, signal) {
+    return this.transport.requestJSON("GET", providerPath(providerId), void 0, signal ? { signal } : {});
+  }
+  createProvider(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/llm-providers", request, signal ? { signal } : {});
+  }
+  updateProvider(providerId, expectedRevision, request, signal) {
+    return this.transport.requestJSON("PATCH", providerPath(providerId), request, requestOptions(expectedRevision, signal));
+  }
+  setProviderEnabled(providerId, expectedRevision, enabled, signal) {
+    return this.transport.requestJSON("POST", `${providerPath(providerId)}/${enabled ? "enable" : "disable"}`, {}, requestOptions(expectedRevision, signal));
+  }
+  deleteProvider(providerId, expectedRevision, signal) {
+    return this.transport.requestJSON("DELETE", providerPath(providerId), void 0, requestOptions(expectedRevision, signal));
+  }
+  testProvider(providerId, signal) {
+    return this.transport.requestJSON("POST", `${providerPath(providerId)}/test`, {}, signal ? { signal } : {});
+  }
+  listModels(providerId, signal) {
+    const path = withQuery("/v2/llm-models", { provider_id: providerId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.models);
+  }
+  createModel(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/llm-models", request, {
+      headers: { "If-None-Match": "*" },
+      ...signal === void 0 ? {} : { signal }
+    });
+  }
+  updateModel(expectedRevision, request, signal) {
+    return this.transport.requestJSON("POST", "/v2/llm-models", request, requestOptions(expectedRevision, signal));
+  }
+  deleteModel(providerId, model, expectedRevision, signal) {
+    return this.transport.requestJSON("DELETE", resourcePath("/v2/llm-models", providerId, model), void 0, requestOptions(expectedRevision, signal));
+  }
+  testModel(providerId, model, signal) {
+    return this.transport.requestJSON("POST", `${resourcePath("/v2/llm-models", providerId, model)}/test`, {}, signal ? { signal } : {});
+  }
+  usage(query = {}, signal) {
+    const path = withQuery("/v2/llm-usage", {
+      workspace_id: query.workspaceId,
+      provider_id: query.providerId,
+      model: query.model,
+      status: query.status,
+      group_by: query.groupBy,
+      from: formatTime$2(query.from),
+      to: formatTime$2(query.to)
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+}
+function providerPath(providerId) {
+  return resourcePath("/v2/llm-providers", providerId);
+}
+function requestOptions(expectedRevision, signal) {
+  return {
+    headers: { "If-Match": `"${expectedRevision}"` },
+    ...signal === void 0 ? {} : { signal }
+  };
+}
+function formatTime$2(value) {
+  if (value === void 0)
+    return void 0;
+  return value instanceof Date ? value.toISOString() : value;
+}
+class MCPService extends ServiceBase {
+  list(query = {}, signal) {
+    return this.transport.requestJSON("GET", serversPath(query), void 0, signal ? { signal } : {}).then((value) => value.servers);
+  }
+  runtimeStatus(query = {}, signal) {
+    const path = withQuery("/v2/mcp-servers/runtime-status", { workspace_id: query.workspaceId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/mcp-servers", request, signal ? { signal } : {});
+  }
+  get(serverId, signal) {
+    return this.transport.requestJSON("GET", serverPath(serverId), void 0, signal ? { signal } : {});
+  }
+  update(serverId, request, signal) {
+    return this.transport.requestJSON("PATCH", serverPath(serverId), request, signal ? { signal } : {});
+  }
+  setEnabled(serverId, enabled, signal) {
+    return this.transport.requestJSON("POST", `${serverPath(serverId)}/${enabled ? "enable" : "disable"}`, {}, signal ? { signal } : {});
+  }
+  archive(serverId, signal) {
+    return this.transport.requestJSON("DELETE", serverPath(serverId), void 0, signal ? { signal } : {});
+  }
+  test(serverId, signal) {
+    return this.transport.requestJSON("POST", `${serverPath(serverId)}/test`, {}, signal ? { signal } : {});
+  }
+  versions(serverId, signal) {
+    return this.transport.requestJSON("GET", `${serverPath(serverId)}/versions`, void 0, signal ? { signal } : {}).then((value) => value.versions);
+  }
+  restoreVersion(serverId, version, signal) {
+    const path = resourcePath(`${serverPath(serverId)}/versions`, version) + "/restore";
+    return this.transport.requestJSON("POST", path, void 0, signal ? { signal } : {});
+  }
+}
+function serversPath(query) {
+  return withQuery("/v2/mcp-servers", { workspace_id: query.workspaceId });
+}
+function serverPath(serverId) {
+  return resourcePath("/v2/mcp-servers", serverId);
+}
+class SkillsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills", request, signal ? { signal } : {});
+  }
+  list(query = {}, signal) {
+    const path = withQuery("/v2/skills", { workspace_id: query.workspaceId, include_archived: query.includeArchived || void 0 });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.skills);
+  }
+  get(skillId, signal) {
+    return this.transport.requestJSON("GET", skillPath(skillId), void 0, signal ? { signal } : {});
+  }
+  archive(skillId, signal) {
+    return this.transport.requestJSON("POST", `${skillPath(skillId)}/archive`, void 0, signal ? { signal } : {});
+  }
+  createVersion(skillId, request, signal) {
+    return this.transport.requestJSON("POST", `${skillPath(skillId)}/versions`, request, signal ? { signal } : {});
+  }
+  listVersions(skillId, signal) {
+    return this.transport.requestJSON("GET", `${skillPath(skillId)}/versions`, void 0, signal ? { signal } : {}).then((value) => value.versions);
+  }
+  getVersion(skillId, version, signal) {
+    return this.transport.requestJSON("GET", skillVersionPath(skillId, version), void 0, signal ? { signal } : {});
+  }
+  downloadPackage(skillId, version, signal) {
+    return this.transport.request("GET", `${skillVersionPath(skillId, version)}/package`, signal ? { signal } : {});
+  }
+  resolvePreview(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills/resolve-preview", request, signal ? { signal } : {});
+  }
+  listUsages(sessionId, turnId, signal) {
+    const path = withQuery(`${sessionPath(sessionId)}/skill-usages`, { turn_id: turnId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.skill_usages);
+  }
+  backfillPackages(request = {}, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-packages/backfill", request, signal ? { signal } : {});
+  }
+  effectiveRetentionPolicy(workspaceId, signal) {
+    const path = withQuery("/v2/skill-asset-retention/effective", { workspace_id: workspaceId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  createRetentionPolicy(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-asset-retention/policies", request, signal ? { signal } : {});
+  }
+  listRetentionPolicies(query = {}, signal) {
+    const path = withQuery("/v2/skill-asset-retention/policies", {
+      organization_id: query.organizationId,
+      workspace_id: query.workspaceId,
+      include_archived: query.includeArchived || void 0
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.policies);
+  }
+  getRetentionPolicy(policyId, signal) {
+    return this.transport.requestJSON("GET", retentionPolicyPath(policyId), void 0, signal ? { signal } : {});
+  }
+  publishRetentionPolicyVersion(policyId, request, signal) {
+    return this.transport.requestJSON("POST", `${retentionPolicyPath(policyId)}/versions`, request, signal ? { signal } : {});
+  }
+  getRetentionPolicyVersion(policyId, version, signal) {
+    return this.transport.requestJSON("GET", resourcePath(`${retentionPolicyPath(policyId)}/versions`, version), void 0, signal ? { signal } : {});
+  }
+  archiveRetentionPolicy(policyId, signal) {
+    return this.transport.requestJSON("POST", `${retentionPolicyPath(policyId)}/archive`, void 0, signal ? { signal } : {});
+  }
+  previewAssetGC(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-asset-gc/preview", request, signal ? { signal } : {});
+  }
+  runAssetGC(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-asset-gc/run", request, signal ? { signal } : {});
+  }
+  listAssetGCRuns(query = {}, signal) {
+    return this.transport.requestJSON("GET", assetGCListPath("/v2/skill-asset-gc/runs", query), void 0, signal ? { signal } : {}).then((value) => value.runs);
+  }
+  getAssetGCRun(runId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/skill-asset-gc/runs", runId), void 0, signal ? { signal } : {});
+  }
+  listAssetGCTombstones(query = {}, signal) {
+    return this.transport.requestJSON("GET", assetGCListPath("/v2/skill-asset-gc/tombstones", query), void 0, signal ? { signal } : {}).then((value) => value.tombstones);
+  }
+}
+function skillPath(skillId) {
+  return resourcePath("/v2/skills", skillId);
+}
+function skillVersionPath(skillId, version) {
+  return resourcePath(`${skillPath(skillId)}/versions`, version);
+}
+function retentionPolicyPath(policyId) {
+  return resourcePath("/v2/skill-asset-retention/policies", policyId);
+}
+function assetGCListPath(path, query) {
+  return withQuery(path, { workspace_id: query.workspaceId, limit: query.limit });
+}
+class MarketplaceService extends ServiceBase {
+  discover(query, signal) {
+    const path = withQuery("/v2/skills/marketplace/discover", { session_id: query.sessionId, query: query.query, repository: query.repository, limit: query.limit });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  preview(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills/marketplace/preview", request, signal ? { signal } : {});
+  }
+  install(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills/marketplace/install", request, signal ? { signal } : {});
+  }
+  browseInternal(query, signal) {
+    const values = new URLSearchParams();
+    values.set("session_id", query.sessionId);
+    if (query.query)
+      values.set("query", query.query);
+    if (query.category)
+      values.set("category", query.category);
+    for (const tag of query.tags ?? [])
+      values.append("tag", tag);
+    if (query.limit)
+      values.set("limit", String(query.limit));
+    return this.transport.requestJSON("GET", `/v2/skills/marketplace/internal?${values.toString()}`, void 0, signal ? { signal } : {});
+  }
+  previewInternal(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills/marketplace/internal/preview", request, signal ? { signal } : {});
+  }
+  installInternal(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skills/marketplace/internal/install", request, signal ? { signal } : {});
+  }
+  enableInstalled(skillId, request, signal) {
+    return this.transport.requestJSON("POST", `${skillPath(skillId)}/enable`, request, signal ? { signal } : {});
+  }
+  disableInstalled(skillId, request, signal) {
+    return this.transport.requestJSON("POST", `${skillPath(skillId)}/disable`, request, signal ? { signal } : {});
+  }
+  createEntry(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-marketplace-entries", request, signal ? { signal } : {});
+  }
+  listEntries(query = {}, signal) {
+    const path = withQuery("/v2/skill-marketplace-entries", { workspace_id: query.workspaceId, status: query.status, include_withdrawn: query.includeWithdrawn || void 0 });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.entries);
+  }
+  getEntry(entryId, workspaceId, signal) {
+    return this.transport.requestJSON("GET", withQuery(entryPath(entryId), { workspace_id: workspaceId }), void 0, signal ? { signal } : {});
+  }
+  updateEntry(entryId, request, signal) {
+    return this.transport.requestJSON("PATCH", entryPath(entryId), request, signal ? { signal } : {});
+  }
+  submitEntry(entryId, request = {}, signal) {
+    return this.transitionEntry(entryId, "submit", request, signal);
+  }
+  publishEntry(entryId, request = {}, signal) {
+    return this.transitionEntry(entryId, "publish", request, signal);
+  }
+  withdrawEntry(entryId, request = {}, signal) {
+    return this.transitionEntry(entryId, "withdraw", request, signal);
+  }
+  createPolicy(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/skill-marketplace-policies", request, signal ? { signal } : {});
+  }
+  listPolicies(query = {}, signal) {
+    const path = withQuery("/v2/skill-marketplace-policies", { organization_id: query.organizationId, workspace_id: query.workspaceId, include_archived: query.includeArchived || void 0 });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.policies);
+  }
+  getPolicy(policyId, signal) {
+    return this.transport.requestJSON("GET", policyPath(policyId), void 0, signal ? { signal } : {});
+  }
+  publishPolicyVersion(policyId, request, signal) {
+    return this.transport.requestJSON("POST", `${policyPath(policyId)}/versions`, request, signal ? { signal } : {});
+  }
+  getPolicyVersion(policyId, version, signal) {
+    return this.transport.requestJSON("GET", resourcePath(`${policyPath(policyId)}/versions`, version), void 0, signal ? { signal } : {});
+  }
+  archivePolicy(policyId, signal) {
+    return this.transport.requestJSON("POST", `${policyPath(policyId)}/archive`, void 0, signal ? { signal } : {});
+  }
+  transitionEntry(entryId, action, request, signal) {
+    return this.transport.requestJSON("POST", `${entryPath(entryId)}/${action}`, request, signal ? { signal } : {});
+  }
+}
+function entryPath(entryId) {
+  return resourcePath("/v2/skill-marketplace-entries", entryId);
+}
+function policyPath(policyId) {
+  return resourcePath("/v2/skill-marketplace-policies", policyId);
+}
+class ObjectRefsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/object-refs", request, signal ? { signal } : {});
+  }
+  get(objectRefId, signal) {
+    return this.transport.requestJSON("GET", objectRefPath(objectRefId), void 0, signal ? { signal } : {});
+  }
+  async delete(objectRefId, signal) {
+    await this.transport.request("DELETE", objectRefPath(objectRefId), signal ? { signal } : {});
+  }
+  download(objectRefId, sessionId, signal) {
+    const path = withQuery(`${objectRefPath(objectRefId)}/download`, { session_id: sessionId });
+    return this.transport.request("GET", path, signal ? { signal } : {});
+  }
+}
+function objectRefPath(objectRefId) {
+  return resourcePath("/v2/object-refs", objectRefId);
+}
+class OrchestrationService extends ServiceBase {
+  taskGroupTemplates(signal) {
+    return this.transport.requestJSON("GET", "/v2/agent/task-group-templates", void 0, signal ? { signal } : {});
+  }
+  discussionStrategies(signal) {
+    return this.transport.requestJSON("GET", "/v2/agent/discussion-strategies", void 0, signal ? { signal } : {});
+  }
+  listDeliberations(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/deliberations`, void 0, signal ? { signal } : {}).then((value) => value.deliberations);
+  }
+  getDeliberation(sessionId, deliberationId, signal) {
+    return this.transport.requestJSON("GET", deliberationPath(sessionId, deliberationId), void 0, signal ? { signal } : {});
+  }
+  cancelDeliberation(sessionId, deliberationId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${deliberationPath(sessionId, deliberationId)}/cancel`, request, signal ? { signal } : {});
+  }
+  retryDeliberationParticipant(sessionId, deliberationId, participantIndex, request, signal) {
+    const path = resourcePath(`${deliberationPath(sessionId, deliberationId)}/participants`, participantIndex) + "/retry";
+    return this.transport.requestJSON("POST", path, request, signal ? { signal } : {});
+  }
+  listTaskGroups(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/task-groups`, void 0, signal ? { signal } : {}).then((value) => value.task_groups);
+  }
+  taskGroupTree(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/task-group-tree`, void 0, signal ? { signal } : {});
+  }
+  getTaskGroup(sessionId, groupId, signal) {
+    return this.transport.requestJSON("GET", taskGroupPath(sessionId, groupId), void 0, signal ? { signal } : {});
+  }
+  cancelTaskGroup(sessionId, groupId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${taskGroupPath(sessionId, groupId)}/cancel`, request, signal ? { signal } : {});
+  }
+  retryTaskGroup(sessionId, groupId, signal) {
+    return this.transport.requestJSON("POST", `${taskGroupPath(sessionId, groupId)}/retry`, {}, signal ? { signal } : {});
+  }
+  retryTaskGroupItem(sessionId, groupId, itemIndex, signal) {
+    const path = resourcePath(`${taskGroupPath(sessionId, groupId)}/items`, itemIndex) + "/retry";
+    return this.transport.requestJSON("POST", path, {}, signal ? { signal } : {});
+  }
+  reapOrphans(request = {}, signal) {
+    return this.transport.requestJSON("POST", "/v2/subagents/reap-orphans", request, signal ? { signal } : {});
+  }
+}
+function deliberationPath(sessionId, deliberationId) {
+  return resourcePath(`${sessionPath(sessionId)}/deliberations`, deliberationId);
+}
+function taskGroupPath(sessionId, groupId) {
+  return resourcePath(`${sessionPath(sessionId)}/task-groups`, groupId);
+}
+class RunsService extends ServiceBase {
+  constructor(transport, interventions2) {
+    super(transport);
+    __publicField(this, "interventions");
+    this.interventions = interventions2;
+  }
+  async start(sessionId, request, signal) {
+    const result = await this.transport.requestJSON("POST", runsPath(sessionId), request, signal ? { signal } : {});
+    return new RunHandle(this, this.interventions, result.run);
+  }
+  get(sessionId, runId, signal) {
+    return this.transport.requestJSON("GET", runPath(sessionId, runId), void 0, signal ? { signal } : {});
+  }
+  list(sessionId, signal) {
+    return this.transport.requestJSON("GET", runsPath(sessionId), void 0, signal ? { signal } : {}).then((value) => value.runs);
+  }
+  cancel(sessionId, runId, signal) {
+    return this.transport.requestJSON("POST", `${runPath(sessionId, runId)}/cancel`, {}, signal ? { signal } : {});
+  }
+  listEvents(sessionId, runId, afterSeq = 0, signal) {
+    const path = withQuery(`${runPath(sessionId, runId)}/events`, { after_seq: afterSeq > 0 ? afterSeq : void 0 });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.events);
+  }
+  events(sessionId, runId, options = {}) {
+    return streamEvents(this.transport, `${runPath(sessionId, runId)}/events/stream`, options);
+  }
+}
+class RunHandle {
+  constructor(service, interventions2, run) {
+    __publicField(this, "service");
+    __publicField(this, "interventions");
+    __publicField(this, "run");
+    this.service = service;
+    this.interventions = interventions2;
+    this.run = run;
+  }
+  events(options = {}) {
+    return this.service.events(this.run.session_id, this.run.id, options);
+  }
+  async cancel(signal) {
+    this.run = await this.service.cancel(this.run.session_id, this.run.id, signal);
+    return this.run;
+  }
+  approve(callId, reason = "", signal) {
+    return this.interventions.approve(this.run.session_id, this.run.id, callId, reason, signal);
+  }
+  reject(callId, reason = "", signal) {
+    return this.interventions.reject(this.run.session_id, this.run.id, callId, reason, signal);
+  }
+  async wait(signal) {
+    let lastEvent;
+    let output;
+    const afterSeq = Math.max((this.run.user_event_seq ?? 1) - 1, 0);
+    for await (const event of this.events({ afterSeq, ...signal === void 0 ? {} : { signal } })) {
+      if (effectiveTurnId(event) !== this.run.id)
+        continue;
+      lastEvent = event;
+      if (event.type === "agent.message")
+        output = event.payload;
+      if (event.type !== "session.status_idle")
+        continue;
+      this.run = await this.service.get(this.run.session_id, this.run.id, signal);
+      if (isTerminalRunStatus(this.run.status)) {
+        return {
+          run: this.run,
+          ...lastEvent === void 0 ? {} : { lastEvent },
+          ...output === void 0 ? {} : { output }
+        };
+      }
+    }
+    throw new Error("Run event stream ended before the Run reached a terminal state");
+  }
+}
+function runsPath(sessionId) {
+  return `${sessionPath(sessionId)}/runs`;
+}
+function runPath(sessionId, runId) {
+  return resourcePath(runsPath(sessionId), runId);
+}
+function effectiveTurnId(event) {
+  if (event.turn_id)
+    return event.turn_id;
+  const payload = event.payload;
+  if (payload && typeof payload === "object" && "turn_id" in payload && typeof payload.turn_id === "string")
+    return payload.turn_id;
+  return "";
+}
+function isTerminalRunStatus(status) {
+  return status === "completed" || status === "failed" || status === "interrupted";
+}
+class TracesService extends ServiceBase {
+  list(query = {}, signal) {
+    const path = withQuery("/v2/traces", {
+      workspace_id: query.workspaceId,
+      session_id: query.sessionId,
+      turn_id: query.turnId,
+      session_status: query.sessionStatus,
+      include_archived: query.includeArchived || void 0,
+      limit: query.limit,
+      cursor: query.cursor
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  get(traceId, signal) {
+    return this.transport.requestJSON("GET", tracePath$1(traceId), void 0, signal ? { signal } : {});
+  }
+  listSpans(query = {}, signal) {
+    const path = withQuery("/v2/spans", {
+      workspace_id: query.workspaceId,
+      trace_id: query.traceId,
+      session_id: query.sessionId,
+      turn_id: query.turnId,
+      kind: query.kind,
+      status: query.status,
+      q: query.search,
+      critical: query.critical,
+      min_duration_ms: query.minDurationMs,
+      max_duration_ms: query.maxDurationMs,
+      min_self_duration_ms: query.minSelfDurationMs,
+      include_archived: query.includeArchived || void 0,
+      limit: query.limit,
+      cursor: query.cursor
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  getSpan(traceId, spanId, signal) {
+    return this.transport.requestJSON("GET", resourcePath(`${tracePath$1(traceId)}/spans`, spanId), void 0, signal ? { signal } : {});
+  }
+  getSession(sessionId, turnId, signal) {
+    const path = withQuery(`${sessionPath(sessionId)}/trace`, { turn_id: turnId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  exportSession(sessionId, format, turnId, signal) {
+    const path = withQuery(`${sessionPath(sessionId)}/trace`, { turn_id: turnId, format });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+}
+function tracePath$1(traceId) {
+  return resourcePath("/v2/traces", traceId);
+}
+class WorkersService extends ServiceBase {
+  list(query = {}, signal) {
+    const path = withQuery("/v2/workers", { workspace_id: query.workspaceId, status: query.status });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.workers);
+  }
+  get(workerId, signal) {
+    return this.transport.requestJSON("GET", workerPath(workerId), void 0, signal ? { signal } : {});
+  }
+  archive(workerId, signal) {
+    return this.transport.requestJSON("POST", `${workerPath(workerId)}/archive`, {}, signal ? { signal } : {});
+  }
+  reapExpired(request = {}, signal) {
+    return this.transport.requestJSON("POST", "/v2/workers/reap-expired", request, signal ? { signal } : {});
+  }
+  diagnose(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/workers/diagnose", request, signal ? { signal } : {});
+  }
+}
+class WorkerWorkService extends ServiceBase {
+  enqueue(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/worker-work", request, signal ? { signal } : {});
+  }
+  get(workId, signal) {
+    return this.transport.requestJSON("GET", workPath(workId), void 0, signal ? { signal } : {});
+  }
+  reapExpired(request = {}, signal) {
+    return this.transport.requestJSON("POST", "/v2/worker-work/reap-expired", request, signal ? { signal } : {});
+  }
+  cancel(workId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${workPath(workId)}/cancel`, request, signal ? { signal } : {});
+  }
+  requeue(workId, request = {}, signal) {
+    return this.transport.requestJSON("POST", `${workPath(workId)}/requeue`, request, signal ? { signal } : {});
+  }
+  diagnose(workId, signal) {
+    return this.transport.requestJSON("GET", `${workPath(workId)}/diagnose`, void 0, signal ? { signal } : {});
+  }
+}
+function workerPath(workerId) {
+  return resourcePath("/v2/workers", workerId);
+}
+function workPath(workId) {
+  return resourcePath("/v2/worker-work", workId);
+}
+class TMAClient {
+  constructor(baseURL2, options = {}) {
+    __publicField(this, "raw");
+    __publicField(this, "auth");
+    __publicField(this, "agents");
+    __publicField(this, "environments");
+    __publicField(this, "sessions");
+    __publicField(this, "runs");
+    __publicField(this, "interventions");
+    __publicField(this, "artifacts");
+    __publicField(this, "traces");
+    __publicField(this, "orchestration");
+    __publicField(this, "llm");
+    __publicField(this, "objectRefs");
+    __publicField(this, "workers");
+    __publicField(this, "workerWork");
+    __publicField(this, "mcp");
+    __publicField(this, "observability");
+    __publicField(this, "audit");
+    __publicField(this, "environmentVariables");
+    __publicField(this, "skills");
+    __publicField(this, "marketplace");
+    const transport = new Transport(baseURL2, options);
+    this.raw = createLowLevelClient(transport.baseURL, transport.fetch);
+    this.auth = new AuthService(transport);
+    this.agents = new AgentsService(transport);
+    this.environments = new EnvironmentsService(transport);
+    this.sessions = new SessionsService(transport);
+    this.interventions = new InterventionsService(transport);
+    this.runs = new RunsService(transport, this.interventions);
+    this.artifacts = new ArtifactsService(transport);
+    this.traces = new TracesService(transport);
+    this.orchestration = new OrchestrationService(transport);
+    this.llm = new LLMService(transport);
+    this.objectRefs = new ObjectRefsService(transport);
+    this.workers = new WorkersService(transport);
+    this.workerWork = new WorkerWorkService(transport);
+    this.mcp = new MCPService(transport);
+    this.observability = new ObservabilityService(transport);
+    this.audit = new AuditService(transport);
+    this.environmentVariables = new EnvironmentVariablesService(transport);
+    this.skills = new SkillsService(transport);
+    this.marketplace = new MarketplaceService(transport);
+  }
+}
+const baseURL = ((_b = globalThis.location) == null ? void 0 : _b.origin) || "http://localhost";
+const coreSDK = new TMAClient(baseURL, {
+  fetch: (input, init) => globalThis.fetch(input, init)
+});
 function tracePath(sessionId, turnId, format) {
   const query = [];
   if (turnId) query.push(`turn_id=${encodeURIComponent(turnId)}`);
   if (format) query.push(`format=${encodeURIComponent(format)}`);
-  return `/v1/sessions/${encodeURIComponent(sessionId)}/trace${query.length ? `?${query.join("&")}` : ""}`;
+  return `/v2/sessions/${encodeURIComponent(sessionId)}/trace${query.length ? `?${query.join("&")}` : ""}`;
 }
 function metricsPath(sessionId, turnId) {
   const query = [`session_id=${encodeURIComponent(sessionId)}`];
   if (turnId) query.push(`turn_id=${encodeURIComponent(turnId)}`);
   return `/metrics?${query.join("&")}`;
 }
-async function getJSON(path) {
-  const response = await fetch(path);
+async function getJSON(path, options = {}) {
+  const response = await fetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
-async function getText(path) {
-  const response = await fetch(path);
+async function getText(path, options = {}) {
+  const response = await fetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.text();
 }
@@ -12566,8 +15387,8 @@ async function getBlob(path) {
   if (!response.ok) throw new Error(await response.text());
   return response;
 }
-function trace(sessionId, turnId, format) {
-  return getJSON(tracePath(sessionId, turnId, format));
+function trace(sessionId, turnId, format, options = {}) {
+  return format ? coreSDK.traces.exportSession(sessionId, format, turnId || void 0, options.signal) : coreSDK.traces.getSession(sessionId, turnId || void 0, options.signal);
 }
 function createAgent(body) {
   return postJSON("/v1/agents", body);
@@ -12588,69 +15409,87 @@ function sendSessionMessage(sessionId, text) {
     }]
   });
 }
-function traceCatalog(filters = {}) {
-  const params = new URLSearchParams();
-  params.set("limit", String(filters.limit || 20));
-  if (filters.offset) params.set("offset", String(filters.offset));
-  if (filters.session) params.set("session_id", filters.session);
-  if (filters.turn) params.set("turn_id", filters.turn);
-  return getJSON(`/v1/traces?${params.toString()}`);
+async function traceCatalog(filters = {}) {
+  const page = await coreSDK.traces.list({
+    limit: filters.limit || 20,
+    ...filters.cursor ? { cursor: filters.cursor } : {},
+    ...filters.session ? { sessionId: filters.session } : {},
+    ...filters.turn ? { turnId: filters.turn } : {}
+  });
+  return { traces: page.items, next_cursor: page.next_cursor, has_more: page.has_more };
 }
-function traceByID(traceID) {
-  return getJSON(`/v1/traces/${encodeURIComponent(traceID)}`);
+function traceByID(traceID, options = {}) {
+  return coreSDK.traces.get(traceID, options.signal);
 }
-function spanByID(traceID, spanID) {
-  return getJSON(`/v1/traces/${encodeURIComponent(traceID)}/spans/${encodeURIComponent(spanID)}`);
+function spanByID(traceID, spanID, options = {}) {
+  return coreSDK.traces.getSpan(traceID, spanID, options.signal);
 }
-function spanCatalog(filters = {}) {
-  const params = new URLSearchParams();
-  params.set("limit", String(filters.limit || 20));
-  if (filters.offset) params.set("offset", String(filters.offset));
-  if (filters.session) params.set("session_id", filters.session);
-  if (filters.turn) params.set("turn_id", filters.turn);
-  if (filters.query) params.set("q", filters.query);
-  if (filters.kind) params.set("kind", filters.kind);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.critical) params.set("critical", filters.critical);
-  if (filters.minDuration) params.set("min_duration_ms", filters.minDuration);
-  return getJSON(`/v1/spans?${params.toString()}`);
+async function spanCatalog(filters = {}) {
+  const page = await coreSDK.traces.listSpans({
+    limit: filters.limit || 20,
+    ...filters.cursor ? { cursor: filters.cursor } : {},
+    ...filters.session ? { sessionId: filters.session } : {},
+    ...filters.turn ? { turnId: filters.turn } : {},
+    ...filters.query ? { search: filters.query } : {},
+    ...filters.kind ? { kind: filters.kind } : {},
+    ...filters.status ? { status: filters.status } : {},
+    ...filters.critical === "true" ? { critical: true } : filters.critical === "false" ? { critical: false } : {},
+    ...filters.minDuration ? { minDurationMs: Number(filters.minDuration) } : {}
+  });
+  return {
+    spans: page.items,
+    next_cursor: page.next_cursor,
+    has_more: page.has_more,
+    kind_counts: countBy(page.items, (span) => span.kind),
+    status_counts: countBy(page.items, (span) => span.status || "unknown"),
+    critical_counts: countBy(page.items, (span) => String(Boolean(span.critical)))
+  };
 }
-function session(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+function countBy(items, keyFor) {
+  return items.reduce((counts, item) => {
+    const key = keyFor(item);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
 }
-function usage(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/usage`);
+function session(sessionId, options = {}) {
+  return coreSDK.sessions.get(sessionId, options.signal);
 }
-function summary(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/summary`);
+function usage(sessionId, options = {}) {
+  return coreSDK.sessions.usage(sessionId, options.signal);
 }
-function artifacts(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/artifacts`);
+function summary(sessionId, options = {}) {
+  return coreSDK.sessions.summary(sessionId, options.signal);
+}
+async function artifacts(sessionId, options = {}) {
+  return { artifacts: await coreSDK.artifacts.list(sessionId, options.signal) };
 }
 function artifactDownloadPath(sessionId, artifactId) {
-  return `/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
+  return `/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
 }
-function events(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/events`);
+function downloadArtifact(sessionId, artifactId, options = {}) {
+  return coreSDK.artifacts.download(sessionId, artifactId, options.signal);
 }
-function interventions(sessionId, status) {
-  const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/interventions${suffix}`);
+async function events(sessionId, afterSeq = 0, options = {}) {
+  return { events: await coreSDK.sessions.listEvents(sessionId, afterSeq, options.signal) };
 }
-function metrics(sessionId, turnId) {
-  return getText(metricsPath(sessionId, turnId));
+async function interventions(sessionId, status, options = {}) {
+  return { interventions: await coreSDK.interventions.list(sessionId, status, options.signal) };
 }
-function observabilityStatus() {
-  return getJSON("/v1/observability/status");
+function metrics(sessionId, turnId, options = {}) {
+  return getText(metricsPath(sessionId, turnId), options);
+}
+function observabilityStatus(options = {}) {
+  return coreSDK.observability.status(options.signal);
 }
 function retryObservability() {
   return postJSON("/v1/observability/retry", {});
 }
-function approveIntervention(sessionId, turnId, callId, body) {
-  return postJSON(`/v1/sessions/${sessionId}/interventions/${turnId}/${callId}/approve`, body);
+function approveIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal);
 }
-function rejectIntervention(sessionId, turnId, callId, body) {
-  return postJSON(`/v1/sessions/${sessionId}/interventions/${turnId}/${callId}/reject`, body);
+function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.reject(sessionId, turnId, callId, body.reason || "", options.signal);
 }
 const inspectorAPI = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
@@ -12660,6 +15499,7 @@ const inspectorAPI = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.define
   createAgent,
   createEnvironment,
   createSession,
+  downloadArtifact,
   events,
   getBlob,
   getJSON,
@@ -12708,6 +15548,118 @@ function stepClass$1(step) {
   if (step.type && step.type.includes("tool")) return "step tool";
   return "step";
 }
+function isTerminalTurnStatus$1(status) {
+  return ["completed", "failed", "canceled", "terminated"].includes(String(status || "").trim().toLowerCase());
+}
+function normalizeToolSource$1(source) {
+  return String(source || "").trim().toLowerCase();
+}
+function toolSourceLabel$1(source) {
+  switch (normalizeToolSource$1(source)) {
+    case "mcp":
+      return "MCP";
+    case "worker_plugin":
+      return "Worker Plugin";
+    case "builtin":
+      return "Builtin";
+    default:
+      return "";
+  }
+}
+function mcpDiagnosticBadges$1(data = {}) {
+  if (!isPlainObject(data) || normalizeToolSource$1(data.tool_source) !== "mcp") return [];
+  const badges = [];
+  if (data.mcp_transport) badges.push(`transport ${data.mcp_transport}`);
+  if (data.mcp_protocol_version) badges.push(`protocol ${data.mcp_protocol_version}`);
+  if (data.mcp_tool_count !== void 0) badges.push(`${data.mcp_tool_count} tool(s)`);
+  const capabilities = Array.isArray(data.mcp_capabilities) ? data.mcp_capabilities : [];
+  if (capabilities.length) badges.push(`capabilities ${capabilities.join(", ")}`);
+  if (data.mcp_oauth) badges.push("OAuth");
+  if (data.mcp_listen) badges.push("SSE listener");
+  if (data.mcp_expose_resources) badges.push("resources exposed");
+  if (data.mcp_expose_prompts) badges.push("prompts exposed");
+  return badges;
+}
+function mcpResultSummary$1(data = {}) {
+  if (!isPlainObject(data) || normalizeToolSource$1(data.tool_source) !== "mcp") return null;
+  const state = data.state;
+  if (!isPlainObject(state)) return null;
+  if (state.truncated) {
+    return {
+      title: "MCP result state omitted",
+      facts: [
+        state.original_bytes ? `${state.original_bytes} original byte(s)` : "",
+        "open full artifact or raw event for complete state"
+      ].filter(Boolean)
+    };
+  }
+  switch (state.protocol_version) {
+    case "tma.mcp_result.v1":
+      return summarizeMCPToolState(state);
+    case "tma.mcp_context_result.v1":
+      return summarizeMCPContextState(state);
+    default:
+      return null;
+  }
+}
+function collectToolSourceStats$1(events2 = []) {
+  var _a2, _b2;
+  const counts = { mcp: 0, worker_plugin: 0, builtin: 0, other: 0, total: 0 };
+  for (const event of events2) {
+    const source = normalizeToolSource$1((_b2 = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data) == null ? void 0 : _b2.tool_source);
+    if (!source) continue;
+    counts.total += 1;
+    if (source === "mcp" || source === "worker_plugin" || source === "builtin") counts[source] += 1;
+    else counts.other += 1;
+  }
+  return counts;
+}
+function collectMCPProtocolOperations$1(events2 = []) {
+  var _a2;
+  const operations = [];
+  const pendingByCallID = /* @__PURE__ */ new Map();
+  const orderedEvents = [...events2].sort((left, right) => Number((left == null ? void 0 : left.seq) || 0) - Number((right == null ? void 0 : right.seq) || 0));
+  for (const event of orderedEvents) {
+    const data = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data;
+    if (!isPlainObject(data) || normalizeToolSource$1(data.tool_source) !== "mcp") continue;
+    if (event.type !== "runtime.tool_call" && event.type !== "runtime.tool_result") continue;
+    const callID = String(data.id || "").trim();
+    if (event.type === "runtime.tool_call") {
+      const operation2 = newMCPProtocolOperation(event, data);
+      const index2 = operations.push(operation2) - 1;
+      if (callID) {
+        const pending2 = pendingByCallID.get(callID) || [];
+        pending2.push(index2);
+        pendingByCallID.set(callID, pending2);
+      }
+      continue;
+    }
+    const pending = callID ? pendingByCallID.get(callID) || [] : [];
+    const index = pending.length ? pending.shift() : -1;
+    if (callID && !pending.length) pendingByCallID.delete(callID);
+    const operation = index >= 0 ? operations[index] : newMCPProtocolOperation(null, data, event);
+    applyMCPProtocolResult(operation, event, data);
+    if (index < 0) operations.push(operation);
+  }
+  return operations.sort((left, right) => Number(left.request_seq || left.response_seq || 0) - Number(right.request_seq || right.response_seq || 0));
+}
+function highestEventSeq$1(events2 = []) {
+  return events2.reduce((highest, event) => Math.max(highest, Number((event == null ? void 0 : event.seq) || 0)), 0);
+}
+function mergeEventResponses$1(previous = {}, incoming = {}) {
+  const merged = /* @__PURE__ */ new Map();
+  for (const event of [...previous.events || [], ...incoming.events || []]) {
+    const seq = Number((event == null ? void 0 : event.seq) || 0);
+    if (seq > 0) merged.set(seq, event);
+  }
+  const response = {
+    ...previous,
+    ...incoming,
+    events: Array.from(merged.values()).sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0))
+  };
+  if (!Object.hasOwn(incoming, "error")) delete response.error;
+  return response;
+}
 function sessionArtifactCLI$1(downloadPath) {
   let path = String(downloadPath || "").trim();
   if (!path) return "";
@@ -12725,29 +15677,190 @@ function sessionArtifactCommand$1(sessionId, artifactId) {
   if (!session2 || !artifact) return "";
   return `bin/tma session artifact download --session ${session2} --artifact ${artifact}`;
 }
+function summarizeMCPToolState(state) {
+  const content = Array.isArray(state.content) ? state.content : [];
+  const types = uniqueStrings(content.map((item) => item == null ? void 0 : item.type));
+  const facts = [
+    state.tool_name ? `tool ${state.tool_name}` : "",
+    `is_error ${String(Boolean(state.is_error))}`,
+    `${content.length} content item(s)`,
+    types.length ? `content types ${types.join(", ")}` : "",
+    state.structured_content !== void 0 ? "structured content present" : "",
+    isPlainObject(state.meta) ? `${Object.keys(state.meta).length} meta key(s)` : ""
+  ].filter(Boolean);
+  return { title: "MCP tool result", facts };
+}
+function summarizeMCPContextState(state) {
+  const facts = [state.tool_name ? `tool ${state.tool_name}` : ""];
+  if (Array.isArray(state.resources)) {
+    facts.push(`${state.resources.length} resource(s)`);
+  }
+  if (Array.isArray(state.resource_templates)) {
+    facts.push(`${state.resource_templates.length} resource template(s)`);
+  }
+  if (Array.isArray(state.contents)) {
+    const mimeTypes = uniqueStrings(state.contents.map((item) => (item == null ? void 0 : item.mimeType) || (item == null ? void 0 : item.mime_type)));
+    const textCount = state.contents.filter((item) => String((item == null ? void 0 : item.text) || "").trim() !== "").length;
+    const blobCount = state.contents.filter((item) => String((item == null ? void 0 : item.blob) || "").trim() !== "").length;
+    facts.push(`${state.contents.length} resource content item(s)`);
+    if (mimeTypes.length) facts.push(`mime ${mimeTypes.join(", ")}`);
+    if (textCount) facts.push(`${textCount} text item(s)`);
+    if (blobCount) facts.push(`${blobCount} blob item(s)`);
+  }
+  if (Array.isArray(state.prompts)) {
+    const argumentCount = state.prompts.reduce((total, prompt) => total + (Array.isArray(prompt == null ? void 0 : prompt.arguments) ? prompt.arguments.length : 0), 0);
+    facts.push(`${state.prompts.length} prompt(s)`);
+    if (argumentCount) facts.push(`${argumentCount} prompt argument(s)`);
+  }
+  if (isPlainObject(state.prompt)) {
+    const messages = Array.isArray(state.prompt.messages) ? state.prompt.messages : [];
+    const roles = uniqueStrings(messages.map((message) => message == null ? void 0 : message.role));
+    facts.push(`${messages.length} prompt message(s)`);
+    if (roles.length) facts.push(`roles ${roles.join(", ")}`);
+  }
+  return { title: "MCP context result", facts: facts.filter(Boolean) };
+}
+function newMCPProtocolOperation(requestEvent, data, responseEvent = null) {
+  const requestSeq = Number((requestEvent == null ? void 0 : requestEvent.seq) || 0);
+  const responseSeq = Number((responseEvent == null ? void 0 : responseEvent.seq) || 0);
+  const apiName = String(data.api_name || "").trim();
+  const callID = String(data.id || "").trim();
+  return {
+    key: `${callID || "unpaired"}:${requestSeq || responseSeq}`,
+    call_id: callID,
+    identifier: String(data.identifier || "").trim(),
+    api_name: apiName,
+    method: mcpMethodForAPI(apiName, data.state),
+    status: "pending",
+    request_seq: requestSeq,
+    response_seq: responseSeq,
+    request_time: (requestEvent == null ? void 0 : requestEvent.created_at) || "",
+    response_time: (responseEvent == null ? void 0 : responseEvent.created_at) || "",
+    duration_ms: null,
+    transport: String(data.mcp_transport || "").trim(),
+    protocol_version: String(data.mcp_protocol_version || "").trim(),
+    diagnostics: mcpDiagnosticBadges$1(data),
+    result_protocol: "",
+    result_summary: null,
+    error_type: "",
+    artifact_count: 0,
+    preview_truncated: false
+  };
+}
+function applyMCPProtocolResult(operation, event, data) {
+  var _a2, _b2;
+  const state = isPlainObject(data.state) ? data.state : {};
+  operation.call_id || (operation.call_id = String(data.id || "").trim());
+  operation.identifier || (operation.identifier = String(data.identifier || "").trim());
+  operation.api_name || (operation.api_name = String(data.api_name || "").trim());
+  operation.method = mcpMethodForAPI(operation.api_name, state);
+  operation.response_seq = Number((event == null ? void 0 : event.seq) || 0);
+  operation.response_time = (event == null ? void 0 : event.created_at) || "";
+  operation.transport || (operation.transport = String(data.mcp_transport || "").trim());
+  operation.protocol_version || (operation.protocol_version = String(data.mcp_protocol_version || "").trim());
+  operation.diagnostics = uniqueStrings([...operation.diagnostics, ...mcpDiagnosticBadges$1(data)]);
+  operation.result_protocol = String(state.protocol_version || "").trim();
+  operation.result_summary = mcpResultSummary$1(data);
+  operation.duration_ms = Number.isFinite(Number(data.duration_ms)) ? Number(data.duration_ms) : null;
+  operation.artifact_count = Array.isArray(data.artifacts) ? data.artifacts.length : 0;
+  operation.preview_truncated = Boolean(((_a2 = data == null ? void 0 : data.context) == null ? void 0 : _a2.content_truncated) || ((_b2 = data == null ? void 0 : data.context) == null ? void 0 : _b2.state_truncated) || state.truncated);
+  operation.error_type = mcpErrorType(data, state);
+  operation.status = operation.error_type ? "failed" : "completed";
+}
+function mcpMethodForAPI(apiName, state = {}) {
+  const normalized = String(apiName || (state == null ? void 0 : state.tool_name) || "").trim();
+  switch (normalized) {
+    case "mcp_list_resources":
+    case "__tma_mcp_list_resources":
+      return "resources/list";
+    case "mcp_list_resource_templates":
+    case "__tma_mcp_list_resource_templates":
+      return "resources/templates/list";
+    case "mcp_read_resource":
+    case "__tma_mcp_read_resource":
+      return "resources/read";
+    case "mcp_list_prompts":
+    case "__tma_mcp_list_prompts":
+      return "prompts/list";
+    case "mcp_get_prompt":
+    case "__tma_mcp_get_prompt":
+      return "prompts/get";
+    default:
+      return "tools/call";
+  }
+}
+function mcpErrorType(data, state) {
+  if (isPlainObject(data.error)) {
+    return String(data.error.type || data.error.code || "tool_error").trim();
+  }
+  if (data.error || data.success === false) return "tool_error";
+  if (state.is_error) return "mcp_result_error";
+  return "";
+}
+function uniqueStrings(values = []) {
+  return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean)));
+}
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 const utils = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
+  collectMCPProtocolOperations: collectMCPProtocolOperations$1,
+  collectToolSourceStats: collectToolSourceStats$1,
   formatDuration: formatDuration$1,
   formatTime: formatTime$1,
+  highestEventSeq: highestEventSeq$1,
+  isTerminalTurnStatus: isTerminalTurnStatus$1,
+  mcpDiagnosticBadges: mcpDiagnosticBadges$1,
+  mcpResultSummary: mcpResultSummary$1,
+  mergeEventResponses: mergeEventResponses$1,
+  normalizeToolSource: normalizeToolSource$1,
   pillClass: pillClass$1,
   pretty: pretty$1,
   sessionArtifactCLI: sessionArtifactCLI$1,
   sessionArtifactCommand: sessionArtifactCommand$1,
-  stepClass: stepClass$1
+  stepClass: stepClass$1,
+  toolSourceLabel: toolSourceLabel$1
 }, Symbol.toStringTag, { value: "Module" }));
 window.TMAInspectorAPI = inspectorAPI;
 window.TMAInspectorUtils = utils;
 const {
   formatDuration,
   formatTime,
+  highestEventSeq,
+  isTerminalTurnStatus,
+  mergeEventResponses,
+  collectMCPProtocolOperations,
+  collectToolSourceStats,
+  mcpDiagnosticBadges,
+  mcpResultSummary,
+  normalizeToolSource,
   pillClass,
   pretty,
   sessionArtifactCLI,
   sessionArtifactCommand,
-  stepClass
+  stepClass,
+  toolSourceLabel
 } = utils;
 const catalogPageSize = 20;
 const artifactPreviewTextLimit = 10240;
+const inspectorManualMarkdown = '# TMA Inspector 用户使用手册\n\n本文档面向使用 TMA Inspector 排查 Agent 执行过程的开发、测试和运维人员。Inspector 是 TMA Server 内置的观测与调试页面，用于查看 Session、Turn、Trace、Span、上下文、工具调用、审批、制品和导出器状态。\n\n> Inspector 当前是专家调试页面，不是面向最终用户的聊天界面。页面包含原始事件、工具参数和运行时元数据，不应直接暴露到公网。\n\n## 1. 功能概览\n\nInspector 支持以下操作：\n\n- 按 Session、Turn 或 Trace ID 定位一次执行；\n- 搜索近期 Trace 和跨 Session Span；\n- 查看 Trace 概览、关键路径、Span 瀑布图和时间线；\n- 查看 Session 摘要、Token 用量和上下文预算；\n- 区分 MCP、Worker Plugin 和 Builtin 工具事件；\n- 审批或拒绝等待中的工具调用；\n- 预览、下载 Session 制品并复制 CLI 下载命令；\n- 查看 Prometheus 指标、Exporter 状态和原始导出数据；\n- 导出 Trace JSON、Perfetto JSON 或 OTel JSON；\n- 通过 URL Hash 分享 Session、Turn、Trace 和 Span 深链。\n\n### 1.1 Session、Turn、Trace 与 Span\n\n这四个概念描述的是不同层级，不是同一对象的不同名称：\n\n```text\nSession：一项持续任务或一段连续会话\n├── Turn 1：一次用户输入到 Agent 本轮结束\n│   └── Trace 1：Turn 1 的完整执行轨迹\n│       ├── Span：本轮整体执行\n│       ├── Span：LLM 请求\n│       ├── Span：工具调用\n│       └── Span：审批等待\n├── Turn 2\n│   └── Trace 2\n└── Session 级摘要、制品、用量和有序事件\n```\n\n#### Session\n\n`Session` 是持续时间最长的任务容器，可理解为“一项任务”或“一段连续对话”。它绑定 Agent、Environment 和运行设置，并保存跨 Turn 共用的数据：\n\n- 有序事件历史；\n- Session 摘要；\n- LLM 用量记录；\n- 制品；\n- 等待中的人工审批；\n- Session 状态和运行配置。\n\n同一个 Session 可以先后执行多个 Turn。Inspector 中的 Session ID 通常以 `sesn_` 开头。\n\n#### Turn\n\n`Turn` 是 Session 中的一轮执行：通常从一次用户输入开始，到 Agent 给出本轮响应、失败或进入等待状态结束。工具调用、LLM 多轮推理和审批后的 continuation 都可以发生在同一个 Turn 内。\n\nTurn 有独立的 ID、状态、开始/结束时间和用量。切换 Turn 可以比较同一任务不同轮次的行为，但不会切换到另一个 Session。\n\n#### Trace\n\n`Trace` 是一个 Turn 的完整可观测执行轨迹。它把本轮的事件投影成便于分析的时间线、统计、调用图和 Span 树。\n\n在 TMA 中，`session_events` 是持久化事实源，Trace 是从这些事件生成的观测视图。因此 Trace 不是另一次执行，也不会改变 Agent 状态。Trace 可以导出为 TMA JSON、Perfetto JSON 或 OTel JSON。\n\n通常一个 Turn 对应一条 Trace。使用 Trace ID 可以直接反查所属 Session 和 Turn。\n\n#### Span\n\n`Span` 是 Trace 中一个有起止时间的执行单元，例如一次 LLM 请求、一次工具调用、一次审批等待或一次上下文压缩。Span 可以包含子 Span，从而形成调用树。\n\n常用字段：\n\n- `kind`：操作类别，例如 `llm`、`tool`、`approval`；\n- `status`：`ok`、`error`、`open` 等状态；\n- `duration_ms`：Span 总耗时，包含子 Span；\n- `self_duration_ms`：扣除子 Span 后自身占用的时间；\n- `parent_span_id` / `child_span_ids`：父子关系；\n- `critical`：是否位于决定 Turn 总耗时的关键路径；\n- `events` / `attributes`：Span 内事件和诊断属性。\n\n关键路径 Span 不一定失败，它表示该 Span 的耗时会直接影响整条 Trace 的完成时间。\n\n#### Event 与 Timeline Step\n\n`Event` 是 Session 中按 `seq` 单调排序的持久化事实，例如用户消息、LLM 请求、工具结果和运行完成。Inspector 的 `Recent Events` 展示原始事件。\n\n`Timeline Step` 是 Trace 为人类阅读而生成的事件投影，可能提取消息、工具、结果和制品摘要。一个 Step 不等于一个 Span：Step 侧重“发生了什么”，Span 侧重“这段操作持续多久、与其他操作是什么关系”。\n\n## 2. 启动与访问\n\n### 2.1 前置条件\n\n本地使用需要：\n\n- Go；\n- Docker 和 Docker Compose；\n- 可用的 Postgres；\n- 仅在重新构建 Inspector 前端时需要 Node.js 和 npm。\n\n### 2.2 启动 TMA Server\n\n在项目根目录执行：\n\n```bash\nmake db-up\nmake migrate-up\nmake run\n```\n\n默认服务地址为 `http://localhost:8080`。先检查服务健康状态：\n\n```bash\ncurl http://localhost:8080/health\n```\n\n预期返回：\n\n```json\n{"status":"ok","service":"tiggy-manage-agent"}\n```\n\n也可以后台启动：\n\n```bash\nmake server-start\nmake server-status\n```\n\n停止后台服务：\n\n```bash\nmake server-stop\n```\n\n### 2.3 打开 Inspector\n\n浏览器访问：\n\n```text\nhttp://localhost:8080/inspector\n```\n\nInspector 静态资源嵌入在 TMA Server 中，不需要单独启动前端服务。\n\n如修改了 `web-inspector/src` 下的前端源码，需重新构建并重启 Server：\n\n```bash\nmake build-inspector-ui\nmake server-restart\n```\n\n## 3. 界面结构\n\n页面分为左侧检索区和右侧详情区。\n\n### 3.1 左侧检索区\n\n| 区域 | 用途 |\n| --- | --- |\n| Query | 输入 Session、Trace ID，选择 Turn 和导出格式 |\n| Recent Traces | 浏览近期 Trace，可按当前 Session 和 Turn 筛选 |\n| Span Search | 跨 Trace 搜索 Span |\n| Turns | 查看当前 Session 下的 Turn 并切换 |\n\n### 3.2 右侧详情区\n\n| 区域 | 用途 |\n| --- | --- |\n| Overview | 显示 Turn、耗时、Step、Span、工具、MCP 和错误数量 |\n| Session | Session 状态、Agent、Environment、创建信息和运行设置 |\n| Trace Summary | Trace 状态、步骤统计及执行摘要 |\n| Context Summary | 已持久化的 Session 上下文摘要 |\n| Usage | LLM 调用、Token 和延迟统计 |\n| Context Coverage | 摘要已覆盖和尚未汇总的事件范围 |\n| Context Budget | 上下文窗口、输入、工具 Schema、固定上下文和输出预留预算 |\n| Tool Sources | 按 MCP、Worker Plugin、Builtin 过滤工具事件 |\n| Waterfall | Span 的起止时间、层级、耗时和关键路径 |\n| Spans | 当前 Trace 内 Span 的筛选、详情、事件和属性 |\n| Timeline | 按事件序号显示执行步骤 |\n| Pending Approvals | 审批或拒绝待执行工具调用 |\n| Artifacts | 预览、下载制品或复制 CLI 命令 |\n| Recent Events | 查看最近 18 条 Session 原始事件 |\n| Metrics | 当前 Session/Turn 的 Prometheus 文本指标 |\n| Exporters | Perfetto、OTLP、采样和重试状态 |\n| Raw Export | 当前 Trace 或所选格式的原始 JSON |\n\n## 4. 快速定位一次执行\n\n### 4.1 使用 Session ID\n\n1. 在 `Session` 输入框填入 Session ID，例如 `sesn_000001`。\n2. 单击 `Load`。\n3. 默认加载该 Session 最新 Turn。\n4. 在 `Turn` 下拉框或左侧 `Turns` 列表中切换历史 Turn。\n\n注意：在 Session 输入框按回车只会执行 `Filter by Session`，刷新左侧 Trace/Span 目录，不会加载右侧详情。要加载完整详情，请单击 `Load`。\n\nSession ID 可从 Workbench、CLI 输出、API 响应或服务端日志中获得。\n\n### 4.2 使用 Trace ID\n\n1. 在 `Trace ID` 输入框填入 Trace ID。\n2. 单击 `Load Trace`，或在输入框按回车。\n3. Inspector 会自动回填对应的 Session 和 Turn，并加载完整详情。\n\n也可以直接单击 `Recent Traces` 中的记录。\n\n### 4.3 使用 Recent Traces\n\n- 初次打开页面会加载最近 20 条 Trace；\n- `Filter by Session` 使用 Query 中的 Session/Turn 筛选目录；\n- `Clear` 清空当前定位并恢复近期目录；\n- 出现 `Load more` 时可继续加载下一页，每页 20 条；\n- 每条记录显示 Turn 状态、Session 标题、耗时、Span 数量和摘要。\n\n分页使用 Server 返回的不透明 cursor。Inspector 不根据当前条数计算 offset；修改 Session、Turn 或筛选条件后会重新从第一页开始查询。\n\n### 4.4 自动刷新\n\n勾选 `Auto refresh every 5s` 后，只要已填写 Session ID，Inspector 每 5 秒重新加载当前 Session/Turn 的详情。上一轮请求尚未完成时不会启动重叠请求；页面进入后台时暂停，重新回到页面后立即补一次刷新；Turn 进入 `completed`、`failed`、`canceled` 或 `terminated` 终态后自动关闭。\n\n自动刷新期间，Events 使用最后收到的 `seq` 作为 `after_seq` 增量读取，并在浏览器中按序号去重合并。手动加载或切换 Session 时仍会执行一次完整读取，确保本地事件状态正确。\n\nInspector 的 Session、Trace/Span、Events、Usage、Summary、Artifacts、Interventions 和 Observability 只读请求通过 TypeScript Core SDK 访问 `/v2`，并共享同一个取消信号。Artifact Preview 使用 SDK 下载，普通 Download 链接指向同一 `/v2` 资源。Approve/Reject 也通过 SDK 的 Interventions 服务提交到 `/v2`；Metrics 继续使用 Prometheus 接口。\n\n适用场景：\n\n- 观察运行中的 Turn；\n- 等待工具调用完成；\n- 等待审批后的 continuation；\n- 查看新产生的事件或制品。\n\n排查完成后建议关闭自动刷新，减少数据库和 Trace 投影请求。\n\n## 5. Trace 与 Span 分析\n\n### 5.1 先看 Overview 和 Trace Summary\n\n建议先确认：\n\n- Turn 状态是否为 `completed`、`failed`、`running` 或等待状态；\n- `Duration` 是否异常；\n- `Errors` 是否大于 0；\n- `Tools` 和 approval waits 是否符合预期；\n- Trace Summary 是否已经指出失败步骤或关键工具。\n\n### 5.2 使用 Waterfall 定位慢步骤\n\nWaterfall 以整次 Turn 时长为横轴显示 Span：\n\n- 横条越长，Span 耗时越长；\n- 缩进表示父子层级；\n- `critical` 样式表示 Span 位于关键路径；\n- error/failed/rejected 状态会突出显示；\n- 单击一行会同步选中下方 Span 详情。\n\n优先检查关键路径上耗时最长或状态异常的 Span，再结合 Timeline 和 Attributes 确认原因。\n\n### 5.3 筛选当前 Trace 内的 Span\n\n`Spans` 面板提供两个过滤条件：\n\n- `Filter`：匹配 Span 名称、ID、父 Span ID、Kind、Status、Attribute 和 Event；\n- `Kind`：只保留当前 Trace 中指定类型的 Span。\n\n单击 `Clear` 清除这两个过滤条件。单击表格行可查看该 Span 的：\n\n- 状态、耗时和事件序号范围；\n- 父 Span 和子 Span；\n- Span Events；\n- Attributes。\n\nSpan 详情中的子 Span ID 可直接单击跳转。\n\n### 5.4 跨 Trace 搜索 Span\n\n左侧 `Span Search` 用于跨 Session/Trace 排查同类问题，支持：\n\n- 关键字：名称、ID 或 Attribute；\n- Kind：`interaction`、`llm`、`tool`、`approval`、`context`、`event`；\n- Status：例如 `ok`、`error`、`open`；\n- Critical：是否位于关键路径；\n- Min Duration：最小耗时，单位毫秒。\n\n单击 `Search Spans` 执行搜索。结果顶部显示当前已加载页面的 Kind、Status 和 Critical 聚合数量；继续加载时会累加新页统计。单击结果会加载对应 Trace 并定位 Span。\n\n### 5.5 阅读 Timeline\n\nTimeline 按 Session Event 的 `seq` 顺序展示执行过程，常见类型包括：\n\n- `runtime.llm_request` / `runtime.llm_response`：模型请求与响应；\n- `runtime.tool_call` / `runtime.tool_result`：工具调用与结果；\n- `runtime.tool_intervention_required`：等待人工审批；\n- `runtime.context_compacting` / `runtime.context_compacted`：上下文压缩；\n- `runtime.completed` / `runtime.failed`：Turn 完成或失败。\n\n工具结果过大时，Timeline 会显示截断提示，包括原始字符数、可见字符数或被省略的状态字节数。截断仅影响页面预览；完整内容应通过关联 Artifact 下载。\n\n## 6. 工具来源筛选\n\n`Tool Sources` 按事件中的 `tool_source` 统计工具来源：\n\n- `MCP`：Agent 绑定的 MCP Server 工具；\n- `Worker Plugin`：由 Worker 进程插件提供的工具；\n- `Builtin`：TMA Server 内置工具；\n- `other`：存在来源但不属于上述类型的事件。\n\n单击 `All`、`MCP`、`Worker Plugin` 或 `Builtin` 可过滤 `Timeline` 和 `Recent Events`。该筛选不会改变 Waterfall、Span 表或 Usage。\n\n当工具来源为 `MCP` 时，Timeline 和 Recent Events 会额外显示 MCP 诊断 badge，包括 transport、MCP protocol version、server capabilities、tool count、OAuth、SSE listener、resources/prompts expose 等非敏感信息。这些信息来自 `runtime.tool_call` / `runtime.tool_result` 事件里的 `mcp_*` metadata，不包含 MCP endpoint URL、headers、client secret、access token 或原始 OAuth response body。\n\n`MCP Protocol` 面板会把同一 call ID 的 `runtime.tool_call` 与 `runtime.tool_result` 配对为一次协议操作，并展示：\n\n- `tools/call`、`resources/list`、`resources/templates/list`、`resources/read`、`prompts/list` 或 `prompts/get` 方法；\n- request / response event seq、时间、状态和执行耗时；\n- transport、protocol version、capabilities、tool count、OAuth / SSE / expose 等诊断事实；\n- result protocol、artifact 数量、截断状态、错误类型和脱敏后的 MCP result 摘要。\n\n重复 call ID 会按事件顺序逐个配对；只有 request 或只有 response 时会保留 pending / unpaired 操作，避免静默丢失不完整链路。面板不会读取或显示 arguments、endpoint、headers、error message、content text、resource body、prompt text 或 structured content value。\n\n对 `runtime.tool_result`，Inspector 还会读取 `state.protocol_version` 并展示 MCP 结果摘要：\n\n- `tma.mcp_result.v1`：显示 tool name、`is_error`、content item 数量、content type、structured content 是否存在和 meta key 数量。\n- `tma.mcp_context_result.v1`：按桥接类型显示 resource、resource template、resource content、prompt 或 prompt message 的脱敏数量与有限元数据。\n- `tma.mcp_context_result.v1`：显示 resources/prompts 桥接工具名称、resource/prompt/message 数量、mime type、text/blob item 数量和 prompt roles。\n\n摘要卡不会展开 MCP content text、resource body、prompt message text 或 structured_content 值；如需完整 payload，应在受控环境中查看 Recent Events 原始 JSON、Raw Export 或关联制品。\n\n## 7. 上下文与用量\n\n### 7.1 Context Summary\n\n显示当前 Session 已持久化的摘要。摘要通常用于后续 Turn 的上下文续接，不等同于完整事件历史。\n\n### 7.2 Context Coverage\n\n重点字段：\n\n- `source_until_seq`：摘要已处理到的事件序号；\n- `latest event seq`：当前加载事件中的最大序号；\n- `covered events`：已被摘要覆盖的事件数；\n- `unsummarized events`：尚未进入摘要的事件数。\n\n面板最多展示最近 8 条未汇总事件。运行中的 Turn 存在少量未汇总事件通常是正常现象；Turn 完成很久后仍持续增加，需要检查 summary 刷新流程。\n\n### 7.3 Context Budget\n\n面板从最新携带 `context_budget` 的运行步骤中读取预算，常见字段包括：\n\n- `context_window_tokens`：模型上下文窗口；\n- `max_input_tokens`：允许的最大输入；\n- `message_tokens`：消息占用；\n- `tool_schema_tokens`：工具 Schema 占用；\n- `pinned_context_tokens`：固定上下文占用；\n- `reserved_output_tokens`：为模型输出预留的 Token。\n\n同时检查 `context_truncated`、`summary_included` 和 `pinned_context_included`。若没有携带上下文预算的事件，页面会显示 `No context budget loaded.`，不代表 Turn 一定异常。\n\n### 7.4 Usage\n\nUsage 显示调用记录数、总 Token 和累计延迟，并保留后端返回的完整 JSON。排查成本或配额问题时，应结合 Provider、Model、输入/输出 Token 和具体 Turn 查看。\n\n## 8. 审批工具调用\n\n当 Agent 使用 `request_approval` 干预模式且某个工具需要人工确认时，调用会出现在 `Pending Approvals`。\n\n审批前检查：\n\n1. 工具标识和 API 名称；\n2. `arguments` 中的命令、路径、网络目标和写入内容；\n3. Session 和 Turn 是否为预期任务；\n4. 操作是否可能删除数据、覆盖文件或调用外部系统。\n\n操作含义：\n\n- `Approve`：立即以固定原因 `approved from inspector` 批准调用，并继续执行；\n- `Reject`：弹出原因输入框，确认后拒绝调用，并让运行时按拒绝结果继续处理；\n- 取消 Reject 弹窗：不提交任何决定。\n\n> `Approve` 是有副作用的运行控制操作，不提供二次确认。不要在无法确认参数和执行环境时批准。\n\n提交后 Inspector 会重新加载当前 Session。若调用仍显示 pending，先关闭自动刷新并手动 `Load`；仍无变化时查看页面顶部状态、Recent Events 和服务端日志。\n\n## 9. 制品预览与下载\n\n`Artifacts` 面板列出当前 Session 的制品。每个制品提供：\n\n- `Preview`：在 `Artifact Preview` 面板内预览；\n- `Download`：在新窗口打开下载地址；\n- `Copy CLI`：复制等价的命令行下载命令。\n\n命令格式：\n\n```bash\nbin/tma session artifact download \\\n  --session SESSION_ID \\\n  --artifact ARTIFACT_ID \\\n  --output OUTPUT_PATH\n```\n\n内联预览规则：\n\n- 图片：直接显示；\n- JSON、文本、XML、YAML：以文本显示，JSON 会格式化；\n- 文本超过 10,240 字符：只显示前 10,240 字符并标记截断；\n- 其他二进制格式：只显示 MIME、大小和地址，需下载查看。\n\nTimeline 中关联的制品也提供相同的 Preview、Download 和 Copy CLI 操作。\n\n## 10. 导出 Trace\n\n在 Query 中选择 `Export Format`：\n\n- `Trace JSON`：TMA 原生 Trace 投影，适合程序分析和问题归档；\n- `Perfetto JSON`：可导入 Perfetto 查看时间轴；\n- `OTel JSON`：OpenTelemetry 风格数据，适合 Collector 或观测系统接入。\n\n操作：\n\n- `Preview Export`：将所选格式加载到 `Raw Export`；\n- `Download`：下载 JSON 文件，文件名为 `<session>-<turn>-<format>.json`。\n\nPerfetto 使用方式：\n\n1. 下载 `perfetto` 格式；\n2. 打开 `https://ui.perfetto.dev`；\n3. 选择 `Open trace file` 并导入下载的 JSON。\n\n也可以使用 CLI：\n\n```bash\nbin/tma trace show --session SESSION_ID --turn TURN_ID\n\nbin/tma trace export \\\n  --session SESSION_ID \\\n  --turn TURN_ID \\\n  --format perfetto \\\n  --output trace.json\n```\n\n## 11. Metrics 与 Exporters\n\n### 11.1 Metrics\n\n`Metrics` 面板展示 `/metrics?session_id=...&turn_id=...` 返回的 Prometheus 文本。可用于确认：\n\n- Trace、Span、工具和审批数量；\n- LLM Usage；\n- Exporter 是否启用及最近尝试状态；\n- 当前服务进程可见的 Worker 与运行时指标。\n\n### 11.2 Exporters\n\n`Exporters` 面板显示：\n\n- Sampling 是否启用及采样率；\n- 自动重试是否启用、最大次数和近期待重试数；\n- Perfetto 目的地和最近成功/失败/尝试；\n- OTLP HTTP 目的地、Token 是否已配置和最近状态；\n- 最近 5 条持久化 Exporter Run。\n\n`Retry due exporters` 只重试已到期且符合重试条件的失败任务，不会无条件重放所有导出。\n\n如果 Server 配置了 `TMA_WORKER_CONTROL_AUTH_TOKEN`，该重试 API 需要 Bearer Token，而当前 Inspector 页面不会附加控制面 Token。此时请使用 CLI：\n\n```bash\nbin/tma \\\n  --base-url http://localhost:8080 \\\n  --auth-token "$TMA_WORKER_CONTROL_AUTH_TOKEN" \\\n  observability retry\n```\n\n只读的 Exporter 状态仍可在 Inspector 中查看。\n\n## 12. 深链与分享\n\nInspector 会把当前定位同步到 URL Hash：\n\n```text\nhttp://localhost:8080/inspector#session=SESSION_ID&turn=TURN_ID&trace=TRACE_ID&span=SPAN_ID\n```\n\n支持参数：\n\n- `session`：Session ID；\n- `turn`：Turn ID；\n- `trace`：Trace ID；\n- `span`：Span ID。\n\n打开深链后，Inspector 优先按 Trace ID 加载；只有 Session 时加载指定或最新 Turn。单击 Waterfall/Span 会更新 `span` 参数，便于分享精确位置。\n\n分享前注意：\n\n- URL 本身不包含页面数据，但 ID 可能属于内部运行标识；\n- 接收者必须能访问同一个 TMA Server；\n- 不要把包含生产 Session ID 的链接发到公开渠道；\n- 页面没有冻结快照，后端数据变化后同一链接的展示也可能变化。\n\n## 13. 常见排查流程\n\n### 13.1 Turn 失败\n\n1. 加载 Session 和失败 Turn；\n2. 查看 Overview 的 Errors 和 Trace Summary；\n3. 在 Waterfall 中定位 error/failed Span；\n4. 查看 Span Events 和 Attributes；\n5. 在 Timeline 中找到对应 `runtime.tool_result` 或 `runtime.failed`；\n6. 查看 Recent Events 的完整 payload；\n7. 需要归档时下载 Trace JSON。\n\n### 13.2 Turn 一直运行\n\n1. 开启 5 秒自动刷新；\n2. 查看 Pending Approvals 是否有待处理调用；\n3. 查看 Timeline 最后一条事件；\n4. 检查关键路径上的 open Span；\n5. 查看 Context 是否正在 compacting；\n6. 检查 Worker、Server 日志和相关 Exporter/工具状态。\n\n### 13.3 工具调用很慢\n\n1. 在 Span Search 中选择 `tool` 并设置最小耗时；\n2. 打开命中结果；\n3. 对照 Waterfall 的关键路径；\n4. 查看工具来源是 MCP、Worker Plugin 还是 Builtin；\n5. 检查 Span Attributes、工具结果和外部依赖耗时。\n\n### 13.4 Token 使用异常\n\n1. 查看 Usage 的输入/输出 Token；\n2. 查看 Context Budget 的 message、tool schema 和 pinned context 分账；\n3. 检查 `context_truncated`；\n4. 查看 Context Coverage 是否有大量未汇总事件；\n5. 对照 Timeline 中上下文压缩事件。\n\n## 14. 常见问题\n\n### 页面无法打开\n\n检查：\n\n```bash\ncurl http://localhost:8080/health\ncurl -I http://localhost:8080/inspector\n```\n\n若服务未运行，执行 `make run` 或 `make server-start`。若修改过监听地址，使用实际的 `TMA_HTTP_ADDR` 对应端口。\n\n### 页面打开但没有 Recent Traces\n\n可能原因：\n\n- 数据库中还没有产生 Turn 事件；\n- 当前 Session/Turn 筛选条件没有命中；\n- 数据库迁移未完成；\n- Server 连接了另一套数据库。\n\n先点 `Clear`，再确认 `.env` 或 shell 中的 `TMA_DATABASE_URL`。\n\n### Load 后显示错误文本\n\n页面顶部状态会显示后端错误。常见原因包括 Session ID 不存在、Trace 尚未生成、数据库连接失败或接口返回非 2xx。结合浏览器 Network 面板和 `.tma-server.log` 排查。\n\n### 数据没有实时更新\n\nInspector 使用定时重新加载，不是 SSE 实时流。确认已勾选自动刷新且 Session ID 非空，或手动单击 `Load`。\n\n### Artifact 不能内联预览\n\n二进制格式不支持内联预览；文本大于 10,240 字符会截断。使用 `Download` 或 `Copy CLI` 获取完整文件。\n\n### Retry due exporters 返回 401\n\nServer 启用了控制面鉴权。当前 Inspector 不发送 Bearer Token，请使用带 `--auth-token` 的 `bin/tma observability retry`。\n\n### 某些面板显示 No data\n\nInspector 对 Usage、Summary、Artifacts、Events、Interventions、Metrics 和 Exporter Status 使用独立请求。某个面板无数据不一定代表整个 Trace 加载失败，也可能是该 Turn 没有产生对应记录或相关能力未启用。\n\n## 15. 安全与使用限制\n\n- Inspector 当前没有独立登录页或完整 RBAC；生产环境应由企业网关、VPN 或反向代理限制访问。\n- 页面可能展示工具参数、文件路径、提示词片段、事件 payload 和制品内容，应按内部敏感数据处理。\n- Approve/Reject 和 Exporter Retry 是写操作；共享屏幕或录屏时避免暴露敏感参数。\n- Inspector 的 Trace/Span 目录基于近期数据投影和索引，不应替代长期审计与告警系统。\n- Raw Export 和下载制品在离开 TMA 后不再受 TMA 访问边界保护，应存放在受控位置。\n\n## 16. 验证 Inspector\n\n静态页面与接口验收：\n\n```bash\nmake verify-inspector-ui\n```\n\n浏览器 Smoke Test：\n\n```bash\nmake verify-inspector-browser-smoke\n```\n\n第二个命令需要本机可用的 Chrome/Chromium 调试环境。两项验证都会构建 Inspector，并启动临时测试服务；详细失败原因可查看脚本输出和对应 `.verify-inspector-*.log`。\n\n更多接口和观测设计说明参见：\n\n- [Observability 设计与实现](./observability.md)\n- [API Reference](./api-reference.md)\n- [TMA Configuration](./configuration.md)\n';
+function isAbortError(error) {
+  return (error == null ? void 0 : error.name) === "AbortError";
+}
+function softFail(promise, fallback) {
+  return promise.catch((error) => {
+    if (isAbortError(error)) throw error;
+    return typeof fallback === "function" ? fallback(error) : fallback;
+  });
+}
+function mergeCounts(previous = {}, next = {}) {
+  const merged = { ...previous };
+  Object.entries(next).forEach(([key, value]) => {
+    merged[key] = Number(merged[key] || 0) + Number(value || 0);
+  });
+  return merged;
+}
 function inspectorHashParams() {
   return new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
 }
@@ -12785,6 +15898,141 @@ function Pill({ value }) {
 function Meta({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "meta", children });
 }
+function ManualDialog({ onClose }) {
+  const manualHTML = reactExports.useMemo(() => k.parse(inspectorManualMarkdown, { gfm: true }), []);
+  reactExports.useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "manual-backdrop", role: "presentation", onMouseDown: (event) => {
+    if (event.target === event.currentTarget) onClose();
+  }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "manual-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "manualTitle", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "manual-header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "manual-eyebrow", children: "TMA Inspector" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { id: "manualTitle", children: "用户使用手册" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary manual-close", type: "button", onClick: onClose, "aria-label": "关闭用户手册", title: "关闭用户手册", children: "Close" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("article", { className: "manual-body", dangerouslySetInnerHTML: { __html: manualHTML } })
+  ] }) });
+}
+function ToolSourceChip({ source }) {
+  const label = toolSourceLabel(source);
+  if (!label) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `source-chip ${String(source || "").trim().toLowerCase()}`, children: label });
+}
+function MCPDetails({ data }) {
+  const badges = mcpDiagnosticBadges(data);
+  const summary2 = mcpResultSummary(data);
+  if (!badges.length && !summary2) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-details-wrap", children: [
+    badges.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-details", children: badges.map((badge) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mcp-badge", children: badge }, badge)) }) : null,
+    summary2 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-result-card", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: summary2.title }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-result-facts", children: summary2.facts.map((fact) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: fact }, fact)) })
+    ] }) : null
+  ] });
+}
+function MCPProtocol({ operations }) {
+  if (!operations.length) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "mcpProtocol", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No MCP protocol operations loaded." }) });
+  const completed = operations.filter((operation) => operation.status === "completed").length;
+  const failed = operations.filter((operation) => operation.status === "failed").length;
+  const pending = operations.filter((operation) => operation.status === "pending").length;
+  const transports = Array.from(new Set(operations.map((operation) => operation.transport).filter(Boolean)));
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-protocol", id: "mcpProtocol", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-protocol-summary", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: operations.length }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "operations" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: completed }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "completed" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: failed }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "failed" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: pending }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "pending" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        "transports ",
+        transports.join(", ") || "unknown"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "payload values redacted" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-operation-list", children: operations.map((operation) => {
+      const toolName = [operation.identifier, operation.api_name].filter(Boolean).join(".") || "unpaired MCP operation";
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: `mcp-operation ${operation.status}`, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-operation-head", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-operation-method", children: operation.method }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: toolName })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: operation.status })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
+          operation.call_id ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "call ",
+            operation.call_id
+          ] }) : null,
+          operation.transport ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: operation.transport }) : null,
+          operation.protocol_version ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "protocol ",
+            operation.protocol_version
+          ] }) : null,
+          operation.duration_ms !== null ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatDuration(operation.duration_ms) }) : null
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-operation-lifecycle", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-operation-node", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Request" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: operation.request_seq ? `seq ${operation.request_seq}` : "not observed" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatTime(operation.request_time) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-operation-link", "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `mcp-operation-node ${operation.response_seq ? "observed" : "pending"}`, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Response" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: operation.response_seq ? `seq ${operation.response_seq}` : "pending" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatTime(operation.response_time) })
+          ] })
+        ] }),
+        operation.diagnostics.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-details", children: operation.diagnostics.map((badge) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mcp-badge", children: badge }, badge)) }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-operation-facts", children: [
+          operation.result_protocol ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "result ",
+            operation.result_protocol
+          ] }) : null,
+          operation.error_type ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "error ",
+            operation.error_type
+          ] }) : null,
+          operation.artifact_count ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            operation.artifact_count,
+            " artifact(s)"
+          ] }) : null,
+          operation.preview_truncated ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "preview truncated" }) : null
+        ] }),
+        operation.result_summary ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-result-card", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: operation.result_summary.title }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-result-facts", children: operation.result_summary.facts.map((fact) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: fact }, fact)) })
+        ] }) : null
+      ] }, operation.key);
+    }) })
+  ] });
+}
 function StatCard({ label, value, sub }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stat-card", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "stat-label", children: label }),
@@ -12793,7 +16041,9 @@ function StatCard({ label, value, sub }) {
   ] });
 }
 function App() {
+  var _a2;
   const [status, setStatus] = reactExports.useState("idle");
+  const [manualOpen, setManualOpen] = reactExports.useState(false);
   const [sessionID, setSessionID] = reactExports.useState("");
   const [traceID, setTraceID] = reactExports.useState("");
   const [turnID, setTurnID] = reactExports.useState("");
@@ -12820,7 +16070,11 @@ function App() {
   const [exporters, setExporters] = reactExports.useState(null);
   const [raw, setRaw] = reactExports.useState("No raw export loaded.");
   const [artifactPreview, setArtifactPreview] = reactExports.useState(null);
+  const [toolSourceFilter, setToolSourceFilter] = reactExports.useState("");
   const bootingFromHash = reactExports.useRef(false);
+  const loadRequestRef = reactExports.useRef(null);
+  const eventsRef = reactExports.useRef({ events: [] });
+  const eventsSessionIDRef = reactExports.useRef("");
   const spans = (currentTrace == null ? void 0 : currentTrace.spans) || [];
   const selectedSpan = reactExports.useMemo(
     () => spans.find((span) => span.span_id === selectedSpanID) || null,
@@ -12843,21 +16097,21 @@ function App() {
     setTraceID(trace2.trace_id || "");
     setTurnID(trace2.turn_id || "");
     setSelectedSpanID((previous) => {
-      var _a;
+      var _a3;
       if (previous && nextSpans.some((span) => span.span_id === previous)) return previous;
-      return ((_a = nextSpans[0]) == null ? void 0 : _a.span_id) || "";
+      return ((_a3 = nextSpans[0]) == null ? void 0 : _a3.span_id) || "";
     });
     setRaw(pretty(trace2));
   }, []);
-  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, offset = 0, append = false) {
-    const response = await traceCatalog({ limit: catalogPageSize, offset, session: nextSession, turn: nextTurn });
+  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false) {
+    const response = await traceCatalog({ limit: catalogPageSize, cursor, session: nextSession, turn: nextTurn });
     setTraceCatalog((previous) => append ? { ...response, traces: [...previous.traces || [], ...response.traces || []] } : response);
     return response;
   }
-  async function loadSpanCatalog(offset = 0, append = false) {
+  async function loadSpanCatalog(cursor = "", append = false) {
     const response = await spanCatalog({
       limit: catalogPageSize,
-      offset,
+      cursor,
       session: sessionID,
       turn: turnID,
       query: globalSpanQuery.trim(),
@@ -12866,7 +16120,13 @@ function App() {
       critical: globalSpanCritical.trim(),
       minDuration: globalSpanMinDuration.trim()
     });
-    setSpanCatalog((previous) => append ? { ...response, spans: [...previous.spans || [], ...response.spans || []] } : response);
+    setSpanCatalog((previous) => append ? {
+      ...response,
+      spans: [...previous.spans || [], ...response.spans || []],
+      kind_counts: mergeCounts(previous.kind_counts, response.kind_counts),
+      status_counts: mergeCounts(previous.status_counts, response.status_counts),
+      critical_counts: mergeCounts(previous.critical_counts, response.critical_counts)
+    } : response);
     return response;
   }
   async function filterCatalogs() {
@@ -12875,35 +16135,58 @@ function App() {
     await Promise.all([loadTraceCatalog(), loadSpanCatalog()]);
     setStatus(sessionID ? `filtered ${sessionID}` : "loaded recent catalogs");
   }
-  async function load(nextSession = sessionID, nextTurn = turnID) {
+  async function load(nextSession = sessionID, nextTurn = turnID, options = {}) {
     if (!nextSession) {
       setStatus("session required");
-      return;
+      return null;
     }
+    const mode = options.mode || "manual";
+    if (mode === "auto" && loadRequestRef.current) return null;
+    if (loadRequestRef.current) loadRequestRef.current.abort();
+    const controller = new AbortController();
+    loadRequestRef.current = controller;
+    const requestOptions2 = { signal: controller.signal };
+    const incrementalEvents = Boolean(options.incrementalEvents) && eventsSessionIDRef.current === nextSession;
+    const afterSeq = incrementalEvents ? highestEventSeq(eventsRef.current.events) : 0;
     setStatus(`loading ${nextSession}`);
-    const trace$1 = await trace(nextSession, nextTurn, "");
-    renderTrace(trace$1);
-    const requests = [
-      session(nextSession),
-      usage(nextSession).catch((error) => ({ error: String(error) })),
-      summary(nextSession).catch(() => ({ summary_text: "", source_until_seq: 0 })),
-      artifacts(nextSession).catch((error) => ({ artifacts: [], error: String(error) })),
-      events(nextSession).catch((error) => ({ events: [], error: String(error) })),
-      interventions(nextSession, "pending").catch((error) => ({ interventions: [], error: String(error) })),
-      metrics(nextSession, nextTurn).catch((error) => String(error)),
-      observabilityStatus().catch((error) => ({ error: String(error) }))
-    ];
-    const results = await Promise.all(requests);
-    setSessionMeta(results[0]);
-    setUsage(results[1]);
-    setSummary(results[2]);
-    setArtifacts(results[3]);
-    setEvents(results[4]);
-    setInterventions(results[5]);
-    setMetrics(results[6]);
-    setExporters(results[7]);
-    setStatus(`loaded ${nextSession} / ${trace$1.turn_id || "latest"}`);
-    setInspectorHash({ session: nextSession, turn: trace$1.turn_id || nextTurn, trace: trace$1.trace_id || "", span: "" });
+    try {
+      const trace$1 = await trace(nextSession, nextTurn, "", requestOptions2);
+      const requests = [
+        session(nextSession, requestOptions2),
+        softFail(usage(nextSession, requestOptions2), (error) => ({ error: String(error) })),
+        softFail(summary(nextSession, requestOptions2), { summary_text: "", source_until_seq: 0 }),
+        softFail(artifacts(nextSession, requestOptions2), (error) => ({ artifacts: [], error: String(error) })),
+        softFail(events(nextSession, afterSeq, requestOptions2), (error) => ({ events: [], error: String(error) })),
+        softFail(interventions(nextSession, "pending", requestOptions2), (error) => ({ interventions: [], error: String(error) })),
+        softFail(metrics(nextSession, nextTurn, requestOptions2), (error) => String(error)),
+        softFail(observabilityStatus(requestOptions2), (error) => ({ error: String(error) }))
+      ];
+      const results = await Promise.all(requests);
+      if (controller.signal.aborted || loadRequestRef.current !== controller) return null;
+      const nextEvents = incrementalEvents ? mergeEventResponses(eventsRef.current, results[4]) : results[4];
+      renderTrace(trace$1);
+      setSessionMeta(results[0]);
+      setUsage(results[1]);
+      setSummary(results[2]);
+      setArtifacts(results[3]);
+      setEvents(nextEvents);
+      eventsRef.current = nextEvents;
+      eventsSessionIDRef.current = nextSession;
+      setInterventions(results[5]);
+      setMetrics(results[6]);
+      setExporters(results[7]);
+      const terminal = isTerminalTurnStatus(trace$1.status);
+      if (terminal) setAutoRefresh(false);
+      const stopped = terminal && autoRefresh ? `; auto refresh stopped (${trace$1.status})` : "";
+      setStatus(`loaded ${nextSession} / ${trace$1.turn_id || "latest"}${stopped}`);
+      setInspectorHash({ session: nextSession, turn: trace$1.turn_id || nextTurn, trace: trace$1.trace_id || "", span: "" });
+      return trace$1;
+    } catch (error) {
+      if (isAbortError(error)) return null;
+      throw error;
+    } finally {
+      if (loadRequestRef.current === controller) loadRequestRef.current = null;
+    }
   }
   async function loadTraceByID(nextTraceID = traceID) {
     const value = String(nextTraceID || "").trim();
@@ -12911,6 +16194,7 @@ function App() {
       setStatus("trace id required");
       return;
     }
+    if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading trace ${value}`);
     const trace2 = await traceByID(value);
     setTraceID(trace2.trace_id || value);
@@ -12919,21 +16203,22 @@ function App() {
     await load(trace2.session_id || "", trace2.turn_id || "");
   }
   async function loadSpanByID(nextTraceID, nextSpanID) {
-    var _a, _b;
+    var _a3, _b2;
     const traceValue = String(nextTraceID || "").trim();
     const spanValue = String(nextSpanID || "").trim();
     if (!traceValue || !spanValue) {
       setStatus("trace id and span id required");
       return;
     }
+    if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading span ${spanValue}`);
     const detail = await spanByID(traceValue, spanValue);
-    setSelectedSpanID(((_a = detail.span) == null ? void 0 : _a.span_id) || spanValue);
+    setSelectedSpanID(((_a3 = detail.span) == null ? void 0 : _a3.span_id) || spanValue);
     setTraceID(detail.trace_id || traceValue);
     setSessionID(detail.session_id || "");
     setTurnID(detail.turn_id || "");
     await load(detail.session_id || "", detail.turn_id || "");
-    setStatus(`loaded span ${((_b = detail.span) == null ? void 0 : _b.span_id) || spanValue}`);
+    setStatus(`loaded span ${((_b2 = detail.span) == null ? void 0 : _b2.span_id) || spanValue}`);
   }
   async function exportTrace(download) {
     if (!sessionID) {
@@ -12956,10 +16241,10 @@ function App() {
     setStatus(`${download ? "downloaded" : "previewed"} ${format}`);
   }
   async function copyText(text) {
-    var _a;
+    var _a3;
     const value = String(text || "");
     if (!value) return;
-    if ((_a = navigator.clipboard) == null ? void 0 : _a.writeText) {
+    if ((_a3 = navigator.clipboard) == null ? void 0 : _a3.writeText) {
       await navigator.clipboard.writeText(value);
     } else {
       const input = document.createElement("textarea");
@@ -12971,11 +16256,11 @@ function App() {
     }
     setStatus("copied command");
   }
-  async function previewArtifact(href) {
+  async function previewArtifact(href, loadResponse) {
     const path = String(href || "");
     if (!path) return;
     setStatus("previewing artifact");
-    const response = await getBlob(path);
+    const response = await (loadResponse ? loadResponse() : getBlob(path));
     const contentType = (response.headers.get("Content-Type") || "").split(";")[0].trim();
     const length = response.headers.get("Content-Length") || "";
     const blob = await response.blob();
@@ -13067,11 +16352,26 @@ function App() {
   }, [bootInspectorFromHash]);
   reactExports.useEffect(() => {
     if (!autoRefresh) return void 0;
-    const handle = window.setInterval(() => {
-      if (sessionID) load().catch((error) => setStatus(error.message));
-    }, 5e3);
-    return () => window.clearInterval(handle);
-  }, [autoRefresh, sessionID, turnID]);
+    if (!sessionID || isTerminalTurnStatus(currentTrace == null ? void 0 : currentTrace.status)) return void 0;
+    const refresh = () => {
+      if (document.hidden) return;
+      load(sessionID, turnID, { mode: "auto", incrementalEvents: true }).catch((error) => setStatus(error.message));
+    };
+    const handle = window.setInterval(refresh, 5e3);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(handle);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [autoRefresh, sessionID, turnID, currentTrace == null ? void 0 : currentTrace.status]);
+  reactExports.useEffect(() => {
+    return () => {
+      if (loadRequestRef.current) loadRequestRef.current.abort();
+    };
+  }, []);
   reactExports.useEffect(() => {
     syncInspectorHash();
   }, [selectedSpanID]);
@@ -13086,19 +16386,44 @@ function App() {
     });
   }, [spanFilter, spanKind, spans]);
   const traceStats = (currentTrace == null ? void 0 : currentTrace.stats) || {};
+  const terminalTurn = isTerminalTurnStatus(currentTrace == null ? void 0 : currentTrace.status);
+  const toolSourceStats = reactExports.useMemo(() => collectToolSourceStats(events$1.events || []), [events$1]);
+  const mcpProtocolOperations = reactExports.useMemo(() => collectMCPProtocolOperations(events$1.events || []), [events$1]);
+  const filteredTimelineTrace = reactExports.useMemo(() => {
+    if (!toolSourceFilter) return currentTrace;
+    if (!currentTrace) return currentTrace;
+    const filteredSteps = (currentTrace.steps || []).filter((step) => {
+      var _a3;
+      return normalizeToolSource((_a3 = step == null ? void 0 : step.data) == null ? void 0 : _a3.tool_source) === toolSourceFilter;
+    });
+    return { ...currentTrace, steps: filteredSteps };
+  }, [currentTrace, toolSourceFilter]);
+  const filteredRecentEvents = reactExports.useMemo(() => {
+    const list = events$1.events || [];
+    if (!toolSourceFilter) return list;
+    return list.filter((event) => {
+      var _a3, _b2;
+      return normalizeToolSource((_b2 = (_a3 = event == null ? void 0 : event.payload) == null ? void 0 : _a3.data) == null ? void 0 : _b2.tool_source) === toolSourceFilter;
+    });
+  }, [events$1, toolSourceFilter]);
   const overviewCards = [
     { label: "Turn", value: (currentTrace == null ? void 0 : currentTrace.turn_id) || "-", sub: (currentTrace == null ? void 0 : currentTrace.status) || "running" },
     { label: "Duration", value: formatDuration(traceStats.duration_ms), sub: `${formatTime(traceStats.start_time)} -> ${formatTime(traceStats.end_time)}` },
     { label: "Steps", value: String(traceStats.step_count || 0), sub: "timeline events" },
     { label: "Spans", value: String(traceStats.span_count || 0), sub: "projected trace spans" },
     { label: "Tools", value: String(traceStats.tool_calls || 0), sub: `${traceStats.approval_waits || 0} approval waits` },
+    { label: "MCP", value: String(toolSourceStats.mcp || 0), sub: `${toolSourceStats.total || 0} sourced tool events` },
     { label: "Errors", value: String(traceStats.errors || 0), sub: `${traceStats.artifact_count || 0} artifacts` }
   ];
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "TMA Inspector" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "meta", id: "status", children: status })
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "header-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "meta", id: "status", children: status }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary manual-trigger", type: "button", onClick: () => setManualOpen(true), children: "用户手册" })
+      ] })
     ] }),
+    manualOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(ManualDialog, { onClose: () => setManualOpen(false) }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "layout", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Query", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toolbar", children: [
@@ -13127,7 +16452,7 @@ function App() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "otel", children: "OTel JSON" })
           ] }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "toggle", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", id: "autoRefresh", checked: autoRefresh, onChange: (event) => setAutoRefresh(event.target.checked) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", id: "autoRefresh", checked: autoRefresh, disabled: terminalTurn, onChange: (event) => setAutoRefresh(event.target.checked) }),
             "Auto refresh every 5s"
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", children: [
@@ -13145,7 +16470,7 @@ function App() {
           setSelectedSpanID("");
           setInspectorHash({ session: "", turn: "", trace: "", span: "" });
           filterCatalogs().catch((error) => setStatus(error.message));
-        }, hasMore: Boolean(traceCatalog$1.has_more), onMore: () => loadTraceCatalog(sessionID, turnID, traceCatalog$1.next_offset || (traceCatalog$1.traces || []).length, true).catch((error) => setStatus(error.message)), onLoadTrace: (id) => loadTraceByID(id).catch((error) => setStatus(error.message)) }),
+        }, hasMore: Boolean(traceCatalog$1.has_more), onMore: () => loadTraceCatalog(sessionID, turnID, traceCatalog$1.next_cursor || "", true).catch((error) => setStatus(error.message)), onLoadTrace: (id) => loadTraceByID(id).catch((error) => setStatus(error.message)) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           SpanSearch,
           {
@@ -13157,7 +16482,7 @@ function App() {
             response: spanCatalog$1,
             onChange: { setGlobalSpanQuery, setGlobalSpanKind, setGlobalSpanStatus, setGlobalSpanCritical, setGlobalSpanMinDuration },
             onSearch: () => loadSpanCatalog().catch((error) => setStatus(error.message)),
-            onMore: () => loadSpanCatalog(spanCatalog$1.next_offset || (spanCatalog$1.spans || []).length, true).catch((error) => setStatus(error.message)),
+            onMore: () => loadSpanCatalog(spanCatalog$1.next_cursor || "", true).catch((error) => setStatus(error.message)),
             onLoadSpan: (trace2, span) => loadSpanByID(trace2, span).catch((error) => setStatus(error.message))
           }
         ),
@@ -13178,6 +16503,31 @@ function App() {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Context Coverage", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ContextCoverage, { summary: summary$1, events: events$1 }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Context Budget", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ContextBudget, { trace: currentTrace, events: events$1 }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Tool Sources", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "coverage-grid", children: [
+            ["mcp", toolSourceStats.mcp],
+            ["worker_plugin", toolSourceStats.worker_plugin],
+            ["builtin", toolSourceStats.builtin],
+            ["other", toolSourceStats.other]
+          ].map(([label, value]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "coverage-card", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: label }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "coverage-value", children: value || 0 })
+          ] }, label)) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: toolSourceFilter === "" ? "" : "secondary", type: "button", onClick: () => setToolSourceFilter(""), children: "All" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: toolSourceFilter === "mcp" ? "" : "secondary", type: "button", onClick: () => setToolSourceFilter("mcp"), children: "MCP" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: toolSourceFilter === "worker_plugin" ? "" : "secondary", type: "button", onClick: () => setToolSourceFilter("worker_plugin"), children: "Worker Plugin" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: toolSourceFilter === "builtin" ? "" : "secondary", type: "button", onClick: () => setToolSourceFilter("builtin"), children: "Builtin" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+              "active filter ",
+              toolSourceFilter || "all"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: toolSourceFilter ? `${filteredRecentEvents.length} matching recent events` : `${((_a2 = events$1.events) == null ? void 0 : _a2.length) || 0} recent events` })
+          ] })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "MCP Protocol", children: /* @__PURE__ */ jsxRuntimeExports.jsx(MCPProtocol, { operations: mcpProtocolOperations }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Waterfall", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Waterfall, { trace: currentTrace, selectedSpanID, onSelect: (id) => setSelectedSpanID(id) }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Spans", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "span-controls", children: [
@@ -13194,11 +16544,11 @@ function App() {
           /* @__PURE__ */ jsxRuntimeExports.jsx(SpanDetail, { span: selectedSpan || filteredSpans[0] || spans[0], onSelect: (id) => setSelectedSpanID(id) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(SpansTable, { spans: filteredSpans, selectedSpanID, onSelect: (id) => setSelectedSpanID(id) })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Timeline", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Timeline, { trace: currentTrace, onPreview: previewArtifact, onCopy: copyText }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Timeline", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Timeline, { trace: filteredTimelineTrace, onPreview: previewArtifact, onCopy: copyText }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "triple", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Pending Approvals", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Interventions, { interventions: interventions$1.interventions || [], onApprove: approveIntervention$1, onReject: rejectIntervention$1 }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Artifacts", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Artifacts, { sessionID, artifacts: artifacts$1.artifacts || [], onPreview: previewArtifact, onCopy: copyText }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Recent Events", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RecentEvents, { events: events$1.events || [] }) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Recent Events", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RecentEvents, { events: filteredRecentEvents }) })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Artifact Preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreview, { preview: artifactPreview }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "triple", children: [
@@ -13421,24 +16771,24 @@ function ContextCoverage({ summary: summary2, events: events2 }) {
   ] });
 }
 function renderContextBudget(trace2, events2) {
-  var _a;
+  var _a2;
   const steps = (trace2 == null ? void 0 : trace2.steps) || [];
   const eventList = (events2 == null ? void 0 : events2.events) || [];
   const llmSteps = steps.filter((step) => {
-    var _a2;
-    return step.type === "runtime.llm_request" || step.type === "runtime.tool_result" || ((_a2 = step.data) == null ? void 0 : _a2.context_budget);
+    var _a3;
+    return step.type === "runtime.llm_request" || step.type === "runtime.tool_result" || ((_a3 = step.data) == null ? void 0 : _a3.context_budget);
   });
   const latest = [...llmSteps].reverse().find((step) => {
-    var _a2;
-    return (_a2 = step.data) == null ? void 0 : _a2.context_budget;
+    var _a3;
+    return (_a3 = step.data) == null ? void 0 : _a3.context_budget;
   }) || null;
-  const budget = ((_a = latest == null ? void 0 : latest.data) == null ? void 0 : _a.context_budget) || {};
+  const budget = ((_a2 = latest == null ? void 0 : latest.data) == null ? void 0 : _a2.context_budget) || {};
   const compactingEvents = eventList.filter((event) => event.type === "runtime.context_compacting" || event.type === "runtime.context_compacted" || event.type === "runtime.context_compaction_failed");
   const toolResultEvents = eventList.filter((event) => event.type === "runtime.tool_result");
   return { latest, budget, compactingEvents, toolResultEvents };
 }
 function ContextBudget({ trace: trace2, events: events2 }) {
-  var _a, _b, _c;
+  var _a2, _b2, _c;
   const { latest, budget, compactingEvents, toolResultEvents } = renderContextBudget(trace2, events2);
   const cards = [
     ["context_window_tokens", budget.context_window_tokens || 0],
@@ -13462,11 +16812,11 @@ function ContextBudget({ trace: trace2, events: events2 }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
         "pinned_context_included ",
-        String(Boolean((_a = latest.data) == null ? void 0 : _a.pinned_context_included))
+        String(Boolean((_a2 = latest.data) == null ? void 0 : _a2.pinned_context_included))
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
         "summary_included ",
-        String(Boolean((_b = latest.data) == null ? void 0 : _b.summary_included))
+        String(Boolean((_b2 = latest.data) == null ? void 0 : _b2.summary_included))
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
         "context_truncated ",
@@ -13632,11 +16982,11 @@ function SpansTable({ spans, selectedSpanID, onSelect }) {
     }) })
   ] }) });
 }
-function ArtifactActions({ href, command, onPreview, onCopy }) {
+function ArtifactActions({ href, command, onPreview, onPreviewRequest, onCopy }) {
   if (!href && !command) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", style: { marginTop: 6 }, children: [
     href ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", "data-preview": href, onClick: () => onPreview(href), children: "Preview" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", "data-preview": href, onClick: () => onPreviewRequest ? onPreviewRequest() : onPreview(href), children: "Preview" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "link", href, target: "_blank", rel: "noreferrer", children: "Download" })
     ] }) : null,
     command ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", "data-copy": command, onClick: () => onCopy(command), children: "Copy CLI" }) : null
@@ -13645,6 +16995,7 @@ function ArtifactActions({ href, command, onPreview, onCopy }) {
 function Timeline({ trace: trace2, onPreview, onCopy }) {
   const steps = (trace2 == null ? void 0 : trace2.steps) || [];
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "timeline", id: "timeline", children: steps.length ? steps.map((step) => {
+    var _a2;
     const truncated = step.content_truncated || step.state_truncated;
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: stepClass(step), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
@@ -13654,10 +17005,12 @@ function Timeline({ trace: trace2, onPreview, onCopy }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: step.type }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: step.identifier ? `${step.identifier}${step.api_name ? `.${step.api_name}` : ""}` : "" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ToolSourceChip, { source: (_a2 = step == null ? void 0 : step.data) == null ? void 0 : _a2.tool_source }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: step.outcome || "" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(step.created_at) })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginTop: 6 }, children: step.message || step.summary || "" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(MCPDetails, { data: step == null ? void 0 : step.data }),
       truncated ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", style: { marginTop: 6 }, children: [
         "tool result preview truncated",
         step.content_truncated ? `: ${step.visible_content_chars || 0}/${step.original_content_chars || 0} chars` : "",
@@ -13721,22 +17074,27 @@ function Artifacts({ sessionID, artifacts: artifacts2, onPreview, onCopy }) {
         "cli: ",
         command
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactActions, { href, command, onPreview, onCopy })
+      /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactActions, { href, command, onPreview, onPreviewRequest: () => onPreview(href, () => downloadArtifact(sessionID, artifact.id)), onCopy })
     ] }, artifact.id);
   }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No artifacts." }) });
 }
 function RecentEvents({ events: events2 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list", id: "events", children: events2.length ? events2.slice(-18).reverse().map((event) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "list-item", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-        "seq ",
-        event.seq
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list", id: "events", children: events2.length ? events2.slice(-18).reverse().map((event) => {
+    var _a2, _b2, _c;
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "list-item", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "seq ",
+          event.seq
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: event.type }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ToolSourceChip, { source: (_b2 = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data) == null ? void 0 : _b2.tool_source }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: event.type }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { style: { marginTop: 8 }, children: pretty(event.payload || {}) })
-  ] }, event.seq)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No events loaded." }) });
+      /* @__PURE__ */ jsxRuntimeExports.jsx(MCPDetails, { data: (_c = event == null ? void 0 : event.payload) == null ? void 0 : _c.data }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { style: { marginTop: 8 }, children: pretty(event.payload || {}) })
+    ] }, event.seq);
+  }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No events loaded." }) });
 }
 function ArtifactPreview({ preview }) {
   if (!preview) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "artifactPreview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "Select an artifact preview." }) });

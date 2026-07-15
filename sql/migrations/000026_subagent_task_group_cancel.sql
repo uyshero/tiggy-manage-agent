@@ -1,0 +1,3 @@
+ALTER TABLE subagent_task_groups
+  ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS cancel_reason TEXT NOT NULL DEFAULT '';

@@ -215,11 +215,19 @@ func (c *LocalFSClient) DeleteObject(ctx context.Context, input DeleteObjectInpu
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(objectPath); err != nil && !os.IsNotExist(err) {
+	removed := false
+	if err := os.Remove(objectPath); err == nil {
+		removed = true
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Remove(metaPath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(metaPath); err == nil {
+		removed = true
+	} else if !os.IsNotExist(err) {
 		return err
+	}
+	if !removed {
+		return ErrNotFound
 	}
 	return nil
 }

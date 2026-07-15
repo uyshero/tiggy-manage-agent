@@ -11,7 +11,7 @@ import (
 
 func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 	client := newTestAPIClient(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path != "/v1/sessions/sesn_1/trace" {
+		if request.URL.Path != "/v2/sessions/sesn_1/trace" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
 		return jsonResponse(`{
@@ -77,7 +77,7 @@ func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 func TestCommandTraceExportPrintsRawJSON(t *testing.T) {
 	clearOTLPEnv(t)
 	client := newTestAPIClient(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path != "/v1/sessions/sesn_1/trace" {
+		if request.URL.Path != "/v2/sessions/sesn_1/trace" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
 		if request.URL.Query().Get("format") != "perfetto" || request.URL.Query().Get("turn_id") != "turn_1" {

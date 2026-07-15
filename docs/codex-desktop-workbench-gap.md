@@ -8,8 +8,11 @@
 
 ```text
 Session
-  -> user.message
+  -> upload file -> object ref / session artifact
+  -> structured attachments -> user.message
   -> runner / AgentRuntime
+  -> /workspace/uploads/{artifact_id}/{filename}
+  -> read_file / run_command / execute_code
   -> event history
   -> approval
   -> artifact download
@@ -155,6 +158,19 @@ P1 的目标是把 Workbench 从聊天页面变成开发者工作台。
 - object refs
 - sandbox output files
 - local workspace selected path
+
+当前进度（2026-07-13）：
+
+- [x] Composer 支持附件按钮、拖放、多文件、移除、进度和失败重试。
+- [x] 上传文件持久化为 object ref + session artifact，不把二进制内容直接塞入 event payload。
+- [x] `user.message.payload.attachments` 保留 artifact id、object ref id、MIME、size 和 `workspace_path`。
+- [x] 云沙箱在 Agent 首次读取前同步文件到 `/workspace/uploads/{artifact_id}/{filename}`。
+- [x] `ContextBuilder` 向模型提供精确路径，Agent 可以用 `read_file` / `run_command` / `execute_code` 读取和分析。
+- [x] 用户消息恢复后可继续预览、下载附件。
+- [ ] 生成文件的 diff / review 及“再次加入上下文”仍需补齐。
+- [ ] `local_system` / device workspace 的用户上传落盘与路径语义需要单独设计；当前完整闭环以 `cloud_sandbox` 为准。
+
+格式边界：文本/代码/Markdown/JSON/CSV 可直接读取；PDF/Office/图像的内容提取依赖沙箱中已安装的命令、库或文档处理 Skill。文件上传成功只代表 Agent 可访问该文件，不代表运行时已内置所有格式的解析器。
 
 验收标准：
 

@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"net/http"
 )
 
 func commandObservability(client *apiClient, args []string) error {
@@ -14,8 +14,12 @@ func commandObservability(client *apiClient, args []string) error {
 		if len(args) != 1 {
 			return fmt.Errorf("observability status does not accept arguments")
 		}
-		var response any
-		if err := client.do(http.MethodGet, "/v1/observability/status", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Observability.Status(context.Background())
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -23,8 +27,25 @@ func commandObservability(client *apiClient, args []string) error {
 		if len(args) != 1 {
 			return fmt.Errorf("observability retry does not accept arguments")
 		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/observability/retry", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Observability.Retry(context.Background())
+		if err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "integrity-keys":
+		if len(args) != 1 {
+			return fmt.Errorf("observability integrity-keys does not accept arguments")
+		}
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Observability.IntegrityKeys(context.Background())
+		if err != nil {
 			return err
 		}
 		return printJSON(response)

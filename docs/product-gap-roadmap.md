@@ -2,6 +2,8 @@
 
 本文档记录 TMA 从当前 Agent Session / Event 骨架走向完整产品仍缺的关键模块。它不是排期承诺，而是帮助研发判断下一步先做什么、哪些抽象还不能过早固化。
 
+多 Agent 编排的最新状态、上线收尾和未来边界见 [agent-orchestration-status.md](./agent-orchestration-status.md)。durable workflow / DAG 当前不是交付范围。
+
 ## 当前真实位置
 
 已经跑通的主链路：
@@ -26,23 +28,24 @@ Agent / Environment / Session
 跨环境文件系统
 长期记忆
 多租户与权限
-调试与可观测
+生产治理与容量基线
 ```
 
 ## 差距总览
 
 | 模块 | 当前状态 | 主要缺口 | 依赖 |
 |---|---|---|---|
-| Tools | 有最小 `internal/tools` registry / executor | 工具版本、权限声明、schema 管理、错误回环、UI 展示 | Capability / Permissions / Sandbox |
+| Tools | 已有 registry / executor、schema、agent task group 工具 | 工具版本、细粒度权限和租户级发布治理 | Capability / Permissions / Sandbox |
 | Skills | Agent config 有 raw `skills` 字段 | skill 安装、选择、版本、注入、审计 | ContextBuilder / Plugin |
 | Memory | 有 session summary | 长期记忆、项目记忆、用户记忆、检索和遗忘策略 | Tenant / Permission / Object metadata |
 | Sandbox | `cloud_sandbox` 已落到 `OnlyboxesProvider`，按 Session 和 scope 创建并复用容器，支持空闲 TTL 与最大寿命回收 | sandbox doctor/preflight、镜像策略、网络策略、文件隔离、资源限制，以及跨 Server 的容器归属协调 | Capability / Object Store |
 | Multi-tenant | 有默认 org/workspace 数据 | 身份、成员、角色、租户隔离、配额 | Permission / Audit |
-| Permission | 有 `intervention_mode` | RBAC、policy engine、tool/file/sandbox 权限、审批审计 | Multi-tenant / Tools |
+| Permission | 有 `intervention_mode`、control token 和 operator audit | 多 principal RBAC、policy engine、tool/file/sandbox 权限 | Multi-tenant / Tools |
 | Object Storage | 部分实现 | S3 兼容对象存储、artifact、workspace snapshot、跨环境文件同步；下载必须走 TMA 代理 | Sandbox / File API / Permission |
 | Plugin | 规划中 | manifest、安装、启用、tool/skill/hook 汇聚 | Tools / Skills / Permission |
-| Inspector | 未实现 | trace、timeline、approval UI、context preview、artifact preview | Events / Observability |
-| Observability | 有设计文档和事件事实源 | `/trace`、span mapper、metrics/exporter | Events / Usage |
+| Inspector | 已有 trace、timeline、approval、artifact 和 Agent execution tree | RBAC 后的租户视图、生产查询性能和操作体验 | Events / Observability |
+| Observability | 已有 trace/span 投影、metrics、exporter 和 subagent events | 长期索引、采样治理和生产 dashboard | Events / Usage |
+| Multi-Agent | 已有持久化 queue、task group、nested lineage、retry/cancel、orphan reap 和 audit | 容量基线、预算治理、智能调度和 eval | Permission / Observability |
 
 ## 对象存储与跨环境文件系统
 
@@ -179,9 +182,11 @@ retention policy
 
 ## 当前下一步建议
 
-不要现在抽 SDK。
+对象存储、artifact metadata、tool result object refs 和持久化 Event/Turn 主链路已经形成闭环，当前开始固化 Go Core SDK。SDK 使用 `/v2` 用户与控制面契约，并首先由 CLI 消费；Worker 消费协议和 Workbench SDK 保持独立边界。
 
-优先做一件更基础的事：**对象存储 + artifact metadata + tool result object refs 的最小闭环设计**。
+后续新增核心运行语义必须先进入 Server 和 OpenAPI，再由 SDK 暴露；普通 Tool、Provider 和 App 扩展应复用现有通用协议，避免每个业务功能都修改三层。
+
+对象存储仍是以下能力的共同基础：
 
 这一步可以同时服务：
 

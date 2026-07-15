@@ -45,8 +45,16 @@ func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandReq
 		cmd.Dir = request.WorkDir
 	}
 	if len(request.Env) > 0 {
-		env := os.Environ()
+		env := append([]string(nil), os.Environ()...)
 		for key, value := range request.Env {
+			prefix := key + "="
+			filtered := env[:0]
+			for _, entry := range env {
+				if !strings.HasPrefix(entry, prefix) {
+					filtered = append(filtered, entry)
+				}
+			}
+			env = filtered
 			env = append(env, key+"="+value)
 		}
 		cmd.Env = env
@@ -112,6 +120,9 @@ func (LocalSystemProvider) ReadFile(_ context.Context, request ReadFileRequest) 
 }
 
 func (LocalSystemProvider) WriteFile(_ context.Context, request WriteFileRequest) (FileResult, error) {
+	if err := os.MkdirAll(filepath.Dir(request.Path), 0o755); err != nil {
+		return FileResult{}, err
+	}
 	if err := os.WriteFile(request.Path, request.Content, 0o644); err != nil {
 		return FileResult{}, err
 	}

@@ -1,18 +1,18 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
+
+	"tiggy-manage-agent/sdk/tma"
 )
 
 const defaultBaseURL = "http://localhost:8080"
@@ -33,12 +33,15 @@ func run(args []string) error {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	authToken := os.Getenv("TMA_WORKER_CONTROL_TOKEN")
+	authToken := os.Getenv("TMA_AUTH_TOKEN")
+	if authToken == "" {
+		authToken = os.Getenv("TMA_WORKER_CONTROL_TOKEN")
+	}
 
 	global := flag.NewFlagSet("tma", flag.ContinueOnError)
 	global.SetOutput(io.Discard)
 	global.StringVar(&baseURL, "base-url", baseURL, "TMA API base URL")
-	global.StringVar(&authToken, "auth-token", authToken, "control-plane bearer token")
+	global.StringVar(&authToken, "auth-token", authToken, "API bearer token")
 
 	if err := global.Parse(args); err != nil {
 		return err
@@ -55,10 +58,16 @@ func run(args []string) error {
 		http: &http.Client{
 			Timeout: 15 * time.Second,
 		},
-		streamHTTP: &http.Client{}, // SSE 是长连接，不能设置全局 Client.Timeout。
+		streamHTTP:  &http.Client{}, // SSE 是长连接，不能设置全局 Client.Timeout。
+		credentials: keyringCredentialStore{},
+	}
+	if client.authToken == "" {
+		client.tokenSource = (&keyringTokenSource{baseURL: client.baseURL, store: client.credentials, httpClient: client.http}).Token
 	}
 
 	switch remaining[0] {
+	case "auth":
+		return commandAuth(client, remaining[1:])
 	case "health":
 		return commandHealth(client, remaining[1:])
 	case "sandbox":
@@ -89,6 +98,10 @@ func run(args []string) error {
 		return commandTrace(client, remaining[1:])
 	case "observability":
 		return commandObservability(client, remaining[1:])
+	case "skill":
+		return commandSkill(client, remaining[1:])
+	case "marketplace":
+		return commandMarketplace(client, remaining[1:])
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -121,11 +134,15 @@ func commandProvider(client *apiClient, args []string) error {
 			return fmt.Errorf("provider list does not accept arguments")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/llm-providers", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		providers, err := sdk.LLM.ListProviders(context.Background())
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"providers": providers})
 	case "get":
 		flags := flag.NewFlagSet("provider get", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -139,11 +156,15 @@ func commandProvider(client *apiClient, args []string) error {
 			return fmt.Errorf("provider get requires --id")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/llm-providers/"+url.PathEscape(id), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		provider, err := sdk.LLM.GetProvider(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		return printJSON(provider)
 	case "create":
 		flags := flag.NewFlagSet("provider create", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -165,19 +186,18 @@ func commandProvider(client *apiClient, args []string) error {
 			return fmt.Errorf("provider create requires --id and --type")
 		}
 
-		request := map[string]any{
-			"id":            id,
-			"provider_type": providerType,
-			"base_url":      baseURL,
-			"api_key_env":   apiKeyEnv,
-			"enabled":       !disabled,
-		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/llm-providers", request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		enabled := !disabled
+		provider, err := sdk.LLM.CreateProvider(context.Background(), tma.CreateLLMProviderRequest{
+			ID: id, ProviderType: providerType, BaseURL: baseURL, APIKeyEnv: apiKeyEnv, Enabled: &enabled,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(provider)
 	case "update":
 		flags := flag.NewFlagSet("provider update", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -197,25 +217,32 @@ func commandProvider(client *apiClient, args []string) error {
 			return fmt.Errorf("provider update requires --id")
 		}
 
-		request := map[string]any{}
+		request := tma.UpdateLLMProviderRequest{}
 		if flagWasPassed(flags, "type") {
-			request["provider_type"] = providerType
+			request.ProviderType = &providerType
 		}
 		if flagWasPassed(flags, "base-url") {
-			request["base_url"] = baseURL
+			request.BaseURL = &baseURL
 		}
 		if flagWasPassed(flags, "api-key-env") {
-			request["api_key_env"] = apiKeyEnv
+			request.APIKeyEnv = &apiKeyEnv
 		}
-		if len(request) == 0 {
+		if request.ProviderType == nil && request.BaseURL == nil && request.APIKeyEnv == nil {
 			return fmt.Errorf("provider update requires at least one field flag")
 		}
-
-		var response any
-		if err := client.do(http.MethodPatch, "/v1/llm-providers/"+url.PathEscape(id), request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		current, err := sdk.LLM.GetProvider(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		provider, err := sdk.LLM.UpdateProvider(context.Background(), id, current.Revision, request)
+		if err != nil {
+			return err
+		}
+		return printJSON(provider)
 	case "enable", "disable":
 		flags := flag.NewFlagSet("provider "+args[0], flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -229,12 +256,19 @@ func commandProvider(client *apiClient, args []string) error {
 			return fmt.Errorf("provider %s requires --id", args[0])
 		}
 
-		var response any
-		path := "/v1/llm-providers/" + url.PathEscape(id) + "/" + args[0]
-		if err := client.do(http.MethodPost, path, map[string]any{}, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		current, err := sdk.LLM.GetProvider(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		provider, err := sdk.LLM.SetProviderEnabled(context.Background(), id, current.Revision, args[0] == "enable")
+		if err != nil {
+			return err
+		}
+		return printJSON(provider)
 	default:
 		return fmt.Errorf("unknown provider subcommand %q", args[0])
 	}
@@ -256,15 +290,15 @@ func commandModel(client *apiClient, args []string) error {
 			return err
 		}
 
-		path := "/v1/llm-models"
-		if providerID != "" {
-			path += "?provider_id=" + url.QueryEscape(providerID)
-		}
-		var response any
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		models, err := sdk.LLM.ListModels(context.Background(), providerID)
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"models": models})
 	case "upsert":
 		flags := flag.NewFlagSet("model upsert", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -282,18 +316,36 @@ func commandModel(client *apiClient, args []string) error {
 			return fmt.Errorf("model upsert requires --provider and --model")
 		}
 
-		request := map[string]any{
-			"provider_id": providerID,
-			"model":       model,
-		}
-		if contextWindow > 0 {
-			request["context_window_tokens"] = contextWindow
-		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/llm-models", request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		models, err := sdk.LLM.ListModels(context.Background(), providerID)
+		if err != nil {
+			return err
+		}
+		request := tma.PutLLMModelRequest{ProviderID: providerID, Model: model, ContextWindowTokens: contextWindow}
+		for _, existing := range models {
+			if existing.Model != model {
+				continue
+			}
+			if request.ContextWindowTokens == 0 {
+				request.ContextWindowTokens = existing.ContextWindowTokens
+			}
+			request.CapabilityType = existing.CapabilityType
+			isDefaultVision := existing.IsDefaultVision
+			request.IsDefaultVision = &isDefaultVision
+			updated, updateErr := sdk.LLM.UpdateModel(context.Background(), existing.Revision, request)
+			if updateErr != nil {
+				return updateErr
+			}
+			return printJSON(updated)
+		}
+		created, err := sdk.LLM.CreateModel(context.Background(), request)
+		if err != nil {
+			return err
+		}
+		return printJSON(created)
 	default:
 		return fmt.Errorf("unknown model subcommand %q", args[0])
 	}
@@ -330,20 +382,17 @@ func commandAgent(client *apiClient, args []string) error {
 			return fmt.Errorf("agent create requires --name and --model (or --llm-model)")
 		}
 
-		request := map[string]string{
-			"name":         name,
-			"llm_provider": llmProvider,
-			"llm_model":    llmModel,
-			"model":        model,
-			"system":       system,
-		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/agents", request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-
-		return printJSON(response)
+		agent, err := sdk.Agents.Create(context.Background(), tma.CreateAgentRequest{
+			Name: name, LLMProvider: llmProvider, LLMModel: llmModel, Model: model, System: system,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(agent)
 	case "get":
 		flags := flag.NewFlagSet("agent get", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -357,11 +406,78 @@ func commandAgent(client *apiClient, args []string) error {
 			return fmt.Errorf("agent get requires --id")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(id), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		agent, err := sdk.Agents.Get(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		return printJSON(agent)
+	case "export":
+		flags := flag.NewFlagSet("agent export", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var id string
+		var outputPath string
+		flags.StringVar(&id, "id", "", "agent id")
+		flags.StringVar(&outputPath, "output", "", "write portable agent JSON to file")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if id == "" {
+			return fmt.Errorf("agent export requires --id")
+		}
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		document, err := sdk.Agents.Export(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(outputPath) != "" {
+			return writeJSONFile(outputPath, document)
+		}
+		return printJSON(document)
+	case "import":
+		flags := flag.NewFlagSet("agent import", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var inputPath string
+		var name string
+		var workspaceID string
+		flags.StringVar(&inputPath, "file", "", "portable agent JSON file")
+		flags.StringVar(&name, "name", "", "override imported agent name")
+		flags.StringVar(&workspaceID, "workspace", "", "target workspace id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if strings.TrimSpace(inputPath) == "" {
+			return fmt.Errorf("agent import requires --file")
+		}
+		raw, err := os.ReadFile(inputPath)
+		if err != nil {
+			return fmt.Errorf("read agent import file: %w", err)
+		}
+		var document tma.AgentExportDocument
+		if err := json.Unmarshal(raw, &document); err != nil {
+			return fmt.Errorf("decode agent import file: %w", err)
+		}
+		if document.Format == "" || document.SchemaVersion <= 0 || document.Agent.Name == "" {
+			return fmt.Errorf("agent import file is not a portable agent document")
+		}
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		agent, err := sdk.Agents.Import(context.Background(), tma.AgentImportRequest{
+			Format: document.Format, SchemaVersion: document.SchemaVersion,
+			WorkspaceID: workspaceID, Name: name, Agent: document.Agent,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(agent)
 	case "config":
 		return commandAgentConfig(client, args[1:])
 	default:
@@ -388,11 +504,15 @@ func commandAgentConfig(client *apiClient, args []string) error {
 			return fmt.Errorf("agent config list requires --agent")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(agentID)+"/config-versions", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		versions, err := sdk.Agents.ListConfigVersions(context.Background(), agentID)
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"config_versions": versions})
 	case "update":
 		flags := flag.NewFlagSet("agent config update", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -403,12 +523,14 @@ func commandAgentConfig(client *apiClient, args []string) error {
 		var model string
 		var system string
 		var toolsConfig string
+		var mcpConfig string
 		flags.StringVar(&agentID, "agent", "", "agent id")
 		flags.StringVar(&llmProvider, "llm-provider", "", "llm provider id")
 		flags.StringVar(&llmModel, "llm-model", "", "llm model id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.StringVar(&system, "system", "", "system prompt")
 		flags.StringVar(&toolsConfig, "tools", "", "tools config JSON")
+		flags.StringVar(&mcpConfig, "mcp", "", "mcp config JSON")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -416,18 +538,18 @@ func commandAgentConfig(client *apiClient, args []string) error {
 			return fmt.Errorf("agent config update requires --agent")
 		}
 
-		request := map[string]any{}
+		request := tma.CreateAgentConfigVersionRequest{}
 		if flagWasPassed(flags, "llm-provider") {
-			request["llm_provider"] = llmProvider
+			request.LLMProvider = &llmProvider
 		}
 		if flagWasPassed(flags, "llm-model") {
-			request["llm_model"] = llmModel
+			request.LLMModel = &llmModel
 		}
 		if flagWasPassed(flags, "model") {
-			request["model"] = model
+			request.Model = &model
 		}
 		if flagWasPassed(flags, "system") {
-			request["system"] = system
+			request.System = &system
 		}
 		if flagWasPassed(flags, "tools") {
 			rawTools, err := parseOptionalJSONObjectFlag(toolsConfig, "tools")
@@ -437,18 +559,30 @@ func commandAgentConfig(client *apiClient, args []string) error {
 			if rawTools == nil {
 				return fmt.Errorf("agent config update --tools requires a JSON object")
 			}
-			request["tools"] = rawTools
+			request.Tools = &rawTools
 		}
-		if len(request) == 0 {
+		if flagWasPassed(flags, "mcp") {
+			rawMCP, err := parseOptionalJSONObjectFlag(mcpConfig, "mcp")
+			if err != nil {
+				return err
+			}
+			if rawMCP == nil {
+				return fmt.Errorf("agent config update --mcp requires a JSON object")
+			}
+			request.MCP = &rawMCP
+		}
+		if request.LLMProvider == nil && request.LLMModel == nil && request.Model == nil && request.System == nil && request.Tools == nil && request.MCP == nil {
 			return fmt.Errorf("agent config update requires at least one field flag")
 		}
-
-		var response any
-		path := "/v1/agents/" + url.PathEscape(agentID) + "/config-versions"
-		if err := client.do(http.MethodPost, path, request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		agent, err := sdk.Agents.CreateConfigVersion(context.Background(), agentID, request)
+		if err != nil {
+			return err
+		}
+		return printJSON(agent)
 	default:
 		return fmt.Errorf("unknown agent config subcommand %q", args[0])
 	}
@@ -481,17 +615,15 @@ func commandEnvironment(client *apiClient, args []string) error {
 			return fmt.Errorf("invalid --config JSON: %w", err)
 		}
 
-		request := map[string]any{
-			"name":   name,
-			"config": rawConfig,
-		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/environments", request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-
-		return printJSON(response)
+		environment, err := sdk.Environments.Create(context.Background(), tma.CreateEnvironmentRequest{Name: name, Config: rawConfig})
+		if err != nil {
+			return err
+		}
+		return printJSON(environment)
 	default:
 		return fmt.Errorf("unknown env subcommand %q", args[0])
 	}
@@ -521,14 +653,14 @@ func commandSession(client *apiClient, args []string) error {
 			return fmt.Errorf("session create requires --agent and --env")
 		}
 
-		request := map[string]string{
-			"agent_id":       agentID,
-			"environment_id": environmentID,
-			"title":          title,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/sessions", request, &response); err != nil {
+		response, err := sdk.Sessions.Create(context.Background(), tma.CreateSessionRequest{
+			AgentID: agentID, EnvironmentID: environmentID, Title: title,
+		})
+		if err != nil {
 			return err
 		}
 
@@ -547,8 +679,12 @@ func commandSession(client *apiClient, args []string) error {
 			return fmt.Errorf("session get requires --session")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.Get(context.Background(), sessionID)
+		if err != nil {
 			return err
 		}
 
@@ -567,8 +703,12 @@ func commandSession(client *apiClient, args []string) error {
 			return fmt.Errorf("session archive requires --session")
 		}
 
-		var response any
-		if err := client.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/archive", map[string]any{}, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.Archive(context.Background(), sessionID)
+		if err != nil {
 			return err
 		}
 
@@ -587,12 +727,38 @@ func commandSession(client *apiClient, args []string) error {
 			return fmt.Errorf("session delete requires --session")
 		}
 
-		if err := client.do(http.MethodDelete, "/v1/sessions/"+url.PathEscape(sessionID), nil, nil); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		if err := sdk.Sessions.Delete(context.Background(), sessionID); err != nil {
 			return err
 		}
 
 		fmt.Printf("deleted session %s\n", sessionID)
 		return nil
+	case "compare":
+		flags := flag.NewFlagSet("session compare", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var leftSessionID string
+		var rightSessionID string
+		flags.StringVar(&leftSessionID, "left", "", "left session id")
+		flags.StringVar(&rightSessionID, "right", "", "right session id")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if leftSessionID == "" || rightSessionID == "" {
+			return fmt.Errorf("session compare requires --left and --right")
+		}
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		comparison, err := sdk.Sessions.Compare(context.Background(), leftSessionID, rightSessionID)
+		if err != nil {
+			return err
+		}
+		return printJSON(comparison)
 	case "runtime":
 		return commandSessionRuntime(client, args[1:])
 	case "config":
@@ -621,9 +787,11 @@ func commandSessionConfig(client *apiClient, args []string) error {
 
 		var sessionID string
 		var toCurrent bool
+		var toVersion int
 		var updatedBy string
 		flags.StringVar(&sessionID, "session", "", "session id")
 		flags.BoolVar(&toCurrent, "to-current", false, "upgrade session to agent current config version")
+		flags.IntVar(&toVersion, "to-version", 0, "upgrade session to an exact agent config version")
 		flags.StringVar(&updatedBy, "updated-by", "", "updater id")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -631,14 +799,21 @@ func commandSessionConfig(client *apiClient, args []string) error {
 		if sessionID == "" {
 			return fmt.Errorf("session config upgrade requires --session")
 		}
-		if !toCurrent {
-			return fmt.Errorf("session config upgrade requires --to-current")
+		if toCurrent == (toVersion > 0) {
+			return fmt.Errorf("session config upgrade requires exactly one of --to-current or --to-version")
 		}
-		request := map[string]any{"to_current": true}
-		setStringIfNotEmpty(request, "updated_by", updatedBy)
-		var response any
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/config/upgrade"
-		if err := client.do(http.MethodPost, path, request, &response); err != nil {
+		request := tma.UpgradeSessionConfigRequest{UpdatedBy: updatedBy}
+		if toCurrent {
+			request.ToCurrent = &toCurrent
+		} else {
+			request.ToVersion = toVersion
+		}
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.UpgradeConfig(context.Background(), sessionID, request)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -666,10 +841,12 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 			return fmt.Errorf("session runtime get requires --session")
 		}
 
-		var response struct {
-			RuntimeSettings json.RawMessage `json:"runtime_settings"`
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &response); err != nil {
+		response, err := sdk.Sessions.Get(context.Background(), sessionID)
+		if err != nil {
 			return err
 		}
 		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
@@ -686,7 +863,7 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 		flags.StringVar(&sessionID, "session", "", "session id")
 		flags.StringVar(&interventionMode, "intervention-mode", "", "request_approval | approve_for_me | full_access")
 		flags.StringVar(&toolRuntime, "tool-runtime", "", "auto | cloud_sandbox | local_system")
-		flags.StringVar(&cloudSandboxRoot, "cloud-sandbox-root", "", "workspace root path for cloud_sandbox runtime")
+		flags.StringVar(&cloudSandboxRoot, "cloud-sandbox-root", "", "isolated workspace base path for cloud_sandbox runtime")
 		flags.StringVar(&cloudSandboxImage, "cloud-sandbox-image", "", "Onlyboxes image for cloud_sandbox runtime")
 		flags.BoolVar(&cloudSandboxAllowNetwork, "cloud-sandbox-allow-network", false, "allow full outbound network access for cloud_sandbox")
 		if err := flags.Parse(args[1:]); err != nil {
@@ -699,35 +876,36 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 			return fmt.Errorf("session runtime update requires at least one runtime setting flag")
 		}
 
-		request := map[string]any{}
+		request := tma.UpdateSessionRuntimeSettingsRequest{}
 		if interventionMode != "" {
 			mode, ok := normalizeInterventionModeArg(interventionMode)
 			if !ok {
 				return fmt.Errorf("unsupported intervention mode %q", interventionMode)
 			}
-			request["intervention_mode"] = mode
+			request.InterventionMode = &mode
 		}
 		if toolRuntime != "" {
 			mode, ok := normalizeToolRuntimeArg(toolRuntime)
 			if !ok {
 				return fmt.Errorf("unsupported tool runtime %q", toolRuntime)
 			}
-			request["tool_runtime"] = mode
+			request.ToolRuntime = &mode
 		}
 		if cloudSandboxRoot != "" {
-			request["cloud_sandbox_root"] = cloudSandboxRoot
+			request.CloudSandboxRoot = &cloudSandboxRoot
 		}
 		if cloudSandboxImage != "" {
-			request["cloud_sandbox_image"] = cloudSandboxImage
+			request.CloudSandboxImage = &cloudSandboxImage
 		}
 		if flagWasPassed(flags, "cloud-sandbox-allow-network") {
-			request["cloud_sandbox_allow_network"] = cloudSandboxAllowNetwork
+			request.AllowNetwork = &cloudSandboxAllowNetwork
 		}
-
-		var response struct {
-			RuntimeSettings json.RawMessage `json:"runtime_settings"`
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		if err := client.do(http.MethodPatch, "/v1/sessions/"+url.PathEscape(sessionID)+"/runtime-settings", request, &response); err != nil {
+		response, err := sdk.Sessions.UpdateRuntimeSettings(context.Background(), sessionID, request)
+		if err != nil {
 			return err
 		}
 		return printRawJSON(defaultJSONObject(response.RuntimeSettings))
@@ -757,20 +935,15 @@ func commandSessionIntervention(client *apiClient, args []string) error {
 			return fmt.Errorf("session intervention list requires --session")
 		}
 
-		query := url.Values{}
-		if status != "" {
-			query.Set("status", status)
-		}
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions"
-		if encoded := query.Encode(); encoded != "" {
-			path += "?" + encoded
-		}
-
-		var response any
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		interventions, err := sdk.Interventions.List(context.Background(), sessionID, status)
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"interventions": interventions})
 	case "approve", "reject":
 		flags := flag.NewFlagSet("session intervention "+args[0], flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -790,9 +963,12 @@ func commandSessionIntervention(client *apiClient, args []string) error {
 			return fmt.Errorf("session intervention %s requires --session, --turn, and --call", args[0])
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions/" + url.PathEscape(turnID) + "/" + url.PathEscape(callID) + "/" + args[0]
-		var response any
-		if err := client.do(http.MethodPost, path, map[string]any{"reason": reason}, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Interventions.DecideResult(context.Background(), sessionID, turnID, callID, args[0], reason)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -820,8 +996,12 @@ func commandSessionSummary(client *apiClient, args []string) error {
 			return fmt.Errorf("session summary get requires --session")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/summary", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.GetSummary(context.Background(), sessionID)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -842,12 +1022,14 @@ func commandSessionSummary(client *apiClient, args []string) error {
 			return fmt.Errorf("session summary upsert requires --session and --text")
 		}
 
-		request := map[string]any{
-			"summary_text":     text,
-			"source_until_seq": untilSeq,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		var response any
-		if err := client.do(http.MethodPut, "/v1/sessions/"+url.PathEscape(sessionID)+"/summary", request, &response); err != nil {
+		response, err := sdk.Sessions.UpsertSummary(context.Background(), sessionID, tma.UpsertSessionSummaryRequest{
+			SummaryText: text, SourceUntilSeq: untilSeq,
+		})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -876,8 +1058,12 @@ func commandUsage(client *apiClient, args []string) error {
 			return fmt.Errorf("usage list requires --session")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID)+"/usage", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.Usage(context.Background(), sessionID)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -904,38 +1090,32 @@ func commandUsage(client *apiClient, args []string) error {
 			return err
 		}
 
-		query := url.Values{}
-		if workspaceID != "" {
-			query.Set("workspace_id", workspaceID)
-		}
-		if providerID != "" {
-			query.Set("provider_id", providerID)
-		}
-		if model != "" {
-			query.Set("model", model)
-		}
-		if status != "" {
-			query.Set("status", status)
-		}
-		if groupBy != "" {
-			query.Set("group_by", groupBy)
+		query := tma.LLMUsageQuery{
+			WorkspaceID: workspaceID, ProviderID: providerID, Model: model, Status: status, GroupBy: groupBy,
 		}
 		if from != "" {
-			query.Set("from", from)
+			parsed, err := time.Parse(time.RFC3339, from)
+			if err != nil {
+				return fmt.Errorf("invalid --from RFC3339 time: %w", err)
+			}
+			query.From = &parsed
 		}
 		if to != "" {
-			query.Set("to", to)
+			parsed, err := time.Parse(time.RFC3339, to)
+			if err != nil {
+				return fmt.Errorf("invalid --to RFC3339 time: %w", err)
+			}
+			query.To = &parsed
 		}
-
-		path := "/v1/llm-usage"
-		if encoded := query.Encode(); encoded != "" {
-			path += "?" + encoded
-		}
-		var response any
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
-		return printJSON(response)
+		report, err := sdk.LLM.Usage(context.Background(), query)
+		if err != nil {
+			return err
+		}
+		return printJSON(report)
 	default:
 		return fmt.Errorf("unknown usage subcommand %q", args[0])
 	}
@@ -975,14 +1155,18 @@ func commandEvent(client *apiClient, args []string) error {
 			}
 		}
 
-		request := map[string]any{
-			"events": []map[string]any{
-				{"type": eventType, "payload": payload},
-			},
+		encodedPayload, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode event payload: %w", err)
 		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/events", request, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.AppendEvents(context.Background(), sessionID, tma.AppendEventsRequest{Events: []tma.AppendEvent{{
+			Type: eventType, Payload: encodedPayload,
+		}}})
+		if err != nil {
 			return err
 		}
 
@@ -1003,17 +1187,16 @@ func commandEvent(client *apiClient, args []string) error {
 			return fmt.Errorf("event list requires --session")
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events"
-		if afterSeq > 0 {
-			path += "?after_seq=" + strconv.FormatInt(afterSeq, 10)
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-
-		var response any
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		events, err := sdk.Sessions.ListEvents(context.Background(), sessionID, afterSeq)
+		if err != nil {
 			return err
 		}
 
-		return printJSON(response)
+		return printJSON(map[string]any{"events": events})
 	case "stream":
 		flags := flag.NewFlagSet("event stream", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -1030,12 +1213,7 @@ func commandEvent(client *apiClient, args []string) error {
 			return fmt.Errorf("event stream requires --session")
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events/stream"
-		if afterSeq > 0 {
-			path += "?after_seq=" + strconv.FormatInt(afterSeq, 10)
-		}
-
-		return client.stream(path, os.Stdout)
+		return client.streamSessionEvents(context.Background(), sessionID, afterSeq, os.Stdout)
 	case "interrupt":
 		flags := flag.NewFlagSet("event interrupt", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -1050,14 +1228,12 @@ func commandEvent(client *apiClient, args []string) error {
 			return fmt.Errorf("event interrupt requires --session")
 		}
 
-		request := map[string]any{
-			"events": []map[string]any{
-				{"type": "user.interrupt"},
-			},
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/events", request, &response); err != nil {
+		response, err := sdk.Sessions.AppendEvents(context.Background(), sessionID, tma.AppendEventsRequest{Events: []tma.AppendEvent{{Type: "user.interrupt"}}})
+		if err != nil {
 			return err
 		}
 
@@ -1068,122 +1244,96 @@ func commandEvent(client *apiClient, args []string) error {
 }
 
 type apiClient struct {
-	baseURL    string
-	authToken  string
-	http       *http.Client
-	streamHTTP *http.Client
+	baseURL     string
+	authToken   string
+	http        *http.Client
+	streamHTTP  *http.Client
+	sdk         *tma.Client
+	credentials credentialStore
+	tokenSource tma.TokenSource
 }
 
 func (c *apiClient) do(method, path string, requestBody any, responseBody any) error {
-	var body io.Reader
-	if requestBody != nil {
-		encoded, err := json.Marshal(requestBody)
-		if err != nil {
-			return fmt.Errorf("encode request: %w", err)
-		}
-		body = bytes.NewReader(encoded)
-	}
-
-	request, err := http.NewRequest(method, c.baseURL+path, body)
+	sdk, err := c.sdkClient()
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return err
 	}
-	if requestBody != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	if c.authToken != "" {
-		request.Header.Set("Authorization", "Bearer "+c.authToken)
-	}
-
-	response, err := c.http.Do(request)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer response.Body.Close()
-
-	responseBytes, err := io.ReadAll(response.Body)
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		if responseBody != nil && len(responseBytes) > 0 {
-			_ = json.Unmarshal(responseBytes, responseBody)
-		}
-		return fmt.Errorf("%s %s returned %s: %s", method, path, response.Status, strings.TrimSpace(string(responseBytes)))
-	}
-
-	if responseBody == nil {
-		return nil
-	}
-	if len(responseBytes) == 0 {
-		return nil
-	}
-
-	if err := json.Unmarshal(responseBytes, responseBody); err != nil {
-		return fmt.Errorf("decode response: %w", err)
-	}
-
-	return nil
+	return sdk.DoJSON(context.Background(), method, sdkAPIPath(method, path), requestBody, responseBody)
 }
 
 func (c *apiClient) download(path string, output io.Writer) error {
-	request, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	if c.authToken != "" {
-		request.Header.Set("Authorization", "Bearer "+c.authToken)
-	}
-
-	response, err := c.http.Do(request)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		responseBytes, readErr := io.ReadAll(response.Body)
-		if readErr != nil {
-			return fmt.Errorf("read error response: %w", readErr)
-		}
-		return fmt.Errorf("GET %s returned %s: %s", path, response.Status, strings.TrimSpace(string(responseBytes)))
-	}
-
 	if output == nil {
 		output = os.Stdout
 	}
-	if _, err := io.Copy(output, response.Body); err != nil {
-		return fmt.Errorf("copy download response: %w", err)
+	sdk, err := c.sdkClient()
+	if err != nil {
+		return err
 	}
-	return nil
+	return sdk.Download(context.Background(), sdkAPIPath(http.MethodGet, path), output)
 }
 
-func (c *apiClient) stream(path string, output io.Writer) error {
-	request, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
+func (c *apiClient) streamSessionEvents(ctx context.Context, sessionID string, afterSeq int64, output io.Writer) error {
+	sdk, err := c.sdkClient()
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return err
 	}
-	request.Header.Set("Accept", "text/event-stream")
+	stream, err := sdk.Sessions.Events(ctx, sessionID, afterSeq)
+	if err != nil {
+		return err
+	}
+	defer stream.Close()
+	return streamSDKEvents(ctx, stream, output, nil)
+}
+
+func (c *apiClient) sdkClient() (*tma.Client, error) {
+	if c.sdk != nil {
+		return c.sdk, nil
+	}
+	options := []tma.Option{}
 	if c.authToken != "" {
-		request.Header.Set("Authorization", "Bearer "+c.authToken)
+		options = append(options, tma.WithBearerToken(c.authToken))
+	} else if c.tokenSource != nil {
+		options = append(options, tma.WithTokenSource(c.tokenSource))
 	}
-
-	response, err := c.streamHTTP.Do(request)
+	if c.http != nil {
+		options = append(options, tma.WithHTTPClient(c.http))
+	}
+	if c.streamHTTP != nil {
+		options = append(options, tma.WithStreamHTTPClient(c.streamHTTP))
+	}
+	client, err := tma.NewClient(c.baseURL, options...)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return nil, err
 	}
-	defer response.Body.Close()
+	c.sdk = client
+	return client, nil
+}
 
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		responseBytes, readErr := io.ReadAll(response.Body)
-		if readErr != nil {
-			return fmt.Errorf("read error response: %w", readErr)
-		}
-		return fmt.Errorf("GET %s returned %s: %s", path, response.Status, strings.TrimSpace(string(responseBytes)))
+func (c *apiClient) unauthenticatedSDKClient() (*tma.Client, error) {
+	options := []tma.Option{}
+	if c.http != nil {
+		options = append(options, tma.WithHTTPClient(c.http))
 	}
+	if c.streamHTTP != nil {
+		options = append(options, tma.WithStreamHTTPClient(c.streamHTTP))
+	}
+	return tma.NewClient(c.baseURL, options...)
+}
 
-	return streamSSE(response.Body, output)
+func sdkAPIPath(method string, path string) string {
+	if !strings.HasPrefix(path, "/v1/") {
+		return path
+	}
+	if method == http.MethodPost && path == "/v1/workers" {
+		return path
+	}
+	if method == http.MethodPost && strings.HasPrefix(path, "/v1/workers/") && strings.HasSuffix(path, "/heartbeat") {
+		return path
+	}
+	if strings.Contains(path, "/work/poll") || strings.Contains(path, "/work/") && (strings.HasSuffix(path, "/ack") || strings.HasSuffix(path, "/heartbeat") || strings.HasSuffix(path, "/result")) {
+		return path
+	}
+	return "/v2/" + strings.TrimPrefix(path, "/v1/")
 }
 
 func printJSON(value any) error {
@@ -1266,7 +1416,10 @@ func usageError() error {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, `Usage:
-  tma [--base-url URL] [--auth-token TOKEN] health
+	  tma [--base-url URL] auth login [--timeout DURATION] [--no-browser]
+	  tma [--base-url URL] auth status
+	  tma [--base-url URL] auth logout
+	  tma [--base-url URL] [--auth-token TOKEN] health
   tma sandbox doctor [--runtime auto|cloud_sandbox|local_system] [--root PATH] [--image IMAGE] [--docker COMMAND] [--pull=false]
   tma web doctor [--searxng-url URL] [--query TEXT] [--timeout SECONDS]
   tma web search --query TEXT [--limit N] [--categories LIST] [--engines LIST] [--time-range RANGE] [--timeout SECONDS]
@@ -1303,13 +1456,16 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] work result --worker WORKER_ID --work WORK_ID --success|--failure [--error TEXT] [--result JSON]
   tma [--base-url URL] [--auth-token TOKEN] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
   tma [--base-url URL] [--auth-token TOKEN] agent get --id AGENT_ID
+  tma [--base-url URL] [--auth-token TOKEN] agent export --id AGENT_ID [--output FILE]
+  tma [--base-url URL] [--auth-token TOKEN] agent import --file FILE [--name NAME] [--workspace WORKSPACE_ID]
   tma [--base-url URL] [--auth-token TOKEN] agent config list --agent AGENT_ID
-  tma [--base-url URL] [--auth-token TOKEN] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT] [--tools JSON]
+  tma [--base-url URL] [--auth-token TOKEN] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT] [--tools JSON] [--mcp JSON]
   tma [--base-url URL] [--auth-token TOKEN] env create --name NAME [--config JSON]
   tma [--base-url URL] [--auth-token TOKEN] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
   tma [--base-url URL] [--auth-token TOKEN] session get --session SESSION_ID
+  tma [--base-url URL] [--auth-token TOKEN] session compare --left SESSION_ID --right SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session attach --session SESSION_ID [--after SEQ]
-  tma [--base-url URL] [--auth-token TOKEN] session config upgrade --session SESSION_ID --to-current
+  tma [--base-url URL] [--auth-token TOKEN] session config upgrade --session SESSION_ID (--to-current | --to-version VERSION)
   tma [--base-url URL] [--auth-token TOKEN] session runtime get --session SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session runtime update --session SESSION_ID [--intervention-mode MODE] [--tool-runtime auto|cloud_sandbox|local_system] [--cloud-sandbox-root PATH] [--cloud-sandbox-image IMAGE]
   tma [--base-url URL] [--auth-token TOKEN] session intervention list --session SESSION_ID [--status STATUS]
@@ -1329,13 +1485,37 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] event interrupt --session SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] event list --session SESSION_ID [--after SEQ]
   tma [--base-url URL] [--auth-token TOKEN] event stream --session SESSION_ID [--after SEQ]
-  tma [--base-url URL] [--auth-token TOKEN] trace show --session SESSION_ID [--turn TURN_ID] [--json]
+  tma [--base-url URL] [--auth-token TOKEN] trace list [--workspace ID] [--session ID] [--turn ID] [--status STATUS] [--limit N] [--cursor CURSOR]
+  tma [--base-url URL] [--auth-token TOKEN] trace show (--trace TRACE_ID | --session SESSION_ID [--turn TURN_ID]) [--json]
   tma [--base-url URL] [--auth-token TOKEN] trace export --session SESSION_ID [--turn TURN_ID] [--format perfetto|otel|json] [--output FILE] [--otlp-endpoint URL]
   tma [--base-url URL] [--auth-token TOKEN] observability status
   tma [--base-url URL] [--auth-token TOKEN] observability retry
+  tma [--base-url URL] [--auth-token TOKEN] observability integrity-keys
+  tma [--base-url URL] [--auth-token TOKEN] skill create --identifier ID --title TITLE [--workspace ID] [--description TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] skill list [--workspace ID] [--include-archived]
+  tma [--base-url URL] [--auth-token TOKEN] skill get|archive --skill SKILL_ID
+  tma [--base-url URL] [--auth-token TOKEN] skill version create --skill SKILL_ID --content TEXT [--format FORMAT] [--manifest JSON] [--assets JSON]
+  tma [--base-url URL] [--auth-token TOKEN] skill version list --skill SKILL_ID
+  tma [--base-url URL] [--auth-token TOKEN] skill version get --skill SKILL_ID --version N
+  tma [--base-url URL] [--auth-token TOKEN] skill version download --skill SKILL_ID --version N --output FILE
+  tma [--base-url URL] [--auth-token TOKEN] skill resolve --skills JSON [--workspace ID] [--max-tokens N]
+  tma [--base-url URL] [--auth-token TOKEN] skill usage --session SESSION_ID [--turn TURN_ID]
+  tma [--base-url URL] [--auth-token TOKEN] skill package backfill [--workspace ID] [--limit N]
+  tma [--base-url URL] [--auth-token TOKEN] skill retention effective --workspace ID
+  tma [--base-url URL] [--auth-token TOKEN] skill retention create|list|get|publish|get-version|archive [flags]
+  tma [--base-url URL] [--auth-token TOKEN] skill gc preview|run|list|get|tombstones [flags]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace discover --session SESSION_ID (--query TEXT | --repository OWNER/REPO) [--limit N]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace preview|install --session SESSION_ID --source JSON [flags]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace internal list --session SESSION_ID [--query TEXT] [--category TEXT] [--tags LIST] [--limit N]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace internal preview|install --session SESSION_ID --source JSON [flags]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace enable|disable --skill SKILL_ID --session SESSION_ID [flags]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace entry create|list|get|update|submit|publish|withdraw [flags]
+  tma [--base-url URL] [--auth-token TOKEN] marketplace policy create|list|get|publish|get-version|archive [flags]
 
 Environment:
-  TMA_BASE_URL               API base URL. Defaults to http://localhost:8080
-  TMA_WORKER_CONTROL_TOKEN   Optional control-plane bearer token for CLI requests
+	TMA_BASE_URL               API base URL. Defaults to http://localhost:8080
+	TMA_AUTH_TOKEN             Preferred API bearer token for CLI requests
+	TMA_AUTH_LOGIN_TIMEOUT     Device authorization login timeout. Defaults to 5m
+  TMA_WORKER_CONTROL_TOKEN   Legacy fallback control-plane bearer token
   TMA_OTEL_EXPORTER_OTLP_ENDPOINT  Optional OTLP/HTTP base URL for trace export push`)
 }

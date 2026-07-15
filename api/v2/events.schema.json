@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tma.local/api/v2/events.schema.json",
+  "title": "TMA Session Event v2",
+  "type": "object",
+  "required": ["id", "session_id", "seq", "type", "created_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "turn_id": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 1 },
+    "type": { "type": "string", "minLength": 1 },
+    "payload": { "type": ["object", "array", "string", "number", "boolean", "null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": true
+}

@@ -1,5 +1,7 @@
 # TMA Capability Provider Design
 
+上位扩展治理、Provider 发现、兼容性、下线和人工切换规则见 [TMA Extension 与 Provider 治理标准](./extension-governance-standard.md)。设置页贡献与配置作用域见 [Extension 设置页与配置贡献标准](./extension-settings-standard.md)。
+
 本文档记录 TMA 当前对能力 Provider 的设计判断：**不把 local system / cloud sandbox 固化成 turn-level executor**。工具 namespace 表达能力域，runtime 表达执行位置偏好，provider 是最终执行实现。第一版 runtime 只有 `auto`、`cloud_sandbox`、`local_system`。
 
 ## 为什么调整
@@ -153,10 +155,10 @@ Runtime resolution:
 
 容器内目前有两类挂载：
 
-- `/workspace`：挂载 workspace root，用于项目源码和普通文件工具。
-- `/mnt/data`：挂载 session 级 host 数据目录，用于用户文件加工和跨多次工具调用保存中间产物。
+- `/workspace`：挂载 workspace base 下按 `workspace_id + owner_id + session_id` 派生的隔离目录，用于上传文件、项目源码和最终交付物。
+- `/mnt/data`：挂载按相同完整作用域派生的 host 临时目录，只用于缓存和加工中间产物。
 
-`/mnt/data` 目录按清洗后的 session id 隔离，同 session 复用，超过配置 TTL 后由后续 sandbox 调用顺手清理。通过上传接口进入 session 的文件，会在执行前同步到 `/mnt/data/uploads/{artifact_id}/{filename}`。当前 provider 不声明 browser 能力，`browser.*` 应由后续专门实现承接。
+两个目录名都包含完整作用域的 SHA-256 摘要，避免 ID 清洗碰撞；同作用域复用，任一字段不同都隔离。`/mnt/data` 超过配置 TTL 后由后续 sandbox 调用顺手清理。通过上传接口进入 session 的文件，会在执行前同步到 `/workspace/uploads/{artifact_id}/{filename}`，最终交付物也必须放在 `/workspace`。文件工具还会解析现有路径前缀的软链接并拒绝越出挂载根目录。
 
 也就是说：
 

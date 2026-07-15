@@ -10,7 +10,7 @@ import (
 
 func TestCommandWorkEnqueueSandboxCommandPayload(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -63,7 +63,7 @@ func TestCommandWorkEnqueueIncludesControlAuthHeader(t *testing.T) {
 
 func TestCommandWorkEnqueueToolInvocationFlags(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -118,7 +118,7 @@ func TestCommandWorkEnqueueToolInvocationFlags(t *testing.T) {
 
 func TestCommandWorkEnqueuePrintsWorkerDiagnosticsOnConflict(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return &http.Response{
@@ -183,7 +183,7 @@ func TestCommandWorkPoll(t *testing.T) {
 
 func TestCommandWorkGet(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/worker-work/work_000001" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/worker-work/work_000001" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{"id":"work_000001","status":"completed"}`), nil
@@ -201,7 +201,7 @@ func TestCommandWorkGet(t *testing.T) {
 
 func TestCommandWorkReapExpired(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work/reap-expired" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work/reap-expired" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -226,7 +226,7 @@ func TestCommandWorkReapExpired(t *testing.T) {
 
 func TestCommandWorkCancel(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work/work_000001/cancel" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work/work_000001/cancel" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -251,7 +251,7 @@ func TestCommandWorkCancel(t *testing.T) {
 
 func TestCommandWorkRequeue(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/worker-work/work_000001/requeue" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/worker-work/work_000001/requeue" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -276,7 +276,7 @@ func TestCommandWorkRequeue(t *testing.T) {
 
 func TestCommandWorkDiagnose(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/worker-work/work_000001/diagnose" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/worker-work/work_000001/diagnose" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{

@@ -41,9 +41,9 @@ func TestCommandSessionAttachHelpDoesNotRequireSession(t *testing.T) {
 func TestPrintSessionVersionNoticeShowsCurrentVersion(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/sessions/sesn_000001":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/sessions/sesn_000001":
 			return jsonResponse(`{"id":"sesn_000001","agent_id":"agt_000001","agent_config_version":2}`), nil
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/agents/agt_000001":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/agents/agt_000001":
 			return jsonResponse(`{"id":"agt_000001","current_config_version":2}`), nil
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -63,9 +63,9 @@ func TestPrintSessionVersionNoticeShowsCurrentVersion(t *testing.T) {
 func TestPrintSessionVersionNoticeWarnsOutdatedSession(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/sessions/sesn_000001":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/sessions/sesn_000001":
 			return jsonResponse(`{"id":"sesn_000001","agent_id":"agt_000001","agent_config_version":1}`), nil
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/agents/agt_000001":
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/agents/agt_000001":
 			return jsonResponse(`{"id":"agt_000001","current_config_version":3}`), nil
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)

@@ -1,7 +1,9 @@
 package capability
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -47,4 +49,54 @@ func (fakeProvider) WriteFile(context.Context, WriteFileRequest) (FileResult, er
 
 func (fakeProvider) EditFile(context.Context, EditFileRequest) (EditFileResult, error) {
 	return EditFileResult{}, nil
+}
+
+func TestRunCommandRequestJSONAcceptsPlainTextStdin(t *testing.T) {
+	var request RunCommandRequest
+	if err := json.Unmarshal([]byte(`{"command":"sh","stdin":"echo hello\n"}`), &request); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if request.Command != "sh" {
+		t.Fatalf("expected command to be preserved, got %q", request.Command)
+	}
+	if string(request.Stdin) != "echo hello\n" {
+		t.Fatalf("expected plain stdin, got %q", string(request.Stdin))
+	}
+}
+
+func TestWriteFileRequestJSONAcceptsPlainTextContent(t *testing.T) {
+	var request WriteFileRequest
+	if err := json.Unmarshal([]byte(`{"path":"script.sh","content":"#!/bin/sh\necho hello\n"}`), &request); err != nil {
+		t.Fatalf("unmarshal request: %v", err)
+	}
+	if request.Path != "script.sh" {
+		t.Fatalf("expected path to be preserved, got %q", request.Path)
+	}
+	if string(request.Content) != "#!/bin/sh\necho hello\n" {
+		t.Fatalf("expected plain content, got %q", string(request.Content))
+	}
+}
+
+func TestWriteFileRequestJSONRoundTripsBinaryContent(t *testing.T) {
+	original := WriteFileRequest{
+		Path:    "artifact.bin",
+		Content: []byte{0xff, 0x00, 0x01, 'A'},
+	}
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if bytes.Contains(encoded, []byte(`"content":"`)) {
+		t.Fatalf("expected binary payload to use content_base64, got %s", string(encoded))
+	}
+	if !bytes.Contains(encoded, []byte(`"content_base64":"`)) {
+		t.Fatalf("expected binary payload to include content_base64, got %s", string(encoded))
+	}
+	var decoded WriteFileRequest
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("round-trip request: %v", err)
+	}
+	if !bytes.Equal(decoded.Content, original.Content) {
+		t.Fatalf("expected binary content to survive round-trip, got %#v", decoded.Content)
+	}
 }

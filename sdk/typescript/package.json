@@ -1,0 +1,47 @@
+{
+  "name": "@tma/core-sdk",
+  "version": "0.1.0-alpha.1",
+  "description": "TypeScript Core SDK for the TMA user and control-plane API",
+  "type": "module",
+  "private": true,
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./low-level": {
+      "types": "./dist/low-level.d.ts",
+      "import": "./dist/low-level.js"
+    }
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../api/v2/openapi.yaml -o src/internal/generated/schema.ts",
+    "check:generated": "node scripts/check-generated.mjs",
+    "check:public-api": "tsc -p tsconfig.public-api.json",
+    "check:browser": "tsc -p tsconfig.browser.json",
+    "check:package": "node scripts/check-package.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "npm run build",
+    "verify": "npm run check:generated && npm run check:public-api && npm run check:browser && npm run test && npm run build && npm run check:package"
+  },
+  "dependencies": {
+    "eventsource-parser": "3.1.0",
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

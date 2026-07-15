@@ -1,11 +1,16 @@
 package capability
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+var segmentedEditHashes sync.Map
 
 // EditFileRequest 描述一次精确字符串替换编辑。
 type EditFileRequest struct {
@@ -16,17 +21,19 @@ type EditFileRequest struct {
 	NewString  string      `json:"new_string"`
 	ReplaceAll bool        `json:"replace_all,omitempty"`
 	WorkDir    string      `json:"work_dir,omitempty"`
+	Idempotent bool        `json:"idempotent,omitempty"`
 }
 
 // EditFileResult 对齐 local-file-shell editLocalFile 的返回结构。
 type EditFileResult struct {
-	Path         string `json:"path"`
-	DiffText     string `json:"diff_text,omitempty"`
-	LinesAdded   int    `json:"lines_added,omitempty"`
-	LinesDeleted int    `json:"lines_deleted,omitempty"`
-	Replacements int    `json:"replacements"`
-	Success      bool   `json:"success"`
-	Error        string `json:"error,omitempty"`
+	Path           string `json:"path"`
+	DiffText       string `json:"diff_text,omitempty"`
+	LinesAdded     int    `json:"lines_added,omitempty"`
+	LinesDeleted   int    `json:"lines_deleted,omitempty"`
+	Replacements   int    `json:"replacements"`
+	AlreadyApplied bool   `json:"already_applied,omitempty"`
+	Success        bool   `json:"success"`
+	Error          string `json:"error,omitempty"`
 }
 
 func (r EditFileRequest) resolvedPath() string {
@@ -70,7 +77,16 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 		}
 	}
 
+	segmentHash := editSegmentHash(request.NewString)
 	if !strings.Contains(content, search) {
+		if request.Idempotent && recordedSegmentEdit(filePath, request.OldString, segmentHash) {
+			return EditFileResult{
+				Path:           filePath,
+				Replacements:   0,
+				AlreadyApplied: true,
+				Success:        true,
+			}
+		}
 		return EditFileResult{
 			Path:         filePath,
 			Replacements: 0,
@@ -102,6 +118,9 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 	if err := os.WriteFile(filePath, []byte(newContent), 0o644); err != nil {
 		return EditFileResult{Path: filePath, Replacements: 0, Success: false, Error: err.Error()}
 	}
+	if request.Idempotent {
+		recordSegmentEdit(filePath, request.OldString, segmentHash)
+	}
 
 	patch := createPatch(filePath, content, newContent)
 	diffText := fmt.Sprintf("diff --git a%s b%s\n%s", filePath, filePath, patch)
@@ -115,6 +134,42 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 		Replacements: replacements,
 		Success:      true,
 	}
+}
+
+func editSegmentHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func segmentedEditKey(filePath, placeholder string) string {
+	absolutePath, err := filepath.Abs(filePath)
+	if err == nil {
+		filePath = filepath.Clean(absolutePath)
+	}
+	return filePath + "\x00" + placeholder
+}
+
+func recordSegmentEdit(filePath, placeholder, hash string) {
+	if filePath == "" || placeholder == "" || hash == "" {
+		return
+	}
+	segmentedEditHashes.Store(segmentedEditKey(filePath, placeholder), hash)
+}
+
+func recordedSegmentEdit(filePath, placeholder, hash string) bool {
+	value, ok := segmentedEditHashes.Load(segmentedEditKey(filePath, placeholder))
+	return ok && value == hash
+}
+
+// ResetSegmentEditState clears retry evidence when a file is recreated.
+func ResetSegmentEditState(filePath string) {
+	prefix := segmentedEditKey(filePath, "")
+	segmentedEditHashes.Range(func(key, _ any) bool {
+		if text, ok := key.(string); ok && strings.HasPrefix(text, prefix) {
+			segmentedEditHashes.Delete(key)
+		}
+		return true
+	})
 }
 
 func toCRLF(value string) string {
@@ -183,6 +238,9 @@ func FormatEditResult(result EditFileResult) string {
 			return result.Error
 		}
 		return "edit file failed"
+	}
+	if result.AlreadyApplied {
+		return fmt.Sprintf("Edit already applied to %s; no duplicate content was written.", result.Path)
 	}
 	return fmt.Sprintf(
 		"Edited %s: %d replacement(s), +%d/-%d lines.",

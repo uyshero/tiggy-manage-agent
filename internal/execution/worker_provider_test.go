@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -9,11 +10,20 @@ import (
 
 	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 )
 
 func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	environmentCipher, err := envvars.NewCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
 	state, err := json.Marshal(capability.FileResult{Path: "README.md", Content: []byte("hello")})
 	if err != nil {
 		t.Fatalf("marshal state: %v", err)
@@ -44,13 +54,15 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 		completedResult: result,
 	}
 	provider := WorkerBackedProvider{
-		Store:         store,
-		WorkspaceID:   "wksp_000001",
-		SessionID:     "sesn_000001",
-		EnvironmentID: "env_000001",
-		TurnID:        "turn_000001",
-		PollInterval:  time.Millisecond,
-		WaitTimeout:   time.Second,
+		Store:             store,
+		WorkspaceID:       "wksp_000001",
+		SessionID:         "sesn_000001",
+		EnvironmentID:     "env_000001",
+		TurnID:            "turn_000001",
+		PollInterval:      time.Millisecond,
+		WaitTimeout:       time.Second,
+		Environment:       map[string]string{"SERVICE_API_KEY": "managed-secret-value"},
+		EnvironmentCipher: environmentCipher,
 	}
 
 	file, err := provider.ReadFile(t.Context(), capability.ReadFileRequest{Path: "README.md"})
@@ -69,6 +81,13 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 	var invocation tools.WorkInvocation
 	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
 		t.Fatalf("decode enqueued invocation: %v", err)
+	}
+	if strings.Contains(string(store.enqueued.Payload), "managed-secret-value") || invocation.EnvironmentEnvelope == "" {
+		t.Fatalf("expected encrypted environment envelope, got %s", store.enqueued.Payload)
+	}
+	resolvedEnvironment, err := environmentCipher.OpenMap(invocation.EnvironmentEnvelope, envvars.EnvelopeAssociatedData("wksp_000001", "sesn_000001", "turn_000001"))
+	if err != nil || resolvedEnvironment["SERVICE_API_KEY"] != "managed-secret-value" {
+		t.Fatalf("unexpected worker environment: %#v: %v", resolvedEnvironment, err)
 	}
 	if invocation.ProtocolVersion != tools.WorkProtocolVersion || invocation.Namespace != "default" || invocation.API != "read_file" || invocation.Runtime != "local_system" {
 		t.Fatalf("unexpected invocation: %#v", invocation)

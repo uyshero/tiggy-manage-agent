@@ -6,23 +6,92 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tools"
 )
 
 func newTestServer() http.Handler {
 	store := newTestStore()
 	return NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+}
+
+type synchronizedResponseRecorder struct {
+	*httptest.ResponseRecorder
+	mu sync.RWMutex
+}
+
+func newSynchronizedResponseRecorder() *synchronizedResponseRecorder {
+	return &synchronizedResponseRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (r *synchronizedResponseRecorder) Write(payload []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ResponseRecorder.Write(payload)
+}
+
+func (r *synchronizedResponseRecorder) WriteString(payload string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ResponseRecorder.WriteString(payload)
+}
+
+func (r *synchronizedResponseRecorder) WriteHeader(statusCode int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ResponseRecorder.WriteHeader(statusCode)
+}
+
+func (r *synchronizedResponseRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ResponseRecorder.Flush()
+}
+
+func (r *synchronizedResponseRecorder) BodyString() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.Body.String()
+}
+
+type mcpStatsTestRunner struct {
+	runner.Runner
+	stats          mcp.StdioHostStats
+	httpStats      mcp.StreamableHTTPHostStats
+	guardStats     mcp.RuntimeGuardStats
+	registryStates map[string][]mcp.RegistryRuntimeState
+}
+
+func (r mcpStatsTestRunner) MCPHostStats() mcp.StdioHostStats {
+	return r.stats
+}
+
+func (r mcpStatsTestRunner) MCPHTTPHostStats() mcp.StreamableHTTPHostStats {
+	return r.httpStats
+}
+
+func (r mcpStatsTestRunner) MCPRuntimeGuardStats() mcp.RuntimeGuardStats {
+	return r.guardStats
+}
+
+func (r mcpStatsTestRunner) MCPRegistryRuntimeStates(workspaceID string) []mcp.RegistryRuntimeState {
+	return append([]mcp.RegistryRuntimeState(nil), r.registryStates[workspaceID]...)
 }
 
 func TestHealth(t *testing.T) {
@@ -49,6 +118,231 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestSkillRegistryLifecyclePreviewAndAgentBinding(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	created := postJSON[skills.Skill](t, server, "/v1/skills", `{
+		"identifier":"code-review","title":"Code Review","description":"Review changes safely"
+	}`)
+	version := postJSON[skills.Version](t, server, "/v1/skills/"+created.ID+"/versions", `{
+		"content_format":"hybrid",
+		"manifest":{"system_role":"Review with a bug-first mindset.","blocks":[{"type":"checklist","title":"Checks","items":["Regressions","Missing tests"]}]},
+		"content_text":"Inspect behavior before style."
+	}`)
+	if version.Version != 1 || version.Checksum == "" {
+		t.Fatalf("unexpected skill version: %#v", version)
+	}
+	invalidVersionRequest := httptest.NewRequest(http.MethodPost, "/v1/skills/"+created.ID+"/versions", strings.NewReader(`{
+		"content_format":"hybrid",
+		"manifest":{"inputs_schema":{"type":"object","properties":{"profile":{"$ref":"https://schemas.example/profile.json"}}}},
+		"content_text":"This version must not be published."
+	}`))
+	invalidVersionRequest.Header.Set("Content-Type", "application/json")
+	invalidVersionResponse := httptest.NewRecorder()
+	server.ServeHTTP(invalidVersionResponse, invalidVersionRequest)
+	if invalidVersionResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid inputs_schema status 400, got %d: %s", invalidVersionResponse.Code, invalidVersionResponse.Body.String())
+	}
+	listed := getJSON[struct {
+		Skills []skills.Skill `json:"skills"`
+	}](t, server, "/v1/skills")
+	if len(listed.Skills) != 1 || listed.Skills[0].ID != created.ID {
+		t.Fatalf("unexpected skills list: %#v", listed.Skills)
+	}
+	listedVersions := getJSON[struct {
+		Versions []skills.Version `json:"versions"`
+	}](t, server, "/v1/skills/"+created.ID+"/versions")
+	if len(listedVersions.Versions) != 1 {
+		t.Fatalf("invalid inputs_schema published a version: %#v", listedVersions.Versions)
+	}
+	preview := postJSONWithStatus[skills.ResolveResult](t, server, http.MethodPost, "/v1/skills/resolve-preview", `{
+		"skills":{"enabled":[{"skill":"code-review","version":1,"mode":"full"}]},"max_tokens":1000
+	}`, http.StatusOK)
+	if len(preview.Skills) != 1 || !strings.Contains(preview.Skills[0].Rendered, "bug-first") {
+		t.Fatalf("unexpected preview: %#v", preview)
+	}
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name":"Reviewer","system":"Help the user.",
+		"skills":{"enabled":[{"skill":"code-review","version":1}]}
+	}`)
+	if !strings.Contains(string(agent.ConfigVersion.Skills), `"version":1`) {
+		t.Fatalf("expected frozen skill binding, got %s", agent.ConfigVersion.Skills)
+	}
+
+	for _, body := range []string{
+		`{"name":"Missing Version","skills":{"enabled":[{"skill":"code-review"}]}}`,
+		`{"name":"Missing Skill Version","skills":{"enabled":[{"skill":"code-review","version":99}]}}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/agents", strings.NewReader(body))
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("expected invalid binding status 400, got %d: %s", response.Code, response.Body.String())
+		}
+	}
+
+	conflict := postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/skills/"+created.ID+"/archive", `{}`, http.StatusConflict)
+	if !strings.Contains(conflict["error"], "disable it first") {
+		t.Fatalf("expected active binding archive guidance, got %#v", conflict)
+	}
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{"skills":{"enabled":[]}}`)
+	archived := postJSONWithStatus[skills.Skill](t, server, http.MethodPost, "/v1/skills/"+created.ID+"/archive", `{}`, http.StatusOK)
+	if archived.Status != skills.StatusArchived || archived.ArchivedAt == nil {
+		t.Fatalf("expected archived skill, got %#v", archived)
+	}
+}
+
+func TestCreateAgentPersistsMCPConfig(t *testing.T) {
+	server := newTestServer()
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name":"MCP Agent",
+		"system":"Use MCP when helpful.",
+		"mcp":{
+			"mcpServers":{
+				"filesystem":{
+					"command":"npx",
+					"args":["-y","@modelcontextprotocol/server-filesystem","/tmp"]
+				}
+			}
+		}
+	}`)
+	if !strings.Contains(string(agent.ConfigVersion.MCP), `"identifier":"filesystem"`) {
+		t.Fatalf("expected normalized mcp config, got %s", agent.ConfigVersion.MCP)
+	}
+}
+
+func TestAgentToolingHealthReportsMCPAndSkillState(t *testing.T) {
+	store := newTestStore()
+	testRunner := mcpStatsTestRunner{
+		Runner: runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		stats: mcp.StdioHostStats{
+			Sessions: 2, MaxSessions: 8, StartsTotal: 3, ToolsListChangedTotal: 4, ProgressNotificationsTotal: 5, LogMessagesTotal: 2,
+		},
+		httpStats: mcp.StreamableHTTPHostStats{
+			Sessions: 1, MaxSessions: 12, StartsTotal: 2, ProgressNotificationsTotal: 3, LogMessagesTotal: 1,
+			EgressPolicyEnabled: true, EgressAllowedHostCount: 2, EgressAllowedCIDRCount: 1, EgressBlockedTotal: 4,
+		},
+		guardStats: mcp.RuntimeGuardStats{TrackedServers: 2, InFlight: 1, OpenCircuits: 1, CallsTotal: 9},
+	}
+	server := NewServerWithStoreAndRunner(store, testRunner, nil)
+	skill := postJSON[skills.Skill](t, server, "/v1/skills", `{
+		"identifier":"health-check","title":"Health Check","description":"Validate tooling health"
+	}`)
+	postJSON[skills.Version](t, server, "/v1/skills/"+skill.ID+"/versions", `{
+		"content_format":"markdown","manifest":{},"content_text":"Check the configured tools."
+	}`)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name":"Health Agent","system":"Check tools.",
+		"skills":{"enabled":[{"skill":"health-check","version":1}]},
+		"mcp":{"servers":[{"identifier":"missing-server","command":"tma-command-that-does-not-exist"}]}
+	}`)
+
+	report := postJSONWithStatus[toolingHealthResponse](t, server, http.MethodPost, "/v1/agents/"+agent.ID+"/tooling-health", `{}`, http.StatusOK)
+	if report.AgentID != agent.ID || len(report.MCP) != 1 || len(report.Skills) != 1 {
+		t.Fatalf("unexpected tooling health report: %#v", report)
+	}
+	if report.MCPHost == nil || report.MCPHost.Sessions != 2 || report.MCPHost.MaxSessions != 8 || report.MCPHost.StartsTotal != 3 || report.MCPHost.ToolsListChangedTotal != 4 || report.MCPHost.ProgressNotificationsTotal != 5 || report.MCPHost.LogMessagesTotal != 2 {
+		t.Fatalf("expected MCP host snapshot, got %#v", report.MCPHost)
+	}
+	if report.MCPHTTPHost == nil || report.MCPHTTPHost.Sessions != 1 || report.MCPHTTPHost.MaxSessions != 12 || report.MCPHTTPHost.StartsTotal != 2 || report.MCPHTTPHost.ProgressNotificationsTotal != 3 || report.MCPHTTPHost.LogMessagesTotal != 1 || !report.MCPHTTPHost.EgressPolicyEnabled || report.MCPHTTPHost.EgressAllowedHostCount != 2 || report.MCPHTTPHost.EgressAllowedCIDRCount != 1 || report.MCPHTTPHost.EgressBlockedTotal != 4 {
+		t.Fatalf("expected MCP HTTP host snapshot, got %#v", report.MCPHTTPHost)
+	}
+	if report.MCPRuntimeGuard == nil || report.MCPRuntimeGuard.TrackedServers != 2 || report.MCPRuntimeGuard.InFlight != 1 || report.MCPRuntimeGuard.OpenCircuits != 1 || report.MCPRuntimeGuard.CallsTotal != 9 {
+		t.Fatalf("expected MCP runtime guard snapshot, got %#v", report.MCPRuntimeGuard)
+	}
+	if report.MCP[0].Status != "offline" || report.MCP[0].Identifier != "missing_server" {
+		t.Fatalf("expected offline MCP server, got %#v", report.MCP[0])
+	}
+	if report.Skills[0].Status != "online" || report.Skills[0].Version != 1 || report.Skills[0].TokenEstimate <= 0 {
+		t.Fatalf("expected healthy skill, got %#v", report.Skills[0])
+	}
+}
+
+func TestMCPToolingHealthReportsInitializeCapabilities(t *testing.T) {
+	mcpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatalf("decode MCP request: %v", err)
+		}
+		method, _ := request["method"].(string)
+		id, _ := request["id"].(float64)
+		w.Header().Set("Content-Type", "application/json")
+		switch method {
+		case "initialize":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      int(id),
+				"result": map[string]any{
+					"serverInfo":   map[string]any{"name": "Capability MCP"},
+					"capabilities": map[string]any{"tools": map[string]any{}, "resources": map[string]any{}, "prompts": map[string]any{}, "completions": map[string]any{}},
+				},
+			}); err != nil {
+				t.Fatalf("write initialize response: %v", err)
+			}
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      int(id),
+				"result": map[string]any{
+					"tools": []map[string]any{{"name": "ping", "inputSchema": map[string]any{"type": "object"}}},
+				},
+			}); err != nil {
+				t.Fatalf("write tools/list response: %v", err)
+			}
+		case "resources/list":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      int(id),
+				"result": map[string]any{
+					"resources": []map[string]any{
+						{"uri": "file:///tmp/guide.md", "name": "guide"},
+						{"uri": "file:///tmp/status.md", "name": "status"},
+					},
+				},
+			}); err != nil {
+				t.Fatalf("write resources/list response: %v", err)
+			}
+		case "resources/templates/list":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      int(id),
+				"result": map[string]any{
+					"resourceTemplates": []map[string]any{{"uriTemplate": "file:///{path}", "name": "file"}},
+				},
+			}); err != nil {
+				t.Fatalf("write resources/templates/list response: %v", err)
+			}
+		case "prompts/list":
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      int(id),
+				"result": map[string]any{
+					"prompts": []map[string]any{{"name": "summarize"}},
+				},
+			}); err != nil {
+				t.Fatalf("write prompts/list response: %v", err)
+			}
+		default:
+			t.Fatalf("unexpected MCP method: %s", method)
+		}
+	}))
+	defer mcpServer.Close()
+
+	raw := json.RawMessage(`{"servers":[{"identifier":"remote","transport":"streamable_http","url":"` + mcpServer.URL + `"}]}`)
+	report := checkMCPHealth(t.Context(), raw, "remote")
+	if len(report) != 1 || report[0].Status != "online" {
+		t.Fatalf("expected online MCP health report, got %#v", report)
+	}
+	if !slices.Equal(report[0].Capabilities, []string{"completions", "prompts", "resources", "tools"}) {
+		t.Fatalf("unexpected MCP health capabilities: %#v", report[0])
+	}
+	if report[0].ResourceCount != 2 || report[0].ResourceTemplateCount != 1 || report[0].PromptCount != 1 {
+		t.Fatalf("unexpected MCP context catalog counts: %#v", report[0])
+	}
+}
+
 func TestRootRedirectsToUserApp(t *testing.T) {
 	for _, path := range []string{"/", "/app/"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -60,6 +354,254 @@ func TestRootRedirectsToUserApp(t *testing.T) {
 		if location := response.Header().Get("Location"); location != "/app" {
 			t.Fatalf("expected %s to redirect to /app, got %q", path, location)
 		}
+	}
+}
+
+func TestListTaskGroupTemplates(t *testing.T) {
+	server := newTestServer()
+	response := getJSON[tools.AgentTaskGroupTemplateListResponse](t, server, "/v1/agent/task-group-templates")
+	if len(response.Templates) < 3 {
+		t.Fatalf("expected builtin task group templates, got %#v", response)
+	}
+	if response.Templates[0].ID == "" || response.Templates[0].Strategy == "" || response.Templates[0].ResultReducer == "" {
+		t.Fatalf("expected populated template metadata, got %#v", response.Templates[0])
+	}
+}
+
+func TestListWorkbenchTaskTemplates(t *testing.T) {
+	server := newTestServer()
+	response := getJSON[struct {
+		Templates []workbenchTaskTemplate `json:"templates"`
+	}](t, server, "/v1/task-templates")
+	if len(response.Templates) != 4 {
+		t.Fatalf("expected four workbench templates, got %d", len(response.Templates))
+	}
+	news := response.Templates[0]
+	if news.ID != "ai_news_digest" || len(news.WorkflowSteps) != 4 || len(news.Tools) == 0 {
+		t.Fatalf("unexpected AI news template: %#v", news)
+	}
+}
+
+func TestListSessionTaskGroups(t *testing.T) {
+	store := newTestStore()
+	turnRunner := runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil)
+	server := NewServerWithStoreAndRunner(store, turnRunner, nil)
+	parentAgent := mustCreateAgentForSubagentTest(t, store, "Parent Agent")
+	childAgent := mustCreateAgentForSubagentTest(t, store, "Child Agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	parentSession := mustCreateSessionForSubagentTest(t, store, parentAgent.ID, environment.ID, "parent-session")
+	service := newAgentToolService(store, turnRunner, nil, defaultSubagentPolicy())
+
+	created, err := service.CreateTaskGroup(t.Context(), tools.AgentTaskGroupCreateRequest{
+		ParentSessionID: parentSession.ID,
+		ParentTurnID:    "turn_group_http",
+		TemplateID:      "module_risk_audit",
+		Items: []tools.AgentTaskGroupItemRequest{
+			{AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "audit auth"},
+			{AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "audit billing"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create task group: %v", err)
+	}
+
+	response := getJSON[sessionTaskGroupsResponse](t, server, "/v1/sessions/"+parentSession.ID+"/task-groups")
+	if len(response.TaskGroups) != 1 {
+		t.Fatalf("expected one task group, got %#v", response)
+	}
+	entry := response.TaskGroups[0]
+	if entry.TemplateID != "module_risk_audit" || entry.TemplateTitle == "" {
+		t.Fatalf("expected template metadata, got %#v", entry)
+	}
+	if entry.State.Group.ID != created.Group.ID || len(entry.State.Items) != 2 {
+		t.Fatalf("expected full task group state, got %#v", entry.State)
+	}
+
+	detail := getJSON[inspectorTaskGroupState](t, server, "/v1/sessions/"+parentSession.ID+"/task-groups/"+created.Group.ID)
+	if detail.State.Group.ID != created.Group.ID || detail.TemplateID != "module_risk_audit" {
+		t.Fatalf("expected task group detail, got %#v", detail)
+	}
+}
+
+func TestGetSessionTaskGroupTreeIncludesDescendantGroups(t *testing.T) {
+	store := newTestStore()
+	turnRunner := runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil)
+	server := NewServerWithStoreAndRunner(store, turnRunner, nil)
+	parentAgent := mustCreateAgentForSubagentTest(t, store, "Tree Parent Agent")
+	childAgent := mustCreateAgentForSubagentTest(t, store, "Tree Child Agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	parentSession := mustCreateSessionForSubagentTest(t, store, parentAgent.ID, environment.ID, "tree-parent-session")
+	service := newAgentToolService(store, turnRunner, nil, defaultSubagentPolicy())
+
+	rootGroup, err := service.CreateTaskGroup(t.Context(), tools.AgentTaskGroupCreateRequest{
+		ParentSessionID: parentSession.ID,
+		ParentTurnID:    "turn_tree_root",
+		Items: []tools.AgentTaskGroupItemRequest{
+			{AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "root work"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create root task group: %v", err)
+	}
+	childSession := rootGroup.Items[0].Session
+	if childSession == nil {
+		t.Fatalf("expected child session in root group: %#v", rootGroup)
+	}
+	childGroup, err := service.CreateTaskGroup(t.Context(), tools.AgentTaskGroupCreateRequest{
+		ParentSessionID: childSession.ID,
+		ParentTurnID:    "turn_tree_child",
+		Items: []tools.AgentTaskGroupItemRequest{
+			{AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "nested work"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create child task group: %v", err)
+	}
+
+	response := getJSON[sessionTaskGroupTreeResponse](t, server, "/v1/sessions/"+parentSession.ID+"/task-group-tree")
+	if response.Root.Session.ID != parentSession.ID || len(response.Root.TaskGroups) != 1 {
+		t.Fatalf("expected root session and group, got %#v", response.Root)
+	}
+	if len(response.Root.Children) != 1 {
+		t.Fatalf("expected one child session node, got %#v", response.Root.Children)
+	}
+	childNode := response.Root.Children[0]
+	if childNode.Session.ID != childSession.ID || len(childNode.TaskGroups) != 1 {
+		t.Fatalf("expected descendant task group, got %#v", childNode)
+	}
+	if childNode.TaskGroups[0].State.Group.ID != childGroup.Group.ID {
+		t.Fatalf("expected child group %q, got %#v", childGroup.Group.ID, childNode.TaskGroups[0])
+	}
+	if response.Summary.Sessions != 3 || response.Summary.Groups != 2 || response.Summary.Items != 2 {
+		t.Fatalf("unexpected tree summary: %#v", response.Summary)
+	}
+}
+
+func TestSessionTaskGroupControlEndpoints(t *testing.T) {
+	store := newTestStore()
+	turnRunner := runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil)
+	server := NewServerWithStoreAndRunner(store, turnRunner, nil)
+	parentAgent := mustCreateAgentForSubagentTest(t, store, "Control Parent Agent")
+	childAgent := mustCreateAgentForSubagentTest(t, store, "Control Child Agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	parentSession := mustCreateSessionForSubagentTest(t, store, parentAgent.ID, environment.ID, "control-parent-session")
+	service := newAgentToolService(store, turnRunner, nil, defaultSubagentPolicy())
+
+	created, err := service.CreateTaskGroup(t.Context(), tools.AgentTaskGroupCreateRequest{
+		ParentSessionID: parentSession.ID,
+		ParentTurnID:    "turn_group_controls",
+		Items: []tools.AgentTaskGroupItemRequest{
+			{AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "control work"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create task group: %v", err)
+	}
+	basePath := "/v1/sessions/" + parentSession.ID + "/task-groups/" + created.Group.ID
+	canceled := postJSONWithStatus[tools.AgentTaskGroupCancelResponse](t, server, http.MethodPost, basePath+"/cancel", `{"reason":"operator canceled"}`, http.StatusOK)
+	if canceled.Status != "canceled" {
+		t.Fatalf("expected canceled group, got %#v", canceled)
+	}
+
+	retriedItem := postJSONWithStatus[tools.AgentTaskGroupRetryResponse](t, server, http.MethodPost, basePath+"/items/0/retry", `{}`, http.StatusOK)
+	if retriedItem.Group.ID != created.Group.ID || len(retriedItem.Items) != 1 {
+		t.Fatalf("expected retried item state, got %#v", retriedItem)
+	}
+
+	postJSONWithStatus[tools.AgentTaskGroupCancelResponse](t, server, http.MethodPost, basePath+"/cancel", `{"reason":"cancel before group retry"}`, http.StatusOK)
+	retriedGroup := postJSONWithStatus[tools.AgentTaskGroupRetryResponse](t, server, http.MethodPost, basePath+"/retry", `{}`, http.StatusOK)
+	if retriedGroup.Group.ID != created.Group.ID || retriedGroup.Status == "canceled" {
+		t.Fatalf("expected reactivated group, got %#v", retriedGroup)
+	}
+
+	reaped := postJSONWithStatus[struct {
+		Count int `json:"count"`
+	}](t, server, http.MethodPost, "/v1/subagents/reap-orphans", `{"limit":10}`, http.StatusOK)
+	if reaped.Count != 0 {
+		t.Fatalf("expected no test orphans, got %#v", reaped)
+	}
+	audit := getJSON[struct {
+		Records []managedagents.OperatorAuditRecord `json:"audit_records"`
+	}](t, server, "/v1/sessions/"+parentSession.ID+"/operator-audit")
+	if len(audit.Records) != 4 {
+		t.Fatalf("expected four session control audit records, got %#v", audit.Records)
+	}
+	if audit.Records[0].PrincipalID != "control:open" || audit.Records[0].Outcome != "succeeded" {
+		t.Fatalf("unexpected open-control audit principal: %#v", audit.Records[0])
+	}
+}
+
+func TestControlAuthProtectsSubagentControlEndpoints(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(
+		store,
+		runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		nil,
+		"fake",
+		"fake-demo",
+		nil,
+		nil,
+		"",
+		"control-secret",
+	)
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "/v1/subagents/reap-orphans", bytes.NewBufferString(`{}`))
+	unauthorized.Header.Set("Content-Type", "application/json")
+	unauthorizedResponse := httptest.NewRecorder()
+	server.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected orphan reap to require control auth, got %d: %s", unauthorizedResponse.Code, unauthorizedResponse.Body.String())
+	}
+
+	authorized := httptest.NewRequest(http.MethodPost, "/v1/subagents/reap-orphans", bytes.NewBufferString(`{}`))
+	authorized.Header.Set("Content-Type", "application/json")
+	authorized.Header.Set("Authorization", "Bearer control-secret")
+	authorizedResponse := httptest.NewRecorder()
+	server.ServeHTTP(authorizedResponse, authorized)
+	if authorizedResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized orphan reap, got %d: %s", authorizedResponse.Code, authorizedResponse.Body.String())
+	}
+
+	groupCancel := httptest.NewRequest(http.MethodPost, "/v1/sessions/sesn_missing/task-groups/grp_missing/cancel", bytes.NewBufferString(`{}`))
+	groupCancel.Header.Set("Content-Type", "application/json")
+	groupCancelResponse := httptest.NewRecorder()
+	server.ServeHTTP(groupCancelResponse, groupCancel)
+	if groupCancelResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("expected group cancel to require control auth, got %d: %s", groupCancelResponse.Code, groupCancelResponse.Body.String())
+	}
+
+	failedCancel := httptest.NewRequest(http.MethodPost, "/v1/sessions/sesn_missing/task-groups/grp_missing/cancel", bytes.NewBufferString(`{}`))
+	failedCancel.Header.Set("Content-Type", "application/json")
+	failedCancel.Header.Set("Authorization", "Bearer control-secret")
+	failedCancel.Header.Set("X-TMA-Operator", "alice@example.com")
+	failedCancelResponse := httptest.NewRecorder()
+	server.ServeHTTP(failedCancelResponse, failedCancel)
+	if failedCancelResponse.Code != http.StatusNotFound {
+		t.Fatalf("expected authorized missing group cancel to return not found, got %d: %s", failedCancelResponse.Code, failedCancelResponse.Body.String())
+	}
+
+	auditRequest := httptest.NewRequest(http.MethodGet, "/v1/operator-audit?limit=10", nil)
+	auditRequest.Header.Set("Authorization", "Bearer control-secret")
+	auditResponse := httptest.NewRecorder()
+	server.ServeHTTP(auditResponse, auditRequest)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("expected authorized audit list, got %d: %s", auditResponse.Code, auditResponse.Body.String())
+	}
+	var audit struct {
+		Records []managedagents.OperatorAuditRecord `json:"audit_records"`
+	}
+	if err := json.NewDecoder(auditResponse.Body).Decode(&audit); err != nil {
+		t.Fatalf("decode operator audit: %v", err)
+	}
+	if len(audit.Records) != 2 {
+		t.Fatalf("expected reap and failed cancel audit records, got %#v", audit.Records)
+	}
+	failedRecord := audit.Records[0]
+	if failedRecord.Action != "agent.task_group.cancel" || failedRecord.Outcome != "failed" || failedRecord.OperatorLabel != "alice@example.com" {
+		t.Fatalf("unexpected failed control audit: %#v", failedRecord)
+	}
+	if !strings.HasPrefix(failedRecord.PrincipalID, "control:") || strings.Contains(failedRecord.PrincipalID, "control-secret") {
+		t.Fatalf("expected non-secret control principal fingerprint, got %q", failedRecord.PrincipalID)
 	}
 }
 
@@ -136,24 +678,207 @@ func TestLLMProviderManagement(t *testing.T) {
 		t.Fatalf("unexpected provider list: %+v", listed.Providers)
 	}
 
-	updated := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPatch, "/v1/llm-providers/"+created.ID, `{
+	missingPrecondition := httptest.NewRecorder()
+	server.ServeHTTP(missingPrecondition, httptest.NewRequest(http.MethodPatch, "/v1/llm-providers/"+created.ID, strings.NewReader(`{"base_url":"https://ignored.example"}`)))
+	if missingPrecondition.Code != http.StatusBadRequest {
+		t.Fatalf("expected provider PATCH without If-Match to return 400, got %d: %s", missingPrecondition.Code, missingPrecondition.Body.String())
+	}
+
+	updated := patchLLMProvider(t, server, created.ID, created.Revision, `{
 		"base_url": "https://ark.cn-beijing.volces.com/api/v3"
-	}`, http.StatusOK)
+	}`)
 	if updated.BaseURL != "https://ark.cn-beijing.volces.com/api/v3" {
 		t.Fatalf("expected updated base_url, got %q", updated.BaseURL)
 	}
 	if updated.ProviderType != "openai" || updated.APIKeyEnv != "TMA_LLM_API_KEY_VOLCENGINE" {
 		t.Fatalf("expected update to preserve omitted fields, got %+v", updated)
 	}
+	if updated.Revision != created.Revision+1 {
+		t.Fatalf("expected provider revision to advance, got create=%d update=%d", created.Revision, updated.Revision)
+	}
+	staleUpdate := httptest.NewRecorder()
+	staleRequest := httptest.NewRequest(http.MethodPatch, "/v1/llm-providers/"+created.ID, strings.NewReader(`{"base_url":"https://stale.example"}`))
+	staleRequest.Header.Set("Content-Type", "application/json")
+	staleRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(created.Revision, 10)))
+	server.ServeHTTP(staleUpdate, staleRequest)
+	if staleUpdate.Code != http.StatusPreconditionFailed {
+		t.Fatalf("expected stale provider revision to return 412, got %d: %s", staleUpdate.Code, staleUpdate.Body.String())
+	}
 
-	disabled := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPost, "/v1/llm-providers/"+created.ID+"/disable", `{}`, http.StatusOK)
+	duplicateCreate := httptest.NewRecorder()
+	server.ServeHTTP(duplicateCreate, httptest.NewRequest(http.MethodPost, "/v1/llm-providers", strings.NewReader(`{"id":"`+created.ID+`","provider_type":"fake"}`)))
+	if duplicateCreate.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate provider creation to return 409, got %d: %s", duplicateCreate.Code, duplicateCreate.Body.String())
+	}
+
+	disabled := postLLMProviderAction(t, server, created.ID, "disable", updated.Revision)
 	if disabled.Enabled {
 		t.Fatalf("expected provider disabled, got %+v", disabled)
 	}
 
-	enabled := postJSONWithStatus[managedagents.LLMProvider](t, server, http.MethodPost, "/v1/llm-providers/"+created.ID+"/enable", `{}`, http.StatusOK)
+	enabled := postLLMProviderAction(t, server, created.ID, "enable", disabled.Revision)
 	if !enabled.Enabled {
 		t.Fatalf("expected provider enabled, got %+v", enabled)
+	}
+
+	deleteResponse := httptest.NewRecorder()
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/v1/llm-providers/"+created.ID, nil)
+	deleteRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(enabled.Revision, 10)))
+	server.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusNoContent {
+		t.Fatalf("expected provider deletion to return 204, got %d: %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	listed = getJSON[llmProvidersResponse](t, server, "/v1/llm-providers")
+	if len(listed.Providers) != 1 || listed.Providers[0].ID != "fake" {
+		t.Fatalf("unexpected provider list after deletion: %+v", listed.Providers)
+	}
+}
+
+func TestLLMControlPlaneMutationAudit(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	providerID := "audit-provider"
+	modelName := "audit-model"
+	secretBaseURL := "https://llm.example.test/v1?token=do-not-audit"
+	secretEnvName := "TMA_LLM_PRIVATE_KEY_DO_NOT_AUDIT"
+
+	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
+		"id":"`+providerID+`","provider_type":"openai",
+		"base_url":"`+secretBaseURL+`","api_key_env":"`+secretEnvName+`"
+	}`)
+	createdProvider, err := store.GetLLMProvider(providerID)
+	if err != nil {
+		t.Fatalf("get provider before audited update: %v", err)
+	}
+	updatedProvider := patchLLMProvider(t, server, providerID, createdProvider.Revision, `{
+		"provider_type":"azure_openai"
+	}`)
+	staleAuditUpdate := httptest.NewRecorder()
+	staleAuditRequest := httptest.NewRequest(http.MethodPatch, "/v1/llm-providers/"+providerID, strings.NewReader(`{"provider_type":"fake"}`))
+	staleAuditRequest.Header.Set("Content-Type", "application/json")
+	staleAuditRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(createdProvider.Revision, 10)))
+	server.ServeHTTP(staleAuditUpdate, staleAuditRequest)
+	if staleAuditUpdate.Code != http.StatusPreconditionFailed {
+		t.Fatalf("expected stale audited provider update to return 412, got %d: %s", staleAuditUpdate.Code, staleAuditUpdate.Body.String())
+	}
+	disabledProvider := postLLMProviderAction(t, server, providerID, "disable", updatedProvider.Revision)
+	enabledProvider := postLLMProviderAction(t, server, providerID, "enable", disabledProvider.Revision)
+	createdModel := createLLMModel(t, server, `{
+		"provider_id":"`+providerID+`","model":"`+modelName+`","context_window_tokens":1000
+	}`)
+	updatedModel := updateLLMModel(t, server, createdModel.Revision, `{
+		"provider_id":"`+providerID+`","model":"`+modelName+`","context_window_tokens":2000,
+		"capability_type":"text_image","is_default_vision":true
+	}`)
+	staleModelUpdate := httptest.NewRecorder()
+	staleModelUpdateRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"`+providerID+`","model":"`+modelName+`","context_window_tokens":3000
+	}`))
+	staleModelUpdateRequest.Header.Set("Content-Type", "application/json")
+	staleModelUpdateRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(createdModel.Revision, 10)))
+	server.ServeHTTP(staleModelUpdate, staleModelUpdateRequest)
+	if staleModelUpdate.Code != http.StatusPreconditionFailed {
+		t.Fatalf("expected stale audited model update to return 412, got %d: %s", staleModelUpdate.Code, staleModelUpdate.Body.String())
+	}
+
+	missingDelete := httptest.NewRecorder()
+	server.ServeHTTP(missingDelete, httptest.NewRequest(http.MethodDelete, "/v1/llm-models/"+providerID+"/missing-model", nil))
+	if missingDelete.Code != http.StatusNotFound {
+		t.Fatalf("expected missing model deletion to return 404, got %d: %s", missingDelete.Code, missingDelete.Body.String())
+	}
+	modelDelete := httptest.NewRecorder()
+	modelDeleteRequest := httptest.NewRequest(http.MethodDelete, "/v1/llm-models/"+providerID+"/"+modelName, nil)
+	modelDeleteRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(updatedModel.Revision, 10)))
+	server.ServeHTTP(modelDelete, modelDeleteRequest)
+	if modelDelete.Code != http.StatusNoContent {
+		t.Fatalf("expected model deletion to return 204, got %d: %s", modelDelete.Code, modelDelete.Body.String())
+	}
+	providerDelete := httptest.NewRecorder()
+	providerDeleteRequest := httptest.NewRequest(http.MethodDelete, "/v1/llm-providers/"+providerID, nil)
+	providerDeleteRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(enabledProvider.Revision, 10)))
+	server.ServeHTTP(providerDelete, providerDeleteRequest)
+	if providerDelete.Code != http.StatusNoContent {
+		t.Fatalf("expected provider deletion to return 204, got %d: %s", providerDelete.Code, providerDelete.Body.String())
+	}
+
+	audits, err := store.ListOperatorAudit(managedagents.ListOperatorAuditInput{Limit: 20})
+	if err != nil {
+		t.Fatalf("list llm control audits: %v", err)
+	}
+	expectedCounts := map[string]int{
+		"llm.provider.create":  1,
+		"llm.provider.update":  2,
+		"llm.provider.disable": 1,
+		"llm.provider.enable":  1,
+		"llm.provider.delete":  1,
+		"llm.model.create":     1,
+		"llm.model.update":     2,
+		"llm.model.delete":     2,
+	}
+	actualCounts := make(map[string]int)
+	for _, audit := range audits {
+		actualCounts[audit.Action]++
+		if audit.PrincipalID != "control:open" || audit.Role != RoleAdmin {
+			t.Fatalf("unexpected llm audit principal: %+v", audit)
+		}
+	}
+	if !maps.Equal(actualCounts, expectedCounts) {
+		t.Fatalf("unexpected llm control audit actions: got=%v want=%v", actualCounts, expectedCounts)
+	}
+
+	findAudit := func(action string, outcome string) managedagents.OperatorAuditRecord {
+		t.Helper()
+		for _, audit := range audits {
+			if audit.Action == action && audit.Outcome == outcome {
+				return audit
+			}
+		}
+		t.Fatalf("missing %s audit with outcome %s", action, outcome)
+		return managedagents.OperatorAuditRecord{}
+	}
+	var providerUpdate struct {
+		Before *llmProviderAuditState `json:"before"`
+		After  *llmProviderAuditState `json:"after"`
+	}
+	if err := json.Unmarshal(findAudit("llm.provider.update", "succeeded").Details, &providerUpdate); err != nil {
+		t.Fatalf("decode provider update audit: %v", err)
+	}
+	if providerUpdate.Before == nil || providerUpdate.After == nil || providerUpdate.Before.ProviderType != "openai" || providerUpdate.After.ProviderType != "azure_openai" {
+		t.Fatalf("unexpected provider update audit details: %+v", providerUpdate)
+	}
+	if !providerUpdate.Before.BaseURLConfigured || !providerUpdate.Before.CredentialConfigured {
+		t.Fatalf("expected provider audit to retain safe configuration presence flags: %+v", providerUpdate.Before)
+	}
+
+	var modelUpdate struct {
+		Before *llmModelAuditState `json:"before"`
+		After  *llmModelAuditState `json:"after"`
+	}
+	if err := json.Unmarshal(findAudit("llm.model.update", "succeeded").Details, &modelUpdate); err != nil {
+		t.Fatalf("decode model update audit: %v", err)
+	}
+	if modelUpdate.Before == nil || modelUpdate.After == nil || modelUpdate.Before.ContextWindowTokens != 1000 || modelUpdate.After.ContextWindowTokens != 2000 || !modelUpdate.After.IsDefaultVision {
+		t.Fatalf("unexpected model update audit details: %+v", modelUpdate)
+	}
+	failedDelete := findAudit("llm.model.delete", "failed")
+	if failedDelete.ResourceID != providerID+"/missing-model" || failedDelete.ErrorMessage == "" {
+		t.Fatalf("unexpected failed model deletion audit: %+v", failedDelete)
+	}
+	failedProviderUpdate := findAudit("llm.provider.update", "failed")
+	if failedProviderUpdate.ResourceID != providerID || !strings.Contains(failedProviderUpdate.ErrorMessage, "revision changed") {
+		t.Fatalf("unexpected stale provider update audit: %+v", failedProviderUpdate)
+	}
+	failedModelUpdate := findAudit("llm.model.update", "failed")
+	if failedModelUpdate.ResourceID != providerID+"/"+modelName || !strings.Contains(failedModelUpdate.ErrorMessage, "revision changed") {
+		t.Fatalf("unexpected stale model update audit: %+v", failedModelUpdate)
+	}
+
+	encodedAudits, err := json.Marshal(audits)
+	if err != nil {
+		t.Fatalf("encode llm audits: %v", err)
+	}
+	if strings.Contains(string(encodedAudits), secretBaseURL) || strings.Contains(string(encodedAudits), secretEnvName) {
+		t.Fatalf("llm control audit leaked provider connection configuration: %s", encodedAudits)
 	}
 }
 
@@ -991,18 +1716,233 @@ func TestLLMModelManagement(t *testing.T) {
 		"id": "volcengine-agent-plan",
 		"provider_type": "openai"
 	}`)
-	created := postJSONWithStatus[managedagents.LLMModel](t, server, http.MethodPost, "/v1/llm-models", `{
+	created := createLLMModel(t, server, `{
 		"provider_id": "volcengine-agent-plan",
 		"model": "doubao-test",
 		"context_window_tokens": 256000
-	}`, http.StatusOK)
+	}`)
 	if created.ProviderID != "volcengine-agent-plan" || created.Model != "doubao-test" || created.ContextWindowTokens != 256000 {
 		t.Fatalf("unexpected created model: %+v", created)
 	}
+	if created.Revision != 1 {
+		t.Fatalf("expected new model revision 1, got %+v", created)
+	}
+
+	missingCreatePrecondition := httptest.NewRecorder()
+	missingCreateRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"volcengine-agent-plan","model":"missing-precondition","context_window_tokens":1024
+	}`))
+	missingCreateRequest.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(missingCreatePrecondition, missingCreateRequest)
+	if missingCreatePrecondition.Code != http.StatusBadRequest {
+		t.Fatalf("expected model create without If-None-Match to return 400, got %d: %s", missingCreatePrecondition.Code, missingCreatePrecondition.Body.String())
+	}
+
+	duplicateCreate := httptest.NewRecorder()
+	duplicateCreateRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"volcengine-agent-plan","model":"doubao-test","context_window_tokens":512000
+	}`))
+	duplicateCreateRequest.Header.Set("Content-Type", "application/json")
+	duplicateCreateRequest.Header.Set("If-None-Match", "*")
+	server.ServeHTTP(duplicateCreate, duplicateCreateRequest)
+	if duplicateCreate.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate model create to return 409, got %d: %s", duplicateCreate.Code, duplicateCreate.Body.String())
+	}
+
+	missingUpdatePrecondition := httptest.NewRecorder()
+	missingUpdateRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"volcengine-agent-plan","model":"doubao-test","context_window_tokens":512000
+	}`))
+	missingUpdateRequest.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(missingUpdatePrecondition, missingUpdateRequest)
+	if missingUpdatePrecondition.Code != http.StatusBadRequest {
+		t.Fatalf("expected model update without If-Match to return 400, got %d: %s", missingUpdatePrecondition.Code, missingUpdatePrecondition.Body.String())
+	}
+
+	updated := updateLLMModel(t, server, created.Revision, `{
+		"provider_id":"volcengine-agent-plan","model":"doubao-test","context_window_tokens":512000
+	}`)
+	if updated.Revision != created.Revision+1 || updated.ContextWindowTokens != 512000 {
+		t.Fatalf("expected model update to advance revision, got create=%+v update=%+v", created, updated)
+	}
+	staleUpdate := httptest.NewRecorder()
+	staleUpdateRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"volcengine-agent-plan","model":"doubao-test","context_window_tokens":1024
+	}`))
+	staleUpdateRequest.Header.Set("Content-Type", "application/json")
+	staleUpdateRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(created.Revision, 10)))
+	server.ServeHTTP(staleUpdate, staleUpdateRequest)
+	if staleUpdate.Code != http.StatusPreconditionFailed {
+		t.Fatalf("expected stale model update to return 412, got %d: %s", staleUpdate.Code, staleUpdate.Body.String())
+	}
 
 	listed := getJSON[llmModelsResponse](t, server, "/v1/llm-models?provider_id=volcengine-agent-plan")
-	if len(listed.Models) != 1 || listed.Models[0].ContextWindowTokens != 256000 {
+	if len(listed.Models) != 1 || listed.Models[0].ContextWindowTokens != updated.ContextWindowTokens || listed.Models[0].Revision != updated.Revision {
 		t.Fatalf("unexpected model list: %+v", listed.Models)
+	}
+
+	deletePath := "/v1/llm-models/volcengine-agent-plan/doubao-test"
+	deleteResponse := httptest.NewRecorder()
+	deleteRequest := httptest.NewRequest(http.MethodDelete, deletePath, nil)
+	missingDeletePrecondition := httptest.NewRecorder()
+	server.ServeHTTP(missingDeletePrecondition, httptest.NewRequest(http.MethodDelete, deletePath, nil))
+	if missingDeletePrecondition.Code != http.StatusBadRequest {
+		t.Fatalf("expected model delete without If-Match to return 400, got %d: %s", missingDeletePrecondition.Code, missingDeletePrecondition.Body.String())
+	}
+	staleDelete := httptest.NewRecorder()
+	staleDeleteRequest := httptest.NewRequest(http.MethodDelete, deletePath, nil)
+	staleDeleteRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(created.Revision, 10)))
+	server.ServeHTTP(staleDelete, staleDeleteRequest)
+	if staleDelete.Code != http.StatusPreconditionFailed {
+		t.Fatalf("expected stale model delete to return 412, got %d: %s", staleDelete.Code, staleDelete.Body.String())
+	}
+	deleteRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(updated.Revision, 10)))
+	server.ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusNoContent {
+		t.Fatalf("expected model deletion to return 204, got %d: %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+	listed = getJSON[llmModelsResponse](t, server, "/v1/llm-models?provider_id=volcengine-agent-plan")
+	if len(listed.Models) != 0 {
+		t.Fatalf("expected empty model list after deletion, got %+v", listed.Models)
+	}
+
+	inUse := createLLMModel(t, server, `{
+		"provider_id": "volcengine-agent-plan",
+		"model": "doubao-in-use",
+		"context_window_tokens": 256000
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "model-delete-guard",
+		"llm_provider": "volcengine-agent-plan",
+		"llm_model": "doubao-in-use"
+	}`)
+	conflictResponse := httptest.NewRecorder()
+	conflictRequest := httptest.NewRequest(http.MethodDelete, "/v1/llm-models/volcengine-agent-plan/doubao-in-use", nil)
+	conflictRequest.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(inUse.Revision, 10)))
+	server.ServeHTTP(conflictResponse, conflictRequest)
+	if conflictResponse.Code != http.StatusConflict {
+		t.Fatalf("expected referenced model deletion to return 409, got %d: %s", conflictResponse.Code, conflictResponse.Body.String())
+	}
+}
+
+func TestLLMModelCapabilitiesAndDefaultVisionSelection(t *testing.T) {
+	server := newTestServer()
+	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{"id":"vision-provider","provider_type":"openai"}`)
+
+	first := createLLMModel(t, server, `{
+		"provider_id":"vision-provider","model":"vision-one","context_window_tokens":128000,
+		"capability_type":"text_image","is_default_vision":true
+	}`)
+	if first.CapabilityType != managedagents.LLMModelCapabilityTextImage || !first.IsDefaultVision {
+		t.Fatalf("unexpected first vision model: %+v", first)
+	}
+
+	second := createLLMModel(t, server, `{
+		"provider_id":"vision-provider","model":"vision-two","context_window_tokens":128000,
+		"capability_type":"text_image","is_default_vision":true
+	}`)
+	if !second.IsDefaultVision {
+		t.Fatalf("expected second model to become default vision: %+v", second)
+	}
+	listed := getJSON[llmModelsResponse](t, server, "/v1/llm-models?provider_id=vision-provider")
+	defaults := 0
+	for _, model := range listed.Models {
+		if model.Model == first.Model && (model.IsDefaultVision || model.Revision != first.Revision+1) {
+			t.Fatalf("expected displaced default model revision to advance, before=%+v after=%+v", first, model)
+		}
+		if model.IsDefaultVision {
+			defaults++
+			if model.Model != "vision-two" {
+				t.Fatalf("unexpected default vision model: %+v", model)
+			}
+		}
+	}
+	if defaults != 1 {
+		t.Fatalf("expected exactly one default vision model, got %+v", listed.Models)
+	}
+
+	invalidDefault := httptest.NewRecorder()
+	invalidDefaultRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"vision-provider","model":"text-only","context_window_tokens":128000,
+		"capability_type":"text","is_default_vision":true
+	}`))
+	invalidDefaultRequest.Header.Set("Content-Type", "application/json")
+	invalidDefaultRequest.Header.Set("If-None-Match", "*")
+	server.ServeHTTP(invalidDefault, invalidDefaultRequest)
+	if invalidDefault.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid default vision model to return 400, got %d: %s", invalidDefault.Code, invalidDefault.Body.String())
+	}
+}
+
+func TestLLMEmbeddingAndRerankerModelConfiguration(t *testing.T) {
+	server := newTestServer()
+	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{"id":"knowledge-provider","provider_type":"openai-compatible"}`)
+
+	firstEmbedding := createLLMModel(t, server, `{
+		"provider_id":"knowledge-provider","model":"bge-m3","context_window_tokens":8192,
+		"capability_type":"embedding","is_default_embedding":true,
+		"capabilities":{"dimensions":1024,"distance_metric":"cosine","normalized":true,"max_batch_size":32,"protocol":"openai_embeddings"}
+	}`)
+	if firstEmbedding.CapabilityType != managedagents.LLMModelCapabilityEmbedding || !firstEmbedding.IsDefaultEmbedding || firstEmbedding.Capabilities.Dimensions != 1024 {
+		t.Fatalf("unexpected embedding model: %+v", firstEmbedding)
+	}
+
+	secondEmbedding := createLLMModel(t, server, `{
+		"provider_id":"knowledge-provider","model":"text-embedding-small","context_window_tokens":8192,
+		"capability_type":"embedding","is_default_embedding":true,
+		"capabilities":{"dimensions":1536,"distance_metric":"cosine","max_batch_size":64,"protocol":"openai_embeddings"}
+	}`)
+	reranker := createLLMModel(t, server, `{
+		"provider_id":"knowledge-provider","model":"bge-reranker-v2-m3","context_window_tokens":8192,
+		"capability_type":"reranker","is_default_reranker":true,
+		"capabilities":{"max_candidates":50,"protocol":"jina_rerank"}
+	}`)
+	if !secondEmbedding.IsDefaultEmbedding || !reranker.IsDefaultReranker || reranker.Capabilities.MaxCandidates != 50 {
+		t.Fatalf("unexpected knowledge model defaults: embedding=%+v reranker=%+v", secondEmbedding, reranker)
+	}
+
+	listed := getJSON[llmModelsResponse](t, server, "/v1/llm-models?provider_id=knowledge-provider")
+	embeddingDefaults, rerankerDefaults := 0, 0
+	for _, model := range listed.Models {
+		if model.IsDefaultEmbedding {
+			embeddingDefaults++
+			if model.Model != secondEmbedding.Model {
+				t.Fatalf("unexpected default embedding model: %+v", model)
+			}
+		}
+		if model.IsDefaultReranker {
+			rerankerDefaults++
+		}
+		if model.Model == firstEmbedding.Model && model.Revision != firstEmbedding.Revision+1 {
+			t.Fatalf("expected displaced embedding default revision to advance: before=%+v after=%+v", firstEmbedding, model)
+		}
+	}
+	if embeddingDefaults != 1 || rerankerDefaults != 1 {
+		t.Fatalf("unexpected default counts: embedding=%d reranker=%d models=%+v", embeddingDefaults, rerankerDefaults, listed.Models)
+	}
+
+	invalidEmbedding := httptest.NewRecorder()
+	invalidEmbeddingRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"knowledge-provider","model":"invalid-embedding","capability_type":"embedding",
+		"capabilities":{"protocol":"openai_embeddings"}
+	}`))
+	invalidEmbeddingRequest.Header.Set("Content-Type", "application/json")
+	invalidEmbeddingRequest.Header.Set("If-None-Match", "*")
+	server.ServeHTTP(invalidEmbedding, invalidEmbeddingRequest)
+	if invalidEmbedding.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing embedding dimensions to return 400, got %d: %s", invalidEmbedding.Code, invalidEmbedding.Body.String())
+	}
+
+	invalidDefault := httptest.NewRecorder()
+	invalidDefaultRequest := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(`{
+		"provider_id":"knowledge-provider","model":"invalid-default","capability_type":"text",
+		"is_default_reranker":true
+	}`))
+	invalidDefaultRequest.Header.Set("Content-Type", "application/json")
+	invalidDefaultRequest.Header.Set("If-None-Match", "*")
+	server.ServeHTTP(invalidDefault, invalidDefaultRequest)
+	if invalidDefault.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid reranker default to return 400, got %d: %s", invalidDefault.Code, invalidDefault.Body.String())
 	}
 }
 
@@ -1086,6 +2026,72 @@ func TestAgentConfigVersionUpdateKeepsExistingSessionsPinned(t *testing.T) {
 	}
 }
 
+func TestAgentConfigVersionRollbackCreatesNewImmutableVersion(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Rollback Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1",
+		"system": "version one",
+		"tools": {"enabled_tools":["filesystem"]}
+	}`)
+	updated := postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2",
+		"system": "version two",
+		"tools": {"enabled_tools":["web"]}
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "rollback-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	pinnedSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	result := postJSON[agentConfigRollbackResponse](t, server, "/v1/agents/"+agent.ID+"/config-versions/1/rollback", `{}`)
+	if result.SourceVersion != 1 || result.PreviousVersion != 2 || result.NewVersion != 3 {
+		t.Fatalf("unexpected rollback metadata: %+v", result)
+	}
+	if result.Agent.CurrentConfigVersion != 3 || result.Agent.ConfigVersion.Version != 3 {
+		t.Fatalf("expected rollback to create current version 3: %+v", result.Agent)
+	}
+	if result.Agent.ConfigVersion.LLMModel != "fake-v1" || result.Agent.ConfigVersion.System != "version one" {
+		t.Fatalf("expected version 1 model and system to be copied: %+v", result.Agent.ConfigVersion)
+	}
+	if string(result.Agent.ConfigVersion.Tools) != `{"enabled_tools":["filesystem"]}` {
+		t.Fatalf("expected version 1 tools to be copied, got %s", result.Agent.ConfigVersion.Tools)
+	}
+	if pinnedSession.AgentConfigVersion != updated.CurrentConfigVersion {
+		t.Fatalf("expected existing session to remain pinned to version 2, got %d", pinnedSession.AgentConfigVersion)
+	}
+	pinnedSessionAfter := getJSON[managedagents.Session](t, server, "/v1/sessions/"+pinnedSession.ID)
+	if pinnedSessionAfter.AgentConfigVersion != 2 {
+		t.Fatalf("expected existing session to remain pinned after rollback, got %d", pinnedSessionAfter.AgentConfigVersion)
+	}
+	versions := getJSON[agentConfigVersionsResponse](t, server, "/v1/agents/"+agent.ID+"/config-versions")
+	if len(versions.ConfigVersions) != 3 || versions.ConfigVersions[2].System != "version one" {
+		t.Fatalf("unexpected config versions after rollback: %+v", versions.ConfigVersions)
+	}
+	audit := getJSON[struct {
+		Records []managedagents.OperatorAuditRecord `json:"audit_records"`
+	}](t, server, "/v1/operator-audit?action=agent.config.rollback")
+	if len(audit.Records) != 1 || audit.Records[0].ResourceID != agent.ID || audit.Records[0].Outcome != "succeeded" {
+		t.Fatalf("unexpected rollback audit: %+v", audit.Records)
+	}
+}
+
+func TestAgentConfigVersionRollbackRejectsCurrentVersion(t *testing.T) {
+	server := newTestServer()
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Rollback Guard",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1"
+	}`)
+	postJSONWithStatus[map[string]any](t, server, http.MethodPost, "/v1/agents/"+agent.ID+"/config-versions/1/rollback", `{}`, http.StatusBadRequest)
+}
+
 func TestUpgradeSessionAgentConfigToCurrent(t *testing.T) {
 	server := newTestServer()
 
@@ -1128,6 +2134,107 @@ func TestUpgradeSessionAgentConfigToCurrent(t *testing.T) {
 	updatedSession := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
 	if updatedSession.AgentConfigVersion != 2 {
 		t.Fatalf("expected session to upgrade to version 2, got %d", updatedSession.AgentConfigVersion)
+	}
+}
+
+func TestUpgradeSessionAgentConfigToExactVersion(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Exact Config Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1",
+		"system": "version one"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "exact-config-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2",
+		"system": "version two"
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-demo",
+		"system": "version three"
+	}`)
+
+	var result managedagents.UpgradeSessionAgentConfigResult
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/config/upgrade", bytes.NewBufferString(`{"to_version":2,"updated_by":"workbench"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected exact upgrade status %d, got %d: %s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !result.Changed || result.OldAgentConfigVersion != 1 || result.NewAgentConfigVersion != 2 || result.LatestAgentConfigVersion != 3 {
+		t.Fatalf("unexpected exact upgrade result: %+v", result)
+	}
+	updatedSession := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if updatedSession.AgentConfigVersion != 2 {
+		t.Fatalf("expected session to use exact version 2, got %d", updatedSession.AgentConfigVersion)
+	}
+}
+
+func TestUpgradeSessionAgentConfigRejectsInvalidExactTargets(t *testing.T) {
+	server := newTestServer()
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Config Target Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-v1"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "config-target-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	postJSON[managedagents.Agent](t, server, "/v1/agents/"+agent.ID+"/config-versions", `{
+		"llm_model": "fake-v2"
+	}`)
+	newerSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"agent_config_version": 2,
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	tests := []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{name: "both selectors", body: `{"to_current":true,"to_version":1}`, status: http.StatusBadRequest},
+		{name: "explicitly no selector", body: `{"to_current":false}`, status: http.StatusBadRequest},
+		{name: "unknown version", body: `{"to_version":99}`, status: http.StatusNotFound},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/config/upgrade", bytes.NewBufferString(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, request)
+			if response.Code != test.status {
+				t.Fatalf("expected status %d, got %d: %s", test.status, response.Code, response.Body.String())
+			}
+		})
+	}
+
+	downgradeRequest := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+newerSession.ID+"/config/upgrade", bytes.NewBufferString(`{"to_version":1}`))
+	downgradeRequest.Header.Set("Content-Type", "application/json")
+	downgradeResponse := httptest.NewRecorder()
+	server.ServeHTTP(downgradeResponse, downgradeRequest)
+	if downgradeResponse.Code != http.StatusConflict {
+		t.Fatalf("expected downgrade status %d, got %d: %s", http.StatusConflict, downgradeResponse.Code, downgradeResponse.Body.String())
 	}
 }
 
@@ -1740,6 +2847,40 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	if len(nextSpans.Spans) != 1 || nextSpans.Offset != 1 || nextSpans.Spans[0].SpanID == pagedSpans.Spans[0].SpanID {
 		t.Fatalf("expected second span page with different span, got first=%+v second=%+v", pagedSpans, nextSpans)
 	}
+	v2Traces := getJSON[struct {
+		Items []struct {
+			TraceID string `json:"trace_id"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
+	}](t, server, "/v2/traces?session_id="+session.ID+"&limit=10")
+	if len(v2Traces.Items) != 1 || v2Traces.Items[0].TraceID != trace.TraceID || v2Traces.NextCursor != "" || v2Traces.HasMore {
+		t.Fatalf("expected v2 trace cursor page, got %+v", v2Traces)
+	}
+	v2Spans := getJSON[struct {
+		Items []struct {
+			SpanID string `json:"span_id"`
+		} `json:"items"`
+		NextCursor string `json:"next_cursor"`
+		HasMore    bool   `json:"has_more"`
+	}](t, server, "/v2/spans?session_id="+session.ID+"&turn_id="+turnID+"&limit=1")
+	if len(v2Spans.Items) != 1 || v2Spans.NextCursor == "" || !v2Spans.HasMore {
+		t.Fatalf("expected first v2 span cursor page, got %+v", v2Spans)
+	}
+	v2NextSpans := getJSON[struct {
+		Items []struct {
+			SpanID string `json:"span_id"`
+		} `json:"items"`
+	}](t, server, "/v2/spans?session_id="+session.ID+"&turn_id="+turnID+"&limit=1&cursor="+url.QueryEscape(v2Spans.NextCursor))
+	if len(v2NextSpans.Items) != 1 || v2NextSpans.Items[0].SpanID == v2Spans.Items[0].SpanID {
+		t.Fatalf("expected second v2 span cursor page, got first=%+v second=%+v", v2Spans, v2NextSpans)
+	}
+	invalidCursorRequest := httptest.NewRequest(http.MethodGet, "/v2/spans?session_id=another&limit=1&cursor="+url.QueryEscape(v2Spans.NextCursor), nil)
+	invalidCursorResponse := httptest.NewRecorder()
+	server.ServeHTTP(invalidCursorResponse, invalidCursorRequest)
+	if invalidCursorResponse.Code != http.StatusBadRequest || !strings.Contains(invalidCursorResponse.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("expected filter-bound cursor rejection, got %d %s", invalidCursorResponse.Code, invalidCursorResponse.Body.String())
+	}
 	criticalSpans := getJSON[struct {
 		Spans []struct {
 			TraceID   string `json:"trace_id"`
@@ -1791,7 +2932,20 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 
 func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	store := newTestStore()
-	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	testRunner := mcpStatsTestRunner{
+		Runner: runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		stats: mcp.StdioHostStats{
+			Sessions: 2, InUseSessions: 1, MaxSessions: 8, IdleTimeoutSeconds: 120,
+			StartsTotal: 3, RejectionsTotal: 1, ToolsListChangedTotal: 2, ProgressNotificationsTotal: 4, LogMessagesTotal: 2, InvalidNotificationsTotal: 1,
+			LogMessagesByLevel: map[string]int64{"info": 2},
+		},
+		httpStats: mcp.StreamableHTTPHostStats{
+			Sessions: 1, InUseSessions: 1, MaxSessions: 12, IdleTimeoutSeconds: 180,
+			StartsTotal: 2, ToolsListChangedTotal: 1, ProgressNotificationsTotal: 3, LogMessagesTotal: 1,
+			LogMessagesByLevel: map[string]int64{"warning": 1},
+		},
+	}
+	server := NewServerWithStoreAndRunner(store, testRunner, nil)
 
 	if _, err := store.RecordLLMUsage(managedagents.RecordLLMUsageInput{
 		WorkspaceID:        managedagents.DefaultWorkspaceID,
@@ -1873,6 +3027,42 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	if !strings.Contains(metrics, `tma_workers_total{status="online",type="local"} 1`) {
 		t.Fatalf("expected worker gauge, got:\n%s", metrics)
 	}
+	if !strings.Contains(metrics, `tma_mcp_stdio_host_sessions 2`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_in_use_sessions 1`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_max_sessions 8`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_events_total{event="start"} 3`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_events_total{event="tools_list_changed"} 2`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_notifications_total{type="progress"} 4`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_log_messages_total{level="info"} 2`) ||
+		!strings.Contains(metrics, `tma_mcp_stdio_host_events_total{event="reject"} 1`) {
+		t.Fatalf("expected MCP host metrics, got:\n%s", metrics)
+	}
+	if !strings.Contains(metrics, `tma_mcp_streamable_http_host_sessions 1`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_in_use_sessions 1`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_max_sessions 12`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_events_total{event="start"} 2`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_notifications_total{type="progress"} 3`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_log_messages_total{level="warning"} 1`) ||
+		!strings.Contains(metrics, `tma_mcp_streamable_http_host_events_total{event="tools_list_changed"} 1`) {
+		t.Fatalf("expected MCP HTTP host metrics, got:\n%s", metrics)
+	}
+	if !strings.Contains(metrics, `tma_subagent_status_total{status="queued"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_status_total{status="running"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_status_total{status="rejected"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_wait_seconds 0`) {
+		t.Fatalf("expected subagent gauges, got:\n%s", metrics)
+	}
+	if !strings.Contains(metrics, `tma_subagent_group_status_total{status="pending"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_status_total{status="running"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_status_total{status="completed"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_status_total{status="failed"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_status_total{status="canceled"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_items_total{status="created"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_items_total{status="started"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_items_total{status="queued"} 0`) ||
+		!strings.Contains(metrics, `tma_subagent_group_items_total{status="rejected"} 0`) {
+		t.Fatalf("expected task group gauges, got:\n%s", metrics)
+	}
 	if !strings.Contains(metrics, `tma_observability_exporter_enabled{exporter="perfetto"}`) ||
 		!strings.Contains(metrics, `tma_observability_exporter_sample_rate 1`) ||
 		!strings.Contains(metrics, `tma_observability_exporter_last_attempt_timestamp_seconds{exporter="otlp"}`) {
@@ -1939,9 +3129,13 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		t.Fatalf("expected app javascript content type, got %q", contentType)
 	}
 	if appJS := appJSResponse.Body.String(); !strings.Contains(appJS, "TMA Workbench") ||
-		!strings.Contains(appJS, "New Task") ||
+		!strings.Contains(appJS, "starter-grid") ||
 		!strings.Contains(appJS, "sendSessionMessage") ||
-		!strings.Contains(appJS, "What should TMA do?") ||
+		!strings.Contains(appJS, "Package Security") ||
+		!strings.Contains(appJS, "Marketplace Policy") ||
+		!strings.Contains(appJS, "市场管理") ||
+		!strings.Contains(appJS, "提交审核") ||
+		!strings.Contains(appJS, "让 TMA 帮你构建、检查、修改或执行某项工作") ||
 		strings.Contains(appJS, "TMA Inspector") ||
 		strings.Contains(appJS, "Trace ID") {
 		t.Fatalf("expected standalone user app bundle, got %q", appJS)
@@ -2013,6 +3207,9 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "pinned_context_included") ||
 		!strings.Contains(appJS, "runtime.context_compacting") ||
 		!strings.Contains(appJS, "runtime.tool_result") ||
+		!strings.Contains(appJS, "MCP Protocol") ||
+		!strings.Contains(appJS, "payload values redacted") ||
+		!strings.Contains(appJS, "collectMCPProtocolOperations") ||
 		!strings.Contains(appJS, "Sampling") ||
 		!strings.Contains(appJS, "sample_rate") ||
 		!strings.Contains(appJS, "Retry due exporters") ||
@@ -2082,6 +3279,8 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(styles, ".coverage-grid") ||
 		!strings.Contains(styles, ".budget-grid") ||
 		!strings.Contains(styles, ".budget-bar") ||
+		!strings.Contains(styles, ".mcp-protocol-summary") ||
+		!strings.Contains(styles, ".mcp-operation-lifecycle") ||
 		!strings.Contains(styles, ".preview-media") ||
 		!strings.Contains(styles, ".health-line") {
 		t.Fatalf("expected inspector styles, got %q", styles)
@@ -2641,8 +3840,9 @@ func TestUploadSessionArtifactUsesObjectStore(t *testing.T) {
 	}
 
 	var decoded struct {
-		ObjectRef managedagents.ObjectRef       `json:"object_ref"`
-		Artifact  managedagents.SessionArtifact `json:"artifact"`
+		ObjectRef     managedagents.ObjectRef       `json:"object_ref"`
+		Artifact      managedagents.SessionArtifact `json:"artifact"`
+		WorkspacePath string                        `json:"workspace_path"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
 		t.Fatalf("decode upload response: %v", err)
@@ -2652,6 +3852,26 @@ func TestUploadSessionArtifactUsesObjectStore(t *testing.T) {
 	}
 	if decoded.Artifact.ID == "" || decoded.Artifact.ObjectRefID != decoded.ObjectRef.ID || decoded.Artifact.TurnID != "turn_000001" {
 		t.Fatalf("unexpected artifact: %+v", decoded.Artifact)
+	}
+	if decoded.WorkspacePath != "/workspace/uploads/"+decoded.Artifact.ID+"/output.txt" {
+		t.Fatalf("unexpected workspace path: %q", decoded.WorkspacePath)
+	}
+
+	unsupported := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts/upload", strings.NewReader("not multipart"))
+	unsupported.Header.Set("Content-Type", "text/plain")
+	unsupportedResponse := httptest.NewRecorder()
+	server.ServeHTTP(unsupportedResponse, unsupported)
+	if unsupportedResponse.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected unsupported upload media type status 415, got %d: %s", unsupportedResponse.Code, unsupportedResponse.Body.String())
+	}
+
+	oversized := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+session.ID+"/artifacts/upload", strings.NewReader("x"))
+	oversized.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	oversized.ContentLength = maxArtifactUploadBytes + 1025
+	oversizedResponse := httptest.NewRecorder()
+	server.ServeHTTP(oversizedResponse, oversized)
+	if oversizedResponse.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected oversized upload status 413, got %d: %s", oversizedResponse.Code, oversizedResponse.Body.String())
 	}
 }
 
@@ -3012,7 +4232,7 @@ func TestStreamSessionEventsReplaysHistoryAfterSeq(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+session.ID+"/events/stream?after_seq=1", nil).WithContext(ctx)
-	response := httptest.NewRecorder()
+	response := newSynchronizedResponseRecorder()
 
 	done := make(chan struct{})
 	go func() {
@@ -3021,13 +4241,14 @@ func TestStreamSessionEventsReplaysHistoryAfterSeq(t *testing.T) {
 	}()
 
 	waitFor(t, func() bool {
-		return strings.Contains(response.Body.String(), "event: session.status_idle") &&
-			strings.Contains(response.Body.String(), ": stream ready")
+		body := response.BodyString()
+		return strings.Contains(body, "event: session.status_idle") &&
+			strings.Contains(body, ": stream ready")
 	})
 	cancel()
 	<-done
 
-	body := response.Body.String()
+	body := response.BodyString()
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d: %s", http.StatusOK, response.Code, body)
 	}
@@ -3080,6 +4301,41 @@ func TestArchiveSessionTerminatesAndBlocksNewEvents(t *testing.T) {
 
 	if response.Code != http.StatusConflict {
 		t.Fatalf("expected status %d after append to terminated session, got %d: %s", http.StatusConflict, response.Code, response.Body.String())
+	}
+}
+
+func TestRestoreSessionReturnsArchivedSessionToIdle(t *testing.T) {
+	server := newTestServer()
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Restore Assistant",
+		"model": "gpt-4o",
+		"system": "You are a coding agent."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	archived := postJSONWithStatus[managedagents.Session](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/archive", `{}`, http.StatusOK)
+	if archived.ArchivedAt == nil {
+		t.Fatal("expected archived_at after archive")
+	}
+
+	restored := postJSONWithStatus[managedagents.Session](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/restore", `{}`, http.StatusOK)
+	if restored.Status != managedagents.SessionStatusIdle || restored.ArchivedAt != nil {
+		t.Fatalf("expected restored idle session, got %+v", restored)
+	}
+
+	response := postJSONWithStatus[struct {
+		Events []managedagents.Event `json:"events"`
+	}](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/events", `{
+		"events": [{"type": "user.message", "payload": {"content": [{"type":"text","text":"continue"}]}}]
+	}`, http.StatusCreated)
+	if len(response.Events) < 2 || response.Events[1].Type != managedagents.EventUserMessage {
+		t.Fatalf("expected restored session to accept a new user message, got %+v", response.Events)
 	}
 }
 
@@ -3198,6 +4454,50 @@ type llmModelsResponse struct {
 
 type agentConfigVersionsResponse struct {
 	ConfigVersions []managedagents.AgentConfigVersion `json:"config_versions"`
+}
+
+func TestInterruptClearsPendingSessionApprovals(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, &recordingRunner{}, nil)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"llm_provider": "fake",
+		"llm_model": "fake-demo"
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	started, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+		Type:    managedagents.EventUserMessage,
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"edit"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(started[len(started)-1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_edit", ToolIdentifier: "default", APIName: "edit_file", InterventionMode: "request_approval",
+	}); err != nil {
+		t.Fatalf("save intervention: %v", err)
+	}
+
+	interrupted := postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
+		"events": [{"type": "user.interrupt"}]
+	}`)
+	if len(interrupted.Events) != 4 || interrupted.Events[2].Type != managedagents.EventRuntimeToolInterventionRejected {
+		t.Fatalf("expected interrupt response to reject pending approval, got %+v", interrupted.Events)
+	}
+	pending := getJSON[struct {
+		Interventions []managedagents.SessionIntervention `json:"interventions"`
+	}](t, server, "/v1/sessions/"+session.ID+"/interventions?status=pending")
+	if len(pending.Interventions) != 0 {
+		t.Fatalf("expected no pending approvals after interrupt, got %+v", pending.Interventions)
+	}
 }
 
 type recordingRunner struct {
@@ -3375,6 +4675,87 @@ func postJSONWithStatus[T any](t *testing.T, handler http.Handler, method, path 
 	}
 
 	return value
+}
+
+func patchLLMProvider(t *testing.T, handler http.Handler, providerID string, revision int64, body string) managedagents.LLMProvider {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPatch, "/v1/llm-providers/"+providerID, bytes.NewBufferString(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(revision, 10)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("PATCH provider expected status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var provider managedagents.LLMProvider
+	if err := json.NewDecoder(response.Body).Decode(&provider); err != nil {
+		t.Fatalf("decode PATCH provider response: %v", err)
+	}
+	expectedETag := strconv.Quote(strconv.FormatInt(provider.Revision, 10))
+	if response.Header().Get("ETag") != expectedETag {
+		t.Fatalf("unexpected provider ETag: got=%q want=%q", response.Header().Get("ETag"), expectedETag)
+	}
+	return provider
+}
+
+func postLLMProviderAction(t *testing.T, handler http.Handler, providerID string, action string, revision int64) managedagents.LLMProvider {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/v1/llm-providers/"+providerID+"/"+action, strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(revision, 10)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST provider %s expected status 200, got %d: %s", action, response.Code, response.Body.String())
+	}
+	var provider managedagents.LLMProvider
+	if err := json.NewDecoder(response.Body).Decode(&provider); err != nil {
+		t.Fatalf("decode provider %s response: %v", action, err)
+	}
+	expectedETag := strconv.Quote(strconv.FormatInt(provider.Revision, 10))
+	if response.Header().Get("ETag") != expectedETag {
+		t.Fatalf("unexpected provider %s ETag: got=%q want=%q", action, response.Header().Get("ETag"), expectedETag)
+	}
+	return provider
+}
+
+func createLLMModel(t *testing.T, handler http.Handler, body string) managedagents.LLMModel {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-None-Match", "*")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create LLM model expected status 201, got %d: %s", response.Code, response.Body.String())
+	}
+	return decodeLLMModelResponse(t, response)
+}
+
+func updateLLMModel(t *testing.T, handler http.Handler, revision int64, body string) managedagents.LLMModel {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/v1/llm-models", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(revision, 10)))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("update LLM model expected status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	return decodeLLMModelResponse(t, response)
+}
+
+func decodeLLMModelResponse(t *testing.T, response *httptest.ResponseRecorder) managedagents.LLMModel {
+	t.Helper()
+	var model managedagents.LLMModel
+	if err := json.NewDecoder(response.Body).Decode(&model); err != nil {
+		t.Fatalf("decode LLM model response: %v", err)
+	}
+	expectedETag := strconv.Quote(strconv.FormatInt(model.Revision, 10))
+	if response.Header().Get("ETag") != expectedETag {
+		t.Fatalf("unexpected LLM model ETag: got=%q want=%q", response.Header().Get("ETag"), expectedETag)
+	}
+	return model
 }
 
 func getJSON[T any](t *testing.T, handler http.Handler, path string) T {

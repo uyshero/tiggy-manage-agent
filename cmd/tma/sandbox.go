@@ -63,12 +63,12 @@ func commandSandboxDoctor(args []string) error {
 	flags.SetOutput(os.Stderr)
 
 	runtime := envOrDefaultCLI("TMA_TOOL_RUNTIME", "cloud_sandbox")
-	root := os.Getenv("TMA_CLOUD_SANDBOX_ROOT")
+	root := envOrDefaultCLI("TMA_CLOUD_SANDBOX_ROOT", serverconfig.DefaultCloudSandboxWorkspaceRoot)
 	image := envOrDefaultCLI("TMA_CLOUD_SANDBOX_IMAGE", defaultSandboxImage)
 	dockerCommand := "docker"
 	pull := true
 	flags.StringVar(&runtime, "runtime", runtime, "auto | cloud_sandbox | local_system")
-	flags.StringVar(&root, "root", root, "workspace root path for cloud_sandbox runtime")
+	flags.StringVar(&root, "root", root, "isolated workspace base path for cloud_sandbox runtime")
 	flags.StringVar(&image, "image", image, "Onlyboxes image for cloud_sandbox runtime")
 	flags.StringVar(&dockerCommand, "docker", dockerCommand, "docker command path or name")
 	flags.BoolVar(&pull, "pull", pull, "pull missing sandbox image")
@@ -163,24 +163,27 @@ func normalizeSandboxDoctorRuntime(value string) string {
 
 func resolveDoctorRoot(root string) (string, error) {
 	if strings.TrimSpace(root) == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", fmt.Errorf("resolve cwd: %w", err)
-		}
-		root = cwd
+		root = serverconfig.DefaultCloudSandboxWorkspaceRoot
 	}
 	abs, err := filepathAbs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve root: %w", err)
 	}
-	info, err := os.Stat(abs)
+	if err := os.MkdirAll(abs, 0o700); err != nil {
+		return "", fmt.Errorf("create workspace base: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace base symlink: %w", err)
+	}
+	info, err := os.Stat(resolved)
 	if err != nil {
 		return "", fmt.Errorf("stat root: %w", err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("root is not a directory: %s", abs)
+		return "", fmt.Errorf("root is not a directory: %s", resolved)
 	}
-	return abs, nil
+	return resolved, nil
 }
 
 func envOrDefaultCLI(key string, fallback string) string {

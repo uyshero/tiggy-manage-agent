@@ -6,12 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
+
+	"tiggy-manage-agent/sdk/tma"
 )
 
 func commandSessionAttach(client *apiClient, args []string) error {
@@ -34,43 +33,28 @@ func commandSessionAttach(client *apiClient, args []string) error {
 		return fmt.Errorf("session attach requires --session")
 	}
 
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events/stream"
-	if afterSeq > 0 {
-		path += "?after_seq=" + strconv.FormatInt(afterSeq, 10)
-	}
-
-	return client.streamInteractive(path, sessionID, os.Stdin, os.Stdout)
+	return client.streamInteractive(sessionID, afterSeq, os.Stdin, os.Stdout)
 }
 
-func (c *apiClient) streamInteractive(path string, sessionID string, input io.Reader, output io.Writer) error {
+func (c *apiClient) streamInteractive(sessionID string, afterSeq int64, input io.Reader, output io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	sdk, err := c.sdkClient()
 	if err != nil {
-		return fmt.Errorf("create request: %w", err)
+		return err
 	}
-	request.Header.Set("Accept", "text/event-stream")
-
-	response, err := c.streamHTTP.Do(request)
+	stream, err := sdk.Sessions.Events(ctx, sessionID, afterSeq)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return err
 	}
-	defer response.Body.Close()
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		responseBytes, readErr := io.ReadAll(response.Body)
-		if readErr != nil {
-			return fmt.Errorf("read error response: %w", readErr)
-		}
-		return fmt.Errorf("GET %s returned %s: %s", path, response.Status, strings.TrimSpace(string(responseBytes)))
-	}
+	defer stream.Close()
 
 	lockedOutput := &lockedWriter{writer: output}
 	state := &interactiveSessionState{}
 	streamErr := make(chan error, 1)
 	go func() {
-		streamErr <- streamSSEWithInterventions(response.Body, lockedOutput, func(event toolInterventionEvent) error {
+		streamErr <- streamSDKEvents(ctx, stream, lockedOutput, func(event toolInterventionEvent) error {
 			return handleInteractiveInterventionEvent(c, sessionID, lockedOutput, state, event)
 		})
 	}()
@@ -106,7 +90,7 @@ func (c *apiClient) streamInteractive(path string, sessionID string, input io.Re
 		return err
 	case err := <-inputErr:
 		cancel()
-		_ = response.Body.Close()
+		_ = stream.Close()
 		if err != nil {
 			return err
 		}
@@ -114,27 +98,20 @@ func (c *apiClient) streamInteractive(path string, sessionID string, input io.Re
 	}
 }
 
-type attachSessionInfo struct {
-	ID                 string `json:"id"`
-	AgentID            string `json:"agent_id"`
-	AgentConfigVersion int    `json:"agent_config_version"`
-}
-
-type attachAgentInfo struct {
-	ID                   string `json:"id"`
-	CurrentConfigVersion int    `json:"current_config_version"`
-}
-
 func printSessionVersionNotice(client *apiClient, sessionID string, output io.Writer) error {
-	var session attachSessionInfo
-	if err := client.do(http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil, &session); err != nil {
+	sdk, err := client.sdkClient()
+	if err != nil {
+		return err
+	}
+	session, err := sdk.Sessions.Get(context.Background(), sessionID)
+	if err != nil {
 		return err
 	}
 	if session.AgentID == "" || session.AgentConfigVersion <= 0 {
 		return nil
 	}
-	var agent attachAgentInfo
-	if err := client.do(http.MethodGet, "/v1/agents/"+url.PathEscape(session.AgentID), nil, &agent); err != nil {
+	agent, err := sdk.Agents.Get(context.Background(), session.AgentID)
+	if err != nil {
 		return err
 	}
 	if agent.CurrentConfigVersion <= 0 {
@@ -144,7 +121,7 @@ func printSessionVersionNotice(client *apiClient, sessionID string, output io.Wr
 		_, err := fmt.Fprintf(output, "notice: this session is pinned to agent config v%d; latest is v%d. Start a new session to use the latest config.\n", session.AgentConfigVersion, agent.CurrentConfigVersion)
 		return err
 	}
-	_, err := fmt.Fprintf(output, "agent config: v%d\n", session.AgentConfigVersion)
+	_, err = fmt.Fprintf(output, "agent config: v%d\n", session.AgentConfigVersion)
 	return err
 }
 
@@ -180,22 +157,16 @@ func (c *apiClient) sessionInterventionPending(sessionID string, turnID string, 
 }
 
 func (c *apiClient) listPendingInterventions(sessionID string) ([]toolInterventionEvent, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions?status=pending"
-	var response struct {
-		Interventions []struct {
-			TurnID           string `json:"turn_id"`
-			CallID           string `json:"call_id"`
-			ToolIdentifier   string `json:"tool_identifier"`
-			APIName          string `json:"api_name"`
-			InterventionMode string `json:"intervention_mode"`
-			Reason           string `json:"reason"`
-		} `json:"interventions"`
-	}
-	if err := c.do(http.MethodGet, path, nil, &response); err != nil {
+	sdk, err := c.sdkClient()
+	if err != nil {
 		return nil, err
 	}
-	events := make([]toolInterventionEvent, 0, len(response.Interventions))
-	for _, intervention := range response.Interventions {
+	interventions, err := sdk.Interventions.List(context.Background(), sessionID, "pending")
+	if err != nil {
+		return nil, err
+	}
+	events := make([]toolInterventionEvent, 0, len(interventions))
+	for _, intervention := range interventions {
 		events = append(events, toolInterventionEvent{
 			Type:             "runtime.tool_intervention_required",
 			TurnID:           intervention.TurnID,
@@ -211,39 +182,32 @@ func (c *apiClient) listPendingInterventions(sessionID string) ([]toolInterventi
 }
 
 func (c *apiClient) decideSessionIntervention(sessionID string, turnID string, callID string, action string, reason string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interventions/" + url.PathEscape(turnID) + "/" + url.PathEscape(callID) + "/" + action
-	var response any
-	if err := c.do(http.MethodPost, path, map[string]any{"reason": reason}, &response); err != nil {
+	sdk, err := c.sdkClient()
+	if err != nil {
 		return err
 	}
-	return nil
+	_, err = sdk.Interventions.DecideResult(context.Background(), sessionID, turnID, callID, action, reason)
+	return err
 }
 
 func (c *apiClient) sendUserMessage(sessionID string, text string) error {
-	request := map[string]any{
-		"events": []map[string]any{
-			{
-				"type": "user.message",
-				"payload": map[string]any{
-					"content": []map[string]string{
-						{"type": "text", "text": text},
-					},
-				},
-			},
-		},
+	sdk, err := c.sdkClient()
+	if err != nil {
+		return err
 	}
-	var response any
-	return c.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/events", request, &response)
+	_, err = sdk.Sessions.AppendEvents(context.Background(), sessionID, tma.AppendEventsRequest{Events: []tma.AppendEvent{{
+		Type: "user.message", Payload: tma.TextInput(text),
+	}}})
+	return err
 }
 
 func (c *apiClient) sendUserInterrupt(sessionID string) error {
-	request := map[string]any{
-		"events": []map[string]any{
-			{"type": "user.interrupt"},
-		},
+	sdk, err := c.sdkClient()
+	if err != nil {
+		return err
 	}
-	var response any
-	return c.do(http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/events", request, &response)
+	_, err = sdk.Sessions.AppendEvents(context.Background(), sessionID, tma.AppendEventsRequest{Events: []tma.AppendEvent{{Type: "user.interrupt"}}})
+	return err
 }
 
 type interactiveSessionState struct {

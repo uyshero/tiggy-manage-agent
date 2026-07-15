@@ -92,7 +92,10 @@ func TestOnlyboxesProviderMountsSessionDataDir(t *testing.T) {
 		t.Fatalf("run command: %v", err)
 	}
 
-	expectedDir := filepath.Join(dataRoot, "user-one-session-42")
+	expectedDir, err := provider.sessionDataDir()
+	if err != nil {
+		t.Fatalf("resolve session data dir: %v", err)
+	}
 	expectedVolume := expectedDir + ":/mnt/data:rw"
 	if !slices.Contains(runner.request.Args, expectedVolume) {
 		t.Fatalf("expected docker args to contain data volume %q, got %#v", expectedVolume, runner.request.Args)
@@ -133,6 +136,89 @@ func TestOnlyboxesProviderReusesSessionDataDir(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesProviderIsolatesWorkspaceByWorkspaceOwnerAndSession(t *testing.T) {
+	base := t.TempDir()
+	provider := func(workspaceID, ownerID, sessionID string) OnlyboxesProvider {
+		return OnlyboxesProvider{
+			WorkspaceRoot:    base,
+			IsolateWorkspace: true,
+			WorkspaceID:      workspaceID,
+			OwnerID:          ownerID,
+			SessionID:        sessionID,
+		}
+	}
+
+	first := provider("wksp-one", "owner-one", "session-one")
+	firstDir, err := first.workspaceDir()
+	if err != nil {
+		t.Fatalf("resolve first workspace: %v", err)
+	}
+	if _, err := first.WriteFile(context.Background(), WriteFileRequest{Path: "/workspace/private.txt", Content: []byte("first")}); err != nil {
+		t.Fatalf("write first workspace: %v", err)
+	}
+
+	for name, other := range map[string]OnlyboxesProvider{
+		"session":   provider("wksp-one", "owner-one", "session-two"),
+		"owner":     provider("wksp-one", "owner-two", "session-one"),
+		"workspace": provider("wksp-two", "owner-one", "session-one"),
+	} {
+		otherDir, err := other.workspaceDir()
+		if err != nil {
+			t.Fatalf("resolve %s workspace: %v", name, err)
+		}
+		if otherDir == firstDir {
+			t.Fatalf("expected %s scope to use a different workspace", name)
+		}
+		if _, err := other.ReadFile(context.Background(), ReadFileRequest{Path: "/workspace/private.txt"}); !os.IsNotExist(err) {
+			t.Fatalf("expected %s scope not to see first file, err=%v", name, err)
+		}
+	}
+
+	reusedDir, err := provider("wksp-one", "owner-one", "session-one").workspaceDir()
+	if err != nil {
+		t.Fatalf("resolve reused workspace: %v", err)
+	}
+	if reusedDir != firstDir {
+		t.Fatalf("expected same scope to reuse workspace, first=%q reused=%q", firstDir, reusedDir)
+	}
+}
+
+func TestOnlyboxesProviderIsolatesSessionDataByOwner(t *testing.T) {
+	dataRoot := t.TempDir()
+	first := OnlyboxesProvider{DataRoot: dataRoot, WorkspaceID: "wksp", OwnerID: "owner-one", SessionID: "same-session"}
+	second := OnlyboxesProvider{DataRoot: dataRoot, WorkspaceID: "wksp", OwnerID: "owner-two", SessionID: "same-session"}
+
+	firstDir, err := first.sessionDataDir()
+	if err != nil {
+		t.Fatalf("resolve first data dir: %v", err)
+	}
+	secondDir, err := second.sessionDataDir()
+	if err != nil {
+		t.Fatalf("resolve second data dir: %v", err)
+	}
+	if firstDir == secondDir {
+		t.Fatalf("expected different owners to use different data dirs: %q", firstDir)
+	}
+}
+
+func TestOnlyboxesProviderRejectsScopeDirectorySymlink(t *testing.T) {
+	base := t.TempDir()
+	out := t.TempDir()
+	provider := OnlyboxesProvider{
+		WorkspaceRoot:    base,
+		IsolateWorkspace: true,
+		WorkspaceID:      "wksp",
+		OwnerID:          "owner",
+		SessionID:        "session",
+	}
+	if err := os.Symlink(out, filepath.Join(base, provider.sandboxScopeDirName())); err != nil {
+		t.Fatalf("create scope symlink: %v", err)
+	}
+	if _, err := provider.workspaceDir(); err == nil {
+		t.Fatal("expected scope symlink to be rejected")
+	}
+}
+
 func TestCleanupExpiredSessionDataDirs(t *testing.T) {
 	root := t.TempDir()
 	oldDir := filepath.Join(root, "old")
@@ -162,7 +248,7 @@ func TestCleanupExpiredSessionDataDirs(t *testing.T) {
 	}
 }
 
-func TestOnlyboxesProviderSyncsSessionFilesIntoDataDir(t *testing.T) {
+func TestOnlyboxesProviderSyncsSessionFilesIntoWorkspace(t *testing.T) {
 	root := t.TempDir()
 	dataRoot := t.TempDir()
 	session := managedagents.Session{
@@ -208,17 +294,32 @@ func TestOnlyboxesProviderSyncsSessionFilesIntoDataDir(t *testing.T) {
 		Runner:        runner,
 	}
 
-	if _, err := provider.RunCommand(context.Background(), RunCommandRequest{Command: "sh"}); err != nil {
-		t.Fatalf("run command: %v", err)
+	read, err := provider.ReadFile(context.Background(), ReadFileRequest{Path: "/workspace/uploads/art_000001/input.csv"})
+	if err != nil {
+		t.Fatalf("read uploaded file: %v", err)
+	}
+	if string(read.Content) != "name,value\nalpha,1\n" {
+		t.Fatalf("unexpected uploaded file content %q", string(read.Content))
 	}
 
-	firstPath := filepath.Join(dataRoot, session.ID, "uploads", "art_000001", "input.csv")
+	resolvedWorkspaceDir, err := provider.workspaceDir()
+	if err != nil {
+		t.Fatalf("resolve session workspace dir: %v", err)
+	}
+	firstPath := filepath.Join(resolvedWorkspaceDir, "uploads", "art_000001", "input.csv")
 	content, err := os.ReadFile(firstPath)
 	if err != nil {
 		t.Fatalf("read synced file: %v", err)
 	}
 	if string(content) != "name,value\nalpha,1\n" {
 		t.Fatalf("unexpected synced file content %q", string(content))
+	}
+	if err := os.RemoveAll(dataRoot); err != nil {
+		t.Fatalf("remove temporary data root: %v", err)
+	}
+	persisted, err := provider.ReadFile(context.Background(), ReadFileRequest{Path: "/workspace/uploads/art_000001/input.csv"})
+	if err != nil || string(persisted.Content) != "name,value\nalpha,1\n" {
+		t.Fatalf("expected upload to survive temporary data cleanup, content=%q err=%v", persisted.Content, err)
 	}
 
 	if err := os.WriteFile(firstPath, []byte("edited\n"), 0o644); err != nil {
@@ -255,7 +356,7 @@ func TestOnlyboxesProviderSyncsSessionFilesIntoDataDir(t *testing.T) {
 		t.Fatalf("expected existing synced file to stay edited, got %q", string(edited))
 	}
 
-	secondPath := filepath.Join(dataRoot, session.ID, "uploads", "art_000002", "notes.txt")
+	secondPath := filepath.Join(resolvedWorkspaceDir, "uploads", "art_000002", "notes.txt")
 	secondContent, err := os.ReadFile(secondPath)
 	if err != nil {
 		t.Fatalf("read second synced file: %v", err)
@@ -269,18 +370,18 @@ func TestOnlyboxesProviderExportsSandboxDataFile(t *testing.T) {
 	root := t.TempDir()
 	dataRoot := t.TempDir()
 	sessionID := "sesn_000001"
-	dataDir := filepath.Join(dataRoot, sessionID)
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		t.Fatalf("mkdir data dir: %v", err)
-	}
-	exportPath := filepath.Join(dataDir, "result.txt")
-	if err := os.WriteFile(exportPath, []byte("sandbox export"), 0o644); err != nil {
-		t.Fatalf("write export file: %v", err)
-	}
 	provider := OnlyboxesProvider{
 		WorkspaceRoot: root,
 		DataRoot:      dataRoot,
 		SessionID:     sessionID,
+	}
+	dataDir, err := provider.sessionDataDir()
+	if err != nil {
+		t.Fatalf("resolve session data dir: %v", err)
+	}
+	exportPath := filepath.Join(dataDir, "result.txt")
+	if err := os.WriteFile(exportPath, []byte("sandbox export"), 0o644); err != nil {
+		t.Fatalf("write export file: %v", err)
 	}
 
 	result, err := provider.ExportArtifactFile(context.Background(), ExportArtifactFileRequest{
@@ -325,7 +426,7 @@ func TestOnlyboxesProviderDeniesEscapedWorkDir(t *testing.T) {
 	}
 }
 
-func TestOnlyboxesProviderUsesPathGuardForFiles(t *testing.T) {
+func TestOnlyboxesProviderUsesWorkspaceFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
@@ -339,8 +440,107 @@ func TestOnlyboxesProviderUsesPathGuardForFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read file: %v", err)
 	}
+	if result.Path != "/workspace/file.txt" {
+		t.Fatalf("unexpected read path: %#v", result)
+	}
 	if string(result.Content) != "hello" {
 		t.Fatalf("unexpected file content: %q", string(result.Content))
+	}
+}
+
+func TestOnlyboxesProviderSupportsSandboxDataFiles(t *testing.T) {
+	root := t.TempDir()
+	dataRoot := t.TempDir()
+	provider := OnlyboxesProvider{
+		WorkspaceRoot: root,
+		DataRoot:      dataRoot,
+		SessionID:     "sesn_000001",
+	}
+
+	written, err := provider.WriteFile(context.Background(), WriteFileRequest{
+		Path:    "/mnt/data/baidu_image_downloader.py",
+		Content: []byte("#!/usr/bin/env python3\nprint('ok')\n"),
+	})
+	if err != nil {
+		t.Fatalf("write sandbox file: %v", err)
+	}
+	if written.Path != "/mnt/data/baidu_image_downloader.py" {
+		t.Fatalf("unexpected written path: %#v", written)
+	}
+
+	read, err := provider.ReadFile(context.Background(), ReadFileRequest{Path: "/mnt/data/baidu_image_downloader.py"})
+	if err != nil {
+		t.Fatalf("read sandbox file: %v", err)
+	}
+	if string(read.Content) != "#!/usr/bin/env python3\nprint('ok')\n" {
+		t.Fatalf("unexpected sandbox file content: %q", string(read.Content))
+	}
+
+	edited, err := provider.EditFile(context.Background(), EditFileRequest{
+		Path:      "/mnt/data/baidu_image_downloader.py",
+		OldString: "print('ok')",
+		NewString: "print('ready')",
+	})
+	if err != nil {
+		t.Fatalf("edit sandbox file: %v", err)
+	}
+	if !edited.Success {
+		t.Fatalf("expected sandbox edit success, got %#v", edited)
+	}
+	if edited.Path != "/mnt/data/baidu_image_downloader.py" {
+		t.Fatalf("unexpected edited path: %#v", edited)
+	}
+
+	dataDir, err := provider.sessionDataDir()
+	if err != nil {
+		t.Fatalf("resolve session data dir: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(dataDir, "baidu_image_downloader.py"))
+	if err != nil {
+		t.Fatalf("read edited sandbox file: %v", err)
+	}
+	if string(content) != "#!/usr/bin/env python3\nprint('ready')\n" {
+		t.Fatalf("unexpected edited sandbox content: %q", string(content))
+	}
+}
+
+func TestSessionArtifactSandboxPathIsStableAndSafe(t *testing.T) {
+	artifact := managedagents.SessionArtifact{ID: "art_000001", Name: "2026 中国人工智能报告.pdf"}
+	if got, want := SessionArtifactSandboxPath(artifact), "/workspace/uploads/art_000001/2026_中国人工智能报告.pdf"; got != want {
+		t.Fatalf("unexpected sandbox artifact path: got %q want %q", got, want)
+	}
+}
+
+func TestOnlyboxesProviderRewritesLegacyRootWritePathToWorkspace(t *testing.T) {
+	root := t.TempDir()
+	dataRoot := t.TempDir()
+	provider := OnlyboxesProvider{
+		WorkspaceRoot: root,
+		DataRoot:      dataRoot,
+		SessionID:     "sesn_000001",
+	}
+
+	written, err := provider.WriteFile(context.Background(), WriteFileRequest{
+		Path:    "/root/reports/AI新闻精选.md",
+		Content: []byte("weekly brief"),
+	})
+	if err != nil {
+		t.Fatalf("write legacy root path: %v", err)
+	}
+	if written.Path != "/workspace/reports/AI新闻精选.md" {
+		t.Fatalf("unexpected written path: %#v", written)
+	}
+
+	workspaceDir, err := provider.workspaceDir()
+	if err != nil {
+		t.Fatalf("resolve workspace dir: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(workspaceDir, "reports", "AI新闻精选.md"))
+	if err != nil {
+		t.Fatalf("read rewritten sandbox file: %v", err)
+	}
+	if string(content) != "weekly brief" {
+		t.Fatalf("unexpected rewritten sandbox content: %q", string(content))
 	}
 }
 

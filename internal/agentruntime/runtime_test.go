@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/llm"
@@ -34,6 +35,65 @@ func TestDemoRuntimeReturnsAgentPayload(t *testing.T) {
 	}
 }
 
+func TestDemoRuntimeSendsImagesDirectlyToVisionCapableCurrentModel(t *testing.T) {
+	client := &visionRoutingClient{}
+	runtime := DemoRuntime{Client: client}
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"describe image"}]}`),
+		ImageParts:  []llm.ContentPart{{Type: "image_url", ImageURL: &llm.ImageURL{URL: "data:image/png;base64,cG5n"}}},
+		Config:      Config{LLMModel: "current-vision", LLMCapabilityType: managedagents.LLMModelCapabilityTextImage},
+	})
+	if err != nil {
+		t.Fatalf("run vision turn: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "main response" {
+		t.Fatalf("unexpected response %q", got)
+	}
+	if len(client.requests) != 1 || !messageHasImage(client.requests[0].Messages) {
+		t.Fatalf("expected one multimodal request to current model, got %#v", client.requests)
+	}
+}
+
+func TestDemoRuntimeUsesDefaultVisionModelForTextCurrentModel(t *testing.T) {
+	client := &visionRoutingClient{}
+	runtime := DemoRuntime{Client: client}
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"read chart"}]}`),
+		ImageParts:  []llm.ContentPart{{Type: "image_url", ImageURL: &llm.ImageURL{URL: "data:image/png;base64,cG5n"}}},
+		Config: Config{
+			LLMModel: "current-text", LLMCapabilityType: managedagents.LLMModelCapabilityText,
+			VisionLLMProvider: "vision-provider", VisionLLMProviderType: llm.ProviderFake, VisionLLMModel: "fallback-vision",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run fallback vision turn: %v", err)
+	}
+	if len(client.requests) != 2 || client.requests[0].Model != "fallback-vision" || client.requests[1].Model != "current-text" {
+		t.Fatalf("unexpected vision routing: %#v", client.requests)
+	}
+	if !messageHasImage(client.requests[0].Messages) || messageHasImage(client.requests[1].Messages) {
+		t.Fatalf("expected image only in fallback vision request: %#v", client.requests)
+	}
+	if !strings.Contains(messagesText(client.requests[1].Messages), "parsed image content") {
+		t.Fatalf("expected vision analysis in current model context: %#v", client.requests[1].Messages)
+	}
+	if result.Usage.TotalTokens != 10 {
+		t.Fatalf("expected combined usage, got %#v", result.Usage)
+	}
+}
+
+func TestDemoRuntimeRejectsImagesWithoutVisionModel(t *testing.T) {
+	runtime := DemoRuntime{Client: &visionRoutingClient{}}
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"describe"}]}`),
+		ImageParts:  []llm.ContentPart{{Type: "image_url", ImageURL: &llm.ImageURL{URL: "data:image/png;base64,cG5n"}}},
+		Config:      Config{LLMModel: "text-only", LLMCapabilityType: managedagents.LLMModelCapabilityText},
+	})
+	if !errors.Is(err, ErrVisionModelNotConfigured) {
+		t.Fatalf("expected vision configuration error, got %v", err)
+	}
+}
+
 func TestDemoRuntimeEmitsLLMDeltaForStreamingClient(t *testing.T) {
 	runtime := DemoRuntime{Client: streamingTestClient{}}
 	var steps []Step
@@ -54,8 +114,83 @@ func TestDemoRuntimeEmitsLLMDeltaForStreamingClient(t *testing.T) {
 	if got := payloadText(result.AgentPayload); got != "streamed response" {
 		t.Fatalf("expected streamed payload, got %q", got)
 	}
+	var payloadEnvelope struct {
+		ContentFormat string `json:"content_format"`
+	}
+	if err := json.Unmarshal(result.AgentPayload, &payloadEnvelope); err != nil || payloadEnvelope.ContentFormat != "markdown" {
+		t.Fatalf("expected markdown final payload, envelope=%#v err=%v", payloadEnvelope, err)
+	}
 	if !hasStepType(steps, managedagents.EventRuntimeLLMDelta) {
 		t.Fatalf("expected runtime.llm_delta in steps: %#v", steps)
+	}
+	if !hasStepType(steps, managedagents.EventRuntimeLLMChunk) {
+		t.Fatalf("expected runtime.llm_chunk in steps: %#v", steps)
+	}
+	reasoningChunks := 0
+	chunkKinds := map[string]int{}
+	for _, step := range steps {
+		if step.Type == managedagents.EventRuntimeLLMChunk {
+			kind, _ := step.Data["type"].(string)
+			chunkKinds[kind]++
+			if step.Data["type"] == llm.DeltaKindReasoning {
+				reasoningChunks++
+				if step.Data["text"] != "checking context" {
+					t.Fatalf("unexpected reasoning chunk: %#v", step.Data)
+				}
+			}
+		}
+		if step.Type != managedagents.EventRuntimeLLMDelta {
+			continue
+		}
+		if step.Data["content_format"] != "markdown" || step.Data["operation"] != "append" {
+			t.Fatalf("expected append-only markdown delta, got %#v", step.Data)
+		}
+	}
+	if reasoningChunks != 1 {
+		t.Fatalf("expected one reasoning chunk, got %d", reasoningChunks)
+	}
+	for _, kind := range []string{llm.DeltaKindText, llm.DeltaKindReasoning, llm.DeltaKindToolCall, llm.DeltaKindUsage, llm.DeltaKindStop} {
+		if chunkKinds[kind] == 0 {
+			t.Fatalf("expected %s chunk, got %#v", kind, chunkKinds)
+		}
+	}
+}
+
+func TestEmitLLMChunkPreservesStructuredStreamError(t *testing.T) {
+	var emitted Step
+	err := emitLLMChunk(t.Context(), TurnRequest{EmitStep: func(_ context.Context, step Step) error {
+		emitted = step
+		return nil
+	}}, llm.Delta{
+		Index: 7,
+		Kind:  llm.DeltaKindError,
+		Error: &llm.StreamError{Class: llm.ErrorClassServer, Retryable: true, Message: "stream failed"},
+	}, 2)
+	if err != nil {
+		t.Fatalf("emit stream error chunk: %v", err)
+	}
+	streamError, ok := emitted.Data["error"].(*llm.StreamError)
+	if emitted.Type != managedagents.EventRuntimeLLMChunk || emitted.Data["type"] != llm.DeltaKindError || emitted.Data["tool_round"] != 2 || !ok || streamError.Message != "stream failed" {
+		t.Fatalf("unexpected emitted stream error: %#v", emitted)
+	}
+}
+
+func TestGenerateLLMStreamsRequestsWithTools(t *testing.T) {
+	client := &toolStreamingSelectionClient{}
+	response, err := generateLLM(t.Context(), client, llm.Request{
+		Tools: []llm.Tool{{
+			Type:     "function",
+			Function: llm.ToolFunction{Name: "default.read_file"},
+		}},
+	}, TurnRequest{}, 0)
+	if err != nil {
+		t.Fatalf("generate llm: %v", err)
+	}
+	if client.generateCalled || !client.streamCalled {
+		t.Fatalf("expected streaming path for tool request, got generate=%v stream=%v", client.generateCalled, client.streamCalled)
+	}
+	if got := contentPartsText(response.Message.Content); got != "streamed with tools" {
+		t.Fatalf("unexpected streamed response %q", got)
 	}
 }
 
@@ -115,16 +250,16 @@ func TestDemoRuntimeExecutesCapabilityToolCalls(t *testing.T) {
 	if len(client.requests) != 2 {
 		t.Fatalf("expected two llm requests, got %#v", client.requests)
 	}
-	if len(client.requests[1].Messages) != 3 {
+	if len(client.requests[1].Messages) != 4 {
 		t.Fatalf("expected assistant tool call plus tool result before final response, got %#v", client.requests[1].Messages)
 	}
-	assertLLMMessage(t, client.requests[1].Messages[0], "user", "please inspect")
-	assertLLMMessage(t, client.requests[1].Messages[1], "assistant", `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"default.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`)
-	if client.requests[1].Messages[2].Role != "tool" {
-		t.Fatalf("expected tool role, got %q", client.requests[1].Messages[2].Role)
+	assertLLMMessage(t, client.requests[1].Messages[1], "user", "please inspect")
+	assertLLMMessage(t, client.requests[1].Messages[2], "assistant", `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_1","type":"function","function":{"name":"default.run_command","arguments":{"args":["-c","printf tool-output"],"command":"sh"}}}]}`)
+	if client.requests[1].Messages[3].Role != "tool" {
+		t.Fatalf("expected tool role, got %q", client.requests[1].Messages[3].Role)
 	}
 	var toolResult map[string]any
-	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[2])), &toolResult); err != nil {
+	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[3])), &toolResult); err != nil {
 		t.Fatalf("decode tool result: %v", err)
 	}
 	if toolResult["identifier"] != tools.DefaultIdentifier || toolResult["api_name"] != "run_command" || toolResult["success"] != true {
@@ -138,6 +273,47 @@ func TestDemoRuntimeExecutesCapabilityToolCalls(t *testing.T) {
 	}
 	if !hasStepType(steps, managedagents.EventRuntimeToolCall) || !hasStepType(steps, managedagents.EventRuntimeToolResult) {
 		t.Fatalf("expected tool call/result steps, got %#v", steps)
+	}
+	if hasStepType(steps, managedagents.EventRuntimeProgressMessage) {
+		t.Fatalf("expected protocol tool envelope to stay hidden from progress messages, got %#v", steps)
+	}
+}
+
+func TestDemoRuntimeEmitsMCPToolMetadata(t *testing.T) {
+	client := &mcpToolLoopLLMClient{}
+	mcpRuntime := testMCPRuntime{}
+	registry := tools.NewRegistry(mcpRuntime)
+	var steps []Step
+
+	runtime := DemoRuntime{Client: client}
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"ping mcp"}]}`),
+		Config: Config{
+			ModelTools:      registry.ModelTools(),
+			ToolRegistry:    registry,
+			ToolExecutor:    tools.RegistryExecutor{Registry: registry},
+			RuntimeSettings: json.RawMessage(`{"tool_result_context_max_chars":12000}`),
+		},
+		EmitStep: func(ctx context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn with mcp tool: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "mcp final answer" {
+		t.Fatalf("expected final answer after mcp tool loop, got %q", got)
+	}
+
+	toolCall := firstStepType(steps, managedagents.EventRuntimeToolCall)
+	assertMCPEventMetadata(t, toolCall)
+	toolResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	assertMCPEventMetadata(t, toolResult)
+	if toolResult.Data["success"] != true {
+		t.Fatalf("expected successful mcp tool result, got %#v", toolResult.Data)
 	}
 }
 
@@ -237,7 +413,7 @@ func TestDemoRuntimeTruncatesLargeToolResultForModelContext(t *testing.T) {
 		t.Fatalf("expected two llm requests, got %#v", client.requests)
 	}
 	var toolResult map[string]any
-	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[2])), &toolResult); err != nil {
+	if err := json.Unmarshal([]byte(llmMessageText(client.requests[1].Messages[3])), &toolResult); err != nil {
 		t.Fatalf("decode tool result: %v", err)
 	}
 	content, _ := toolResult["content"].(string)
@@ -268,6 +444,75 @@ func TestDemoRuntimeTruncatesLargeToolResultForModelContext(t *testing.T) {
 	stepContext, ok := toolResultStep.Data["context"].(map[string]any)
 	if !ok || stepContext["content_truncated"] != true {
 		t.Fatalf("expected observable tool result event truncation metadata, got %#v", toolResultStep.Data["context"])
+	}
+}
+
+func TestMicrocompactToolResultMessagesBoundsAccumulatedContext(t *testing.T) {
+	toolMessage := func(id string, marker string) llm.Message {
+		payload := fmt.Sprintf(`{"protocol_version":"tma.tool_result.v1","id":%q,"identifier":"default","api_name":"read_file","content":%q,"success":true,"artifacts":[{"artifact_id":%q}]}`, id, strings.Repeat(marker, 1000), "art_"+id)
+		return llm.Message{Role: "tool", ToolCallID: id, Content: []llm.ContentPart{{Type: "text", Text: payload}}}
+	}
+	messages := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "inspect"}}},
+		toolMessage("call_1", "A"),
+		toolMessage("call_2", "B"),
+		toolMessage("call_3", "C"),
+	}
+	originalLatest := llmMessageText(messages[3])
+	compacted, stats := microcompactToolResultMessages(messages, 1900)
+	if stats.CompactedCount == 0 || stats.AfterChars >= stats.BeforeChars || stats.AfterChars > stats.MaxChars {
+		t.Fatalf("expected bounded cumulative tool context, got %+v", stats)
+	}
+	if llmMessageText(compacted[3]) != originalLatest {
+		t.Fatal("expected newest tool result to remain intact")
+	}
+	if compacted[1].ToolCallID != "call_1" || !strings.Contains(llmMessageText(compacted[1]), `"micro_compacted":true`) || !strings.Contains(llmMessageText(compacted[1]), `"artifact_id":"art_call_1"`) {
+		t.Fatalf("expected oldest result to retain pairing and artifact metadata: %#v", compacted[1])
+	}
+	if strings.Contains(llmMessageText(compacted[1]), strings.Repeat("A", 100)) {
+		t.Fatal("expected bulky old tool content to be removed")
+	}
+	if strings.Contains(llmMessageText(messages[1]), `"micro_compacted":true`) {
+		t.Fatal("expected input messages to remain unchanged")
+	}
+}
+
+func TestToolResultContextTotalMaxCharsUsesPerResultFloor(t *testing.T) {
+	settings := json.RawMessage(`{"tool_result_context_max_chars":500,"tool_result_context_total_max_chars":200}`)
+	if got := toolResultContextTotalMaxChars(settings); got != 500 {
+		t.Fatalf("expected total cap to preserve one complete recent result, got %d", got)
+	}
+	if got := toolResultContextTotalMaxChars(json.RawMessage(`{"tool_result_context_max_chars":500}`)); got != 1000 {
+		t.Fatalf("expected default total cap to retain two results, got %d", got)
+	}
+}
+
+func TestTokenEstimateCalibrationOnlyRaisesFutureEstimates(t *testing.T) {
+	calibration := tokenEstimateCalibration{}
+	calibration.observe(100, 175)
+	if got := calibration.apply(200); got != 350 || calibration.multiplier() != 1.75 {
+		t.Fatalf("expected provider usage to raise later estimates, got=%d multiplier=%v", got, calibration.multiplier())
+	}
+	calibration.observe(100, 80)
+	if got := calibration.apply(200); got != 350 {
+		t.Fatalf("lower provider usage must not reduce conservative estimate, got %d", got)
+	}
+	calibration.observe(100, 200)
+	if got := calibration.apply(200); got != 400 {
+		t.Fatalf("expected highest observed multiplier to win, got %d", got)
+	}
+}
+
+func TestFitRoundOutputBudgetShrinksOutputAndRejectsExhaustedInput(t *testing.T) {
+	request := llm.Request{MaxOutputTokens: 400}
+	available, err := fitRoundOutputBudget(&request, ContextBudgetBreakdown{ContextWindowTokens: 1000, ReservedOutputTokens: 400}, 850)
+	if err != nil || available != 150 || request.MaxOutputTokens != 150 {
+		t.Fatalf("expected output budget to shrink to remaining context: request=%#v available=%d err=%v", request, available, err)
+	}
+	_, err = fitRoundOutputBudget(&request, ContextBudgetBreakdown{ContextWindowTokens: 1000}, 1000)
+	var providerError *llm.ProviderError
+	if !errors.As(err, &providerError) || providerError.Class != llm.ErrorClassContextLength || providerError.Retryable {
+		t.Fatalf("expected non-retryable context length error before provider call, got %v", err)
 	}
 }
 
@@ -304,11 +549,11 @@ func TestDemoRuntimeExecutesNativeToolCalls(t *testing.T) {
 	if len(client.requests[0].Tools) == 0 {
 		t.Fatalf("expected model tools on first request")
 	}
-	assistantMessage := client.requests[1].Messages[1]
+	assistantMessage := client.requests[1].Messages[2]
 	if len(assistantMessage.ToolCalls) != 1 || assistantMessage.ToolCalls[0].ID != "call_native" {
 		t.Fatalf("expected assistant native tool call to be preserved, got %#v", assistantMessage)
 	}
-	toolMessage := client.requests[1].Messages[2]
+	toolMessage := client.requests[1].Messages[3]
 	if toolMessage.Role != "tool" || toolMessage.ToolCallID != "call_native" {
 		t.Fatalf("expected tool result with tool_call_id, got %#v", toolMessage)
 	}
@@ -321,6 +566,10 @@ func TestDemoRuntimeExecutesNativeToolCalls(t *testing.T) {
 	}
 	if tokens, ok := llmRequestStep.Data["estimated_tool_schema_tokens"].(int); !ok || tokens == 0 {
 		t.Fatalf("expected positive tool schema tokens, got %#v", llmRequestStep.Data["estimated_tool_schema_tokens"])
+	}
+	progressStep := firstStepType(steps, managedagents.EventRuntimeProgressMessage)
+	if progressStep.Data["text"] != "I found the relevant command. I will verify its output next." {
+		t.Fatalf("expected native tool preamble progress event, got %#v", progressStep)
 	}
 }
 
@@ -366,6 +615,231 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 	}
 	if len(client.requests) != 1 {
 		t.Fatalf("expected runtime to pause before second LLM request, got %d requests", len(client.requests))
+	}
+}
+
+func TestDemoRuntimeRejectsMalformedToolArgumentsBeforeApproval(t *testing.T) {
+	client := &malformedThenSensitiveToolClient{}
+	provider := &countingCapabilityProvider{}
+	var steps []Step
+	runtime := DemoRuntime{Client: client, MaxToolRounds: 4}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"write the report"}]}`),
+		Config: Config{
+			ModelTools: tools.DefaultRegistry().ModelTools(), ToolRegistry: tools.DefaultRegistry(),
+			InterventionMode: tools.InterventionModeRequestApproval, ToolExecutor: tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: provider},
+		},
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected valid retry to require approval, got %v", err)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("expected model retry after malformed arguments, got %d requests", len(client.requests))
+	}
+	if client.requests[0].MaxOutputTokens != defaultMaxLLMOutputTokens || client.requests[1].MaxOutputTokens != defaultMaxLLMOutputTokens {
+		t.Fatalf("expected output budget on every model request, got %#v", client.requests)
+	}
+	invalidResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	executionError, ok := invalidResult.Data["error"].(*tools.ExecutionError)
+	if !ok || executionError.Type != "invalid_tool_arguments" {
+		t.Fatalf("expected invalid_tool_arguments result, got %#v", invalidResult.Data)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	if required.Data["id"] != "call_valid_write" {
+		t.Fatalf("only the valid retry should reach approval, got %#v", required.Data)
+	}
+	continuation, ok := required.Private["continuation_messages"].([]llm.Message)
+	if !ok {
+		t.Fatalf("expected continuation messages, got %#v", required.Private)
+	}
+	encoded, err := json.Marshal(continuation)
+	if err != nil {
+		t.Fatalf("continuation must remain valid JSON: %v", err)
+	}
+	var decoded []llm.Message
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode continuation: %v", err)
+	}
+	for _, message := range decoded {
+		for _, call := range message.ToolCalls {
+			if call.ID == "call_truncated_write" && string(call.Function.Arguments) != `{}` {
+				t.Fatalf("malformed arguments were not normalized: %s", call.Function.Arguments)
+			}
+		}
+	}
+}
+
+func TestDemoRuntimeStopsAfterRepeatedMalformedToolArguments(t *testing.T) {
+	client := &alwaysMalformedToolClient{}
+	runtime := DemoRuntime{Client: client, MaxToolRounds: 8}
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"write the report"}]}`),
+		Config: Config{
+			ModelTools: tools.DefaultRegistry().ModelTools(), ToolRegistry: tools.DefaultRegistry(),
+			InterventionMode: tools.InterventionModeRequestApproval, ToolExecutor: tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: &countingCapabilityProvider{}},
+		},
+	})
+	if err == nil || err.Error() != "model repeatedly returned invalid or oversized tool arguments" {
+		t.Fatalf("expected repeated malformed arguments error, got %v", err)
+	}
+	if client.calls != maxInvalidToolArgumentRetries {
+		t.Fatalf("expected %d model calls before stopping, got %d", maxInvalidToolArgumentRetries, client.calls)
+	}
+}
+
+func TestDemoRuntimeRejectsOversizedWriteBeforeApproval(t *testing.T) {
+	client := &oversizedThenSkeletonWriteClient{}
+	var steps []Step
+	runtime := DemoRuntime{Client: client, MaxToolRounds: 4}
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"write a large report"}]}`),
+		Config: Config{
+			ModelTools: tools.DefaultRegistry().ModelTools(), ToolRegistry: tools.DefaultRegistry(),
+			InterventionMode: tools.InterventionModeRequestApproval, ToolExecutor: tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: &countingCapabilityProvider{}},
+		},
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected skeleton retry to reach approval, got %v", err)
+	}
+	firstResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	executionError, ok := firstResult.Data["error"].(*tools.ExecutionError)
+	if !ok || executionError.Type != "file_content_too_large" {
+		t.Fatalf("expected oversized write rejection, got %#v", firstResult.Data)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	if required.Data["id"] != "call_skeleton_write" {
+		t.Fatalf("only skeleton write should reach approval, got %#v", required.Data)
+	}
+}
+
+func TestDemoRuntimeRequiresApprovalBeforeInstallingSkill(t *testing.T) {
+	client := &skillsInstallLLMClient{}
+	service := &countingSkillsToolService{}
+	registry := tools.NewRegistry(tools.SkillsRuntime{Service: service})
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"install the review skill"}]}`),
+		Config: Config{
+			ModelTools:       registry.ModelTools(),
+			ToolRegistry:     registry,
+			InterventionMode: tools.InterventionModeRequestApproval,
+			ToolExecutor:     tools.RegistryExecutor{Registry: registry},
+		},
+		EmitStep: func(ctx context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected pending intervention error, got %v", err)
+	}
+	if service.installCalls != 0 {
+		t.Fatalf("expected skills.install not to execute without approval, got %d calls", service.installCalls)
+	}
+	requiredStep := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	if requiredStep.Data["identifier"] != tools.SkillsIdentifier || requiredStep.Data["api_name"] != "install" {
+		t.Fatalf("expected skills.install approval step, got %#v", requiredStep)
+	}
+}
+
+func TestDemoRuntimeOfflineSkillZIPPreviewInstallAndApproval(t *testing.T) {
+	client := &offlineSkillsFlowLLMClient{}
+	service := &countingSkillsToolService{}
+	registry := tools.NewRegistry(tools.SkillsRuntime{Service: service})
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+	config := Config{
+		WorkspaceID:      "wksp_000001",
+		ModelTools:       registry.ModelTools(),
+		ToolRegistry:     registry,
+		ToolExecutor:     tools.RegistryExecutor{Registry: registry},
+		InterventionMode: tools.InterventionModeRequestApproval,
+	}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{
+			"content":[{"type":"text","text":"install this offline skill"}],
+			"attachments":[{
+				"artifact_id":"art_skill_zip",
+				"name":"offline-review.zip",
+				"content_type":"application/zip",
+				"size_bytes":4096,
+				"workspace_path":"/workspace/uploads/art_skill_zip/offline-review.zip"
+			}]
+		}`),
+		Config: config,
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected offline install approval, got %v", err)
+	}
+	if service.previewCalls != 1 || service.installCalls != 0 {
+		t.Fatalf("expected preview before pending install, preview=%d install=%d", service.previewCalls, service.installCalls)
+	}
+	if service.previewRequest.SessionID != "sesn_000001" || service.previewRequest.WorkspaceID != "wksp_000001" || service.previewRequest.Source.ArtifactID != "art_skill_zip" {
+		t.Fatalf("unexpected offline preview request: %#v", service.previewRequest)
+	}
+	if len(client.requests) != 2 || !strings.Contains(messagesText(client.requests[0].Messages), "artifact_id=art_skill_zip") ||
+		!strings.Contains(messagesText(client.requests[0].Messages), "call skills.preview with source.provider=artifact") {
+		t.Fatalf("expected artifact coordinate and preview guidance in model context: %#v", client.requests)
+	}
+	requiredStep := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	arguments, ok := requiredStep.Data["arguments"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected install arguments in intervention: %#v", requiredStep)
+	}
+	source, ok := arguments["source"].(map[string]any)
+	if !ok || source["provider"] != "artifact" || source["artifact_id"] != "art_skill_zip" {
+		t.Fatalf("expected artifact install source in intervention: %#v", arguments)
+	}
+	continuation, ok := requiredStep.Private["continuation_messages"].([]llm.Message)
+	if !ok || len(continuation) == 0 {
+		t.Fatalf("expected resumable offline install continuation: %#v", requiredStep.Private)
+	}
+	continuationRound, _ := requiredStep.Private["continuation_round"].(int)
+
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call: tools.Call{
+				ID: "call_install_offline", Identifier: tools.SkillsIdentifier, APIName: "install",
+				Arguments: json.RawMessage(`{"identifier":"offline-review","source":{"provider":"artifact","artifact_id":"art_skill_zip"},"policy_revision":"policy-revision"}`),
+			},
+			Status: managedagents.InterventionStatusApproved, Continuation: continuation, ContinuationRound: continuationRound,
+		},
+		Config: config,
+	})
+	if err != nil {
+		t.Fatalf("resume approved offline install: %v", err)
+	}
+	if service.installCalls != 1 || service.installRequest.Source == nil || service.installRequest.Source.ArtifactID != "art_skill_zip" || service.installRequest.TurnID != "turn_000001" {
+		t.Fatalf("unexpected approved offline install request: calls=%d request=%#v", service.installCalls, service.installRequest)
+	}
+	if got := payloadText(result.AgentPayload); got != "offline skill installed; offer enable" {
+		t.Fatalf("unexpected offline install completion %q", got)
 	}
 }
 
@@ -634,7 +1108,12 @@ func TestDemoRuntimePassesProviderConfigToLLMClient(t *testing.T) {
 
 func TestDemoRuntimePassesConversationHistoryToLLMClient(t *testing.T) {
 	client := &captureLLMClient{}
-	runtime := DemoRuntime{Client: client}
+	runtime := DemoRuntime{
+		Client: client,
+		Now: func() time.Time {
+			return time.Date(2026, 7, 13, 16, 58, 19, 0, time.FixedZone("Asia/Shanghai", 8*60*60))
+		},
+	}
 
 	_, err := runtime.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -658,14 +1137,41 @@ func TestDemoRuntimePassesConversationHistoryToLLMClient(t *testing.T) {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if len(client.request.Messages) != 4 {
-		t.Fatalf("expected 4 LLM messages, got %#v", client.request.Messages)
+	if len(client.request.Messages) != 5 {
+		t.Fatalf("expected 5 LLM messages, got %#v", client.request.Messages)
 	}
 	assertLLMMessageContains(t, client.request.Messages[0], "system", "remember user facts")
 	assertLLMMessageContains(t, client.request.Messages[0], "system", "Latest user message policy:")
-	assertLLMMessage(t, client.request.Messages[1], "user", "my name is Alice")
-	assertLLMMessage(t, client.request.Messages[2], "assistant", "Nice to meet you, Alice.")
-	assertLLMMessage(t, client.request.Messages[3], "user", "what is my name?")
+	assertLLMMessage(t, client.request.Messages[1], "system", "Today's date is 2026-07-13.")
+	assertLLMMessage(t, client.request.Messages[2], "user", "my name is Alice")
+	assertLLMMessage(t, client.request.Messages[3], "assistant", "Nice to meet you, Alice.")
+	assertLLMMessage(t, client.request.Messages[4], "user", "what is my name?")
+}
+
+func TestDemoRuntimeNormalizesSkillsConfigBeforeLLMRequest(t *testing.T) {
+	client := &captureLLMClient{}
+	runtime := DemoRuntime{Client: client}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID:   "sesn_000001",
+		TurnID:      "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"current"}]}`),
+		Config: Config{
+			Skills: json.RawMessage(`["code-review","search"]`),
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+
+	if len(client.request.Messages) != 3 {
+		t.Fatalf("expected skills context plus current user, got %#v", client.request.Messages)
+	}
+	assertLLMMessageContains(t, client.request.Messages[1], "system", "Available skills:\n")
+	assertLLMMessageContains(t, client.request.Messages[1], "system", "\"enabled\": [")
+	assertLLMMessageContains(t, client.request.Messages[1], "system", "\"skill\": \"code-review\"")
+	assertLLMMessageContains(t, client.request.Messages[1], "system", "\"priority\": 100")
+	assertLLMMessage(t, client.request.Messages[2], "user", "current")
 }
 
 func TestDemoRuntimeUsesContextWindowBudget(t *testing.T) {
@@ -694,12 +1200,12 @@ func TestDemoRuntimeUsesContextWindowBudget(t *testing.T) {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if len(client.request.Messages) != 3 {
+	if len(client.request.Messages) != 4 {
 		t.Fatalf("expected two history messages plus current user, got %#v", client.request.Messages)
 	}
-	assertLLMMessage(t, client.request.Messages[0], "user", "old")
-	assertLLMMessage(t, client.request.Messages[1], "assistant", "recent")
-	assertLLMMessage(t, client.request.Messages[2], "user", "current")
+	assertLLMMessage(t, client.request.Messages[1], "user", "old")
+	assertLLMMessage(t, client.request.Messages[2], "assistant", "recent")
+	assertLLMMessage(t, client.request.Messages[3], "user", "current")
 }
 
 func TestDemoRuntimeUsesRuntimeSettingsContextBudgetRatio(t *testing.T) {
@@ -725,18 +1231,18 @@ func TestDemoRuntimeUsesRuntimeSettingsContextBudgetRatio(t *testing.T) {
 		Config: Config{
 			ContextWindowTokens:   200,
 			SummarySourceUntilSeq: 2,
-			RuntimeSettings:       json.RawMessage(`{"context_input_budget_ratio_percent":10}`),
+			RuntimeSettings:       json.RawMessage(`{"context_input_budget_ratio_percent":20}`),
 		},
 	})
 	if err != nil {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if len(client.request.Messages) != 2 {
+	if len(client.request.Messages) != 3 {
 		t.Fatalf("expected tight budget to keep only recent history plus current, got %#v", client.request.Messages)
 	}
-	assertLLMMessage(t, client.request.Messages[0], "assistant", "recent")
-	assertLLMMessage(t, client.request.Messages[1], "user", "current")
+	assertLLMMessage(t, client.request.Messages[1], "assistant", "recent")
+	assertLLMMessage(t, client.request.Messages[2], "user", "current")
 }
 
 func TestContextBudgetRatioPercentClampsRuntimeSettings(t *testing.T) {
@@ -787,11 +1293,11 @@ func TestDemoRuntimeInjectsPinnedContextFromRuntimeSettings(t *testing.T) {
 		t.Fatalf("run turn: %v", err)
 	}
 
-	if len(client.request.Messages) != 2 {
+	if len(client.request.Messages) != 3 {
 		t.Fatalf("expected pinned context and current user, got %#v", client.request.Messages)
 	}
-	assertLLMMessage(t, client.request.Messages[0], "system", "Pinned context:\n- repo=/workspace/project\n- approval policy is fixed")
-	assertLLMMessage(t, client.request.Messages[1], "user", "current")
+	assertLLMMessage(t, client.request.Messages[1], "system", "Pinned context:\n- repo=/workspace/project\n- approval policy is fixed")
+	assertLLMMessage(t, client.request.Messages[2], "user", "current")
 	llmRequestStep := firstStepType(steps, managedagents.EventRuntimeLLMRequest)
 	if included, ok := llmRequestStep.Data["pinned_context_included"].(bool); !ok || !included {
 		t.Fatalf("expected llm request to report pinned context, got %#v", llmRequestStep.Data)
@@ -830,7 +1336,7 @@ func TestDemoRuntimePerformsJustInTimeCompaction(t *testing.T) {
 				Payload: json.RawMessage(`{"content":[{"type":"text","text":"recent"}]}`),
 			},
 		},
-		Config: Config{ContextWindowTokens: 42},
+		Config: Config{ContextWindowTokens: 60},
 		EmitStep: func(ctx context.Context, step Step) error {
 			steps = append(steps, step)
 			return nil
@@ -852,9 +1358,9 @@ func TestDemoRuntimePerformsJustInTimeCompaction(t *testing.T) {
 	assertLLMMessageContains(t, client.requests[0].Messages[0], "system", "Return a concise structured summary")
 	assertLLMMessageContains(t, client.requests[0].Messages[0], "system", "Objective")
 	assertLLMMessageContains(t, client.requests[0].Messages[0], "system", "Pinned facts")
-	assertLLMMessage(t, client.requests[1].Messages[0], "system", "Conversation summary:\nbrief summary")
-	assertLLMMessage(t, client.requests[1].Messages[1], "assistant", "recent")
-	assertLLMMessage(t, client.requests[1].Messages[2], "user", "current")
+	assertLLMMessage(t, client.requests[1].Messages[1], "system", "Conversation summary:\nbrief summary")
+	assertLLMMessage(t, client.requests[1].Messages[2], "assistant", "recent")
+	assertLLMMessage(t, client.requests[1].Messages[3], "user", "current")
 	if !hasStepType(steps, managedagents.EventRuntimeContextCompacting) || !hasStepType(steps, managedagents.EventRuntimeContextCompacted) {
 		t.Fatalf("expected compaction steps, got %#v", steps)
 	}
@@ -1039,10 +1545,22 @@ func (streamingTestClient) Generate(ctx context.Context, request llm.Request) (l
 }
 
 func (streamingTestClient) GenerateStream(ctx context.Context, request llm.Request, onDelta func(llm.Delta) error) (llm.Response, error) {
-	if err := onDelta(llm.Delta{Index: 1, Text: "streamed "}); err != nil {
+	if err := onDelta(llm.Delta{Index: 1, Kind: llm.DeltaKindReasoning, Text: "checking context"}); err != nil {
 		return llm.Response{}, err
 	}
-	if err := onDelta(llm.Delta{Index: 2, Text: "response"}); err != nil {
+	if err := onDelta(llm.Delta{Index: 2, Kind: llm.DeltaKindText, Text: "streamed "}); err != nil {
+		return llm.Response{}, err
+	}
+	if err := onDelta(llm.Delta{Index: 3, Kind: llm.DeltaKindText, Text: "response"}); err != nil {
+		return llm.Response{}, err
+	}
+	if err := onDelta(llm.Delta{Index: 4, Kind: llm.DeltaKindToolCall, ToolCall: &llm.ToolCallDelta{Index: 0, ID: "call_preview", Name: "default.read_file", Arguments: "{"}}); err != nil {
+		return llm.Response{}, err
+	}
+	if err := onDelta(llm.Delta{Index: 5, Kind: llm.DeltaKindUsage, Usage: &llm.Usage{InputTokens: 4, OutputTokens: 2, TotalTokens: 6}}); err != nil {
+		return llm.Response{}, err
+	}
+	if err := onDelta(llm.Delta{Index: 6, Kind: llm.DeltaKindStop, FinishReason: "stop"}); err != nil {
 		return llm.Response{}, err
 	}
 	return llm.Response{
@@ -1052,6 +1570,29 @@ func (streamingTestClient) GenerateStream(ctx context.Context, request llm.Reque
 				Type: "text",
 				Text: "streamed response",
 			}},
+		},
+	}, nil
+}
+
+type toolStreamingSelectionClient struct {
+	generateCalled bool
+	streamCalled   bool
+}
+
+func (client *toolStreamingSelectionClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	client.generateCalled = true
+	return llm.Response{}, nil
+}
+
+func (client *toolStreamingSelectionClient) GenerateStream(_ context.Context, _ llm.Request, onDelta func(llm.Delta) error) (llm.Response, error) {
+	client.streamCalled = true
+	if err := onDelta(llm.Delta{Index: 1, Text: "streamed with tools"}); err != nil {
+		return llm.Response{}, err
+	}
+	return llm.Response{
+		Message: llm.Message{
+			Role:    "assistant",
+			Content: []llm.ContentPart{{Type: "text", Text: "streamed with tools"}},
 		},
 	}, nil
 }
@@ -1081,6 +1622,72 @@ func (c *toolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (
 				Text: "final answer",
 			}},
 		},
+	}, nil
+}
+
+type mcpToolLoopLLMClient struct {
+	requests []llm.Request
+}
+
+func (c *mcpToolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (llm.Response, error) {
+	c.requests = append(c.requests, request)
+	if len(c.requests) == 1 {
+		return llm.Response{
+			Message: llm.Message{
+				Role: "assistant",
+				Content: []llm.ContentPart{{
+					Type: "text",
+					Text: `{"protocol_version":"tma.tool_call.v1","tool_calls":[{"id":"call_mcp","type":"function","function":{"name":"remote.ping","arguments":{}}}]}`,
+				}},
+			},
+		}, nil
+	}
+	return llm.Response{
+		Message: llm.Message{
+			Role: "assistant",
+			Content: []llm.ContentPart{{
+				Type: "text",
+				Text: "mcp final answer",
+			}},
+		},
+	}, nil
+}
+
+type testMCPRuntime struct{}
+
+func (testMCPRuntime) Manifest() tools.Manifest {
+	return tools.Manifest{
+		Identifier: "remote",
+		Type:       "mcp_server",
+		Meta: tools.Meta{
+			Title:       "Remote MCP",
+			Description: "Test MCP server.",
+		},
+		Metadata: map[string]any{
+			"mcp_transport":        "streamable_http",
+			"mcp_protocol_version": "2025-06-18",
+			"mcp_capabilities":     []string{"resources", "tools"},
+			"mcp_tool_count":       1,
+			"mcp_oauth":            true,
+		},
+		API: []tools.API{{
+			Name:           "ping",
+			APIName:        "ping",
+			Description:    "Ping MCP server.",
+			Parameters:     json.RawMessage(`{"type":"object","properties":{}}`),
+			Risk:           tools.ToolRiskRead,
+			Implementation: tools.ToolImplementationServerBuiltin,
+		}},
+	}
+}
+
+func (testMCPRuntime) Execute(ctx context.Context, call tools.Call, executionContext tools.ExecutionContext) (tools.ExecutionResult, error) {
+	return tools.ExecutionResult{
+		ID:         call.ID,
+		Identifier: call.Identifier,
+		APIName:    call.APIName,
+		Content:    "mcp pong",
+		State:      json.RawMessage(`{"protocol_version":"tma.mcp_result.v1","tool_name":"ping"}`),
 	}, nil
 }
 
@@ -1122,6 +1729,10 @@ func (c *nativeToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 		return llm.Response{
 			Message: llm.Message{
 				Role: "assistant",
+				Content: []llm.ContentPart{{
+					Type: "text",
+					Text: "I found the relevant command. I will verify its output next.",
+				}},
 				ToolCalls: []llm.ToolCall{{
 					ID:   "call_native",
 					Type: "function",
@@ -1146,6 +1757,146 @@ func (c *nativeToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 
 type sensitiveToolLoopLLMClient struct {
 	requests []llm.Request
+}
+
+type malformedThenSensitiveToolClient struct {
+	requests []llm.Request
+}
+
+type alwaysMalformedToolClient struct {
+	calls int
+}
+
+type oversizedThenSkeletonWriteClient struct {
+	calls int
+}
+
+func (c *oversizedThenSkeletonWriteClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	c.calls++
+	content := strings.Repeat("complete semantic section with markup <div>value</div>\n", 1200)
+	callID := "call_oversized_write"
+	if c.calls > 1 {
+		content = "<html><body>__TMA_PLACEHOLDER_REPORT_001__</body></html>"
+		callID = "call_skeleton_write"
+	}
+	arguments, _ := json.Marshal(map[string]string{"path": "report.html", "content": content})
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: callID, Type: "function", Function: llm.ToolCallFunction{Name: "default.write_file", Arguments: arguments},
+	}}}}, nil
+}
+
+func (c *alwaysMalformedToolClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	c.calls++
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: "call_truncated_write", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.write_file", Arguments: json.RawMessage(`{"path":"report.html","content":"incomplete`),
+		},
+	}}}}, nil
+}
+
+func (c *malformedThenSensitiveToolClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	c.requests = append(c.requests, request)
+	if len(c.requests) == 1 {
+		return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_truncated_write", Type: "function", Function: llm.ToolCallFunction{
+				Name: "default.write_file", Arguments: json.RawMessage(`{"path":"report.html","content":"incomplete`),
+			},
+		}}}}, nil
+	}
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: "call_valid_write", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.write_file", Arguments: json.RawMessage(`{"path":"report.html","content":"short report"}`),
+		},
+	}}}}, nil
+}
+
+type skillsInstallLLMClient struct{}
+
+func (*skillsInstallLLMClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{
+		Message: llm.Message{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID:   "call_install_skill",
+				Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      "skills.install",
+					Arguments: json.RawMessage(`{"identifier":"code-review","title":"Code Review","content_text":"Review carefully."}`),
+				},
+			}},
+		},
+	}, nil
+}
+
+type offlineSkillsFlowLLMClient struct {
+	requests []llm.Request
+}
+
+func (c *offlineSkillsFlowLLMClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	c.requests = append(c.requests, request)
+	switch len(c.requests) {
+	case 1:
+		return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_preview_offline", Type: "function", Function: llm.ToolCallFunction{
+				Name: "skills.preview", Arguments: json.RawMessage(`{"source":{"provider":"artifact","artifact_id":"art_skill_zip"}}`),
+			},
+		}}}}, nil
+	case 2:
+		return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_install_offline", Type: "function", Function: llm.ToolCallFunction{
+				Name: "skills.install", Arguments: json.RawMessage(`{"identifier":"offline-review","source":{"provider":"artifact","artifact_id":"art_skill_zip"},"policy_revision":"policy-revision"}`),
+			},
+		}}}}, nil
+	default:
+		return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{
+			Type: "text", Text: "offline skill installed; offer enable",
+		}}}}, nil
+	}
+}
+
+type countingSkillsToolService struct {
+	previewCalls   int
+	installCalls   int
+	previewRequest tools.SkillsPreviewRequest
+	installRequest tools.SkillsInstallRequest
+}
+
+func (*countingSkillsToolService) Search(context.Context, tools.SkillsSearchRequest) (tools.SkillsSearchResponse, error) {
+	return tools.SkillsSearchResponse{}, nil
+}
+
+func (*countingSkillsToolService) Inspect(context.Context, tools.SkillsInspectRequest) (tools.SkillsInspectResponse, error) {
+	return tools.SkillsInspectResponse{}, nil
+}
+
+func (*countingSkillsToolService) Discover(context.Context, tools.SkillsDiscoverRequest) (tools.SkillsDiscoverResponse, error) {
+	return tools.SkillsDiscoverResponse{}, nil
+}
+
+func (s *countingSkillsToolService) Preview(_ context.Context, request tools.SkillsPreviewRequest) (tools.SkillsPreviewResponse, error) {
+	s.previewCalls++
+	s.previewRequest = request
+	return tools.SkillsPreviewResponse{
+		Identifier: "offline-review", Source: request.Source, Revision: "zip-revision", InstallState: "new_install",
+	}, nil
+}
+
+func (*countingSkillsToolService) ReadAsset(context.Context, tools.SkillsReadAssetRequest) (tools.SkillsReadAssetResponse, error) {
+	return tools.SkillsReadAssetResponse{}, nil
+}
+
+func (s *countingSkillsToolService) Install(_ context.Context, request tools.SkillsInstallRequest) (tools.SkillsInstallResponse, error) {
+	s.installCalls++
+	s.installRequest = request
+	return tools.SkillsInstallResponse{}, nil
+}
+
+func (*countingSkillsToolService) Enable(context.Context, tools.SkillsEnableRequest) (tools.SkillsEnableResponse, error) {
+	return tools.SkillsEnableResponse{}, nil
+}
+
+func (*countingSkillsToolService) Disable(context.Context, tools.SkillsDisableRequest) (tools.SkillsDisableResponse, error) {
+	return tools.SkillsDisableResponse{}, nil
 }
 
 func (c *sensitiveToolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (llm.Response, error) {
@@ -1287,6 +2038,41 @@ func (p *countingCapabilityProvider) EditFile(context.Context, capability.EditFi
 	return capability.EditFileResult{Success: true, Replacements: 1}, nil
 }
 
+type visionRoutingClient struct {
+	requests []llm.Request
+}
+
+func (c *visionRoutingClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	c.requests = append(c.requests, request)
+	if request.Model == "fallback-vision" {
+		return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "parsed image content"}}}, Usage: llm.Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}}, nil
+	}
+	return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "main response"}}}, Usage: llm.Usage{InputTokens: 3, OutputTokens: 2, TotalTokens: 5}}, nil
+}
+
+func messageHasImage(messages []llm.Message) bool {
+	for _, message := range messages {
+		for _, part := range message.Content {
+			if part.Type == "image_url" && part.ImageURL != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func messagesText(messages []llm.Message) string {
+	var values []string
+	for _, message := range messages {
+		for _, part := range message.Content {
+			if part.Type == "text" {
+				values = append(values, part.Text)
+			}
+		}
+	}
+	return strings.Join(values, "\n")
+}
+
 func hasStepType(steps []Step, stepType string) bool {
 	for _, step := range steps {
 		if step.Type == stepType {
@@ -1303,6 +2089,26 @@ func firstStepType(steps []Step, stepType string) Step {
 		}
 	}
 	return Step{}
+}
+
+func assertMCPEventMetadata(t *testing.T, step Step) {
+	t.Helper()
+	if step.Data["tool_source"] != "mcp" || step.Data["manifest_type"] != "mcp_server" || step.Data["manifest_title"] != "Remote MCP" {
+		t.Fatalf("expected mcp tool metadata, got %#v", step.Data)
+	}
+	if step.Data["mcp_transport"] != "streamable_http" || step.Data["mcp_protocol_version"] != "2025-06-18" || step.Data["mcp_oauth"] != true {
+		t.Fatalf("expected mcp transport/protocol/oauth metadata, got %#v", step.Data)
+	}
+	if step.Data["mcp_tool_count"] != 1 {
+		t.Fatalf("expected mcp tool count metadata, got %#v", step.Data)
+	}
+	capabilities, ok := step.Data["mcp_capabilities"].([]string)
+	if !ok || strings.Join(capabilities, ",") != "resources,tools" {
+		t.Fatalf("expected mcp capabilities metadata, got %#v", step.Data["mcp_capabilities"])
+	}
+	if _, exists := step.Data["mcp_url"]; exists {
+		t.Fatalf("mcp event metadata should not include endpoint URL: %#v", step.Data)
+	}
 }
 
 func payloadText(payload json.RawMessage) string {

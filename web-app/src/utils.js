@@ -28,8 +28,8 @@ export function formatDuration(ms) {
 }
 
 export function pillClass(statusValue) {
-  if (["completed", "ok", "success", "approved"].includes(statusValue)) return "pill ok";
-  if (["waiting_approval", "pending", "blocked"].includes(statusValue)) return "pill warn";
+  if (["completed", "ok", "success", "approved", "idle"].includes(statusValue)) return "pill ok";
+  if (["waiting approval", "waiting_approval", "pending", "blocked", "running", "interrupting", "provisioning", "compacting"].includes(statusValue)) return "pill warn";
   if (["failed", "error", "rejected"].includes(statusValue)) return "pill err";
   return "pill";
 }
@@ -45,7 +45,7 @@ export function sessionArtifactCLI(downloadPath) {
   let path = String(downloadPath || "").trim();
   if (!path) return "";
   path = path.split("?")[0].split("#")[0];
-  const prefix = "/v1/sessions/";
+  const prefix = "/v2/sessions/";
   if (!path.startsWith(prefix)) return "";
   const parts = path.slice(prefix.length).split("/");
   if (parts.length !== 4 || parts[1] !== "artifacts" || parts[3] !== "download") return "";

@@ -23,6 +23,8 @@ func TestSessionProviderResolverReturnsUnavailableLocalSystemByDefault(t *testin
 func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 	store := fakeSessionStore{session: managedagents.Session{
 		ID:              "sesn_000001",
+		WorkspaceID:     "wksp_one",
+		OwnerID:         "owner_one",
 		RuntimeSettings: json.RawMessage(`{"tool_runtime":"cloud_sandbox","cloud_sandbox_image":"onlyboxes/test:latest","cloud_sandbox_allow_network":true}`),
 	}}
 	containerManager := capability.NewOnlyboxesContainerManager(capability.OnlyboxesContainerManagerConfig{CleanupInterval: time.Hour})
@@ -32,7 +34,7 @@ func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 		CloudSandboxDataRoot:   "/tmp/tma-sandbox-data",
 		CloudSandboxDataTTL:    30 * time.Minute,
 		CloudSandboxContainers: containerManager,
-	}.ResolveProvider(ProviderRequest{SessionID: "sesn_000001"})
+	}.ResolveProvider(ProviderRequest{WorkspaceID: "wksp_one", OwnerID: "owner_one", SessionID: "sesn_000001"})
 	onlyboxesProvider, ok := provider.(capability.OnlyboxesProvider)
 	if !ok {
 		t.Fatalf("expected onlyboxes provider, got %T", provider)
@@ -51,6 +53,9 @@ func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 	}
 	if onlyboxesProvider.SessionID != "sesn_000001" {
 		t.Fatalf("unexpected onlyboxes session id %q", onlyboxesProvider.SessionID)
+	}
+	if !onlyboxesProvider.IsolateWorkspace || onlyboxesProvider.WorkspaceID != "wksp_one" || onlyboxesProvider.OwnerID != "owner_one" {
+		t.Fatalf("expected full isolated session scope, got %#v", onlyboxesProvider)
 	}
 	if onlyboxesProvider.ContainerManager != containerManager {
 		t.Fatal("expected shared cloud sandbox container manager")

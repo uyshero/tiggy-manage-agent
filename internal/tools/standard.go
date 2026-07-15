@@ -13,6 +13,7 @@ const (
 	NamespaceArtifact = "artifact"
 	NamespaceBrowser  = "browser"
 	NamespaceAgent    = "agent"
+	NamespaceSkills   = "skills"
 	NamespaceWeb      = "web"
 
 	ToolRuntimeAuto         = "auto"
@@ -43,13 +44,14 @@ type RuntimePolicy struct {
 }
 
 type WorkInvocation struct {
-	ProtocolVersion string          `json:"protocol_version"`
-	Namespace       string          `json:"namespace"`
-	API             string          `json:"api"`
-	Capabilities    []string        `json:"capabilities,omitempty"`
-	Risk            string          `json:"risk,omitempty"`
-	Runtime         string          `json:"runtime,omitempty"`
-	Input           json.RawMessage `json:"input,omitempty"`
+	ProtocolVersion     string          `json:"protocol_version"`
+	Namespace           string          `json:"namespace"`
+	API                 string          `json:"api"`
+	Capabilities        []string        `json:"capabilities,omitempty"`
+	Risk                string          `json:"risk,omitempty"`
+	Runtime             string          `json:"runtime,omitempty"`
+	Input               json.RawMessage `json:"input,omitempty"`
+	EnvironmentEnvelope string          `json:"environment_envelope,omitempty"`
 }
 
 func NormalizeToolRuntime(value string) (string, bool) {

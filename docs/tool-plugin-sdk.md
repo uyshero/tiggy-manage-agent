@@ -1,5 +1,7 @@
 # Tool Plugin SDK
 
+上位扩展治理、Provider 发现、兼容性、下线和人工切换规则见 [TMA Extension 与 Provider 治理标准](./extension-governance-standard.md)。设置页贡献与配置作用域见 [Extension 设置页与配置贡献标准](./extension-settings-standard.md)。
+
 本文档定义 TMA 后续扩展 worker 能力的最小标准。目标是让第三方在不修改 `tma-server` 核心代码的情况下，把机器人、桌面控制、Office、ERP、浏览器增强、视觉解析等能力接入现有 `worker_work` 队列。
 
 ## 核心边界

@@ -85,7 +85,12 @@ func (r *MockRunner) StartTurn(_ context.Context, request TurnRequest) error {
 
 		// 写入 agent.message + session.status_idle。
 		// Store 会校验 turn 是否仍为 running；若已被 interrupt，返回空 events 而非报错。
-		events, err := r.store.CompleteSessionTurn(request.SessionID, request.TurnID, mockAgentMessagePayload(payload))
+		databaseCtx, err := databaseContextForTurn(ctx, request)
+		if err != nil {
+			r.logger.Error("mock runner completion scope failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
+			return
+		}
+		events, err := managedagents.CompleteSessionTurnWithContext(databaseCtx, r.store, request.SessionID, request.TurnID, mockAgentMessagePayload(payload))
 		if err != nil {
 			if errors.Is(err, managedagents.ErrNotFound) || errors.Is(err, managedagents.ErrTerminated) {
 				r.logger.Info("mock runner completion skipped",

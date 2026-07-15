@@ -1,8 +1,10 @@
+import { coreSDK } from "./core-sdk.js";
+
 export function tracePath(sessionId, turnId, format) {
   const query = [];
   if (turnId) query.push(`turn_id=${encodeURIComponent(turnId)}`);
   if (format) query.push(`format=${encodeURIComponent(format)}`);
-  return `/v1/sessions/${encodeURIComponent(sessionId)}/trace${query.length ? `?${query.join("&")}` : ""}`;
+  return `/v2/sessions/${encodeURIComponent(sessionId)}/trace${query.length ? `?${query.join("&")}` : ""}`;
 }
 
 export function metricsPath(sessionId, turnId) {
@@ -11,14 +13,14 @@ export function metricsPath(sessionId, turnId) {
   return `/metrics?${query.join("&")}`;
 }
 
-export async function getJSON(path) {
-  const response = await fetch(path);
+export async function getJSON(path, options = {}) {
+  const response = await fetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }
 
-export async function getText(path) {
-  const response = await fetch(path);
+export async function getText(path, options = {}) {
+  const response = await fetch(path, options);
   if (!response.ok) throw new Error(await response.text());
   return response.text();
 }
@@ -39,8 +41,10 @@ export async function getBlob(path) {
   return response;
 }
 
-export function trace(sessionId, turnId, format) {
-  return getJSON(tracePath(sessionId, turnId, format));
+export function trace(sessionId, turnId, format, options = {}) {
+  return format
+    ? coreSDK.traces.exportSession(sessionId, format, turnId || undefined, options.signal)
+    : coreSDK.traces.getSession(sessionId, turnId || undefined, options.signal);
 }
 
 export function createAgent(body) {
@@ -66,82 +70,102 @@ export function sendSessionMessage(sessionId, text) {
   });
 }
 
-export function traceCatalog(filters = {}) {
-  const params = new URLSearchParams();
-  params.set("limit", String(filters.limit || 20));
-  if (filters.offset) params.set("offset", String(filters.offset));
-  if (filters.session) params.set("session_id", filters.session);
-  if (filters.turn) params.set("turn_id", filters.turn);
-  return getJSON(`/v1/traces?${params.toString()}`);
+export async function traceCatalog(filters = {}) {
+  const page = await coreSDK.traces.list({
+    limit: filters.limit || 20,
+    ...(filters.cursor ? { cursor: filters.cursor } : {}),
+    ...(filters.session ? { sessionId: filters.session } : {}),
+    ...(filters.turn ? { turnId: filters.turn } : {})
+  });
+  return { traces: page.items, next_cursor: page.next_cursor, has_more: page.has_more };
 }
 
-export function traceByID(traceID) {
-  return getJSON(`/v1/traces/${encodeURIComponent(traceID)}`);
+export function traceByID(traceID, options = {}) {
+  return coreSDK.traces.get(traceID, options.signal);
 }
 
-export function spanByID(traceID, spanID) {
-  return getJSON(`/v1/traces/${encodeURIComponent(traceID)}/spans/${encodeURIComponent(spanID)}`);
+export function spanByID(traceID, spanID, options = {}) {
+  return coreSDK.traces.getSpan(traceID, spanID, options.signal);
 }
 
-export function spanCatalog(filters = {}) {
-  const params = new URLSearchParams();
-  params.set("limit", String(filters.limit || 20));
-  if (filters.offset) params.set("offset", String(filters.offset));
-  if (filters.session) params.set("session_id", filters.session);
-  if (filters.turn) params.set("turn_id", filters.turn);
-  if (filters.query) params.set("q", filters.query);
-  if (filters.kind) params.set("kind", filters.kind);
-  if (filters.status) params.set("status", filters.status);
-  if (filters.critical) params.set("critical", filters.critical);
-  if (filters.minDuration) params.set("min_duration_ms", filters.minDuration);
-  return getJSON(`/v1/spans?${params.toString()}`);
+export async function spanCatalog(filters = {}) {
+  const page = await coreSDK.traces.listSpans({
+    limit: filters.limit || 20,
+    ...(filters.cursor ? { cursor: filters.cursor } : {}),
+    ...(filters.session ? { sessionId: filters.session } : {}),
+    ...(filters.turn ? { turnId: filters.turn } : {}),
+    ...(filters.query ? { search: filters.query } : {}),
+    ...(filters.kind ? { kind: filters.kind } : {}),
+    ...(filters.status ? { status: filters.status } : {}),
+    ...(filters.critical === "true" ? { critical: true } : filters.critical === "false" ? { critical: false } : {}),
+    ...(filters.minDuration ? { minDurationMs: Number(filters.minDuration) } : {})
+  });
+  return {
+    spans: page.items,
+    next_cursor: page.next_cursor,
+    has_more: page.has_more,
+    kind_counts: countBy(page.items, (span) => span.kind),
+    status_counts: countBy(page.items, (span) => span.status || "unknown"),
+    critical_counts: countBy(page.items, (span) => String(Boolean(span.critical)))
+  };
 }
 
-export function session(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+function countBy(items, keyFor) {
+  return items.reduce((counts, item) => {
+    const key = keyFor(item);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
 }
 
-export function usage(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/usage`);
+export function session(sessionId, options = {}) {
+  return coreSDK.sessions.get(sessionId, options.signal);
 }
 
-export function summary(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/summary`);
+export function usage(sessionId, options = {}) {
+  return coreSDK.sessions.usage(sessionId, options.signal);
 }
 
-export function artifacts(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/artifacts`);
+export function summary(sessionId, options = {}) {
+  return coreSDK.sessions.summary(sessionId, options.signal);
+}
+
+export async function artifacts(sessionId, options = {}) {
+  return { artifacts: await coreSDK.artifacts.list(sessionId, options.signal) };
 }
 
 export function artifactDownloadPath(sessionId, artifactId) {
-  return `/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
+  return `/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
 }
 
-export function events(sessionId) {
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/events`);
+export function downloadArtifact(sessionId, artifactId, options = {}) {
+  return coreSDK.artifacts.download(sessionId, artifactId, options.signal);
 }
 
-export function interventions(sessionId, status) {
-  const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
-  return getJSON(`/v1/sessions/${encodeURIComponent(sessionId)}/interventions${suffix}`);
+export async function events(sessionId, afterSeq = 0, options = {}) {
+  return { events: await coreSDK.sessions.listEvents(sessionId, afterSeq, options.signal) };
 }
 
-export function metrics(sessionId, turnId) {
-  return getText(metricsPath(sessionId, turnId));
+export async function interventions(sessionId, status, options = {}) {
+  return { interventions: await coreSDK.interventions.list(sessionId, status, options.signal) };
 }
 
-export function observabilityStatus() {
-  return getJSON("/v1/observability/status");
+export function metrics(sessionId, turnId, options = {}) {
+  return getText(metricsPath(sessionId, turnId), options);
+}
+
+export function observabilityStatus(options = {}) {
+  return coreSDK.observability.status(options.signal);
 }
 
 export function retryObservability() {
   return postJSON("/v1/observability/retry", {});
 }
 
-export function approveIntervention(sessionId, turnId, callId, body) {
-  return postJSON(`/v1/sessions/${sessionId}/interventions/${turnId}/${callId}/approve`, body);
+export function approveIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal);
 }
 
-export function rejectIntervention(sessionId, turnId, callId, body) {
-  return postJSON(`/v1/sessions/${sessionId}/interventions/${turnId}/${callId}/reject`, body);
+export function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.reject(sessionId, turnId, callId, body.reason || "", options.signal);
 }

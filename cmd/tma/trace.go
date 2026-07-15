@@ -1,89 +1,25 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"tiggy-manage-agent/internal/observability"
+	"tiggy-manage-agent/sdk/tma"
 )
 
-type turnTraceResponse struct {
-	SessionID string          `json:"session_id"`
-	TurnID    string          `json:"turn_id"`
-	Status    string          `json:"status,omitempty"`
-	Summary   string          `json:"summary,omitempty"`
-	Stats     turnTraceStats  `json:"stats,omitempty"`
-	Graph     turnTraceGraph  `json:"graph,omitempty"`
-	Steps     []turnTraceStep `json:"steps"`
-	Spans     []turnTraceSpan `json:"spans,omitempty"`
-}
-
-type turnTraceStats struct {
-	DurationMillis   int64 `json:"duration_ms"`
-	StepCount        int   `json:"step_count"`
-	SpanCount        int   `json:"span_count"`
-	ToolCalls        int   `json:"tool_calls"`
-	PendingApprovals int   `json:"pending_approvals"`
-	Errors           int   `json:"errors"`
-}
-
-type turnTraceGraph struct {
-	RootSpanIDs                []string            `json:"root_span_ids,omitempty"`
-	Edges                      []turnTraceSpanEdge `json:"edges,omitempty"`
-	CriticalSpanIDs            []string            `json:"critical_span_ids,omitempty"`
-	CriticalPathDurationMillis int64               `json:"critical_path_duration_ms,omitempty"`
-	MaxDepth                   int                 `json:"max_depth,omitempty"`
-}
-
-type turnTraceSpanEdge struct {
-	ParentSpanID string `json:"parent_span_id"`
-	ChildSpanID  string `json:"child_span_id"`
-}
-
-type turnTraceSpan struct {
-	SpanID             string `json:"span_id"`
-	ParentSpanID       string `json:"parent_span_id,omitempty"`
-	Name               string `json:"name"`
-	Kind               string `json:"kind"`
-	Status             string `json:"status,omitempty"`
-	Depth              int    `json:"depth,omitempty"`
-	StartOffsetMillis  int64  `json:"start_offset_ms,omitempty"`
-	DurationMillis     int64  `json:"duration_ms"`
-	SelfDurationMillis int64  `json:"self_duration_ms,omitempty"`
-	Critical           bool   `json:"critical,omitempty"`
-	EventCount         int    `json:"event_count,omitempty"`
-}
-
-type turnTraceStep struct {
-	Seq            int64               `json:"seq"`
-	Type           string              `json:"type"`
-	CreatedAt      time.Time           `json:"created_at"`
-	Message        string              `json:"message,omitempty"`
-	Summary        string              `json:"summary,omitempty"`
-	CallID         string              `json:"call_id,omitempty"`
-	Identifier     string              `json:"identifier,omitempty"`
-	APIName        string              `json:"api_name,omitempty"`
-	Outcome        string              `json:"outcome,omitempty"`
-	ApprovalSource string              `json:"approval_source,omitempty"`
-	DecisionReason string              `json:"decision_reason,omitempty"`
-	ArtifactError  string              `json:"artifact_error,omitempty"`
-	Artifacts      []turnTraceArtifact `json:"artifacts,omitempty"`
-}
-
-type turnTraceArtifact struct {
-	ArtifactID   string `json:"artifact_id,omitempty"`
-	ObjectRefID  string `json:"object_ref_id,omitempty"`
-	Name         string `json:"name,omitempty"`
-	ArtifactType string `json:"artifact_type,omitempty"`
-	DownloadPath string `json:"download_path,omitempty"`
-}
+type turnTraceResponse = tma.TurnTrace
+type turnTraceStats = tma.TurnTraceStats
+type turnTraceGraph = tma.TurnTraceGraph
+type turnTraceSpanEdge = tma.TurnTraceSpanEdge
+type turnTraceSpan = tma.TurnTraceSpan
+type turnTraceStep = tma.TurnTraceStep
+type turnTraceArtifact = tma.TurnTraceArtifact
 
 func commandTrace(client *apiClient, args []string) error {
 	if len(args) == 0 {
@@ -91,31 +27,68 @@ func commandTrace(client *apiClient, args []string) error {
 	}
 
 	switch args[0] {
+	case "list":
+		flags := flag.NewFlagSet("trace list", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var query tma.TraceListQuery
+		var limit int
+		flags.StringVar(&query.WorkspaceID, "workspace", "", "workspace id")
+		flags.StringVar(&query.SessionID, "session", "", "session id")
+		flags.StringVar(&query.TurnID, "turn", "", "turn id")
+		flags.StringVar(&query.SessionStatus, "status", "", "session status")
+		flags.BoolVar(&query.IncludeArchived, "include-archived", false, "include archived sessions")
+		flags.IntVar(&limit, "limit", 50, "page size")
+		flags.StringVar(&query.Cursor, "cursor", "", "opaque cursor from the previous page")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if limit <= 0 || limit > 100 {
+			return fmt.Errorf("trace list --limit must be between 1 and 100")
+		}
+		query.Limit = int32(limit)
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		page, err := sdk.Traces.List(context.Background(), query)
+		if err != nil {
+			return err
+		}
+		return printJSON(page)
 	case "show":
 		flags := flag.NewFlagSet("trace show", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 
 		var sessionID string
 		var turnID string
+		var traceID string
 		var asJSON bool
 		flags.StringVar(&sessionID, "session", "", "session id")
 		flags.StringVar(&turnID, "turn", "", "turn id")
+		flags.StringVar(&traceID, "trace", "", "trace id")
 		flags.BoolVar(&asJSON, "json", false, "print raw JSON")
 
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if sessionID == "" {
-			return fmt.Errorf("trace show requires --session")
+		if (sessionID == "") == (traceID == "") {
+			return fmt.Errorf("trace show requires exactly one of --trace or --session")
+		}
+		if traceID != "" && turnID != "" {
+			return fmt.Errorf("trace show --turn can only be used with --session")
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/trace"
-		if turnID != "" {
-			path += "?turn_id=" + url.QueryEscape(turnID)
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-
-		var response turnTraceResponse
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		var response tma.TurnTrace
+		if traceID != "" {
+			response, err = sdk.Traces.Get(context.Background(), traceID)
+		} else {
+			response, err = sdk.Traces.GetSession(context.Background(), sessionID, turnID)
+		}
+		if err != nil {
 			return err
 		}
 		if asJSON {
@@ -158,20 +131,12 @@ func commandTrace(client *apiClient, args []string) error {
 			return fmt.Errorf("trace export --otlp-endpoint requires --format otel")
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/trace"
-		query := url.Values{}
-		if turnID != "" {
-			query.Set("turn_id", turnID)
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		if format != "" {
-			query.Set("format", format)
-		}
-		if encoded := query.Encode(); encoded != "" {
-			path += "?" + encoded
-		}
-
-		var response any
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		response, err := sdk.Traces.Export(context.Background(), sessionID, turnID, format)
+		if err != nil {
 			return err
 		}
 		if strings.TrimSpace(outputPath) != "" {

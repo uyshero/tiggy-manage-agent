@@ -2,6 +2,8 @@ package agentruntime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,18 +15,24 @@ import (
 
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tools"
 )
 
 const DemoProtocolVersion = "tma.agent_runtime.demo.v1"
 
 var ErrPendingIntervention = errors.New("pending tool intervention")
+var ErrVisionModelNotConfigured = errors.New("image attachments require a text+image model or a configured default vision model")
 
 const (
 	defaultCompactionPromptMaxChars  = 60000
 	defaultCompactionSummaryMaxChars = 12000
 	defaultExistingSummaryMaxChars   = 12000
+	defaultToolResultTotalMaxChars   = 24000
 	compactionPromptReservedMetadata = 2000
+	defaultMaxLLMOutputTokens        = 16384
+	maxInvalidToolArgumentRetries    = 2
+	maxCompletionGateRetries         = 3
 )
 
 type Step struct {
@@ -40,6 +48,7 @@ type TurnRequest struct {
 	TurnID             string
 	UserPayload        json.RawMessage
 	History            []managedagents.ConversationMessage
+	ImageParts         []llm.ContentPart
 	ResumeIntervention *InterventionResume
 	Config             Config
 	EmitStep           func(context.Context, Step) error
@@ -51,6 +60,7 @@ type InterventionResume struct {
 	DecisionReason    string
 	Continuation      []llm.Message
 	ContinuationRound int
+	ContinuationState json.RawMessage
 }
 
 type TurnResult struct {
@@ -71,6 +81,12 @@ type Config struct {
 	LLMModel              string
 	LLMBaseURL            string
 	LLMAPIKey             string
+	LLMCapabilityType     string
+	VisionLLMProvider     string
+	VisionLLMProviderType string
+	VisionLLMModel        string
+	VisionLLMBaseURL      string
+	VisionLLMAPIKey       string
 	ContextWindowTokens   int
 	SummaryText           string
 	SummarySourceUntilSeq int64
@@ -79,6 +95,7 @@ type Config struct {
 	Tools                 json.RawMessage
 	ModelTools            []llm.Tool
 	Skills                json.RawMessage
+	SkillsResolved        bool
 	InterventionMode      string
 	ToolRegistry          tools.Registry
 	ToolExecutor          tools.Executor
@@ -98,6 +115,7 @@ type DemoRuntime struct {
 	Model          string
 	ContextBuilder ContextBuilder
 	MaxToolRounds  int
+	Now            func() time.Time
 }
 
 func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
@@ -132,21 +150,48 @@ func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (Tu
 	model := currentModel(client, defaultString(request.Config.LLMModel, runtime.Model))
 	contextBudget := contextBudgetFromSettings(request.Config.ContextWindowTokens, request.Config.RuntimeSettings)
 	pinnedContext := pinnedContextFromSettings(request.Config.RuntimeSettings)
+	currentDateContext := buildCurrentDateContext(runtime.currentTime())
+	currentUserImages := request.ImageParts
+	currentUserSupplement := ""
+	visionUsage := llm.Usage{}
+	if len(currentUserImages) > 0 && !managedagents.LLMModelSupportsVision(request.Config.LLMCapabilityType) {
+		if request.Config.VisionLLMProvider == "" || request.Config.VisionLLMModel == "" {
+			return TurnResult{}, ErrVisionModelNotConfigured
+		}
+		analysis, usage, visionErr := runtime.analyzeImages(ctx, client, request)
+		if visionErr != nil {
+			return TurnResult{}, visionErr
+		}
+		currentUserSupplement = "Vision model analysis of the uploaded image(s):\n" + analysis
+		currentUserImages = nil
+		visionUsage = usage
+	}
 	contextBuilder := runtime.ContextBuilder
 	if contextBuilder == nil {
 		contextBuilder = DefaultContextBuilder{
 			MaxInputTokens: contextBudget.MaxInputTokens,
 		}
 	}
+	renderedSkills := request.Config.Skills
+	if !request.Config.SkillsResolved {
+		skillsResult, err := skills.Resolve(request.Config.Skills)
+		if err != nil {
+			return TurnResult{}, fmt.Errorf("resolve skills: %w", err)
+		}
+		renderedSkills = skillsResult.Rendered
+	}
 	contextResult, err := contextBuilder.Build(ContextBuildRequest{
 		System:                  request.Config.System,
+		CurrentDateContext:      currentDateContext,
 		PinnedContext:           pinnedContext,
 		SummaryText:             request.Config.SummaryText,
 		History:                 request.History,
 		UserPayload:             request.UserPayload,
+		CurrentUserImages:       currentUserImages,
+		CurrentUserSupplement:   currentUserSupplement,
 		Tools:                   request.Config.Tools,
 		ModelTools:              request.Config.ModelTools,
-		Skills:                  request.Config.Skills,
+		Skills:                  renderedSkills,
 		ContextWindowTokens:     contextBudget.ContextWindowTokens,
 		InputBudgetRatioPercent: contextBudget.InputBudgetRatioPercent,
 		ReservedOutputTokens:    contextBudget.ReservedOutputTokens,
@@ -179,13 +224,16 @@ func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (Tu
 			rebuildHistory := historyAfterSeq(request.History, generatedSummaryUntilSeq)
 			contextResult, err = contextBuilder.Build(ContextBuildRequest{
 				System:                  request.Config.System,
+				CurrentDateContext:      currentDateContext,
 				PinnedContext:           pinnedContext,
 				SummaryText:             generatedSummaryText,
 				History:                 rebuildHistory,
 				UserPayload:             request.UserPayload,
+				CurrentUserImages:       currentUserImages,
+				CurrentUserSupplement:   currentUserSupplement,
 				Tools:                   request.Config.Tools,
 				ModelTools:              request.Config.ModelTools,
-				Skills:                  request.Config.Skills,
+				Skills:                  renderedSkills,
 				ContextWindowTokens:     contextBudget.ContextWindowTokens,
 				InputBudgetRatioPercent: contextBudget.InputBudgetRatioPercent,
 				ReservedOutputTokens:    contextBudget.ReservedOutputTokens,
@@ -197,23 +245,26 @@ func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (Tu
 	}
 
 	llmRequest := llm.Request{
-		Provider:     provider,
-		ProviderType: request.Config.LLMProviderType,
-		Model:        model,
-		BaseURL:      request.Config.LLMBaseURL,
-		APIKey:       request.Config.LLMAPIKey,
+		Provider:        provider,
+		ProviderType:    request.Config.LLMProviderType,
+		Model:           model,
+		BaseURL:         request.Config.LLMBaseURL,
+		APIKey:          request.Config.LLMAPIKey,
+		MaxOutputTokens: maxLLMOutputTokens(contextBudget.ReservedOutputTokens),
 	}
-	llmResponse, err := runtime.generateWithToolLoop(ctx, client, llmRequest, request, provider, model, contextResult, generatedSummaryText, generatedSummaryUntilSeq, 0)
+	llmResponse, err := runtime.generateWithToolLoop(ctx, client, llmRequest, request, provider, model, contextResult, generatedSummaryText, generatedSummaryUntilSeq, 0, nil)
 	if err != nil {
 		return TurnResult{}, err
 	}
+	llmResponse.Usage = combineUsage(visionUsage, llmResponse.Usage)
 	encoded, err := json.Marshal(map[string]any{
 		"protocol_version": DemoProtocolVersion,
+		"content_format":   "markdown",
 		"content":          llmResponse.Message.Content,
 	})
 	if err != nil {
 		return TurnResult{
-			AgentPayload:          json.RawMessage(`{"protocol_version":"tma.agent_runtime.demo.v1","content":[{"type":"text","text":"Agent runtime received your message."}]}`),
+			AgentPayload:          json.RawMessage(`{"protocol_version":"tma.agent_runtime.demo.v1","content_format":"markdown","content":[{"type":"text","text":"Agent runtime received your message."}]}`),
 			Usage:                 llmResponse.Usage,
 			Provider:              provider,
 			ProviderType:          request.Config.LLMProviderType,
@@ -231,6 +282,48 @@ func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (Tu
 	return llmTurnResult(encoded, llmResponse.Usage, provider, request.Config.LLMProviderType, model, generatedSummaryText, generatedSummaryUntilSeq), nil
 }
 
+func (runtime DemoRuntime) analyzeImages(ctx context.Context, client llm.Client, request TurnRequest) (string, llm.Usage, error) {
+	prompt := "Analyze the uploaded image or images accurately. Describe visible content, extract readable text, and identify details relevant to the user's request. Return analysis text only."
+	if userText := strings.TrimSpace(firstTextContent(request.UserPayload)); userText != "" {
+		prompt += "\n\nUser request:\n" + userText
+	}
+	content := []llm.ContentPart{{Type: "text", Text: prompt}}
+	content = append(content, request.ImageParts...)
+	if err := emitStep(ctx, request, Step{
+		Type: managedagents.EventRuntimeLLMRequest, Message: "Sending images to the configured vision model.",
+		Data: map[string]any{"phase": "vision_analysis", "provider": request.Config.VisionLLMProvider, "model": request.Config.VisionLLMModel, "image_count": len(request.ImageParts)},
+	}); err != nil {
+		return "", llm.Usage{}, err
+	}
+	response, err := client.Generate(ctx, llm.Request{
+		Provider: request.Config.VisionLLMProvider, ProviderType: request.Config.VisionLLMProviderType,
+		Model: request.Config.VisionLLMModel, BaseURL: request.Config.VisionLLMBaseURL, APIKey: request.Config.VisionLLMAPIKey,
+		Messages: []llm.Message{{Role: "user", Content: content}},
+	})
+	if err != nil {
+		return "", llm.Usage{}, fmt.Errorf("vision model analysis failed: %w", err)
+	}
+	analysis := strings.TrimSpace(contentPartsText(response.Message.Content))
+	if analysis == "" {
+		return "", response.Usage, errors.New("vision model returned empty analysis")
+	}
+	if err := emitStep(ctx, request, Step{
+		Type: managedagents.EventRuntimeLLMResponse, Message: "Vision model analysis completed.",
+		Data: map[string]any{"phase": "vision_analysis", "provider": request.Config.VisionLLMProvider, "model": request.Config.VisionLLMModel, "usage": response.Usage},
+	}); err != nil {
+		return "", response.Usage, err
+	}
+	return analysis, response.Usage, nil
+}
+
+func combineUsage(left llm.Usage, right llm.Usage) llm.Usage {
+	return llm.Usage{
+		InputTokens: left.InputTokens + right.InputTokens, OutputTokens: left.OutputTokens + right.OutputTokens,
+		TotalTokens: left.TotalTokens + right.TotalTokens, CachedInputTokens: left.CachedInputTokens + right.CachedInputTokens,
+		ReasoningTokens: left.ReasoningTokens + right.ReasoningTokens,
+	}
+}
+
 func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnRequest) (TurnResult, error) {
 	resume := request.ResumeIntervention
 	if resume == nil {
@@ -244,17 +337,30 @@ func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnR
 	provider := currentProvider(client, request.Config.LLMProvider)
 	model := currentModel(client, defaultString(request.Config.LLMModel, runtime.Model))
 	call := tools.NormalizeCall(resume.Call)
-	executionResult, err := runtime.resolveInterventionResult(ctx, request, call, resume.Status, resume.DecisionReason)
+	fileGenerationState := segmentedFileGenerationStateFromRaw(resume.ContinuationState)
+	executionResult, err := runtime.resolveInterventionResult(ctx, request, call, resume.Status, resume.DecisionReason, fileGenerationState)
 	if err != nil {
 		return TurnResult{}, err
+	}
+	if resume.Status == managedagents.InterventionStatusApproved {
+		fileGenerationState.observe(call, executionResult, true)
 	}
 
 	if len(resume.Continuation) == 0 {
 		if resume.Status == managedagents.InterventionStatusRejected {
 			return TurnResult{}, errors.New(executionResult.Error.Message)
 		}
+		fileExecutionContext := request.Config.ToolExecutionContext
+		fileExecutionContext.SessionID = defaultString(fileExecutionContext.SessionID, request.SessionID)
+		fileExecutionContext.TurnID = defaultString(fileExecutionContext.TurnID, request.TurnID)
+		if blocker, verifyErr := fileGenerationState.completionBlock(ctx, fileExecutionContext); verifyErr != nil {
+			return TurnResult{}, verifyErr
+		} else if blocker != "" {
+			return TurnResult{}, errors.New("segmented file generation cannot complete without resumable continuation: " + blocker)
+		}
 		payload, marshalErr := json.Marshal(map[string]any{
 			"protocol_version": DemoProtocolVersion,
+			"content_format":   "markdown",
 			"content": []llm.ContentPart{{
 				Type: "text",
 				Text: tools.ContextResultMessage(executionResult, toolResultContextOptions(request.Config.RuntimeSettings)),
@@ -279,17 +385,19 @@ func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnR
 		}},
 	})
 	llmResponse, err := runtime.generateWithToolLoop(ctx, client, llm.Request{
-		Provider:     provider,
-		ProviderType: request.Config.LLMProviderType,
-		Model:        model,
-		BaseURL:      request.Config.LLMBaseURL,
-		APIKey:       request.Config.LLMAPIKey,
-	}, request, provider, model, ContextBuildResult{Messages: messages}, "", 0, resume.ContinuationRound+1)
+		Provider:        provider,
+		ProviderType:    request.Config.LLMProviderType,
+		Model:           model,
+		BaseURL:         request.Config.LLMBaseURL,
+		APIKey:          request.Config.LLMAPIKey,
+		MaxOutputTokens: maxLLMOutputTokens(contextBudgetFromSettings(request.Config.ContextWindowTokens, request.Config.RuntimeSettings).ReservedOutputTokens),
+	}, request, provider, model, ContextBuildResult{Messages: messages}, "", 0, resume.ContinuationRound+1, fileGenerationState)
 	if err != nil {
 		return TurnResult{}, err
 	}
 	payload, err := json.Marshal(map[string]any{
 		"protocol_version": DemoProtocolVersion,
+		"content_format":   "markdown",
 		"content":          llmResponse.Message.Content,
 	})
 	if err != nil {
@@ -301,7 +409,7 @@ func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnR
 	return llmTurnResult(payload, llmResponse.Usage, provider, request.Config.LLMProviderType, model, "", 0), nil
 }
 
-func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, request TurnRequest, call tools.Call, status string, decisionReason string) (tools.ExecutionResult, error) {
+func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, request TurnRequest, call tools.Call, status string, decisionReason string, fileGenerationState *segmentedFileGenerationState) (tools.ExecutionResult, error) {
 	if status == managedagents.InterventionStatusRejected {
 		message := "Tool call rejected by user."
 		if decisionReason != "" {
@@ -334,6 +442,7 @@ func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, reques
 	if executionContext.Deadline == nil {
 		executionContext.Deadline = deadlineFromContext(ctx)
 	}
+	executionContext.DeferArtifacts = fileGenerationState.shouldDeferArtifacts(call)
 	startedAt := time.Now()
 	result, err := request.Config.ToolExecutor.Execute(ctx, call, executionContext)
 	if err != nil {
@@ -355,6 +464,7 @@ func emitInterventionToolResult(ctx context.Context, request TurnRequest, call t
 	data["api_name"] = call.APIName
 	data["approval_source"] = "user"
 	data["duration_ms"] = duration.Milliseconds()
+	mergeToolEventMetadata(data, request.Config.ToolRegistry, call)
 	if decisionReason != "" {
 		data["decision_reason"] = decisionReason
 	}
@@ -426,20 +536,50 @@ type contextBudgetLimits struct {
 	ReservedOutputTokens    int
 }
 
-func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.Client, baseRequest llm.Request, turnRequest TurnRequest, provider string, model string, contextResult ContextBuildResult, summaryText string, summaryUntilSeq int64, startRound int) (llm.Response, error) {
+func (runtime DemoRuntime) currentTime() time.Time {
+	if runtime.Now != nil {
+		return runtime.Now()
+	}
+	return time.Now()
+}
+
+func buildCurrentDateContext(now time.Time) string {
+	if now.IsZero() {
+		return ""
+	}
+	return fmt.Sprintf("Today's date is %s.", now.Format("2006-01-02"))
+}
+
+func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.Client, baseRequest llm.Request, turnRequest TurnRequest, provider string, model string, contextResult ContextBuildResult, summaryText string, summaryUntilSeq int64, startRound int, fileGenerationState *segmentedFileGenerationState) (llm.Response, error) {
 	requestForLLM := baseRequest
 	requestForLLM.Messages = append([]llm.Message(nil), contextResult.Messages...)
 	requestForLLM.Tools = append([]llm.Tool(nil), turnRequest.Config.ModelTools...)
+	invalidToolArgumentRetries := 0
+	completionGateRetries := 0
+	calibration := tokenEstimateCalibration{}
+	if fileGenerationState == nil {
+		fileGenerationState = newSegmentedFileGenerationState()
+	}
 
 	for round := startRound; ; round++ {
 		if runtime.MaxToolRounds > 0 && round >= runtime.MaxToolRounds {
 			return llm.Response{}, fmt.Errorf("tool loop exceeded maximum rounds")
 		}
+		var toolResultCompaction toolResultMicrocompaction
+		requestForLLM.Messages, toolResultCompaction = microcompactToolResultMessages(
+			requestForLLM.Messages,
+			toolResultContextTotalMaxChars(turnRequest.Config.RuntimeSettings),
+		)
 		messageTokens := estimateMessagesTokens(requestForLLM.Messages)
 		toolSchemaTokens := estimateToolsTokens(requestForLLM.Tools)
 		estimatedRequestTokens := messageTokens + toolSchemaTokens
-		contextBudget := contextResult.Budget
-		contextBudget.EstimatedTokenCount = estimatedRequestTokens
+		budgetedRequestTokens := calibration.apply(estimatedRequestTokens)
+		contextBudget := effectiveContextBudget(contextResult.Budget, turnRequest.Config.ContextWindowTokens, turnRequest.Config.RuntimeSettings)
+		availableOutputTokens, budgetErr := fitRoundOutputBudget(&requestForLLM, contextBudget, budgetedRequestTokens)
+		if budgetErr != nil {
+			return llm.Response{}, budgetErr
+		}
+		contextBudget.EstimatedTokenCount = budgetedRequestTokens
 		contextBudget.MessageTokens = messageTokens
 		contextBudget.ToolSchemaTokens = toolSchemaTokens
 		contextBudget.ToolSchemaCount = len(requestForLLM.Tools)
@@ -455,22 +595,31 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 				"history_count":                 contextResult.HistoryMessageCount,
 				"omitted_history_count":         contextResult.OmittedHistoryMessageCount,
 				"estimated_token_count":         estimatedRequestTokens,
+				"budgeted_token_count":          budgetedRequestTokens,
+				"token_estimate_multiplier":     calibration.multiplier(),
 				"estimated_message_tokens":      messageTokens,
 				"estimated_tool_schema_tokens":  toolSchemaTokens,
 				"tool_schema_count":             len(requestForLLM.Tools),
 				"initial_estimated_token_count": contextResult.EstimatedTokenCount,
 				"context_budget":                contextBudget,
 				"context_truncated":             contextResult.Truncated,
+				"current_date_context_included": contextResult.CurrentDateContextIncluded,
 				"pinned_context_included":       contextResult.PinnedContextIncluded,
 				"summary_included":              contextResult.SummaryMessageIncluded,
 				"summary_source_until_seq":      defaultInt64(summaryUntilSeq, turnRequest.Config.SummarySourceUntilSeq),
 				"tool_round":                    round,
+				"max_output_tokens":             requestForLLM.MaxOutputTokens,
+				"available_output_tokens":       availableOutputTokens,
+				"tool_result_context_chars":     toolResultCompaction.AfterChars,
+				"tool_result_context_max_chars": toolResultCompaction.MaxChars,
+				"tool_result_compacted_count":   toolResultCompaction.CompactedCount,
+				"tool_result_compacted_chars":   toolResultCompaction.CompactedChars,
 			},
 		}); err != nil {
 			return llm.Response{}, err
 		}
 
-		llmResponse, err := generateLLM(ctx, client, requestForLLM, turnRequest)
+		llmResponse, err := generateLLM(ctx, client, requestForLLM, turnRequest, round)
 		if err != nil {
 			return llm.Response{}, err
 		}
@@ -486,10 +635,51 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 		}); err != nil {
 			return llm.Response{}, err
 		}
+		calibration.observe(estimatedRequestTokens, llmResponse.Usage.InputTokens)
 
 		toolCalls, ok := toolCallsFromLLMResponse(llmResponse)
 		if !ok || len(toolCalls) == 0 {
+			fileExecutionContext := turnRequest.Config.ToolExecutionContext
+			fileExecutionContext.WorkspaceID = defaultString(fileExecutionContext.WorkspaceID, turnRequest.Config.WorkspaceID)
+			fileExecutionContext.SessionID = defaultString(fileExecutionContext.SessionID, turnRequest.SessionID)
+			fileExecutionContext.EnvironmentID = defaultString(fileExecutionContext.EnvironmentID, turnRequest.Config.EnvironmentID)
+			fileExecutionContext.TurnID = defaultString(fileExecutionContext.TurnID, turnRequest.TurnID)
+			if fileExecutionContext.Deadline == nil {
+				fileExecutionContext.Deadline = deadlineFromContext(ctx)
+			}
+			blocker, verifyErr := fileGenerationState.completionBlock(ctx, fileExecutionContext)
+			if verifyErr != nil {
+				return llm.Response{}, verifyErr
+			}
+			if blocker != "" {
+				completionGateRetries++
+				if completionGateRetries >= maxCompletionGateRetries {
+					return llm.Response{}, errors.New("model repeatedly attempted to finish before segmented file verification succeeded")
+				}
+				requestForLLM.Messages = append(requestForLLM.Messages,
+					llm.Message{Role: "assistant", Content: llmResponse.Message.Content},
+					llm.Message{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: blocker}}},
+				)
+				continue
+			}
+			completionGateRetries = 0
+			if err := fileGenerationState.publishFinalArtifacts(ctx, fileExecutionContext); err != nil {
+				return llm.Response{}, fmt.Errorf("publish validated segmented file artifact: %w", err)
+			}
 			return llmResponse, nil
+		}
+		progressText := strings.TrimSpace(contentPartsText(llmResponse.Message.Content))
+		if len(llmResponse.Message.ToolCalls) > 0 && progressText != "" {
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimeProgressMessage,
+				Message: "Agent shared a progress update.",
+				Data: map[string]any{
+					"text":       progressText,
+					"tool_round": round,
+				},
+			}); err != nil {
+				return llm.Response{}, err
+			}
 		}
 		toolExecutor := turnRequest.Config.ToolExecutor
 		if toolExecutor == nil {
@@ -499,14 +689,22 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 		assistantMessage := llm.Message{
 			Role:      "assistant",
 			Content:   []llm.ContentPart{{Type: "text", Text: contentPartsText(llmResponse.Message.Content)}},
-			ToolCalls: append([]llm.ToolCall(nil), llmResponse.Message.ToolCalls...),
+			ToolCalls: continuationSafeToolCalls(llmResponse.Message.ToolCalls),
 		}
 		continuationMessages := append([]llm.Message(nil), requestForLLM.Messages...)
 		continuationMessages = append(continuationMessages, assistantMessage)
 
-		toolResults, err := runtime.executeToolCalls(ctx, turnRequest, toolExecutor, toolCalls, continuationMessages, round)
+		toolResults, err := runtime.executeToolCalls(ctx, turnRequest, toolExecutor, toolCalls, continuationMessages, round, fileGenerationState, provider, model)
 		if err != nil {
 			return llm.Response{}, err
+		}
+		if hasRetryableToolCallError(toolResults) {
+			invalidToolArgumentRetries++
+			if invalidToolArgumentRetries >= maxInvalidToolArgumentRetries {
+				return llm.Response{}, errors.New("model repeatedly returned invalid or oversized tool arguments")
+			}
+		} else {
+			invalidToolArgumentRetries = 0
 		}
 
 		requestForLLM.Messages = append(requestForLLM.Messages, assistantMessage)
@@ -519,26 +717,125 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 		}
 	}
 
-	return llm.Response{}, fmt.Errorf("tool loop exceeded maximum rounds")
 }
 
-func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call, continuationMessages []llm.Message, continuationRound int) ([]toolCallExecutionResult, error) {
+type tokenEstimateCalibration struct {
+	estimated int
+	actual    int64
+}
+
+func (calibration tokenEstimateCalibration) apply(estimated int) int {
+	if estimated <= 0 || calibration.estimated <= 0 || calibration.actual <= int64(calibration.estimated) {
+		return estimated
+	}
+	return int((int64(estimated)*calibration.actual + int64(calibration.estimated) - 1) / int64(calibration.estimated))
+}
+
+func (calibration tokenEstimateCalibration) multiplier() float64 {
+	if calibration.estimated <= 0 || calibration.actual <= int64(calibration.estimated) {
+		return 1
+	}
+	return float64(calibration.actual) / float64(calibration.estimated)
+}
+
+func (calibration *tokenEstimateCalibration) observe(estimated int, actual int64) {
+	if calibration == nil || estimated <= 0 || actual <= int64(estimated) {
+		return
+	}
+	if calibration.estimated == 0 || actual*int64(calibration.estimated) > calibration.actual*int64(estimated) {
+		calibration.estimated = estimated
+		calibration.actual = actual
+	}
+}
+
+func effectiveContextBudget(current ContextBudgetBreakdown, contextWindowTokens int, runtimeSettings json.RawMessage) ContextBudgetBreakdown {
+	if current.ContextWindowTokens > 0 && current.MaxInputTokens > 0 {
+		return current
+	}
+	limits := contextBudgetFromSettings(contextWindowTokens, runtimeSettings)
+	current.ContextWindowTokens = limits.ContextWindowTokens
+	current.InputBudgetRatioPercent = limits.InputBudgetRatioPercent
+	current.MaxInputTokens = limits.MaxInputTokens
+	current.ReservedOutputTokens = limits.ReservedOutputTokens
+	return current
+}
+
+func fitRoundOutputBudget(request *llm.Request, budget ContextBudgetBreakdown, estimatedInputTokens int) (int, error) {
+	contextWindowTokens := budget.ContextWindowTokens
+	if contextWindowTokens <= 0 {
+		contextWindowTokens = managedagents.DefaultContextWindowTokens
+	}
+	availableOutputTokens := contextWindowTokens - estimatedInputTokens
+	if availableOutputTokens <= 0 {
+		return 0, &llm.ProviderError{
+			Class: llm.ErrorClassContextLength, Retryable: false,
+			Message: fmt.Sprintf("tool loop context budget exhausted before provider request: estimated input %d tokens exceeds context window %d", estimatedInputTokens, contextWindowTokens),
+		}
+	}
+	desiredOutputTokens := request.MaxOutputTokens
+	if desiredOutputTokens <= 0 {
+		desiredOutputTokens = maxLLMOutputTokens(budget.ReservedOutputTokens)
+	}
+	if desiredOutputTokens <= 0 {
+		desiredOutputTokens = minInt(defaultMaxLLMOutputTokens, availableOutputTokens)
+	}
+	request.MaxOutputTokens = minInt(desiredOutputTokens, availableOutputTokens)
+	return availableOutputTokens, nil
+}
+
+func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call, continuationMessages []llm.Message, continuationRound int, fileGenerationState *segmentedFileGenerationState, provider string, model string) ([]toolCallExecutionResult, error) {
 	results := make([]toolCallExecutionResult, 0, len(calls))
 	registry := turnRequest.Config.ToolRegistry
 	policy := tools.InterventionPolicy{Mode: turnRequest.Config.InterventionMode}
+	batchPreflightError := tools.ValidateFileMutationBatch(calls)
+	mutationLimits := fileMutationLimits(turnRequest.Config.RuntimeSettings, provider, model)
 	for _, toolCall := range calls {
 		call := tools.NormalizeCall(toolCall)
+		normalizedArguments, argumentsErr := normalizeToolCallArguments(call.Arguments)
+		if argumentsErr == nil {
+			call.Arguments = normalizedArguments
+		}
+		toolMetadata := toolEventMetadata(registry, call)
 		if err := emitStep(ctx, turnRequest, Step{
 			Type:    managedagents.EventRuntimeToolCall,
 			Message: "Received tool call request.",
-			Data: map[string]any{
+			Data: withToolEventMetadata(map[string]any{
 				"id":         call.ID,
 				"identifier": call.Identifier,
 				"api_name":   call.APIName,
-				"arguments":  rawJSONObject(call.Arguments),
-			},
+				"arguments":  observableToolArguments(call),
+			}, toolMetadata),
 		}); err != nil {
 			return nil, err
+		}
+		var preflightError *tools.ExecutionError
+		if argumentsErr != nil {
+			preflightError = &tools.ExecutionError{Type: "invalid_tool_arguments", Message: invalidToolArgumentsMessage(call)}
+		} else if batchPreflightError != nil && isFileMutationCall(call) {
+			preflightError = batchPreflightError
+		} else {
+			preflightError = tools.ValidateFileMutationCallWithLimits(call, mutationLimits)
+		}
+		if preflightError != nil {
+			if preflightError.Type == "file_content_too_large" || preflightError.Type == "edit_replacement_too_large" {
+				fileGenerationState.OversizedCalls++
+			}
+			executionResult := tools.ExecutionResult{
+				ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: preflightError.Message,
+				Error: preflightError,
+			}
+			result := toolCallExecutionResult{Call: call, Result: executionResult}
+			resultData := tools.ObservableResultData(executionResult, toolResultContextOptions(turnRequest.Config.RuntimeSettings))
+			resultData["file_generation"] = fileGenerationMetricsData(fileGenerationState)
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimeToolResult,
+				Message: "Rejected invalid or oversized tool arguments before policy evaluation.",
+				Data:    withToolEventMetadata(resultData, toolMetadata),
+			}); err != nil {
+				return nil, err
+			}
+			results = append(results, result)
+			continue
 		}
 
 		executionContext := turnRequest.Config.ToolExecutionContext
@@ -549,59 +846,77 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		if executionContext.Deadline == nil {
 			executionContext.Deadline = deadlineFromContext(ctx)
 		}
+		executionContext.DeferArtifacts = fileGenerationState.shouldDeferArtifacts(call)
 
 		if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
 			decision := policy.EvaluateCall(manifest, api, call, executionContext)
+			planApproved := fileGenerationState.planApproves(call)
+			if planApproved {
+				decision = tools.InterventionDecision{Allowed: true, Required: true, Mode: decision.Mode, Reason: "approved_segmented_file_plan"}
+			}
 			if decision.Required && !decision.Allowed {
 				if err := emitStep(ctx, turnRequest, Step{
 					Type:    managedagents.EventRuntimeToolInterventionRequired,
 					Message: "Tool call requires approval before execution.",
-					Data: map[string]any{
+					Data: withToolEventMetadata(map[string]any{
 						"id":                call.ID,
 						"identifier":        call.Identifier,
 						"api_name":          call.APIName,
-						"arguments":         rawJSONObject(call.Arguments),
+						"arguments":         observableToolArguments(call),
 						"intervention_mode": decision.Mode,
 						"reason":            decision.Reason,
-					},
+					}, toolMetadata),
 					Private: map[string]any{
 						"continuation_messages": continuationMessages,
 						"continuation_round":    continuationRound,
+						"continuation_state":    fileGenerationState.raw(),
+						"arguments":             append(json.RawMessage(nil), call.Arguments...),
 					},
 				}); err != nil {
 					return nil, err
 				}
 				return nil, ErrPendingIntervention
 			}
-			if decision.Required && decision.Allowed && decision.Mode == tools.InterventionModeApproveForMe {
+			if decision.Required && decision.Allowed && (decision.Mode == tools.InterventionModeApproveForMe || planApproved) {
+				approvalSource := "auto"
+				if planApproved {
+					approvalSource = "segmented_plan"
+				}
 				if err := emitStep(ctx, turnRequest, Step{
 					Type:    managedagents.EventRuntimeToolInterventionApproved,
 					Message: "Tool call auto-approved for execution.",
-					Data: map[string]any{
+					Data: withToolEventMetadata(map[string]any{
 						"id":                call.ID,
 						"identifier":        call.Identifier,
 						"api_name":          call.APIName,
-						"arguments":         rawJSONObject(call.Arguments),
+						"arguments":         observableToolArguments(call),
 						"intervention_mode": decision.Mode,
 						"reason":            decision.Reason,
-						"approval_source":   "auto",
-					},
+						"approval_source":   approvalSource,
+					}, toolMetadata),
 				}); err != nil {
 					return nil, err
 				}
 			}
 		}
 
-		executionResult, err := executor.Execute(ctx, call, executionContext)
-		if err != nil {
-			return nil, err
+		executionResult, replayed := fileGenerationState.idempotentReplay(call)
+		if !replayed {
+			var err error
+			executionResult, err = executor.Execute(ctx, call, executionContext)
+			if err != nil {
+				return nil, err
+			}
 		}
+		fileGenerationState.observe(call, executionResult, false)
 		result := toolCallExecutionResult{Call: call, Result: executionResult}
 
+		resultData := tools.ObservableResultData(executionResult, toolResultContextOptions(turnRequest.Config.RuntimeSettings))
+		resultData["file_generation"] = fileGenerationMetricsData(fileGenerationState)
 		if err := emitStep(ctx, turnRequest, Step{
 			Type:    managedagents.EventRuntimeToolResult,
 			Message: "Received tool result.",
-			Data:    tools.ObservableResultData(executionResult, toolResultContextOptions(turnRequest.Config.RuntimeSettings)),
+			Data:    withToolEventMetadata(resultData, toolMetadata),
 		}); err != nil {
 			return nil, err
 		}
@@ -611,6 +926,129 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		}
 	}
 	return results, nil
+}
+
+func fileGenerationMetricsData(state *segmentedFileGenerationState) map[string]any {
+	return map[string]any{
+		"oversized_call_count":             state.OversizedCalls,
+		"segment_count":                    state.SegmentCount,
+		"idempotent_replay_count":          state.IdempotentReplays,
+		"remaining_placeholder_count":      state.remainingCount(),
+		"generation_duration_milliseconds": state.durationMillis(),
+	}
+}
+
+func normalizeToolCallArguments(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return json.RawMessage(`{}`), nil
+	}
+	if !json.Valid([]byte(trimmed)) {
+		return nil, errors.New("tool arguments are not valid JSON")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &object); err != nil || object == nil {
+		return nil, errors.New("tool arguments must be a JSON object")
+	}
+	return json.RawMessage(trimmed), nil
+}
+
+func continuationSafeToolCalls(calls []llm.ToolCall) []llm.ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	normalized := append([]llm.ToolCall(nil), calls...)
+	for index := range normalized {
+		arguments, err := normalizeToolCallArguments(normalized[index].Function.Arguments)
+		call := tools.NormalizeCall(tools.Call{
+			ID: normalized[index].ID, APIName: normalized[index].Function.Name, Arguments: arguments,
+		})
+		if err != nil || tools.ValidateFileMutationCall(call) != nil {
+			arguments = json.RawMessage(`{}`)
+		}
+		normalized[index].Function.Arguments = arguments
+	}
+	return normalized
+}
+
+func hasRetryableToolCallError(results []toolCallExecutionResult) bool {
+	for _, result := range results {
+		if result.Result.Error != nil && (result.Result.Error.Type == "invalid_tool_arguments" || tools.IsRecoverableFileGenerationError(result.Result.Error.Type)) {
+			return true
+		}
+	}
+	return false
+}
+
+func invalidToolArgumentsMessage(call tools.Call) string {
+	switch normalizeToolAPIName(call.APIName) {
+	case "write_file", "edit_file":
+		return "Tool arguments were incomplete or invalid JSON. Do not retry the same payload. For a large file, use write_file to create a small skeleton with unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then use edit_file to replace one placeholder with one complete semantic segment at a time. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Before finishing, read the file to confirm no placeholders remain and run the appropriate syntax check or test."
+	default:
+		return "Tool arguments were incomplete or invalid JSON. Regenerate a complete, smaller JSON object and retry the tool call."
+	}
+}
+
+func normalizeToolAPIName(apiName string) string {
+	parts := strings.Split(strings.TrimSpace(apiName), ".")
+	return parts[len(parts)-1]
+}
+
+func isFileMutationCall(call tools.Call) bool {
+	switch normalizeToolAPIName(call.APIName) {
+	case "write_file", "edit_file":
+		return true
+	default:
+		return false
+	}
+}
+
+func fileMutationLimits(runtimeSettings json.RawMessage, provider, model string) tools.FileMutationLimits {
+	type limits struct {
+		RecommendedTokens int `json:"recommended_tokens"`
+		MaxTokens         int `json:"max_tokens"`
+	}
+	var settings struct {
+		FileMutationRecommendedTokens int               `json:"file_mutation_recommended_tokens"`
+		FileMutationMaxTokens         int               `json:"file_mutation_max_tokens"`
+		FileMutationLimits            map[string]limits `json:"file_mutation_limits"`
+	}
+	_ = json.Unmarshal(runtimeSettings, &settings)
+	result := tools.FileMutationLimits{
+		RecommendedTokens: settings.FileMutationRecommendedTokens,
+		MaxTokens:         settings.FileMutationMaxTokens,
+	}
+	if configured, ok := settings.FileMutationLimits[strings.TrimSpace(provider)+"/"+strings.TrimSpace(model)]; ok {
+		result.RecommendedTokens = configured.RecommendedTokens
+		result.MaxTokens = configured.MaxTokens
+	}
+	return result
+}
+
+func observableToolArguments(call tools.Call) any {
+	call = tools.NormalizeCall(call)
+	if !isFileMutationCall(call) {
+		return rawJSONObject(call.Arguments)
+	}
+	var arguments map[string]any
+	if json.Unmarshal(call.Arguments, &arguments) != nil {
+		return map[string]any{"redacted": true, "valid_json": false, "size_bytes": len(call.Arguments)}
+	}
+	for _, field := range []string{"content", "content_base64", "new_string"} {
+		value, ok := arguments[field]
+		if !ok {
+			continue
+		}
+		text, _ := value.(string)
+		hash := sha256.Sum256([]byte(text))
+		arguments[field] = map[string]any{
+			"redacted":         true,
+			"character_count":  len(text),
+			"estimated_tokens": tools.EstimateFileMutationTokens(text),
+			"sha256":           hex.EncodeToString(hash[:]),
+		}
+	}
+	return arguments
 }
 
 func parseToolCallEnvelope(parts []llm.ContentPart) (toolCallEnvelope, bool) {
@@ -787,6 +1225,115 @@ func toolResultContextMaxChars(runtimeSettings json.RawMessage) int {
 	return tools.DefaultResultContextMaxChars
 }
 
+func toolResultContextTotalMaxChars(runtimeSettings json.RawMessage) int {
+	perResultMax := toolResultContextMaxChars(runtimeSettings)
+	var settings struct {
+		ToolResultContextTotalMaxChars int `json:"tool_result_context_total_max_chars"`
+		ToolResultsContextMaxChars     int `json:"tool_results_context_max_chars"`
+	}
+	if len(runtimeSettings) > 0 && json.Unmarshal(runtimeSettings, &settings) == nil {
+		configured := settings.ToolResultContextTotalMaxChars
+		if configured <= 0 {
+			configured = settings.ToolResultsContextMaxChars
+		}
+		if configured > 0 {
+			return maxInt(configured, perResultMax)
+		}
+	}
+	return maxInt(perResultMax, minInt(perResultMax*2, defaultToolResultTotalMaxChars))
+}
+
+type toolResultMicrocompaction struct {
+	MaxChars       int
+	BeforeChars    int
+	AfterChars     int
+	CompactedCount int
+	CompactedChars int
+}
+
+func microcompactToolResultMessages(messages []llm.Message, maxChars int) ([]llm.Message, toolResultMicrocompaction) {
+	stats := toolResultMicrocompaction{MaxChars: maxChars}
+	toolIndexes := make([]int, 0)
+	for index, message := range messages {
+		if message.Role != "tool" {
+			continue
+		}
+		stats.BeforeChars += messageContentChars(message)
+		toolIndexes = append(toolIndexes, index)
+	}
+	stats.AfterChars = stats.BeforeChars
+	if maxChars <= 0 || stats.BeforeChars <= maxChars || len(toolIndexes) < 2 {
+		return messages, stats
+	}
+
+	compacted := append([]llm.Message(nil), messages...)
+	// Keep the newest tool result intact. Older calls remain paired with their
+	// assistant tool calls, but their bulky content becomes a structured stub.
+	for _, messageIndex := range toolIndexes[:len(toolIndexes)-1] {
+		if stats.AfterChars <= maxChars {
+			break
+		}
+		originalChars := messageContentChars(compacted[messageIndex])
+		text := contentPartsText(compacted[messageIndex].Content)
+		if originalChars == 0 || toolResultAlreadyMicrocompacted(text) {
+			continue
+		}
+		stub := microcompactedToolResultText(text, originalChars)
+		stubChars := len([]rune(stub))
+		if stubChars >= originalChars {
+			continue
+		}
+		compacted[messageIndex].Content = []llm.ContentPart{{Type: "text", Text: stub}}
+		stats.AfterChars -= originalChars - stubChars
+		stats.CompactedChars += originalChars - stubChars
+		stats.CompactedCount++
+	}
+	return compacted, stats
+}
+
+func messageContentChars(message llm.Message) int {
+	total := 0
+	for _, part := range message.Content {
+		if part.Type == "text" {
+			total += len([]rune(part.Text))
+		}
+	}
+	return total
+}
+
+func toolResultAlreadyMicrocompacted(text string) bool {
+	var payload struct {
+		Context struct {
+			Microcompacted bool `json:"micro_compacted"`
+		} `json:"context"`
+	}
+	return json.Unmarshal([]byte(text), &payload) == nil && payload.Context.Microcompacted
+}
+
+func microcompactedToolResultText(text string, originalChars int) string {
+	var source map[string]any
+	if json.Unmarshal([]byte(text), &source) != nil {
+		source = map[string]any{}
+	}
+	result := map[string]any{
+		"content": "[Older tool result compacted. Re-run the tool or inspect its artifact for full detail.]",
+		"context": map[string]any{
+			"micro_compacted":       true,
+			"original_result_chars": originalChars,
+		},
+	}
+	for _, key := range []string{"protocol_version", "id", "identifier", "api_name", "success", "error", "artifacts", "artifact_error"} {
+		if value, exists := source[key]; exists && value != nil {
+			result[key] = value
+		}
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return `{"success":false,"content":"[Older tool result compacted for the current turn.]","context":{"micro_compacted":true}}`
+	}
+	return string(encoded)
+}
+
 func rawJSONObject(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return nil
@@ -796,6 +1343,62 @@ func rawJSONObject(raw json.RawMessage) any {
 		return string(raw)
 	}
 	return value
+}
+
+func withToolEventMetadata(data map[string]any, metadata map[string]any) map[string]any {
+	mergeToolEventMetadataMap(data, metadata)
+	return data
+}
+
+func mergeToolEventMetadata(data map[string]any, registry tools.Registry, call tools.Call) {
+	mergeToolEventMetadataMap(data, toolEventMetadata(registry, call))
+}
+
+func mergeToolEventMetadataMap(data map[string]any, metadata map[string]any) {
+	if len(data) == 0 || len(metadata) == 0 {
+		return
+	}
+	for key, value := range metadata {
+		if value == nil {
+			continue
+		}
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
+			continue
+		}
+		data[key] = value
+	}
+}
+
+func toolEventMetadata(registry tools.Registry, call tools.Call) map[string]any {
+	call = tools.NormalizeCall(call)
+	manifest, _, ok := registry.GetAPI(call.Identifier, call.APIName)
+	if !ok {
+		return nil
+	}
+	metadata := map[string]any{
+		"tool_source":    toolSourceFromManifest(manifest),
+		"manifest_type":  manifest.Type,
+		"manifest_title": strings.TrimSpace(manifest.Meta.Title),
+	}
+	for key, value := range manifest.Metadata {
+		if strings.HasPrefix(key, "mcp_") {
+			metadata[key] = value
+		}
+	}
+	return metadata
+}
+
+func toolSourceFromManifest(manifest tools.Manifest) string {
+	switch strings.TrimSpace(strings.ToLower(manifest.Type)) {
+	case "mcp_server":
+		return "mcp"
+	case "process_plugin":
+		return "worker_plugin"
+	case "builtin":
+		return "builtin"
+	default:
+		return "tool"
+	}
 }
 
 func deadlineFromContext(ctx context.Context) *time.Time {
@@ -995,6 +1598,13 @@ func minInt(left int, right int) int {
 	return right
 }
 
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
 func historyAfterSeq(history []managedagents.ConversationMessage, seq int64) []managedagents.ConversationMessage {
 	filtered := make([]managedagents.ConversationMessage, 0, len(history))
 	for _, message := range history {
@@ -1094,6 +1704,13 @@ func contextOutputReserveTokens(runtimeSettings json.RawMessage) int {
 	return 0
 }
 
+func maxLLMOutputTokens(reservedOutputTokens int) int {
+	if reservedOutputTokens <= 0 {
+		return 0
+	}
+	return minInt(reservedOutputTokens, defaultMaxLLMOutputTokens)
+}
+
 func pinnedContextFromSettings(runtimeSettings json.RawMessage) string {
 	var settings struct {
 		PinnedContext    any `json:"pinned_context"`
@@ -1168,28 +1785,92 @@ func compactionSummaryMaxChars(runtimeSettings json.RawMessage) int {
 	return defaultCompactionSummaryMaxChars
 }
 
-func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest) (llm.Response, error) {
-	if len(llmRequest.Tools) > 0 {
-		return client.Generate(ctx, llmRequest)
-	}
+func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest, toolRound int) (llm.Response, error) {
 	streamingClient, ok := client.(llm.StreamingClient)
 	if !ok {
-		return client.Generate(ctx, llmRequest)
+		response, err := client.Generate(ctx, llmRequest)
+		if err != nil {
+			return llm.Response{}, err
+		}
+		for index, part := range response.Reasoning {
+			if strings.TrimSpace(part.Text) == "" {
+				continue
+			}
+			if err := emitLLMChunk(ctx, turnRequest, llm.Delta{Index: index + 1, Kind: llm.DeltaKindReasoning, Text: part.Text}, toolRound); err != nil {
+				return llm.Response{}, err
+			}
+		}
+		return response, nil
 	}
 
 	return streamingClient.GenerateStream(ctx, llmRequest, func(delta llm.Delta) error {
-		if delta.Text == "" {
+		kind := defaultString(delta.Kind, llm.DeltaKindText)
+		if !llmDeltaHasPayload(delta, kind) {
+			return nil
+		}
+		if err := emitLLMChunk(ctx, turnRequest, delta, toolRound); err != nil {
+			return err
+		}
+		if kind != llm.DeltaKindText {
 			return nil
 		}
 		return emitStep(ctx, turnRequest, Step{
 			Type:    managedagents.EventRuntimeLLMDelta,
 			Message: "Received streamed LLM text.",
 			Data: map[string]any{
-				"index": delta.Index,
-				"text":  delta.Text,
+				"index":          delta.Index,
+				"tool_round":     toolRound,
+				"operation":      "append",
+				"content_format": "markdown",
+				"text":           delta.Text,
 			},
 		})
 	})
+}
+
+func emitLLMChunk(ctx context.Context, turnRequest TurnRequest, delta llm.Delta, toolRound int) error {
+	kind := defaultString(delta.Kind, llm.DeltaKindText)
+	data := map[string]any{
+		"index":      delta.Index,
+		"type":       kind,
+		"tool_round": toolRound,
+	}
+	switch kind {
+	case llm.DeltaKindText, llm.DeltaKindReasoning:
+		data["operation"] = "append"
+		data["content_format"] = "markdown"
+		data["text"] = delta.Text
+	case llm.DeltaKindToolCall:
+		data["tool_call"] = delta.ToolCall
+	case llm.DeltaKindUsage:
+		data["usage"] = delta.Usage
+	case llm.DeltaKindStop:
+		data["finish_reason"] = delta.FinishReason
+	case llm.DeltaKindError:
+		data["error"] = delta.Error
+	}
+	return emitStep(ctx, turnRequest, Step{
+		Type:    managedagents.EventRuntimeLLMChunk,
+		Message: "Received streamed LLM chunk.",
+		Data:    data,
+	})
+}
+
+func llmDeltaHasPayload(delta llm.Delta, kind string) bool {
+	switch kind {
+	case llm.DeltaKindText, llm.DeltaKindReasoning:
+		return delta.Text != ""
+	case llm.DeltaKindToolCall:
+		return delta.ToolCall != nil
+	case llm.DeltaKindUsage:
+		return delta.Usage != nil
+	case llm.DeltaKindStop:
+		return delta.FinishReason != ""
+	case llm.DeltaKindError:
+		return delta.Error != nil
+	default:
+		return false
+	}
 }
 
 func emitStep(ctx context.Context, request TurnRequest, step Step) error {

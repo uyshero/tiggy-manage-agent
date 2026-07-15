@@ -12,7 +12,7 @@ import (
 
 func TestCommandObjectCreate(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/object-refs" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/object-refs" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -45,7 +45,7 @@ func TestCommandObjectCreate(t *testing.T) {
 
 func TestCommandObjectGet(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/object-refs/obj_000001" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/object-refs/obj_000001" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{"id":"obj_000001"}`), nil
@@ -58,7 +58,7 @@ func TestCommandObjectGet(t *testing.T) {
 func TestCommandObjectDownload(t *testing.T) {
 	content := "workspace content"
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/object-refs/obj_000001/download" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/object-refs/obj_000001/download" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		if got := r.URL.Query().Get("session_id"); got != "sesn_000001" {
@@ -88,7 +88,7 @@ func TestCommandObjectDownload(t *testing.T) {
 
 func TestCommandObjectDelete(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodDelete || r.URL.Path != "/v1/object-refs/obj_000001" {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v2/object-refs/obj_000001" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Status: "204 No Content", Body: io.NopCloser(strings.NewReader(""))}, nil
@@ -100,7 +100,7 @@ func TestCommandObjectDelete(t *testing.T) {
 
 func TestCommandSessionArtifactCreate(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/sessions/sesn_000001/artifacts" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/sessions/sesn_000001/artifacts" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -131,7 +131,7 @@ func TestCommandSessionArtifactCreate(t *testing.T) {
 
 func TestCommandSessionArtifactList(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/sessions/sesn_000001/artifacts" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/sessions/sesn_000001/artifacts" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{"artifacts":[{"id":"art_000001","object_ref_id":"obj_000001","turn_id":"turn_000001","tool_call_id":"call_read","name":"read_file.json","description":"tool output","artifact_type":"asset"}]}`), nil
@@ -157,7 +157,7 @@ func TestCommandSessionArtifactList(t *testing.T) {
 
 func TestCommandSessionArtifactListJSON(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/sessions/sesn_000001/artifacts" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/sessions/sesn_000001/artifacts" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{"artifacts":[]}`), nil
@@ -176,7 +176,7 @@ func TestCommandSessionArtifactListJSON(t *testing.T) {
 func TestCommandSessionArtifactDownload(t *testing.T) {
 	content := "hello download"
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/sessions/sesn_000001/artifacts/art_000001/download" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/sessions/sesn_000001/artifacts/art_000001/download" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return &http.Response{
@@ -203,7 +203,7 @@ func TestCommandSessionArtifactDownload(t *testing.T) {
 
 func TestCommandSessionArtifactDelete(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodDelete || r.URL.Path != "/v1/sessions/sesn_000001/artifacts/art_000001" {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v2/sessions/sesn_000001/artifacts/art_000001" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusNoContent, Status: "204 No Content", Body: io.NopCloser(strings.NewReader(""))}, nil

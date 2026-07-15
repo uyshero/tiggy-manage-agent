@@ -146,7 +146,7 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 
 ### 5. SDK 边界
 
-- Client SDK：包住 `tma-server` 的 HTTP / SSE API
+- Go Core SDK：包住 `tma-server` 的 `/v2` 用户与控制面 HTTP / SSE API，并提供 Run 高层状态机
 - Worker SDK：方便实现 `tma-worker`
 - SDK 不替代 worker，不直接执行命令
 
@@ -155,7 +155,7 @@ Server 调度按 workspace、agent config、tool policy、worker capabilities、
 1. 先把 worker 认证和注册协议定下来。
 2. 再做 tool/capability manifest 和 work invocation 标准。
 3. 再做 worker registry 和 capability-based worker selection。
-4. 最后再考虑 SDK 的稳定封装。
+4. 在上述协议稳定后发布 Go Core SDK；当前 `sdk/tma` 已开始由 CLI 消费，Worker 机器协议仍保持独立。
 
 ## 边界规则
 

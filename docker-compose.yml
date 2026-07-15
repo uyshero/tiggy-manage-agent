@@ -17,6 +17,27 @@ services:
       timeout: 3s
       retries: 20
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    container_name: tma-keycloak
+    profiles: ["oidc"]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${TMA_KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:-change-me-before-use}
+      KC_SPI_THEME_CACHE_THEMES: "false"
+      KC_SPI_THEME_CACHE_TEMPLATES: "false"
+      KC_SPI_THEME_STATIC_MAX_AGE: "-1"
+      TMA_KEYCLOAK_INITIAL_ADMIN_PASSWORD: ${TMA_KEYCLOAK_INITIAL_ADMIN_PASSWORD:-change-me-before-use}
+      TMA_KEYCLOAK_SMTP_PASSWORD: ${TMA_KEYCLOAK_SMTP_PASSWORD:-}
+    ports:
+      - "18080:8080"
+    volumes:
+      - tma-keycloak-data:/opt/keycloak/data
+      - ./testdata/keycloak/tma-test-realm.json:/opt/keycloak/data/import/tma-test-realm.json:ro
+      - ./deploy/keycloak/tma-realm.json:/opt/keycloak/data/import/tma-realm.json:ro
+      - ./deploy/keycloak/themes/tma:/opt/keycloak/themes/tma:ro
+
   searxng:
     image: searxng/searxng
     container_name: tma-searxng
@@ -32,3 +53,4 @@ services:
 
 volumes:
   tma-postgres-data:
+  tma-keycloak-data:

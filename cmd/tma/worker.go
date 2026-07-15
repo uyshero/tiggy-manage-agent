@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -8,50 +9,19 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/sdk/tma"
 )
 
 type workerListResponse struct {
 	Workers []workerSummary `json:"workers"`
 }
 
-type workerSummary struct {
-	ID             string          `json:"id"`
-	WorkspaceID    string          `json:"workspace_id"`
-	Name           string          `json:"name"`
-	WorkerType     string          `json:"worker_type"`
-	Status         string          `json:"status"`
-	Capabilities   json.RawMessage `json:"capabilities,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
-	RegisteredBy   string          `json:"registered_by"`
-	RegisteredAt   string          `json:"registered_at"`
-	LastSeenAt     string          `json:"last_seen_at,omitempty"`
-	LeaseExpiresAt string          `json:"lease_expires_at,omitempty"`
-	ArchivedAt     string          `json:"archived_at,omitempty"`
-}
-
-type workerDiagnoseResponse struct {
-	Invocation  tools.WorkInvocation    `json:"invocation"`
-	Matches     int                     `json:"matches"`
-	Diagnostics []workerDiagnosisResult `json:"diagnostics"`
-}
-
-type workerDiagnosisResult struct {
-	WorkerID       string   `json:"worker_id"`
-	WorkspaceID    string   `json:"workspace_id"`
-	Name           string   `json:"name"`
-	WorkerType     string   `json:"worker_type"`
-	Status         string   `json:"status"`
-	Match          bool     `json:"match"`
-	Reasons        []string `json:"reasons,omitempty"`
-	Runtimes       []string `json:"runtimes,omitempty"`
-	APIs           []string `json:"apis,omitempty"`
-	Capabilities   []string `json:"capabilities,omitempty"`
-	LeaseExpiresAt string   `json:"lease_expires_at,omitempty"`
-	LastSeenAt     string   `json:"last_seen_at,omitempty"`
-	RegisteredBy   string   `json:"registered_by,omitempty"`
-}
+type workerSummary = tma.Worker
+type workerDiagnoseResponse = tma.WorkerDiagnoseResponse
+type workerDiagnosisResult = tma.WorkerDiagnosisResult
 
 func commandWorker(client *apiClient, args []string) error {
 	if len(args) == 0 {
@@ -125,22 +95,15 @@ func commandWorker(client *apiClient, args []string) error {
 			return err
 		}
 
-		query := url.Values{}
-		if workspaceID != "" {
-			query.Set("workspace_id", workspaceID)
-		}
-		if status != "" {
-			query.Set("status", status)
-		}
-		path := "/v1/workers"
-		if encoded := query.Encode(); encoded != "" {
-			path += "?" + encoded
-		}
-
-		var response workerListResponse
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
+		workers, err := sdk.Workers.List(context.Background(), tma.WorkerListQuery{WorkspaceID: workspaceID, Status: status})
+		if err != nil {
+			return err
+		}
+		response := workerListResponse{Workers: workers}
 		if jsonOutput {
 			return printJSON(response)
 		}
@@ -159,8 +122,12 @@ func commandWorker(client *apiClient, args []string) error {
 			return fmt.Errorf("worker get requires --id")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/workers/"+url.PathEscape(id), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Workers.Get(context.Background(), id)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -223,8 +190,12 @@ func commandWorker(client *apiClient, args []string) error {
 			return fmt.Errorf("worker archive requires --id")
 		}
 
-		var response any
-		if err := client.do(http.MethodPost, "/v1/workers/"+url.PathEscape(id)+"/archive", map[string]any{}, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Workers.Archive(context.Background(), id)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -237,12 +208,12 @@ func commandWorker(client *apiClient, args []string) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		request := map[string]any{}
-		if limit > 0 {
-			request["limit"] = limit
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/workers/reap-expired", request, &response); err != nil {
+		response, err := sdk.Workers.ReapExpired(context.Background(), tma.ReapExpiredWorkersRequest{Limit: limit})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -288,16 +259,15 @@ func commandWorker(client *apiClient, args []string) error {
 		if err := tools.ValidateWorkInvocation(invocation); err != nil {
 			return err
 		}
-		request := map[string]any{
-			"namespace":    namespace,
-			"api":          api,
-			"runtime":      runtime,
-			"capabilities": splitCSV(capabilities),
-			"input":        rawInput,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		setStringIfNotEmpty(request, "workspace_id", workspaceID)
-		var response workerDiagnoseResponse
-		if err := client.do(http.MethodPost, "/v1/workers/diagnose", request, &response); err != nil {
+		response, err := sdk.Workers.Diagnose(context.Background(), tma.WorkerDiagnoseRequest{
+			WorkspaceID: workspaceID, Namespace: namespace, API: api, Runtime: runtime,
+			Capabilities: splitCSV(capabilities), Input: rawInput,
+		})
+		if err != nil {
 			return err
 		}
 		if jsonOutput {
@@ -319,11 +289,11 @@ func printWorkerList(workers []workerSummary) {
 	for _, worker := range workers {
 		fmt.Printf("  %s %s [%s/%s]\n", worker.ID, worker.Name, worker.WorkerType, worker.Status)
 		fmt.Printf("    workspace: %s\n", worker.WorkspaceID)
-		if worker.LastSeenAt != "" {
-			fmt.Printf("    last_seen: %s\n", worker.LastSeenAt)
+		if worker.LastSeenAt != nil {
+			fmt.Printf("    last_seen: %s\n", worker.LastSeenAt.UTC().Format(time.RFC3339))
 		}
-		if worker.LeaseExpiresAt != "" {
-			fmt.Printf("    lease_expires: %s\n", worker.LeaseExpiresAt)
+		if worker.LeaseExpiresAt != nil {
+			fmt.Printf("    lease_expires: %s\n", worker.LeaseExpiresAt.UTC().Format(time.RFC3339))
 		}
 		printWorkerCapabilities(worker.Capabilities, "    ")
 	}

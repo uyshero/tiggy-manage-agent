@@ -10,7 +10,7 @@ import (
 
 func TestCommandObservabilityStatusPrintsJSON(t *testing.T) {
 	client := newTestAPIClient(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path != "/v1/observability/status" {
+		if request.URL.Path != "/v2/observability/status" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
 		return jsonResponse(`{"perfetto":{"enabled":true,"destination":"/tmp/tma-traces"},"otlp":{"enabled":true,"destination":"http://collector.test/v1/traces","token_provided":true}}`), nil
@@ -45,7 +45,7 @@ func TestCommandObservabilityRetryPrintsJSON(t *testing.T) {
 		if request.Method != http.MethodPost {
 			t.Fatalf("unexpected method: %s", request.Method)
 		}
-		if request.URL.Path != "/v1/observability/retry" {
+		if request.URL.Path != "/v2/observability/retry" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
 		return jsonResponse(`{"attempted":1,"succeeded":1,"failed":0,"skipped":0}`), nil
@@ -72,5 +72,37 @@ func TestCommandObservabilityRetryPrintsJSON(t *testing.T) {
 	text := string(out)
 	if !strings.Contains(text, `"attempted": 1`) || !strings.Contains(text, `"succeeded": 1`) {
 		t.Fatalf("expected observability retry json, got %q", text)
+	}
+}
+
+func TestCommandObservabilityIntegrityKeysPrintsJSON(t *testing.T) {
+	client := newTestAPIClient(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v2/observability/security-audit/integrity-keys" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		return jsonResponse(`{"active_key_id":"2026-07","keys":[{"key_id":"2026-01","safe_to_remove":true}]}`), nil
+	})
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = writer
+	defer func() { os.Stdout = oldStdout }()
+
+	if err := commandObservability(client, []string{"integrity-keys"}); err != nil {
+		t.Fatalf("commandObservability(integrity-keys): %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	text := string(out)
+	if !strings.Contains(text, `"active_key_id": "2026-07"`) || !strings.Contains(text, `"safe_to_remove": true`) {
+		t.Fatalf("expected integrity key readiness json, got %q", text)
 	}
 }

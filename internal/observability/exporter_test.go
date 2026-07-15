@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -289,6 +290,29 @@ func TestRetryFailedExporterRunsRetriesDueOTLPFailure(t *testing.T) {
 	}
 }
 
+func TestRetryFailedExporterRunsSelectsGlobalOrScopedListing(t *testing.T) {
+	store := &scopedRetryStore{stubTraceEventStore: &stubTraceEventStore{}}
+	config := ExporterConfig{RetryEnabled: true, RetryMaxAttempts: 3}
+	if _, err := RetryFailedExporterRuns(store, config, time.Now().UTC(), 10); err != nil {
+		t.Fatalf("global retry listing: %v", err)
+	}
+	if store.legacyLists != 1 || store.contextLists != 0 {
+		t.Fatalf("global retry used wrong listing path: legacy=%d context=%d", store.legacyLists, store.contextLists)
+	}
+
+	store.legacyLists = 0
+	scopeCtx, err := managedagents.ContextWithDatabaseAccessScope(context.Background(), managedagents.AccessScope{WorkspaceID: "wksp_alpha"})
+	if err != nil {
+		t.Fatalf("create retry scope: %v", err)
+	}
+	if _, err := RetryFailedExporterRunsContext(scopeCtx, store, config, time.Now().UTC(), 10); err != nil {
+		t.Fatalf("scoped retry listing: %v", err)
+	}
+	if store.legacyLists != 0 || store.contextLists != 1 {
+		t.Fatalf("scoped retry used wrong listing path: legacy=%d context=%d", store.legacyLists, store.contextLists)
+	}
+}
+
 func TestExportTurnTraceFromEnvSkipsAndPersistsSamplingDecision(t *testing.T) {
 	t.Setenv("TMA_PERFETTO", "1")
 	t.Setenv("TMA_PERFETTO_DIR", "/tmp/tma-traces")
@@ -371,6 +395,26 @@ type stubTraceEventStore struct {
 	events    []managedagents.Event
 	runs      []managedagents.ObservabilityExporterRun
 	nextRunID int
+}
+
+type scopedRetryStore struct {
+	*stubTraceEventStore
+	legacyLists  int
+	contextLists int
+}
+
+func (s *scopedRetryStore) ListObservabilityExporterRuns(input managedagents.ListObservabilityExporterRunsInput) ([]managedagents.ObservabilityExporterRun, error) {
+	s.legacyLists++
+	return s.stubTraceEventStore.ListObservabilityExporterRuns(input)
+}
+
+func (s *scopedRetryStore) ListObservabilityExporterRunsContext(_ context.Context, input managedagents.ListObservabilityExporterRunsInput) ([]managedagents.ObservabilityExporterRun, error) {
+	s.contextLists++
+	return s.stubTraceEventStore.ListObservabilityExporterRuns(input)
+}
+
+func (s *scopedRetryStore) RecordObservabilityExporterRunContext(_ context.Context, input managedagents.RecordObservabilityExporterRunInput) (managedagents.ObservabilityExporterRun, error) {
+	return s.stubTraceEventStore.RecordObservabilityExporterRun(input)
 }
 
 func (s *stubTraceEventStore) ListEvents(string, int64) ([]managedagents.Event, error) {

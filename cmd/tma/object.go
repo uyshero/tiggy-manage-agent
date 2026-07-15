@@ -1,34 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
+
+	"tiggy-manage-agent/sdk/tma"
 )
 
 type sessionArtifactListResponse struct {
 	Artifacts []sessionArtifactSummary `json:"artifacts"`
 }
 
-type sessionArtifactSummary struct {
-	ID            string          `json:"id"`
-	WorkspaceID   string          `json:"workspace_id"`
-	SessionID     string          `json:"session_id"`
-	EnvironmentID string          `json:"environment_id"`
-	ObjectRefID   string          `json:"object_ref_id"`
-	TurnID        string          `json:"turn_id"`
-	ToolCallID    string          `json:"tool_call_id"`
-	Name          string          `json:"name"`
-	Description   string          `json:"description"`
-	ArtifactType  string          `json:"artifact_type"`
-	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	CreatedBy     string          `json:"created_by"`
-	CreatedAt     string          `json:"created_at"`
-}
+type sessionArtifactSummary = tma.Artifact
 
 func commandObject(client *apiClient, args []string) error {
 	if len(args) == 0 {
@@ -75,25 +62,16 @@ func commandObject(client *apiClient, args []string) error {
 			return err
 		}
 
-		request := map[string]any{
-			"bucket":     bucket,
-			"object_key": objectKey,
-			"size_bytes": sizeBytes,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		setStringIfNotEmpty(request, "workspace_id", workspaceID)
-		setStringIfNotEmpty(request, "storage_provider", storageProvider)
-		setStringIfNotEmpty(request, "object_version", objectVersion)
-		setStringIfNotEmpty(request, "content_type", contentType)
-		setStringIfNotEmpty(request, "checksum_sha256", checksumSHA256)
-		setStringIfNotEmpty(request, "etag", etag)
-		setStringIfNotEmpty(request, "visibility", visibility)
-		setStringIfNotEmpty(request, "created_by", createdBy)
-		if rawMetadata != nil {
-			request["metadata"] = rawMetadata
-		}
-
-		var response any
-		if err := client.do(http.MethodPost, "/v1/object-refs", request, &response); err != nil {
+		response, err := sdk.ObjectRefs.Create(context.Background(), tma.CreateObjectRefRequest{
+			WorkspaceID: workspaceID, StorageProvider: storageProvider, Bucket: bucket, ObjectKey: objectKey,
+			ObjectVersion: objectVersion, ContentType: contentType, SizeBytes: sizeBytes, ChecksumSHA256: checksumSHA256,
+			ETag: etag, Visibility: visibility, Metadata: rawMetadata, CreatedBy: createdBy,
+		})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -110,8 +88,12 @@ func commandObject(client *apiClient, args []string) error {
 			return fmt.Errorf("object get requires --id")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/object-refs/"+url.PathEscape(id), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.ObjectRefs.Get(context.Background(), id)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -128,7 +110,11 @@ func commandObject(client *apiClient, args []string) error {
 			return fmt.Errorf("object delete requires --id")
 		}
 
-		if err := client.do(http.MethodDelete, "/v1/object-refs/"+url.PathEscape(id), nil, nil); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		if err := sdk.ObjectRefs.Delete(context.Background(), id); err != nil {
 			return err
 		}
 		fmt.Printf("deleted object ref %s\n", id)
@@ -150,11 +136,6 @@ func commandObject(client *apiClient, args []string) error {
 			return fmt.Errorf("object download requires --id")
 		}
 
-		path := "/v1/object-refs/" + url.PathEscape(id) + "/download"
-		if sessionID != "" {
-			path += "?session_id=" + url.QueryEscape(sessionID)
-		}
-
 		var writer io.Writer = os.Stdout
 		if outputPath != "" {
 			file, err := os.Create(outputPath)
@@ -165,7 +146,11 @@ func commandObject(client *apiClient, args []string) error {
 			writer = file
 		}
 
-		return client.download(path, writer)
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		return sdk.ObjectRefs.Download(context.Background(), id, sessionID, writer)
 	default:
 		return fmt.Errorf("unknown object subcommand %q", args[0])
 	}
@@ -212,23 +197,22 @@ func commandSessionArtifact(client *apiClient, args []string) error {
 			return err
 		}
 
-		request := map[string]any{
-			"object_ref_id": objectRefID,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		setStringIfNotEmpty(request, "environment_id", environmentID)
-		setStringIfNotEmpty(request, "turn_id", turnID)
-		setStringIfNotEmpty(request, "tool_call_id", toolCallID)
-		setStringIfNotEmpty(request, "name", name)
-		setStringIfNotEmpty(request, "description", description)
-		setStringIfNotEmpty(request, "artifact_type", artifactType)
-		setStringIfNotEmpty(request, "created_by", createdBy)
-		if rawMetadata != nil {
-			request["metadata"] = rawMetadata
-		}
-
-		var response any
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/artifacts"
-		if err := client.do(http.MethodPost, path, request, &response); err != nil {
+		response, err := sdk.Artifacts.Create(context.Background(), sessionID, tma.CreateArtifactRequest{
+			EnvironmentID: environmentID,
+			ObjectRefID:   objectRefID,
+			TurnID:        turnID,
+			ToolCallID:    toolCallID,
+			Name:          name,
+			Description:   description,
+			ArtifactType:  artifactType,
+			Metadata:      rawMetadata,
+			CreatedBy:     createdBy,
+		})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -247,11 +231,15 @@ func commandSessionArtifact(client *apiClient, args []string) error {
 			return fmt.Errorf("session artifact list requires --session")
 		}
 
-		var response sessionArtifactListResponse
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/artifacts"
-		if err := client.do(http.MethodGet, path, nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
 			return err
 		}
+		artifacts, err := sdk.Artifacts.List(context.Background(), sessionID)
+		if err != nil {
+			return err
+		}
+		response := sessionArtifactListResponse{Artifacts: artifacts}
 		if jsonOutput {
 			return printJSON(response)
 		}
@@ -272,8 +260,11 @@ func commandSessionArtifact(client *apiClient, args []string) error {
 			return fmt.Errorf("session artifact delete requires --session and --artifact")
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/artifacts/" + url.PathEscape(artifactID)
-		if err := client.do(http.MethodDelete, path, nil, nil); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		if err := sdk.Artifacts.Delete(context.Background(), sessionID, artifactID); err != nil {
 			return err
 		}
 		fmt.Printf("deleted session artifact %s\n", artifactID)
@@ -305,8 +296,11 @@ func commandSessionArtifact(client *apiClient, args []string) error {
 			writer = file
 		}
 
-		path := "/v1/sessions/" + url.PathEscape(sessionID) + "/artifacts/" + url.PathEscape(artifactID) + "/download"
-		if err := client.download(path, writer); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		if err := sdk.Artifacts.Download(context.Background(), sessionID, artifactID, writer); err != nil {
 			return err
 		}
 		return nil

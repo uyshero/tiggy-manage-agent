@@ -2,12 +2,35 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+
+	"tiggy-manage-agent/sdk/tma"
 )
+
+func streamSDKEvents(ctx context.Context, stream *tma.EventStream, output io.Writer, onIntervention func(toolInterventionEvent) error) error {
+	for {
+		event, err := stream.Next(ctx)
+		if err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode stream event: %w", err)
+		}
+		lines := []string{"event: " + event.Type, "data: " + string(encoded)}
+		if _, err := io.WriteString(output, formatSSEChunk(lines)); err != nil {
+			return fmt.Errorf("write stream: %w", err)
+		}
+		if err := handleInterventionChunk(lines, onIntervention); err != nil {
+			return err
+		}
+	}
+}
 
 func streamSSE(reader io.Reader, output io.Writer) error {
 	return streamSSEWithInterventions(reader, output, nil)
@@ -95,6 +118,15 @@ func formatSSEChunk(lines []string) string {
 		formatted, ok := formatLLMDeltaEvent(eventData)
 		if !ok {
 			return chunk
+		}
+		return formatted + "\n"
+	case "runtime.llm_chunk":
+		formatted, ok := formatLLMChunkEvent(eventData)
+		if !ok {
+			return chunk
+		}
+		if formatted == "" {
+			return ""
 		}
 		return formatted + "\n"
 	case "runtime.tool_intervention_required", "runtime.tool_intervention_approved", "runtime.tool_intervention_rejected":
@@ -248,6 +280,46 @@ func formatLLMDeltaEvent(raw string) (string, bool) {
 		return "", false
 	}
 	return formatSpeakerText("delta", payload.Data.Text), true
+}
+
+func formatLLMChunkEvent(raw string) (string, bool) {
+	var event struct {
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		return "", false
+	}
+	var payload struct {
+		Data struct {
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return "", false
+	}
+	switch payload.Data.Type {
+	case "text":
+		// The compatibility runtime.llm_delta immediately following this chunk owns CLI text output.
+		return "", true
+	case "reasoning":
+		if payload.Data.Text == "" {
+			return "", true
+		}
+		return formatSpeakerText("reasoning", payload.Data.Text), true
+	case "tool_call", "usage", "stop":
+		return "", true
+	case "error":
+		if payload.Data.Error.Message == "" {
+			return "", true
+		}
+		return formatSpeakerText("llm-error", payload.Data.Error.Message), true
+	default:
+		return "", false
+	}
 }
 
 func payloadText(raw json.RawMessage) (string, bool) {

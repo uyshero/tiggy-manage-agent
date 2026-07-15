@@ -187,7 +187,37 @@ func resolvePathInside(root string, value string) (string, error) {
 	if !pathInsideRoot(cleanPath, root) {
 		return "", fmt.Errorf("%q is outside workspace root %q", value, root)
 	}
+	resolvedPath, err := resolveExistingPathPrefix(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve path symlinks: %w", err)
+	}
+	if !pathInsideRoot(resolvedPath, root) {
+		return "", fmt.Errorf("%q resolves outside workspace root %q", value, root)
+	}
 	return cleanPath, nil
+}
+
+func resolveExistingPathPrefix(path string) (string, error) {
+	probe := filepath.Clean(path)
+	missing := make([]string, 0, 4)
+	for {
+		resolved, err := filepath.EvalSymlinks(probe)
+		if err == nil {
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(probe))
+		probe = parent
+	}
 }
 
 func pathInsideRoot(path string, root string) bool {

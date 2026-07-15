@@ -10,6 +10,7 @@ import (
 
 	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/internal/workerselect"
@@ -28,14 +29,18 @@ type WorkerBackedStore interface {
 
 // WorkerBackedProvider bridges capability.Provider calls to standard tma.work.v1 tool_execution work.
 type WorkerBackedProvider struct {
-	Store         WorkerBackedStore
-	WorkspaceID   string
-	SessionID     string
-	EnvironmentID string
-	TurnID        string
-	PollInterval  time.Duration
-	WaitTimeout   time.Duration
+	Store             WorkerBackedStore
+	WorkspaceID       string
+	SessionID         string
+	EnvironmentID     string
+	TurnID            string
+	Environment       map[string]string
+	EnvironmentCipher *envvars.Cipher
+	PollInterval      time.Duration
+	WaitTimeout       time.Duration
 }
+
+func (p WorkerBackedProvider) HandlesManagedEnvironment() {}
 
 func (p WorkerBackedProvider) ToolRuntime() string {
 	return tools.ToolRuntimeLocalSystem
@@ -211,7 +216,17 @@ func (p WorkerBackedProvider) executeInvocation(ctx context.Context, invocation 
 	if p.Store == nil {
 		return tools.ExecutionResult{}, fmt.Errorf("worker-backed provider store is required")
 	}
-	workerID, err := workerselect.Selector{Store: p.Store}.SelectWorkerID(workerselect.Request{
+	if len(p.Environment) > 0 {
+		if p.EnvironmentCipher == nil {
+			return tools.ExecutionResult{}, envvars.ErrNotConfigured
+		}
+		envelope, err := p.EnvironmentCipher.SealMap(p.Environment, envvars.EnvelopeAssociatedData(p.workspaceID(), sessionID, turnID))
+		if err != nil {
+			return tools.ExecutionResult{}, fmt.Errorf("encrypt worker environment: %w", err)
+		}
+		invocation.EnvironmentEnvelope = envelope
+	}
+	workerID, err := workerselect.Selector{Store: p.Store}.SelectWorkerIDContext(ctx, workerselect.Request{
 		WorkspaceID: p.workspaceID(),
 		Invocation:  invocation,
 	})
@@ -222,7 +237,7 @@ func (p WorkerBackedProvider) executeInvocation(ctx context.Context, invocation 
 	if err != nil {
 		return tools.ExecutionResult{}, fmt.Errorf("encode worker invocation: %w", err)
 	}
-	work, err := p.Store.EnqueueWorkerWork(managedagents.EnqueueWorkerWorkInput{
+	work, err := managedagents.EnqueueWorkerWorkWithContext(ctx, p.Store, managedagents.EnqueueWorkerWorkInput{
 		WorkspaceID:   p.workspaceID(),
 		WorkerID:      workerID,
 		EnvironmentID: p.EnvironmentID,
@@ -249,7 +264,7 @@ func (p WorkerBackedProvider) waitForToolResult(ctx context.Context, workID stri
 	defer ticker.Stop()
 
 	for {
-		work, err := p.Store.GetWorkerWork(workID)
+		work, err := managedagents.GetWorkerWorkWithContext(ctx, p.Store, workID)
 		if err != nil {
 			return tools.ExecutionResult{}, err
 		}

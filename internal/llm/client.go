@@ -5,24 +5,74 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
-	ProviderFake             = "fake"
-	ProviderOpenAICompatible = "openai-compatible"
-	ProviderTypeOpenAI       = "openai"
-	DefaultModel             = "fake-demo"
-	DefaultOpenAIBaseURL     = "https://api.openai.com/v1"
+	ProviderFake                  = "fake"
+	ProviderOpenAICompatible      = "openai-compatible"
+	ProviderTypeOpenAI            = "openai"
+	DefaultModel                  = "fake-demo"
+	DefaultOpenAIBaseURL          = "https://api.openai.com/v1"
+	DefaultProviderMaxAttempts    = 3
+	DefaultProviderRetryBaseDelay = 250 * time.Millisecond
+	MaxProviderRetryDelay         = 30 * time.Second
 )
 
+type ErrorClass string
+
+const (
+	ErrorClassAuth           ErrorClass = "auth"
+	ErrorClassRateLimit      ErrorClass = "rate_limit"
+	ErrorClassContextLength  ErrorClass = "context_length"
+	ErrorClassTimeout        ErrorClass = "timeout"
+	ErrorClassServer         ErrorClass = "server"
+	ErrorClassInvalidRequest ErrorClass = "invalid_request"
+	ErrorClassUnknown        ErrorClass = "unknown"
+)
+
+type ProviderError struct {
+	Class      ErrorClass
+	StatusCode int
+	Retryable  bool
+	RetryAfter time.Duration
+	Attempts   int
+	Message    string
+	Cause      error
+}
+
+func (e *ProviderError) Error() string {
+	detail := strings.TrimSpace(e.Message)
+	if detail == "" {
+		detail = "provider request failed"
+	}
+	if e.StatusCode > 0 {
+		return fmt.Sprintf("provider request failed (%s, HTTP %d): %s", e.Class, e.StatusCode, detail)
+	}
+	return fmt.Sprintf("provider request failed (%s): %s", e.Class, detail)
+}
+
+func (e *ProviderError) Unwrap() error {
+	return e.Cause
+}
+
 type ContentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+type ImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type Message struct {
@@ -33,23 +83,59 @@ type Message struct {
 }
 
 type Request struct {
-	Provider     string    `json:"provider,omitempty"`
-	ProviderType string    `json:"-"`
-	Model        string    `json:"model,omitempty"`
-	BaseURL      string    `json:"-"`
-	APIKey       string    `json:"-"`
-	Messages     []Message `json:"messages"`
-	Tools        []Tool    `json:"tools,omitempty"`
+	Provider        string    `json:"provider,omitempty"`
+	ProviderType    string    `json:"-"`
+	Model           string    `json:"model,omitempty"`
+	BaseURL         string    `json:"-"`
+	APIKey          string    `json:"-"`
+	MaxOutputTokens int       `json:"max_output_tokens,omitempty"`
+	Messages        []Message `json:"messages"`
+	Tools           []Tool    `json:"tools,omitempty"`
 }
 
 type Response struct {
-	Message Message `json:"message"`
-	Usage   Usage   `json:"usage,omitempty"`
+	Message   Message         `json:"message"`
+	Reasoning []ReasoningPart `json:"reasoning,omitempty"`
+	Usage     Usage           `json:"usage,omitempty"`
 }
 
 type Delta struct {
-	Index int    `json:"index"`
-	Text  string `json:"text"`
+	Index        int            `json:"index"`
+	Kind         string         `json:"kind,omitempty"`
+	Text         string         `json:"text,omitempty"`
+	ToolCall     *ToolCallDelta `json:"tool_call,omitempty"`
+	Usage        *Usage         `json:"usage,omitempty"`
+	FinishReason string         `json:"finish_reason,omitempty"`
+	Error        *StreamError   `json:"error,omitempty"`
+}
+
+const (
+	DeltaKindText      = "text"
+	DeltaKindReasoning = "reasoning"
+	DeltaKindToolCall  = "tool_call"
+	DeltaKindUsage     = "usage"
+	DeltaKindStop      = "stop"
+	DeltaKindError     = "error"
+)
+
+type ToolCallDelta struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id,omitempty"`
+	Type      string `json:"type,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+type StreamError struct {
+	Class      ErrorClass `json:"class"`
+	StatusCode int        `json:"status_code,omitempty"`
+	Retryable  bool       `json:"retryable"`
+	Message    string     `json:"message"`
+}
+
+type ReasoningPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type Usage struct {
@@ -99,11 +185,13 @@ type Provider interface {
 }
 
 type ManagerConfig struct {
-	Provider     string
-	ProviderType string
-	Model        string
-	BaseURL      string
-	APIKey       string
+	Provider       string
+	ProviderType   string
+	Model          string
+	BaseURL        string
+	APIKey         string
+	MaxAttempts    int
+	RetryBaseDelay time.Duration
 }
 
 // FakeProvider 是当前默认 Provider，不访问外部模型 API。
@@ -115,10 +203,12 @@ func (FakeProvider) NewClient(string) (Client, error) {
 
 // OpenAICompatibleProvider 适配 OpenAI Chat Completions 兼容接口。
 type OpenAICompatibleProvider struct {
-	BaseURL string
-	APIKey  string
-	Client  *http.Client
-	Label   string
+	BaseURL        string
+	APIKey         string
+	Client         *http.Client
+	Label          string
+	MaxAttempts    int
+	RetryBaseDelay time.Duration
 }
 
 func (p OpenAICompatibleProvider) NewClient(string) (Client, error) {
@@ -134,20 +224,24 @@ func (p OpenAICompatibleProvider) NewClient(string) (Client, error) {
 		httpClient = http.DefaultClient
 	}
 	return OpenAICompatibleClient{
-		BaseURL: baseURL,
-		APIKey:  p.APIKey,
-		Client:  httpClient,
+		BaseURL:        baseURL,
+		APIKey:         p.APIKey,
+		Client:         httpClient,
+		MaxAttempts:    p.MaxAttempts,
+		RetryBaseDelay: p.RetryBaseDelay,
 	}, nil
 }
 
 // Manager 持有当前 Provider / Model，并把调用转发给当前 Client。
 // 未来做热切换时，只需要 Switch 当前配置，Runner 和 Runtime 不需要重建。
 type Manager struct {
-	mu        sync.RWMutex
-	provider  string
-	model     string
-	client    Client
-	providers map[string]Provider
+	mu             sync.RWMutex
+	provider       string
+	model          string
+	client         Client
+	providers      map[string]Provider
+	maxAttempts    int
+	retryBaseDelay time.Duration
 }
 
 func NewManager(provider string, model string) (*Manager, error) {
@@ -156,7 +250,9 @@ func NewManager(provider string, model string) (*Manager, error) {
 
 func NewManagerWithConfig(config ManagerConfig) (*Manager, error) {
 	manager := &Manager{
-		providers: providersFromConfig(config),
+		providers:      providersFromConfig(config),
+		maxAttempts:    config.MaxAttempts,
+		retryBaseDelay: config.RetryBaseDelay,
 	}
 	if err := manager.Switch(config.Provider, config.Model); err != nil {
 		return nil, err
@@ -168,9 +264,11 @@ func providersFromConfig(config ManagerConfig) map[string]Provider {
 	providers := map[string]Provider{
 		ProviderFake: FakeProvider{},
 		ProviderOpenAICompatible: OpenAICompatibleProvider{
-			BaseURL: config.BaseURL,
-			APIKey:  config.APIKey,
-			Label:   ProviderOpenAICompatible,
+			BaseURL:        config.BaseURL,
+			APIKey:         config.APIKey,
+			Label:          ProviderOpenAICompatible,
+			MaxAttempts:    config.MaxAttempts,
+			RetryBaseDelay: config.RetryBaseDelay,
 		},
 	}
 
@@ -186,9 +284,11 @@ func providersFromConfig(config ManagerConfig) map[string]Provider {
 	}
 	if isOpenAIProviderType(providerType) {
 		providers[providerID] = OpenAICompatibleProvider{
-			BaseURL: config.BaseURL,
-			APIKey:  config.APIKey,
-			Label:   providerID,
+			BaseURL:        config.BaseURL,
+			APIKey:         config.APIKey,
+			Label:          providerID,
+			MaxAttempts:    config.MaxAttempts,
+			RetryBaseDelay: config.RetryBaseDelay,
 		}
 	}
 	return providers
@@ -272,7 +372,7 @@ func (m *Manager) clientForRequest(request Request) (Client, string, string, err
 	}
 
 	if hasRequestProviderConfig {
-		client, err := clientFromProviderConfig(provider, request.ProviderType, model, request.BaseURL, request.APIKey)
+		client, err := clientFromProviderConfig(provider, request.ProviderType, model, request.BaseURL, request.APIKey, m.maxAttempts, m.retryBaseDelay)
 		if err != nil {
 			return nil, "", "", err
 		}
@@ -292,16 +392,18 @@ func (m *Manager) clientForRequest(request Request) (Client, string, string, err
 	return client, provider, model, nil
 }
 
-func clientFromProviderConfig(provider string, providerType string, model string, baseURL string, apiKey string) (Client, error) {
+func clientFromProviderConfig(provider string, providerType string, model string, baseURL string, apiKey string, maxAttempts int, retryBaseDelay time.Duration) (Client, error) {
 	resolvedType := ResolveProviderType(provider, providerType)
 	if resolvedType == ProviderFake {
 		return FakeProvider{}.NewClient(model)
 	}
 	if isOpenAIProviderType(resolvedType) {
 		return OpenAICompatibleProvider{
-			BaseURL: baseURL,
-			APIKey:  apiKey,
-			Label:   provider,
+			BaseURL:        baseURL,
+			APIKey:         apiKey,
+			Label:          provider,
+			MaxAttempts:    maxAttempts,
+			RetryBaseDelay: retryBaseDelay,
 		}.NewClient(model)
 	}
 	return nil, fmt.Errorf("unsupported LLM provider type %q for provider %q", providerType, provider)
@@ -354,7 +456,7 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 		}, nil
 	}
 
-	if toolText := lastToolText(request.Messages); containsAny(toolText, "tma-session-tool-ok", "tma-upload-sync-ok", "tma-session-data-seeded", "tma-session-data-persisted", "tma-worker-export-ok", "tma-worker-large-export-ok", "tma-worker-plugin-ok", "tma-computer-plugin-ok", "computer.get_state completed via cua", "computer.screenshot completed via cua", "tma-web-search-ok", "tma-web-crawl-ok", "tma-browser-flow-ok", "tma-browser-takeover-ok", "Browser session closed.") {
+	if toolText := lastToolText(request.Messages); containsAny(toolText, "tma-session-tool-ok", "tma-upload-sync-ok", "tma-session-data-seeded", "tma-session-data-persisted", "tma-worker-export-ok", "tma-worker-large-export-ok", "tma-worker-plugin-ok", "tma-computer-plugin-ok", "tma-mcp-filesystem-ok", "computer.get_state completed via cua", "computer.screenshot completed via cua", "tma-web-search-ok", "tma-web-crawl-ok", "tma-browser-flow-ok", "tma-browser-takeover-ok", "Browser session closed.") {
 		return Response{
 			Message: Message{
 				Role: "assistant",
@@ -388,6 +490,9 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 		}
 		if strings.Contains(userText, "tma.verify_worker_plugin_tool") {
 			return fakeWorkerPluginToolResponse(), nil
+		}
+		if strings.Contains(userText, "tma.verify_mcp_tool") {
+			return fakeMCPToolResponse(), nil
 		}
 		if strings.Contains(userText, "tma.verify_computer_plugin_tool") {
 			return fakeComputerPluginToolResponse(), nil
@@ -460,7 +565,7 @@ func fakeUploadedFileSeedResponse() Response {
 				Type: "function",
 				Function: ToolCallFunction{
 					Name:      "default.run_command",
-					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; printf tma-session-data-seeded > /mnt/data/state.txt; cat /mnt/data/state.txt"],"work_dir":"."}`),
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; printf tma-session-data-seeded > /mnt/data/state.txt; cat /mnt/data/state.txt"],"work_dir":"."}`),
 				},
 			}},
 		},
@@ -480,7 +585,7 @@ func fakeUploadedFileReadResponse() Response {
 				Type: "function",
 				Function: ToolCallFunction{
 					Name:      "default.run_command",
-					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; cat /mnt/data/state.txt; printf '\\n'; printf tma-session-data-persisted"],"work_dir":"."}`),
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; cat /mnt/data/state.txt; printf '\\n'; printf tma-session-data-persisted"],"work_dir":"."}`),
 				},
 			}},
 		},
@@ -500,7 +605,7 @@ func fakeUploadedFileExportResponse() Response {
 				Type: "function",
 				Function: ToolCallFunction{
 					Name:      "default.run_command",
-					Arguments: json.RawMessage(`{"command":"sh","args":["-c","mkdir -p /mnt/data/outputs && { for f in /mnt/data/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf 'tma-session-output-exported\\n'; } > /mnt/data/outputs/export.txt && cat /mnt/data/outputs/export.txt"],"work_dir":".","output_paths":["/mnt/data/outputs/export.txt"]}`),
+					Arguments: json.RawMessage(`{"command":"sh","args":["-c","mkdir -p /workspace/outputs && { for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf 'tma-session-output-exported\\n'; } > /workspace/outputs/export.txt && cat /workspace/outputs/export.txt"],"work_dir":".","output_paths":["/workspace/outputs/export.txt"]}`),
 				},
 			}},
 		},
@@ -561,6 +666,26 @@ func fakeWorkerPluginToolResponse() Response {
 				Function: ToolCallFunction{
 					Name:      "robot.get_state",
 					Arguments: json.RawMessage(`{}`),
+				},
+			}},
+		},
+	}
+}
+
+func fakeMCPToolResponse() Response {
+	return Response{
+		Message: Message{
+			Role: "assistant",
+			Content: []ContentPart{{
+				Type: "text",
+				Text: "Running MCP filesystem verification tool.",
+			}},
+			ToolCalls: []ToolCall{{
+				ID:   "call_verify_mcp_tool",
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      "filesystem.read_file",
+					Arguments: json.RawMessage(`{"path":"README.md"}`),
 				},
 			}},
 		},
@@ -853,9 +978,11 @@ func containsAny(text string, needles ...string) bool {
 }
 
 type OpenAICompatibleClient struct {
-	BaseURL string
-	APIKey  string
-	Client  *http.Client
+	BaseURL        string
+	APIKey         string
+	Client         *http.Client
+	MaxAttempts    int
+	RetryBaseDelay time.Duration
 }
 
 func (c OpenAICompatibleClient) Generate(ctx context.Context, request Request) (Response, error) {
@@ -874,6 +1001,7 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 
 	body, err := json.Marshal(openAIChatRequest{
 		Model:         model,
+		MaxTokens:     request.MaxOutputTokens,
 		Messages:      openAIMessages(request.Messages),
 		Tools:         openAITools(request.Tools),
 		Stream:        stream,
@@ -883,30 +1011,15 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 		return Response{}, fmt.Errorf("encode openai-compatible request: %w", err)
 	}
 
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return Response{}, fmt.Errorf("create openai-compatible request: %w", err)
-	}
-	httpRequest.Header.Set("Content-Type", "application/json")
-	httpRequest.Header.Set("Authorization", "Bearer "+c.APIKey)
-
 	httpClient := c.Client
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	httpResponse, err := httpClient.Do(httpRequest)
+	httpResponse, err := c.sendWithRetry(ctx, httpClient, strings.TrimRight(c.BaseURL, "/")+"/chat/completions", body)
 	if err != nil {
-		return Response{}, fmt.Errorf("call openai-compatible chat completions: %w", err)
+		return Response{}, err
 	}
 	defer httpResponse.Body.Close()
-
-	if httpResponse.StatusCode < 200 || httpResponse.StatusCode >= 300 {
-		responseBody, err := io.ReadAll(io.LimitReader(httpResponse.Body, 1<<20))
-		if err != nil {
-			return Response{}, fmt.Errorf("read openai-compatible error response: %w", err)
-		}
-		return Response{}, fmt.Errorf("openai-compatible chat completions returned %s: %s", httpResponse.Status, strings.TrimSpace(string(responseBody)))
-	}
 	if stream {
 		return decodeOpenAIStream(httpResponse.Body, onDelta)
 	}
@@ -933,12 +1046,179 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 				Text: openAIContentText(decoded.Choices[0].Message.Content),
 			}},
 		},
-		Usage: openAIUsage(decoded.Usage),
+		Reasoning: reasoningParts(openAIReasoningText(decoded.Choices[0].Message)),
+		Usage:     openAIUsage(decoded.Usage),
 	}, nil
+}
+
+func (c OpenAICompatibleClient) sendWithRetry(ctx context.Context, httpClient *http.Client, endpoint string, body []byte) (*http.Response, error) {
+	maxAttempts := c.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = DefaultProviderMaxAttempts
+	}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create openai-compatible request: %w", err)
+		}
+		httpRequest.Header.Set("Content-Type", "application/json")
+		httpRequest.Header.Set("Authorization", "Bearer "+c.APIKey)
+
+		httpResponse, err := httpClient.Do(httpRequest)
+		if err != nil {
+			classified := classifyProviderTransportError(ctx, err)
+			setProviderErrorAttempt(classified, attempt, 0)
+			if attempt == maxAttempts || !isRetryableProviderError(classified) {
+				return nil, classified
+			}
+			if err := c.waitForRetry(ctx, attempt, 0, false); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if httpResponse.StatusCode >= 200 && httpResponse.StatusCode < 300 {
+			return httpResponse, nil
+		}
+
+		responseBody, readErr := io.ReadAll(io.LimitReader(httpResponse.Body, 1<<20))
+		httpResponse.Body.Close()
+		classified := classifyProviderHTTPError(httpResponse.StatusCode, responseBody)
+		retryAfter, hasRetryAfter := parseProviderRetryAfter(httpResponse.Header.Get("Retry-After"), time.Now())
+		setProviderErrorAttempt(classified, attempt, retryAfter)
+		if readErr != nil {
+			if providerError, ok := classified.(*ProviderError); ok {
+				providerError.Message = "read provider error response: " + readErr.Error()
+				providerError.Cause = readErr
+			}
+		}
+		if attempt == maxAttempts || !isRetryableProviderError(classified) {
+			return nil, classified
+		}
+		if err := c.waitForRetry(ctx, attempt, retryAfter, hasRetryAfter); err != nil {
+			return nil, err
+		}
+	}
+	return nil, &ProviderError{Class: ErrorClassUnknown, Attempts: maxAttempts, Message: "provider retries exhausted"}
+}
+
+func setProviderErrorAttempt(err error, attempt int, retryAfter time.Duration) {
+	var providerError *ProviderError
+	if errors.As(err, &providerError) {
+		providerError.Attempts = attempt
+		providerError.RetryAfter = retryAfter
+	}
+}
+
+func isRetryableProviderError(err error) bool {
+	var providerError *ProviderError
+	return errors.As(err, &providerError) && providerError.Retryable
+}
+
+func (c OpenAICompatibleClient) waitForRetry(ctx context.Context, attempt int, retryAfter time.Duration, hasRetryAfter bool) error {
+	delay := retryAfter
+	if !hasRetryAfter {
+		baseDelay := c.RetryBaseDelay
+		if baseDelay <= 0 {
+			baseDelay = DefaultProviderRetryBaseDelay
+		}
+		delay = baseDelay * time.Duration(1<<min(attempt-1, 16))
+	}
+	delay = min(delay, MaxProviderRetryDelay)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func parseProviderRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return min(time.Duration(seconds)*time.Second, MaxProviderRetryDelay), true
+	}
+	if retryAt, err := http.ParseTime(value); err == nil {
+		return min(max(retryAt.Sub(now), 0), MaxProviderRetryDelay), true
+	}
+	return 0, false
+}
+
+func classifyProviderTransportError(ctx context.Context, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return &ProviderError{Class: ErrorClassTimeout, Retryable: true, Message: err.Error(), Cause: err}
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+		return &ProviderError{Class: ErrorClassUnknown, Retryable: false, Message: err.Error(), Cause: err}
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return &ProviderError{Class: ErrorClassTimeout, Retryable: true, Message: err.Error(), Cause: err}
+	}
+	return &ProviderError{Class: ErrorClassServer, Retryable: true, Message: err.Error(), Cause: err}
+}
+
+func classifyProviderHTTPError(statusCode int, body []byte) error {
+	message, code, errorType := decodeProviderError(body)
+	searchable := strings.ToLower(strings.Join([]string{message, code, errorType}, " "))
+	if strings.Contains(searchable, "context_length") ||
+		strings.Contains(searchable, "context length") ||
+		strings.Contains(searchable, "maximum context") ||
+		strings.Contains(searchable, "too many tokens") {
+		return &ProviderError{Class: ErrorClassContextLength, StatusCode: statusCode, Retryable: false, Message: message}
+	}
+
+	class := ErrorClassUnknown
+	retryable := false
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		class = ErrorClassAuth
+	case statusCode == http.StatusTooManyRequests:
+		class = ErrorClassRateLimit
+		retryable = true
+	case statusCode == http.StatusRequestTimeout || statusCode == http.StatusGatewayTimeout:
+		class = ErrorClassTimeout
+		retryable = true
+	case statusCode == http.StatusConflict || statusCode == http.StatusTooEarly || statusCode >= 500:
+		class = ErrorClassServer
+		retryable = true
+	case statusCode >= 400 && statusCode < 500:
+		class = ErrorClassInvalidRequest
+	}
+	return &ProviderError{Class: class, StatusCode: statusCode, Retryable: retryable, Message: message}
+}
+
+func decodeProviderError(body []byte) (message string, code string, errorType string) {
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+			Code    any    `json:"code"`
+			Type    string `json:"type"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		message = strings.TrimSpace(envelope.Error.Message)
+		errorType = strings.TrimSpace(envelope.Error.Type)
+		if envelope.Error.Code != nil {
+			code = strings.TrimSpace(fmt.Sprint(envelope.Error.Code))
+		}
+	}
+	if message == "" {
+		message = strings.TrimSpace(string(body))
+	}
+	if message == "" {
+		message = "provider returned an empty error response"
+	}
+	return message, code, errorType
 }
 
 type openAIChatRequest struct {
 	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens,omitempty"`
 	Messages      []openAIMessage      `json:"messages"`
 	Tools         []openAITool         `json:"tools,omitempty"`
 	Stream        bool                 `json:"stream,omitempty"`
@@ -950,10 +1230,12 @@ type openAIStreamOptions struct {
 }
 
 type openAIMessage struct {
-	Role       string           `json:"role"`
-	Content    *string          `json:"content,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Role             string           `json:"role"`
+	Content          json.RawMessage  `json:"content,omitempty"`
+	ReasoningContent json.RawMessage  `json:"reasoning_content,omitempty"`
+	ReasoningDetails json.RawMessage  `json:"reasoning_details,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
 
 type openAITool struct {
@@ -968,6 +1250,7 @@ type openAIToolFunction struct {
 }
 
 type openAIToolCall struct {
+	Index    int                    `json:"index,omitempty"`
 	ID       string                 `json:"id,omitempty"`
 	Type     string                 `json:"type,omitempty"`
 	Function openAIToolCallFunction `json:"function"`
@@ -987,9 +1270,15 @@ type openAIChatResponse struct {
 
 type openAIStreamResponse struct {
 	Choices []struct {
-		Delta openAIMessage `json:"delta"`
+		Delta        openAIMessage `json:"delta"`
+		FinishReason string        `json:"finish_reason"`
 	} `json:"choices"`
-	Usage openAIUsageResponse `json:"usage"`
+	Usage *openAIUsageResponse `json:"usage,omitempty"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    any    `json:"code"`
+	} `json:"error,omitempty"`
 }
 
 type openAIUsageResponse struct {
@@ -1009,9 +1298,41 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var builder strings.Builder
+	var reasoningBuilder strings.Builder
+	var pendingReasoning strings.Builder
 	index := 0
 	role := "assistant"
 	var usage Usage
+	stopped := false
+	type streamedToolCall struct {
+		id        string
+		typeName  string
+		name      strings.Builder
+		arguments strings.Builder
+	}
+	var streamedToolCalls []*streamedToolCall
+	emitDelta := func(delta Delta) error {
+		index++
+		delta.Index = index
+		if onDelta == nil {
+			return nil
+		}
+		return onDelta(delta)
+	}
+	emitStreamFailure := func(providerError *ProviderError) error {
+		if err := emitDelta(Delta{Kind: DeltaKindError, Error: streamErrorFromProviderError(providerError)}); err != nil {
+			return err
+		}
+		return providerError
+	}
+	flushReasoning := func() error {
+		if pendingReasoning.Len() == 0 {
+			return nil
+		}
+		text := pendingReasoning.String()
+		pendingReasoning.Reset()
+		return emitDelta(Delta{Kind: DeltaKindReasoning, Text: text})
+	}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") {
@@ -1023,47 +1344,227 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			if err := flushReasoning(); err != nil {
+				return Response{}, err
+			}
+			if !stopped {
+				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: "done"}); err != nil {
+					return Response{}, err
+				}
+				stopped = true
+			}
 			break
 		}
 
 		var chunk openAIStreamResponse
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return Response{}, fmt.Errorf("decode openai-compatible stream chunk: %w", err)
+			providerError := &ProviderError{
+				Class:    ErrorClassUnknown,
+				Attempts: 1,
+				Message:  "decode openai-compatible stream chunk: " + err.Error(),
+				Cause:    err,
+			}
+			return Response{}, emitStreamFailure(providerError)
 		}
-		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-			usage = openAIUsage(chunk.Usage)
+		if chunk.Error != nil {
+			if err := flushReasoning(); err != nil {
+				return Response{}, err
+			}
+			providerError := classifyProviderStreamError(chunk.Error.Message, chunk.Error.Type, chunk.Error.Code)
+			if err := emitDelta(Delta{Kind: DeltaKindError, Error: streamErrorFromProviderError(providerError)}); err != nil {
+				return Response{}, err
+			}
+			return Response{}, providerError
+		}
+		if chunk.Usage != nil {
+			usage = openAIUsage(*chunk.Usage)
+			usageDelta := usage
+			if err := emitDelta(Delta{Kind: DeltaKindUsage, Usage: &usageDelta}); err != nil {
+				return Response{}, err
+			}
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Role != "" {
 				role = choice.Delta.Role
 			}
-			text := openAIContentText(choice.Delta.Content)
-			if text == "" {
-				continue
+			reasoningText := openAIReasoningText(choice.Delta)
+			if reasoningText != "" {
+				reasoningBuilder.WriteString(reasoningText)
+				pendingReasoning.WriteString(reasoningText)
 			}
-			index++
-			builder.WriteString(text)
-			if onDelta != nil {
-				if err := onDelta(Delta{Index: index, Text: text}); err != nil {
+			if len(choice.Delta.ToolCalls) > 0 {
+				if err := flushReasoning(); err != nil {
 					return Response{}, err
 				}
+			}
+			for _, partialCall := range choice.Delta.ToolCalls {
+				for len(streamedToolCalls) <= partialCall.Index {
+					streamedToolCalls = append(streamedToolCalls, &streamedToolCall{})
+				}
+				call := streamedToolCalls[partialCall.Index]
+				if partialCall.ID != "" {
+					call.id = partialCall.ID
+				}
+				if partialCall.Type != "" {
+					call.typeName = partialCall.Type
+				}
+				call.name.WriteString(partialCall.Function.Name)
+				call.arguments.WriteString(partialCall.Function.Arguments)
+				if err := emitDelta(Delta{Kind: DeltaKindToolCall, ToolCall: &ToolCallDelta{
+					Index:     partialCall.Index,
+					ID:        partialCall.ID,
+					Type:      partialCall.Type,
+					Name:      partialCall.Function.Name,
+					Arguments: partialCall.Function.Arguments,
+				}}); err != nil {
+					return Response{}, err
+				}
+			}
+			text := openAIContentText(choice.Delta.Content)
+			if text != "" {
+				if err := flushReasoning(); err != nil {
+					return Response{}, err
+				}
+				builder.WriteString(text)
+				if err := emitDelta(Delta{Kind: DeltaKindText, Text: text}); err != nil {
+					return Response{}, err
+				}
+			}
+			if choice.FinishReason != "" {
+				if err := flushReasoning(); err != nil {
+					return Response{}, err
+				}
+				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: choice.FinishReason}); err != nil {
+					return Response{}, err
+				}
+				stopped = true
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return Response{}, fmt.Errorf("read openai-compatible stream: %w", err)
+		providerError := &ProviderError{
+			Class:     ErrorClassServer,
+			Retryable: true,
+			Attempts:  1,
+			Message:   "read openai-compatible stream: " + err.Error(),
+			Cause:     err,
+		}
+		return Response{}, emitStreamFailure(providerError)
+	}
+	if err := flushReasoning(); err != nil {
+		return Response{}, err
+	}
+
+	toolCalls := make([]openAIToolCall, 0, len(streamedToolCalls))
+	for _, streamedCall := range streamedToolCalls {
+		if streamedCall == nil || (streamedCall.id == "" && streamedCall.name.Len() == 0) {
+			continue
+		}
+		toolCalls = append(toolCalls, openAIToolCall{
+			ID:   streamedCall.id,
+			Type: streamedCall.typeName,
+			Function: openAIToolCallFunction{
+				Name:      streamedCall.name.String(),
+				Arguments: streamedCall.arguments.String(),
+			},
+		})
+	}
+	content := []ContentPart(nil)
+	if builder.Len() > 0 {
+		content = []ContentPart{{Type: "text", Text: builder.String()}}
 	}
 
 	return Response{
 		Message: Message{
-			Role: role,
-			Content: []ContentPart{{
-				Type: "text",
-				Text: builder.String(),
-			}},
+			Role:      role,
+			Content:   content,
+			ToolCalls: toolCallsFromOpenAI(toolCalls),
 		},
-		Usage: usage,
+		Reasoning: reasoningParts(reasoningBuilder.String()),
+		Usage:     usage,
 	}, nil
+}
+
+func classifyProviderStreamError(message string, errorType string, code any) *ProviderError {
+	codeText := strings.TrimSpace(fmt.Sprint(code))
+	if code == nil {
+		codeText = ""
+	}
+	searchable := strings.ToLower(strings.Join([]string{message, errorType, codeText}, " "))
+	providerError := &ProviderError{Class: ErrorClassUnknown, Attempts: 1, Message: strings.TrimSpace(message)}
+	switch {
+	case strings.Contains(searchable, "context_length"), strings.Contains(searchable, "context length"), strings.Contains(searchable, "maximum context"), strings.Contains(searchable, "too many tokens"):
+		providerError.Class = ErrorClassContextLength
+	case strings.Contains(searchable, "authentication"), strings.Contains(searchable, "unauthorized"), strings.Contains(searchable, "invalid_api_key"):
+		providerError.Class = ErrorClassAuth
+	case strings.Contains(searchable, "rate_limit"), strings.Contains(searchable, "rate limit"), strings.Contains(searchable, "overloaded"):
+		providerError.Class = ErrorClassRateLimit
+		providerError.Retryable = true
+	case strings.Contains(searchable, "timeout"), strings.Contains(searchable, "timed out"):
+		providerError.Class = ErrorClassTimeout
+		providerError.Retryable = true
+	case strings.Contains(searchable, "server_error"), strings.Contains(searchable, "internal error"), strings.Contains(searchable, "unavailable"):
+		providerError.Class = ErrorClassServer
+		providerError.Retryable = true
+	case strings.Contains(searchable, "invalid_request"):
+		providerError.Class = ErrorClassInvalidRequest
+	}
+	if providerError.Message == "" {
+		providerError.Message = "provider returned a stream error"
+	}
+	return providerError
+}
+
+func streamErrorFromProviderError(providerError *ProviderError) *StreamError {
+	return &StreamError{
+		Class:      providerError.Class,
+		StatusCode: providerError.StatusCode,
+		Retryable:  providerError.Retryable,
+		Message:    providerError.Message,
+	}
+}
+
+func reasoningParts(text string) []ReasoningPart {
+	if text == "" {
+		return nil
+	}
+	return []ReasoningPart{{Type: DeltaKindReasoning, Text: text}}
+}
+
+func openAIReasoningText(message openAIMessage) string {
+	if text := openAIContentText(message.ReasoningContent); text != "" {
+		return text
+	}
+	return openAIReasoningDetailsText(message.ReasoningDetails)
+}
+
+func openAIReasoningDetailsText(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	type reasoningDetail struct {
+		Summary json.RawMessage `json:"summary"`
+		Text    json.RawMessage `json:"text"`
+		Content json.RawMessage `json:"content"`
+	}
+	var details []reasoningDetail
+	if err := json.Unmarshal(raw, &details); err != nil {
+		var detail reasoningDetail
+		if json.Unmarshal(raw, &detail) != nil {
+			return ""
+		}
+		details = []reasoningDetail{detail}
+	}
+	values := make([]string, 0, len(details))
+	for _, detail := range details {
+		for _, field := range []json.RawMessage{detail.Summary, detail.Text, detail.Content} {
+			if text := openAIContentText(field); text != "" {
+				values = append(values, text)
+				break
+			}
+		}
+	}
+	return strings.Join(values, "")
 }
 
 func openAIStreamOptionsForRequest(stream bool) *openAIStreamOptions {
@@ -1090,15 +1591,39 @@ func openAIUsage(usage openAIUsageResponse) Usage {
 func openAIMessages(messages []Message) []openAIMessage {
 	result := make([]openAIMessage, 0, len(messages))
 	for _, message := range messages {
-		content := textContent(message.Content)
 		result = append(result, openAIMessage{
 			Role:       message.Role,
-			Content:    &content,
+			Content:    openAIContent(message.Content),
 			ToolCalls:  openAIToolCalls(message.ToolCalls),
 			ToolCallID: message.ToolCallID,
 		})
 	}
 	return result
+}
+
+func openAIContent(parts []ContentPart) json.RawMessage {
+	hasImage := false
+	for _, part := range parts {
+		if part.Type == "image_url" && part.ImageURL != nil && strings.TrimSpace(part.ImageURL.URL) != "" {
+			hasImage = true
+			break
+		}
+	}
+	if !hasImage {
+		encoded, _ := json.Marshal(textContent(parts))
+		return encoded
+	}
+	content := make([]ContentPart, 0, len(parts))
+	for _, part := range parts {
+		if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+			content = append(content, ContentPart{Type: "text", Text: part.Text})
+		}
+		if part.Type == "image_url" && part.ImageURL != nil && strings.TrimSpace(part.ImageURL.URL) != "" {
+			content = append(content, part)
+		}
+	}
+	encoded, _ := json.Marshal(content)
+	return encoded
 }
 
 func openAITools(tools []Tool) []openAITool {
@@ -1159,11 +1684,19 @@ func toolCallsFromOpenAI(calls []openAIToolCall) []ToolCall {
 	return result
 }
 
-func openAIContentText(content *string) string {
-	if content == nil {
+func openAIContentText(content json.RawMessage) string {
+	if len(content) == 0 || string(content) == "null" {
 		return ""
 	}
-	return *content
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return text
+	}
+	var parts []ContentPart
+	if json.Unmarshal(content, &parts) == nil {
+		return textContent(parts)
+	}
+	return ""
 }
 
 func textContent(parts []ContentPart) string {

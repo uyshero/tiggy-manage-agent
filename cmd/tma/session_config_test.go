@@ -8,7 +8,7 @@ import (
 
 func TestCommandSessionConfigUpgradeToCurrent(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/sessions/sesn_000001/config/upgrade" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/sessions/sesn_000001/config/upgrade" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -31,13 +31,33 @@ func TestCommandSessionConfigUpgradeToCurrent(t *testing.T) {
 	}
 }
 
-func TestCommandSessionConfigUpgradeRequiresToCurrent(t *testing.T) {
+func TestCommandSessionConfigUpgradeToVersion(t *testing.T) {
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["to_version"] != float64(2) || body["to_current"] != nil {
+			t.Fatalf("unexpected exact upgrade request: %#v", body)
+		}
+		return jsonResponse(`{"changed":true,"old_agent_config_version":1,"new_agent_config_version":2}`), nil
+	})
+
+	if err := commandSessionConfig(client, []string{"upgrade", "--session", "sesn_000001", "--to-version", "2"}); err != nil {
+		t.Fatalf("session config upgrade: %v", err)
+	}
+}
+
+func TestCommandSessionConfigUpgradeRequiresOneTarget(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
 		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		return nil, nil
 	})
 
 	if err := commandSessionConfig(client, []string{"upgrade", "--session", "sesn_000001"}); err == nil {
-		t.Fatal("expected missing --to-current error")
+		t.Fatal("expected missing upgrade target error")
+	}
+	if err := commandSessionConfig(client, []string{"upgrade", "--session", "sesn_000001", "--to-current", "--to-version", "2"}); err == nil {
+		t.Fatal("expected conflicting upgrade target error")
 	}
 }

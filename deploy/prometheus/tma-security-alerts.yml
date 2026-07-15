@@ -1,0 +1,132 @@
+groups:
+  - name: tma-security
+    rules:
+      - alert: TMAAuthenticationFailureSpike
+        expr: sum(increase(tma_authorization_decisions_total{outcome="denied",reason="authentication_failed"}[5m])) >= 20
+        for: 5m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA authentication failures are elevated
+          description: At least 20 authentication failures occurred in five minutes and the condition persisted for five minutes.
+
+      - alert: TMACrossTenantAccessDenied
+        expr: sum(increase(tma_authorization_decisions_total{outcome="denied",reason="resource_scope_denied"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA rejected a cross-scope resource request
+          description: One or more authenticated requests attempted to access a resource outside the effective workspace or owner scope.
+
+      - alert: TMAOperatorAuthorizationDenied
+        expr: sum(increase(tma_authorization_decisions_total{outcome="denied",reason=~"control_role_required|worker_or_control_role_required"}[5m])) >= 5
+        for: 5m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA operator authorization denials are elevated
+          description: At least five authenticated requests without an operator role reached control-plane endpoints in five minutes.
+
+      - alert: TMASecurityAuditExportFailures
+        expr: increase(tma_security_audit_export_events_total{outcome="failed"}[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA failed to export security audit events
+          description: The OTLP Logs collector rejected or could not receive one or more authorization audit events.
+
+      - alert: TMASecurityAuditEventsDropped
+        expr: increase(tma_security_audit_export_events_total{outcome="dropped"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA dropped remote security audit copies
+          description: The bounded OTLP security audit queue was full. Local structured logs remain available, but remote SIEM coverage is incomplete.
+
+      - alert: TMASecurityAuditQueueHigh
+        expr: (tma_security_audit_exporter_enabled == 1) and (tma_security_audit_exporter_queue_capacity > 0) and ((tma_security_audit_exporter_queue_depth / tma_security_audit_exporter_queue_capacity) > 0.8)
+        for: 5m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA security audit export queue is persistently high
+          description: More than 80 percent of the bounded security audit queue has remained occupied for five minutes.
+
+      - alert: TMASecurityAuditPersistenceFailures
+        expr: increase(tma_security_audit_export_events_total{outcome="persistence_failed"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA could not persist security audit events
+          description: One or more authorization decisions could not be inserted into the durable PostgreSQL outbox.
+
+      - alert: TMASecurityAuditDeadLetters
+        expr: tma_security_audit_outbox_events{status="dead_letter"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA security audit events require manual replay
+          description: Events exhausted delivery retries or failed integrity validation and entered the dead-letter state.
+
+      - alert: TMASecurityAuditOutboxBacklog
+        expr: tma_security_audit_outbox_oldest_pending_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA durable security audit backlog is aging
+          description: The oldest pending or delivering authorization audit event has been outstanding for more than five minutes.
+
+      - alert: TMASecurityAuditIntegrityStatusUnavailable
+        expr: (tma_security_audit_exporter_durable == 1) and (tma_security_audit_integrity_status_available == 0)
+        for: 2m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA cannot evaluate security audit integrity key lifecycle state
+          description: The durable audit pipeline could not read HMAC key reference state, so key removal safety cannot be determined.
+
+      - alert: TMASecurityAuditUnconfiguredIntegrityKey
+        expr: tma_security_audit_integrity_blocking_events{reason="unconfigured_key"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA security audit events reference an unconfigured integrity key
+          description: Non-terminal HMAC audit rows reference a key ID that is absent from the trusted keyring and cannot be delivered safely.
+
+      - alert: TMASecurityAuditHistoricalIntegrityKeyBlocked
+        expr: tma_security_audit_integrity_blocking_events{reason="historical_unidentified"} > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: Historical TMA audit rows block integrity key retirement
+          description: Migration-era HMAC rows without a key ID remain non-terminal, so previous keys cannot yet be removed safely.
+
+      - alert: TMASecurityAuditIntegrityKeyRotationBlocked
+        expr: tma_security_audit_integrity_keys{state="removal_blocked"} > 0
+        for: 1h
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA integrity key rotation remains blocked
+          description: One or more configured inactive integrity keys have been unsafe to remove for at least one hour.

@@ -9,7 +9,15 @@ export default defineConfig({
   publicDir: "public",
   server: {
     proxy: {
+      "/auth": {
+        target: apiTarget,
+        changeOrigin: true
+      },
       "/v1": {
+        target: apiTarget,
+        changeOrigin: true
+      },
+      "/v2": {
         target: apiTarget,
         changeOrigin: true
       },

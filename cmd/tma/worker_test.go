@@ -40,7 +40,7 @@ func TestCommandWorkerRegister(t *testing.T) {
 
 func TestCommandWorkerList(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/workers" {
+		if r.Method != http.MethodGet || r.URL.Path != "/v2/workers" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		if got := r.URL.Query().Get("workspace_id"); got != "wksp_default" {
@@ -75,7 +75,7 @@ func TestCommandWorkerList(t *testing.T) {
 
 func TestCommandWorkerDiagnose(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/workers/diagnose" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/workers/diagnose" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any
@@ -145,7 +145,7 @@ func TestCommandWorkerHeartbeat(t *testing.T) {
 
 func TestCommandWorkerArchive(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/workers/wrk_000001/archive" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/workers/wrk_000001/archive" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		return jsonResponse(`{"id":"wrk_000001","status":"archived"}`), nil
@@ -158,7 +158,7 @@ func TestCommandWorkerArchive(t *testing.T) {
 
 func TestCommandWorkerReapExpired(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/workers/reap-expired" {
+		if r.Method != http.MethodPost || r.URL.Path != "/v2/workers/reap-expired" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any

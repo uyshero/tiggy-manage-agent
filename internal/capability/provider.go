@@ -2,8 +2,11 @@ package capability
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 const ProtocolVersion = "tma.capability.v1"
@@ -116,6 +119,58 @@ type RunCommandRequest struct {
 	OutputPaths []string          `json:"output_paths,omitempty"`
 }
 
+func (r RunCommandRequest) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		Meta        RequestMeta       `json:"meta"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args,omitempty"`
+		WorkDir     string            `json:"work_dir,omitempty"`
+		Env         map[string]string `json:"env,omitempty"`
+		Stdin       string            `json:"stdin,omitempty"`
+		StdinBase64 string            `json:"stdin_base64,omitempty"`
+		OutputPaths []string          `json:"output_paths,omitempty"`
+	}
+	value := payload{
+		Meta:        r.Meta,
+		Command:     r.Command,
+		Args:        r.Args,
+		WorkDir:     r.WorkDir,
+		Env:         r.Env,
+		OutputPaths: r.OutputPaths,
+	}
+	assignBytePayload(&value.Stdin, &value.StdinBase64, r.Stdin)
+	return json.Marshal(value)
+}
+
+func (r *RunCommandRequest) UnmarshalJSON(data []byte) error {
+	type payload struct {
+		Meta        RequestMeta       `json:"meta"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args,omitempty"`
+		WorkDir     string            `json:"work_dir,omitempty"`
+		Env         map[string]string `json:"env,omitempty"`
+		Stdin       *string           `json:"stdin"`
+		StdinBase64 string            `json:"stdin_base64,omitempty"`
+		OutputPaths []string          `json:"output_paths,omitempty"`
+	}
+	var decoded payload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	stdin, err := decodeBytePayload(decoded.Stdin, decoded.StdinBase64, "stdin")
+	if err != nil {
+		return err
+	}
+	r.Meta = decoded.Meta
+	r.Command = decoded.Command
+	r.Args = decoded.Args
+	r.WorkDir = decoded.WorkDir
+	r.Env = decoded.Env
+	r.Stdin = stdin
+	r.OutputPaths = decoded.OutputPaths
+	return nil
+}
+
 type ExecuteCodeRequest struct {
 	Meta        RequestMeta       `json:"meta"`
 	Language    string            `json:"language"`
@@ -136,6 +191,42 @@ type WriteFileRequest struct {
 	Content []byte      `json:"content"`
 }
 
+func (r WriteFileRequest) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		Meta          RequestMeta `json:"meta"`
+		Path          string      `json:"path"`
+		Content       string      `json:"content,omitempty"`
+		ContentBase64 string      `json:"content_base64,omitempty"`
+	}
+	value := payload{
+		Meta: r.Meta,
+		Path: r.Path,
+	}
+	assignBytePayload(&value.Content, &value.ContentBase64, r.Content)
+	return json.Marshal(value)
+}
+
+func (r *WriteFileRequest) UnmarshalJSON(data []byte) error {
+	type payload struct {
+		Meta          RequestMeta `json:"meta"`
+		Path          string      `json:"path"`
+		Content       *string     `json:"content"`
+		ContentBase64 string      `json:"content_base64,omitempty"`
+	}
+	var decoded payload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	content, err := decodeBytePayload(decoded.Content, decoded.ContentBase64, "content")
+	if err != nil {
+		return err
+	}
+	r.Meta = decoded.Meta
+	r.Path = decoded.Path
+	r.Content = content
+	return nil
+}
+
 type CommandResult struct {
 	ExitCode          int                        `json:"exit_code"`
 	Stdout            string                     `json:"stdout,omitempty"`
@@ -148,4 +239,29 @@ type CommandResult struct {
 type FileResult struct {
 	Path    string `json:"path"`
 	Content []byte `json:"content,omitempty"`
+}
+
+func assignBytePayload(text *string, encoded *string, value []byte) {
+	if len(value) == 0 {
+		return
+	}
+	if utf8.Valid(value) {
+		*text = string(value)
+		return
+	}
+	*encoded = base64.StdEncoding.EncodeToString(value)
+}
+
+func decodeBytePayload(text *string, encoded string, field string) ([]byte, error) {
+	if encoded != "" {
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decode %s_base64: %w", field, err)
+		}
+		return decoded, nil
+	}
+	if text == nil {
+		return nil, nil
+	}
+	return []byte(*text), nil
 }

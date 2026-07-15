@@ -53,6 +53,7 @@ type onlyboxesContainerState struct {
 type onlyboxesContainerCommand struct {
 	Provider         OnlyboxesProvider
 	SessionID        string
+	IsolationKey     string
 	Scope            string
 	WorkspaceRoot    string
 	ContainerWorkDir string
@@ -103,7 +104,7 @@ func (m *OnlyboxesContainerManager) RunCommand(ctx context.Context, command only
 			return CommandResult{}, fmt.Errorf("invalid env key %q", key)
 		}
 	}
-	state := m.state(command.SessionID, command.Scope)
+	state := m.state(command.SessionID, command.IsolationKey, command.Scope)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
@@ -233,14 +234,14 @@ func (m *OnlyboxesContainerManager) ensureContainer(ctx context.Context, state *
 	return nil
 }
 
-func (m *OnlyboxesContainerManager) state(sessionID string, scope string) *onlyboxesContainerState {
-	key := sessionID + "\x00" + onlyboxesContainerScope(scope)
+func (m *OnlyboxesContainerManager) state(sessionID string, isolationKey string, scope string) *onlyboxesContainerState {
+	key := isolationKey + "\x00" + onlyboxesContainerScope(scope)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if state := m.states[key]; state != nil {
 		return state
 	}
-	state := &onlyboxesContainerState{name: onlyboxesContainerName(sessionID, scope)}
+	state := &onlyboxesContainerState{name: onlyboxesContainerName(sessionID, isolationKey, scope)}
 	m.states[key] = state
 	return state
 }
@@ -345,12 +346,12 @@ func onlyboxesContainerFingerprint(command onlyboxesContainerCommand) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(payload)))
 }
 
-func onlyboxesContainerName(sessionID string, scope string) string {
+func onlyboxesContainerName(sessionID string, isolationKey string, scope string) string {
 	safeSessionID := safeSandboxSessionID(sessionID)
 	if len(safeSessionID) > 32 {
 		safeSessionID = safeSessionID[:32]
 	}
-	hash := sha256.Sum256([]byte(sessionID + "\x00" + onlyboxesContainerScope(scope)))
+	hash := sha256.Sum256([]byte(isolationKey + "\x00" + onlyboxesContainerScope(scope)))
 	return fmt.Sprintf("tma-onlyboxes-%s-%x", safeSessionID, hash[:6])
 }
 

@@ -23,9 +23,10 @@ type EventTraceFieldsInput struct {
 func EventTraceFields(input EventTraceFieldsInput) map[string]any {
 	traceID := traceID(input.SessionID, input.TurnID)
 	kind := spanKind(input.EventType)
-	if input.EventType == managedagents.EventRuntimeStarted {
+	interactionRoot := input.InteractionRoot || isInteractionEvent(input.EventType)
+	if interactionRoot {
 		kind = "interaction"
-		if input.Status == "" {
+		if input.EventType == managedagents.EventRuntimeStarted && input.Status == "" {
 			input.Status = "running"
 		}
 	}
@@ -36,7 +37,7 @@ func EventTraceFields(input EventTraceFieldsInput) map[string]any {
 		"span_kind": kind,
 	}
 	parent := input.ParentSpanID
-	if parent == "" && !input.InteractionRoot {
+	if parent == "" && !interactionRoot {
 		parent = InteractionSpanID(input.TurnID)
 	}
 	if parent != "" {
@@ -65,7 +66,7 @@ func ToolSpanID(turnID string, callID string, seqFallback int64) string {
 
 func eventSpanID(input EventTraceFieldsInput) string {
 	switch input.EventType {
-	case managedagents.EventRuntimeStarted:
+	case managedagents.EventRuntimeStarted, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
 		return InteractionSpanID(input.TurnID)
 	case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolResult:
 		return ToolSpanID(input.TurnID, input.CallID, 0)
@@ -74,7 +75,7 @@ func eventSpanID(input EventTraceFieldsInput) string {
 		if callKey == "" {
 			callKey = "approval"
 		}
-		return spanIDFromKey("approval:" + input.TurnID + ":" + callKey)
+		return ApprovalSpanID(input.TurnID, callKey)
 	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse:
 		round := input.CallID
 		if round == "" {
@@ -90,7 +91,7 @@ func eventSpanID(input EventTraceFieldsInput) string {
 
 func eventSpanName(input EventTraceFieldsInput) string {
 	switch input.EventType {
-	case managedagents.EventRuntimeStarted:
+	case managedagents.EventRuntimeStarted, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
 		return "tma.interaction"
 	case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolResult:
 		apiName := input.APIName
@@ -102,5 +103,21 @@ func eventSpanName(input EventTraceFieldsInput) string {
 		return "tma.llm"
 	default:
 		return spanName(TraceStep{Type: input.EventType, Identifier: input.Identifier, APIName: input.APIName})
+	}
+}
+
+func ApprovalSpanID(turnID string, callID string) string {
+	if callID == "" {
+		callID = "approval"
+	}
+	return spanIDFromKey("approval:" + turnID + ":" + callID)
+}
+
+func isInteractionEvent(eventType string) bool {
+	switch eventType {
+	case managedagents.EventRuntimeStarted, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
+		return true
+	default:
+		return false
 	}
 }

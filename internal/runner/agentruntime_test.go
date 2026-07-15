@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -68,6 +70,13 @@ func TestAgentRuntimeTurnExecutorReturnsRuntimePayload(t *testing.T) {
 	if responsePayload["span_name"] != "tma.llm" || responsePayload["duration_ms"] == nil {
 		t.Fatalf("expected native llm span fields, got %#v", responsePayload)
 	}
+	var completedPayload map[string]any
+	if err := json.Unmarshal(store.runtimePayloads[4], &completedPayload); err != nil {
+		t.Fatalf("decode completed payload: %v", err)
+	}
+	if completedPayload["span_id"] != started["span_id"] || completedPayload["span_name"] != "tma.interaction" || completedPayload["span_kind"] != "interaction" || completedPayload["span_status"] != "ok" || completedPayload["duration_ms"] == nil || completedPayload["parent_span_id"] != nil {
+		t.Fatalf("expected completed event to close interaction span, started=%#v completed=%#v", started, completedPayload)
+	}
 }
 
 func TestAgentRuntimeTurnExecutorRequiresRuntime(t *testing.T) {
@@ -83,10 +92,36 @@ func TestAgentRuntimeTurnExecutorRequiresRuntime(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorResolvesFrozenSkillsAndRecordsUsage(t *testing.T) {
+	store := &mockStore{
+		skillsConfig: json.RawMessage(`{"enabled":[{"skill":"code-review","version":2}]}`),
+		skillRecord:  skills.Skill{ID: "skl_1", WorkspaceID: "wksp_default", Identifier: "code-review", Title: "Code Review", Status: skills.StatusActive},
+		skillVersion: skills.Version{ID: "sklv_2", SkillID: "skl_1", Version: 2, ContentText: "Inspect regressions before style.", Manifest: json.RawMessage(`{"system_role":"Review carefully."}`)},
+	}
+	runtime := &captureRuntime{}
+	executor := AgentRuntimeTurnExecutor{Runtime: runtime, Store: store}
+	_, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_skills", UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"review this"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("run skill turn: %v", err)
+	}
+	if !runtime.request.Config.SkillsResolved || !strings.Contains(string(runtime.request.Config.Skills), "skills.inspect") || strings.Contains(string(runtime.request.Config.Skills), "Inspect regressions") {
+		t.Fatalf("expected frozen skill summary with on-demand full instructions, got %s", runtime.request.Config.Skills)
+	}
+	if len(store.skillUsages) != 1 || store.skillUsages[0].SkillVersion != 2 || store.skillUsages[0].Status != skills.UsageResolved {
+		t.Fatalf("unexpected recorded skill usages: %#v", store.skillUsages)
+	}
+	if !containsString(store.runtimeEventTypes(), managedagents.EventRuntimeSkillsResolved) {
+		t.Fatalf("expected skills resolved event, got %#v", store.runtimeEventTypes())
+	}
+}
+
 func TestAgentRuntimeTurnExecutorReturnsFailedUsageWhenRuntimeFailsAfterLLM(t *testing.T) {
+	store := &mockStore{}
 	executor := AgentRuntimeTurnExecutor{
 		Runtime: failedAfterLLMRuntime{},
-		Store:   &mockStore{},
+		Store:   store,
 	}
 
 	result, err := executor.RunTurn(t.Context(), TurnRequest{
@@ -106,15 +141,89 @@ func TestAgentRuntimeTurnExecutorReturnsFailedUsageWhenRuntimeFailsAfterLLM(t *t
 	if result.Usage.ProviderID != "fake" || result.Usage.Model != "fake-demo" || result.Usage.TotalTokens != 12 {
 		t.Fatalf("unexpected usage dimensions: %#v", result.Usage)
 	}
+	if got := store.runtimeEventTypes(); len(got) != 3 || got[0] != managedagents.EventRuntimeStarted || got[1] != managedagents.EventRuntimeLLMRequest || got[2] != managedagents.EventRuntimeFailed {
+		t.Fatalf("unexpected failed runtime events: %#v", got)
+	}
+	var started map[string]any
+	var failed map[string]any
+	if err := json.Unmarshal(store.runtimePayloads[0], &started); err != nil {
+		t.Fatalf("decode failed runtime start: %v", err)
+	}
+	if err := json.Unmarshal(store.runtimePayloads[2], &failed); err != nil {
+		t.Fatalf("decode runtime failed payload: %v", err)
+	}
+	if failed["span_id"] != started["span_id"] || failed["span_name"] != "tma.interaction" || failed["span_status"] != "error" || failed["duration_ms"] == nil || failed["parent_span_id"] != nil {
+		t.Fatalf("expected failed event to close interaction span, started=%#v failed=%#v", started, failed)
+	}
+}
+
+func TestRecordRuntimeFailedIncludesStructuredProviderError(t *testing.T) {
+	executor := AgentRuntimeTurnExecutor{Store: &mockStore{}}
+	var emitted agentruntime.Step
+	err := executor.recordRuntimeFailed(t.Context(), fmt.Errorf("model call failed: %w", &llm.ProviderError{
+		Class:      llm.ErrorClassServer,
+		StatusCode: 503,
+		Retryable:  true,
+		RetryAfter: 2 * time.Second,
+		Attempts:   3,
+		Message:    "upstream overloaded",
+	}), func(_ context.Context, step agentruntime.Step) error {
+		emitted = step
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("record provider failure: %v", err)
+	}
+	providerError, ok := emitted.Data["provider_error"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected structured provider error, got %#v", emitted.Data)
+	}
+	if providerError["class"] != llm.ErrorClassServer || providerError["status_code"] != 503 || providerError["retryable"] != true || providerError["retry_after_ms"] != int64(2000) || providerError["attempts"] != 3 || providerError["message"] != "upstream overloaded" {
+		t.Fatalf("unexpected provider error payload: %#v", providerError)
+	}
+	if emitted.Message != "model call failed: provider request failed (server, HTTP 503): upstream overloaded" {
+		t.Fatalf("expected original wrapped error message, got %q", emitted.Message)
+	}
+}
+
+func TestSkillResolutionEventItemsExcludeRenderedContent(t *testing.T) {
+	items := skillResolutionEventItems([]skills.ResolvedSkill{{
+		Skill:         skills.Skill{ID: "skl_1", Identifier: "code-review"},
+		Version:       skills.Version{ID: "sklv_2", Version: 2, ContentText: "large private skill body"},
+		RequestedMode: skills.ModeFull, RenderedMode: skills.ModeSummary, Priority: 100,
+		EstimatedTokens: 42, Status: skills.UsageDegraded, Rendered: "rendered private context",
+	}})
+	if len(items) != 1 || items[0]["identifier"] != "code-review" || items[0]["version"] != 2 || items[0]["rendered_mode"] != skills.ModeSummary {
+		t.Fatalf("unexpected skill event projection: %#v", items)
+	}
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("encode skill event projection: %v", err)
+	}
+	if strings.Contains(string(encoded), "large private skill body") || strings.Contains(string(encoded), "rendered private context") {
+		t.Fatalf("skill event projection must not persist full context: %s", encoded)
+	}
 }
 
 func TestAgentRuntimeTurnExecutorPassesConversationHistory(t *testing.T) {
 	store := &mockStore{
-		history: []managedagents.ConversationMessage{{
-			Seq:     3,
-			Role:    "user",
-			Payload: json.RawMessage(`{"content":[{"type":"text","text":"my name is Alice"}]}`),
-		}},
+		history: []managedagents.ConversationMessage{
+			{
+				Seq:     1,
+				Role:    "user",
+				Payload: json.RawMessage(`{"content":[{"type":"text","text":"covered by summary"}]}`),
+			},
+			{
+				Seq:     2,
+				Role:    "assistant",
+				Payload: json.RawMessage(`{"content":[{"type":"text","text":"summary boundary"}]}`),
+			},
+			{
+				Seq:     3,
+				Role:    "user",
+				Payload: json.RawMessage(`{"content":[{"type":"text","text":"my name is Alice"}]}`),
+			},
+		},
 	}
 	runtime := &captureRuntime{}
 	executor := AgentRuntimeTurnExecutor{
@@ -254,8 +363,8 @@ func TestAgentRuntimeTurnExecutorFiltersToolsByProviderCapabilities(t *testing.T
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 3 || !names["default.read_file"] || !names["web.search"] || !names["web.crawl"] {
-		t.Fatalf("expected provider capability filter to keep read_file plus server builtin web tools, got %#v", modelTools)
+	if len(modelTools) != 11 || !names["default.read_file"] || !names["web.search"] || !names["web.crawl"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
+		t.Fatalf("expected provider capability filter to keep read_file plus server builtin web and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "run_command"); ok {
 		t.Fatal("expected run_command to be unavailable without exec capability")
@@ -572,6 +681,30 @@ func TestAgentRuntimeTurnExecutorSavesPendingInterventionSteps(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorNormalizesMalformedContinuationArguments(t *testing.T) {
+	store := &mockStore{}
+	executor := AgentRuntimeTurnExecutor{Runtime: malformedContinuationInterventionRuntime{}, Store: store}
+
+	_, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000003",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"edit"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	interventions := store.savedInterventions()
+	if len(interventions) != 1 || !json.Valid(interventions[0].Continuation) {
+		t.Fatalf("expected valid saved continuation, got %#v", interventions)
+	}
+	var messages []llm.Message
+	if err := json.Unmarshal(interventions[0].Continuation, &messages); err != nil {
+		t.Fatalf("decode saved continuation: %v", err)
+	}
+	if len(messages) != 1 || len(messages[0].ToolCalls) != 1 || string(messages[0].ToolCalls[0].Function.Arguments) != `{}` {
+		t.Fatalf("expected malformed arguments to normalize to an empty object, got %#v", messages)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorPassesPersistedInterventionResume(t *testing.T) {
 	store := &mockStore{}
 	runtime := &captureRuntime{}
@@ -611,6 +744,28 @@ func TestAgentRuntimeTurnExecutorPassesPersistedInterventionResume(t *testing.T)
 	}
 	if len(resume.Continuation) != 1 || resume.Continuation[0].Role != "assistant" {
 		t.Fatalf("unexpected decoded continuation: %#v", resume.Continuation)
+	}
+}
+
+func TestRuntimeInterventionResumeDecodesVersionedContinuationState(t *testing.T) {
+	state := json.RawMessage(`{"protocol_version":"tma.segmented_file_generation.v1","tasks":{"report.js":{"path":"report.js"}}}`)
+	continuation, err := json.Marshal(interventionContinuationEnvelope{
+		ProtocolVersion: interventionContinuationProtocolVersion,
+		Messages:        []llm.Message{{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "segment pending"}}}},
+		State:           state,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resume, err := runtimeInterventionResume(&managedagents.SessionIntervention{
+		CallID: "call_edit", ToolIdentifier: "default", APIName: "edit_file",
+		Status: managedagents.InterventionStatusApproved, Continuation: continuation,
+	})
+	if err != nil {
+		t.Fatalf("decode versioned continuation: %v", err)
+	}
+	if len(resume.Continuation) != 1 || string(resume.ContinuationState) != string(state) {
+		t.Fatalf("unexpected decoded continuation: %#v", resume)
 	}
 }
 
@@ -695,7 +850,13 @@ func (readOnlyProvider) EditFile(context.Context, capability.EditFileRequest) (c
 
 type failedAfterLLMRuntime struct{}
 
-func (failedAfterLLMRuntime) RunTurn(context.Context, agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
+func (failedAfterLLMRuntime) RunTurn(ctx context.Context, request agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
+	if err := request.EmitStep(ctx, agentruntime.Step{Type: managedagents.EventRuntimeStarted, Message: "Started failed runtime."}); err != nil {
+		return agentruntime.TurnResult{}, err
+	}
+	if err := request.EmitStep(ctx, agentruntime.Step{Type: managedagents.EventRuntimeLLMRequest, Message: "Calling model before failure.", Data: map[string]any{"tool_round": 0}}); err != nil {
+		return agentruntime.TurnResult{}, err
+	}
 	return agentruntime.TurnResult{
 		Usage: llm.Usage{
 			InputTokens:  8,
@@ -745,4 +906,26 @@ func (interventionStepRuntime) RunTurn(ctx context.Context, request agentruntime
 	return agentruntime.TurnResult{
 		AgentPayload: json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`),
 	}, nil
+}
+
+type malformedContinuationInterventionRuntime struct{}
+
+func (malformedContinuationInterventionRuntime) RunTurn(ctx context.Context, request agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
+	if err := request.EmitStep(ctx, agentruntime.Step{
+		Type: managedagents.EventRuntimeToolInterventionRequired,
+		Data: map[string]any{
+			"id": "call_edit", "identifier": "default", "api_name": "edit_file",
+			"arguments": map[string]any{"path": "README.md"}, "intervention_mode": "request_approval",
+		},
+		Private: map[string]any{
+			"continuation_messages": []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{{
+				ID: "call_edit", Type: "function", Function: llm.ToolCallFunction{
+					Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"README.md"`),
+				},
+			}}}},
+		},
+	}); err != nil {
+		return agentruntime.TurnResult{}, err
+	}
+	return agentruntime.TurnResult{AgentPayload: json.RawMessage(`{"content":[]}`)}, nil
 }

@@ -1,5 +1,7 @@
 # Tool / Runtime Standard
 
+上位扩展治理、Provider 发现、兼容性、下线和人工切换规则见 [TMA Extension 与 Provider 治理标准](./extension-governance-standard.md)。设置页贡献与配置作用域见 [Extension 设置页与配置贡献标准](./extension-settings-standard.md)。
+
 本文档定义 TMA 第一版内置工具 namespace、runtime 选择规则、work invocation 标准，以及哪些能力在哪些位置实现。
 
 ## 核心结论
@@ -102,6 +104,7 @@ Work 是一次工具调用，不是一次“环境调用”。
 | `artifact.*` | object ref、artifact metadata、上传下载、转换、索引 | metadata/下载在 server；重型处理在 cloud_sandbox |
 | `browser.*` | 浏览器导航、读取、交互、截图、上传下载 | cloud_sandbox 优先；必要时 local_system |
 | `agent.*` | session、message、event、approval、多 agent 协作 | server 内置 |
+| `skills.*` | workspace skill 查询、检查、安装、升级与 Agent 绑定 | server 内置 |
 | `computer.*` | 桌面窗口、AX/UI tree、鼠标键盘、屏幕截图 | process plugin；local_system worker |
 
 暂不把 `local_system.*`、`cloud_sandbox.*` 作为第一版用户侧 namespace。它们是 runtime / provider 实现面。后续如果确实需要“明确本机”或“明确云沙箱”的高级工具，可以再暴露实现型 namespace。
@@ -122,6 +125,26 @@ Work 是一次工具调用，不是一次“环境调用”。
 | `run_command` | `exec` | `exec` | `cloud_sandbox` | cloud_sandbox，local_system 需显式允许 |
 | `execute_code` | `code.execute` | `exec` | `cloud_sandbox` | cloud_sandbox，local_system 需显式允许 |
 | `fetch_url` | `network.http` | `read` | `cloud_sandbox` | cloud_sandbox |
+
+#### Large file generation
+
+`default.write_file` remains the one-shot path for small files. Generated `content` is recommended to stay at or below 6,000 estimated serialized tokens and is rejected above 8,000 tokens.
+
+Larger files use the existing `write_file` + `edit_file` protocol; no append API is required:
+
+1. Write a compact file skeleton containing unique numbered placeholders such as `__TMA_PLACEHOLDER_REPORT_001__`.
+2. Replace one placeholder per `edit_file` call with `replace_all=false`.
+3. Keep each `new_string` at or below 6,000 estimated tokens and always below 8,000 tokens.
+4. Issue only one `write_file` or `edit_file` mutation per model response and wait for its result before generating the next segment. Runtime rejects every file mutation in a multi-mutation response before any file is changed.
+5. Split at complete semantic boundaries: functions, classes, modules, chapters, or complete data structures.
+6. Runtime records `placeholder -> SHA-256(new_string)` for each successful segment. A retry is `already_applied` only when both values match recorded evidence; matching text elsewhere in the file is not sufficient.
+7. Before completion, call `read_file` and confirm that no `__TMA_PLACEHOLDER_...__` marker remains, then run the syntax check or test appropriate for the generated file. Runtime reads every tracked file itself and blocks the final agent message until all placeholders are gone and a successful path-referencing check/test has run after the last segment.
+
+Malformed or oversized file mutations are rejected before intervention policy evaluation. The model receives a structured recoverable error with this protocol and must not retry the unchanged payload. Two consecutive invalid or oversized argument rounds retain the existing circuit breaker and fail the turn.
+
+Segmented generation state is serialized in the intervention continuation envelope, so approval and service-resume paths retain hashes, remaining placeholders, validation state, and the approved target path. In `request_approval` mode, approving the skeleton approves subsequent registered placeholder edits for that file; an arbitrary command still requires its normal approval. Intermediate skeleton/edit artifacts are deferred, and the validated file is published once at completion. Persisted events redact `content` and `new_string`, retaining only character count, estimated tokens, and SHA-256.
+
+Prometheus session metrics expose `tma_file_generation_oversized_calls_total`, `tma_file_generation_segments_total`, `tma_file_generation_idempotent_replays_total`, `tma_file_generation_remaining_placeholders`, and `tma_file_generation_duration_milliseconds`.
 
 ### `artifact.*`
 
@@ -163,14 +186,94 @@ Agent 能力域属于 server 控制面，默认不下发 worker。
 
 | API | capabilities | risk | runtime 默认 | 第一版实现 |
 |---|---|---|---|---|
-| `create_session` | `agent.session.write` | `write` | server 内置 | 已有 server API |
+| `spawn` | `agent.session.write`, `agent.message.write` | `write` | server 内置 | 已实现；创建子 session 并可立即发首条消息 |
+| `create_session` | `agent.session.write` | `write` | server 内置 | 已实现；只创建子 session，不自动发消息 |
+| `send_message` | `agent.message.write` | `write` | server 内置 | 已实现；向已有子 session 发送消息 |
 | `get_session` | `agent.session.read` | `read` | server 内置 | 已有 server API |
-| `send_message` | `agent.message.write` | `write` | server 内置 | 已有 events API |
+| `wait` | `agent.session.read`, `agent.event.read` | `read` | server 内置 | 已实现；等待子 session 到 idle / terminated / waiting_approval |
+| `collect_result` | `agent.session.read`, `agent.event.read`, `artifact.metadata.read` | `read` | server 内置 | 已实现；拉取最新 agent.message、状态与 artifact |
 | `list_events` | `agent.event.read` | `read` | server 内置 | 已有 server API |
 | `stream_events` | `agent.event.stream` | `read` | server 内置 | 已有 SSE |
 | `approve_tool` | `agent.approval.write` | `write` | server 内置 | 已有 server API |
 | `reject_tool` | `agent.approval.write` | `write` | server 内置 | 已有 server API |
-| `archive_session` | `agent.session.write` | `write` | server 内置 | 已有 server API |
+| `archive_session` | `agent.session.write` | `write` | server 内置 | 已实现；归档不再需要的子 session |
+| `cancel_start` | `agent.session.write` | `write` | server 内置 | 已实现；取消尚未晋升的持久化启动请求 |
+| `run_group` / `get_group` / `wait_group` / `collect_group` | `agent.session.write`, `agent.session.read` | `write` / `read` | server 内置 | 已实现；持久化 fan-out / fan-in 与结构化聚合 |
+| `cancel_group` / `retry_group_item` / `retry_group` | `agent.session.write` | `write` | server 内置 | 已实现；task group 恢复与取消 |
+| `start_discussion` | `agent.session.write`, `agent.message.write` | `write` | server 内置 | 已实现；创建 2–8 个动态角色并启动固定两轮讨论 |
+| `list_discussion_strategies` / `get_discussion` / `wait_discussion` / `collect_discussion` | `agent.session.read`, `agent.event.read` | `read` | server 内置 | 已实现；策略发现、恢复推进和结果收集 |
+| `cancel_discussion` / `retry_discussion_participant` | `agent.session.write` | `write` | server 内置 | 已实现；级联取消和当前轮单参与者重试 |
+
+当前 `agent.*` 的推荐使用模式是：
+
+```text
+agent.spawn
+  -> agent.wait
+  -> agent.collect_result
+```
+
+这条链路对应第一版 subagent 编排语义：父 agent 不直接共享上下文给子 agent，而是显式创建子 session、等待子 session 完成，再回收结果。这样能复用现有 Session / Event / Approval / Artifact / Audit 机制，也更容易做后续的 depth limit、quota 和多 agent 编排治理。
+
+需要多角色讨论时，父 Agent 先按 `list_discussion_strategies` 返回的 `team_plan_schema` 生成目标、策略、预算和动态角色，然后调用 `start_discussion`。服务端把讨论实现为持久化有界状态机：第一轮独立观点、主持人争议归纳与问题分配、第二轮回应、最终主持人共识；`get_discussion` / `wait_discussion` 会幂等推进状态，服务重启不要求父 Agent 重新创建团队。
+
+如果子 session 进入 `waiting_approval`，推荐闭环是：
+
+```text
+agent.get_session
+  -> agent.stream_events 或 agent.list_events
+  -> agent.approve_tool / agent.reject_tool
+  -> agent.wait
+  -> agent.collect_result
+```
+
+这里 `agent.stream_events` 当前实现为带超时的长轮询工具，而不是无限流式连接。它更适合放在 LLM tool loop 里消费“子任务刚刚产生了什么新事件”，而不是替代前端 SSE。
+
+当前实现默认启用第一版 subagent 治理阈值：
+
+- 最大递归深度：`3`
+- 单个父 turn 最多创建子 session：`5`
+- 单个父 session 累计最多创建子 session：`20`
+
+此外，当前还支持两类 active quota：
+
+- workspace 活跃 subagent 上限：默认 `50`
+- user 活跃 subagent 上限：默认 `10`
+
+这些阈值现在已经进入 server 配置面，可通过 `TMA_SUBAGENT_*` 环境变量调整。目标是优先避免无限递归 spawn、同一轮 fan-out 失控，以及单个 workspace / user 长时间吞掉全部编排容量。
+
+## MCP
+
+当前 MCP 作为 **动态工具来源** 接入，而不是新增 runtime：
+
+- Agent config 里的 `mcp` 负责声明 stdio MCP servers；
+- Runtime 先把 MCP `tools/list` 结果适配成标准 `tools.Manifest`；
+- 最终仍然复用同一套 `tools.Registry`、tool filtering、tool result 和上下文预算逻辑。
+
+因此，MCP server 暴露出来的工具在 TMA 内部看起来和普通 `namespace.api` 工具一致，只是 manifest 来源不同。当前实现细节、配置格式和测试方法见 [mcp-integration.md](./mcp-integration.md)。
+
+结构型治理拒绝会尽力在父 turn 写入 `runtime.subagent_spawn_rejected`，active admission 拒绝写入 `runtime.subagent_start_rejected`。事件保留命中的 scope、policy、limit 和当前计数，因此可直接用于审计日志、配额拒绝率指标和容量调优；工具调用本身同时返回结构化 quota 状态，供父 agent 当场降级或稍后重试。
+
+Store 通过 `CreateSubagentSession` 原子执行结构型 quota admission 和 session 插入，通过 `StartSubagentTurn` 原子执行 active admission 和 turn 启动。Postgres 实现使用 workspace 级事务 advisory lock，保证多个 server 实例并发 spawn / start 时配额不会穿透。通用 `CreateSession` / `AppendEvents` 不承担 agent 工具的专用治理语义。
+
+active admission 满时，`EnqueueSubagentStart` 把消息持久化到有限队列；WorkerRunner 在 claim turn 前调用 `PromoteSubagentStarts`，按 priority / FIFO 尝试晋升。晋升成功后产生正常 `session_turn`，后续继续复用既有 lease、heartbeat、重启恢复和失败处理。
+
+pending 请求可通过 `agent.cancel_start` 显式取消；archive 父/子 session 会自动取消关联请求。超时扫描将请求标记为 `expired`。取消和超时都保留 session event，因此既能审计，也会自动进入现有 event-type 指标。
+
+### `skills.*`
+
+Skills 能力域属于 server 控制面，workspace 由当前 Session 决定。安装与启用属于写操作，遵循 Session 的 intervention policy。
+
+| API | capabilities | risk | runtime 默认 | 第一版实现 |
+|---|---|---|---|---|
+| `search` | 无 provider capability 依赖 | `read` | server 内置 | 已实现；搜索当前 workspace 已安装 registry |
+| `inspect` | 无 provider capability 依赖 | `read` | server 内置 | 已实现；读取精确版本或最新版本 |
+| `discover` | 无 provider capability 依赖 | `read` | server 内置 | 已实现；GitHub code/repository search 与精确仓库验证 |
+| `preview` | 无 provider capability 依赖 | `read` | server 内置 | 已实现；安装前返回 provenance、license、asset index、attestation、静态/二进制扫描、SBOM、policy decision 和版本 diff，不写 registry/object store |
+| `read_asset` | 无 provider capability 依赖 | `read` | server 内置 | 已实现；按需读取 package 文本资产；二进制拒绝内联返回，脚本不自动执行 |
+| `install` | 无 provider capability 依赖 | `write` | server 内置 | 已实现；安装 inline 或受限 GitHub `SKILL.md`，或显式发布升级版本；GitHub source 重新验证 attestation、静态扫描和不联网的内置二进制扫描，通过后转存 object store；外部 Scanner/ClamAV 当前未开放 |
+| `enable` | 无 provider capability 依赖 | `write` | server 内置 | 已实现；创建 Agent config version，当前 Session 保持 pinned |
+
+Workbench Skills 管理页通过 control auth 管理 API 复用同一 Skills service：发现和 Preview 保持只读，安装会重新抓取并重新执行 Policy、Attestation、静态与内置二进制扫描；启用会创建新的 Agent config version。外部 Scanner/ClamAV 保留开发代码但不进入当前生产工厂。二进制 asset 只通过 object ref 受控下载，不进入模型上下文、不由 `skills.read_asset` 返回，也不会自动执行。
 
 ### `computer.*`
 

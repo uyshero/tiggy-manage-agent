@@ -64,6 +64,9 @@ func TestLocalFSClientPutGetDeleteRoundTrip(t *testing.T) {
 	if err := client.DeleteObject(context.Background(), DeleteObjectInput{Bucket: "artifacts", Key: "wksp/session/output.txt"}); err != nil {
 		t.Fatalf("delete object: %v", err)
 	}
+	if err := client.DeleteObject(context.Background(), DeleteObjectInput{Bucket: "artifacts", Key: "wksp/session/output.txt"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound deleting missing object, got %v", err)
+	}
 	if _, err := client.GetObject(context.Background(), GetObjectInput{Bucket: "artifacts", Key: "wksp/session/output.txt"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}

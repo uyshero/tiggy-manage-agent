@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
 )
 
 var (
@@ -21,6 +22,7 @@ type TurnRequest struct {
 	UserEventSeq       int64
 	UserPayload        json.RawMessage
 	ResumeIntervention *managedagents.SessionIntervention
+	Scope              managedagents.AccessScope
 }
 
 // InterruptRequest 表示对某次 running turn 的中断请求。
@@ -37,6 +39,33 @@ type Runner interface {
 	InterruptTurn(ctx context.Context, request InterruptRequest) error
 }
 
+type MCPHostStatsProvider interface {
+	MCPHostStats() mcp.StdioHostStats
+}
+
+type MCPHTTPHostStatsProvider interface {
+	MCPHTTPHostStats() mcp.StreamableHTTPHostStats
+}
+
+type MCPHTTPEgressPolicyProvider interface {
+	MCPHTTPEgressPolicy() *mcp.EgressPolicy
+}
+
+type MCPRuntimeGuardStatsProvider interface {
+	MCPRuntimeGuardStats() mcp.RuntimeGuardStats
+}
+
+type MCPRegistryRuntimeStatesProvider interface {
+	MCPRegistryRuntimeStates(workspaceID string) []mcp.RegistryRuntimeState
+}
+
 type TurnPostProcessor interface {
 	PostProcessTurn(sessionID string, turnID string)
+}
+
+func databaseContextForTurn(ctx context.Context, request TurnRequest) (context.Context, error) {
+	if request.Scope.WorkspaceID == "" {
+		return ctx, nil
+	}
+	return managedagents.ContextWithDatabaseAccessScope(ctx, request.Scope)
 }

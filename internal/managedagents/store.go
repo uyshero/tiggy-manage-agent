@@ -1,18 +1,56 @@
 package managedagents
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
+type databaseAccessScopeContextKey struct{}
+
 var (
-	ErrNotFound   = errors.New("not found")
-	ErrInvalid    = errors.New("invalid input")
-	ErrForbidden  = errors.New("forbidden")
-	ErrConflict   = errors.New("conflict")
-	ErrTerminated = errors.New("session terminated")
+	ErrNotFound         = errors.New("not found")
+	ErrInvalid          = errors.New("invalid input")
+	ErrForbidden        = errors.New("forbidden")
+	ErrConflict         = errors.New("conflict")
+	ErrRevisionConflict = errors.New("revision conflict")
+	ErrSessionBusy      = errors.New("session busy")
+	ErrTerminated       = errors.New("session terminated")
 )
+
+func ValidateAccessScope(scope AccessScope) (AccessScope, error) {
+	scope.WorkspaceID = strings.TrimSpace(scope.WorkspaceID)
+	scope.OwnerID = strings.TrimSpace(scope.OwnerID)
+	if scope.WorkspaceID == "" {
+		return AccessScope{}, fmt.Errorf("%w: access scope workspace_id is required", ErrInvalid)
+	}
+	return scope, nil
+}
+
+func ContextWithDatabaseAccessScope(ctx context.Context, scope AccessScope) (context.Context, error) {
+	scope, err := ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, databaseAccessScopeContextKey{}, scope), nil
+}
+
+func DatabaseAccessScopeFromContext(ctx context.Context) (AccessScope, bool) {
+	if ctx == nil {
+		return AccessScope{}, false
+	}
+	scope, ok := ctx.Value(databaseAccessScopeContextKey{}).(AccessScope)
+	if !ok {
+		return AccessScope{}, false
+	}
+	scope, err := ValidateAccessScope(scope)
+	return scope, err == nil
+}
 
 func defaultString(value, fallback string) string {
 	if value == "" {
@@ -126,6 +164,63 @@ func normalizeWorkerWorkStatus(value string) string {
 		return WorkerWorkStatusFailed
 	case WorkerWorkStatusCanceled:
 		return WorkerWorkStatusCanceled
+	default:
+		return ""
+	}
+}
+
+func normalizeSubagentTaskGroupStrategy(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", SubagentTaskGroupStrategyAllCompleted:
+		return SubagentTaskGroupStrategyAllCompleted
+	case SubagentTaskGroupStrategyAnyCompleted:
+		return SubagentTaskGroupStrategyAnyCompleted
+	case SubagentTaskGroupStrategyQuorum:
+		return SubagentTaskGroupStrategyQuorum
+	default:
+		return ""
+	}
+}
+
+func normalizeSubagentTaskGroupItemState(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", SubagentTaskGroupItemStateCreated:
+		return SubagentTaskGroupItemStateCreated
+	case SubagentTaskGroupItemStateStarted:
+		return SubagentTaskGroupItemStateStarted
+	case SubagentTaskGroupItemStateQueued:
+		return SubagentTaskGroupItemStateQueued
+	case SubagentTaskGroupItemStateRejected:
+		return SubagentTaskGroupItemStateRejected
+	default:
+		return ""
+	}
+}
+
+func normalizeSubagentTaskGroupReducer(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "":
+		return SubagentTaskGroupReducerConcatText
+	case SubagentTaskGroupReducerNone:
+		return SubagentTaskGroupReducerNone
+	case SubagentTaskGroupReducerConcatText:
+		return SubagentTaskGroupReducerConcatText
+	case SubagentTaskGroupReducerJSONList:
+		return SubagentTaskGroupReducerJSONList
+	case SubagentTaskGroupReducerJSONObject:
+		return SubagentTaskGroupReducerJSONObject
+	case SubagentTaskGroupReducerFirstSuccess:
+		return SubagentTaskGroupReducerFirstSuccess
+	case SubagentTaskGroupReducerMajorityText:
+		return SubagentTaskGroupReducerMajorityText
+	case SubagentTaskGroupReducerJSONValues:
+		return SubagentTaskGroupReducerJSONValues
+	case SubagentTaskGroupReducerMergeObjects:
+		return SubagentTaskGroupReducerMergeObjects
+	case SubagentTaskGroupReducerFirstValue:
+		return SubagentTaskGroupReducerFirstValue
+	case SubagentTaskGroupReducerMajorityValue:
+		return SubagentTaskGroupReducerMajorityValue
 	default:
 		return ""
 	}

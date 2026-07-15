@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,10 +20,14 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
+	"tiggy-manage-agent/internal/skillmarketplace"
+	"tiggy-manage-agent/internal/skillretention"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/internal/workerselect"
 )
@@ -41,9 +48,14 @@ type llmProviderRequest struct {
 }
 
 type llmModelRequest struct {
-	ProviderID          string `json:"provider_id"`
-	Model               string `json:"model"`
-	ContextWindowTokens int    `json:"context_window_tokens"`
+	ProviderID          string                              `json:"provider_id"`
+	Model               string                              `json:"model"`
+	ContextWindowTokens int                                 `json:"context_window_tokens"`
+	CapabilityType      string                              `json:"capability_type"`
+	Capabilities        *managedagents.LLMModelCapabilities `json:"capabilities"`
+	IsDefaultVision     *bool                               `json:"is_default_vision"`
+	IsDefaultEmbedding  *bool                               `json:"is_default_embedding"`
+	IsDefaultReranker   *bool                               `json:"is_default_reranker"`
 }
 
 type agentConfigVersionRequest struct {
@@ -52,7 +64,26 @@ type agentConfigVersionRequest struct {
 	Model       *string          `json:"model"`
 	System      *string          `json:"system"`
 	Tools       *json.RawMessage `json:"tools"`
+	MCP         *json.RawMessage `json:"mcp"`
 	Skills      *json.RawMessage `json:"skills"`
+}
+
+type agentUpdateRequest struct {
+	Name        *string          `json:"name"`
+	LLMProvider *string          `json:"llm_provider"`
+	LLMModel    *string          `json:"llm_model"`
+	Model       *string          `json:"model"`
+	System      *string          `json:"system"`
+	Tools       *json.RawMessage `json:"tools"`
+	MCP         *json.RawMessage `json:"mcp"`
+	Skills      *json.RawMessage `json:"skills"`
+}
+
+type agentConfigRollbackResponse struct {
+	Agent           managedagents.Agent `json:"agent"`
+	PreviousVersion int                 `json:"previous_version"`
+	SourceVersion   int                 `json:"source_version"`
+	NewVersion      int                 `json:"new_version"`
 }
 
 type sessionSummaryRequest struct {
@@ -92,6 +123,7 @@ type sessionRuntimeCapabilitiesResponse struct {
 
 type sessionConfigUpgradeRequest struct {
 	ToCurrent *bool  `json:"to_current"`
+	ToVersion int    `json:"to_version,omitempty"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
@@ -160,13 +192,27 @@ func (s *Server) listLLMProviders(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
+	writeJSON(w, http.StatusOK, map[string]any{"providers": nonNilSlice(providers)})
 }
 
 func (s *Server) createLLMProvider(w http.ResponseWriter, r *http.Request) {
 	var request llmProviderRequest
 	if err := decodeJSON(r, &request); err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.create", "llm_provider", "", nil, nil, err)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	resourceID := strings.TrimSpace(request.ID)
+	var before any
+	if existing, err := s.store.GetLLMProvider(resourceID); err == nil {
+		before = llmProviderAuditSnapshot(existing)
+		conflictErr := fmt.Errorf("%w: llm provider %s already exists", managedagents.ErrConflict, resourceID)
+		s.recordLLMControlAudit(r, "llm.provider.create", "llm_provider", resourceID, before, nil, conflictErr)
+		writeError(w, conflictErr)
+		return
+	} else if !errors.Is(err, managedagents.ErrNotFound) {
+		s.recordLLMControlAudit(r, "llm.provider.create", "llm_provider", resourceID, nil, nil, err)
+		writeError(w, err)
 		return
 	}
 
@@ -174,17 +220,26 @@ func (s *Server) createLLMProvider(w http.ResponseWriter, r *http.Request) {
 	if request.Enabled != nil {
 		enabled = *request.Enabled
 	}
-	provider, err := s.store.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
+	input := managedagents.UpsertLLMProviderInput{
 		ID:           request.ID,
 		ProviderType: stringValue(request.ProviderType),
 		BaseURL:      stringValue(request.BaseURL),
 		APIKeyEnv:    stringValue(request.APIKeyEnv),
 		Enabled:      enabled,
-	})
+	}
+	provider, atomicAudit, err := s.createLLMProviderWithAudit(r, input, "llm.provider.create", resourceID)
+	var after any
+	if err == nil {
+		after = llmProviderAuditSnapshot(provider)
+	}
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.create", "llm_provider", resourceID, before, after, err)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	setLLMProviderETag(w, provider)
 	writeJSON(w, http.StatusCreated, provider)
 }
 
@@ -194,18 +249,36 @@ func (s *Server) getLLMProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	setLLMProviderETag(w, provider)
 	writeJSON(w, http.StatusOK, provider)
 }
 
 func (s *Server) updateLLMProvider(w http.ResponseWriter, r *http.Request) {
-	existing, err := s.store.GetLLMProvider(r.PathValue("provider_id"))
+	resourceID := strings.TrimSpace(r.PathValue("provider_id"))
+	existing, err := s.store.GetLLMProvider(resourceID)
 	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.update", "llm_provider", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	before := llmProviderAuditSnapshot(existing)
+	expectedRevision, err := parseLLMProviderIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.update", "llm_provider", resourceID, before, nil, err)
+		status := http.StatusBadRequest
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	if expectedRevision != existing.Revision {
+		err := fmt.Errorf("%w: llm provider %s revision changed from %d to %d", managedagents.ErrRevisionConflict, resourceID, expectedRevision, existing.Revision)
+		s.recordLLMControlAudit(r, "llm.provider.update", "llm_provider", resourceID, before, nil, err)
 		writeError(w, err)
 		return
 	}
 
 	var request llmProviderRequest
 	if err := decodeJSON(r, &request); err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.update", "llm_provider", resourceID, before, nil, err)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -223,17 +296,29 @@ func (s *Server) updateLLMProvider(w http.ResponseWriter, r *http.Request) {
 		existing.Enabled = *request.Enabled
 	}
 
-	provider, err := s.store.UpsertLLMProvider(managedagents.UpsertLLMProviderInput{
-		ID:           existing.ID,
-		ProviderType: existing.ProviderType,
-		BaseURL:      existing.BaseURL,
-		APIKeyEnv:    existing.APIKeyEnv,
-		Enabled:      existing.Enabled,
-	})
+	input := managedagents.UpdateLLMProviderInput{
+		UpsertLLMProviderInput: managedagents.UpsertLLMProviderInput{
+			ID:           existing.ID,
+			ProviderType: existing.ProviderType,
+			BaseURL:      existing.BaseURL,
+			APIKeyEnv:    existing.APIKeyEnv,
+			Enabled:      existing.Enabled,
+		},
+		ExpectedRevision: expectedRevision,
+	}
+	provider, atomicAudit, err := s.updateLLMProviderWithAudit(r, input, "llm.provider.update", resourceID)
+	var after any
+	if err == nil {
+		after = llmProviderAuditSnapshot(provider)
+	}
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.update", "llm_provider", resourceID, before, after, err)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	setLLMProviderETag(w, provider)
 	writeJSON(w, http.StatusOK, provider)
 }
 
@@ -245,21 +330,83 @@ func stringValue(value *string) string {
 }
 
 func (s *Server) enableLLMProvider(w http.ResponseWriter, r *http.Request) {
-	provider, err := s.store.SetLLMProviderEnabled(r.PathValue("provider_id"), true)
+	resourceID := strings.TrimSpace(r.PathValue("provider_id"))
+	existing, err := s.store.GetLLMProvider(resourceID)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.enable", "llm_provider", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	expectedRevision, ok := s.requireLLMProviderIfMatch(w, r, existing, "llm.provider.enable")
+	if !ok {
+		return
+	}
+	provider, atomicAudit, err := s.setLLMProviderEnabledWithAudit(r, resourceID, true, expectedRevision, "llm.provider.enable")
+	var after any
+	if err == nil {
+		after = llmProviderAuditSnapshot(provider)
+	}
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.enable", "llm_provider", resourceID, llmProviderAuditSnapshot(existing), after, err)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	setLLMProviderETag(w, provider)
 	writeJSON(w, http.StatusOK, provider)
 }
 
 func (s *Server) disableLLMProvider(w http.ResponseWriter, r *http.Request) {
-	provider, err := s.store.SetLLMProviderEnabled(r.PathValue("provider_id"), false)
+	resourceID := strings.TrimSpace(r.PathValue("provider_id"))
+	existing, err := s.store.GetLLMProvider(resourceID)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.disable", "llm_provider", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	expectedRevision, ok := s.requireLLMProviderIfMatch(w, r, existing, "llm.provider.disable")
+	if !ok {
+		return
+	}
+	provider, atomicAudit, err := s.setLLMProviderEnabledWithAudit(r, resourceID, false, expectedRevision, "llm.provider.disable")
+	var after any
+	if err == nil {
+		after = llmProviderAuditSnapshot(provider)
+	}
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.disable", "llm_provider", resourceID, llmProviderAuditSnapshot(existing), after, err)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	setLLMProviderETag(w, provider)
 	writeJSON(w, http.StatusOK, provider)
+}
+
+func (s *Server) deleteLLMProvider(w http.ResponseWriter, r *http.Request) {
+	resourceID := strings.TrimSpace(r.PathValue("provider_id"))
+	existing, err := s.store.GetLLMProvider(resourceID)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.delete", "llm_provider", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	before := llmProviderAuditSnapshot(existing)
+	expectedRevision, ok := s.requireLLMProviderIfMatch(w, r, existing, "llm.provider.delete")
+	if !ok {
+		return
+	}
+	err, atomicAudit := s.deleteLLMProviderWithAudit(r, resourceID, expectedRevision)
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.delete", "llm_provider", resourceID, before, nil, err)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listLLMModels(w http.ResponseWriter, r *http.Request) {
@@ -268,11 +415,88 @@ func (s *Server) listLLMModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	writeJSON(w, http.StatusOK, map[string]any{"models": nonNilSlice(models)})
+}
+
+func (s *Server) testLLMProvider(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.TrimSpace(r.PathValue("provider_id"))
+	provider, err := s.store.GetLLMProvider(providerID)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.provider.test", "llm_provider", providerID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	baseURL := strings.TrimSpace(provider.BaseURL)
+	if baseURL == "" && (provider.ProviderType == llm.ProviderOpenAICompatible || provider.ProviderType == llm.ProviderTypeOpenAI) {
+		baseURL = llm.DefaultOpenAIBaseURL
+	}
+	result := (llm.DiagnosticService{}).TestProvider(r.Context(), llm.DiagnosticConfig{
+		ProviderType:     provider.ProviderType,
+		BaseURL:          baseURL,
+		APIKey:           llmDiagnosticAPIKey(provider.APIKeyEnv),
+		APIKeyConfigured: strings.TrimSpace(provider.APIKeyEnv) != "",
+	})
+	s.recordLLMDiagnosticAudit(r, "llm.provider.test", "llm_provider", providerID, result)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) testLLMModel(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.TrimSpace(r.PathValue("provider_id"))
+	modelName := strings.TrimSpace(r.PathValue("model"))
+	provider, err := s.store.GetLLMProvider(providerID)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.model.test", "llm_model", llmModelResourceID(providerID, modelName), nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	model, exists, err := s.findLLMModel(providerID, modelName)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.model.test", "llm_model", llmModelResourceID(providerID, modelName), nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	if !exists {
+		err = fmt.Errorf("%w: llm model %s", managedagents.ErrNotFound, llmModelResourceID(providerID, modelName))
+		s.recordLLMControlAudit(r, "llm.model.test", "llm_model", llmModelResourceID(providerID, modelName), nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	baseURL := strings.TrimSpace(provider.BaseURL)
+	if baseURL == "" && (provider.ProviderType == llm.ProviderOpenAICompatible || provider.ProviderType == llm.ProviderTypeOpenAI) {
+		baseURL = llm.DefaultOpenAIBaseURL
+	}
+	result := (llm.DiagnosticService{}).TestModel(r.Context(), llm.DiagnosticConfig{
+		ProviderType:       provider.ProviderType,
+		BaseURL:            baseURL,
+		APIKey:             llmDiagnosticAPIKey(provider.APIKeyEnv),
+		APIKeyConfigured:   strings.TrimSpace(provider.APIKeyEnv) != "",
+		Model:              model.Model,
+		CapabilityType:     model.CapabilityType,
+		Protocol:           model.Capabilities.Protocol,
+		ExpectedDimensions: model.Capabilities.Dimensions,
+	})
+	s.recordLLMDiagnosticAudit(r, "llm.model.test", "llm_model", llmModelResourceID(providerID, modelName), result)
+	writeJSON(w, http.StatusOK, result)
+}
+
+func llmDiagnosticAPIKey(envName string) string {
+	envName = strings.TrimSpace(envName)
+	if envName == "" {
+		return ""
+	}
+	return os.Getenv(envName)
+}
+
+func (s *Server) recordLLMDiagnosticAudit(r *http.Request, action string, resourceType string, resourceID string, result llm.DiagnosticResult) {
+	var actionErr error
+	if result.Status == llm.DiagnosticStatusFailed {
+		actionErr = errors.New(result.Message)
+	}
+	s.recordLLMControlAudit(r, action, resourceType, resourceID, nil, result, actionErr)
 }
 
 func (s *Server) getSessionRuntimeConfig(w http.ResponseWriter, r *http.Request) {
-	config, err := s.store.ResolveAgentRuntimeConfig(r.PathValue("session_id"))
+	config, err := managedagents.ResolveAgentRuntimeConfigWithContext(r.Context(), s.store, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -282,10 +506,18 @@ func (s *Server) getSessionRuntimeConfig(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) getSessionRuntimeCapabilities(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(r.PathValue("session_id"))
+	session, err := managedagents.GetSessionWithContext(r.Context(), s.store, sessionID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	available := []string{execution.ToolRuntimeCloudSandbox}
 	localProvider := s.executionProviderForRequest(execution.ProviderRequest{
-		SessionID:   sessionID,
-		ToolRuntime: execution.ToolRuntimeLocalSystem,
+		WorkspaceID:   session.WorkspaceID,
+		OwnerID:       session.OwnerID,
+		SessionID:     sessionID,
+		EnvironmentID: session.EnvironmentID,
+		ToolRuntime:   execution.ToolRuntimeLocalSystem,
 	})
 	if _, unavailable := localProvider.(capability.UnavailableProvider); !unavailable && localProvider != nil {
 		available = append(available, execution.ToolRuntimeLocalSystem)
@@ -299,23 +531,348 @@ func (s *Server) getSessionRuntimeCapabilities(w http.ResponseWriter, r *http.Re
 func (s *Server) upsertLLMModel(w http.ResponseWriter, r *http.Request) {
 	var request llmModelRequest
 	if err := decodeJSON(r, &request); err != nil {
+		s.recordLLMControlAudit(r, "llm.model.create", "llm_model", "", nil, nil, err)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	model, err := s.store.UpsertLLMModel(managedagents.UpsertLLMModelInput{
+	resourceID := llmModelResourceID(request.ProviderID, request.Model)
+	existing, exists, err := s.findLLMModel(request.ProviderID, request.Model)
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.model.create", "llm_model", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	action := "llm.model.create"
+	var before any
+	expectedRevision := int64(0)
+	if exists {
+		before = llmModelAuditSnapshot(existing)
+		if ifNoneMatch := strings.TrimSpace(r.Header.Get("If-None-Match")); ifNoneMatch != "" {
+			if ifNoneMatch != "*" {
+				err := fmt.Errorf("%w: If-None-Match must be * when creating an llm model", managedagents.ErrInvalid)
+				s.recordLLMControlAudit(r, action, "llm_model", resourceID, before, nil, err)
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			err := fmt.Errorf("%w: llm model %s already exists", managedagents.ErrConflict, resourceID)
+			s.recordLLMControlAudit(r, action, "llm_model", resourceID, before, nil, err)
+			writeError(w, err)
+			return
+		}
+		action = "llm.model.update"
+		expectedRevision, err = parseLLMProviderIfMatch(r.Header.Get("If-Match"))
+		if err != nil {
+			s.recordLLMControlAudit(r, action, "llm_model", resourceID, before, nil, err)
+			status := http.StatusBadRequest
+			writeJSON(w, status, map[string]string{"error": err.Error()})
+			return
+		}
+		if expectedRevision != existing.Revision {
+			err := fmt.Errorf("%w: llm model %s revision changed from %d to %d", managedagents.ErrRevisionConflict, resourceID, expectedRevision, existing.Revision)
+			s.recordLLMControlAudit(r, action, "llm_model", resourceID, before, nil, err)
+			writeError(w, err)
+			return
+		}
+	} else if strings.TrimSpace(r.Header.Get("If-None-Match")) == "" {
+		err := fmt.Errorf("%w: If-None-Match header is required when creating an llm model", managedagents.ErrInvalid)
+		s.recordLLMControlAudit(r, action, "llm_model", resourceID, nil, nil, err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	} else if strings.TrimSpace(r.Header.Get("If-None-Match")) != "*" {
+		err := fmt.Errorf("%w: If-None-Match must be * when creating an llm model", managedagents.ErrInvalid)
+		s.recordLLMControlAudit(r, action, "llm_model", resourceID, nil, nil, err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	input := managedagents.UpsertLLMModelInput{
 		ProviderID:          request.ProviderID,
 		Model:               request.Model,
 		ContextWindowTokens: request.ContextWindowTokens,
-	})
+		CapabilityType:      request.CapabilityType,
+		Capabilities:        request.Capabilities,
+		IsDefaultVision:     request.IsDefaultVision,
+		IsDefaultEmbedding:  request.IsDefaultEmbedding,
+		IsDefaultReranker:   request.IsDefaultReranker,
+	}
+	var model managedagents.LLMModel
+	var atomicAudit bool
+	if exists {
+		model, atomicAudit, err = s.updateLLMModelWithAudit(r, managedagents.UpdateLLMModelInput{
+			UpsertLLMModelInput: input, ExpectedRevision: expectedRevision,
+		}, action, resourceID)
+	} else {
+		model, atomicAudit, err = s.createLLMModelWithAudit(r, input, action, resourceID)
+	}
+	var after any
+	if err == nil {
+		after = llmModelAuditSnapshot(model)
+	}
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, action, "llm_model", resourceID, before, after, err)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, model)
+	setLLMModelETag(w, model)
+	status := http.StatusOK
+	if !exists {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, model)
+}
+
+func (s *Server) deleteLLMModel(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.TrimSpace(r.PathValue("provider_id"))
+	modelName := strings.TrimSpace(r.PathValue("model"))
+	resourceID := llmModelResourceID(providerID, modelName)
+	existing, exists, lookupErr := s.findLLMModel(providerID, modelName)
+	if lookupErr != nil {
+		s.recordLLMControlAudit(r, "llm.model.delete", "llm_model", resourceID, nil, nil, lookupErr)
+		writeError(w, lookupErr)
+		return
+	}
+	var before any
+	if exists {
+		before = llmModelAuditSnapshot(existing)
+	}
+	if !exists {
+		err := managedagents.ErrNotFound
+		s.recordLLMControlAudit(r, "llm.model.delete", "llm_model", resourceID, nil, nil, err)
+		writeError(w, err)
+		return
+	}
+	expectedRevision, err := parseLLMProviderIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.recordLLMControlAudit(r, "llm.model.delete", "llm_model", resourceID, before, nil, err)
+		status := http.StatusBadRequest
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	if expectedRevision != existing.Revision {
+		err := fmt.Errorf("%w: llm model %s revision changed from %d to %d", managedagents.ErrRevisionConflict, resourceID, expectedRevision, existing.Revision)
+		s.recordLLMControlAudit(r, "llm.model.delete", "llm_model", resourceID, before, nil, err)
+		writeError(w, err)
+		return
+	}
+	err, atomicAudit := s.deleteLLMModelWithAudit(r, providerID, modelName, resourceID, expectedRevision)
+	if !atomicAudit || err != nil {
+		s.recordLLMControlAudit(r, "llm.model.delete", "llm_model", resourceID, before, nil, err)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type llmProviderAuditState struct {
+	ProviderType         string `json:"provider_type"`
+	Enabled              bool   `json:"enabled"`
+	Revision             int64  `json:"revision"`
+	BaseURLConfigured    bool   `json:"base_url_configured"`
+	CredentialConfigured bool   `json:"credential_configured"`
+}
+
+type llmModelAuditState struct {
+	ContextWindowTokens int                                `json:"context_window_tokens"`
+	CapabilityType      string                             `json:"capability_type"`
+	Capabilities        managedagents.LLMModelCapabilities `json:"capabilities"`
+	IsDefaultVision     bool                               `json:"is_default_vision"`
+	IsDefaultEmbedding  bool                               `json:"is_default_embedding"`
+	IsDefaultReranker   bool                               `json:"is_default_reranker"`
+	Revision            int64                              `json:"revision"`
+}
+
+func llmProviderAuditSnapshot(provider managedagents.LLMProvider) llmProviderAuditState {
+	return llmProviderAuditState{
+		ProviderType:         provider.ProviderType,
+		Enabled:              provider.Enabled,
+		Revision:             provider.Revision,
+		BaseURLConfigured:    strings.TrimSpace(provider.BaseURL) != "",
+		CredentialConfigured: strings.TrimSpace(provider.APIKeyEnv) != "",
+	}
+}
+
+func llmModelAuditSnapshot(model managedagents.LLMModel) llmModelAuditState {
+	return llmModelAuditState{
+		ContextWindowTokens: model.ContextWindowTokens,
+		CapabilityType:      model.CapabilityType,
+		Capabilities:        model.Capabilities,
+		IsDefaultVision:     model.IsDefaultVision,
+		IsDefaultEmbedding:  model.IsDefaultEmbedding,
+		IsDefaultReranker:   model.IsDefaultReranker,
+		Revision:            model.Revision,
+	}
+}
+
+func llmModelResourceID(providerID string, model string) string {
+	providerID = strings.TrimSpace(providerID)
+	model = strings.TrimSpace(model)
+	if providerID == "" {
+		return model
+	}
+	if model == "" {
+		return providerID
+	}
+	return providerID + "/" + model
+}
+
+func (s *Server) findLLMModel(providerID string, model string) (managedagents.LLMModel, bool, error) {
+	providerID = strings.TrimSpace(providerID)
+	model = strings.TrimSpace(model)
+	models, err := s.store.ListLLMModels(providerID)
+	if err != nil {
+		return managedagents.LLMModel{}, false, err
+	}
+	for _, candidate := range models {
+		if candidate.ProviderID == providerID && candidate.Model == model {
+			return candidate, true, nil
+		}
+	}
+	return managedagents.LLMModel{}, false, nil
+}
+
+func (s *Server) llmControlAuditInput(r *http.Request, action string, resourceType string, resourceID string) managedagents.RecordOperatorAuditInput {
+	principal := controlPrincipalFromRequest(r)
+	return managedagents.RecordOperatorAuditInput{
+		WorkspaceID: auditWorkspaceID(r, ""), PrincipalID: principal.ID,
+		OperatorLabel: principal.OperatorLabel, Role: principal.Role, Action: action,
+		ResourceType: resourceType, ResourceID: strings.TrimSpace(resourceID), Outcome: "succeeded",
+	}
+}
+
+func setLLMProviderETag(w http.ResponseWriter, provider managedagents.LLMProvider) {
+	w.Header().Set("ETag", strconv.Quote(strconv.FormatInt(provider.Revision, 10)))
+}
+
+func setLLMModelETag(w http.ResponseWriter, model managedagents.LLMModel) {
+	w.Header().Set("ETag", strconv.Quote(strconv.FormatInt(model.Revision, 10)))
+}
+
+func parseLLMProviderIfMatch(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("%w: If-Match header is required", managedagents.ErrInvalid)
+	}
+	unquoted, err := strconv.Unquote(value)
+	if err != nil {
+		return 0, fmt.Errorf("%w: If-Match must be a quoted provider revision", managedagents.ErrInvalid)
+	}
+	revision, err := strconv.ParseInt(unquoted, 10, 64)
+	if err != nil || revision <= 0 {
+		return 0, fmt.Errorf("%w: If-Match must contain a positive provider revision", managedagents.ErrInvalid)
+	}
+	return revision, nil
+}
+
+func (s *Server) requireLLMProviderIfMatch(w http.ResponseWriter, r *http.Request, provider managedagents.LLMProvider, action string) (int64, bool) {
+	expectedRevision, err := parseLLMProviderIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		s.recordLLMControlAudit(r, action, "llm_provider", provider.ID, llmProviderAuditSnapshot(provider), nil, err)
+		status := http.StatusBadRequest
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return 0, false
+	}
+	if expectedRevision != provider.Revision {
+		err := fmt.Errorf("%w: llm provider %s revision changed from %d to %d", managedagents.ErrRevisionConflict, provider.ID, expectedRevision, provider.Revision)
+		s.recordLLMControlAudit(r, action, "llm_provider", provider.ID, llmProviderAuditSnapshot(provider), nil, err)
+		writeError(w, err)
+		return 0, false
+	}
+	return expectedRevision, true
+}
+
+func (s *Server) createLLMProviderWithAudit(r *http.Request, input managedagents.UpsertLLMProviderInput, action string, resourceID string) (managedagents.LLMProvider, bool, error) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		provider, err := store.CreateLLMProviderWithAuditContext(r.Context(), input, s.llmControlAuditInput(r, action, "llm_provider", resourceID))
+		return provider, true, err
+	}
+	provider, err := s.store.CreateLLMProvider(input)
+	return provider, false, err
+}
+
+func (s *Server) updateLLMProviderWithAudit(r *http.Request, input managedagents.UpdateLLMProviderInput, action string, resourceID string) (managedagents.LLMProvider, bool, error) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		provider, err := store.UpdateLLMProviderWithAuditContext(r.Context(), input, s.llmControlAuditInput(r, action, "llm_provider", resourceID))
+		return provider, true, err
+	}
+	provider, err := s.store.UpdateLLMProvider(input)
+	return provider, false, err
+}
+
+func (s *Server) setLLMProviderEnabledWithAudit(r *http.Request, resourceID string, enabled bool, expectedRevision int64, action string) (managedagents.LLMProvider, bool, error) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		provider, err := store.SetLLMProviderEnabledIfRevisionWithAuditContext(r.Context(), resourceID, enabled, expectedRevision, s.llmControlAuditInput(r, action, "llm_provider", resourceID))
+		return provider, true, err
+	}
+	provider, err := s.store.SetLLMProviderEnabledIfRevision(resourceID, enabled, expectedRevision)
+	return provider, false, err
+}
+
+func (s *Server) deleteLLMProviderWithAudit(r *http.Request, resourceID string, expectedRevision int64) (error, bool) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		err := store.DeleteLLMProviderIfRevisionWithAuditContext(r.Context(), resourceID, expectedRevision, s.llmControlAuditInput(r, "llm.provider.delete", "llm_provider", resourceID))
+		return err, true
+	}
+	return s.store.DeleteLLMProviderIfRevision(resourceID, expectedRevision), false
+}
+
+func (s *Server) createLLMModelWithAudit(r *http.Request, input managedagents.UpsertLLMModelInput, action string, resourceID string) (managedagents.LLMModel, bool, error) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		model, err := store.CreateLLMModelWithAuditContext(r.Context(), input, s.llmControlAuditInput(r, action, "llm_model", resourceID))
+		return model, true, err
+	}
+	model, err := s.store.CreateLLMModel(input)
+	return model, false, err
+}
+
+func (s *Server) updateLLMModelWithAudit(r *http.Request, input managedagents.UpdateLLMModelInput, action string, resourceID string) (managedagents.LLMModel, bool, error) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		model, err := store.UpdateLLMModelWithAuditContext(r.Context(), input, s.llmControlAuditInput(r, action, "llm_model", resourceID))
+		return model, true, err
+	}
+	model, err := s.store.UpdateLLMModel(input)
+	return model, false, err
+}
+
+func (s *Server) deleteLLMModelWithAudit(r *http.Request, providerID string, modelName string, resourceID string, expectedRevision int64) (error, bool) {
+	if store, ok := s.store.(managedagents.LLMControlAuditContextStore); ok {
+		err := store.DeleteLLMModelIfRevisionWithAuditContext(r.Context(), providerID, modelName, expectedRevision, s.llmControlAuditInput(r, "llm.model.delete", "llm_model", resourceID))
+		return err, true
+	}
+	return s.store.DeleteLLMModelIfRevision(providerID, modelName, expectedRevision), false
+}
+
+func (s *Server) recordLLMControlAudit(r *http.Request, action string, resourceType string, resourceID string, before any, after any, actionErr error) {
+	store, ok := s.store.(managedagents.OperatorAuditStore)
+	if !ok {
+		return
+	}
+	outcome := "succeeded"
+	errorMessage := ""
+	if actionErr != nil {
+		outcome = "failed"
+		errorMessage = actionErr.Error()
+	}
+	details, err := json.Marshal(map[string]any{"before": before, "after": after})
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("llm control audit details encoding failed", "action", action, "resource_id", resourceID, "error", err)
+		}
+		return
+	}
+	audit := s.llmControlAuditInput(r, action, resourceType, resourceID)
+	audit.Outcome = outcome
+	audit.ErrorMessage = errorMessage
+	audit.Details = details
+	if _, err := managedagents.RecordOperatorAuditWithContext(r.Context(), store, audit); err != nil && s.logger != nil {
+		s.logger.Warn("llm control audit write failed", "action", action, "resource_id", resourceID, "error", err)
+	}
 }
 
 func (s *Server) getSessionLLMUsage(w http.ResponseWriter, r *http.Request) {
-	report, err := s.store.GetSessionLLMUsage(r.PathValue("session_id"))
+	report, err := managedagents.GetSessionLLMUsageWithContext(r.Context(), s.store, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -324,7 +881,7 @@ func (s *Server) getSessionLLMUsage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getSessionSummary(w http.ResponseWriter, r *http.Request) {
-	summary, err := s.store.GetSessionSummary(r.PathValue("session_id"))
+	summary, err := managedagents.GetSessionSummaryWithContext(r.Context(), s.store, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -334,7 +891,7 @@ func (s *Server) getSessionSummary(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getSessionTrace(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("session_id")
-	events, err := s.store.ListEvents(sessionID, 0)
+	events, err := managedagents.ListEventsWithContext(r.Context(), s.store, sessionID, 0)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -344,11 +901,12 @@ func (s *Server) getSessionTrace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
 		return
 	}
-	s.refreshTraceIndex(sessionID, trace)
+	s.refreshTraceIndex(r.Context(), sessionID, trace)
 	s.writeTraceFormat(w, r, trace)
 }
 
 func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
+	workspaceID := requestWorkspaceID(r, r.URL.Query().Get("workspace_id"))
 	limit, err := optionalPositiveInt(r.URL.Query().Get("limit"))
 	if err != nil {
 		writeError(w, fmt.Errorf("%w: invalid limit: %v", managedagents.ErrInvalid, err))
@@ -357,15 +915,15 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	offset, err := optionalPositiveInt(r.URL.Query().Get("offset"))
+	offset, err := traceCatalogOffset(r, "traces")
 	if err != nil {
-		writeError(w, fmt.Errorf("%w: invalid offset: %v", managedagents.ErrInvalid, err))
+		writeError(w, fmt.Errorf("%w: invalid trace cursor: %v", managedagents.ErrInvalid, err))
 		return
 	}
 	queryLimit := limit + 1
-	if indexed, ok := s.store.(managedagents.TraceIndexStore); ok {
-		traces, err := indexed.ListTraceIndexes(managedagents.ListTraceIndexInput{
-			WorkspaceID:     r.URL.Query().Get("workspace_id"),
+	if indexed, ok := s.store.(managedagents.TraceIndexStore); ok && requestCanViewWorkspaceWide(r) {
+		traces, err := managedagents.ListTraceIndexesWithContext(r.Context(), indexed, managedagents.ListTraceIndexInput{
+			WorkspaceID:     workspaceID,
 			SessionID:       r.URL.Query().Get("session_id"),
 			TurnID:          r.URL.Query().Get("turn_id"),
 			SessionStatus:   r.URL.Query().Get("session_status"),
@@ -379,7 +937,7 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(traces) >= limit {
 			catalog := observability.TraceCatalogFromIndex(traces)
-			writeJSON(w, http.StatusOK, pagedTraceCatalogResponse(catalog, limit, offset))
+			writeJSON(w, http.StatusOK, pagedTraceCatalogResponse(r, catalog, limit, offset))
 			return
 		}
 	}
@@ -389,11 +947,12 @@ func (s *Server) listTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	catalog := observability.BuildTraceCatalogPage(sessions, eventsBySession, queryLimit, offset)
-	s.refreshTraceIndexesForCatalog(sessions, eventsBySession, catalog)
-	writeJSON(w, http.StatusOK, pagedTraceCatalogResponse(catalog, limit, offset))
+	s.refreshTraceIndexesForCatalog(r.Context(), sessions, eventsBySession, catalog)
+	writeJSON(w, http.StatusOK, pagedTraceCatalogResponse(r, catalog, limit, offset))
 }
 
 func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
+	workspaceID := requestWorkspaceID(r, r.URL.Query().Get("workspace_id"))
 	limit, err := optionalPositiveInt(r.URL.Query().Get("limit"))
 	if err != nil {
 		writeError(w, fmt.Errorf("%w: invalid limit: %v", managedagents.ErrInvalid, err))
@@ -402,9 +961,9 @@ func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	offset, err := optionalPositiveInt(r.URL.Query().Get("offset"))
+	offset, err := traceCatalogOffset(r, "spans")
 	if err != nil {
-		writeError(w, fmt.Errorf("%w: invalid offset: %v", managedagents.ErrInvalid, err))
+		writeError(w, fmt.Errorf("%w: invalid span cursor: %v", managedagents.ErrInvalid, err))
 		return
 	}
 	queryLimit := limit + 1
@@ -428,9 +987,9 @@ func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: invalid critical: %v", managedagents.ErrInvalid, err))
 		return
 	}
-	if indexed, ok := s.store.(managedagents.TraceIndexStore); ok {
-		spans, err := indexed.ListTraceSpanIndexes(managedagents.ListTraceSpanIndexInput{
-			WorkspaceID:           r.URL.Query().Get("workspace_id"),
+	if indexed, ok := s.store.(managedagents.TraceIndexStore); ok && requestCanViewWorkspaceWide(r) {
+		spans, err := managedagents.ListTraceSpanIndexesWithContext(r.Context(), indexed, managedagents.ListTraceSpanIndexInput{
+			WorkspaceID:           workspaceID,
 			TraceID:               r.URL.Query().Get("trace_id"),
 			SessionID:             r.URL.Query().Get("session_id"),
 			TurnID:                r.URL.Query().Get("turn_id"),
@@ -451,7 +1010,7 @@ func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(spans) > 0 {
 			catalog := observability.TraceSpanCatalogFromIndex(spans)
-			writeJSON(w, http.StatusOK, pagedTraceSpanCatalogResponse(catalog, limit, offset))
+			writeJSON(w, http.StatusOK, pagedTraceSpanCatalogResponse(r, catalog, limit, offset))
 			return
 		}
 	}
@@ -474,14 +1033,21 @@ func (s *Server) listSpans(w http.ResponseWriter, r *http.Request) {
 		Limit:                 queryLimit,
 		Offset:                offset,
 	})
-	s.refreshTraceIndexesForSessions(sessions, eventsBySession)
-	writeJSON(w, http.StatusOK, pagedTraceSpanCatalogResponse(catalog, limit, offset))
+	s.refreshTraceIndexesForSessions(r.Context(), sessions, eventsBySession)
+	writeJSON(w, http.StatusOK, pagedTraceSpanCatalogResponse(r, catalog, limit, offset))
 }
 
-func pagedTraceCatalogResponse(catalog []observability.TraceCatalogEntry, limit int, offset int) map[string]any {
+func pagedTraceCatalogResponse(r *http.Request, catalog []observability.TraceCatalogEntry, limit int, offset int) map[string]any {
 	hasMore := len(catalog) > limit
 	if hasMore {
 		catalog = catalog[:limit]
+	}
+	if isV2Request(r) {
+		return map[string]any{
+			"items":       catalog,
+			"next_cursor": nextTraceCatalogCursor(r, "traces", offset, len(catalog), hasMore),
+			"has_more":    hasMore,
+		}
 	}
 	return map[string]any{
 		"traces":      catalog,
@@ -492,7 +1058,7 @@ func pagedTraceCatalogResponse(catalog []observability.TraceCatalogEntry, limit 
 	}
 }
 
-func pagedTraceSpanCatalogResponse(catalog observability.TraceSpanCatalog, limit int, offset int) observability.TraceSpanCatalog {
+func pagedTraceSpanCatalogResponse(r *http.Request, catalog observability.TraceSpanCatalog, limit int, offset int) any {
 	hasMore := len(catalog.Spans) > limit
 	if hasMore {
 		catalog.Spans = catalog.Spans[:limit]
@@ -501,23 +1067,91 @@ func pagedTraceSpanCatalogResponse(catalog observability.TraceSpanCatalog, limit
 	catalog.Offset = offset
 	catalog.NextOffset = offset + len(catalog.Spans)
 	catalog.HasMore = hasMore
+	if isV2Request(r) {
+		return map[string]any{
+			"items":       catalog.Spans,
+			"next_cursor": nextTraceCatalogCursor(r, "spans", offset, len(catalog.Spans), hasMore),
+			"has_more":    hasMore,
+		}
+	}
 	return catalog
+}
+
+type traceCatalogCursor struct {
+	Version     int    `json:"v"`
+	Resource    string `json:"resource"`
+	Offset      int    `json:"offset"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func traceCatalogOffset(r *http.Request, resource string) (int, error) {
+	cursorValue := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	if cursorValue == "" {
+		return optionalPositiveInt(r.URL.Query().Get("offset"))
+	}
+	if strings.TrimSpace(r.URL.Query().Get("offset")) != "" {
+		return 0, errors.New("cursor and offset cannot be combined")
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cursorValue)
+	if err != nil {
+		return 0, errors.New("cursor is not valid base64url")
+	}
+	var cursor traceCatalogCursor
+	if err := json.Unmarshal(raw, &cursor); err != nil {
+		return 0, errors.New("cursor payload is invalid")
+	}
+	if cursor.Version != 1 || cursor.Resource != resource || cursor.Offset <= 0 {
+		return 0, errors.New("cursor is not valid for this resource")
+	}
+	if cursor.Fingerprint != traceCatalogFingerprint(r, resource) {
+		return 0, errors.New("cursor does not match the current filters")
+	}
+	return cursor.Offset, nil
+}
+
+func nextTraceCatalogCursor(r *http.Request, resource string, offset int, itemCount int, hasMore bool) string {
+	if !hasMore {
+		return ""
+	}
+	cursor := traceCatalogCursor{
+		Version:     1,
+		Resource:    resource,
+		Offset:      offset + itemCount,
+		Fingerprint: traceCatalogFingerprint(r, resource),
+	}
+	raw, _ := json.Marshal(cursor)
+	return base64.RawURLEncoding.EncodeToString(raw)
+}
+
+func traceCatalogFingerprint(r *http.Request, resource string) string {
+	values := r.URL.Query()
+	values.Del("cursor")
+	values.Del("offset")
+	values.Del("limit")
+	digest := sha256.Sum256([]byte(resource + "\n" + values.Encode()))
+	return hex.EncodeToString(digest[:16])
 }
 
 func (s *Server) recentSessionEvents(r *http.Request, limit int) ([]managedagents.Session, map[string][]managedagents.Event, error) {
 	if sessionID := strings.TrimSpace(r.URL.Query().Get("session_id")); sessionID != "" {
-		session, err := s.store.GetSession(sessionID)
+		session, err := s.getSessionForRequest(r, sessionID)
 		if err != nil {
 			return nil, nil, err
 		}
-		events, err := s.store.ListEvents(session.ID, 0)
+		if principal, ok := PrincipalFromRequest(r); ok {
+			if err := authorizeSessionPrincipal(principal, session); err != nil {
+				return nil, nil, err
+			}
+		}
+		events, err := managedagents.ListEventsWithContext(r.Context(), s.store, session.ID, 0)
 		if err != nil {
 			return nil, nil, err
 		}
 		return []managedagents.Session{session}, map[string][]managedagents.Event{session.ID: events}, nil
 	}
-	sessions, err := s.store.ListSessions(managedagents.ListSessionsInput{
-		WorkspaceID:     r.URL.Query().Get("workspace_id"),
+	sessions, err := s.listSessionsForRequest(r, managedagents.ListSessionsInput{
+		WorkspaceID:     requestWorkspaceID(r, r.URL.Query().Get("workspace_id")),
+		OwnerID:         requestSessionOwnerFilter(r),
 		Status:          r.URL.Query().Get("session_status"),
 		IncludeArchived: strings.EqualFold(r.URL.Query().Get("include_archived"), "true") || r.URL.Query().Get("include_archived") == "1",
 		Limit:           limit,
@@ -527,7 +1161,7 @@ func (s *Server) recentSessionEvents(r *http.Request, limit int) ([]managedagent
 	}
 	eventsBySession := make(map[string][]managedagents.Event, len(sessions))
 	for _, session := range sessions {
-		events, err := s.store.ListEvents(session.ID, 0)
+		events, err := managedagents.ListEventsWithContext(r.Context(), s.store, session.ID, 0)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -547,7 +1181,7 @@ func (s *Server) getTrace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lookup, err := s.findTraceByID(traceID, limit)
+	lookup, err := s.findTraceByID(r, traceID, limit)
 	if err != nil {
 		if errors.Is(err, managedagents.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "trace not found"})
@@ -571,7 +1205,7 @@ func (s *Server) getTraceSpan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lookup, err := s.findTraceByID(traceID, limit)
+	lookup, err := s.findTraceByID(r, traceID, limit)
 	if err != nil {
 		if errors.Is(err, managedagents.ErrNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "span not found"})
@@ -608,7 +1242,7 @@ func traceSearchLimit(r *http.Request) (int, error) {
 	return limit, nil
 }
 
-func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, error) {
+func (s *Server) findTraceByID(r *http.Request, traceID string, limit int) (traceLookupResult, error) {
 	traceID = strings.TrimSpace(traceID)
 	if traceID == "" {
 		return traceLookupResult{}, managedagents.ErrNotFound
@@ -617,13 +1251,16 @@ func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, er
 		limit = 100
 	}
 	if indexed, ok := s.store.(managedagents.TraceIndexStore); ok {
-		entry, err := indexed.GetTraceIndex(traceID)
-		if err == nil {
-			session, err := s.store.GetSession(entry.SessionID)
+		entries, err := managedagents.ListTraceIndexesWithContext(r.Context(), indexed, managedagents.ListTraceIndexInput{
+			WorkspaceID: requestWorkspaceID(r, ""), TraceID: traceID, IncludeArchived: true, Limit: 1,
+		})
+		if err == nil && len(entries) == 1 {
+			entry := entries[0]
+			session, err := s.getSessionForRequest(r, entry.SessionID)
 			if err != nil {
 				return traceLookupResult{}, err
 			}
-			events, err := s.store.ListEvents(entry.SessionID, 0)
+			events, err := managedagents.ListEventsWithContext(r.Context(), s.store, entry.SessionID, 0)
 			if err != nil {
 				return traceLookupResult{}, err
 			}
@@ -631,19 +1268,19 @@ func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, er
 			if trace.TurnID == "" || len(trace.Steps) == 0 {
 				return traceLookupResult{}, managedagents.ErrNotFound
 			}
-			s.refreshTraceIndex(entry.SessionID, trace)
+			s.refreshTraceIndex(r.Context(), entry.SessionID, trace)
 			return traceLookupResult{Session: session, Trace: trace}, nil
 		}
 		if err != nil && !errors.Is(err, managedagents.ErrNotFound) {
 			return traceLookupResult{}, err
 		}
 	}
-	sessions, err := s.store.ListSessions(managedagents.ListSessionsInput{IncludeArchived: true, Limit: limit})
+	sessions, err := s.listSessionsForRequest(r, managedagents.ListSessionsInput{IncludeArchived: true, Limit: limit})
 	if err != nil {
 		return traceLookupResult{}, err
 	}
 	for _, session := range sessions {
-		events, err := s.store.ListEvents(session.ID, 0)
+		events, err := managedagents.ListEventsWithContext(r.Context(), s.store, session.ID, 0)
 		if err != nil {
 			return traceLookupResult{}, err
 		}
@@ -655,7 +1292,7 @@ func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, er
 			if trace.TurnID == "" || len(trace.Steps) == 0 {
 				break
 			}
-			s.refreshTraceIndex(session.ID, trace)
+			s.refreshTraceIndex(r.Context(), session.ID, trace)
 			return traceLookupResult{
 				Session: session,
 				Trace:   trace,
@@ -665,22 +1302,22 @@ func (s *Server) findTraceByID(traceID string, limit int) (traceLookupResult, er
 	return traceLookupResult{}, managedagents.ErrNotFound
 }
 
-func (s *Server) refreshTraceIndex(sessionID string, trace observability.TurnTrace) {
+func (s *Server) refreshTraceIndex(ctx context.Context, sessionID string, trace observability.TurnTrace) {
 	indexed, ok := s.store.(managedagents.TraceIndexStore)
 	if !ok || trace.TraceID == "" || trace.TurnID == "" || len(trace.Steps) == 0 {
 		return
 	}
-	session, err := s.store.GetSession(sessionID)
+	session, err := managedagents.GetSessionWithContext(ctx, s.store, sessionID)
 	if err != nil {
 		s.logger.Warn("trace index session lookup failed", "session_id", sessionID, "trace_id", trace.TraceID, "error", err)
 		return
 	}
-	if err := indexed.UpsertTraceIndex(observability.TraceIndexInput(session, trace)); err != nil {
+	if err := managedagents.UpsertTraceIndexWithContext(ctx, indexed, observability.TraceIndexInput(session, trace)); err != nil {
 		s.logger.Warn("trace index upsert failed", "session_id", sessionID, "turn_id", trace.TurnID, "trace_id", trace.TraceID, "error", err)
 	}
 }
 
-func (s *Server) refreshTraceIndexesForCatalog(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, catalog []observability.TraceCatalogEntry) {
+func (s *Server) refreshTraceIndexesForCatalog(ctx context.Context, sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event, catalog []observability.TraceCatalogEntry) {
 	if _, ok := s.store.(managedagents.TraceIndexStore); !ok {
 		return
 	}
@@ -693,18 +1330,18 @@ func (s *Server) refreshTraceIndexesForCatalog(sessions []managedagents.Session,
 			continue
 		}
 		trace := observability.ProjectTurnTrace(entry.SessionID, entry.TurnID, eventsBySession[entry.SessionID])
-		s.refreshTraceIndex(entry.SessionID, trace)
+		s.refreshTraceIndex(ctx, entry.SessionID, trace)
 	}
 }
 
-func (s *Server) refreshTraceIndexesForSessions(sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event) {
+func (s *Server) refreshTraceIndexesForSessions(ctx context.Context, sessions []managedagents.Session, eventsBySession map[string][]managedagents.Event) {
 	if _, ok := s.store.(managedagents.TraceIndexStore); !ok {
 		return
 	}
 	for _, session := range sessions {
 		for _, turn := range observability.BuildTurnCatalog(session.ID, eventsBySession[session.ID]) {
 			trace := observability.ProjectTurnTrace(session.ID, turn.TurnID, eventsBySession[session.ID])
-			s.refreshTraceIndex(session.ID, trace)
+			s.refreshTraceIndex(ctx, session.ID, trace)
 		}
 	}
 }
@@ -724,16 +1361,31 @@ func (s *Server) writeTraceFormat(w http.ResponseWriter, r *http.Request, trace 
 
 func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	usage, err := s.store.ListLLMUsage(managedagents.ListLLMUsageInput{
-		WorkspaceID: query.Get("workspace_id"),
+	workspaceID := requestWorkspaceID(r, query.Get("workspace_id"))
+	usage, err := managedagents.ListLLMUsageWithContext(r.Context(), s.store, managedagents.ListLLMUsageInput{
+		WorkspaceID: workspaceID,
 		GroupBy:     managedagents.LLMUsageGroupByProviderModel,
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
-		WorkspaceID: query.Get("workspace_id"),
+	workers, err := s.listWorkersForRequest(r, managedagents.ListWorkersInput{
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	subagents, err := s.store.GetSubagentMetrics(managedagents.GetSubagentMetricsInput{
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	taskGroups, err := s.store.GetSubagentTaskGroupMetrics(managedagents.GetSubagentTaskGroupMetricsInput{
+		WorkspaceID: workspaceID,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -742,16 +1394,44 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	snapshot := observability.MetricsSnapshot{
 		Usage:         usage,
 		Workers:       workers,
-		Observability: s.observabilityStatus(),
+		Subagents:     subagents,
+		TaskGroups:    taskGroups,
+		Observability: s.observabilityStatus(r.Context()),
+		BinaryScans:   skillmarketplace.BinaryScanMetricsSnapshot(),
+		SkillAssetGC:  skillretention.SnapshotMetrics(),
+	}
+	if s.authorizationAudit != nil {
+		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()
+		snapshot.SecurityAuditExporter = s.authorizationAudit.exporterMetrics()
+	}
+	if stats, ok := s.mcpHostStats(); ok {
+		snapshot.MCPHost = stats
+	}
+	if stats, ok := s.mcpHTTPHostStats(); ok {
+		snapshot.MCPHTTPHost = stats
+	}
+	if stats, ok := s.mcpRuntimeGuardStats(); ok {
+		snapshot.MCPRuntimeGuard = stats
 	}
 	if sessionID := strings.TrimSpace(query.Get("session_id")); sessionID != "" {
-		events, err := s.store.ListEvents(sessionID, 0)
+		if principal, ok := PrincipalFromRequest(r); ok {
+			session, err := s.getSessionForRequest(r, sessionID)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
+			if err := authorizeSessionPrincipal(principal, session); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		events, err := managedagents.ListEventsWithContext(r.Context(), s.store, sessionID, 0)
 		if err != nil {
 			writeError(w, err)
 			return
 		}
 		trace := observability.ProjectTurnTrace(sessionID, query.Get("turn_id"), events)
-		interventions, err := s.store.ListSessionInterventions(sessionID, "")
+		interventions, err := managedagents.ListSessionInterventionsWithContext(r.Context(), s.store, sessionID, "")
 		if err != nil {
 			writeError(w, err)
 			return
@@ -782,6 +1462,12 @@ func (s *Server) getInspector(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getUserApp(w http.ResponseWriter, r *http.Request) {
+	if s.webLogin != nil {
+		if _, err := s.authenticator.authenticate(r); err != nil {
+			http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			return
+		}
+	}
 	content, err := inspectorAssets.ReadFile("app/index.html")
 	if err != nil {
 		s.logger.Error("user app index read failed", "error", err)
@@ -796,11 +1482,11 @@ func (s *Server) getUserApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getObservabilityStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.observabilityStatus())
+	writeJSON(w, http.StatusOK, s.observabilityStatus(r.Context()))
 }
 
 func (s *Server) retryObservabilityExporters(w http.ResponseWriter, r *http.Request) {
-	result, err := observability.RetryFailedExporterRunsFromEnv(s.store)
+	result, err := observability.RetryFailedExporterRunsFromEnvContext(r.Context(), s.store)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -808,13 +1494,102 @@ func (s *Server) retryObservabilityExporters(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) observabilityStatus() observability.Status {
-	runs, err := s.store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{Limit: 20})
+func (s *Server) replaySecurityAuditDeadLetters(w http.ResponseWriter, r *http.Request) {
+	if s == nil || s.authorizationAudit == nil {
+		writeError(w, fmt.Errorf("%w: durable security audit pipeline is not enabled", managedagents.ErrConflict))
+		return
+	}
+	replayer, legacyOK := s.authorizationAudit.sink.(observability.SecurityAuditDeadLetterReplayer)
+	contextReplayer, contextOK := s.authorizationAudit.sink.(observability.SecurityAuditDeadLetterContextReplayer)
+	if !legacyOK && !contextOK {
+		writeError(w, fmt.Errorf("%w: durable security audit pipeline is not enabled", managedagents.ErrConflict))
+		return
+	}
+	limit := 100
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 1000 {
+			writeError(w, fmt.Errorf("%w: limit must be between 1 and 1000", managedagents.ErrInvalid))
+			return
+		}
+		limit = parsed
+	}
+	var replayed int
+	var err error
+	if contextOK {
+		replayed, err = contextReplayer.ReplayDeadLettersContext(r.Context(), time.Now().UTC(), limit)
+	} else {
+		replayed, err = replayer.ReplayDeadLetters(time.Now().UTC(), limit)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"replayed": replayed})
+}
+
+func (s *Server) getSecurityAuditIntegrityKeyStatus(w http.ResponseWriter, r *http.Request) {
+	status, ok, err := s.securityAuditIntegrityKeyStatus(r.Context())
+	if !ok {
+		writeError(w, fmt.Errorf("%w: durable security audit keyring is not enabled", managedagents.ErrConflict))
+		return
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) observabilityStatus(ctx context.Context) observability.Status {
+	runs, err := managedagents.ListObservabilityExporterRunsWithContext(ctx, s.store, managedagents.ListObservabilityExporterRunsInput{Limit: 20})
 	if err != nil {
 		s.logger.Warn("list observability exporter runs failed", "error", err)
-		return observability.StatusFromEnv()
+		status := observability.StatusFromEnv()
+		return s.withSecurityAuditOutboxStatus(ctx, status)
 	}
-	return observability.StatusFromEnvWithRuns(runs)
+	return s.withSecurityAuditOutboxStatus(ctx, observability.StatusFromEnvWithRuns(runs))
+}
+
+func (s *Server) withSecurityAuditOutboxStatus(ctx context.Context, status observability.Status) observability.Status {
+	store, ok := s.store.(managedagents.SecurityAuditOutboxStore)
+	if ok {
+		stats, err := managedagents.GetSecurityAuditOutboxStatsWithContext(ctx, store, time.Now().UTC())
+		if err != nil {
+			s.logger.Warn("get security audit outbox status failed", "error", err)
+		} else {
+			status.SecurityAuditOutbox = &stats
+		}
+	}
+	if keyStatus, ok, err := s.securityAuditIntegrityKeyStatus(ctx); ok {
+		if err != nil {
+			s.logger.Warn("get security audit integrity key status failed", "error", err)
+		} else {
+			status.SecurityAuditIntegrityKeys = &keyStatus
+		}
+	}
+	return status
+}
+
+func (s *Server) securityAuditIntegrityKeyStatusProvider() (observability.SecurityAuditIntegrityKeyStatusProvider, bool) {
+	if s == nil || s.authorizationAudit == nil || s.authorizationAudit.sink == nil {
+		return nil, false
+	}
+	provider, ok := s.authorizationAudit.sink.(observability.SecurityAuditIntegrityKeyStatusProvider)
+	return provider, ok
+}
+
+func (s *Server) securityAuditIntegrityKeyStatus(ctx context.Context) (observability.SecurityAuditIntegrityKeyStatus, bool, error) {
+	provider, ok := s.securityAuditIntegrityKeyStatusProvider()
+	if !ok {
+		return observability.SecurityAuditIntegrityKeyStatus{}, false, nil
+	}
+	if scoped, ok := s.authorizationAudit.sink.(observability.SecurityAuditIntegrityKeyContextStatusProvider); ok {
+		status, err := scoped.SecurityAuditIntegrityKeyStatusContext(ctx)
+		return status, true, err
+	}
+	status, err := provider.SecurityAuditIntegrityKeyStatus()
+	return status, true, err
 }
 
 func (s *Server) upsertSessionSummary(w http.ResponseWriter, r *http.Request) {
@@ -823,7 +1598,7 @@ func (s *Server) upsertSessionSummary(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	result, err := s.store.UpsertSessionSummary(r.PathValue("session_id"), managedagents.UpsertSessionSummaryInput{
+	result, err := managedagents.UpsertSessionSummaryWithContext(r.Context(), s.store, r.PathValue("session_id"), managedagents.UpsertSessionSummaryInput{
 		SummaryText:    request.SummaryText,
 		SourceUntilSeq: request.SourceUntilSeq,
 	})
@@ -847,8 +1622,8 @@ func (s *Server) listLLMUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := s.store.ListLLMUsage(managedagents.ListLLMUsageInput{
-		WorkspaceID: query.Get("workspace_id"),
+	report, err := managedagents.ListLLMUsageWithContext(r.Context(), s.store, managedagents.ListLLMUsageInput{
+		WorkspaceID: requestWorkspaceID(r, query.Get("workspace_id")),
 		ProviderID:  query.Get("provider_id"),
 		Model:       query.Get("model"),
 		Status:      query.Get("status"),
@@ -869,7 +1644,13 @@ func (s *Server) registerWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	worker, err := s.store.RegisterWorker(input)
+	input.WorkspaceID = s.requestWorkerWorkspaceID(r, input.WorkspaceID)
+	if principal, ok := PrincipalFromRequest(r); ok {
+		input.RegisteredBy = principal.Subject
+	} else if s.authenticator != nil && s.authenticator.config.Mode != AuthModeDisabled {
+		input.RegisteredBy = "worker-service"
+	}
+	worker, err := managedagents.RegisterWorkerWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -878,7 +1659,7 @@ func (s *Server) registerWorker(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
-	worker, err := s.store.GetWorker(r.PathValue("worker_id"))
+	worker, err := s.getWorkerForRequest(r, r.PathValue("worker_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -887,15 +1668,15 @@ func (s *Server) getWorker(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listWorkers(w http.ResponseWriter, r *http.Request) {
-	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
-		WorkspaceID: r.URL.Query().Get("workspace_id"),
+	workers, err := s.listWorkersForRequest(r, managedagents.ListWorkersInput{
+		WorkspaceID: s.requestWorkerWorkspaceID(r, r.URL.Query().Get("workspace_id")),
 		Status:      r.URL.Query().Get("status"),
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workers": workers})
+	writeJSON(w, http.StatusOK, map[string]any{"workers": nonNilSlice(workers)})
 }
 
 func (s *Server) reapExpiredWorkers(w http.ResponseWriter, r *http.Request) {
@@ -904,7 +1685,8 @@ func (s *Server) reapExpiredWorkers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	expired, err := s.store.ReapExpiredWorkers(input)
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	expired, err := managedagents.ReapExpiredWorkersWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -943,11 +1725,11 @@ func (s *Server) diagnoseWorkers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err))
 		return
 	}
-	workspaceID := request.WorkspaceID
+	workspaceID := s.requestWorkerWorkspaceID(r, request.WorkspaceID)
 	if workspaceID == "" {
 		workspaceID = managedagents.DefaultWorkspaceID
 	}
-	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+	workers, err := s.listWorkersForRequest(r, managedagents.ListWorkersInput{
 		WorkspaceID: workspaceID,
 		Status:      managedagents.WorkerStatusOnline,
 	})
@@ -964,7 +1746,7 @@ func (s *Server) heartbeatWorker(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	worker, err := s.store.HeartbeatWorker(r.PathValue("worker_id"), input)
+	worker, err := managedagents.HeartbeatWorkerWithContext(r.Context(), s.store, r.PathValue("worker_id"), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -973,7 +1755,7 @@ func (s *Server) heartbeatWorker(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) archiveWorker(w http.ResponseWriter, r *http.Request) {
-	worker, err := s.store.ArchiveWorker(r.PathValue("worker_id"))
+	worker, err := managedagents.ArchiveWorkerWithContext(r.Context(), s.store, r.PathValue("worker_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -987,19 +1769,20 @@ func (s *Server) enqueueWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	input.WorkspaceID = s.requestWorkerWorkspaceID(r, input.WorkspaceID)
 	invocation, err := validateWorkerWorkPayload(input)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	if input.WorkerID == "" && invocation != nil {
-		workerID, err := workerselect.Selector{Store: s.store}.SelectWorkerID(workerselect.Request{
+		workerID, err := workerselect.Selector{Store: s.store}.SelectWorkerIDContext(r.Context(), workerselect.Request{
 			WorkspaceID: input.WorkspaceID,
 			Invocation:  *invocation,
 		})
 		if err != nil {
 			if errors.Is(err, managedagents.ErrConflict) {
-				response, diagnoseErr := s.workerWorkConflictResponse(input.WorkspaceID, *invocation, err)
+				response, diagnoseErr := s.workerWorkConflictResponse(r.Context(), input.WorkspaceID, *invocation, err)
 				if diagnoseErr != nil {
 					writeError(w, diagnoseErr)
 					return
@@ -1012,7 +1795,7 @@ func (s *Server) enqueueWorkerWork(w http.ResponseWriter, r *http.Request) {
 		}
 		input.WorkerID = workerID
 	}
-	work, err := s.store.EnqueueWorkerWork(input)
+	work, err := managedagents.EnqueueWorkerWorkWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1020,11 +1803,11 @@ func (s *Server) enqueueWorkerWork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, work)
 }
 
-func (s *Server) workerWorkConflictResponse(workspaceID string, invocation tools.WorkInvocation, cause error) (workerWorkConflictResponse, error) {
+func (s *Server) workerWorkConflictResponse(ctx context.Context, workspaceID string, invocation tools.WorkInvocation, cause error) (workerWorkConflictResponse, error) {
 	if workspaceID == "" {
 		workspaceID = managedagents.DefaultWorkspaceID
 	}
-	workers, err := s.store.ListWorkers(managedagents.ListWorkersInput{
+	workers, err := managedagents.ListWorkersWithContext(ctx, s.store, managedagents.ListWorkersInput{
 		WorkspaceID: workspaceID,
 		Status:      managedagents.WorkerStatusOnline,
 	})
@@ -1071,7 +1854,7 @@ func buildWorkerDiagnoseResponse(invocation tools.WorkInvocation, workers []mana
 }
 
 func (s *Server) getWorkerWork(w http.ResponseWriter, r *http.Request) {
-	work, err := s.store.GetWorkerWork(r.PathValue("work_id"))
+	work, err := s.getWorkerWorkForRequest(r, r.PathValue("work_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1085,7 +1868,8 @@ func (s *Server) reapExpiredWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	expired, err := s.store.ReapExpiredWorkerWork(input)
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	expired, err := managedagents.ReapExpiredWorkerWorkWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1097,12 +1881,12 @@ func (s *Server) reapExpiredWorkerWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) diagnoseWorkerWork(w http.ResponseWriter, r *http.Request) {
-	work, err := s.store.GetWorkerWork(r.PathValue("work_id"))
+	work, err := s.getWorkerWorkForRequest(r, r.PathValue("work_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	response := diagnoseWorkerWorkState(s.store, work, time.Now().UTC())
+	response := diagnoseWorkerWorkState(r.Context(), s.store, work, time.Now().UTC())
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -1112,7 +1896,7 @@ func (s *Server) cancelWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	work, err := s.store.CancelWorkerWork(r.PathValue("work_id"), input)
+	work, err := managedagents.CancelWorkerWorkWithContext(r.Context(), s.store, r.PathValue("work_id"), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1126,7 +1910,7 @@ func (s *Server) requeueWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	work, err := s.store.RequeueWorkerWork(r.PathValue("work_id"), input)
+	work, err := managedagents.RequeueWorkerWorkWithContext(r.Context(), s.store, r.PathValue("work_id"), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1134,10 +1918,10 @@ func (s *Server) requeueWorkerWork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, work)
 }
 
-func diagnoseWorkerWorkState(store managedagents.Store, work managedagents.WorkerWork, now time.Time) workerWorkDiagnoseResponse {
+func diagnoseWorkerWorkState(ctx context.Context, store managedagents.Store, work managedagents.WorkerWork, now time.Time) workerWorkDiagnoseResponse {
 	response := workerWorkDiagnoseResponse{Work: work}
 	if strings.TrimSpace(work.WorkerID) != "" {
-		worker, err := store.GetWorker(work.WorkerID)
+		worker, err := managedagents.GetWorkerWithContext(ctx, store, work.WorkerID)
 		if err != nil {
 			response.Reasons = append(response.Reasons, "assigned worker not found")
 		} else {
@@ -1233,7 +2017,7 @@ func (s *Server) pollWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: invalid lease_seconds: %v", managedagents.ErrInvalid, err))
 		return
 	}
-	work, err := s.store.PollWorkerWork(r.PathValue("worker_id"), managedagents.PollWorkerWorkInput{
+	work, err := managedagents.PollWorkerWorkWithContext(r.Context(), s.store, r.PathValue("worker_id"), managedagents.PollWorkerWorkInput{
 		LeaseSeconds: leaseSeconds,
 	})
 	if err != nil {
@@ -1244,7 +2028,7 @@ func (s *Server) pollWorkerWork(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ackWorkerWork(w http.ResponseWriter, r *http.Request) {
-	work, err := s.store.AckWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"))
+	work, err := managedagents.AckWorkerWorkWithContext(r.Context(), s.store, r.PathValue("worker_id"), r.PathValue("work_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1258,7 +2042,7 @@ func (s *Server) heartbeatWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	work, err := s.store.HeartbeatWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"), input)
+	work, err := managedagents.HeartbeatWorkerWorkWithContext(r.Context(), s.store, r.PathValue("worker_id"), r.PathValue("work_id"), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1272,7 +2056,7 @@ func (s *Server) completeWorkerWork(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	work, err := s.store.CompleteWorkerWork(r.PathValue("worker_id"), r.PathValue("work_id"), input)
+	work, err := managedagents.CompleteWorkerWorkWithContext(r.Context(), s.store, r.PathValue("worker_id"), r.PathValue("work_id"), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1286,7 +2070,9 @@ func (s *Server) createObjectRef(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	object, err := s.store.CreateObjectRef(input)
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	input.CreatedBy = requestActorID(r, input.CreatedBy)
+	object, err := managedagents.CreateObjectRefWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1295,7 +2081,7 @@ func (s *Server) createObjectRef(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getObjectRef(w http.ResponseWriter, r *http.Request) {
-	object, err := s.store.GetObjectRef(r.PathValue("object_ref_id"))
+	object, err := s.getObjectRefForRequest(r, r.PathValue("object_ref_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1304,7 +2090,7 @@ func (s *Server) getObjectRef(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) downloadObjectRef(w http.ResponseWriter, r *http.Request) {
-	objectRef, err := s.store.GetObjectRef(r.PathValue("object_ref_id"))
+	objectRef, err := s.getObjectRefForRequest(r, r.PathValue("object_ref_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1357,7 +2143,7 @@ func (s *Server) downloadObjectRef(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteObjectRef(w http.ResponseWriter, r *http.Request) {
 	objectRefID := r.PathValue("object_ref_id")
-	count, err := s.store.CountSessionArtifactsByObjectRef(objectRefID)
+	count, err := managedagents.CountSessionArtifactsByObjectRefWithContext(r.Context(), s.store, objectRefID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1366,7 +2152,7 @@ func (s *Server) deleteObjectRef(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: object ref is still referenced by %d artifact(s)", managedagents.ErrConflict, count))
 		return
 	}
-	if err := s.store.DeleteObjectRef(objectRefID); err != nil {
+	if err := managedagents.DeleteObjectRefWithContext(r.Context(), s.store, objectRefID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -1374,7 +2160,7 @@ func (s *Server) deleteObjectRef(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSessionArtifact(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSessionArtifact(r.PathValue("session_id"), r.PathValue("artifact_id")); err != nil {
+	if err := managedagents.DeleteSessionArtifactWithContext(r.Context(), s.store, r.PathValue("session_id"), r.PathValue("artifact_id")); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -1387,16 +2173,28 @@ func (s *Server) canDownloadObjectRef(r *http.Request, objectRef managedagents.O
 		if sessionID == "" {
 			return false
 		}
-		session, err := s.store.GetSession(sessionID)
-		return err == nil && session.WorkspaceID == objectRef.WorkspaceID
+		session, err := s.getSessionForRequest(r, sessionID)
+		if err != nil || session.WorkspaceID != objectRef.WorkspaceID {
+			return false
+		}
+		if principal, ok := PrincipalFromRequest(r); ok {
+			return authorizeSessionPrincipal(principal, session) == nil
+		}
+		return true
 	}
 	if objectRef.Visibility == managedagents.ObjectVisibilitySession {
 		if sessionID == "" {
 			return false
 		}
-		artifacts, err := s.store.ListSessionArtifacts(sessionID)
+		artifacts, err := managedagents.ListSessionArtifactsWithContext(r.Context(), s.store, sessionID)
 		if err != nil {
 			return false
+		}
+		if principal, ok := PrincipalFromRequest(r); ok {
+			session, err := s.getSessionForRequest(r, sessionID)
+			if err != nil || authorizeSessionPrincipal(principal, session) != nil {
+				return false
+			}
 		}
 		for _, artifact := range artifacts {
 			if artifact.ObjectRefID == objectRef.ID {
@@ -1454,14 +2252,31 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
 	if input.LLMProvider == "" {
 		input.LLMProvider = s.defaultLLMProvider
 	}
 	if input.LLMModel == "" && input.Model == "" {
 		input.LLMModel = s.defaultLLMModel
 	}
+	if input.Skills != nil {
+		normalized, err := s.validateAgentSkills(r.Context(), input.WorkspaceID, input.Skills)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		input.Skills = normalized
+	}
+	if input.MCP != nil {
+		normalized, err := s.pinAgentMCPBindings(r, input.WorkspaceID, input.MCP)
+		if err != nil {
+			writeMCPRegistryError(w, err)
+			return
+		}
+		input.MCP = normalized
+	}
 
-	agent, err := s.store.CreateAgent(input)
+	agent, err := managedagents.CreateAgentWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1470,21 +2285,74 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, agent)
 }
 
-func (s *Server) listAgents(w http.ResponseWriter, _ *http.Request) {
-	if _, err := s.ensureDefaultAgent(); err != nil {
+func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
+	workspaceID := requestWorkspaceID(r, managedagents.DefaultWorkspaceID)
+	if _, err := s.ensureDefaultAgentForWorkspace(r.Context(), workspaceID); err != nil {
 		writeError(w, err)
 		return
 	}
-	agents, err := s.store.ListAgents()
+	agents, err := s.listAgentsForRequest(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
+	writeJSON(w, http.StatusOK, map[string]any{"agents": nonNilSlice(agents)})
 }
 
-func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
-	agent, err := s.store.GetAgent(r.PathValue("agent_id"))
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+	current, err := s.getAgentForRequest(r, r.PathValue("agent_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	var request agentUpdateRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	input := managedagents.UpdateAgentInput{
+		AgentID: r.PathValue("agent_id"),
+		Name:    current.Name,
+		System:  current.ConfigVersion.System,
+	}
+	if request.Name != nil {
+		input.Name = strings.TrimSpace(*request.Name)
+	}
+	if request.LLMProvider != nil {
+		input.LLMProvider = strings.TrimSpace(*request.LLMProvider)
+	}
+	if request.LLMModel != nil {
+		input.LLMModel = strings.TrimSpace(*request.LLMModel)
+	}
+	if request.Model != nil && request.LLMModel == nil {
+		input.LLMModel = strings.TrimSpace(*request.Model)
+	}
+	if request.System != nil {
+		input.System = *request.System
+	}
+	if request.Tools != nil {
+		input.Tools = *request.Tools
+	}
+	if request.MCP != nil {
+		normalized, validateErr := s.pinAgentMCPBindings(r, current.WorkspaceID, *request.MCP)
+		if validateErr != nil {
+			writeMCPRegistryError(w, validateErr)
+			return
+		}
+		input.MCP = normalized
+	}
+	if request.Skills != nil {
+		normalized, validateErr := s.validateAgentSkills(r.Context(), current.WorkspaceID, *request.Skills)
+		if validateErr != nil {
+			writeError(w, validateErr)
+			return
+		}
+		input.Skills = normalized
+	}
+
+	agent, err := managedagents.UpdateAgentWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1492,8 +2360,17 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agent)
 }
 
-func (s *Server) getDefaultAgent(w http.ResponseWriter, _ *http.Request) {
-	agent, err := s.ensureDefaultAgent()
+func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
+	agent, err := s.getAgentForRequest(r, r.PathValue("agent_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
+func (s *Server) getDefaultAgent(w http.ResponseWriter, r *http.Request) {
+	agent, err := s.ensureDefaultAgentForWorkspace(r.Context(), requestWorkspaceID(r, managedagents.DefaultWorkspaceID))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1502,27 +2379,32 @@ func (s *Server) getDefaultAgent(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) ensureDefaultAgent() (managedagents.Agent, error) {
-	agent, err := s.store.GetAgent(managedagents.BuiltinGeneralAgentID)
+	return s.ensureDefaultAgentForWorkspace(context.Background(), managedagents.DefaultWorkspaceID)
+}
+
+func (s *Server) ensureDefaultAgentForWorkspace(ctx context.Context, workspaceID string) (managedagents.Agent, error) {
+	input := managedagents.BuiltinGeneralAgentInputForWorkspace(workspaceID, s.defaultLLMProvider, s.defaultLLMModel)
+	agent, err := managedagents.GetAgentWithContext(ctx, s.store, input.ID)
 	if err == nil {
 		return agent, nil
 	}
 	if !errors.Is(err, managedagents.ErrNotFound) {
 		return managedagents.Agent{}, err
 	}
-	return s.store.EnsureAgent(managedagents.BuiltinGeneralAgentInput(s.defaultLLMProvider, s.defaultLLMModel))
+	return managedagents.EnsureAgentWithContext(ctx, s.store, input)
 }
 
 func (s *Server) listAgentConfigVersions(w http.ResponseWriter, r *http.Request) {
-	versions, err := s.store.ListAgentConfigVersions(r.PathValue("agent_id"))
+	versions, err := managedagents.ListAgentConfigVersionsWithContext(r.Context(), s.store, r.PathValue("agent_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"config_versions": versions})
+	writeJSON(w, http.StatusOK, map[string]any{"config_versions": nonNilSlice(versions)})
 }
 
 func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request) {
-	current, err := s.store.GetAgent(r.PathValue("agent_id"))
+	current, err := s.getAgentForRequest(r, r.PathValue("agent_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1550,16 +2432,30 @@ func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request
 	if request.Tools != nil {
 		next.Tools = cloneJSONRaw(*request.Tools)
 	}
+	if request.MCP != nil {
+		normalized, validateErr := s.pinAgentMCPBindings(r, current.WorkspaceID, *request.MCP)
+		if validateErr != nil {
+			writeMCPRegistryError(w, validateErr)
+			return
+		}
+		next.MCP = cloneJSONRaw(normalized)
+	}
 	if request.Skills != nil {
-		next.Skills = cloneJSONRaw(*request.Skills)
+		normalizedSkills, validateErr := s.validateAgentSkills(r.Context(), current.WorkspaceID, *request.Skills)
+		if validateErr != nil {
+			writeError(w, validateErr)
+			return
+		}
+		next.Skills = normalizedSkills
 	}
 
-	agent, err := s.store.CreateAgentConfigVersion(managedagents.CreateAgentConfigVersionInput{
+	agent, err := managedagents.CreateAgentConfigVersionWithContext(r.Context(), s.store, managedagents.CreateAgentConfigVersionInput{
 		AgentID:     current.ID,
 		LLMProvider: next.LLMProvider,
 		LLMModel:    next.LLMModel,
 		System:      next.System,
 		Tools:       next.Tools,
+		MCP:         next.MCP,
 		Skills:      next.Skills,
 	})
 	if err != nil {
@@ -1567,6 +2463,78 @@ func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusCreated, agent)
+}
+
+func (s *Server) rollbackAgentConfigVersion(w http.ResponseWriter, r *http.Request) {
+	agentID := r.PathValue("agent_id")
+	sourceVersion, err := strconv.Atoi(r.PathValue("version"))
+	if err != nil || sourceVersion < 1 {
+		err = fmt.Errorf("%w: version must be a positive integer", managedagents.ErrInvalid)
+		s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, map[string]any{"source_version": r.PathValue("version")})
+		writeError(w, err)
+		return
+	}
+
+	current, err := s.getAgentForRequest(r, agentID)
+	if err != nil {
+		s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, map[string]any{"source_version": sourceVersion})
+		writeError(w, err)
+		return
+	}
+	if sourceVersion >= current.CurrentConfigVersion {
+		err = fmt.Errorf("%w: rollback source must be older than current version %d", managedagents.ErrInvalid, current.CurrentConfigVersion)
+		s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, map[string]any{"source_version": sourceVersion, "previous_version": current.CurrentConfigVersion})
+		writeError(w, err)
+		return
+	}
+
+	versions, err := managedagents.ListAgentConfigVersionsWithContext(r.Context(), s.store, agentID)
+	if err != nil {
+		s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, map[string]any{"source_version": sourceVersion, "previous_version": current.CurrentConfigVersion})
+		writeError(w, err)
+		return
+	}
+	var source *managedagents.AgentConfigVersion
+	for index := range versions {
+		if versions[index].Version == sourceVersion {
+			source = &versions[index]
+			break
+		}
+	}
+	if source == nil {
+		err = fmt.Errorf("%w: agent config version %s#%d", managedagents.ErrNotFound, agentID, sourceVersion)
+		s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, map[string]any{"source_version": sourceVersion, "previous_version": current.CurrentConfigVersion})
+		writeError(w, err)
+		return
+	}
+
+	rolledBack, err := managedagents.CreateAgentConfigVersionWithContext(r.Context(), s.store, managedagents.CreateAgentConfigVersionInput{
+		AgentID:     agentID,
+		LLMProvider: source.LLMProvider,
+		LLMModel:    source.LLMModel,
+		System:      source.System,
+		Tools:       cloneJSONRaw(source.Tools),
+		MCP:         cloneJSONRaw(source.MCP),
+		Skills:      cloneJSONRaw(source.Skills),
+	})
+	details := map[string]any{
+		"source_version":   sourceVersion,
+		"previous_version": current.CurrentConfigVersion,
+	}
+	if err == nil {
+		details["new_version"] = rolledBack.CurrentConfigVersion
+	}
+	s.recordOperatorAction(r, "", "agent.config.rollback", "agent", agentID, err, details)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, agentConfigRollbackResponse{
+		Agent:           rolledBack,
+		PreviousVersion: current.CurrentConfigVersion,
+		SourceVersion:   sourceVersion,
+		NewVersion:      rolledBack.CurrentConfigVersion,
+	})
 }
 
 func cloneJSONRaw(value json.RawMessage) json.RawMessage {
@@ -1578,14 +2546,36 @@ func cloneJSONRaw(value json.RawMessage) json.RawMessage {
 	return clone
 }
 
+func (s *Server) validateAgentSkills(ctx context.Context, workspaceID string, raw json.RawMessage) (json.RawMessage, error) {
+	registry, ok := s.store.(skills.Registry)
+	if !ok {
+		return nil, fmt.Errorf("%w: skill registry is unavailable", managedagents.ErrInvalid)
+	}
+	result, err := skills.ResolveRegistry(ctx, registry, fallbackString(workspaceID, managedagents.DefaultWorkspaceID), raw, 0)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	for _, resolved := range result.Skills {
+		if resolved.Skill.Status != skills.StatusActive {
+			return nil, fmt.Errorf("%w: skill %q is archived", managedagents.ErrInvalid, resolved.Skill.Identifier)
+		}
+	}
+	normalized, err := json.Marshal(result.Config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode skills config: %v", managedagents.ErrInvalid, err)
+	}
+	return normalized, nil
+}
+
 func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request) {
 	var input managedagents.CreateEnvironmentInput
 	if err := decodeJSON(r, &input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
 
-	environment, err := s.store.CreateEnvironment(input)
+	environment, err := managedagents.CreateEnvironmentWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1600,8 +2590,17 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	input.OwnerID = requestOwnerID(r, input.OwnerID)
+	input.CreatedBy = requestActorID(r, input.CreatedBy)
+	if input.ParentSessionID != "" {
+		if err := s.authorizeSessionID(r, input.ParentSessionID); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	if input.AgentID == "" && input.Agent == "" {
-		agent, err := s.ensureDefaultAgent()
+		agent, err := s.ensureDefaultAgentForWorkspace(r.Context(), input.WorkspaceID)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -1609,7 +2608,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		input.AgentID = agent.ID
 	}
 
-	session, err := s.store.CreateSession(input)
+	session, err := managedagents.CreateSessionWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1630,8 +2629,9 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions, err := s.store.ListSessions(managedagents.ListSessionsInput{
-		WorkspaceID:     r.URL.Query().Get("workspace_id"),
+	sessions, err := s.listSessionsForRequest(r, managedagents.ListSessionsInput{
+		WorkspaceID:     requestWorkspaceID(r, r.URL.Query().Get("workspace_id")),
+		OwnerID:         requestSessionOwnerFilter(r),
 		Status:          r.URL.Query().Get("status"),
 		IncludeArchived: includeArchived != nil && *includeArchived,
 		Limit:           limit,
@@ -1640,16 +2640,39 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": nonNilSlice(sessions)})
 }
 
 func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
-	session, err := s.store.GetSession(r.PathValue("session_id"))
+	session, err := s.getSessionForRequest(r, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) updateSessionMetadata(w http.ResponseWriter, r *http.Request) {
+	var input managedagents.UpdateSessionMetadataInput
+	if err := decodeJSON(r, &input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	sessionID := r.PathValue("session_id")
+	session, err := managedagents.UpdateSessionMetadataWithContext(r.Context(), s.store, sessionID, input)
+	details := map[string]any{}
+	if input.Pinned != nil {
+		details["pinned"] = *input.Pinned
+	}
+	if input.Tags != nil {
+		details["tags"] = *input.Tags
+	}
+	s.recordOperatorAction(r, sessionID, "session.metadata.update", "session", sessionID, err, details)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, session)
 }
 
@@ -1660,7 +2683,8 @@ func (s *Server) createSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.SessionID = r.PathValue("session_id")
-	artifact, err := s.store.CreateSessionArtifact(input)
+	input.CreatedBy = requestActorID(r, input.CreatedBy)
+	artifact, err := managedagents.CreateSessionArtifactWithContext(r.Context(), s.store, input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1669,25 +2693,25 @@ func (s *Server) createSessionArtifact(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessionArtifacts(w http.ResponseWriter, r *http.Request) {
-	artifacts, err := s.store.ListSessionArtifacts(r.PathValue("session_id"))
+	artifacts, err := managedagents.ListSessionArtifactsWithContext(r.Context(), s.store, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"artifacts": artifacts})
+	writeJSON(w, http.StatusOK, map[string]any{"artifacts": nonNilSlice(artifacts)})
 }
 
 func (s *Server) downloadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("session_id")
 	artifactID := r.PathValue("artifact_id")
 
-	artifact, err := s.store.GetSessionArtifact(sessionID, artifactID)
+	artifact, err := managedagents.GetSessionArtifactWithContext(r.Context(), s.store, sessionID, artifactID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
-	objectRef, err := s.store.GetObjectRef(artifact.ObjectRefID)
+	objectRef, err := s.getObjectRefForRequest(r, artifact.ObjectRefID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1739,14 +2763,27 @@ func (s *Server) downloadSessionArtifact(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("session_id")
-	session, err := s.store.GetSession(sessionID)
+	session, err := s.getSessionForRequest(r, sessionID)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))), "multipart/form-data") {
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "artifact upload requires multipart/form-data"})
+		return
+	}
+	if r.ContentLength > maxArtifactUploadBytes+1024 {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact upload exceeds size limit"})
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxArtifactUploadBytes+1024)
 	if err := r.ParseMultipartForm(maxArtifactUploadBytes); err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact upload exceeds size limit"})
+			return
+		}
 		writeError(w, fmt.Errorf("%w: parse multipart artifact upload: %v", managedagents.ErrInvalid, err))
 		return
 	}
@@ -1802,7 +2839,7 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	objectRef, err := s.store.CreateObjectRef(managedagents.CreateObjectRefInput{
+	objectRef, err := managedagents.CreateObjectRefWithContext(r.Context(), s.store, managedagents.CreateObjectRefInput{
 		WorkspaceID:     session.WorkspaceID,
 		StorageProvider: managedagents.ObjectStorageProviderS3,
 		Bucket:          fallbackString(putResult.Bucket, bucket),
@@ -1814,7 +2851,7 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		ETag:            putResult.ETag,
 		Visibility:      fallbackString(r.FormValue("visibility"), managedagents.ObjectVisibilityWorkspace),
 		Metadata:        metadata,
-		CreatedBy:       fallbackString(r.FormValue("created_by"), "system"),
+		CreatedBy:       requestActorID(r, fallbackString(r.FormValue("created_by"), "system")),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1825,7 +2862,7 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = safeArtifactFileName(header.Filename)
 	}
-	artifact, err := s.store.CreateSessionArtifact(managedagents.CreateSessionArtifactInput{
+	artifact, err := managedagents.CreateSessionArtifactWithContext(r.Context(), s.store, managedagents.CreateSessionArtifactInput{
 		SessionID:     sessionID,
 		EnvironmentID: r.FormValue("environment_id"),
 		ObjectRefID:   objectRef.ID,
@@ -1835,7 +2872,7 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		Description:   r.FormValue("description"),
 		ArtifactType:  fallbackString(r.FormValue("artifact_type"), managedagents.ArtifactTypeFile),
 		Metadata:      metadata,
-		CreatedBy:     fallbackString(r.FormValue("created_by"), "system"),
+		CreatedBy:     requestActorID(r, fallbackString(r.FormValue("created_by"), "system")),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -1843,8 +2880,9 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"object_ref": objectRef,
-		"artifact":   artifact,
+		"object_ref":     objectRef,
+		"artifact":       artifact,
+		"workspace_path": capability.SessionArtifactSandboxPath(artifact),
 	})
 }
 
@@ -1905,100 +2943,12 @@ func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	session, err := s.store.GetSession(r.PathValue("session_id"))
+	session, err := s.getSessionForRequest(r, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	settings := map[string]any{}
-	if len(session.RuntimeSettings) > 0 && string(session.RuntimeSettings) != "null" {
-		if err := json.Unmarshal(session.RuntimeSettings, &settings); err != nil {
-			writeError(w, fmt.Errorf("%w: existing runtime_settings must be valid JSON", managedagents.ErrInvalid))
-			return
-		}
-	}
-	if request.LLMProvider != nil || request.LLMModel != nil || request.Model != nil {
-		currentConfig, err := s.store.ResolveAgentRuntimeConfig(r.PathValue("session_id"))
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		providerID := currentConfig.LLMProvider
-		modelName := currentConfig.LLMModel
-		if request.LLMProvider != nil {
-			providerID = strings.TrimSpace(*request.LLMProvider)
-		}
-		if request.LLMModel != nil {
-			modelName = strings.TrimSpace(*request.LLMModel)
-		}
-		if request.Model != nil {
-			modelName = strings.TrimSpace(*request.Model)
-		}
-		if providerID == "" || modelName == "" {
-			writeError(w, fmt.Errorf("%w: llm_provider and llm_model are required together", managedagents.ErrInvalid))
-			return
-		}
-		provider, err := s.store.GetLLMProvider(providerID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if !provider.Enabled {
-			writeError(w, fmt.Errorf("%w: llm_provider %q is disabled", managedagents.ErrInvalid, providerID))
-			return
-		}
-		models, err := s.store.ListLLMModels(providerID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		modelFound := false
-		for _, model := range models {
-			if model.Model == modelName {
-				modelFound = true
-				break
-			}
-		}
-		if !modelFound {
-			writeError(w, fmt.Errorf("%w: llm_model %q not found for provider %q", managedagents.ErrInvalid, modelName, providerID))
-			return
-		}
-		settings["llm_provider"] = providerID
-		settings["llm_model"] = modelName
-	}
-	if request.InterventionMode != nil {
-		mode, ok := tools.NormalizeInterventionMode(*request.InterventionMode)
-		if !ok {
-			writeError(w, fmt.Errorf("%w: unsupported intervention_mode %q", managedagents.ErrInvalid, *request.InterventionMode))
-			return
-		}
-		settings["intervention_mode"] = mode
-	}
-	if request.ToolRuntime != nil {
-		runtime, ok := tools.NormalizeToolRuntime(*request.ToolRuntime)
-		if !ok {
-			writeError(w, fmt.Errorf("%w: unsupported tool_runtime %q", managedagents.ErrInvalid, *request.ToolRuntime))
-			return
-		}
-		settings["tool_runtime"] = runtime
-	}
-	if request.CloudSandboxRoot != nil {
-		settings["cloud_sandbox_root"] = strings.TrimSpace(*request.CloudSandboxRoot)
-	}
-	if request.CloudSandboxImage != nil {
-		settings["cloud_sandbox_image"] = strings.TrimSpace(*request.CloudSandboxImage)
-	}
-	if request.AllowNetwork != nil {
-		settings["cloud_sandbox_allow_network"] = *request.AllowNetwork
-	}
-	raw, err := json.Marshal(settings)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	session, err = s.store.UpdateSessionRuntimeSettings(r.PathValue("session_id"), managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: raw,
-	})
+	session, err = s.applySessionRuntimeSettingsPatch(r.Context(), session, request)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -2014,13 +2964,14 @@ func (s *Server) upgradeSessionAgentConfig(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	toCurrent := true
+	toCurrent := request.ToVersion == 0
 	if request.ToCurrent != nil {
 		toCurrent = *request.ToCurrent
 	}
-	result, err := s.store.UpgradeSessionAgentConfig(r.PathValue("session_id"), managedagents.UpgradeSessionAgentConfigInput{
-		ToCurrent: toCurrent,
-		UpdatedBy: request.UpdatedBy,
+	result, err := managedagents.UpgradeSessionAgentConfigWithContext(r.Context(), s.store, r.PathValue("session_id"), managedagents.UpgradeSessionAgentConfigInput{
+		ToCurrent:     toCurrent,
+		TargetVersion: request.ToVersion,
+		UpdatedBy:     request.UpdatedBy,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -2031,12 +2982,12 @@ func (s *Server) upgradeSessionAgentConfig(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) listSessionInterventions(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
-	interventions, err := s.store.ListSessionInterventions(r.PathValue("session_id"), status)
+	interventions, err := managedagents.ListSessionInterventionsWithContext(r.Context(), s.store, r.PathValue("session_id"), status)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"interventions": interventions})
+	writeJSON(w, http.StatusOK, map[string]any{"interventions": nonNilSlice(interventions)})
 }
 
 func (s *Server) approveSessionIntervention(w http.ResponseWriter, r *http.Request) {
@@ -2053,7 +3004,7 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	result, err := s.store.DecideSessionIntervention(r.PathValue("session_id"), managedagents.DecideSessionInterventionInput{
+	result, err := managedagents.DecideSessionInterventionWithContext(r.Context(), s.store, r.PathValue("session_id"), managedagents.DecideSessionInterventionInput{
 		TurnID:         r.PathValue("turn_id"),
 		CallID:         r.PathValue("call_id"),
 		Status:         status,
@@ -2064,7 +3015,7 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	resume := result.Intervention
-	shouldSchedule, err := s.shouldScheduleInterventionResume(result)
+	shouldSchedule, err := s.shouldScheduleInterventionResume(r.Context(), result)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -2077,6 +3028,7 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 		SessionID:          resume.SessionID,
 		TurnID:             resume.TurnID,
 		ResumeIntervention: &resume,
+		Scope:              accessScopeFromRequestOrSession(r, result.Intervention.SessionID, s.store),
 	}); err != nil && !errors.Is(err, runner.ErrTurnAlreadyRunning) {
 		s.logger.Error("intervention resume scheduling failed",
 			"session_id", resume.SessionID,
@@ -2091,18 +3043,18 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (s *Server) shouldScheduleInterventionResume(result managedagents.DecideSessionInterventionResult) (bool, error) {
-	if len(result.Events) > 0 {
-		return true, nil
-	}
-	session, err := s.store.GetSession(result.Intervention.SessionID)
+func (s *Server) shouldScheduleInterventionResume(ctx context.Context, result managedagents.DecideSessionInterventionResult) (bool, error) {
+	session, err := managedagents.GetSessionWithContext(ctx, s.store, result.Intervention.SessionID)
 	if err != nil {
 		return false, err
 	}
 	if session.Status != managedagents.SessionStatusRunning {
 		return false, nil
 	}
-	pending, err := s.store.ListSessionInterventions(result.Intervention.SessionID, managedagents.InterventionStatusPending)
+	if len(result.Events) > 0 {
+		return true, nil
+	}
+	pending, err := managedagents.ListSessionInterventionsWithContext(ctx, s.store, result.Intervention.SessionID, managedagents.InterventionStatusPending)
 	if err != nil {
 		return false, err
 	}
@@ -2126,7 +3078,17 @@ func rawJSONValue(raw json.RawMessage) any {
 }
 
 func (s *Server) archiveSession(w http.ResponseWriter, r *http.Request) {
-	session, err := s.store.ArchiveSession(r.PathValue("session_id"))
+	session, err := managedagents.ArchiveSessionWithContext(r.Context(), s.store, r.PathValue("session_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, session)
+}
+
+func (s *Server) restoreSession(w http.ResponseWriter, r *http.Request) {
+	session, err := managedagents.RestoreSessionWithContext(r.Context(), s.store, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -2136,7 +3098,7 @@ func (s *Server) archiveSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSession(r.PathValue("session_id")); err != nil {
+	if err := managedagents.DeleteSessionWithContext(r.Context(), s.store, r.PathValue("session_id")); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -2152,15 +3114,60 @@ func (s *Server) appendSessionEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := r.PathValue("session_id")
-	inputs, err := s.normalizeLatestMessageEvents(sessionID, request)
+	inputs, err := s.normalizeLatestMessageEvents(r.Context(), sessionID, request)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
-	events, err := s.store.AppendEvents(sessionID, inputs)
+	var events []managedagents.Event
+	session, getErr := s.getSessionForRequest(r, sessionID)
+	if getErr != nil {
+		writeError(w, getErr)
+		return
+	}
+	if session.ParentSessionID != "" && containsEventType(inputs, managedagents.EventUserMessage) {
+		switch {
+		case len(inputs) == 1 && inputs[0].Type == managedagents.EventUserMessage:
+			events, err = managedagents.StartSubagentTurnWithContext(r.Context(), s.store, managedagents.StartSubagentTurnInput{
+				SessionID: sessionID,
+				Payload:   inputs[0].Payload,
+				Limits:    s.subagentPolicy.storeLimits(),
+			})
+		case len(inputs) == 2 && session.Status == managedagents.SessionStatusRunning && inputs[0].Type == managedagents.EventUserInterrupt && inputs[1].Type == managedagents.EventUserMessage:
+			events, err = managedagents.AppendEventsWithContext(r.Context(), s.store, sessionID, inputs)
+		default:
+			err = fmt.Errorf("%w: subagent user.message must start through active admission", managedagents.ErrInvalid)
+		}
+	} else {
+		events, err = managedagents.AppendEventsWithContext(r.Context(), s.store, sessionID, inputs)
+	}
 	if err != nil {
-		if reminderEvents, reminderErr := s.appendApprovalReminderIfWaiting(sessionID, request.Events); reminderErr == nil && len(reminderEvents) > 0 {
+		var violation managedagents.SubagentQuotaViolation
+		if errors.As(err, &violation) {
+			if len(inputs) == 1 && inputs[0].Type == managedagents.EventUserMessage {
+				queued, queueErr := managedagents.EnqueueSubagentStartWithContext(r.Context(), s.store, managedagents.EnqueueSubagentStartInput{
+					SessionID: sessionID, ParentSessionID: session.ParentSessionID,
+					Payload: inputs[0].Payload, Limits: s.subagentPolicy.storeLimits(),
+				})
+				if queueErr == nil {
+					writeJSON(w, http.StatusAccepted, map[string]any{"queued": true, "queue_request": queued})
+					return
+				}
+				if errors.As(queueErr, &violation) {
+					err = queueErr
+				} else {
+					writeError(w, queueErr)
+					return
+				}
+			}
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": map[string]any{"type": violation.Type, "message": violation.Message},
+				"state": violation.State,
+			})
+			return
+		}
+		if reminderEvents, reminderErr := s.appendApprovalReminderIfWaiting(r.Context(), sessionID, request.Events); reminderErr == nil && len(reminderEvents) > 0 {
 			s.logEvents("session approval reminder appended", reminderEvents)
 			writeJSON(w, http.StatusAccepted, map[string]any{"events": reminderEvents})
 			return
@@ -2175,12 +3182,21 @@ func (s *Server) appendSessionEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"events": events})
 }
 
-func (s *Server) normalizeLatestMessageEvents(sessionID string, request appendEventsRequest) ([]managedagents.AppendEventInput, error) {
+func containsEventType(inputs []managedagents.AppendEventInput, eventType string) bool {
+	for _, input := range inputs {
+		if input.Type == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) normalizeLatestMessageEvents(ctx context.Context, sessionID string, request appendEventsRequest) ([]managedagents.AppendEventInput, error) {
 	if !request.PreferLatest || len(request.Events) != 1 || request.Events[0].Type != managedagents.EventUserMessage {
 		return request.Events, nil
 	}
 
-	session, err := s.store.GetSession(sessionID)
+	session, err := managedagents.GetSessionWithContext(ctx, s.store, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -2188,7 +3204,7 @@ func (s *Server) normalizeLatestMessageEvents(sessionID string, request appendEv
 		return request.Events, nil
 	}
 
-	pending, err := s.store.ListSessionInterventions(sessionID, managedagents.InterventionStatusPending)
+	pending, err := managedagents.ListSessionInterventionsWithContext(ctx, s.store, sessionID, managedagents.InterventionStatusPending)
 	if err != nil {
 		return nil, err
 	}
@@ -2205,18 +3221,18 @@ func (s *Server) normalizeLatestMessageEvents(sessionID string, request appendEv
 	}, nil
 }
 
-func (s *Server) appendApprovalReminderIfWaiting(sessionID string, inputs []managedagents.AppendEventInput) ([]managedagents.Event, error) {
+func (s *Server) appendApprovalReminderIfWaiting(ctx context.Context, sessionID string, inputs []managedagents.AppendEventInput) ([]managedagents.Event, error) {
 	if len(inputs) != 1 || inputs[0].Type != managedagents.EventUserMessage {
 		return nil, nil
 	}
-	session, err := s.store.GetSession(sessionID)
+	session, err := managedagents.GetSessionWithContext(ctx, s.store, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	if session.Status != managedagents.SessionStatusRunning {
 		return nil, nil
 	}
-	pending, err := s.store.ListSessionInterventions(sessionID, managedagents.InterventionStatusPending)
+	pending, err := managedagents.ListSessionInterventionsWithContext(ctx, s.store, sessionID, managedagents.InterventionStatusPending)
 	if err != nil {
 		return nil, err
 	}
@@ -2250,7 +3266,7 @@ func (s *Server) appendApprovalReminderIfWaiting(sessionID string, inputs []mana
 			Payload: payload,
 		})
 	}
-	return s.store.AppendEvents(sessionID, events)
+	return managedagents.AppendEventsWithContext(ctx, s.store, sessionID, events)
 }
 
 func approvalReminderPayload(pending []managedagents.SessionIntervention) json.RawMessage {
@@ -2275,6 +3291,7 @@ func approvalReminderPayload(pending []managedagents.SessionIntervention) json.R
 }
 
 func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events []managedagents.Event) {
+	scope := accessScopeFromRequestOrSession(r, sessionID, s.store)
 	for _, event := range events {
 		switch event.Type {
 		case managedagents.EventUserMessage:
@@ -2291,6 +3308,7 @@ func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events 
 				TurnID:       turnID,
 				UserEventSeq: event.Seq,
 				UserPayload:  event.Payload,
+				Scope:        scope,
 			}); err != nil {
 				reason := err.Error()
 				s.logger.Error("runner start turn failed",
@@ -2300,7 +3318,7 @@ func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events 
 					"event_seq", event.Seq,
 					"error", err,
 				)
-				failedEvents, failErr := s.store.FailSessionTurn(sessionID, turnID, reason)
+				failedEvents, failErr := managedagents.FailSessionTurnWithContext(r.Context(), s.store, sessionID, turnID, reason)
 				if failErr != nil {
 					s.logger.Error("session turn fail transition failed",
 						"session_id", sessionID,
@@ -2327,6 +3345,17 @@ func (s *Server) dispatchRunnerEvents(r *http.Request, sessionID string, events 
 			}
 		}
 	}
+}
+
+func accessScopeFromRequestOrSession(r *http.Request, sessionID string, store managedagents.Store) managedagents.AccessScope {
+	if scope, ok := requestAccessScope(r); ok {
+		return scope
+	}
+	session, err := managedagents.GetSessionWithContext(r.Context(), store, sessionID)
+	if err != nil {
+		return managedagents.AccessScope{}
+	}
+	return managedagents.AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID}
 }
 
 func (s *Server) logEvents(message string, events []managedagents.Event) {
@@ -2361,13 +3390,13 @@ func (s *Server) listSessionEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := s.store.ListEvents(r.PathValue("session_id"), afterSeq)
+	events, err := managedagents.ListEventsWithContext(r.Context(), s.store, r.PathValue("session_id"), afterSeq)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+	writeJSON(w, http.StatusOK, map[string]any{"events": nonNilSlice(events)})
 }
 
 func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
@@ -2385,7 +3414,7 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 
 	sessionID := r.PathValue("session_id")
 	// Store 以持久化事件序号为游标统一补历史和追实时事件，避免查询与订阅之间出现空窗。
-	events, cancel, err := s.store.SubscribeEvents(sessionID, afterSeq)
+	events, cancel, err := managedagents.SubscribeEventsWithContext(r.Context(), s.store, sessionID, afterSeq)
 	if err != nil {
 		writeError(w, err)
 		return

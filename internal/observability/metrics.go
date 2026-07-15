@@ -1,29 +1,304 @@
 package observability
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
+	"tiggy-manage-agent/internal/skillmarketplace"
+	"tiggy-manage-agent/internal/skillretention"
 )
 
 type MetricsSnapshot struct {
-	Usage         managedagents.LLMUsageAggregateReport
-	Workers       []managedagents.Worker
-	Observability Status
-	Trace         *TurnTrace
-	Events        []managedagents.Event
-	Interventions []managedagents.SessionIntervention
+	Usage                  managedagents.LLMUsageAggregateReport
+	Workers                []managedagents.Worker
+	Subagents              managedagents.SubagentMetrics
+	TaskGroups             managedagents.SubagentTaskGroupMetrics
+	Observability          Status
+	Trace                  *TurnTrace
+	Events                 []managedagents.Event
+	Interventions          []managedagents.SessionIntervention
+	BinaryScans            []skillmarketplace.BinaryScanMetric
+	SkillAssetGC           skillretention.MetricsSnapshot
+	MCPHost                mcp.StdioHostStats
+	MCPHTTPHost            mcp.StreamableHTTPHostStats
+	MCPRuntimeGuard        mcp.RuntimeGuardStats
+	AuthorizationDecisions []AuthorizationDecisionMetric
+	SecurityAuditExporter  SecurityAuditExporterMetrics
+}
+
+type AuthorizationDecisionMetric struct {
+	Outcome  string
+	Reason   string
+	AuthType string
+	Count    int64
 }
 
 func PrometheusText(snapshot MetricsSnapshot) string {
 	var builder strings.Builder
 	writeUsageMetrics(&builder, snapshot.Usage)
 	writeWorkerMetrics(&builder, snapshot.Workers)
+	writeSubagentMetrics(&builder, snapshot.Subagents)
+	writeTaskGroupMetrics(&builder, snapshot.TaskGroups)
 	writeObservabilityMetrics(&builder, snapshot.Observability)
+	writeSkillBinaryScanMetrics(&builder, snapshot.BinaryScans)
+	writeSkillAssetGCMetrics(&builder, snapshot.SkillAssetGC)
+	writeMCPHostMetrics(&builder, snapshot.MCPHost)
+	writeMCPHTTPHostMetrics(&builder, snapshot.MCPHTTPHost)
+	writeMCPRuntimeGuardMetrics(&builder, snapshot.MCPRuntimeGuard)
+	writeAuthorizationDecisionMetrics(&builder, snapshot.AuthorizationDecisions)
+	writeSecurityAuditExporterMetrics(&builder, snapshot.SecurityAuditExporter)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeSecurityAuditExporterMetrics(builder *strings.Builder, metrics SecurityAuditExporterMetrics) {
+	writeMetricHelp(builder, "tma_security_audit_exporter_enabled", "Whether the OTLP security audit log exporter is enabled.")
+	writeMetricType(builder, "tma_security_audit_exporter_enabled", "gauge")
+	writeMetric(builder, "tma_security_audit_exporter_enabled", nil, boolMetric(metrics.Enabled))
+	writeMetricHelp(builder, "tma_security_audit_exporter_durable", "Whether authorization audits use the PostgreSQL durable outbox.")
+	writeMetricType(builder, "tma_security_audit_exporter_durable", "gauge")
+	writeMetric(builder, "tma_security_audit_exporter_durable", nil, boolMetric(metrics.Durable))
+	writeMetricHelp(builder, "tma_security_audit_exporter_queue_depth", "Authorization audit events currently waiting for OTLP export.")
+	writeMetricType(builder, "tma_security_audit_exporter_queue_depth", "gauge")
+	writeMetric(builder, "tma_security_audit_exporter_queue_depth", nil, metrics.QueueDepth)
+	writeMetricHelp(builder, "tma_security_audit_exporter_queue_capacity", "Maximum queued authorization audit events.")
+	writeMetricType(builder, "tma_security_audit_exporter_queue_capacity", "gauge")
+	writeMetric(builder, "tma_security_audit_exporter_queue_capacity", nil, metrics.QueueCapacity)
+	writeMetricHelp(builder, "tma_security_audit_export_events_total", "Authorization audit OTLP export events by final outcome.")
+	writeMetricType(builder, "tma_security_audit_export_events_total", "counter")
+	writeMetric(builder, "tma_security_audit_export_events_total", map[string]string{"outcome": "sent"}, metrics.Sent)
+	writeMetric(builder, "tma_security_audit_export_events_total", map[string]string{"outcome": "failed"}, metrics.Failed)
+	writeMetric(builder, "tma_security_audit_export_events_total", map[string]string{"outcome": "dropped"}, metrics.Dropped)
+	writeMetric(builder, "tma_security_audit_export_events_total", map[string]string{"outcome": "persistence_failed"}, metrics.PersistenceFailed)
+	writeMetricHelp(builder, "tma_security_audit_outbox_events", "Durable authorization audit outbox events by status.")
+	writeMetricType(builder, "tma_security_audit_outbox_events", "gauge")
+	writeMetric(builder, "tma_security_audit_outbox_events", map[string]string{"status": "pending"}, metrics.Pending)
+	writeMetric(builder, "tma_security_audit_outbox_events", map[string]string{"status": "delivering"}, metrics.Delivering)
+	writeMetric(builder, "tma_security_audit_outbox_events", map[string]string{"status": "delivered"}, metrics.Delivered)
+	writeMetric(builder, "tma_security_audit_outbox_events", map[string]string{"status": "dead_letter"}, metrics.DeadLetter)
+	writeMetricHelp(builder, "tma_security_audit_outbox_oldest_pending_seconds", "Age of the oldest pending or delivering authorization audit event.")
+	writeMetricType(builder, "tma_security_audit_outbox_oldest_pending_seconds", "gauge")
+	writeMetric(builder, "tma_security_audit_outbox_oldest_pending_seconds", nil, metrics.OldestPendingSeconds)
+	writeMetricHelp(builder, "tma_security_audit_integrity_status_available", "Whether durable HMAC integrity key lifecycle status was read successfully.")
+	writeMetricType(builder, "tma_security_audit_integrity_status_available", "gauge")
+	writeMetric(builder, "tma_security_audit_integrity_status_available", nil, boolMetric(metrics.IntegrityStatusAvailable))
+	writeMetricHelp(builder, "tma_security_audit_integrity_blocking_events", "Non-terminal HMAC audit events blocking integrity key lifecycle operations by bounded reason.")
+	writeMetricType(builder, "tma_security_audit_integrity_blocking_events", "gauge")
+	writeMetric(builder, "tma_security_audit_integrity_blocking_events", map[string]string{"reason": "unconfigured_key"}, metrics.IntegrityUnconfiguredBlocking)
+	writeMetric(builder, "tma_security_audit_integrity_blocking_events", map[string]string{"reason": "historical_unidentified"}, metrics.IntegrityHistoricalUnidentifiedBlocking)
+	writeMetric(builder, "tma_security_audit_integrity_blocking_events", map[string]string{"reason": "inactive_key"}, metrics.IntegrityInactiveKeyBlocking)
+	writeMetricHelp(builder, "tma_security_audit_integrity_keys", "Configured inactive HMAC integrity keys by removal readiness state.")
+	writeMetricType(builder, "tma_security_audit_integrity_keys", "gauge")
+	writeMetric(builder, "tma_security_audit_integrity_keys", map[string]string{"state": "ready_to_remove"}, metrics.IntegrityKeysReadyToRemove)
+	writeMetric(builder, "tma_security_audit_integrity_keys", map[string]string{"state": "removal_blocked"}, metrics.IntegrityKeysRemovalBlocked)
+}
+
+func writeAuthorizationDecisionMetrics(builder *strings.Builder, metrics []AuthorizationDecisionMetric) {
+	writeMetricHelp(builder, "tma_authorization_decisions_total", "HTTP authorization decisions by authentication type, outcome, and reason.")
+	writeMetricType(builder, "tma_authorization_decisions_total", "counter")
+	metrics = append([]AuthorizationDecisionMetric(nil), metrics...)
+	sort.Slice(metrics, func(i, j int) bool {
+		left := metrics[i].AuthType + "\x00" + metrics[i].Outcome + "\x00" + metrics[i].Reason
+		right := metrics[j].AuthType + "\x00" + metrics[j].Outcome + "\x00" + metrics[j].Reason
+		return left < right
+	})
+	for _, metric := range metrics {
+		writeMetric(builder, "tma_authorization_decisions_total", map[string]string{
+			"auth_type": metric.AuthType,
+			"outcome":   metric.Outcome,
+			"reason":    metric.Reason,
+		}, metric.Count)
+	}
+}
+
+func writeMCPHostMetrics(builder *strings.Builder, stats mcp.StdioHostStats) {
+	writeMetricHelp(builder, "tma_mcp_stdio_host_sessions", "Current server-hosted MCP stdio session entries.")
+	writeMetricType(builder, "tma_mcp_stdio_host_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_stdio_host_sessions", nil, int64(stats.Sessions))
+	writeMetricHelp(builder, "tma_mcp_stdio_host_in_use_sessions", "Current server-hosted MCP stdio session entries with active or waiting requests.")
+	writeMetricType(builder, "tma_mcp_stdio_host_in_use_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_stdio_host_in_use_sessions", nil, int64(stats.InUseSessions))
+	writeMetricHelp(builder, "tma_mcp_stdio_host_max_sessions", "Configured maximum server-hosted MCP stdio session entries.")
+	writeMetricType(builder, "tma_mcp_stdio_host_max_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_stdio_host_max_sessions", nil, int64(stats.MaxSessions))
+	writeMetricHelp(builder, "tma_mcp_stdio_host_idle_timeout_seconds", "Configured idle timeout for server-hosted MCP stdio sessions.")
+	writeMetricType(builder, "tma_mcp_stdio_host_idle_timeout_seconds", "gauge")
+	writeMetric(builder, "tma_mcp_stdio_host_idle_timeout_seconds", nil, stats.IdleTimeoutSeconds)
+	writeMetricHelp(builder, "tma_mcp_stdio_host_sweep_interval_seconds", "Configured sweep interval for server-hosted MCP stdio sessions.")
+	writeMetricType(builder, "tma_mcp_stdio_host_sweep_interval_seconds", "gauge")
+	writeMetric(builder, "tma_mcp_stdio_host_sweep_interval_seconds", nil, stats.SweepIntervalSeconds)
+	writeMetricHelp(builder, "tma_mcp_stdio_host_events_total", "Server-hosted MCP stdio lifecycle and catalog-change events by event type.")
+	writeMetricType(builder, "tma_mcp_stdio_host_events_total", "counter")
+	for _, event := range []struct {
+		name  string
+		value int64
+	}{
+		{name: "start", value: stats.StartsTotal},
+		{name: "stop", value: stats.StopsTotal},
+		{name: "discard", value: stats.DiscardsTotal},
+		{name: "reap", value: stats.ReapedTotal},
+		{name: "evict", value: stats.EvictionsTotal},
+		{name: "reject", value: stats.RejectionsTotal},
+		{name: "tools_list_changed", value: stats.ToolsListChangedTotal},
+		{name: "resources_list_changed", value: stats.ResourcesListChangedTotal},
+		{name: "prompts_list_changed", value: stats.PromptsListChangedTotal},
+	} {
+		writeMetric(builder, "tma_mcp_stdio_host_events_total", map[string]string{"event": event.name}, event.value)
+	}
+	writeMCPNotificationMetrics(builder, "tma_mcp_stdio_host", stats.ProgressNotificationsTotal, stats.LogMessagesTotal, stats.InvalidNotificationsTotal, stats.LogMessagesByLevel)
+}
+
+func writeMCPHTTPHostMetrics(builder *strings.Builder, stats mcp.StreamableHTTPHostStats) {
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_sessions", "Current server-hosted MCP Streamable HTTP session entries.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_sessions", nil, int64(stats.Sessions))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_in_use_sessions", "Current server-hosted MCP Streamable HTTP session entries with active or waiting requests.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_in_use_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_in_use_sessions", nil, int64(stats.InUseSessions))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_max_sessions", "Configured maximum server-hosted MCP Streamable HTTP session entries.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_max_sessions", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_max_sessions", nil, int64(stats.MaxSessions))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_idle_timeout_seconds", "Configured idle timeout for server-hosted MCP Streamable HTTP sessions.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_idle_timeout_seconds", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_idle_timeout_seconds", nil, stats.IdleTimeoutSeconds)
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_sweep_interval_seconds", "Configured sweep interval for server-hosted MCP Streamable HTTP sessions.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_sweep_interval_seconds", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_sweep_interval_seconds", nil, stats.SweepIntervalSeconds)
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_policy_enabled", "Whether the MCP Streamable HTTP egress policy is enabled.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_policy_enabled", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_policy_enabled", nil, boolMetric(stats.EgressPolicyEnabled))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_allow_http", "Whether plain HTTP MCP egress is allowed.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_allow_http", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_allow_http", nil, boolMetric(stats.EgressAllowHTTP))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_allow_private_networks", "Whether RFC1918 and ULA MCP egress is allowed.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_allow_private_networks", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_allow_private_networks", nil, boolMetric(stats.EgressAllowPrivateNetworks))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_allowed_hosts", "Configured MCP egress host allowlist entries without exposing values.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_allowed_hosts", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_allowed_hosts", nil, int64(stats.EgressAllowedHostCount))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_allowed_cidrs", "Configured MCP egress CIDR allowlist entries without exposing values.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_allowed_cidrs", "gauge")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_allowed_cidrs", nil, int64(stats.EgressAllowedCIDRCount))
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_egress_blocked_total", "MCP Streamable HTTP requests blocked by the egress policy.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_egress_blocked_total", "counter")
+	writeMetric(builder, "tma_mcp_streamable_http_host_egress_blocked_total", nil, stats.EgressBlockedTotal)
+	writeMetricHelp(builder, "tma_mcp_streamable_http_host_events_total", "Server-hosted MCP Streamable HTTP lifecycle and catalog-change events by event type.")
+	writeMetricType(builder, "tma_mcp_streamable_http_host_events_total", "counter")
+	for _, event := range []struct {
+		name  string
+		value int64
+	}{
+		{name: "start", value: stats.StartsTotal},
+		{name: "stop", value: stats.StopsTotal},
+		{name: "discard", value: stats.DiscardsTotal},
+		{name: "reap", value: stats.ReapedTotal},
+		{name: "evict", value: stats.EvictionsTotal},
+		{name: "reject", value: stats.RejectionsTotal},
+		{name: "delete_error", value: stats.DeleteErrorsTotal},
+		{name: "tools_list_changed", value: stats.ToolsListChangedTotal},
+		{name: "resources_list_changed", value: stats.ResourcesListChangedTotal},
+		{name: "prompts_list_changed", value: stats.PromptsListChangedTotal},
+	} {
+		writeMetric(builder, "tma_mcp_streamable_http_host_events_total", map[string]string{"event": event.name}, event.value)
+	}
+	writeMCPNotificationMetrics(builder, "tma_mcp_streamable_http_host", stats.ProgressNotificationsTotal, stats.LogMessagesTotal, stats.InvalidNotificationsTotal, stats.LogMessagesByLevel)
+}
+
+func writeMCPNotificationMetrics(builder *strings.Builder, prefix string, progress int64, logging int64, invalid int64, levels map[string]int64) {
+	notificationsMetric := prefix + "_notifications_total"
+	writeMetricHelp(builder, notificationsMetric, "MCP server notifications by sanitized notification type.")
+	writeMetricType(builder, notificationsMetric, "counter")
+	writeMetric(builder, notificationsMetric, map[string]string{"type": "progress"}, progress)
+	writeMetric(builder, notificationsMetric, map[string]string{"type": "logging"}, logging)
+	writeMetric(builder, notificationsMetric, map[string]string{"type": "invalid"}, invalid)
+	logMetric := prefix + "_log_messages_total"
+	writeMetricHelp(builder, logMetric, "MCP logging notifications by normalized level; message data is not exported.")
+	writeMetricType(builder, logMetric, "counter")
+	keys := make([]string, 0, len(levels))
+	for level := range levels {
+		keys = append(keys, level)
+	}
+	sort.Strings(keys)
+	for _, level := range keys {
+		writeMetric(builder, logMetric, map[string]string{"level": level}, levels[level])
+	}
+}
+
+func writeMCPRuntimeGuardMetrics(builder *strings.Builder, stats mcp.RuntimeGuardStats) {
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_servers", "MCP server-version runtime budgets currently tracked by this process.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_servers", "gauge")
+	writeMetric(builder, "tma_mcp_runtime_guard_servers", nil, int64(stats.TrackedServers))
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_in_flight", "MCP requests currently executing across guarded server versions.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_in_flight", "gauge")
+	writeMetric(builder, "tma_mcp_runtime_guard_in_flight", nil, int64(stats.InFlight))
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_open_circuits", "MCP server-version circuits currently open or half-open.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_open_circuits", "gauge")
+	writeMetric(builder, "tma_mcp_runtime_guard_open_circuits", nil, int64(stats.OpenCircuits))
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_calls_total", "MCP calls admitted by the runtime guard.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_calls_total", "counter")
+	writeMetric(builder, "tma_mcp_runtime_guard_calls_total", nil, stats.CallsTotal)
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_results_total", "MCP guarded calls by final outcome.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_results_total", "counter")
+	writeMetric(builder, "tma_mcp_runtime_guard_results_total", map[string]string{"outcome": "success"}, stats.SuccessesTotal)
+	writeMetric(builder, "tma_mcp_runtime_guard_results_total", map[string]string{"outcome": "failure"}, stats.FailuresTotal)
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_rejections_total", "MCP runtime guard rejections by bounded reason.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_rejections_total", "counter")
+	writeMetric(builder, "tma_mcp_runtime_guard_rejections_total", map[string]string{"reason": "circuit_open"}, stats.CircuitRejectedTotal)
+	writeMetric(builder, "tma_mcp_runtime_guard_rejections_total", map[string]string{"reason": "wait_canceled"}, stats.WaitCanceledTotal)
+	writeMetricHelp(builder, "tma_mcp_runtime_guard_failures_total", "MCP guarded call failures by bounded classification.")
+	writeMetricType(builder, "tma_mcp_runtime_guard_failures_total", "counter")
+	classes := make([]string, 0, len(stats.FailuresByClass))
+	for class := range stats.FailuresByClass {
+		classes = append(classes, class)
+	}
+	sort.Strings(classes)
+	for _, class := range classes {
+		writeMetric(builder, "tma_mcp_runtime_guard_failures_total", map[string]string{"class": class}, stats.FailuresByClass[class])
+	}
+}
+
+func writeSkillAssetGCMetrics(builder *strings.Builder, metrics skillretention.MetricsSnapshot) {
+	writeMetricHelp(builder, "tma_skill_asset_gc_runs_total", "Skill asset garbage collection runs by final outcome.")
+	writeMetricType(builder, "tma_skill_asset_gc_runs_total", "counter")
+	writeMetricHelp(builder, "tma_skill_asset_gc_objects_total", "Skill asset garbage collection objects by final outcome.")
+	writeMetricType(builder, "tma_skill_asset_gc_objects_total", "counter")
+	writeMetricHelp(builder, "tma_skill_asset_gc_bytes_total", "Skill asset garbage collection bytes by final outcome.")
+	writeMetricType(builder, "tma_skill_asset_gc_bytes_total", "counter")
+	writeMetricHelp(builder, "tma_skill_asset_gc_candidates", "Candidates found by the latest Skill asset GC preview.")
+	writeMetricType(builder, "tma_skill_asset_gc_candidates", "gauge")
+	writeMetric(builder, "tma_skill_asset_gc_candidates", nil, metrics.Candidates)
+	runs := append([]skillretention.RunMetric(nil), metrics.Runs...)
+	sort.Slice(runs, func(i, j int) bool { return runs[i].Outcome < runs[j].Outcome })
+	for _, metric := range runs {
+		writeMetric(builder, "tma_skill_asset_gc_runs_total", map[string]string{"outcome": metric.Outcome, "dry_run": "false"}, int64(metric.Count))
+	}
+	objects := append([]skillretention.ObjectMetric(nil), metrics.Objects...)
+	sort.Slice(objects, func(i, j int) bool { return objects[i].Outcome < objects[j].Outcome })
+	for _, metric := range objects {
+		labels := map[string]string{"outcome": metric.Outcome}
+		writeMetric(builder, "tma_skill_asset_gc_objects_total", labels, int64(metric.Count))
+		writeMetric(builder, "tma_skill_asset_gc_bytes_total", labels, int64(metric.Bytes))
+	}
+}
+
+func writeSkillBinaryScanMetrics(builder *strings.Builder, metrics []skillmarketplace.BinaryScanMetric) {
+	writeMetricHelp(builder, "tma_skill_binary_scans_total", "External Skill binary scans by provider and final outcome.")
+	writeMetricType(builder, "tma_skill_binary_scans_total", "counter")
+	writeMetricHelp(builder, "tma_skill_binary_scan_duration_milliseconds_total", "External Skill binary scan duration milliseconds by provider and final outcome.")
+	writeMetricType(builder, "tma_skill_binary_scan_duration_milliseconds_total", "counter")
+	metrics = append([]skillmarketplace.BinaryScanMetric(nil), metrics...)
+	sort.Slice(metrics, func(left int, right int) bool {
+		return metrics[left].Provider+"\x00"+metrics[left].Outcome < metrics[right].Provider+"\x00"+metrics[right].Outcome
+	})
+	for _, metric := range metrics {
+		labels := map[string]string{"provider": metric.Provider, "outcome": metric.Outcome}
+		writeMetric(builder, "tma_skill_binary_scans_total", labels, int64(metric.Count))
+		writeMetric(builder, "tma_skill_binary_scan_duration_milliseconds_total", labels, int64(metric.DurationMillis))
+	}
 }
 
 func writeUsageMetrics(builder *strings.Builder, usage managedagents.LLMUsageAggregateReport) {
@@ -75,6 +350,43 @@ func writeWorkerMetrics(builder *strings.Builder, workers []managedagents.Worker
 			"type":   workerType,
 		}, workerCounts[key])
 	}
+}
+
+func writeSubagentMetrics(builder *strings.Builder, metrics managedagents.SubagentMetrics) {
+	writeMetricHelp(builder, "tma_subagent_status_total", "Subagent queue and runtime totals by status.")
+	writeMetricType(builder, "tma_subagent_status_total", "gauge")
+	baseLabels := map[string]string{}
+	if metrics.WorkspaceID != "" {
+		baseLabels["workspace_id"] = metrics.WorkspaceID
+	}
+	writeMetric(builder, "tma_subagent_status_total", withLabel(baseLabels, "status", "queued"), metrics.Queued)
+	writeMetric(builder, "tma_subagent_status_total", withLabel(baseLabels, "status", "running"), metrics.Running)
+	writeMetric(builder, "tma_subagent_status_total", withLabel(baseLabels, "status", "rejected"), metrics.Rejected)
+
+	writeMetricHelp(builder, "tma_subagent_wait_seconds", "Oldest pending subagent queue wait in seconds.")
+	writeMetricType(builder, "tma_subagent_wait_seconds", "gauge")
+	writeMetric(builder, "tma_subagent_wait_seconds", baseLabels, metrics.WaitSeconds)
+}
+
+func writeTaskGroupMetrics(builder *strings.Builder, metrics managedagents.SubagentTaskGroupMetrics) {
+	writeMetricHelp(builder, "tma_subagent_group_status_total", "Task group totals by status.")
+	writeMetricType(builder, "tma_subagent_group_status_total", "gauge")
+	baseLabels := map[string]string{}
+	if metrics.WorkspaceID != "" {
+		baseLabels["workspace_id"] = metrics.WorkspaceID
+	}
+	writeMetric(builder, "tma_subagent_group_status_total", withLabel(baseLabels, "status", "pending"), metrics.Pending)
+	writeMetric(builder, "tma_subagent_group_status_total", withLabel(baseLabels, "status", "running"), metrics.Running)
+	writeMetric(builder, "tma_subagent_group_status_total", withLabel(baseLabels, "status", "completed"), metrics.Completed)
+	writeMetric(builder, "tma_subagent_group_status_total", withLabel(baseLabels, "status", "failed"), metrics.Failed)
+	writeMetric(builder, "tma_subagent_group_status_total", withLabel(baseLabels, "status", "canceled"), metrics.Canceled)
+
+	writeMetricHelp(builder, "tma_subagent_group_items_total", "Task group item totals by initial orchestration state.")
+	writeMetricType(builder, "tma_subagent_group_items_total", "gauge")
+	writeMetric(builder, "tma_subagent_group_items_total", withLabel(baseLabels, "status", "created"), metrics.ItemCreated)
+	writeMetric(builder, "tma_subagent_group_items_total", withLabel(baseLabels, "status", "started"), metrics.ItemStarted)
+	writeMetric(builder, "tma_subagent_group_items_total", withLabel(baseLabels, "status", "queued"), metrics.ItemQueued)
+	writeMetric(builder, "tma_subagent_group_items_total", withLabel(baseLabels, "status", "rejected"), metrics.ItemRejected)
 }
 
 func writeObservabilityMetrics(builder *strings.Builder, status Status) {
@@ -276,6 +588,24 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 		}), toolCounts[key])
 	}
 
+	fileGeneration := projectFileGenerationMetrics(events, trace.TurnID)
+	fileGenerationLabels := mergeLabels(sessionLabels, map[string]string{"turn_id": trace.TurnID})
+	writeMetricHelp(builder, "tma_file_generation_oversized_calls_total", "Oversized segmented file mutation calls rejected in the selected turn.")
+	writeMetricType(builder, "tma_file_generation_oversized_calls_total", "gauge")
+	writeMetric(builder, "tma_file_generation_oversized_calls_total", fileGenerationLabels, fileGeneration.OversizedCalls)
+	writeMetricHelp(builder, "tma_file_generation_segments_total", "Semantic file segments successfully written in the selected turn.")
+	writeMetricType(builder, "tma_file_generation_segments_total", "gauge")
+	writeMetric(builder, "tma_file_generation_segments_total", fileGenerationLabels, fileGeneration.Segments)
+	writeMetricHelp(builder, "tma_file_generation_idempotent_replays_total", "Hash-verified idempotent segment replays in the selected turn.")
+	writeMetricType(builder, "tma_file_generation_idempotent_replays_total", "gauge")
+	writeMetric(builder, "tma_file_generation_idempotent_replays_total", fileGenerationLabels, fileGeneration.IdempotentReplays)
+	writeMetricHelp(builder, "tma_file_generation_remaining_placeholders", "Segment placeholders remaining at the latest observed state in the selected turn.")
+	writeMetricType(builder, "tma_file_generation_remaining_placeholders", "gauge")
+	writeMetric(builder, "tma_file_generation_remaining_placeholders", fileGenerationLabels, fileGeneration.RemainingPlaceholders)
+	writeMetricHelp(builder, "tma_file_generation_duration_milliseconds", "Elapsed segmented file generation time observed in the selected turn.")
+	writeMetricType(builder, "tma_file_generation_duration_milliseconds", "gauge")
+	writeMetric(builder, "tma_file_generation_duration_milliseconds", fileGenerationLabels, fileGeneration.DurationMillis)
+
 	writeMetricHelp(builder, "tma_tool_approvals_total", "Approval decisions by tool for the selected session.")
 	writeMetricType(builder, "tma_tool_approvals_total", "gauge")
 	decisionCounts := map[string]int64{}
@@ -302,6 +632,49 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 			"decision":        parts[3],
 		}), decisionCounts[key])
 	}
+}
+
+type fileGenerationMetricSnapshot struct {
+	OversizedCalls        int64
+	Segments              int64
+	IdempotentReplays     int64
+	RemainingPlaceholders int64
+	DurationMillis        int64
+}
+
+func projectFileGenerationMetrics(events []managedagents.Event, turnID string) fileGenerationMetricSnapshot {
+	var result fileGenerationMetricSnapshot
+	var latestSeq int64
+	for _, event := range events {
+		if event.Type != managedagents.EventRuntimeToolResult {
+			continue
+		}
+		var payload struct {
+			TurnID string `json:"turn_id"`
+			Data   struct {
+				FileGeneration struct {
+					OversizedCalls        int64 `json:"oversized_call_count"`
+					Segments              int64 `json:"segment_count"`
+					IdempotentReplays     int64 `json:"idempotent_replay_count"`
+					RemainingPlaceholders int64 `json:"remaining_placeholder_count"`
+					DurationMillis        int64 `json:"generation_duration_milliseconds"`
+				} `json:"file_generation"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(event.Payload, &payload) != nil || (turnID != "" && payload.TurnID != turnID) {
+			continue
+		}
+		metric := payload.Data.FileGeneration
+		result.OversizedCalls = max(result.OversizedCalls, metric.OversizedCalls)
+		result.Segments = max(result.Segments, metric.Segments)
+		result.IdempotentReplays = max(result.IdempotentReplays, metric.IdempotentReplays)
+		result.DurationMillis = max(result.DurationMillis, metric.DurationMillis)
+		if event.Seq >= latestSeq {
+			latestSeq = event.Seq
+			result.RemainingPlaceholders = metric.RemainingPlaceholders
+		}
+	}
+	return result
 }
 
 func writeMetricHelp(builder *strings.Builder, name string, help string) {

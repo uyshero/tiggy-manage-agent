@@ -43,7 +43,7 @@ func (r ToolArtifactRecorder) RecordToolArtifact(ctx context.Context, call tools
 		}
 	}
 
-	session, err := r.Store.GetSession(sessionID)
+	session, err := managedagents.GetSessionWithContext(ctx, r.Store, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -223,6 +223,10 @@ func exportedArtifactFile(ctx context.Context, exporter capability.ArtifactExpor
 }
 
 func (r ToolArtifactRecorder) persistArtifactObject(ctx context.Context, session managedagents.Session, bucket string, objectKey string, content []byte, contentType string, artifactType string, artifactName string, description string, call tools.Call, sessionID string, turnID string, metadata json.RawMessage) (managedagents.ObjectRef, managedagents.SessionArtifact, error) {
+	databaseCtx, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	if err != nil {
+		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
+	}
 	checksum := sha256.Sum256(content)
 	checksumHex := hex.EncodeToString(checksum[:])
 	putResult, err := r.ObjectStore.PutObject(ctx, objectstore.PutObjectInput{
@@ -243,7 +247,7 @@ func (r ToolArtifactRecorder) persistArtifactObject(ctx context.Context, session
 		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
 	}
 
-	objectRef, err := r.Store.CreateObjectRef(managedagents.CreateObjectRefInput{
+	objectRef, err := managedagents.CreateObjectRefWithContext(databaseCtx, r.Store, managedagents.CreateObjectRefInput{
 		WorkspaceID:     session.WorkspaceID,
 		StorageProvider: managedagents.ObjectStorageProviderS3,
 		Bucket:          putResult.Bucket,
@@ -261,7 +265,7 @@ func (r ToolArtifactRecorder) persistArtifactObject(ctx context.Context, session
 		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
 	}
 
-	artifact, err := r.Store.CreateSessionArtifact(managedagents.CreateSessionArtifactInput{
+	artifact, err := managedagents.CreateSessionArtifactWithContext(databaseCtx, r.Store, managedagents.CreateSessionArtifactInput{
 		WorkspaceID:   session.WorkspaceID,
 		SessionID:     sessionID,
 		EnvironmentID: session.EnvironmentID,

@@ -4,11 +4,35 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 )
+
+func TestDefaultContextBuilderInjectsCurrentDateContextBeforeConversation(t *testing.T) {
+	location := time.FixedZone("Asia/Shanghai", 8*60*60)
+	currentDateContext := buildCurrentDateContext(time.Date(2026, 7, 13, 16, 58, 19, 0, location))
+
+	result, err := (DefaultContextBuilder{}).Build(ContextBuildRequest{
+		System:             "system",
+		CurrentDateContext: currentDateContext,
+		UserPayload:        json.RawMessage(`{"content":[{"type":"text","text":"今天有什么新闻"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+
+	if !result.CurrentDateContextIncluded || result.Budget.CurrentDateContextTokens == 0 {
+		t.Fatalf("expected current date context metadata, got %+v", result)
+	}
+	if len(result.Messages) != 3 {
+		t.Fatalf("expected system, current date context and user message, got %#v", result.Messages)
+	}
+	assertMessage(t, result.Messages[1], "system", "Today's date is 2026-07-13.")
+	assertMessage(t, result.Messages[2], "user", "今天有什么新闻")
+}
 
 func TestDefaultContextBuilderBuildsSystemHistoryAndCurrentUser(t *testing.T) {
 	builder := DefaultContextBuilder{}
@@ -80,6 +104,59 @@ func TestDefaultContextBuilderSkipsUnsupportedOrEmptyHistory(t *testing.T) {
 		t.Fatalf("expected only current user message, got %#v", result.Messages)
 	}
 	assertMessage(t, result.Messages[0], "user", "current")
+}
+
+func TestDefaultContextBuilderAddsUploadedFilesToModelContext(t *testing.T) {
+	builder := DefaultContextBuilder{}
+
+	result, err := builder.Build(ContextBuildRequest{
+		UserPayload: json.RawMessage(`{
+			"content":[{"type":"text","text":"summarize this report"}],
+			"attachments":[{
+				"artifact_id":"art_000001",
+				"name":"quarterly report.pdf",
+				"content_type":"application/pdf",
+				"size_bytes":2048,
+				"workspace_path":"/mnt/data/uploads/art_000001/quarterly_report.pdf"
+			}]
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected one user message, got %#v", result.Messages)
+	}
+	assertMessageContains(t, result.Messages[0], "user", "summarize this report")
+	assertMessageContains(t, result.Messages[0], "user", "quarterly report.pdf: artifact_id=art_000001, workspace_path=/workspace/uploads/art_000001/quarterly_report.pdf")
+	if strings.Contains(messagesText(result.Messages), "/mnt/data/uploads") {
+		t.Fatalf("legacy upload path was not normalized: %#v", result.Messages)
+	}
+	assertMessageContains(t, result.Messages[0], "user", "application/pdf, 2048 bytes")
+}
+
+func TestDefaultContextBuilderAddsOfflineSkillZIPCoordinates(t *testing.T) {
+	result, err := (DefaultContextBuilder{}).Build(ContextBuildRequest{
+		UserPayload: json.RawMessage(`{
+			"content":[{"type":"text","text":"install this skill"}],
+			"attachments":[{
+				"artifact_id":"art_skill_zip",
+				"name":"review-skill.zip",
+				"content_type":"application/zip",
+				"size_bytes":4096,
+				"workspace_path":"/workspace/uploads/art_skill_zip/review-skill.zip"
+			}]
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("build context: %v", err)
+	}
+	if len(result.Messages) != 1 {
+		t.Fatalf("expected one user message, got %#v", result.Messages)
+	}
+	assertMessageContains(t, result.Messages[0], "user", "artifact_id=art_skill_zip")
+	assertMessageContains(t, result.Messages[0], "user", "call skills.preview with source.provider=artifact")
+	assertMessageContains(t, result.Messages[0], "user", "Never pass workspace_path")
 }
 
 func TestDefaultContextBuilderKeepsRecentHistoryWithinBudget(t *testing.T) {
@@ -307,6 +384,15 @@ func TestDefaultContextBuilderBudgetsNativeToolSchemas(t *testing.T) {
 	}
 }
 
+func TestEstimateTextTokensDoesNotUndercountChineseContext(t *testing.T) {
+	if got := estimateTextTokens("上下文预算"); got != 5 {
+		t.Fatalf("expected one estimated token per CJK rune, got %d", got)
+	}
+	if got := estimateTextTokens("abcdefgh"); got != 2 {
+		t.Fatalf("expected ASCII heuristic to remain four characters per token, got %d", got)
+	}
+}
+
 func TestDefaultContextBuilderAlwaysKeepsSystemAndCurrentUser(t *testing.T) {
 	builder := DefaultContextBuilder{MaxInputTokens: 1}
 
@@ -344,13 +430,16 @@ func TestBuildSystemPromptAppendsLatestMessagePolicyOnce(t *testing.T) {
 	system := "be concise"
 
 	prompt := buildSystemPrompt(system)
-	if !strings.Contains(prompt, system) || !strings.Contains(prompt, "Latest user message policy:") {
+	if !strings.Contains(prompt, system) || !strings.Contains(prompt, "Latest user message policy:") || !strings.Contains(prompt, "Turn progress policy:") {
 		t.Fatalf("expected appended policy, got %q", prompt)
 	}
 
 	again := buildSystemPrompt(prompt)
 	if strings.Count(again, "Latest user message policy:") != 1 {
 		t.Fatalf("expected latest-message policy once, got %q", again)
+	}
+	if strings.Count(again, "Turn progress policy:") != 1 {
+		t.Fatalf("expected turn-progress policy once, got %q", again)
 	}
 }
 

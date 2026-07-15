@@ -1,0 +1,41 @@
+{
+  "protocol_version": "tma.workbench_plugin.v1",
+  "id": "com.tma.workbench-diagnostics",
+  "name": "扩展诊断",
+  "description": "查看静态插件运行时与多端声明状态",
+  "version": "1.0.0",
+  "entry": "./index.js",
+  "surfaces": ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"],
+  "engines": {
+    "workbench_api": ">=1.0.0 <2.0.0",
+    "design_system": ">=1.0.0 <2.0.0"
+  },
+  "permissions": [],
+  "contributes": {
+    "navigation": [
+      {
+        "id": "diagnostics",
+        "group": "workspace",
+        "title": "扩展诊断",
+        "route": "/plugins/com.tma.workbench-diagnostics/status",
+        "order": 900
+      }
+    ],
+    "routes": [
+      {
+        "id": "status",
+        "path": "/plugins/com.tma.workbench-diagnostics/status",
+        "component": "DiagnosticsPage",
+        "required_permissions": []
+      }
+    ],
+    "commands": [
+      {
+        "id": "com.tma.workbench-diagnostics.refresh",
+        "title": "刷新诊断状态",
+        "risk": "read",
+        "required_permissions": []
+      }
+    ]
+  }
+}

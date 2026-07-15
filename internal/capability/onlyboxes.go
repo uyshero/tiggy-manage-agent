@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,9 +22,12 @@ const DefaultOnlyboxesDataDirTTL = time.Hour
 type OnlyboxesProvider struct {
 	Image            string
 	WorkspaceRoot    string
+	IsolateWorkspace bool
 	DataRoot         string
 	DataDirTTL       time.Duration
 	DisableNetwork   bool
+	WorkspaceID      string
+	OwnerID          string
 	SessionID        string
 	ContainerScope   string
 	DockerCommand    string
@@ -37,6 +41,10 @@ type SessionDataStore interface {
 	GetSession(id string) (managedagents.Session, error)
 	ListSessionArtifacts(sessionID string) ([]managedagents.SessionArtifact, error)
 	GetObjectRef(id string) (managedagents.ObjectRef, error)
+}
+
+type scopedSessionDataStore interface {
+	GetSessionScoped(id string, scope managedagents.AccessScope) (managedagents.Session, error)
 }
 
 func (OnlyboxesProvider) ToolRuntime() string {
@@ -69,7 +77,7 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 		sessionID = strings.TrimSpace(request.Meta.SessionID)
 		p.SessionID = sessionID
 	}
-	root, err := cleanWorkspaceRoot(p.WorkspaceRoot)
+	root, err := p.workspaceDir()
 	if err != nil {
 		return CommandResult{}, err
 	}
@@ -85,13 +93,14 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if err != nil {
 		return CommandResult{}, err
 	}
-	if err := p.syncSessionFiles(ctx, dataDir); err != nil {
+	if err := p.syncSessionFiles(ctx, root); err != nil {
 		return CommandResult{}, err
 	}
 	if p.ContainerManager != nil && sessionID != "" {
 		return p.ContainerManager.RunCommand(ctx, onlyboxesContainerCommand{
 			Provider:         p,
 			SessionID:        sessionID,
+			IsolationKey:     p.sandboxIsolationKey(),
 			Scope:            p.ContainerScope,
 			WorkspaceRoot:    root,
 			ContainerWorkDir: containerWorkDir,
@@ -160,27 +169,72 @@ func (p OnlyboxesProvider) ExecuteCode(ctx context.Context, request ExecuteCodeR
 }
 
 func (p OnlyboxesProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
-	guard, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, p.WorkspaceRoot)
+	workspaceDir, err := p.workspaceDir()
 	if err != nil {
 		return FileResult{}, err
 	}
-	return guard.ReadFile(ctx, request)
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return FileResult{}, err
+	}
+	path, err := p.resolveSandboxFilePath(request.Path, "")
+	if err != nil {
+		return FileResult{}, err
+	}
+	request.Path = path
+	result, err := LocalSystemProvider{}.ReadFile(ctx, request)
+	if err != nil {
+		return FileResult{}, err
+	}
+	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
+		result.Path = displayPath
+	}
+	return result, nil
 }
 
 func (p OnlyboxesProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {
-	guard, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, p.WorkspaceRoot)
+	request.Path = p.normalizeLegacySandboxWritePath(request.Path)
+	path, err := p.resolveSandboxFilePath(request.Path, "")
 	if err != nil {
 		return FileResult{}, err
 	}
-	return guard.WriteFile(ctx, request)
+	request.Path = path
+	result, err := LocalSystemProvider{}.WriteFile(ctx, request)
+	if err != nil {
+		return FileResult{}, err
+	}
+	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
+		result.Path = displayPath
+	}
+	return result, nil
 }
 
 func (p OnlyboxesProvider) EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error) {
-	guard, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, p.WorkspaceRoot)
+	rawPath := request.Path
+	if rawPath == "" {
+		rawPath = request.FilePath
+	}
+	workspaceDir, err := p.workspaceDir()
 	if err != nil {
 		return EditFileResult{}, err
 	}
-	return guard.EditFile(ctx, request)
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return EditFileResult{}, err
+	}
+	path, err := p.resolveSandboxFilePath(rawPath, request.WorkDir)
+	if err != nil {
+		return EditFileResult{}, err
+	}
+	request.Path = path
+	request.FilePath = ""
+	request.WorkDir = ""
+	result, err := LocalSystemProvider{}.EditFile(ctx, request)
+	if err != nil {
+		return EditFileResult{}, err
+	}
+	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
+		result.Path = displayPath
+	}
+	return result, nil
 }
 
 func (p OnlyboxesProvider) ExportArtifactFile(_ context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
@@ -237,15 +291,18 @@ func (p OnlyboxesProvider) sessionDataDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve sandbox data root: %w", err)
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", fmt.Errorf("create sandbox data root: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox data root symlink: %w", err)
 	}
 	if err := cleanupExpiredSessionDataDirs(root, p.dataDirTTL(), time.Now()); err != nil {
 		return "", err
 	}
-	sessionID := safeSandboxSessionID(p.SessionID)
-	path := filepath.Join(root, sessionID)
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	path := filepath.Join(root, p.sandboxScopeDirName())
+	if err := createSandboxScopeDir(root, path); err != nil {
 		return "", fmt.Errorf("create sandbox session data dir: %w", err)
 	}
 	now := time.Now()
@@ -253,8 +310,76 @@ func (p OnlyboxesProvider) sessionDataDir() (string, error) {
 	return path, nil
 }
 
-func (p OnlyboxesProvider) syncSessionFiles(ctx context.Context, dataDir string) error {
-	if strings.TrimSpace(dataDir) == "" {
+func (p OnlyboxesProvider) workspaceDir() (string, error) {
+	if !p.IsolateWorkspace {
+		return cleanWorkspaceRoot(p.WorkspaceRoot)
+	}
+	base := strings.TrimSpace(p.WorkspaceRoot)
+	if base == "" {
+		base = "/private/tmp/tma-cloud-sandbox-workspaces"
+	}
+	base, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox workspace base: %w", err)
+	}
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", fmt.Errorf("create sandbox workspace base: %w", err)
+	}
+	base, err = filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox workspace base symlink: %w", err)
+	}
+	path := filepath.Join(base, p.sandboxScopeDirName())
+	if err := createSandboxScopeDir(base, path); err != nil {
+		return "", fmt.Errorf("create isolated sandbox workspace: %w", err)
+	}
+	return path, nil
+}
+
+func (p OnlyboxesProvider) sandboxIsolationKey() string {
+	return strings.Join([]string{
+		strings.TrimSpace(p.WorkspaceID),
+		strings.TrimSpace(p.OwnerID),
+		strings.TrimSpace(p.SessionID),
+	}, "\x00")
+}
+
+func (p OnlyboxesProvider) sandboxScopeDirName() string {
+	session := safeSandboxSessionID(p.SessionID)
+	if len(session) > 40 {
+		session = session[:40]
+	}
+	digest := sha256.Sum256([]byte(p.sandboxIsolationKey()))
+	return fmt.Sprintf("%s-%x", session, digest[:16])
+}
+
+func createSandboxScopeDir(root string, path string) error {
+	if !pathInsideRoot(path, root) {
+		return fmt.Errorf("sandbox scope path %q is outside root %q", path, root)
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("sandbox scope path %q is not a real directory", path)
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+			return err
+		}
+	} else {
+		return err
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	if !pathInsideRoot(resolved, root) {
+		return fmt.Errorf("sandbox scope path %q resolves outside root %q", path, root)
+	}
+	return nil
+}
+
+func (p OnlyboxesProvider) syncSessionFiles(ctx context.Context, workspaceDir string) error {
+	if strings.TrimSpace(workspaceDir) == "" {
 		return nil
 	}
 	if p.Store == nil || p.ObjectStore == nil {
@@ -264,11 +389,21 @@ func (p OnlyboxesProvider) syncSessionFiles(ctx context.Context, dataDir string)
 	if sessionID == "" {
 		return nil
 	}
-	session, err := p.Store.GetSession(sessionID)
+	var session managedagents.Session
+	var err error
+	if scoped, ok := p.Store.(scopedSessionDataStore); ok && strings.TrimSpace(p.WorkspaceID) != "" {
+		session, err = scoped.GetSessionScoped(sessionID, managedagents.AccessScope{WorkspaceID: p.WorkspaceID})
+	} else {
+		session, err = p.Store.GetSession(sessionID)
+	}
 	if err != nil {
 		return fmt.Errorf("load sandbox session: %w", err)
 	}
-	artifacts, err := p.Store.ListSessionArtifacts(sessionID)
+	databaseCtx, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	if err != nil {
+		return err
+	}
+	artifacts, err := managedagents.ListSessionArtifactsWithContext(databaseCtx, p.Store, sessionID)
 	if err != nil {
 		return fmt.Errorf("list session artifacts: %w", err)
 	}
@@ -276,14 +411,14 @@ func (p OnlyboxesProvider) syncSessionFiles(ctx context.Context, dataDir string)
 		if artifact.ArtifactType != managedagents.ArtifactTypeFile {
 			continue
 		}
-		objectRef, err := p.Store.GetObjectRef(artifact.ObjectRefID)
+		objectRef, err := managedagents.GetObjectRefWithContext(databaseCtx, p.Store, artifact.ObjectRefID)
 		if err != nil {
 			return fmt.Errorf("load object ref %s: %w", artifact.ObjectRefID, err)
 		}
 		if objectRef.WorkspaceID != "" && session.WorkspaceID != "" && objectRef.WorkspaceID != session.WorkspaceID {
 			return fmt.Errorf("object ref %s workspace mismatch", artifact.ObjectRefID)
 		}
-		targetPath, err := sessionFilePath(dataDir, artifact)
+		targetPath, err := sessionFilePath(workspaceDir, artifact)
 		if err != nil {
 			return err
 		}
@@ -313,7 +448,7 @@ func (p OnlyboxesProvider) syncSessionFiles(ctx context.Context, dataDir string)
 		}
 	}
 	now := time.Now()
-	_ = os.Chtimes(dataDir, now, now)
+	_ = os.Chtimes(workspaceDir, now, now)
 	return nil
 }
 
@@ -355,7 +490,14 @@ func safeSandboxSessionID(value string) string {
 	return replacer.ReplaceAllString(value, "-")
 }
 
-func sessionFilePath(dataDir string, artifact managedagents.SessionArtifact) (string, error) {
+func sessionFilePath(workspaceDir string, artifact managedagents.SessionArtifact) (string, error) {
+	path := SessionArtifactSandboxPath(artifact)
+	return resolveContainerPathInside(workspaceDir, strings.TrimPrefix(path, "/workspace"))
+}
+
+// SessionArtifactSandboxPath returns the stable path exposed to tools after an
+// uploaded session artifact is synchronized into the persistent workspace.
+func SessionArtifactSandboxPath(artifact managedagents.SessionArtifact) string {
 	name := safeSandboxFileName(artifact.Name)
 	if name == "" {
 		name = artifact.ID
@@ -363,7 +505,7 @@ func sessionFilePath(dataDir string, artifact managedagents.SessionArtifact) (st
 	if strings.TrimSpace(name) == "" {
 		name = "artifact"
 	}
-	return filepath.Join(dataDir, "uploads", artifact.ID, name), nil
+	return filepath.ToSlash(filepath.Join("/workspace/uploads", artifact.ID, name))
 }
 
 func safeSandboxFileName(value string) string {
@@ -372,16 +514,81 @@ func safeSandboxFileName(value string) string {
 		return ""
 	}
 	value = filepath.Base(value)
-	replacer := regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
+	replacer := regexp.MustCompile(`[^\pL\pN_.-]+`)
 	value = replacer.ReplaceAllString(value, "_")
 	value = strings.Trim(value, "._-")
 	return value
 }
 
 func (p OnlyboxesProvider) resolveArtifactExportPath(request ExportArtifactFileRequest) (string, error) {
-	path := strings.TrimSpace(request.Path)
+	return p.resolveSandboxFilePath(request.Path, request.WorkDir)
+}
+
+func (p OnlyboxesProvider) normalizeLegacySandboxWritePath(path string) string {
+	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", fmt.Errorf("artifact export path is required")
+		return path
+	}
+	legacyPrefixes := []string{"/root", "/home"}
+	matchesLegacyPrefix := false
+	for _, prefix := range legacyPrefixes {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			matchesLegacyPrefix = true
+			break
+		}
+	}
+	if !matchesLegacyPrefix {
+		return path
+	}
+
+	targetRoot := "/workspace"
+
+	switch {
+	case path == "/root":
+		return targetRoot
+	case strings.HasPrefix(path, "/root/"):
+		return filepath.ToSlash(filepath.Join(targetRoot, strings.TrimPrefix(path, "/root/")))
+	case path == "/home":
+		return targetRoot
+	case strings.HasPrefix(path, "/home/"):
+		relative := strings.TrimPrefix(path, "/home/")
+		if index := strings.Index(relative, "/"); index >= 0 {
+			relative = relative[index+1:]
+		} else {
+			relative = ""
+		}
+		if strings.TrimSpace(relative) == "" {
+			return targetRoot
+		}
+		return filepath.ToSlash(filepath.Join(targetRoot, relative))
+	default:
+		return path
+	}
+}
+
+func (p OnlyboxesProvider) hostPathToSandboxPath(hostPath string) (string, error) {
+	hostPath = strings.TrimSpace(hostPath)
+	if hostPath == "" {
+		return "", fmt.Errorf("sandbox path is required")
+	}
+	if dataDir, err := p.sessionDataDir(); err == nil && strings.TrimSpace(dataDir) != "" {
+		if relative, relErr := filepath.Rel(dataDir, hostPath); relErr == nil && relative == "." {
+			return "/mnt/data", nil
+		} else if relErr == nil && !strings.HasPrefix(relative, "..") && !filepath.IsAbs(relative) {
+			return filepath.ToSlash(filepath.Join("/mnt/data", relative)), nil
+		}
+	}
+	root, err := p.workspaceDir()
+	if err != nil {
+		return "", err
+	}
+	return containerPathForHostPath(root, hostPath)
+}
+
+func (p OnlyboxesProvider) resolveSandboxFilePath(path string, workDir string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("path is required")
 	}
 	if strings.HasPrefix(path, "/mnt/data/") || path == "/mnt/data" {
 		dataDir, err := p.sessionDataDir()
@@ -393,16 +600,16 @@ func (p OnlyboxesProvider) resolveArtifactExportPath(request ExportArtifactFileR
 		}
 		return resolveContainerPathInside(dataDir, strings.TrimPrefix(path, "/mnt/data"))
 	}
-	root, err := cleanWorkspaceRoot(p.WorkspaceRoot)
+	root, err := p.workspaceDir()
 	if err != nil {
 		return "", err
 	}
-	workDir := strings.TrimSpace(request.WorkDir)
+	workDir = strings.TrimSpace(workDir)
 	switch {
 	case strings.HasPrefix(path, "/workspace/") || path == "/workspace":
 		return resolveContainerPathInside(root, strings.TrimPrefix(path, "/workspace"))
 	case filepath.IsAbs(path):
-		return "", fmt.Errorf("only /workspace and /mnt/data artifact exports are supported, got %q", path)
+		return "", fmt.Errorf("only /workspace and /mnt/data absolute paths are supported in cloud_sandbox, got %q", path)
 	case strings.HasPrefix(workDir, "/mnt/data/") || workDir == "/mnt/data":
 		dataDir, err := p.sessionDataDir()
 		if err != nil {
@@ -429,6 +636,11 @@ func (p OnlyboxesProvider) resolveArtifactExportPath(request ExportArtifactFileR
 		}
 		return resolvePathRelativeToRoot(root, base, path)
 	}
+}
+
+func isSandboxDataPath(path string) bool {
+	path = strings.TrimSpace(path)
+	return path == "/mnt/data" || strings.HasPrefix(path, "/mnt/data/")
 }
 
 func resolveContainerPathInside(root string, value string) (string, error) {

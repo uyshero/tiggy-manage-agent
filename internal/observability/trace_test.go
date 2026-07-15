@@ -206,6 +206,68 @@ func TestProjectTurnTraceProjectsNativeSpanLifecycle(t *testing.T) {
 	}
 }
 
+func TestProjectTurnTraceClosesMixedNativeInterruptSpans(t *testing.T) {
+	now := time.Now().UTC()
+	rootID := InteractionSpanID("turn_interrupt")
+	toolID := ToolSpanID("turn_interrupt", "call_edit", 0)
+	approvalID := ApprovalSpanID("turn_interrupt", "call_edit")
+	events := []managedagents.Event{
+		{Seq: 1, Type: managedagents.EventRuntimeStarted, CreatedAt: now, Payload: json.RawMessage(`{"turn_id":"turn_interrupt","trace_id":"trace_interrupt","span_id":"` + rootID + `","span_name":"tma.interaction","span_kind":"interaction","span_status":"running","message":"started"}`)},
+		{Seq: 2, Type: managedagents.EventRuntimeToolCall, CreatedAt: now.Add(10 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_interrupt","trace_id":"trace_interrupt","span_id":"` + toolID + `","parent_span_id":"` + rootID + `","span_name":"tma.tool.default.edit_file","span_kind":"tool","span_status":"point","message":"tool call","data":{"id":"call_edit","identifier":"default","api_name":"edit_file"}}`)},
+		{Seq: 3, Type: managedagents.EventRuntimeToolInterventionRequired, CreatedAt: now.Add(20 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_interrupt","trace_id":"trace_interrupt","span_id":"` + approvalID + `","parent_span_id":"` + toolID + `","span_name":"tma.tool.blocked_on_user","span_kind":"approval","span_status":"waiting","message":"approval","data":{"id":"call_edit","identifier":"default","api_name":"edit_file"}}`)},
+		{Seq: 4, Type: managedagents.EventRuntimeToolInterventionRejected, CreatedAt: now.Add(30 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_interrupt","message":"interrupted","data":{"id":"call_edit","identifier":"default","api_name":"edit_file","decision_reason":"turn interrupted by user"}}`)},
+		{Seq: 5, Type: managedagents.EventRuntimeToolResult, CreatedAt: now.Add(40 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_interrupt","message":"canceled","data":{"id":"call_edit","identifier":"default","api_name":"edit_file","status":"canceled","success":false,"reason":"user_interrupted"}}`)},
+		{Seq: 6, Type: managedagents.EventSessionStatusIdle, CreatedAt: now.Add(50 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_interrupt","last_turn_status":"interrupted"}`)},
+	}
+
+	trace := ProjectTurnTrace("sesn_1", "turn_interrupt", events)
+	root := traceSpanByID(t, trace.Spans, rootID)
+	tool := traceSpanByID(t, trace.Spans, toolID)
+	approval := traceSpanByID(t, trace.Spans, approvalID)
+	if root.Status != "canceled" || root.EndSeq != 6 || root.DurationMillis != 50 {
+		t.Fatalf("expected interrupted root closure, got %#v", root)
+	}
+	if tool.Status != "error" || tool.EndSeq != 5 || len(tool.Events) != 2 {
+		t.Fatalf("expected synthetic result to close tool span, got %#v", tool)
+	}
+	if approval.Status != "rejected" || approval.EndSeq != 4 || len(approval.Events) != 2 {
+		t.Fatalf("expected direct rejection to close approval span, got %#v", approval)
+	}
+}
+
+func TestProjectTurnTraceClosesOpenLLMSpanOnFailure(t *testing.T) {
+	now := time.Now().UTC()
+	rootID := InteractionSpanID("turn_failed")
+	llmID := spanIDFromKey("llm:turn_failed:0")
+	events := []managedagents.Event{
+		{Seq: 1, Type: managedagents.EventRuntimeStarted, CreatedAt: now, Payload: json.RawMessage(`{"turn_id":"turn_failed","trace_id":"trace_failed","span_id":"` + rootID + `","span_name":"tma.interaction","span_kind":"interaction","span_status":"running","message":"started"}`)},
+		{Seq: 2, Type: managedagents.EventRuntimeLLMRequest, CreatedAt: now.Add(10 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_failed","trace_id":"trace_failed","span_id":"` + llmID + `","parent_span_id":"` + rootID + `","span_name":"tma.llm","span_kind":"llm","span_status":"point","message":"request"}`)},
+		{Seq: 3, Type: managedagents.EventRuntimeFailed, CreatedAt: now.Add(30 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_failed","trace_id":"trace_failed","span_id":"` + rootID + `","span_name":"tma.interaction","span_kind":"interaction","span_status":"error","duration_ms":30,"message":"provider failed"}`)},
+		{Seq: 4, Type: managedagents.EventSessionStatusIdle, CreatedAt: now.Add(35 * time.Millisecond), Payload: json.RawMessage(`{"turn_id":"turn_failed","last_turn_status":"failed"}`)},
+	}
+
+	trace := ProjectTurnTrace("sesn_1", "turn_failed", events)
+	root := traceSpanByID(t, trace.Spans, rootID)
+	llmSpan := traceSpanByID(t, trace.Spans, llmID)
+	if root.Status != "error" || root.DurationMillis != 30 {
+		t.Fatalf("expected failed root closure, got %#v", root)
+	}
+	if llmSpan.Status != "error" || llmSpan.EndSeq != 4 || llmSpan.DurationMillis != 25 {
+		t.Fatalf("expected failed LLM span closure, got %#v", llmSpan)
+	}
+}
+
+func traceSpanByID(t *testing.T, spans []TraceSpan, spanID string) TraceSpan {
+	t.Helper()
+	for _, span := range spans {
+		if span.SpanID == spanID {
+			return span
+		}
+	}
+	t.Fatalf("span %q not found in %#v", spanID, spans)
+	return TraceSpan{}
+}
+
 func TestRefreshSessionSummaryAppendsTurnTrace(t *testing.T) {
 	store := &stubSummaryStore{
 		events: []managedagents.Event{

@@ -3,14 +3,32 @@ package serverconfig
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
 var configEnvKeys = []string{
+	"TMA_ENV",
 	"TMA_HTTP_ADDR",
 	"TMA_DATABASE_URL",
+	"TMA_AUTH_MODE",
+	"TMA_AUTH_JWT_SECRET",
+	"TMA_AUTH_JWT_ISSUER",
+	"TMA_AUTH_JWT_AUDIENCE",
+	"TMA_AUTH_OIDC_ISSUER",
+	"TMA_AUTH_OIDC_AUDIENCE",
+	"TMA_AUTH_OIDC_JWKS_URL",
+	"TMA_AUTH_OIDC_SIGNING_ALGS",
+	"TMA_AUTH_OIDC_HTTP_TIMEOUT_SECONDS",
+	"TMA_AUTH_OIDC_REFRESH_INTERVAL_SECONDS",
+	"TMA_AUTH_OIDC_MAX_STALE_SECONDS",
+	"TMA_AUTH_OIDC_CLAIM_MAPPING_JSON",
+	"TMA_AUTH_OIDC_CLI_CLIENT_ID",
+	"TMA_AUTH_COOKIE_TRUSTED_ORIGINS",
+	"TMA_AUTH_GATEWAY_TOKEN",
+	"TMA_AUTH_GATEWAY_TRUSTED_CIDRS",
 	"TMA_TURN_QUEUE_SIZE",
 	"TMA_TURN_WORKER_COUNT",
 	"TMA_TURN_POLL_INTERVAL_MS",
@@ -26,6 +44,8 @@ var configEnvKeys = []string{
 	"TMA_LLM_API_KEY_ENV",
 	"TMA_LLM_API_KEY",
 	"TMA_LLM_API_KEY_CUSTOM",
+	"TMA_LLM_MAX_ATTEMPTS",
+	"TMA_LLM_RETRY_BASE_DELAY_MS",
 	"TMA_OBJECT_STORAGE_PROVIDER",
 	"TMA_OBJECT_STORAGE_ENDPOINT",
 	"TMA_OBJECT_STORAGE_REGION",
@@ -38,6 +58,19 @@ var configEnvKeys = []string{
 	"TMA_OBJECT_STORAGE_ACCESS_KEY_CUSTOM",
 	"TMA_OBJECT_STORAGE_SECRET_KEY_CUSTOM",
 	"TMA_OBJECT_STORAGE_USE_PATH_STYLE",
+	"TMA_SKILLS_BINARY_SCANNER_PROVIDER",
+	"TMA_SKILLS_BINARY_SCANNER_ENDPOINT",
+	"TMA_SKILLS_BINARY_SCANNER_TOKEN_ENV",
+	"TMA_SKILLS_BINARY_SCANNER_TOKEN",
+	"TMA_SKILLS_BINARY_SCANNER_TOKEN_CUSTOM",
+	"TMA_SKILLS_BINARY_SCANNER_TIMEOUT_SECONDS",
+	"TMA_SKILLS_BINARY_SCANNER_MAX_ATTEMPTS",
+	"TMA_SKILLS_BINARY_SCANNER_POLL_INTERVAL_MS",
+	"TMA_SKILLS_ASSET_RETENTION_ENABLED",
+	"TMA_SKILLS_ASSET_RETENTION_DAYS",
+	"TMA_SKILLS_ASSET_GC_DELETE_LIMIT",
+	"TMA_SKILLS_ASSET_GC_WORKER_ENABLED",
+	"TMA_SKILLS_ASSET_GC_WORKER_INTERVAL_SECONDS",
 	"TMA_TOOL_RUNTIME",
 	"TMA_CLOUD_SANDBOX_ROOT",
 	"TMA_CLOUD_SANDBOX_IMAGE",
@@ -48,7 +81,27 @@ var configEnvKeys = []string{
 	"TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS",
 	"TMA_CLOUD_SANDBOX_ALLOW_NETWORK",
 	"TMA_ALLOW_SERVER_LOCAL_SYSTEM",
+	"TMA_MCP_STDIO_HOST_IDLE_TIMEOUT_SECONDS",
+	"TMA_MCP_STDIO_HOST_SWEEP_INTERVAL_SECONDS",
+	"TMA_MCP_STDIO_HOST_MAX_SESSIONS",
+	"TMA_MCP_HTTP_HOST_IDLE_TIMEOUT_SECONDS",
+	"TMA_MCP_HTTP_HOST_SWEEP_INTERVAL_SECONDS",
+	"TMA_MCP_HTTP_HOST_MAX_SESSIONS",
+	"TMA_MCP_HTTP_EGRESS_ALLOW_HTTP",
+	"TMA_MCP_HTTP_EGRESS_ALLOW_PRIVATE_NETWORKS",
+	"TMA_MCP_HTTP_EGRESS_ALLOWED_HOSTS",
+	"TMA_MCP_HTTP_EGRESS_ALLOWED_CIDRS",
+	"TMA_MCP_HTTP_CA_BUNDLE",
+	"TMA_SUBAGENT_MAX_DEPTH",
+	"TMA_SUBAGENT_MAX_CHILDREN_PER_TURN",
+	"TMA_SUBAGENT_MAX_CHILDREN_PER_SESSION",
+	"TMA_SUBAGENT_WORKSPACE_ACTIVE_LIMIT",
+	"TMA_SUBAGENT_USER_ACTIVE_LIMIT",
+	"TMA_SUBAGENT_WORKSPACE_QUEUE_LIMIT",
+	"TMA_SUBAGENT_USER_QUEUE_LIMIT",
+	"TMA_SUBAGENT_QUEUE_TIMEOUT_SECONDS",
 	"TMA_WORKER_AUTH_TOKEN",
+	"TMA_WORKER_AUTH_WORKSPACE_ID",
 	"TMA_WORKER_CONTROL_AUTH_TOKEN",
 	"TMA_WORKER_REAPER_ENABLED",
 	"TMA_WORKER_REAPER_INTERVAL_MS",
@@ -59,10 +112,184 @@ var configEnvKeys = []string{
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_ENABLED",
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_INTERVAL_MS",
 	"TMA_OBSERVABILITY_EXPORTER_RETRY_WORKER_LIMIT",
+	"TMA_SECURITY_AUDIT_OTLP_ENDPOINT",
+	"TMA_SECURITY_AUDIT_OTLP_TOKEN",
+	"TMA_SECURITY_AUDIT_INTEGRITY_KEY",
+	"TMA_SECURITY_AUDIT_INTEGRITY_KEY_ID",
+	"TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON",
+	"TMA_SECURITY_AUDIT_DURABLE",
+	"TMA_SECURITY_AUDIT_QUEUE_SIZE",
+	"TMA_SECURITY_AUDIT_BATCH_SIZE",
+	"TMA_SECURITY_AUDIT_FLUSH_INTERVAL_MS",
+	"TMA_SECURITY_AUDIT_HTTP_TIMEOUT_SECONDS",
+	"TMA_SECURITY_AUDIT_WORKER_INTERVAL_MS",
+	"TMA_SECURITY_AUDIT_LEASE_DURATION_MS",
+	"TMA_SECURITY_AUDIT_MAX_ATTEMPTS",
+	"TMA_SECURITY_AUDIT_RETRY_INITIAL_DELAY_MS",
+	"TMA_SECURITY_AUDIT_RETRY_MAX_DELAY_MS",
+	"TMA_SECURITY_AUDIT_RETENTION_DAYS",
+	"TMA_SECURITY_AUDIT_PRUNE_INTERVAL_MS",
+	"TMA_SECURITY_AUDIT_PRUNE_LIMIT",
 	"TMA_TRACE_INDEX_RETENTION_ENABLED",
 	"TMA_TRACE_INDEX_RETENTION_DAYS",
 	"TMA_TRACE_INDEX_RETENTION_INTERVAL_MS",
 	"TMA_TRACE_INDEX_RETENTION_LIMIT",
+}
+
+func TestProductionRejectsDisabledOrIncompleteAuth(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "disabled auth",
+			env:  map[string]string{"TMA_ENV": "production", "TMA_WORKER_AUTH_TOKEN": "worker-secret"},
+			want: "TMA_AUTH_MODE must be oidc, jwt, or gateway",
+		},
+		{
+			name: "missing jwt secret",
+			env:  map[string]string{"TMA_ENV": "production", "TMA_AUTH_MODE": "jwt", "TMA_WORKER_AUTH_TOKEN": "worker-secret"},
+			want: "TMA_AUTH_JWT_SECRET is required",
+		},
+		{
+			name: "missing oidc issuer",
+			env:  map[string]string{"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_WORKER_AUTH_TOKEN": "worker-secret"},
+			want: "TMA_AUTH_OIDC_ISSUER is required",
+		},
+		{
+			name: "missing oidc audience",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "https://issuer.example",
+				"TMA_WORKER_AUTH_TOKEN": "worker-secret",
+			},
+			want: "TMA_AUTH_OIDC_AUDIENCE is required",
+		},
+		{
+			name: "insecure production oidc issuer",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "http://issuer.example",
+				"TMA_AUTH_OIDC_AUDIENCE": "tma-api", "TMA_WORKER_AUTH_TOKEN": "worker-secret",
+			},
+			want: "TMA_AUTH_OIDC_ISSUER must use https",
+		},
+		{
+			name: "unsupported oidc algorithm",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "https://issuer.example",
+				"TMA_AUTH_OIDC_AUDIENCE": "tma-api", "TMA_AUTH_OIDC_SIGNING_ALGS": "HS256", "TMA_WORKER_AUTH_TOKEN": "worker-secret",
+			},
+			want: "unsupported TMA_AUTH_OIDC_SIGNING_ALGS",
+		},
+		{
+			name: "oidc max stale below refresh interval",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "https://issuer.example",
+				"TMA_AUTH_OIDC_AUDIENCE": "tma-api", "TMA_AUTH_OIDC_REFRESH_INTERVAL_SECONDS": "60",
+				"TMA_AUTH_OIDC_MAX_STALE_SECONDS": "30", "TMA_WORKER_AUTH_TOKEN": "worker-secret",
+			},
+			want: "TMA_AUTH_OIDC_MAX_STALE_SECONDS must be greater than or equal",
+		},
+		{
+			name: "insecure production cookie origin",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "https://issuer.example",
+				"TMA_AUTH_OIDC_AUDIENCE": "tma-api", "TMA_AUTH_COOKIE_TRUSTED_ORIGINS": "http://app.example",
+				"TMA_AUTH_OIDC_CLAIM_MAPPING_JSON": `{"allowed_workspace_ids":["wksp_default"]}`,
+				"TMA_WORKER_AUTH_TOKEN":            "worker-secret",
+			},
+			want: "TMA_AUTH_COOKIE_TRUSTED_ORIGINS entries must use https",
+		},
+		{
+			name: "production oidc without tenant restriction",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "oidc", "TMA_AUTH_OIDC_ISSUER": "https://issuer.example",
+				"TMA_AUTH_OIDC_AUDIENCE": "tma-api", "TMA_WORKER_AUTH_TOKEN": "worker-secret",
+			},
+			want: "TMA_AUTH_OIDC_CLAIM_MAPPING_JSON must configure allowed_workspace_ids",
+		},
+		{
+			name: "missing worker token",
+			env: map[string]string{
+				"TMA_ENV": "production", "TMA_AUTH_MODE": "jwt",
+				"TMA_AUTH_JWT_SECRET": "production-jwt-secret-with-at-least-32-bytes",
+				"TMA_AUTH_JWT_ISSUER": "https://issuer.example", "TMA_AUTH_JWT_AUDIENCE": "tma-api",
+			},
+			want: "TMA_WORKER_AUTH_TOKEN is required",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("TMA_DATABASE_URL", "postgres://example")
+			for key, value := range test.env {
+				t.Setenv(key, value)
+			}
+			_, err := FromEnv()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected error containing %q, got %v", test.want, err)
+			}
+		})
+	}
+}
+
+func TestProductionAcceptsCompleteOIDCAuth(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_ENV", "production")
+	t.Setenv("TMA_AUTH_MODE", "oidc")
+	t.Setenv("TMA_AUTH_OIDC_ISSUER", "https://issuer.example")
+	t.Setenv("TMA_AUTH_OIDC_AUDIENCE", "tma-api")
+	t.Setenv("TMA_AUTH_OIDC_JWKS_URL", "https://issuer.example/keys")
+	t.Setenv("TMA_AUTH_OIDC_SIGNING_ALGS", "RS256,ES256")
+	t.Setenv("TMA_AUTH_OIDC_CLAIM_MAPPING_JSON", `{"allowed_workspace_ids":["wksp_default"]}`)
+	t.Setenv("TMA_WORKER_AUTH_TOKEN", "worker-secret")
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	if config.Auth.Mode != "oidc" || config.Auth.OIDCIssuer != "https://issuer.example" || config.Auth.OIDCAudience != "tma-api" || len(config.Auth.OIDCSigningAlgs) != 2 {
+		t.Fatalf("unexpected production oidc config: %+v", config.Auth)
+	}
+}
+
+func TestProductionAcceptsCompleteJWTAuth(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_ENV", "production")
+	t.Setenv("TMA_AUTH_MODE", "jwt")
+	t.Setenv("TMA_AUTH_JWT_SECRET", "production-jwt-secret-with-at-least-32-bytes")
+	t.Setenv("TMA_AUTH_JWT_ISSUER", "https://issuer.example")
+	t.Setenv("TMA_AUTH_JWT_AUDIENCE", "tma-api")
+	t.Setenv("TMA_WORKER_AUTH_TOKEN", "worker-secret")
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	if config.Environment != "production" || config.Auth.Mode != "jwt" || config.Auth.JWTIssuer != "https://issuer.example" {
+		t.Fatalf("unexpected production auth config: %+v", config.Auth)
+	}
+}
+
+func TestGatewayAuthRequiresTokenAndTrustedCIDRs(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_AUTH_MODE", "gateway")
+	t.Setenv("TMA_AUTH_GATEWAY_TOKEN", "gateway-secret")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_AUTH_GATEWAY_TRUSTED_CIDRS") {
+		t.Fatalf("expected missing trusted CIDR error, got %v", err)
+	}
+
+	t.Setenv("TMA_AUTH_GATEWAY_TRUSTED_CIDRS", "127.0.0.0/8, 10.0.0.0/8")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	if len(config.Auth.GatewayTrustedCIDRs) != 2 {
+		t.Fatalf("unexpected trusted CIDRs: %#v", config.Auth.GatewayTrustedCIDRs)
+	}
 }
 
 func TestFromEnvUsesDefaults(t *testing.T) {
@@ -89,6 +316,15 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Turn.PollInterval != time.Duration(DefaultTurnPollIntervalMS)*time.Millisecond || config.Turn.LeaseDuration != time.Duration(DefaultTurnLeaseDurationMS)*time.Millisecond || config.Turn.HeartbeatInterval != time.Duration(DefaultTurnHeartbeatIntervalMS)*time.Millisecond {
 		t.Fatalf("unexpected default turn lease config: %+v", config.Turn)
 	}
+	if config.Subagent.MaxDepth != DefaultSubagentMaxDepth || config.Subagent.MaxChildrenPerTurn != DefaultSubagentMaxChildrenPerTurn || config.Subagent.MaxChildrenPerSession != DefaultSubagentMaxChildrenPerSession || config.Subagent.WorkspaceActiveLimit != DefaultSubagentWorkspaceActiveLimit || config.Subagent.UserActiveLimit != DefaultSubagentUserActiveLimit || config.Subagent.WorkspaceQueuedLimit != DefaultSubagentWorkspaceQueuedLimit || config.Subagent.UserQueuedLimit != DefaultSubagentUserQueuedLimit || config.Subagent.QueueTimeoutSeconds != DefaultSubagentQueueTimeoutSeconds {
+		t.Fatalf("unexpected default subagent config: %+v", config.Subagent)
+	}
+	if config.Skills.BinaryScanner.Provider != DefaultSkillsBinaryScannerProvider || config.Skills.BinaryScanner.TimeoutSeconds != DefaultSkillsBinaryScannerTimeoutSec || config.Skills.BinaryScanner.MaxAttempts != DefaultSkillsBinaryScannerMaxAttempts || config.Skills.BinaryScanner.PollIntervalMillis != DefaultSkillsBinaryScannerPollIntervalMS {
+		t.Fatalf("unexpected default skills binary scanner config: %+v", config.Skills.BinaryScanner)
+	}
+	if config.Skills.AssetRetention.Enabled != DefaultSkillsAssetRetentionEnabled || config.Skills.AssetRetention.RetentionDays != DefaultSkillsAssetRetentionDays || config.Skills.AssetRetention.DeleteLimit != DefaultSkillsAssetGCDeleteLimit || config.Skills.AssetRetention.WorkerEnabled != DefaultSkillsAssetGCWorkerEnabled || config.Skills.AssetRetention.WorkerIntervalSeconds != DefaultSkillsAssetGCWorkerIntervalSec {
+		t.Fatalf("unexpected default skills asset retention config: %+v", config.Skills.AssetRetention)
+	}
 	if config.LLM.Provider != DefaultLLMProvider {
 		t.Fatalf("expected default llm provider %q, got %q", DefaultLLMProvider, config.LLM.Provider)
 	}
@@ -103,6 +339,9 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.LLM.APIKeyEnv != DefaultLLMAPIKeyEnv {
 		t.Fatalf("expected default llm api key env %q, got %q", DefaultLLMAPIKeyEnv, config.LLM.APIKeyEnv)
+	}
+	if config.LLM.MaxAttempts != DefaultLLMMaxAttempts || config.LLM.RetryBaseDelay != time.Duration(DefaultLLMRetryBaseDelayMS)*time.Millisecond {
+		t.Fatalf("unexpected default llm retry config: %+v", config.LLM)
 	}
 	if config.ObjectStore.Provider != DefaultObjectStorageProvider {
 		t.Fatalf("expected default object storage provider %q, got %q", DefaultObjectStorageProvider, config.ObjectStore.Provider)
@@ -122,8 +361,8 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.ToolRuntime.Runtime != DefaultToolRuntime {
 		t.Fatalf("expected default tool runtime %q, got %q", DefaultToolRuntime, config.ToolRuntime.Runtime)
 	}
-	if config.ToolRuntime.Root != "" || config.ToolRuntime.Image != "" {
-		t.Fatalf("expected empty default cloud sandbox root/image, got %+v", config.ToolRuntime)
+	if config.ToolRuntime.Root != DefaultCloudSandboxWorkspaceRoot || config.ToolRuntime.Image != "" {
+		t.Fatalf("expected isolated default cloud sandbox root and empty image, got %+v", config.ToolRuntime)
 	}
 	if config.ToolRuntime.ContainerIdleTTL != time.Duration(DefaultCloudSandboxContainerIdleTTLSec)*time.Second {
 		t.Fatalf("expected default cloud sandbox container idle ttl, got %s", config.ToolRuntime.ContainerIdleTTL)
@@ -149,11 +388,23 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.ToolRuntime.AllowLocalSystem {
 		t.Fatal("expected server local_system fallback to be disabled by default")
 	}
+	if config.MCP.StdioHost.IdleTimeout != time.Duration(DefaultMCPStdioHostIdleTimeoutSec)*time.Second || config.MCP.StdioHost.SweepInterval != time.Duration(DefaultMCPStdioHostSweepIntervalSec)*time.Second || config.MCP.StdioHost.MaxSessions != DefaultMCPStdioHostMaxSessions {
+		t.Fatalf("unexpected default MCP stdio host config: %+v", config.MCP.StdioHost)
+	}
+	if config.MCP.StreamableHTTPHost.IdleTimeout != time.Duration(DefaultMCPHTTPHostIdleTimeoutSec)*time.Second || config.MCP.StreamableHTTPHost.SweepInterval != time.Duration(DefaultMCPHTTPHostSweepIntervalSec)*time.Second || config.MCP.StreamableHTTPHost.MaxSessions != DefaultMCPHTTPHostMaxSessions {
+		t.Fatalf("unexpected default MCP HTTP host config: %+v", config.MCP.StreamableHTTPHost)
+	}
+	if config.MCP.StreamableHTTPHost.EgressAllowHTTP || config.MCP.StreamableHTTPHost.EgressAllowPrivateNetworks || len(config.MCP.StreamableHTTPHost.EgressAllowedHosts) != 0 || len(config.MCP.StreamableHTTPHost.EgressAllowedCIDRs) != 0 || config.MCP.StreamableHTTPHost.CABundlePath != "" {
+		t.Fatalf("unexpected default MCP HTTP egress config: %+v", config.MCP.StreamableHTTPHost)
+	}
 	if config.Worker.AuthToken != "" {
 		t.Fatalf("expected empty default worker auth token, got %q", config.Worker.AuthToken)
 	}
 	if config.Worker.ControlAuthToken != "" {
 		t.Fatalf("expected empty default worker control auth token, got %q", config.Worker.ControlAuthToken)
+	}
+	if config.Auth.OIDCCLIClientID != DefaultOIDCCLIClientID {
+		t.Fatalf("expected default OIDC CLI client id %q, got %q", DefaultOIDCCLIClientID, config.Auth.OIDCCLIClientID)
 	}
 	if config.Worker.Reaper.Enabled != DefaultWorkerReaperEnabled {
 		t.Fatalf("expected default worker reaper enabled %t, got %t", DefaultWorkerReaperEnabled, config.Worker.Reaper.Enabled)
@@ -209,6 +460,21 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Observability.TraceIndexRetention.Limit != DefaultTraceIndexRetentionLimit {
 		t.Fatalf("expected default trace index retention limit %d, got %d", DefaultTraceIndexRetentionLimit, config.Observability.TraceIndexRetention.Limit)
 	}
+	if config.Observability.SecurityAudit.OTLPEndpoint != "" || config.Observability.SecurityAudit.OTLPToken != "" {
+		t.Fatalf("expected disabled default security audit exporter, got %+v", config.Observability.SecurityAudit)
+	}
+	if config.Observability.SecurityAudit.QueueSize != DefaultSecurityAuditQueueSize || config.Observability.SecurityAudit.BatchSize != DefaultSecurityAuditBatchSize {
+		t.Fatalf("unexpected default security audit queue config: %+v", config.Observability.SecurityAudit)
+	}
+	if config.Observability.SecurityAudit.FlushInterval != time.Duration(DefaultSecurityAuditFlushIntervalMS)*time.Millisecond || config.Observability.SecurityAudit.HTTPTimeout != time.Duration(DefaultSecurityAuditHTTPTimeoutSeconds)*time.Second {
+		t.Fatalf("unexpected default security audit timing config: %+v", config.Observability.SecurityAudit)
+	}
+	if !config.Observability.SecurityAudit.Durable || config.Observability.SecurityAudit.WorkerInterval != time.Duration(DefaultSecurityAuditWorkerIntervalMS)*time.Millisecond || config.Observability.SecurityAudit.LeaseDuration != time.Duration(DefaultSecurityAuditLeaseDurationMS)*time.Millisecond {
+		t.Fatalf("unexpected default durable security audit config: %+v", config.Observability.SecurityAudit)
+	}
+	if config.Observability.SecurityAudit.MaxAttempts != DefaultSecurityAuditMaxAttempts || config.Observability.SecurityAudit.Retention != time.Duration(DefaultSecurityAuditRetentionDays)*24*time.Hour {
+		t.Fatalf("unexpected default security audit retry/retention config: %+v", config.Observability.SecurityAudit)
+	}
 }
 
 func TestLoadReadsDotEnv(t *testing.T) {
@@ -243,6 +509,17 @@ TMA_CLOUD_SANDBOX_CONTAINER_MAX_LIFETIME_SECONDS=7200
 TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS=30
 TMA_CLOUD_SANDBOX_ALLOW_NETWORK=true
 TMA_ALLOW_SERVER_LOCAL_SYSTEM=true
+TMA_MCP_STDIO_HOST_IDLE_TIMEOUT_SECONDS=120
+TMA_MCP_STDIO_HOST_SWEEP_INTERVAL_SECONDS=15
+TMA_MCP_STDIO_HOST_MAX_SESSIONS=8
+TMA_MCP_HTTP_HOST_IDLE_TIMEOUT_SECONDS=180
+TMA_MCP_HTTP_HOST_SWEEP_INTERVAL_SECONDS=20
+TMA_MCP_HTTP_HOST_MAX_SESSIONS=12
+TMA_MCP_HTTP_EGRESS_ALLOW_HTTP=true
+TMA_MCP_HTTP_EGRESS_ALLOW_PRIVATE_NETWORKS=true
+TMA_MCP_HTTP_EGRESS_ALLOWED_HOSTS=mcp.internal.example,*.mcp.example.com
+TMA_MCP_HTTP_EGRESS_ALLOWED_CIDRS=10.20.0.0/16,fd20::/64
+TMA_MCP_HTTP_CA_BUNDLE=/etc/tma/mcp-ca.pem
 TMA_WORKER_AUTH_TOKEN=worker-dotenv-token
 TMA_WORKER_CONTROL_AUTH_TOKEN=worker-control-dotenv-token
 `)
@@ -315,6 +592,18 @@ TMA_WORKER_CONTROL_AUTH_TOKEN=worker-control-dotenv-token
 	if !config.ToolRuntime.AllowLocalSystem {
 		t.Fatal("expected dotenv server local_system fallback override true")
 	}
+	if config.MCP.StdioHost.IdleTimeout != 2*time.Minute || config.MCP.StdioHost.SweepInterval != 15*time.Second || config.MCP.StdioHost.MaxSessions != 8 {
+		t.Fatalf("unexpected dotenv MCP stdio host config: %+v", config.MCP.StdioHost)
+	}
+	if config.MCP.StreamableHTTPHost.IdleTimeout != 3*time.Minute || config.MCP.StreamableHTTPHost.SweepInterval != 20*time.Second || config.MCP.StreamableHTTPHost.MaxSessions != 12 {
+		t.Fatalf("unexpected dotenv MCP HTTP host config: %+v", config.MCP.StreamableHTTPHost)
+	}
+	if !config.MCP.StreamableHTTPHost.EgressAllowHTTP || !config.MCP.StreamableHTTPHost.EgressAllowPrivateNetworks || !reflect.DeepEqual(config.MCP.StreamableHTTPHost.EgressAllowedHosts, []string{"mcp.internal.example", "*.mcp.example.com"}) || !reflect.DeepEqual(config.MCP.StreamableHTTPHost.EgressAllowedCIDRs, []string{"10.20.0.0/16", "fd20::/64"}) {
+		t.Fatalf("unexpected dotenv MCP HTTP egress config: %+v", config.MCP.StreamableHTTPHost)
+	}
+	if config.MCP.StreamableHTTPHost.CABundlePath != "/etc/tma/mcp-ca.pem" {
+		t.Fatalf("unexpected dotenv MCP HTTP CA bundle: %q", config.MCP.StreamableHTTPHost.CABundlePath)
+	}
 	if config.Worker.AuthToken != "worker-dotenv-token" {
 		t.Fatalf("expected dotenv worker auth token, got %q", config.Worker.AuthToken)
 	}
@@ -384,6 +673,8 @@ func TestFromEnvParsesLLMConfig(t *testing.T) {
 	t.Setenv("TMA_LLM_BASE_URL", "http://custom.example/v1")
 	t.Setenv("TMA_LLM_API_KEY_ENV", "TMA_LLM_API_KEY_CUSTOM")
 	t.Setenv("TMA_LLM_API_KEY_CUSTOM", "custom-key")
+	t.Setenv("TMA_LLM_MAX_ATTEMPTS", "5")
+	t.Setenv("TMA_LLM_RETRY_BASE_DELAY_MS", "750")
 
 	config, err := FromEnv()
 	if err != nil {
@@ -407,6 +698,33 @@ func TestFromEnvParsesLLMConfig(t *testing.T) {
 	}
 	if config.LLM.APIKeyEnv != "TMA_LLM_API_KEY_CUSTOM" {
 		t.Fatalf("expected llm api key env custom, got %q", config.LLM.APIKeyEnv)
+	}
+	if config.LLM.MaxAttempts != 5 || config.LLM.RetryBaseDelay != 750*time.Millisecond {
+		t.Fatalf("unexpected llm retry config: %+v", config.LLM)
+	}
+}
+
+func TestFromEnvRejectsInvalidLLMRetryConfig(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "zero attempts", key: "TMA_LLM_MAX_ATTEMPTS", value: "0", want: "between 1 and 10"},
+		{name: "too many attempts", key: "TMA_LLM_MAX_ATTEMPTS", value: "11", want: "between 1 and 10"},
+		{name: "base delay", key: "TMA_LLM_RETRY_BASE_DELAY_MS", value: "60001", want: "between 1 and 60000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("TMA_DATABASE_URL", "postgres://example")
+			t.Setenv(test.key, test.value)
+			_, err := FromEnv()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected %s validation error, got %v", test.key, err)
+			}
+		})
 	}
 }
 
@@ -503,6 +821,108 @@ func TestFromEnvParsesBackgroundWorkerConfig(t *testing.T) {
 	}
 }
 
+func TestFromEnvParsesAndValidatesSecurityAuditExporter(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_SECURITY_AUDIT_OTLP_ENDPOINT", "http://collector.test:4318")
+	t.Setenv("TMA_SECURITY_AUDIT_OTLP_TOKEN", "security-audit-token")
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY", "test-integrity-key-at-least-32-bytes")
+	t.Setenv("TMA_SECURITY_AUDIT_QUEUE_SIZE", "500")
+	t.Setenv("TMA_SECURITY_AUDIT_BATCH_SIZE", "25")
+	t.Setenv("TMA_SECURITY_AUDIT_FLUSH_INTERVAL_MS", "750")
+	t.Setenv("TMA_SECURITY_AUDIT_HTTP_TIMEOUT_SECONDS", "7")
+	t.Setenv("TMA_SECURITY_AUDIT_WORKER_INTERVAL_MS", "250")
+	t.Setenv("TMA_SECURITY_AUDIT_LEASE_DURATION_MS", "5000")
+	t.Setenv("TMA_SECURITY_AUDIT_MAX_ATTEMPTS", "6")
+	t.Setenv("TMA_SECURITY_AUDIT_RETRY_INITIAL_DELAY_MS", "500")
+	t.Setenv("TMA_SECURITY_AUDIT_RETRY_MAX_DELAY_MS", "10000")
+	t.Setenv("TMA_SECURITY_AUDIT_RETENTION_DAYS", "120")
+	t.Setenv("TMA_SECURITY_AUDIT_PRUNE_INTERVAL_MS", "60000")
+	t.Setenv("TMA_SECURITY_AUDIT_PRUNE_LIMIT", "250")
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	audit := config.Observability.SecurityAudit
+	if audit.OTLPEndpoint != "http://collector.test:4318" || audit.OTLPToken != "security-audit-token" || audit.QueueSize != 500 || audit.BatchSize != 25 {
+		t.Fatalf("unexpected security audit exporter config: %+v", audit)
+	}
+	if audit.FlushInterval != 750*time.Millisecond || audit.HTTPTimeout != 7*time.Second {
+		t.Fatalf("unexpected security audit exporter timing: %+v", audit)
+	}
+	if !audit.Durable || audit.WorkerInterval != 250*time.Millisecond || audit.LeaseDuration != 5*time.Second || audit.MaxAttempts != 6 {
+		t.Fatalf("unexpected durable security audit worker config: %+v", audit)
+	}
+	if audit.RetryInitialDelay != 500*time.Millisecond || audit.RetryMaxDelay != 10*time.Second || audit.Retention != 120*24*time.Hour || audit.PruneInterval != time.Minute || audit.PruneLimit != 250 {
+		t.Fatalf("unexpected durable security audit retry/retention config: %+v", audit)
+	}
+
+	t.Setenv("TMA_SECURITY_AUDIT_BATCH_SIZE", "501")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_SECURITY_AUDIT_BATCH_SIZE") {
+		t.Fatalf("expected invalid security audit batch size, got %v", err)
+	}
+}
+
+func TestFromEnvParsesSecurityAuditIntegrityKeyring(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_SECURITY_AUDIT_OTLP_ENDPOINT", "http://collector.test:4318")
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY_ID", "2026-07")
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON", `{"2026-01":"previous-security-audit-key-material-32-bytes","2026-07":"current-security-audit-key-material-at-least-32-bytes"}`)
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("parse security audit keyring: %v", err)
+	}
+	audit := config.Observability.SecurityAudit
+	if audit.IntegrityKeyID != "2026-07" || len(audit.IntegrityKeys) != 2 || audit.IntegrityKeys["2026-01"] == "" {
+		t.Fatalf("unexpected security audit integrity keyring: id=%q keys=%d", audit.IntegrityKeyID, len(audit.IntegrityKeys))
+	}
+
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY_ID", "missing")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "not present") {
+		t.Fatalf("expected missing active integrity key rejection, got %v", err)
+	}
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON", `{"bad key":"secret"}`)
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "invalid key id") {
+		t.Fatalf("expected invalid integrity key id rejection, got %v", err)
+	}
+}
+
+func TestProductionSecurityAuditExporterRequiresHTTPS(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_ENV", "production")
+	t.Setenv("TMA_AUTH_MODE", "jwt")
+	t.Setenv("TMA_AUTH_JWT_SECRET", "production-jwt-secret-at-least-32-bytes")
+	t.Setenv("TMA_AUTH_JWT_ISSUER", "https://issuer.example")
+	t.Setenv("TMA_AUTH_JWT_AUDIENCE", "tma-api")
+	t.Setenv("TMA_WORKER_AUTH_TOKEN", "worker-secret")
+	t.Setenv("TMA_SECURITY_AUDIT_OTLP_ENDPOINT", "http://collector.example:4318")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_SECURITY_AUDIT_OTLP_ENDPOINT must use https") {
+		t.Fatalf("expected production security audit HTTPS rejection, got %v", err)
+	}
+	t.Setenv("TMA_SECURITY_AUDIT_OTLP_ENDPOINT", "https://collector.example:4318")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_SECURITY_AUDIT_INTEGRITY_KEY") {
+		t.Fatalf("expected production security audit integrity key rejection, got %v", err)
+	}
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY", "production-security-audit-integrity-key")
+	if _, err := FromEnv(); err != nil {
+		t.Fatalf("expected valid production security audit config, got %v", err)
+	}
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY", "")
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEY_ID", "current")
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON", `{"previous":"short","current":"current-production-security-audit-integrity-key"}`)
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), `key "previous" must be at least 32 bytes`) {
+		t.Fatalf("expected short previous integrity key rejection, got %v", err)
+	}
+	t.Setenv("TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON", `{"previous":"previous-production-security-audit-integrity-key","current":"current-production-security-audit-integrity-key"}`)
+	if _, err := FromEnv(); err != nil {
+		t.Fatalf("expected valid production rotating integrity keyring, got %v", err)
+	}
+}
+
 func TestFromEnvParsesObjectStorageConfig(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("TMA_DATABASE_URL", "postgres://example")
@@ -542,6 +962,30 @@ func TestFromEnvParsesObjectStorageConfig(t *testing.T) {
 	}
 }
 
+func TestFromEnvParsesSkillsBinaryScannerConfig(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_PROVIDER", "clamav_http")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_ENDPOINT", "http://clamav-gateway.local:8080/v1")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_TOKEN_ENV", "TMA_SKILLS_BINARY_SCANNER_TOKEN_CUSTOM")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_TOKEN_CUSTOM", "scanner-secret")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_TIMEOUT_SECONDS", "45")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_MAX_ATTEMPTS", "5")
+	t.Setenv("TMA_SKILLS_BINARY_SCANNER_POLL_INTERVAL_MS", "250")
+
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	scanner := config.Skills.BinaryScanner
+	if scanner.Provider != "clamav_http" || scanner.Endpoint != "http://clamav-gateway.local:8080/v1" || scanner.TokenEnv != "TMA_SKILLS_BINARY_SCANNER_TOKEN_CUSTOM" || scanner.Token != "scanner-secret" {
+		t.Fatalf("unexpected skills binary scanner identity config: %+v", scanner)
+	}
+	if scanner.Timeout != 45*time.Second || scanner.MaxAttempts != 5 || scanner.PollInterval != 250*time.Millisecond {
+		t.Fatalf("unexpected skills binary scanner runtime config: %+v", scanner)
+	}
+}
+
 func TestFromEnvInvalidIntUsesDefault(t *testing.T) {
 	clearConfigEnv(t)
 	t.Setenv("TMA_DATABASE_URL", "postgres://example")
@@ -549,6 +993,8 @@ func TestFromEnvInvalidIntUsesDefault(t *testing.T) {
 	t.Setenv("TMA_TURN_WORKER_COUNT", "nope")
 	t.Setenv("TMA_TURN_TIMEOUT_MS", "-1")
 	t.Setenv("TMA_MAX_TOOL_ROUNDS", "-1")
+	t.Setenv("TMA_SUBAGENT_MAX_DEPTH", "-1")
+	t.Setenv("TMA_SUBAGENT_USER_ACTIVE_LIMIT", "nope")
 
 	config, err := FromEnv()
 	if err != nil {
@@ -566,6 +1012,80 @@ func TestFromEnvInvalidIntUsesDefault(t *testing.T) {
 	}
 	if config.Turn.MaxToolRounds != DefaultMaxToolRounds {
 		t.Fatalf("expected default max tool rounds, got %d", config.Turn.MaxToolRounds)
+	}
+	if config.Subagent.MaxDepth != DefaultSubagentMaxDepth || config.Subagent.UserActiveLimit != DefaultSubagentUserActiveLimit {
+		t.Fatalf("expected default subagent config fallback, got %+v", config.Subagent)
+	}
+}
+
+func TestFromEnvRejectsInvalidMCPStdioHostLimits(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "idle timeout", key: "TMA_MCP_STDIO_HOST_IDLE_TIMEOUT_SECONDS", value: "0", want: "must be positive"},
+		{name: "sweep interval", key: "TMA_MCP_STDIO_HOST_SWEEP_INTERVAL_SECONDS", value: "0", want: "must be positive"},
+		{name: "max sessions", key: "TMA_MCP_STDIO_HOST_MAX_SESSIONS", value: "10001", want: "between 1 and 10000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("TMA_DATABASE_URL", "postgres://example")
+			t.Setenv(test.key, test.value)
+			_, err := FromEnv()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected %s validation error, got %v", test.key, err)
+			}
+		})
+	}
+}
+
+func TestFromEnvRejectsInvalidMCPHTTPHostLimits(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "idle timeout", key: "TMA_MCP_HTTP_HOST_IDLE_TIMEOUT_SECONDS", value: "0", want: "must be positive"},
+		{name: "sweep interval", key: "TMA_MCP_HTTP_HOST_SWEEP_INTERVAL_SECONDS", value: "0", want: "must be positive"},
+		{name: "max sessions", key: "TMA_MCP_HTTP_HOST_MAX_SESSIONS", value: "10001", want: "between 1 and 10000"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("TMA_DATABASE_URL", "postgres://example")
+			t.Setenv(test.key, test.value)
+			_, err := FromEnv()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected %s validation error, got %v", test.key, err)
+			}
+		})
+	}
+}
+
+func TestFromEnvRejectsInvalidMCPHTTPEgressAllowlist(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "host URL", key: "TMA_MCP_HTTP_EGRESS_ALLOWED_HOSTS", value: "https://mcp.example.com", want: "invalid host"},
+		{name: "invalid CIDR", key: "TMA_MCP_HTTP_EGRESS_ALLOWED_CIDRS", value: "10.0.0.0/not-a-prefix", want: "invalid CIDR"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			t.Setenv("TMA_DATABASE_URL", "postgres://example")
+			t.Setenv(test.key, test.value)
+			_, err := FromEnv()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("expected %s validation error, got %v", test.key, err)
+			}
+		})
 	}
 }
 

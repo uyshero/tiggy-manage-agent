@@ -23,13 +23,32 @@ make build
 make build-cli
 ```
 
-Postgres 集成测试默认跳过。启动数据库并迁移后，可以显式运行：
+Postgres 集成测试默认跳过。可以显式运行：
 
 ```bash
-make db-up
-make migrate-up
 make test-postgres
 ```
+
+`make test-postgres` 会启动 Compose PostgreSQL，创建一次性 `tma_test_*` 数据库，应用全部迁移后运行测试，并在结束或失败时终止残留连接、删除临时数据库。它不会使用开发 server 正在连接的 `tma` 数据库，因此后台 turn worker 不会消费集成测试数据。可通过 `TMA_POSTGRES_TEST_USER`、`TMA_POSTGRES_TEST_PASSWORD`、`TMA_POSTGRES_TEST_HOST` 和 `TMA_POSTGRES_TEST_PORT` 覆盖本地连接参数。
+
+`make migrate-up` 使用 `ON_ERROR_STOP=1` 和单文件事务执行每个迁移。任何 SQL 错误都会立即让命令和依赖它的 verification target 失败，不允许继续执行后续迁移形成假绿；重复执行应保持幂等成功。
+
+真实 Keycloak OIDC/Claim mapping 验收使用独立 Compose profile。它会导入测试 realm，签发测试用户 Token，启动临时 TMA 服务，验证 Group 到 Workspace/operator 的映射和 Workspace 隔离，最后清理 Keycloak 容器及测试租户：
+
+```bash
+make verify-oidc-keycloak
+```
+
+The verification checks the effective Principal, client workspace spoofing resistance, the structured `group_mapping:finance-operators` authorization audit source, the OIDC authorization decision Prometheus counter, a delivered HMAC-protected PostgreSQL outbox row, and a real OTLP/HTTP Logs delivery to a local authenticated fixture. It creates a fully migrated isolated PostgreSQL database and removes it with the temporary fixture on exit, so development data is never read or modified. A Keycloak container started by the script is removed; a pre-existing development Keycloak instance remains running.
+
+Keycloak Realm 安全基线可单独应用和验收。应用命令只更新安全策略，不修改用户、分组、客户端或 SMTP 凭据；验收同时检查仓库配置与当前运行实例：
+
+```bash
+make keycloak-security-apply
+make verify-keycloak-security
+```
+
+该脚本使用 Resource Owner Password Grant 仅用于无交互本地测试；生产登录仍应使用 Authorization Code + PKCE。
 
 当前覆盖：
 
@@ -298,6 +317,8 @@ TMA_LLM_MODEL
 TMA_LLM_BASE_URL
 TMA_LLM_API_KEY_ENV
 TMA_LLM_API_KEY
+TMA_LLM_MAX_ATTEMPTS
+TMA_LLM_RETRY_BASE_DELAY_MS
 ```
 
 启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_delta` 数量。
@@ -1055,6 +1076,18 @@ make db-up
 make migrate-up
 ```
 
+验证全部租户表的强制 workspace/owner RLS，包括 MCP Registry server 和不可变版本：
+
+```bash
+TMA_RUN_POSTGRES_TESTS=1 \
+TMA_DATABASE_URL='postgres://tma:tma@localhost:5432/tma?sslmode=disable' \
+go test ./internal/managedagents \
+  -run TestPostgresTenantTablesForceWorkspaceRLS \
+  -count=1 -v
+```
+
+测试会临时创建非 superuser runtime role，验证生产启动角色检查、无 scope 查询为零、不同 workspace/owner 相互不可见、`WITH CHECK` 拒绝跨 scope 写入，并在结束后删除测试角色和数据。覆盖表为 `agents`、`agent_config_versions`、`environments`、`managed_environment_variables`、`mcp_registry_servers`、`mcp_registry_server_versions`、`object_refs`、`session_artifacts` 和 `sessions`。
+
 启动服务：
 
 ```bash
@@ -1104,7 +1137,7 @@ bin/tma sandbox doctor
 `sandbox doctor` 会读取当前目录 `.env` 中的 `TMA_CLOUD_SANDBOX_ROOT` 和 `TMA_CLOUD_SANDBOX_IMAGE`，并检查：
 
 - runtime 是否会落到 `cloud_sandbox`。
-- workspace root 是否存在且是目录。
+- workspace base 是否可创建且是目录；实际 `/workspace` 只挂载其下按 workspace、owner、session 派生的隔离子目录。
 - `docker` 命令是否可找到。
 - Docker daemon 是否可连接。
 - sandbox 镜像是否已存在于本地；缺失时默认自动 `docker pull`。
@@ -1227,7 +1260,7 @@ TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes-upload-data
 - 启动临时 TMA server。
 - 创建 agent / environment / session。
 - 通过 `POST /v1/sessions/{session_id}/artifacts/upload` 上传一个 `file` artifact。
-- 发送 `tma.verify_uploaded_file_seed`，让 fake LLM 触发 sandbox 命令读取 `/mnt/data/uploads/{artifact_id}/input.txt`，并写入 `/mnt/data/state.txt`。
+- 发送 `tma.verify_uploaded_file_seed`，让 fake LLM 触发 sandbox 命令读取 `/workspace/uploads/{artifact_id}/input.txt`，并把临时状态写入 `/mnt/data/state.txt`。
 - 再发送 `tma.verify_uploaded_file_read`，确认下一次工具调用仍能读取上传文件和上一轮写入的 `/mnt/data/state.txt`。
 
 通过表示上传接口、对象存储、session artifact、`OnlyboxesProvider` 同步逻辑和 session 级 `/mnt/data` 持久目录已经形成最小闭环。
@@ -1247,7 +1280,7 @@ make verify-onlyboxes-export-artifact
 - 启动临时 TMA server。
 - 创建 agent / environment / session。
 - 通过 `POST /v1/sessions/{session_id}/artifacts/upload` 上传一个输入文件。
-- 发送 `tma.verify_uploaded_file_export`，让 fake LLM 触发 sandbox 命令在 `/mnt/data/outputs/export.txt` 生成产物，并通过 `output_paths` 请求保存。
+- 发送 `tma.verify_uploaded_file_export`，让 fake LLM 触发 sandbox 命令在 `/workspace/outputs/export.txt` 生成最终产物，并通过 `output_paths` 请求保存。
 - 从 `runtime.tool_result` 的 `artifacts` 中取出生成的 `file` artifact。
 - 通过 `bin/tma session artifact download` 下载该 artifact，校验内容同时包含上传文件标记和生成文件标记。
 
@@ -1379,6 +1412,291 @@ make verify-worker-backed-local-system
 - 从 worker 日志中取出 completed `work_id`，再用 `bin/tma work get --work ...` 校验 work 状态和 tool result。
 
 通过表示 `local_system` 工具执行已经真实经过 `tma-worker`，而不是落在 server 进程内 fallback。
+
+### 17.9.0 MCP stdio 验证
+
+这一节验证 Agent 级 MCP stdio 接入已经形成完整闭环：
+
+```text
+Agent config mcp
+  -> server 读取 MCP initialize / tools/list
+  -> AgentRuntime 暴露 filesystem.read_file
+  -> fake LLM 调用 filesystem.read_file
+  -> runtime.tool_result / agent.message
+```
+
+运行：
+
+```bash
+make verify-mcp-stdio
+```
+
+脚本会自动：
+
+- build `bin/tma-server` 和 `bin/tma`。
+- 启动 Postgres 并执行迁移。
+- 启动临时 TMA server。
+- 创建一个 verification Agent。
+- 通过 `agent config update --mcp ... --tools ...` 绑定仓库内 `scripts/mcp_stdio_fixture.py`。
+- 校验 `agent config list` 返回的 `mcp` 已归一化为 `servers` 数组，且 `env` 中保存的是 `env_ref` 引用。
+- 创建 environment / session，并发送 `tma.verify_mcp_tool`。
+- 校验事件历史中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message`、`session.status_idle`。
+- 校验工具调用确实是 `filesystem.read_file`，结果包含 `tma-mcp-filesystem-ok` marker。
+- fixture 会把每次进程启动的 PID 追加到临时 marker；脚本要求只有一行，证明 manifest 加载阶段的 `tools/list` 和执行阶段的 `tools/call` 命中同一个 Server 长驻 stdio 进程。
+
+Streamable HTTP 的真实 TLS 兼容性验收运行：
+
+```bash
+make verify-mcp-http
+```
+
+该入口先运行取消、`404/410` Session 重建、SSE 重连和 `DELETE` 定向 Go 测试，再生成临时 CA/服务端证书并启动 `scripts/mcp_http_fixture.py`。临时 TMA Server 使用 HTTPS-only egress、`localhost` host allowlist、精确 loopback CIDR 和 `TMA_MCP_HTTP_CA_BUNDLE`，端到端验证 OAuth client credentials、`Mcp-Session-Id`、`Mcp-Protocol-Version`、JSON response、POST SSE、GET SSE、`Last-Event-ID`、tools/resources/prompts、logging/progress 脱敏计数、Agent 工具调用和优雅关闭 `DELETE`。Agent config 只能引用 OAuth secret，不能注入 CA 或关闭 TLS 校验。
+
+同一批 Go 单测还覆盖 `streamable_http` transport：
+
+```bash
+go test ./internal/mcp ./internal/tools
+```
+
+覆盖点包括：
+
+- `streamable_http` 配置要求 `url`，且只接受 `http` / `https`。
+- `headers` 支持 `env_ref` / `secret_ref: "env:NAME"`，不会把真实 secret 写回 canonical config。
+- HTTP MCP client 发送 `POST` JSON-RPC，支持 JSON response 和 POST response SSE；POST SSE 在目标 response 前发送 `ping` server request 时，client 会先通过 POST 返回对应结果，再继续解析工具列表。
+- initialize 后同一短会话后续请求会带上 `Mcp-Protocol-Version`；initialize response 返回 `Mcp-Session-Id` 时，也会带上该 session header。
+- initialize response 返回的 server `capabilities` 会被解析、保存到 MCP runtime，并在 tooling health 响应中展示。
+- tooling health 在 MCP tools 加载成功后会额外探测 `resources/list` / `resources/templates/list` / `prompts/list`，并在响应中展示 `resource_count` / `resource_template_count` / `prompt_count`；探测失败只进入诊断，不会覆盖 tools 在线状态。
+- `npm --prefix web-app run build` 会同步验证 Workbench MCP 健康检查 badge 可展示 capabilities 和三类 catalog count，Agent 编辑器可保留 `expose.resources` / `expose.prompts` 开关，并更新内嵌静态资源。
+- `npm --prefix web-inspector test -- --run` 会覆盖 Inspector MCP 工具来源统计、诊断 badge、`tma.mcp_result.v1` / `tma.mcp_context_result.v1` 摘要，以及 `MCP Protocol` 对 call/result、重复 call ID、pending/unpaired 操作的顺序配对；测试确认 arguments、endpoint、Authorization、error message、content text 和 structured content value 不进入协议投影。
+- `npm --prefix web-inspector run build` 会验证 Inspector Timeline / Recent Events 的 MCP badge、result/context 摘要卡和独立 `MCP Protocol` 面板，并更新内嵌静态资源。浏览器验收应使用真实 MCP Session，在 1280px 与 390px viewport 检查 request/response 横向/纵向布局、`scrollWidth == clientWidth`、无控件重叠，并确认面板范围不含 marker、路径、Authorization 或 endpoint；控制台不得有 error/warn。
+- `listen: true` 会启动可选 GET SSE listener；listener 会处理 server request fallback response，并在重连时发送 `Last-Event-ID`。
+- `roots` 配置会归一化；stdio 与 `streamable_http` initialize 都会声明 `roots: { listChanged: false }`，收到 `roots/list` 时返回配置的 roots。
+- stdio 子进程测试会在 `tools/list` 完成前反向发送 `ping`、`roots/list`、`sampling/createMessage`、`elicitation/create` 和未知方法，校验 client 不会丢弃 server request，并分别返回空结果、roots、`-32000` 安全拒绝和 `-32601` fallback。
+- stdio 与 Streamable HTTP listener 都会原样回传数字或字符串 JSON-RPC request ID；HTTP listener 测试使用字符串 ID 覆盖这一兼容性。
+- `sampling` 配置会保留到 runtime；listener 收到 `sampling/createMessage` 时返回 `-32000` 策略拒绝，避免远端 MCP server 绕过主流程直接触发模型采样。
+- `elicitation` 配置会保留到 runtime；listener 收到 `elicitation/create` 时返回 `-32000` 策略拒绝，避免远端 MCP server 绕过主流程直接触发用户交互。
+- sampling / elicitation 在真实 backend 接入前不会写入 initialize client capabilities；测试会同时校验“未声明能力”和“未协商请求仍安全拒绝”。
+- stdio MCP client 会继承调用方 context；当 helper 在 `tools/call` 阶段卡住且调用超时时，测试会校验先发送 `notifications/cancelled`（包含 in-flight `requestId` 和 context reason），再返回 `context deadline exceeded`，而不是泄漏 `read mcp header` / `EOF` 等底层 pipe 细节。
+- Server `StdioHost` 单测会校验同一 scope 多次调用只 initialize 一次并复用 PID、不同 Session scope 使用隔离进程、空闲 entry 被回收，以及取消请求后下一次调用自动创建新进程。
+- 容量测试会校验达到 `max_sessions` 时淘汰最旧空闲 entry；全部 entry 正在使用时返回 capacity 错误，并累计 eviction/rejection 计数。
+- 动态目录测试会让同一个 fixture PID 在工具调用期间发送 tools/resources/prompts 三类 `list_changed` notification，校验 host 分别累计事件，并由后续实时 `tools/list`、`resources/list`、`prompts/list` 读取更新后的目录，全程不重启子进程。
+- logging 测试覆盖八级配置归一化、非法 level 拒绝、server capability 校验和 `logging/setLevel` 参数；stdio fixture 会夹带有效/非法 progress 与 logging notification，验证只累计数量/level，不保存 `data`、logger、token 或 message。progress 解析单测还会校验 `progressToken` 必须是字符串或数字，`progress` / 可选 `total` 必须是非 null JSON number。
+- execution resolver 单测会连续解析同一 Session 的两个 Turn，确认只启动一个 MCP 进程；切换 Session 后必须启动第二个隔离进程。
+- Streamable HTTP host 单测会校验同一 scope 只 initialize 一次并跨调用复用 `Mcp-Session-Id`、不同 Session 隔离、Turn 请求取消后继续复用、长驻 SSE listener 接收目录通知、空闲回收发送 `DELETE`，以及全部 entry 忙碌时容量拒绝。
+- Streamable HTTP listener 测试会推送 progress 与包含敏感 fixture data 的 logging notification，验证 host 仅暴露脱敏计数和规范化 level；HTTP logging capability 存在时必须收到配置的 `logging/setLevel`。
+- execution resolver 会连续解析同一 Session 的两个 Turn，确认只建立一个远程 MCP Session；切换 Session 后必须执行第二次隔离 initialize。
+- `go test -race ./internal/mcp ./internal/execution -count=1` 覆盖 stdio/HTTP host 的请求串行、取消、回收、listener 状态和 resolver 复用路径。
+- server config 测试覆盖两类 host lifecycle/capacity 默认值、dotenv 覆盖和非法范围；HTTP 测试覆盖 tooling health 的 `mcp_host` / `mcp_http_host` 快照及两组 Prometheus 指标。
+- `npm --prefix web-app run build` 验证 Workbench 健康检查会分别展示 Server Host 与 Remote HTTP Host 的生命周期、目录变更、progress、日志和非法通知状态；Agent 编辑器可配置 stdio/Streamable HTTP、URL、SSE listener 和八级 logging，并在单项 MCP 重测后保留最新 host 快照。浏览器验收还应在 1280px 桌面和 390px 手机 viewport 检查 MCP row 的 `scrollWidth == clientWidth`、页面无横向滚动且子控件无相交；切换到 Streamable HTTP 后应出现“服务 URL”、启用 SSE 开关并保留 logging level 选择。
+- MCP client 支持 `resources/list` / `resources/read`，覆盖 stdio 与 `streamable_http` 两种 transport；resources 默认只作为底层协议能力，配置 `expose.resources` 后会注册只读 `mcp_list_resources` / `mcp_read_resource` Agent 桥接工具。
+- MCP client 支持 `resources/templates/list` 与分页；配置 `expose.resources` 后额外注册只读 `mcp_list_resource_templates`，tooling health 返回 `resource_template_count`。
+- MCP client 支持 `prompts/list` / `prompts/get`，覆盖 stdio 与 `streamable_http` 两种 transport；prompts 默认只作为底层协议能力，配置 `expose.prompts` 后会注册只读 `mcp_list_prompts` / `mcp_get_prompt` Agent 桥接工具，不会自动注入模型上下文。
+- MCP client 与 HostedClient 支持 `completion/complete` 的 Prompt/Resource reference、context arguments，并拒绝超过 100 values 的非法响应；completion 不自动注册为模型工具。
+- `tools/list`、`resources/list`、`resources/templates/list`、`prompts/list` 支持 `nextCursor` 分页合并，并覆盖 stdio 与 `streamable_http` 多页结果。
+- `resources/list` / `resources/templates/list` / `prompts/list` 返回 `-32601 method not found` 时降级为空列表；`tools/list` 返回 `-32601` 时默认仍保持失败，只有显式开启 `expose.resources` / `expose.prompts` 时才允许 resource-only / prompt-only server 加载为只读 context runtime。
+- `internal/tools` 单测分别覆盖 resource-only 和 prompt-only Streamable HTTP server，确保 `tools/list` 不支持时仍可通过显式 expose 执行只读桥接工具。
+- 401 Unauthorized 会解析 `WWW-Authenticate`，抓取 OAuth protected resource metadata 和 authorization server metadata，并在错误中返回授权诊断信息。
+- OAuth client credentials / refresh token 会覆盖配置解析、`client_secret_post` / `client_secret_basic` token 请求、Bearer 注入到 Streamable HTTP MCP 请求、带 `expires_in` token 的进程内缓存/刷新，以及 token endpoint 非 2xx 错误不回显 response body / secret。
+- Server 级 `TMA_MCP_HTTP_CA_BUNDLE` 会把 PEM 根证书追加到系统 trust pool，并由 egress policy 的基础 HTTP client 统一提供给 OAuth、主 MCP、listener 和 DELETE；无效 PEM 会让 Server 启动失败，且不会降级为 insecure TLS。
+- Remote MCP egress 测试覆盖默认 HTTPS-only、host wildcard allowlist、RFC1918/ULA 开关、精确 CIDR 放行、loopback/link-local/metadata 阻断、DNS 同时返回公共与 metadata 地址时整次拒绝、跨 authority redirect 拒绝和非法 host/CIDR 配置。OAuth token endpoint 与 tooling health 必须复用同一 policy 并累计 `egress_blocked_total`。
+- `npm --prefix web-app run build` 还会验证 Remote HTTP Host 展示“仅 HTTPS/允许 HTTP”“阻止私网/允许私网”、host/CIDR allowlist 数量和出站阻断计数；页面不展示实际内部目标。
+- Server 实机验收可创建一个 URL 指向 `http://169.254.169.254/latest/meta-data` 的 Streamable HTTP MCP Agent，再调用 `POST /v1/agents/{agent_id}/tooling-health`。预期返回 `configuration_error` 和 reason-only `mcp egress policy blocked request (http_not_allowed)`，响应中不能出现目标 IP/path；同一响应的 `mcp_http_host.egress_blocked_total` 及 `/metrics` 的 `tma_mcp_streamable_http_host_egress_blocked_total` 必须立即增加。
+- egress block callback 单测只允许输出固定 reason；Server 日志应出现 `mcp_http_egress_blocked reason=http_not_allowed`，不得包含被阻断 URL、host、IP、CIDR、header 或 OAuth 内容。
+- `internal/tools` 单测会校验 `LoadMCPRuntime` 生成 runtime-scoped resolved client snapshot；同一个 `MCPRuntime.Execute` 不会在后续工具调用中重新解析 `env_ref`，避免同一 runtime 内 MCP 配置漂移。环境变量或 secret 轮换需要重新加载 Agent config / runtime。
+- AgentRuntime 单测会校验 `runtime.tool_call` / `runtime.tool_result` 对 MCP 工具透传非敏感 `mcp_*` metadata，且不包含 endpoint URL 或 secret。
+
+#### 第三方 MCP Server 兼容性矩阵
+
+联网验收：
+
+```bash
+make verify-mcp-compatibility
+```
+
+该入口需要 `npx`、npm registry 网络、Docker Compose，以及可由当前仓库启动的 PostgreSQL 服务。PostgreSQL 子测试会自行执行 `docker compose up -d postgres`，创建随机一次性数据库和只读角色；不会读取或修改开发数据库业务数据。固定运行：
+
+- `@modelcontextprotocol/server-filesystem@2026.7.10`：加载 14 个工具，通过 `read_text_file` 读取临时 marker；
+- `@modelcontextprotocol/server-filesystem@2026.7.10` initial Roots：不传命令行目录，由 Server 在初始化后调用 `roots/list`，验证返回目录进入允许清单并实际读取 marker；
+- `@modelcontextprotocol/server-memory@2026.7.4`：加载 9 个工具，通过 `create_entities -> read_graph` 验证同一 host 的有状态复用；
+- `@modelcontextprotocol/server-sequential-thinking@2026.7.4`：加载实际名称为 `sequentialthinking` 的工具，执行一次调用并校验 structured content。
+- `@modelcontextprotocol/server-everything@2026.7.4`：在本机随机端口启动 Streamable HTTP 模式，复用 Server Session，加载 tools/resources/resource templates/prompts，执行 Prompt/Resource completion 与 `echo` marker 调用。
+- `@yawlabs/postgres-mcp@0.6.20`：自动创建一次性数据库和随机只读角色，通过 `secret_ref: env:...` 注入连接串，验证 21 tools、参数化读取、`POSTGRES_MAX_ROWS=2` 截断、两类只读写入拒绝、stacked query 拒绝和数据最终不变。
+
+通过条件：五款 Server 均完成真实 `initialize`、`tools/list` 和 `tools/call`，返回非空 Server name/version 并确认协商 MCP `2025-06-18`；Filesystem 还必须在无命令行目录时完成反向 `roots/list`、允许目录有界收敛和 marker 读取；Everything 必须在同一 Streamable HTTP Session 中返回非空 tools/resources/resource templates/prompts，完成两类 completion 与 `echo`；PostgreSQL 必须证明结果截断、参数化查询、MCP 与数据库双层只读边界以及 rejected write 后数据不变。每个 `inputSchema` 都是合法 JSON，stdio 使用 MCP 标准 `json_lines` framing。文件测试数据只写入临时目录，本地 HTTP/stdio 进程、一次性数据库和角色结束后不得残留。默认 `go test ./...` 会跳过联网及数据库矩阵；完整结果与已知限制记录在 `docs/mcp-server-compatibility.md`。
+
+legacy framing 聚焦回归：
+
+```bash
+go test ./internal/mcp -run 'Test(ParseConfigValidatesStdioFraming|StdioClientSupportsJSONLinesFraming)' -count=3
+```
+
+Workbench 新建 stdio Server 时显式写入 `json_lines`；为保持历史版本行为，后端遇到省略字段的已有配置时按 `content_length` 解释。仓库 fixture 的 stdio/Registry/RuntimeGuard 脚本均显式使用 legacy framing，防止把 fixture 通过误当成官方 Server 兼容。
+
+2026-07-14 实机结果：五款固定 Server 全部通过，Filesystem 的命令行 root 与 initial Roots 两种模式都通过。initial Roots 在官方实现中异步生效，测试必须等待 `list_allowed_directories` 收敛，不能仅以 `tools/list` 成功判定就绪。stdio 官方 Server 自报版本分别为 `secure-filesystem-server 0.2.0`、`memory-server 0.6.3`、`sequential-thinking-server 0.2.0`；工具数分别为 14、9、1。Everything 自报 `mcp-servers/everything 2.0.0`，返回 13 tools、7 resources、4 prompts。YawLabs PostgreSQL 自报 `0.6.20` 并返回 21 tools，读写边界及清理检查通过。TMA 声明 `roots.listChanged=false`，不把运行期 Roots 热变更计入已支持能力。
+
+#### MCP RuntimeGuard 生产保护验证
+
+真实故障注入端到端验收：
+
+```bash
+make verify-mcp-runtime-guard
+```
+
+该入口构建 Server/CLI，运行 RuntimeGuard race 测试，然后创建一次性 PostgreSQL 数据库、Workspace JWT 和非 owner/非 superuser runtime role。真实 Registry server 使用 `timeout_seconds=1`、`max_concurrency=1`、`failure_threshold=2`、`cooldown_seconds=3`，脚本会自动完成：
+
+1. `timeout` 模式执行第一轮，断言一个 `mcp_timeout` 和 fixture call count = 1。
+2. 下一轮 `tools/list` 成功后再次执行超时工具，断言 call count = 2、`state=open`、连续失败 2、最近分类 timeout。
+3. open 期间再触发一轮，断言 fixture call count 仍为 2，证明熔断拒绝没有进入或重放 `tools/call`。
+4. 冷却后断言 `half_open`，切到 success 后执行单探测和真实工具调用，断言 `closed`、连续失败归零、call count = 3。
+5. 检查脱敏 `runtime.tool_result`、成功 marker、Workspace runtime-status 字段白名单和 `tma_mcp_runtime_guard_*` 指标。
+
+fixture 控制变量为 `TMA_MCP_FAULT_MODE_FILE`、`TMA_MCP_FAULT_CALL_FILE` 和 `TMA_MCP_FAULT_DELAY_SECONDS`。模式文件支持 `success`、`timeout`、`transport`、`rpc_unavailable`、`protocol`；生产 MCP 配置不会暴露这些测试变量。
+
+聚焦回归：
+
+```bash
+go test ./internal/mcp \
+  -run 'Test(RuntimeGuard|ClassifyRuntimeError|ParseConfig.*RuntimePolicy)' \
+  -count=3
+go test ./internal/tools \
+  -run 'Test(LoadMCPRuntimeBuildsManifestAndExecutesTool|MCPRuntimeFailureResultIsClassifiedAndRedacted)' \
+  -count=3
+go test ./internal/mcpregistry \
+  -run 'Test(PinAndResolveRegistryBinding|NormalizeServerConfigRemovesRuntimeRegistryMetadata)' \
+  -count=3
+go test ./internal/observability \
+  -run TestPrometheusTextIncludesMCPRuntimeGuardMetrics \
+  -count=3
+go test ./internal/httpapi \
+  -run TestAgentToolingHealthReportsMCPAndSkillState \
+  -count=3
+go test -race ./internal/mcp ./internal/mcpregistry ./internal/observability -count=1
+```
+
+通过条件：
+
+- `runtime` 四项配置正确归一化，未配置项使用 30 秒、4 并发、5 次失败和 30 秒冷却；越界值拒绝发布。
+- 调用 deadline 包含并发槽等待；等待超时不进入底层 client，也不会增加已接纳调用数。
+- 真实 `tools/call` 超时只进入底层 client 一次，不进行自动重放。
+- catalog（list）与 operation（call/read/get）分别累计连续失败；成功 `tools/list` 不会清零持续失败的 `tools/call`。
+- 连续失败达到阈值后立即返回 `mcp_circuit_open`；冷却结束只允许一个 half-open 探测，探测成功后恢复 closed。
+- Registry resolved config 带有 Server ID + 固定版本运行分区，Registry 持久化 config 会删除调用方伪造的内部分区 metadata。
+- failure class 仅为 `canceled`、`timeout`、`authentication`、`rate_limited`、`transport`、`protocol`、`unavailable`、`unknown`；Runtime tool result 不包含测试注入的 endpoint、Authorization 或 token。
+- tooling health 返回 `mcp_runtime_guard` 聚合快照；Prometheus 返回 `tma_mcp_runtime_guard_servers`、`in_flight`、`open_circuits`、calls/results/rejections/failures 指标，label 不包含 workspace/server/URL。
+
+2026-07-14 本轮结果：`make verify-mcp-runtime-guard` 通过。真实 Session `sesn_000001` 的 fixture 调用序列为 `timeout, timeout, success`；两次超时后 open，open 期间无新增调用，冷却后 half-open 探测和工具调用成功，最终 closed、连续失败归零。RuntimeGuard 定向测试 `-count=3`、race、HTTP runtime-status 和 82 项 Workbench 测试也通过。入口使用一次性数据库并确认结束后无残留数据库或 runtime role。
+
+MCP 全量聚合入口：
+
+```bash
+make verify-mcp-all
+```
+
+该入口聚合 `verify-mcp-stdio`、`verify-mcp-http`、`verify-mcp-registry`、`verify-mcp-runtime-guard` 的测试与真实脚本，然后运行 MCP/Registry/execution/observability race、Workbench/Inspector 测试与构建、`git diff --check`。stdio/HTTP 使用自动创建并清理的共享临时数据库，Registry/RuntimeGuard 使用各自的受限独立数据库，不读取或修改开发数据库业务数据。各 fixture Server 显式固定 development 认证模式并关闭 browser OIDC，避免本机 `.env` 登录配置改变验收行为。
+
+2026-07-14 实机结果：`make verify-mcp-all` 完整通过。stdio/HTTP/Registry/RuntimeGuard 四套真实脚本、MCP/Registry/execution/observability race、84 项 Workbench 测试、10 项 Inspector 测试、两套生产构建和 `git diff --check` 均成功；共享临时数据库、两个独立数据库和受限 runtime role 均已清理。
+
+#### Workbench 单 Server 熔断状态验证
+
+自动测试：
+
+```bash
+go test ./internal/mcp \
+  -run TestRuntimeGuardRegistryStatesAreWorkspaceScopedAndVersioned \
+  -count=3
+go test ./internal/httpapi \
+  -run TestMCPRegistryRuntimeStatusIsWorkspaceScopedAndFiltersUnknownServers \
+  -count=3
+npm --prefix web-app test
+npm --prefix web-app run build
+```
+
+覆盖点：
+
+- RuntimeGuard 按 Workspace + Registry server + 固定版本投影，版本倒序返回；embedded server 和其他 Workspace 不可见。
+- `closed`、`saturated`、`open`、`half_open` 状态计算，open 状态的向上取整冷却秒数、最近失败分类和时间字段正确；零值时间不进入 JSON。
+- HTTP handler 使用当前 Workspace Registry server 列表再次过滤状态，未知、归档或跨 Workspace server ID 不会返回。
+- 前端按 server ID 分组多个版本，并按 `open > half_open > saturated > closed` 选择列表最严重状态；未知状态和未知失败分类不会原样显示。
+- Workbench 详情逐版本展示并发、连续失败、最近失败分类与冷却秒数；刷新按钮只重新读取运行状态，不触发 MCP 调用。
+
+浏览器验收：
+
+1. 重启 Server 后进入 `设置 > MCP`，Registry 行和运行保护区应显示“未运行”。
+2. 使用固定 Registry binding 的 Session 执行一次真实 MCP fixture，再点击刷新图标。
+3. 确认详情出现 `v1`、`正常`、`并发 0/4`、`连续失败 0/5`，列表状态同步为“正常”。
+4. 在 1280x900 和 390x844 viewport 检查 document/body `scrollWidth == clientWidth`，Registry list、运行保护区和版本行均无内部横向溢出。
+5. 浏览器 console 不得有 error/warn；`runtime-status` 响应不得包含内部 key、Workspace ID、URL、headers、arguments、content 或零值时间。
+
+2026-07-14 实机结果：主 Server 的 `mcps_000001` 固定 v1 fixture 调用成功；API 返回 closed、0/4、0/5，Workbench 桌面与手机均正确展示。1280px 和 390px 下 document/body 无横向溢出，相关容器 `scrollWidth <= clientWidth`，console 无 error/warn。
+
+#### Workspace MCP 注册表验证
+
+真实 Server、JWT 和 PostgreSQL 的一键端到端验收：
+
+```bash
+make verify-mcp-registry
+```
+
+该命令会构建 Server/CLI、运行 Registry 定向 Go 测试，然后创建一次性 `tma_verify_mcp_registry_*` 数据库并应用全部迁移。脚本还会创建两个临时 Workspace JWT 和一个非 superuser、无 `BYPASSRLS`、不拥有业务表的 runtime role；结束或失败时会终止连接、删除临时数据库和 runtime role，不修改开发数据库。
+
+端到端覆盖：
+
+- Alpha JWT 请求体伪造 Beta `workspace_id` 无效，资源仍写入 Alpha；Beta JWT 按 Alpha server ID 查询得到 `404`，列表也不可见。
+- 创建 Registry v1，Agent 使用 `version: 0` 后落库固定为 v1；发布中央 v2 后 `usage_count=1`，Agent config version 和 binding 不变。
+- 在中央当前版本为 v2 时，通过固定 v1 Agent/Session 实际执行 `filesystem.read_file`，事件包含 MCP `runtime.tool_call`、`runtime.tool_result` 和 `tma-mcp-registry-ok` marker。
+- 恢复 v1 生成 v3，版本顺序为 v3/v2/v1，v3 与 v1 checksum 相同且 v2 不同；已有 Agent 继续绑定 v1。
+- 有当前 binding 时归档返回 `409`；停用后 Agent tooling health 返回 `configuration_error`，重新启用后恢复的 v3 Registry 连通性测试为 `online`。
+- `mcp_registry.version.restore` audit 是 Workspace 级记录，`session_id` 为空，details 精确包含 source/previous/new version。
+
+注册表与固定版本 binding 的聚焦回归：
+
+```bash
+go test ./internal/mcpregistry ./internal/httpapi ./internal/managedagents ./internal/runner ./cmd/server -count=1
+go test -race ./internal/mcpregistry ./internal/httpapi -count=1
+npm --prefix web-app run build
+```
+
+覆盖点：
+
+- 创建 Workspace MCP server 时生成 version 1 和 SHA-256 checksum；更新配置追加不可变版本，不覆盖历史版本。
+- 列表和详情返回状态、当前版本与当前 Agent `usage_count`。
+- Agent 创建、更新、config-version 和导入时将 `version: 0` 固定为当前版本；保存后的 config 不再包含浮动版本。
+- runtime 与 tooling health 按 Agent 固定版本解析；中央服务发布新版本不会改变旧 Agent/Session。
+- 停用服务后固定版本解析立即失败；仍被当前 Agent 使用时归档返回 conflict。
+- 跨 workspace binding、缺失版本、重复 identifier 和敏感 header literal 被拒绝。
+- 旧内嵌 `mcp.servers` 与中央 `bindings` 可并存，Agent 导入/导出继续只保存 secret 引用。
+- Workbench 支持注册表新建、编辑发布、启停、测试、归档和 Agent binding；旧版本 binding 显示显式升级操作。
+- 历史恢复把 source config/checksum 复制为新的不可变版本，不覆盖旧行；当前/未来版本和归档服务恢复被拒绝。
+- 恢复响应和 `mcp_registry.version.restore` 审计包含 source、previous、new version；已有 Agent binding/config version 保持不变。
+- Workbench 版本历史显示时间、checksum 和可展开 canonical config，恢复需要二次确认并在成功后刷新当前版本。
+- `000052_mcp_registry_rls.sql` 对 Registry server/version 启用 `FORCE RLS`；Store 的所有 Registry SQL 都在事务内设置 workspace scope。
+- 真实非 superuser runtime role 无 scope 时看不到 Registry 行，跨 workspace 创建被拒绝，按其他 workspace 的 server ID 查询返回 not found，原始 SQL 也不能绕过 `WITH CHECK`。
+
+真实 PostgreSQL 验收已使用迁移 `000048_mcp_registry.sql` 完成：创建 `mcps_000001` v1，Agent `agt_000147` 以 `version: 0` 发布后落库固定为 v1；中央发布 v2 后 `usage_count=1`，Agent 仍保持 v1。Session `sesn_000231` 解析 v1 并成功调用 `filesystem.read_file`，结果包含 `tma-mcp-filesystem-ok`。
+
+Workbench 浏览器验收结果（2026-07-14）：
+
+- 1280px 桌面端 `设置 > MCP` 正确显示 server、版本、使用数、状态和管理操作；执行“测试”后状态更新为 `online`。
+- `设置 > Agent` 选择绑定 Agent 后显示固定 v1，并在中央当前版本为 v2 时显示“升级到 v2”；不点击升级时配置不得变化。
+- 390px 手机端 MCP 和 Agent 页面 `scrollWidth == clientWidth`，无横向滚动、控件裁切或不合理重叠。
+- Registry 历史恢复专项验收显示 `Registry Smoke` 的 v2/v1、当前版本标记、时间和 checksum；v1 canonical config 可以展开查看。
+- 桌面端和手机端点击“恢复此版本”都会显示“已有 Agent binding 保持不变”的二次确认；本次点击“取消”，没有执行真实恢复，fixture 继续保持 `current_version=2`。
+- 1280x900 与 390x844 下 document/body `scrollWidth == clientWidth`；手机端 JSON 自动换行，恢复按钮和“取消/确认恢复”按钮均完整位于卡片内。
+- 浏览器控制台没有 error/warn；`/health` 返回 `ok`，`GET /v1/mcp-servers` 仍返回 `mcps_000001` v2、`usage_count=1`。
+
+2026-07-14 最终回归中，`make verify-mcp-http` 通过并创建 `sesn_000235`，`make verify-mcp-stdio` 通过并创建 `sesn_000237`；两者均实际执行了包括 `000048_mcp_registry.sql` 和 `000052_mcp_registry_rls.sql` 在内的完整迁移集。
+
+历史恢复的独立真实 PostgreSQL RLS 测试：
+
+```bash
+TMA_RUN_POSTGRES_TESTS=1 \
+TMA_DATABASE_URL='postgres://tma:tma@localhost:5432/tma?sslmode=disable' \
+go test ./internal/managedagents \
+  -run TestPostgresMCPRegistryRestoreWithRLS \
+  -count=1 -v
+```
+
+该测试只给临时非 superuser 角色授权 Registry 表、usage count 所需只读表和两条 sequence，验证 v1 -> v2 -> 恢复 v1 为 v3、source checksum 保持、跨 workspace 恢复不可见以及无 scope 零行。
 
 ### 17.9.1 Worker process plugin 验证
 
@@ -1602,7 +1920,7 @@ doctor 会：
 新 session 默认已经走 `cloud_sandbox`，`.env` 不需要写 `TMA_TOOL_RUNTIME=cloud_sandbox`。如果要固定 workspace root 或镜像，只配置覆盖项：
 
 ```env
-TMA_CLOUD_SANDBOX_ROOT=.
+TMA_CLOUD_SANDBOX_ROOT=/private/tmp/tma-cloud-sandbox-workspaces
 TMA_CLOUD_SANDBOX_IMAGE=coolfan1024/onlyboxes-runtime:default
 TMA_CLOUD_SANDBOX_DATA_ROOT=/private/tmp/tma-cloud-sandbox-data
 TMA_CLOUD_SANDBOX_DATA_TTL_SECONDS=3600

@@ -1,5 +1,11 @@
 package managedagents
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+)
+
 const (
 	BuiltinGeneralAgentID     = "agt_general"
 	BuiltinGeneralAgentName   = "通用智能体"
@@ -7,12 +13,29 @@ const (
 )
 
 func BuiltinGeneralAgentInput(llmProvider string, llmModel string) EnsureAgentInput {
+	return BuiltinGeneralAgentInputForWorkspace(DefaultWorkspaceID, llmProvider, llmModel)
+}
+
+func BuiltinGeneralAgentInputForWorkspace(workspaceID string, llmProvider string, llmModel string) EnsureAgentInput {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		workspaceID = DefaultWorkspaceID
+	}
 	return EnsureAgentInput{
-		ID:          BuiltinGeneralAgentID,
-		WorkspaceID: DefaultWorkspaceID,
+		ID:          BuiltinGeneralAgentIDForWorkspace(workspaceID),
+		WorkspaceID: workspaceID,
 		Name:        BuiltinGeneralAgentName,
 		LLMProvider: llmProvider,
 		LLMModel:    llmModel,
 		System:      BuiltinGeneralAgentSystem,
 	}
+}
+
+func BuiltinGeneralAgentIDForWorkspace(workspaceID string) string {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" || workspaceID == DefaultWorkspaceID {
+		return BuiltinGeneralAgentID
+	}
+	digest := sha256.Sum256([]byte(workspaceID))
+	return BuiltinGeneralAgentID + "_" + hex.EncodeToString(digest[:6])
 }

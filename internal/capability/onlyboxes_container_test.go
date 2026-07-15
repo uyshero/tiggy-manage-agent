@@ -142,6 +142,27 @@ func TestOnlyboxesContainerManagerSeparatesContainerScopes(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesContainerManagerSeparatesOwnersWithSameSessionID(t *testing.T) {
+	runner := newFakeDockerProvider()
+	manager := newTestOnlyboxesContainerManager(t, OnlyboxesContainerManagerConfig{})
+	first := testManagedOnlyboxesProvider(t, manager, runner, "shared-session")
+	first.WorkspaceID = "wksp"
+	first.OwnerID = "owner-one"
+	second := testManagedOnlyboxesProvider(t, manager, runner, "shared-session")
+	second.WorkspaceID = "wksp"
+	second.OwnerID = "owner-two"
+
+	if _, err := first.RunCommand(context.Background(), RunCommandRequest{Command: "sh"}); err != nil {
+		t.Fatalf("first owner command: %v", err)
+	}
+	if _, err := second.RunCommand(context.Background(), RunCommandRequest{Command: "sh"}); err != nil {
+		t.Fatalf("second owner command: %v", err)
+	}
+	if runner.runCount() != 2 || runner.containerCount() != 2 {
+		t.Fatalf("expected owner-isolated containers, runs=%d containers=%d", runner.runCount(), runner.containerCount())
+	}
+}
+
 func newTestOnlyboxesContainerManager(t *testing.T, config OnlyboxesContainerManagerConfig) *OnlyboxesContainerManager {
 	t.Helper()
 	if config.CleanupInterval == 0 {
@@ -309,12 +330,15 @@ func argumentValueWithPrefix(args []string, prefix string) string {
 }
 
 func TestOnlyboxesContainerNameIsStableAndScoped(t *testing.T) {
-	defaultName := onlyboxesContainerName("session/with spaces", "")
-	if defaultName != onlyboxesContainerName("session/with spaces", "default") {
+	defaultName := onlyboxesContainerName("session/with spaces", "workspace\x00owner\x00session/with spaces", "")
+	if defaultName != onlyboxesContainerName("session/with spaces", "workspace\x00owner\x00session/with spaces", "default") {
 		t.Fatalf("expected empty and default scope to share a name")
 	}
-	if defaultName == onlyboxesContainerName("session/with spaces", "browser") {
+	if defaultName == onlyboxesContainerName("session/with spaces", "workspace\x00owner\x00session/with spaces", "browser") {
 		t.Fatalf("expected browser scope to use a different name")
+	}
+	if defaultName == onlyboxesContainerName("session/with spaces", "workspace\x00other-owner\x00session/with spaces", "") {
+		t.Fatalf("expected different owner isolation keys to use different names")
 	}
 	if strings.Contains(filepath.Base(defaultName), " ") {
 		t.Fatalf("expected docker-safe container name %q", defaultName)

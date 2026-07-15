@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { marked } from "marked";
 import * as inspectorAPI from "./api.js";
 import * as utils from "./utils.js";
 import "./styles.css";
@@ -10,15 +11,44 @@ window.TMAInspectorUtils = utils;
 const {
   formatDuration,
   formatTime,
+  highestEventSeq,
+  isTerminalTurnStatus,
+  mergeEventResponses,
+  collectMCPProtocolOperations,
+  collectToolSourceStats,
+  mcpDiagnosticBadges,
+  mcpResultSummary,
+  normalizeToolSource,
   pillClass,
   pretty,
   sessionArtifactCLI,
   sessionArtifactCommand,
-  stepClass
+  stepClass,
+  toolSourceLabel
 } = utils;
 
 const catalogPageSize = 20;
 const artifactPreviewTextLimit = 10240;
+const inspectorManualMarkdown = __INSPECTOR_MANUAL_MARKDOWN__;
+
+function isAbortError(error) {
+  return error?.name === "AbortError";
+}
+
+function softFail(promise, fallback) {
+  return promise.catch((error) => {
+    if (isAbortError(error)) throw error;
+    return typeof fallback === "function" ? fallback(error) : fallback;
+  });
+}
+
+function mergeCounts(previous = {}, next = {}) {
+  const merged = { ...previous };
+  Object.entries(next).forEach(([key, value]) => {
+    merged[key] = Number(merged[key] || 0) + Number(value || 0);
+  });
+  return merged;
+}
 
 function inspectorHashParams() {
   return new URLSearchParams(String(window.location.hash || "").replace(/^#/, ""));
@@ -68,6 +98,146 @@ function Meta({ children }) {
   return <div className="meta">{children}</div>;
 }
 
+function ManualDialog({ onClose }) {
+  const manualHTML = useMemo(() => marked.parse(inspectorManualMarkdown, { gfm: true }), []);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="manual-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="manual-dialog" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+        <div className="manual-header">
+          <div>
+            <div className="manual-eyebrow">TMA Inspector</div>
+            <h2 id="manualTitle">用户使用手册</h2>
+          </div>
+          <button className="secondary manual-close" type="button" onClick={onClose} aria-label="关闭用户手册" title="关闭用户手册">Close</button>
+        </div>
+        <article className="manual-body" dangerouslySetInnerHTML={{ __html: manualHTML }} />
+      </section>
+    </div>
+  );
+}
+
+function ToolSourceChip({ source }) {
+  const label = toolSourceLabel(source);
+  if (!label) return null;
+  return <span className={`source-chip ${String(source || "").trim().toLowerCase()}`}>{label}</span>;
+}
+
+function MCPDetails({ data }) {
+  const badges = mcpDiagnosticBadges(data);
+  const summary = mcpResultSummary(data);
+  if (!badges.length && !summary) return null;
+  return (
+    <div className="mcp-details-wrap">
+      {badges.length ? (
+        <div className="mcp-details">
+          {badges.map((badge) => <span className="mcp-badge" key={badge}>{badge}</span>)}
+        </div>
+      ) : null}
+      {summary ? (
+        <div className="mcp-result-card">
+          <strong>{summary.title}</strong>
+          <div className="mcp-result-facts">
+            {summary.facts.map((fact) => <span key={fact}>{fact}</span>)}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MCPProtocol({ operations }) {
+  if (!operations.length) return <div id="mcpProtocol"><Empty>No MCP protocol operations loaded.</Empty></div>;
+  const completed = operations.filter((operation) => operation.status === "completed").length;
+  const failed = operations.filter((operation) => operation.status === "failed").length;
+  const pending = operations.filter((operation) => operation.status === "pending").length;
+  const transports = Array.from(new Set(operations.map((operation) => operation.transport).filter(Boolean)));
+
+  return (
+    <div className="mcp-protocol" id="mcpProtocol">
+      <div className="mcp-protocol-summary">
+        <div><strong>{operations.length}</strong><span>operations</span></div>
+        <div><strong>{completed}</strong><span>completed</span></div>
+        <div><strong>{failed}</strong><span>failed</span></div>
+        <div><strong>{pending}</strong><span>pending</span></div>
+      </div>
+      <Meta>
+        <span>transports {transports.join(", ") || "unknown"}</span>
+        <span>payload values redacted</span>
+      </Meta>
+      <div className="mcp-operation-list">
+        {operations.map((operation) => {
+          const toolName = [operation.identifier, operation.api_name].filter(Boolean).join(".") || "unpaired MCP operation";
+          return (
+            <article className={`mcp-operation ${operation.status}`} key={operation.key}>
+              <div className="mcp-operation-head">
+                <div>
+                  <div className="mcp-operation-method">{operation.method}</div>
+                  <strong>{toolName}</strong>
+                </div>
+                <Pill value={operation.status} />
+              </div>
+              <Meta>
+                {operation.call_id ? <span>call {operation.call_id}</span> : null}
+                {operation.transport ? <span>{operation.transport}</span> : null}
+                {operation.protocol_version ? <span>protocol {operation.protocol_version}</span> : null}
+                {operation.duration_ms !== null ? <span>{formatDuration(operation.duration_ms)}</span> : null}
+              </Meta>
+              <div className="mcp-operation-lifecycle">
+                <div className="mcp-operation-node">
+                  <span>Request</span>
+                  <strong>{operation.request_seq ? `seq ${operation.request_seq}` : "not observed"}</strong>
+                  <small>{formatTime(operation.request_time)}</small>
+                </div>
+                <div className="mcp-operation-link" aria-hidden="true" />
+                <div className={`mcp-operation-node ${operation.response_seq ? "observed" : "pending"}`}>
+                  <span>Response</span>
+                  <strong>{operation.response_seq ? `seq ${operation.response_seq}` : "pending"}</strong>
+                  <small>{formatTime(operation.response_time)}</small>
+                </div>
+              </div>
+              {operation.diagnostics.length ? (
+                <div className="mcp-details">
+                  {operation.diagnostics.map((badge) => <span className="mcp-badge" key={badge}>{badge}</span>)}
+                </div>
+              ) : null}
+              <div className="mcp-operation-facts">
+                {operation.result_protocol ? <span>result {operation.result_protocol}</span> : null}
+                {operation.error_type ? <span>error {operation.error_type}</span> : null}
+                {operation.artifact_count ? <span>{operation.artifact_count} artifact(s)</span> : null}
+                {operation.preview_truncated ? <span>preview truncated</span> : null}
+              </div>
+              {operation.result_summary ? (
+                <div className="mcp-result-card">
+                  <strong>{operation.result_summary.title}</strong>
+                  <div className="mcp-result-facts">
+                    {operation.result_summary.facts.map((fact) => <span key={fact}>{fact}</span>)}
+                  </div>
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, value, sub }) {
   return (
     <div className="stat-card">
@@ -80,6 +250,7 @@ function StatCard({ label, value, sub }) {
 
 function App() {
   const [status, setStatus] = useState("idle");
+  const [manualOpen, setManualOpen] = useState(false);
   const [sessionID, setSessionID] = useState("");
   const [traceID, setTraceID] = useState("");
   const [turnID, setTurnID] = useState("");
@@ -106,7 +277,11 @@ function App() {
   const [exporters, setExporters] = useState(null);
   const [raw, setRaw] = useState("No raw export loaded.");
   const [artifactPreview, setArtifactPreview] = useState(null);
+  const [toolSourceFilter, setToolSourceFilter] = useState("");
   const bootingFromHash = useRef(false);
+  const loadRequestRef = useRef(null);
+  const eventsRef = useRef({ events: [] });
+  const eventsSessionIDRef = useRef("");
 
   const spans = currentTrace?.spans || [];
   const selectedSpan = useMemo(
@@ -138,16 +313,16 @@ function App() {
     setRaw(pretty(trace));
   }, []);
 
-  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, offset = 0, append = false) {
-    const response = await inspectorAPI.traceCatalog({ limit: catalogPageSize, offset, session: nextSession, turn: nextTurn });
+  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false) {
+    const response = await inspectorAPI.traceCatalog({ limit: catalogPageSize, cursor, session: nextSession, turn: nextTurn });
     setTraceCatalog((previous) => append ? { ...response, traces: [...(previous.traces || []), ...(response.traces || [])] } : response);
     return response;
   }
 
-  async function loadSpanCatalog(offset = 0, append = false) {
+  async function loadSpanCatalog(cursor = "", append = false) {
     const response = await inspectorAPI.spanCatalog({
       limit: catalogPageSize,
-      offset,
+      cursor,
       session: sessionID,
       turn: turnID,
       query: globalSpanQuery.trim(),
@@ -156,7 +331,13 @@ function App() {
       critical: globalSpanCritical.trim(),
       minDuration: globalSpanMinDuration.trim()
     });
-    setSpanCatalog((previous) => append ? { ...response, spans: [...(previous.spans || []), ...(response.spans || [])] } : response);
+    setSpanCatalog((previous) => append ? {
+      ...response,
+      spans: [...(previous.spans || []), ...(response.spans || [])],
+      kind_counts: mergeCounts(previous.kind_counts, response.kind_counts),
+      status_counts: mergeCounts(previous.status_counts, response.status_counts),
+      critical_counts: mergeCounts(previous.critical_counts, response.critical_counts)
+    } : response);
     return response;
   }
 
@@ -167,35 +348,63 @@ function App() {
     setStatus(sessionID ? `filtered ${sessionID}` : "loaded recent catalogs");
   }
 
-  async function load(nextSession = sessionID, nextTurn = turnID) {
+  async function load(nextSession = sessionID, nextTurn = turnID, options = {}) {
     if (!nextSession) {
       setStatus("session required");
-      return;
+      return null;
     }
+
+    const mode = options.mode || "manual";
+    if (mode === "auto" && loadRequestRef.current) return null;
+    if (loadRequestRef.current) loadRequestRef.current.abort();
+
+    const controller = new AbortController();
+    loadRequestRef.current = controller;
+    const requestOptions = { signal: controller.signal };
+    const incrementalEvents = Boolean(options.incrementalEvents) && eventsSessionIDRef.current === nextSession;
+    const afterSeq = incrementalEvents ? highestEventSeq(eventsRef.current.events) : 0;
+
     setStatus(`loading ${nextSession}`);
-    const trace = await inspectorAPI.trace(nextSession, nextTurn, "");
-    renderTrace(trace);
-    const requests = [
-      inspectorAPI.session(nextSession),
-      inspectorAPI.usage(nextSession).catch((error) => ({ error: String(error) })),
-      inspectorAPI.summary(nextSession).catch(() => ({ summary_text: "", source_until_seq: 0 })),
-      inspectorAPI.artifacts(nextSession).catch((error) => ({ artifacts: [], error: String(error) })),
-      inspectorAPI.events(nextSession).catch((error) => ({ events: [], error: String(error) })),
-      inspectorAPI.interventions(nextSession, "pending").catch((error) => ({ interventions: [], error: String(error) })),
-      inspectorAPI.metrics(nextSession, nextTurn).catch((error) => String(error)),
-      inspectorAPI.observabilityStatus().catch((error) => ({ error: String(error) }))
-    ];
-    const results = await Promise.all(requests);
-    setSessionMeta(results[0]);
-    setUsage(results[1]);
-    setSummary(results[2]);
-    setArtifacts(results[3]);
-    setEvents(results[4]);
-    setInterventions(results[5]);
-    setMetrics(results[6]);
-    setExporters(results[7]);
-    setStatus(`loaded ${nextSession} / ${trace.turn_id || "latest"}`);
-    setInspectorHash({ session: nextSession, turn: trace.turn_id || nextTurn, trace: trace.trace_id || "", span: "" });
+    try {
+      const trace = await inspectorAPI.trace(nextSession, nextTurn, "", requestOptions);
+      const requests = [
+        inspectorAPI.session(nextSession, requestOptions),
+        softFail(inspectorAPI.usage(nextSession, requestOptions), (error) => ({ error: String(error) })),
+        softFail(inspectorAPI.summary(nextSession, requestOptions), { summary_text: "", source_until_seq: 0 }),
+        softFail(inspectorAPI.artifacts(nextSession, requestOptions), (error) => ({ artifacts: [], error: String(error) })),
+        softFail(inspectorAPI.events(nextSession, afterSeq, requestOptions), (error) => ({ events: [], error: String(error) })),
+        softFail(inspectorAPI.interventions(nextSession, "pending", requestOptions), (error) => ({ interventions: [], error: String(error) })),
+        softFail(inspectorAPI.metrics(nextSession, nextTurn, requestOptions), (error) => String(error)),
+        softFail(inspectorAPI.observabilityStatus(requestOptions), (error) => ({ error: String(error) }))
+      ];
+      const results = await Promise.all(requests);
+      if (controller.signal.aborted || loadRequestRef.current !== controller) return null;
+
+      const nextEvents = incrementalEvents ? mergeEventResponses(eventsRef.current, results[4]) : results[4];
+      renderTrace(trace);
+      setSessionMeta(results[0]);
+      setUsage(results[1]);
+      setSummary(results[2]);
+      setArtifacts(results[3]);
+      setEvents(nextEvents);
+      eventsRef.current = nextEvents;
+      eventsSessionIDRef.current = nextSession;
+      setInterventions(results[5]);
+      setMetrics(results[6]);
+      setExporters(results[7]);
+
+      const terminal = isTerminalTurnStatus(trace.status);
+      if (terminal) setAutoRefresh(false);
+      const stopped = terminal && autoRefresh ? `; auto refresh stopped (${trace.status})` : "";
+      setStatus(`loaded ${nextSession} / ${trace.turn_id || "latest"}${stopped}`);
+      setInspectorHash({ session: nextSession, turn: trace.turn_id || nextTurn, trace: trace.trace_id || "", span: "" });
+      return trace;
+    } catch (error) {
+      if (isAbortError(error)) return null;
+      throw error;
+    } finally {
+      if (loadRequestRef.current === controller) loadRequestRef.current = null;
+    }
   }
 
   async function loadTraceByID(nextTraceID = traceID) {
@@ -204,6 +413,7 @@ function App() {
       setStatus("trace id required");
       return;
     }
+    if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading trace ${value}`);
     const trace = await inspectorAPI.traceByID(value);
     setTraceID(trace.trace_id || value);
@@ -219,6 +429,7 @@ function App() {
       setStatus("trace id and span id required");
       return;
     }
+    if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading span ${spanValue}`);
     const detail = await inspectorAPI.spanByID(traceValue, spanValue);
     setSelectedSpanID(detail.span?.span_id || spanValue);
@@ -266,11 +477,11 @@ function App() {
     setStatus("copied command");
   }
 
-  async function previewArtifact(href) {
+  async function previewArtifact(href, loadResponse) {
     const path = String(href || "");
     if (!path) return;
     setStatus("previewing artifact");
-    const response = await inspectorAPI.getBlob(path);
+    const response = await (loadResponse ? loadResponse() : inspectorAPI.getBlob(path));
     const contentType = (response.headers.get("Content-Type") || "").split(";")[0].trim();
     const length = response.headers.get("Content-Length") || "";
     const blob = await response.blob();
@@ -368,11 +579,28 @@ function App() {
 
   useEffect(() => {
     if (!autoRefresh) return undefined;
-    const handle = window.setInterval(() => {
-      if (sessionID) load().catch((error) => setStatus(error.message));
-    }, 5000);
-    return () => window.clearInterval(handle);
-  }, [autoRefresh, sessionID, turnID]);
+    if (!sessionID || isTerminalTurnStatus(currentTrace?.status)) return undefined;
+
+    const refresh = () => {
+      if (document.hidden) return;
+      load(sessionID, turnID, { mode: "auto", incrementalEvents: true }).catch((error) => setStatus(error.message));
+    };
+    const handle = window.setInterval(refresh, 5000);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(handle);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [autoRefresh, sessionID, turnID, currentTrace?.status]);
+
+  useEffect(() => {
+    return () => {
+      if (loadRequestRef.current) loadRequestRef.current.abort();
+    };
+  }, []);
 
   useEffect(() => {
     syncInspectorHash();
@@ -390,12 +618,27 @@ function App() {
   }, [spanFilter, spanKind, spans]);
 
   const traceStats = currentTrace?.stats || {};
+  const terminalTurn = isTerminalTurnStatus(currentTrace?.status);
+  const toolSourceStats = useMemo(() => collectToolSourceStats(events.events || []), [events]);
+  const mcpProtocolOperations = useMemo(() => collectMCPProtocolOperations(events.events || []), [events]);
+  const filteredTimelineTrace = useMemo(() => {
+    if (!toolSourceFilter) return currentTrace;
+    if (!currentTrace) return currentTrace;
+    const filteredSteps = (currentTrace.steps || []).filter((step) => normalizeToolSource(step?.data?.tool_source) === toolSourceFilter);
+    return { ...currentTrace, steps: filteredSteps };
+  }, [currentTrace, toolSourceFilter]);
+  const filteredRecentEvents = useMemo(() => {
+    const list = events.events || [];
+    if (!toolSourceFilter) return list;
+    return list.filter((event) => normalizeToolSource(event?.payload?.data?.tool_source) === toolSourceFilter);
+  }, [events, toolSourceFilter]);
   const overviewCards = [
     { label: "Turn", value: currentTrace?.turn_id || "-", sub: currentTrace?.status || "running" },
     { label: "Duration", value: formatDuration(traceStats.duration_ms), sub: `${formatTime(traceStats.start_time)} -> ${formatTime(traceStats.end_time)}` },
     { label: "Steps", value: String(traceStats.step_count || 0), sub: "timeline events" },
     { label: "Spans", value: String(traceStats.span_count || 0), sub: "projected trace spans" },
     { label: "Tools", value: String(traceStats.tool_calls || 0), sub: `${traceStats.approval_waits || 0} approval waits` },
+    { label: "MCP", value: String(toolSourceStats.mcp || 0), sub: `${toolSourceStats.total || 0} sourced tool events` },
     { label: "Errors", value: String(traceStats.errors || 0), sub: `${traceStats.artifact_count || 0} artifacts` }
   ];
 
@@ -403,8 +646,12 @@ function App() {
     <>
       <header>
         <h1>TMA Inspector</h1>
-        <div className="meta" id="status">{status}</div>
+        <div className="header-actions">
+          <div className="meta" id="status">{status}</div>
+          <button className="secondary manual-trigger" type="button" onClick={() => setManualOpen(true)}>用户手册</button>
+        </div>
       </header>
+      {manualOpen ? <ManualDialog onClose={() => setManualOpen(false)} /> : null}
       <div className="layout">
         <aside>
           <Panel title="Query">
@@ -439,7 +686,7 @@ function App() {
                 </select>
               </Field>
               <label className="toggle">
-                <input type="checkbox" id="autoRefresh" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
+                <input type="checkbox" id="autoRefresh" checked={autoRefresh} disabled={terminalTurn} onChange={(event) => setAutoRefresh(event.target.checked)} />
                 Auto refresh every 5s
               </label>
               <div className="actions">
@@ -458,7 +705,7 @@ function App() {
             setSelectedSpanID("");
             setInspectorHash({ session: "", turn: "", trace: "", span: "" });
             filterCatalogs().catch((error) => setStatus(error.message));
-          }} hasMore={Boolean(traceCatalog.has_more)} onMore={() => loadTraceCatalog(sessionID, turnID, traceCatalog.next_offset || (traceCatalog.traces || []).length, true).catch((error) => setStatus(error.message))} onLoadTrace={(id) => loadTraceByID(id).catch((error) => setStatus(error.message))} />
+          }} hasMore={Boolean(traceCatalog.has_more)} onMore={() => loadTraceCatalog(sessionID, turnID, traceCatalog.next_cursor || "", true).catch((error) => setStatus(error.message))} onLoadTrace={(id) => loadTraceByID(id).catch((error) => setStatus(error.message))} />
           <SpanSearch
             query={globalSpanQuery}
             kind={globalSpanKind}
@@ -468,7 +715,7 @@ function App() {
             response={spanCatalog}
             onChange={{ setGlobalSpanQuery, setGlobalSpanKind, setGlobalSpanStatus, setGlobalSpanCritical, setGlobalSpanMinDuration }}
             onSearch={() => loadSpanCatalog().catch((error) => setStatus(error.message))}
-            onMore={() => loadSpanCatalog(spanCatalog.next_offset || (spanCatalog.spans || []).length, true).catch((error) => setStatus(error.message))}
+            onMore={() => loadSpanCatalog(spanCatalog.next_cursor || "", true).catch((error) => setStatus(error.message))}
             onLoadSpan={(trace, span) => loadSpanByID(trace, span).catch((error) => setStatus(error.message))}
           />
           <Turns turns={currentTrace?.turns || []} active={turnID} onSelect={(id) => {
@@ -490,6 +737,34 @@ function App() {
           </section>
           <Panel title="Context Coverage"><ContextCoverage summary={summary} events={events} /></Panel>
           <Panel title="Context Budget"><ContextBudget trace={currentTrace} events={events} /></Panel>
+          <Panel title="Tool Sources">
+            <div className="stack">
+              <div className="coverage-grid">
+                {[
+                  ["mcp", toolSourceStats.mcp],
+                  ["worker_plugin", toolSourceStats.worker_plugin],
+                  ["builtin", toolSourceStats.builtin],
+                  ["other", toolSourceStats.other]
+                ].map(([label, value]) => (
+                  <div className="coverage-card" key={label}>
+                    <div className="subtle">{label}</div>
+                    <div className="coverage-value">{value || 0}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="actions">
+                <button className={toolSourceFilter === "" ? "" : "secondary"} type="button" onClick={() => setToolSourceFilter("")}>All</button>
+                <button className={toolSourceFilter === "mcp" ? "" : "secondary"} type="button" onClick={() => setToolSourceFilter("mcp")}>MCP</button>
+                <button className={toolSourceFilter === "worker_plugin" ? "" : "secondary"} type="button" onClick={() => setToolSourceFilter("worker_plugin")}>Worker Plugin</button>
+                <button className={toolSourceFilter === "builtin" ? "" : "secondary"} type="button" onClick={() => setToolSourceFilter("builtin")}>Builtin</button>
+              </div>
+              <Meta>
+                <span>active filter {toolSourceFilter || "all"}</span>
+                <span>{toolSourceFilter ? `${filteredRecentEvents.length} matching recent events` : `${events.events?.length || 0} recent events`}</span>
+              </Meta>
+            </div>
+          </Panel>
+          <Panel title="MCP Protocol"><MCPProtocol operations={mcpProtocolOperations} /></Panel>
           <Panel title="Waterfall"><Waterfall trace={currentTrace} selectedSpanID={selectedSpanID} onSelect={(id) => setSelectedSpanID(id)} /></Panel>
           <Panel title="Spans">
             <div className="stack">
@@ -509,11 +784,11 @@ function App() {
               <SpansTable spans={filteredSpans} selectedSpanID={selectedSpanID} onSelect={(id) => setSelectedSpanID(id)} />
             </div>
           </Panel>
-          <Panel title="Timeline"><Timeline trace={currentTrace} onPreview={previewArtifact} onCopy={copyText} /></Panel>
+          <Panel title="Timeline"><Timeline trace={filteredTimelineTrace} onPreview={previewArtifact} onCopy={copyText} /></Panel>
           <section className="triple">
             <Panel title="Pending Approvals"><Interventions interventions={interventions.interventions || []} onApprove={approveIntervention} onReject={rejectIntervention} /></Panel>
             <Panel title="Artifacts"><Artifacts sessionID={sessionID} artifacts={artifacts.artifacts || []} onPreview={previewArtifact} onCopy={copyText} /></Panel>
-            <Panel title="Recent Events"><RecentEvents events={events.events || []} /></Panel>
+            <Panel title="Recent Events"><RecentEvents events={filteredRecentEvents} /></Panel>
           </section>
           <Panel title="Artifact Preview"><ArtifactPreview preview={artifactPreview} /></Panel>
           <section className="triple">
@@ -829,11 +1104,11 @@ function SpansTable({ spans, selectedSpanID, onSelect }) {
   );
 }
 
-function ArtifactActions({ href, command, onPreview, onCopy }) {
+function ArtifactActions({ href, command, onPreview, onPreviewRequest, onCopy }) {
   if (!href && !command) return null;
   return (
     <div className="actions" style={{ marginTop: 6 }}>
-      {href ? <><button className="secondary" type="button" data-preview={href} onClick={() => onPreview(href)}>Preview</button><a className="link" href={href} target="_blank" rel="noreferrer">Download</a></> : null}
+      {href ? <><button className="secondary" type="button" data-preview={href} onClick={() => onPreviewRequest ? onPreviewRequest() : onPreview(href)}>Preview</button><a className="link" href={href} target="_blank" rel="noreferrer">Download</a></> : null}
       {command ? <button className="secondary" type="button" data-copy={command} onClick={() => onCopy(command)}>Copy CLI</button> : null}
     </div>
   );
@@ -847,8 +1122,9 @@ function Timeline({ trace, onPreview, onCopy }) {
         const truncated = step.content_truncated || step.state_truncated;
         return (
           <div className={stepClass(step)} key={step.seq}>
-            <Meta><span>seq {step.seq}</span><span>{step.type}</span><span>{step.identifier ? `${step.identifier}${step.api_name ? `.${step.api_name}` : ""}` : ""}</span><span>{step.outcome || ""}</span><span>{formatTime(step.created_at)}</span></Meta>
+            <Meta><span>seq {step.seq}</span><span>{step.type}</span><span>{step.identifier ? `${step.identifier}${step.api_name ? `.${step.api_name}` : ""}` : ""}</span><ToolSourceChip source={step?.data?.tool_source} /><span>{step.outcome || ""}</span><span>{formatTime(step.created_at)}</span></Meta>
             <div style={{ marginTop: 6 }}>{step.message || step.summary || ""}</div>
+            <MCPDetails data={step?.data} />
             {truncated ? <div className="subtle" style={{ marginTop: 6 }}>tool result preview truncated{step.content_truncated ? `: ${step.visible_content_chars || 0}/${step.original_content_chars || 0} chars` : ""}{step.state_truncated ? `; state ${step.original_state_bytes || 0} bytes omitted` : ""}</div> : null}
             {(step.artifacts || []).length ? <div className="artifact-list">{step.artifacts.map((artifact) => {
               const label = [artifact.artifact_id || artifact.id || "(unknown)", artifact.name || "", artifact.artifact_type ? `[${artifact.artifact_type}]` : ""].filter(Boolean).join(" ");
@@ -890,7 +1166,7 @@ function Artifacts({ sessionID, artifacts, onPreview, onCopy }) {
             <div><strong>{artifact.name || artifact.id}</strong></div>
             <Meta><span>{artifact.artifact_type}</span><span>{artifact.object_ref_id || ""}</span><span>{artifact.turn_id || ""}</span></Meta>
             <div className="subtle">cli: {command}</div>
-            <ArtifactActions href={href} command={command} onPreview={onPreview} onCopy={onCopy} />
+            <ArtifactActions href={href} command={command} onPreview={onPreview} onPreviewRequest={() => onPreview(href, () => inspectorAPI.downloadArtifact(sessionID, artifact.id))} onCopy={onCopy} />
           </div>
         );
       }) : <Empty>No artifacts.</Empty>}
@@ -903,7 +1179,8 @@ function RecentEvents({ events }) {
     <div className="list" id="events">
       {events.length ? events.slice(-18).reverse().map((event) => (
         <div className="list-item" key={event.seq}>
-          <Meta><span>seq {event.seq}</span><span>{event.type}</span><span>{formatTime(event.created_at)}</span></Meta>
+          <Meta><span>seq {event.seq}</span><span>{event.type}</span><ToolSourceChip source={event?.payload?.data?.tool_source} /><span>{formatTime(event.created_at)}</span></Meta>
+          <MCPDetails data={event?.payload?.data} />
           <pre style={{ marginTop: 8 }}>{pretty(event.payload || {})}</pre>
         </div>
       )) : <Empty>No events loaded.</Empty>}

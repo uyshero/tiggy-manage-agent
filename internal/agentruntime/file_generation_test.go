@@ -1,0 +1,270 @@
+package agentruntime
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/llm"
+	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tools"
+)
+
+func TestRuntimeRejectsMultipleFileMutationsBeforeWriting(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	client := &scriptedFileGenerationClient{responses: []llm.Response{
+		toolCallResponse(
+			llm.ToolCall{ID: "write_1", Type: "function", Function: llm.ToolCallFunction{Name: "default.write_file", Arguments: mustJSON(t, map[string]any{"path": first, "content": "one"})}},
+			llm.ToolCall{ID: "write_2", Type: "function", Function: llm.ToolCallFunction{Name: "default.write_file", Arguments: mustJSON(t, map[string]any{"path": second, "content": "two"})}},
+		),
+		textResponse("recovered"),
+	}}
+
+	result, err := (DemoRuntime{Client: client, MaxToolRounds: 4}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_batch", TurnID: "turn_batch",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"write files"}]}`),
+		Config: Config{
+			InterventionMode:     tools.InterventionModeFullAccess,
+			ToolExecutor:         tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: capabilityLocalProvider()},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "recovered" {
+		t.Fatalf("unexpected result %q", got)
+	}
+	for _, path := range []string{first, second} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("multi-mutation response unexpectedly wrote %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestProviderModelFileMutationLimitsOverrideSessionDefault(t *testing.T) {
+	settings := json.RawMessage(`{
+		"file_mutation_recommended_tokens":5000,
+		"file_mutation_max_tokens":7000,
+		"file_mutation_limits":{"volcengine/doubao":{"recommended_tokens":3000,"max_tokens":4000}}
+	}`)
+	limits := fileMutationLimits(settings, "volcengine", "doubao")
+	if limits.RecommendedTokens != 3000 || limits.MaxTokens != 4000 {
+		t.Fatalf("unexpected model limits: %#v", limits)
+	}
+}
+
+func TestPersistedSegmentHashRequiresExactReplayContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hash.txt")
+	placeholder := "__TMA_PLACEHOLDER_HASH_001__"
+	replacement := "exact segment"
+	hash := sha256.Sum256([]byte(replacement))
+	state := newSegmentedFileGenerationState()
+	state.Tasks[path] = &segmentedFileTaskState{
+		Path: path, SegmentHashes: map[string]string{placeholder: hex.EncodeToString(hash[:])},
+	}
+	call := tools.Call{ID: "retry", APIName: "edit_file", Arguments: mustJSON(t, map[string]any{
+		"path": path, "old_string": placeholder, "new_string": replacement,
+	})}
+	if result, ok := state.idempotentReplay(call); !ok || !strings.Contains(result.Content, "already applied") {
+		t.Fatalf("expected exact hash replay, result=%#v ok=%v", result, ok)
+	}
+	call.Arguments = mustJSON(t, map[string]any{"path": path, "old_string": placeholder, "new_string": replacement + " changed"})
+	if _, ok := state.idempotentReplay(call); ok {
+		t.Fatal("different replacement content must not reuse persisted idempotency evidence")
+	}
+}
+
+func TestSegmentedPlanApprovalPersistsAndRedactsLongArguments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "approved.js")
+	placeholder := "__TMA_PLACEHOLDER_APPROVED_001__"
+	writeArguments := mustJSON(t, map[string]any{"path": path, "content": placeholder})
+	client := &scriptedFileGenerationClient{responses: []llm.Response{
+		toolCallResponse(llm.ToolCall{ID: "write", Type: "function", Function: llm.ToolCallFunction{Name: "default.write_file", Arguments: writeArguments}}),
+		toolCallResponse(llm.ToolCall{ID: "edit", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.edit_file", Arguments: mustJSON(t, map[string]any{
+				"path": path, "old_string": placeholder, "new_string": "function approved() { return true; }", "replace_all": false,
+			}),
+		}}),
+		textResponse("too early"),
+		toolCallResponse(llm.ToolCall{ID: "validate", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.run_command", Arguments: mustJSON(t, map[string]any{"command": "sh", "args": []string{"-c", "node --check \"$1\"", "sh", path}}),
+		}}),
+	}}
+	registry := tools.DefaultRegistry()
+	config := Config{
+		InterventionMode:     tools.InterventionModeRequestApproval,
+		ToolRegistry:         registry,
+		ToolExecutor:         tools.RegistryExecutor{Registry: registry},
+		ToolExecutionContext: tools.ExecutionContext{Provider: capabilityLocalProvider()},
+	}
+	var initialSteps []Step
+	_, err := (DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_approval", TurnID: "turn_approval",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"create approved file"}]}`),
+		Config:      config,
+		EmitStep: func(_ context.Context, step Step) error {
+			initialSteps = append(initialSteps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected skeleton approval, got %v", err)
+	}
+	required := firstStepType(initialSteps, managedagents.EventRuntimeToolInterventionRequired)
+	arguments, ok := required.Data["arguments"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected observable arguments map: %#v", required.Data)
+	}
+	contentSummary, ok := arguments["content"].(map[string]any)
+	if !ok || contentSummary["redacted"] != true || contentSummary["sha256"] == "" {
+		t.Fatalf("expected redacted content metadata, got %#v", arguments["content"])
+	}
+	privateArguments, ok := required.Private["arguments"].(json.RawMessage)
+	if !ok || !strings.Contains(string(privateArguments), placeholder) {
+		t.Fatalf("private continuation lost executable arguments: %#v", required.Private)
+	}
+	continuation := required.Private["continuation_messages"].([]llm.Message)
+	continuationState := required.Private["continuation_state"].(json.RawMessage)
+	continuationRound := required.Private["continuation_round"].(int)
+
+	var resumedSteps []Step
+	_, err = (DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_approval", TurnID: "turn_approval", Config: config,
+		ResumeIntervention: &InterventionResume{
+			Call:   tools.Call{ID: "write", Identifier: tools.DefaultIdentifier, APIName: "write_file", Arguments: writeArguments},
+			Status: managedagents.InterventionStatusApproved, Continuation: continuation,
+			ContinuationRound: continuationRound, ContinuationState: continuationState,
+		},
+		EmitStep: func(_ context.Context, step Step) error {
+			resumedSteps = append(resumedSteps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected only validation command to need another approval, got %v", err)
+	}
+	nextRequired := firstStepType(resumedSteps, managedagents.EventRuntimeToolInterventionRequired)
+	if nextRequired.Data["api_name"] != "run_command" {
+		t.Fatalf("segmented edit should reuse plan approval; pending call=%#v", nextRequired.Data)
+	}
+	approved := firstStepType(resumedSteps, managedagents.EventRuntimeToolInterventionApproved)
+	if approved.Data["api_name"] != "edit_file" || approved.Data["approval_source"] != "segmented_plan" {
+		t.Fatalf("expected edit plan auto-approval, got %#v", approved.Data)
+	}
+}
+
+func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.js")
+	placeholder := "__TMA_PLACEHOLDER_REPORT_001__"
+	client := &scriptedFileGenerationClient{responses: []llm.Response{
+		toolCallResponse(llm.ToolCall{ID: "write", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.write_file", Arguments: mustJSON(t, map[string]any{"path": path, "content": placeholder}),
+		}}),
+		toolCallResponse(llm.ToolCall{ID: "edit", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.edit_file", Arguments: mustJSON(t, map[string]any{
+				"path": path, "old_string": placeholder, "new_string": "function report() { return 1; }", "replace_all": false,
+			}),
+		}}),
+		textResponse("finished too early"),
+		toolCallResponse(llm.ToolCall{ID: "validate", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.run_command", Arguments: mustJSON(t, map[string]any{"command": "sh", "args": []string{"-c", "node --check \"$1\"", "sh", path}}),
+		}}),
+		textResponse("validated and finished"),
+	}}
+	artifactRecorder := &recordingArtifactRecorder{}
+
+	result, err := (DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_segment", TurnID: "turn_segment",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"create report"}]}`),
+		Config: Config{
+			InterventionMode:     tools.InterventionModeFullAccess,
+			ToolExecutor:         tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: capabilityLocalProvider(), ArtifactRecorder: artifactRecorder},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "validated and finished" {
+		t.Fatalf("completion gate allowed wrong response %q", got)
+	}
+	if len(client.requests) != 5 {
+		t.Fatalf("expected premature completion to trigger another model request, got %d", len(client.requests))
+	}
+	if got := messagesText(client.requests[3].Messages); !containsAll(got, "Runtime completion gate blocked", "requires a successful syntax check") {
+		t.Fatalf("missing hard completion feedback: %s", got)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil || string(content) != "function report() { return 1; }" {
+		t.Fatalf("unexpected completed file %q: %v", content, readErr)
+	}
+	if len(artifactRecorder.calls) != 1 || artifactRecorder.calls[0].APIName != "segmented_file_generation" || len(artifactRecorder.results[0].ExportedFiles) != 1 {
+		t.Fatalf("expected only one final artifact publication, calls=%#v results=%#v", artifactRecorder.calls, artifactRecorder.results)
+	}
+}
+
+// Keep the concrete local provider behind a helper so test setup stays compact.
+func capabilityLocalProvider() capability.LocalSystemProvider {
+	return capability.LocalSystemProvider{}
+}
+
+type scriptedFileGenerationClient struct {
+	responses []llm.Response
+	requests  []llm.Request
+}
+
+type recordingArtifactRecorder struct {
+	calls   []tools.Call
+	results []tools.ExecutionResult
+}
+
+func (recorder *recordingArtifactRecorder) RecordToolArtifact(_ context.Context, call tools.Call, _ tools.ExecutionContext, result tools.ExecutionResult) ([]tools.ArtifactRef, error) {
+	recorder.calls = append(recorder.calls, call)
+	recorder.results = append(recorder.results, result)
+	return nil, nil
+}
+
+func (client *scriptedFileGenerationClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	client.requests = append(client.requests, request)
+	response := client.responses[0]
+	client.responses = client.responses[1:]
+	return response, nil
+}
+
+func (client *scriptedFileGenerationClient) Provider() string { return llm.ProviderFake }
+
+func toolCallResponse(calls ...llm.ToolCall) llm.Response {
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: calls}}
+}
+
+func textResponse(text string) llm.Response {
+	return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: text}}}}
+}
+
+func mustJSON(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func containsAll(value string, parts ...string) bool {
+	for _, part := range parts {
+		if !strings.Contains(value, part) {
+			return false
+		}
+	}
+	return true
+}

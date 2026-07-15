@@ -598,6 +598,8 @@ func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
 	type aggregate struct {
 		span       TraceSpan
 		attributes map[string]string
+		expectsEnd bool
+		ended      bool
 	}
 	aggregates := map[string]*aggregate{}
 	order := []string{}
@@ -631,6 +633,12 @@ func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
 			}
 			aggregates[spanID] = current
 			order = append(order, spanID)
+		}
+		if nativeSpanStartEvent(step.Type) {
+			current.expectsEnd = true
+		}
+		if nativeSpanEndEvent(step.Type) {
+			current.ended = true
 		}
 		if step.ParentSpanID != "" {
 			current.span.ParentSpanID = step.ParentSpanID
@@ -669,6 +677,26 @@ func buildNativeTraceSpans(trace TurnTrace) []TraceSpan {
 	}
 	if len(order) == 0 {
 		return nil
+	}
+	terminalStatus := terminalTraceStatus(trace.Status)
+	if terminalStatus != "" {
+		traceEnd := lastStepTime(trace.Steps)
+		traceEndSeq := trace.Steps[len(trace.Steps)-1].Seq
+		for _, spanID := range order {
+			current := aggregates[spanID]
+			if !current.expectsEnd || current.ended {
+				continue
+			}
+			current.span.EndSeq = max(current.span.EndSeq, traceEndSeq)
+			current.span.EndTime = clampEnd(current.span.StartTime, traceEnd)
+			if current.span.SpanID == InteractionSpanID(trace.TurnID) {
+				current.span.Status = terminalStatus
+			} else if terminalStatus == "canceled" {
+				current.span.Status = "canceled"
+			} else {
+				current.span.Status = "error"
+			}
+		}
 	}
 	for _, spanID := range order {
 		current := aggregates[spanID]
@@ -834,6 +862,10 @@ func BuildTraceSpans(trace TurnTrace) []TraceSpan {
 	if trace.TraceID == "" || trace.TurnID == "" || len(trace.Steps) == 0 {
 		return nil
 	}
+	if trace.Status == "" {
+		trace.Status = inferTraceStatus(trace.Steps)
+	}
+	trace = normalizeMixedNativeTraceSteps(trace)
 	if native := buildNativeTraceSpans(trace); len(native) > 0 {
 		return enrichTraceSpans(trace, native)
 	}
@@ -842,9 +874,6 @@ func BuildTraceSpans(trace TurnTrace) []TraceSpan {
 	end := lastStepTime(trace.Steps)
 	if end.Before(start) {
 		end = start
-	}
-	if trace.Status == "" {
-		trace.Status = inferTraceStatus(trace.Steps)
 	}
 
 	rootSpanID := spanIDFromKey("interaction:" + trace.TurnID)
@@ -1036,6 +1065,108 @@ func BuildTraceSpans(trace TurnTrace) []TraceSpan {
 		return spans[i].Name < spans[j].Name
 	})
 	return enrichTraceSpans(trace, spans)
+}
+
+func normalizeMixedNativeTraceSteps(trace TurnTrace) TurnTrace {
+	hasNative := false
+	for _, step := range trace.Steps {
+		if step.SpanID != "" {
+			hasNative = true
+			break
+		}
+	}
+	if !hasNative {
+		return trace
+	}
+
+	steps := append([]TraceStep(nil), trace.Steps...)
+	for index := range steps {
+		step := &steps[index]
+		if step.SpanID != "" {
+			continue
+		}
+		step.TraceID = trace.TraceID
+		switch step.Type {
+		case managedagents.EventUserInterrupt, managedagents.EventSessionStatusIdle, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
+			step.SpanID = InteractionSpanID(trace.TurnID)
+			step.SpanName = "tma.interaction"
+			step.SpanKind = "interaction"
+			if step.Type == managedagents.EventRuntimeCompleted {
+				step.SpanStatus = "ok"
+			} else if step.Type == managedagents.EventRuntimeFailed {
+				step.SpanStatus = "error"
+			} else if step.Type == managedagents.EventSessionStatusIdle {
+				step.SpanStatus = terminalTraceStatus(trace.Status)
+			}
+		case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolResult:
+			if step.CallID == "" {
+				continue
+			}
+			step.SpanID = ToolSpanID(trace.TurnID, step.CallID, step.Seq)
+			step.ParentSpanID = InteractionSpanID(trace.TurnID)
+			step.SpanName = toolSpanName(*step, *step)
+			step.SpanKind = "tool"
+			if step.Type == managedagents.EventRuntimeToolResult {
+				step.SpanStatus = toolSpanStatus(*step)
+			}
+		case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected:
+			if step.CallID == "" {
+				continue
+			}
+			step.SpanID = ApprovalSpanID(trace.TurnID, step.CallID)
+			step.ParentSpanID = ToolSpanID(trace.TurnID, step.CallID, step.Seq)
+			step.SpanName = "tma.tool.blocked_on_user"
+			step.SpanKind = "approval"
+			step.SpanStatus = approvalSpanStatus(*step)
+		}
+	}
+	trace.Steps = steps
+	return trace
+}
+
+func nativeSpanStartEvent(eventType string) bool {
+	switch eventType {
+	case managedagents.EventRuntimeStarted,
+		managedagents.EventRuntimeLLMRequest,
+		managedagents.EventRuntimeToolCall,
+		managedagents.EventRuntimeToolInterventionRequired,
+		managedagents.EventRuntimeContextCompacting,
+		managedagents.EventRuntimeSpanStarted:
+		return true
+	default:
+		return false
+	}
+}
+
+func nativeSpanEndEvent(eventType string) bool {
+	switch eventType {
+	case managedagents.EventRuntimeCompleted,
+		managedagents.EventRuntimeFailed,
+		managedagents.EventSessionStatusIdle,
+		managedagents.EventRuntimeLLMResponse,
+		managedagents.EventRuntimeToolResult,
+		managedagents.EventRuntimeToolInterventionApproved,
+		managedagents.EventRuntimeToolInterventionRejected,
+		managedagents.EventRuntimeContextCompacted,
+		managedagents.EventRuntimeContextCompactionFailed,
+		managedagents.EventRuntimeSpanEnded:
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalTraceStatus(status string) string {
+	switch status {
+	case managedagents.TurnStatusCompleted:
+		return "ok"
+	case managedagents.TurnStatusFailed:
+		return "error"
+	case managedagents.TurnStatusInterrupted, "canceled", "terminated":
+		return "canceled"
+	default:
+		return ""
+	}
 }
 
 func ExportPerfetto(trace TurnTrace) map[string]any {
@@ -1685,7 +1816,7 @@ func spanName(step TraceStep) string {
 
 func spanKind(eventType string) string {
 	switch eventType {
-	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse, managedagents.EventRuntimeLLMDelta:
+	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse, managedagents.EventRuntimeLLMChunk, managedagents.EventRuntimeLLMDelta:
 		return "llm"
 	case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolResult:
 		return "tool"

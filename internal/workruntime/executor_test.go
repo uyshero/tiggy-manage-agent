@@ -2,6 +2,7 @@ package workruntime
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 )
@@ -74,6 +76,46 @@ func TestExecutorRunsDefaultToolExecution(t *testing.T) {
 	}
 	if body.WorkerName != "test-worker" || body.ToolResult.Content != "workruntime" {
 		t.Fatalf("unexpected result body: %+v", body)
+	}
+}
+
+func TestExecutorDecryptsManagedEnvironmentAndRedactsToolOutput(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	encodedKey := base64.StdEncoding.EncodeToString(key)
+	t.Setenv(envvars.MasterKeyEnvironmentVariable, encodedKey)
+	cipher, err := envvars.NewCipher(encodedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := cipher.SealMap(map[string]string{"SERVICE_API_KEY": "managed-secret-value"}, envvars.EnvelopeAssociatedData("wksp_default", "sesn_env", "turn_env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion:     tools.WorkProtocolVersion,
+		Namespace:           tools.NamespaceDefault,
+		API:                 "run_command",
+		Capabilities:        []string{"exec"},
+		Risk:                tools.ToolRiskExec,
+		Runtime:             tools.ToolRuntimeLocalSystem,
+		Input:               json.RawMessage(`{"command":"sh","args":["-c","printf %s \"$SERVICE_API_KEY\""]}`),
+		EnvironmentEnvelope: envelope,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_env", WorkspaceID: "wksp_default", SessionID: "sesn_env", TurnID: "turn_env",
+		WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: payload,
+	})
+	if !result.Success {
+		t.Fatalf("expected successful execution, got %q", result.ErrorMessage)
+	}
+	if strings.Contains(string(result.Result), "managed-secret-value") || !strings.Contains(string(result.Result), "[REDACTED_ENV:SERVICE_API_KEY]") {
+		t.Fatalf("worker result was not redacted: %s", result.Result)
 	}
 }
 

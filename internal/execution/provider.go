@@ -25,6 +25,7 @@ type ProviderResolver interface {
 
 type ProviderRequest struct {
 	WorkspaceID   string
+	OwnerID       string
 	SessionID     string
 	EnvironmentID string
 	ToolRuntime   string
@@ -46,6 +47,10 @@ type SessionStore interface {
 	GetSession(id string) (managedagents.Session, error)
 }
 
+type scopedSessionStore interface {
+	GetSessionScoped(id string, scope managedagents.AccessScope) (managedagents.Session, error)
+}
+
 type SessionProviderResolver struct {
 	Store                      SessionStore
 	SessionDataStore           capability.SessionDataStore
@@ -62,9 +67,20 @@ type SessionProviderResolver struct {
 
 func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capability.Provider {
 	settings := r.defaultRuntimeSettings()
+	workspaceID := strings.TrimSpace(request.WorkspaceID)
+	ownerID := strings.TrimSpace(request.OwnerID)
 	if r.Store != nil && request.SessionID != "" {
-		if session, err := r.Store.GetSession(request.SessionID); err == nil {
+		var session managedagents.Session
+		var err error
+		if scoped, ok := r.Store.(scopedSessionStore); ok && workspaceID != "" {
+			session, err = scoped.GetSessionScoped(request.SessionID, managedagents.AccessScope{WorkspaceID: workspaceID, OwnerID: ownerID})
+		} else {
+			session, err = r.Store.GetSession(request.SessionID)
+		}
+		if err == nil {
 			settings = MergeRuntimeSettings(settings, session.RuntimeSettings)
+			workspaceID = strings.TrimSpace(session.WorkspaceID)
+			ownerID = strings.TrimSpace(session.OwnerID)
 		}
 	}
 	settings = MergeRuntimePolicy(settings, RuntimePolicy{Runtime: request.ToolRuntime})
@@ -84,9 +100,12 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 	return capability.OnlyboxesProvider{
 		Image:            settings.Image,
 		WorkspaceRoot:    root,
+		IsolateWorkspace: true,
 		DataRoot:         r.CloudSandboxDataRoot,
 		DataDirTTL:       r.CloudSandboxDataTTL,
 		DisableNetwork:   !settings.Network,
+		WorkspaceID:      workspaceID,
+		OwnerID:          ownerID,
 		SessionID:        request.SessionID,
 		Store:            r.sessionDataStore(),
 		ObjectStore:      r.ObjectStore,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -8,39 +9,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/sdk/tma"
 )
 
-type workerWorkDiagnoseResponse struct {
-	Work struct {
-		ID             string          `json:"id"`
-		WorkspaceID    string          `json:"workspace_id"`
-		WorkerID       string          `json:"worker_id,omitempty"`
-		EnvironmentID  string          `json:"environment_id,omitempty"`
-		SessionID      string          `json:"session_id,omitempty"`
-		TurnID         string          `json:"turn_id,omitempty"`
-		WorkType       string          `json:"work_type"`
-		Status         string          `json:"status"`
-		ErrorMessage   string          `json:"error_message,omitempty"`
-		LeaseExpiresAt string          `json:"lease_expires_at,omitempty"`
-		StartedAt      string          `json:"started_at,omitempty"`
-		CompletedAt    string          `json:"completed_at,omitempty"`
-		Payload        json.RawMessage `json:"payload,omitempty"`
-		Result         json.RawMessage `json:"result,omitempty"`
-	} `json:"work"`
-	Worker *struct {
-		ID             string `json:"id"`
-		WorkspaceID    string `json:"workspace_id"`
-		Name           string `json:"name"`
-		WorkerType     string `json:"worker_type"`
-		Status         string `json:"status"`
-		LeaseExpiresAt string `json:"lease_expires_at,omitempty"`
-		LastSeenAt     string `json:"last_seen_at,omitempty"`
-	} `json:"worker,omitempty"`
-	Reasons []string `json:"reasons,omitempty"`
-	Actions []string `json:"actions,omitempty"`
-}
+type workerWorkDiagnoseResponse = tma.WorkerWorkDiagnosis
 
 func commandWork(client *apiClient, args []string) error {
 	if len(args) == 0 {
@@ -92,19 +67,16 @@ func commandWork(client *apiClient, args []string) error {
 				return err
 			}
 		}
-		request := map[string]any{
-			"payload": rawPayload,
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		setStringIfNotEmpty(request, "workspace_id", workspaceID)
-		setStringIfNotEmpty(request, "worker_id", workerID)
-		setStringIfNotEmpty(request, "environment_id", environmentID)
-		setStringIfNotEmpty(request, "session_id", sessionID)
-		setStringIfNotEmpty(request, "turn_id", turnID)
-		setStringIfNotEmpty(request, "work_type", workType)
-
-		var response map[string]any
-		if err := client.do(http.MethodPost, "/v1/worker-work", request, &response); err != nil {
-			printWorkerWorkDiagnostics(response)
+		response, conflict, err := sdk.WorkerWork.EnqueueWithDiagnostics(context.Background(), tma.EnqueueWorkerWorkRequest{
+			WorkspaceID: workspaceID, WorkerID: workerID, EnvironmentID: environmentID,
+			SessionID: sessionID, TurnID: turnID, WorkType: workType, Payload: rawPayload,
+		})
+		if err != nil {
+			printWorkerWorkDiagnostics(conflict)
 			return err
 		}
 		return printJSON(response)
@@ -121,8 +93,12 @@ func commandWork(client *apiClient, args []string) error {
 			return fmt.Errorf("work get requires --work")
 		}
 
-		var response any
-		if err := client.do(http.MethodGet, "/v1/worker-work/"+url.PathEscape(workID), nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.WorkerWork.Get(context.Background(), workID)
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -135,12 +111,12 @@ func commandWork(client *apiClient, args []string) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		request := map[string]any{}
-		if limit > 0 {
-			request["limit"] = limit
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/worker-work/reap-expired", request, &response); err != nil {
+		response, err := sdk.WorkerWork.ReapExpired(context.Background(), tma.ReapExpiredWorkerWorkRequest{Limit: limit})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -158,12 +134,12 @@ func commandWork(client *apiClient, args []string) error {
 		if workID == "" {
 			return fmt.Errorf("work cancel requires --work")
 		}
-		request := map[string]any{}
-		if strings.TrimSpace(reason) != "" {
-			request["reason"] = reason
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/worker-work/"+url.PathEscape(workID)+"/cancel", request, &response); err != nil {
+		response, err := sdk.WorkerWork.Cancel(context.Background(), workID, tma.CancelWorkerWorkRequest{Reason: reason})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -186,15 +162,12 @@ func commandWork(client *apiClient, args []string) error {
 		if clearWorker && strings.TrimSpace(workerID) != "" {
 			return fmt.Errorf("work requeue accepts either --worker or --clear-worker, not both")
 		}
-		request := map[string]any{}
-		if strings.TrimSpace(workerID) != "" {
-			request["worker_id"] = workerID
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
 		}
-		if clearWorker {
-			request["clear_worker"] = true
-		}
-		var response any
-		if err := client.do(http.MethodPost, "/v1/worker-work/"+url.PathEscape(workID)+"/requeue", request, &response); err != nil {
+		response, err := sdk.WorkerWork.Requeue(context.Background(), workID, tma.RequeueWorkerWorkRequest{WorkerID: workerID, ClearWorker: clearWorker})
+		if err != nil {
 			return err
 		}
 		return printJSON(response)
@@ -212,8 +185,12 @@ func commandWork(client *apiClient, args []string) error {
 		if workID == "" {
 			return fmt.Errorf("work diagnose requires --work")
 		}
-		var response workerWorkDiagnoseResponse
-		if err := client.do(http.MethodGet, "/v1/worker-work/"+url.PathEscape(workID)+"/diagnose", nil, &response); err != nil {
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.WorkerWork.Diagnose(context.Background(), workID)
+		if err != nil {
 			return err
 		}
 		if jsonOutput {
@@ -416,14 +393,14 @@ func printWorkerWorkDiagnosis(response workerWorkDiagnoseResponse) {
 	if work.WorkerID != "" {
 		fmt.Printf("  assigned_worker: %s\n", work.WorkerID)
 	}
-	if work.LeaseExpiresAt != "" {
-		fmt.Printf("  work_lease_expires: %s\n", work.LeaseExpiresAt)
+	if work.LeaseExpiresAt != nil {
+		fmt.Printf("  work_lease_expires: %s\n", work.LeaseExpiresAt.UTC().Format(time.RFC3339))
 	}
-	if work.StartedAt != "" {
-		fmt.Printf("  started: %s\n", work.StartedAt)
+	if work.StartedAt != nil {
+		fmt.Printf("  started: %s\n", work.StartedAt.UTC().Format(time.RFC3339))
 	}
-	if work.CompletedAt != "" {
-		fmt.Printf("  completed: %s\n", work.CompletedAt)
+	if work.CompletedAt != nil {
+		fmt.Printf("  completed: %s\n", work.CompletedAt.UTC().Format(time.RFC3339))
 	}
 	if work.ErrorMessage != "" {
 		fmt.Printf("  error: %s\n", work.ErrorMessage)
@@ -431,11 +408,11 @@ func printWorkerWorkDiagnosis(response workerWorkDiagnoseResponse) {
 	if response.Worker != nil {
 		worker := response.Worker
 		fmt.Printf("  worker: %s %s [%s/%s]\n", worker.ID, worker.Name, worker.WorkerType, worker.Status)
-		if worker.LastSeenAt != "" {
-			fmt.Printf("    last_seen: %s\n", worker.LastSeenAt)
+		if worker.LastSeenAt != nil {
+			fmt.Printf("    last_seen: %s\n", *worker.LastSeenAt)
 		}
-		if worker.LeaseExpiresAt != "" {
-			fmt.Printf("    lease_expires: %s\n", worker.LeaseExpiresAt)
+		if worker.LeaseExpiresAt != nil {
+			fmt.Printf("    lease_expires: %s\n", *worker.LeaseExpiresAt)
 		}
 	}
 	if len(response.Reasons) > 0 {
@@ -452,32 +429,19 @@ func printWorkerWorkDiagnosis(response workerWorkDiagnoseResponse) {
 	}
 }
 
-func printWorkerWorkDiagnostics(response map[string]any) {
-	if len(response) == 0 {
+func printWorkerWorkDiagnostics(response *tma.WorkerWorkConflict) {
+	if response == nil {
 		return
 	}
-	encoded, err := json.Marshal(response)
-	if err != nil {
+	if len(response.Diagnostics) == 0 {
 		return
 	}
-	var decoded struct {
-		Error       string                  `json:"error"`
-		Invocation  tools.WorkInvocation    `json:"invocation"`
-		Matches     int                     `json:"matches"`
-		Diagnostics []workerDiagnosisResult `json:"diagnostics"`
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil {
-		return
-	}
-	if len(decoded.Diagnostics) == 0 {
-		return
-	}
-	if decoded.Error != "" {
-		fmt.Printf("worker selection failed: %s\n", decoded.Error)
+	if response.Error != "" {
+		fmt.Printf("worker selection failed: %s\n", response.Error)
 	}
 	printWorkerDiagnosis(workerDiagnoseResponse{
-		Invocation:  decoded.Invocation,
-		Matches:     decoded.Matches,
-		Diagnostics: decoded.Diagnostics,
+		Invocation:  response.Invocation,
+		Matches:     response.Matches,
+		Diagnostics: response.Diagnostics,
 	})
 }

@@ -2,11 +2,12 @@ package agentruntime
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tokenestimate"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -19,10 +20,13 @@ type ContextBuilder interface {
 // ContextBuildRequest 是组装 LLM 上下文所需的原始输入。
 type ContextBuildRequest struct {
 	System                  string                              // Agent 系统提示词
+	CurrentDateContext      string                              // 服务端生成的可信当前日期上下文
 	PinnedContext           string                              // 固定上下文，不随历史截断或 summary 覆盖
 	SummaryText             string                              // 历史对话摘要（由上游压缩产生）
 	History                 []managedagents.ConversationMessage // 按 seq 升序排列的会话历史
 	UserPayload             json.RawMessage                     // 当前轮用户消息的原始 JSON payload
+	CurrentUserImages       []llm.ContentPart                   // 当前轮图片，仅在运行时从 object store 装载
+	CurrentUserSupplement   string                              // 视觉模型等前置处理生成的文本上下文
 	Tools                   json.RawMessage                     // AgentConfigVersion.tools
 	ModelTools              []llm.Tool                          // 原生 function calling schema
 	Skills                  json.RawMessage                     // AgentConfigVersion.skills
@@ -34,6 +38,7 @@ type ContextBuildRequest struct {
 // ContextBuildResult 描述组装后的 messages 及截断元信息，供运行时记录与调试。
 type ContextBuildResult struct {
 	Messages                   []llm.Message // 最终送入 LLM 的消息列表
+	CurrentDateContextIncluded bool          // 是否注入当前日期上下文
 	PinnedContextIncluded      bool          // 是否注入固定上下文
 	SummaryMessageIncluded     bool          // 是否注入了摘要 system 消息
 	HistoryMessageCount        int           // 实际保留的历史消息条数
@@ -50,22 +55,23 @@ type DefaultContextBuilder struct {
 }
 
 type ContextBudgetBreakdown struct {
-	ContextWindowTokens     int `json:"context_window_tokens,omitempty"`
-	InputBudgetRatioPercent int `json:"input_budget_ratio_percent,omitempty"`
-	MaxInputTokens          int `json:"max_input_tokens,omitempty"`
-	ReservedOutputTokens    int `json:"reserved_output_tokens,omitempty"`
-	EstimatedTokenCount     int `json:"estimated_token_count"`
-	MessageTokens           int `json:"message_tokens,omitempty"`
-	ToolSchemaTokens        int `json:"tool_schema_tokens,omitempty"`
-	ToolSchemaCount         int `json:"tool_schema_count,omitempty"`
-	SystemTokens            int `json:"system_tokens,omitempty"`
-	PinnedContextTokens     int `json:"pinned_context_tokens,omitempty"`
-	SummaryTokens           int `json:"summary_tokens,omitempty"`
-	ToolsTokens             int `json:"tools_tokens,omitempty"`
-	SkillsTokens            int `json:"skills_tokens,omitempty"`
-	HistoryTokens           int `json:"history_tokens,omitempty"`
-	CurrentUserTokens       int `json:"current_user_tokens,omitempty"`
-	OmittedHistoryTokens    int `json:"omitted_history_tokens,omitempty"`
+	ContextWindowTokens      int `json:"context_window_tokens,omitempty"`
+	InputBudgetRatioPercent  int `json:"input_budget_ratio_percent,omitempty"`
+	MaxInputTokens           int `json:"max_input_tokens,omitempty"`
+	ReservedOutputTokens     int `json:"reserved_output_tokens,omitempty"`
+	EstimatedTokenCount      int `json:"estimated_token_count"`
+	MessageTokens            int `json:"message_tokens,omitempty"`
+	ToolSchemaTokens         int `json:"tool_schema_tokens,omitempty"`
+	ToolSchemaCount          int `json:"tool_schema_count,omitempty"`
+	SystemTokens             int `json:"system_tokens,omitempty"`
+	CurrentDateContextTokens int `json:"current_date_context_tokens,omitempty"`
+	PinnedContextTokens      int `json:"pinned_context_tokens,omitempty"`
+	SummaryTokens            int `json:"summary_tokens,omitempty"`
+	ToolsTokens              int `json:"tools_tokens,omitempty"`
+	SkillsTokens             int `json:"skills_tokens,omitempty"`
+	HistoryTokens            int `json:"history_tokens,omitempty"`
+	CurrentUserTokens        int `json:"current_user_tokens,omitempty"`
+	OmittedHistoryTokens     int `json:"omitted_history_tokens,omitempty"`
 }
 
 // historyContextMessage 在截断算法中同时保留 seq，便于上报被省略区间的边界。
@@ -88,13 +94,19 @@ const latestUserMessagePolicy = `Latest user message policy:
 - If it changes the goal or asks a separate question, stop following earlier unfinished plans and respond to the newest request instead.
 - Do not continue prior desktop, browser, file, or tool actions unless the newest user message clearly asks you to continue them.`
 
+const turnProgressPolicy = `Turn progress policy:
+- During multi-step work, provide a brief user-facing progress update before relevant tool calls when you learn something important, complete a meaningful phase, or change direction.
+- Keep updates factual and concise. Do not narrate trivial actions, repeat the same update, or reveal hidden reasoning or chain-of-thought.
+- Continue the same turn after a progress update; a progress update is not the final answer.`
+
 // Build 将 system、摘要、历史与当前用户消息组装为 LLM messages。
-// 消息顺序：system → pinned context → 摘要 system → 历史（user/assistant 交替）→ 当前 user。
+// 消息顺序：system → 当前日期上下文 → pinned context → 摘要 system → 历史（user/assistant 交替）→ 当前 user。
 // 历史中会跳过非 user/assistant 角色及空文本内容。
 func (builder DefaultContextBuilder) Build(request ContextBuildRequest) (ContextBuildResult, error) {
 	// 前缀固定包含 system 与可选的摘要，截断时始终保留。
 	prefix := make([]llm.Message, 0, 1)
 	systemTokens := 0
+	currentDateContextTokens := 0
 	pinnedContextTokens := 0
 	summaryTokens := 0
 	toolsTokens := 0
@@ -109,6 +121,17 @@ func (builder DefaultContextBuilder) Build(request ContextBuildRequest) (Context
 			}},
 		}
 		systemTokens = estimateMessageTokens(message)
+		prefix = append(prefix, message)
+	}
+	if request.CurrentDateContext != "" {
+		message := llm.Message{
+			Role: "system",
+			Content: []llm.ContentPart{{
+				Type: "text",
+				Text: request.CurrentDateContext,
+			}},
+		}
+		currentDateContextTokens = estimateMessageTokens(message)
 		prefix = append(prefix, message)
 	}
 	if request.PinnedContext != "" {
@@ -166,12 +189,17 @@ func (builder DefaultContextBuilder) Build(request ContextBuildRequest) (Context
 		Role:    "user",
 		Content: messageContent(request.UserPayload),
 	}
+	if supplement := strings.TrimSpace(request.CurrentUserSupplement); supplement != "" {
+		currentUserMessage.Content = append(currentUserMessage.Content, llm.ContentPart{Type: "text", Text: supplement})
+	}
+	currentUserMessage.Content = append(currentUserMessage.Content, request.CurrentUserImages...)
 	messages, omittedHistory, omittedUntilSeq := builder.applyBudget(prefix, historyMessages, currentUserMessage, toolSchemaTokens)
 	includedHistoryTokens, omittedHistoryTokens := splitHistoryTokens(historyMessages, omittedHistory)
 	messageTokens := estimateMessagesTokens(messages)
 	estimatedTokenCount := messageTokens + toolSchemaTokens
 	return ContextBuildResult{
 		Messages:                   messages,
+		CurrentDateContextIncluded: request.CurrentDateContext != "",
 		PinnedContextIncluded:      request.PinnedContext != "",
 		SummaryMessageIncluded:     request.SummaryText != "",
 		HistoryMessageCount:        len(historyMessages) - omittedHistory,
@@ -179,22 +207,23 @@ func (builder DefaultContextBuilder) Build(request ContextBuildRequest) (Context
 		OmittedHistoryUntilSeq:     omittedUntilSeq,
 		EstimatedTokenCount:        estimatedTokenCount,
 		Budget: ContextBudgetBreakdown{
-			ContextWindowTokens:     request.ContextWindowTokens,
-			InputBudgetRatioPercent: request.InputBudgetRatioPercent,
-			MaxInputTokens:          builder.MaxInputTokens,
-			ReservedOutputTokens:    request.ReservedOutputTokens,
-			EstimatedTokenCount:     estimatedTokenCount,
-			MessageTokens:           messageTokens,
-			ToolSchemaTokens:        toolSchemaTokens,
-			ToolSchemaCount:         len(request.ModelTools),
-			SystemTokens:            systemTokens,
-			PinnedContextTokens:     pinnedContextTokens,
-			SummaryTokens:           summaryTokens,
-			ToolsTokens:             toolsTokens,
-			SkillsTokens:            skillsTokens,
-			HistoryTokens:           includedHistoryTokens,
-			CurrentUserTokens:       estimateMessageTokens(currentUserMessage),
-			OmittedHistoryTokens:    omittedHistoryTokens,
+			ContextWindowTokens:      request.ContextWindowTokens,
+			InputBudgetRatioPercent:  request.InputBudgetRatioPercent,
+			MaxInputTokens:           builder.MaxInputTokens,
+			ReservedOutputTokens:     request.ReservedOutputTokens,
+			EstimatedTokenCount:      estimatedTokenCount,
+			MessageTokens:            messageTokens,
+			ToolSchemaTokens:         toolSchemaTokens,
+			ToolSchemaCount:          len(request.ModelTools),
+			SystemTokens:             systemTokens,
+			CurrentDateContextTokens: currentDateContextTokens,
+			PinnedContextTokens:      pinnedContextTokens,
+			SummaryTokens:            summaryTokens,
+			ToolsTokens:              toolsTokens,
+			SkillsTokens:             skillsTokens,
+			HistoryTokens:            includedHistoryTokens,
+			CurrentUserTokens:        estimateMessageTokens(currentUserMessage),
+			OmittedHistoryTokens:     omittedHistoryTokens,
 		},
 		Truncated: omittedHistory > 0,
 	}, nil
@@ -205,10 +234,12 @@ func buildSystemPrompt(system string) string {
 	if trimmed == "" {
 		return ""
 	}
-	if strings.Contains(trimmed, latestUserMessagePolicy) {
-		return trimmed
+	for _, policy := range []string{latestUserMessagePolicy, turnProgressPolicy} {
+		if !strings.Contains(trimmed, policy) {
+			trimmed += "\n\n" + policy
+		}
 	}
-	return trimmed + "\n\n" + latestUserMessagePolicy
+	return trimmed
 }
 
 // applyBudget 在 token 预算内从最近的历史消息向前选取，保证 prefix 与当前 user 始终保留。
@@ -308,6 +339,10 @@ func estimateToolsTokens(modelTools []llm.Tool) int {
 func estimateMessageTokens(message llm.Message) int {
 	total := 4
 	for _, part := range message.Content {
+		if part.Type == "image_url" {
+			total += 256
+			continue
+		}
 		if part.Type != "text" {
 			continue
 		}
@@ -317,11 +352,7 @@ func estimateMessageTokens(message llm.Message) int {
 }
 
 func estimateTextTokens(text string) int {
-	runes := utf8.RuneCountInString(text)
-	if runes == 0 {
-		return 0
-	}
-	return (runes + 3) / 4
+	return tokenestimate.Text(text)
 }
 
 func reverseGroups(groups []historyContextGroup) {
@@ -344,12 +375,95 @@ func splitHistoryTokens(history []historyContextMessage, omitted int) (int, int)
 	return includedTokens, omittedTokens
 }
 
-// messageContent 从会话 payload JSON 中提取首个非空 text 片段，包装为 LLM ContentPart。
+// messageContent extracts visible text and adds machine-readable attachment
+// locations so the model can process uploaded files without exposing internal
+// paths in the chat transcript.
 func messageContent(payload json.RawMessage) []llm.ContentPart {
+	text := firstTextContent(payload)
+	if attachmentContext := uploadedAttachmentContext(payload); attachmentContext != "" {
+		if strings.TrimSpace(text) != "" {
+			text += "\n\n"
+		}
+		text += attachmentContext
+	}
 	return []llm.ContentPart{{
 		Type: "text",
-		Text: firstTextContent(payload),
+		Text: text,
 	}}
+}
+
+func uploadedAttachmentContext(payload json.RawMessage) string {
+	var object struct {
+		Attachments []struct {
+			ArtifactID    string `json:"artifact_id"`
+			Name          string `json:"name"`
+			ContentType   string `json:"content_type"`
+			SizeBytes     int64  `json:"size_bytes"`
+			WorkspacePath string `json:"workspace_path"`
+		} `json:"attachments"`
+	}
+	if err := json.Unmarshal(payload, &object); err != nil || len(object.Attachments) == 0 {
+		return ""
+	}
+	lines := []string{"Uploaded files are available in the current Session. Artifact IDs are Session-scoped coordinates for server tools; workspace paths are only for execution-environment file access:"}
+	skillZIPArtifacts := make([]string, 0)
+	for _, attachment := range object.Attachments {
+		workspacePath := normalizeUploadedWorkspacePath(attachment.WorkspacePath)
+		artifactID := strings.TrimSpace(attachment.ArtifactID)
+		if workspacePath == "" && artifactID == "" {
+			continue
+		}
+		name := strings.TrimSpace(attachment.Name)
+		if name == "" {
+			name = defaultString(artifactID, workspacePath)
+		}
+		details := make([]string, 0, 2)
+		if contentType := strings.TrimSpace(attachment.ContentType); contentType != "" {
+			details = append(details, contentType)
+		}
+		if attachment.SizeBytes > 0 {
+			details = append(details, fmt.Sprintf("%d bytes", attachment.SizeBytes))
+		}
+		suffix := ""
+		if len(details) > 0 {
+			suffix = " (" + strings.Join(details, ", ") + ")"
+		}
+		locations := make([]string, 0, 2)
+		if artifactID != "" {
+			locations = append(locations, "artifact_id="+artifactID)
+		}
+		if workspacePath != "" {
+			locations = append(locations, "workspace_path="+workspacePath)
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s%s", name, strings.Join(locations, ", "), suffix))
+		if artifactID != "" && isUploadedZIP(name, attachment.ContentType) {
+			skillZIPArtifacts = append(skillZIPArtifacts, artifactID)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	if len(skillZIPArtifacts) > 0 {
+		lines = append(lines,
+			"For an uploaded ZIP that the user wants to preview, install, or upgrade as a Skill, call skills.preview with source.provider=artifact and the matching artifact_id above. Never pass workspace_path, a host filesystem path, bucket/key, or URL as a Skill install source. Continue to skills.install only when Preview allows it; preserve policy pins and set upgrade_existing=true only for install_state=upgrade.",
+		)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeUploadedWorkspacePath(value string) string {
+	value = strings.TrimSpace(value)
+	const legacyPrefix = "/mnt/data/uploads"
+	if value == legacyPrefix || strings.HasPrefix(value, legacyPrefix+"/") {
+		return "/workspace/uploads" + strings.TrimPrefix(value, legacyPrefix)
+	}
+	return value
+}
+
+func isUploadedZIP(name string, contentType string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	return strings.HasSuffix(name, ".zip") || contentType == "application/zip" || contentType == "application/x-zip-compressed"
 }
 
 func messageTurnID(payload json.RawMessage) string {

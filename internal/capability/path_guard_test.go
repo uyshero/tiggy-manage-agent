@@ -52,6 +52,25 @@ func TestWorkspacePathGuardProviderDeniesPathEscape(t *testing.T) {
 	}
 }
 
+func TestWorkspacePathGuardProviderDeniesSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "outside-link")); err != nil {
+		t.Fatalf("create escape symlink: %v", err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatalf("new workspace path guard provider: %v", err)
+	}
+
+	if _, err := provider.WriteFile(context.Background(), WriteFileRequest{Path: "outside-link/secret.txt", Content: []byte("nope")}); err == nil {
+		t.Fatal("expected symlink escape write to be denied")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "secret.txt")); !os.IsNotExist(err) {
+		t.Fatalf("expected no file outside workspace, err=%v", err)
+	}
+}
+
 func TestWorkspacePathGuardProviderRunsCommandFromWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "marker.txt"), []byte("ok"), 0o644); err != nil {

@@ -2,82 +2,182 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
+	mcppkg "tiggy-manage-agent/internal/mcp"
+	"tiggy-manage-agent/internal/mcpregistry"
+	"tiggy-manage-agent/internal/skillmarketplace"
+	"tiggy-manage-agent/internal/skills"
 )
 
 type testStore struct {
 	mu sync.Mutex
 
-	nextAgentID       int64
-	nextEnvironmentID int64
-	nextSessionID     int64
-	nextEventID       int64
-	nextObjectID      int64
-	nextArtifactID    int64
-	nextWorkerID      int64
-	nextWorkID        int64
-	nextExporterRunID int64
+	nextAgentID         int64
+	nextEnvironmentID   int64
+	nextSessionID       int64
+	nextEventID         int64
+	nextObjectID        int64
+	nextArtifactID      int64
+	nextWorkerID        int64
+	nextWorkID          int64
+	nextExporterRunID   int64
+	nextStartRequestID  int64
+	nextOperatorAuditID int64
+	nextDeliberationID  int64
+	nextSkillID         int64
+	nextSkillVersionID  int64
+	nextPolicyID        int64
+	nextPolicyVersionID int64
+	nextMCPRegistryID   int64
 
-	agents              map[string]managedagents.Agent
-	agentConfigVersions map[string][]managedagents.AgentConfigVersion
-	providers           map[string]managedagents.LLMProvider
-	models              map[string]managedagents.LLMModel
-	environments        map[string]managedagents.Environment
-	sessions            map[string]managedagents.Session
-	summaries           map[string]managedagents.SessionSummary
-	interventions       map[string]managedagents.SessionIntervention
-	events              map[string][]managedagents.Event
-	usageRecords        []managedagents.RecordLLMUsageInput
-	exporterRuns        []managedagents.ObservabilityExporterRun
-	traceIndexes        map[string]managedagents.TraceIndexEntry
-	traceSpanIndexes    map[string][]managedagents.TraceSpanIndexEntry
-	objectRefs          map[string]managedagents.ObjectRef
-	sessionArtifacts    map[string][]managedagents.SessionArtifact
-	workers             map[string]managedagents.Worker
-	workerWork          map[string]managedagents.WorkerWork
-	subscribers         map[string]map[chan struct{}]struct{}
+	agents                    map[string]managedagents.Agent
+	agentConfigVersions       map[string][]managedagents.AgentConfigVersion
+	providers                 map[string]managedagents.LLMProvider
+	models                    map[string]managedagents.LLMModel
+	environments              map[string]managedagents.Environment
+	sessions                  map[string]managedagents.Session
+	summaries                 map[string]managedagents.SessionSummary
+	interventions             map[string]managedagents.SessionIntervention
+	events                    map[string][]managedagents.Event
+	usageRecords              []managedagents.RecordLLMUsageInput
+	exporterRuns              []managedagents.ObservabilityExporterRun
+	traceIndexes              map[string]managedagents.TraceIndexEntry
+	traceSpanIndexes          map[string][]managedagents.TraceSpanIndexEntry
+	objectRefs                map[string]managedagents.ObjectRef
+	sessionArtifacts          map[string][]managedagents.SessionArtifact
+	workers                   map[string]managedagents.Worker
+	workerWork                map[string]managedagents.WorkerWork
+	subscribers               map[string]map[chan struct{}]struct{}
+	startRequests             map[string]managedagents.SubagentStartRequest
+	taskGroups                map[string]managedagents.SubagentTaskGroup
+	taskGroupItems            map[string][]managedagents.SubagentTaskGroupItem
+	operatorAudits            []managedagents.OperatorAuditRecord
+	deliberations             map[string]managedagents.AgentDeliberation
+	deliberationParticipants  map[string][]managedagents.AgentDeliberationParticipant
+	deliberationRounds        map[string]map[int]managedagents.AgentDeliberationRound
+	deliberationContributions map[string]map[int]map[int]managedagents.AgentDeliberationContribution
+	skillRecords              map[string]skills.Skill
+	skillVersions             map[string][]skills.Version
+	skillUsages               []skills.Usage
+	marketplacePolicies       map[string]skillmarketplace.PolicyRecord
+	marketplacePolicyVersions map[string][]skillmarketplace.PolicyVersion
+	environmentVariables      map[string]map[string]envvars.EncryptedVariable
+	mcpRegistryServers        map[string]mcpregistry.Server
+	mcpRegistryVersions       map[string][]mcpregistry.Version
+	runIdempotency            map[string]map[string]testRunIdempotency
+}
+
+type testRunIdempotency struct {
+	RunID       string
+	RequestHash string
 }
 
 func newTestStore() *testStore {
 	store := &testStore{
-		agents:              make(map[string]managedagents.Agent),
-		agentConfigVersions: make(map[string][]managedagents.AgentConfigVersion),
-		providers:           make(map[string]managedagents.LLMProvider),
-		models:              make(map[string]managedagents.LLMModel),
-		environments:        make(map[string]managedagents.Environment),
-		sessions:            make(map[string]managedagents.Session),
-		summaries:           make(map[string]managedagents.SessionSummary),
-		interventions:       make(map[string]managedagents.SessionIntervention),
-		events:              make(map[string][]managedagents.Event),
-		traceIndexes:        make(map[string]managedagents.TraceIndexEntry),
-		traceSpanIndexes:    make(map[string][]managedagents.TraceSpanIndexEntry),
-		objectRefs:          make(map[string]managedagents.ObjectRef),
-		sessionArtifacts:    make(map[string][]managedagents.SessionArtifact),
-		workers:             make(map[string]managedagents.Worker),
-		workerWork:          make(map[string]managedagents.WorkerWork),
-		subscribers:         make(map[string]map[chan struct{}]struct{}),
+		agents:                    make(map[string]managedagents.Agent),
+		agentConfigVersions:       make(map[string][]managedagents.AgentConfigVersion),
+		providers:                 make(map[string]managedagents.LLMProvider),
+		models:                    make(map[string]managedagents.LLMModel),
+		environments:              make(map[string]managedagents.Environment),
+		sessions:                  make(map[string]managedagents.Session),
+		summaries:                 make(map[string]managedagents.SessionSummary),
+		interventions:             make(map[string]managedagents.SessionIntervention),
+		events:                    make(map[string][]managedagents.Event),
+		traceIndexes:              make(map[string]managedagents.TraceIndexEntry),
+		traceSpanIndexes:          make(map[string][]managedagents.TraceSpanIndexEntry),
+		objectRefs:                make(map[string]managedagents.ObjectRef),
+		sessionArtifacts:          make(map[string][]managedagents.SessionArtifact),
+		workers:                   make(map[string]managedagents.Worker),
+		workerWork:                make(map[string]managedagents.WorkerWork),
+		subscribers:               make(map[string]map[chan struct{}]struct{}),
+		startRequests:             make(map[string]managedagents.SubagentStartRequest),
+		taskGroups:                make(map[string]managedagents.SubagentTaskGroup),
+		taskGroupItems:            make(map[string][]managedagents.SubagentTaskGroupItem),
+		deliberations:             make(map[string]managedagents.AgentDeliberation),
+		deliberationParticipants:  make(map[string][]managedagents.AgentDeliberationParticipant),
+		deliberationRounds:        make(map[string]map[int]managedagents.AgentDeliberationRound),
+		deliberationContributions: make(map[string]map[int]map[int]managedagents.AgentDeliberationContribution),
+		skillRecords:              make(map[string]skills.Skill),
+		skillVersions:             make(map[string][]skills.Version),
+		marketplacePolicies:       make(map[string]skillmarketplace.PolicyRecord),
+		marketplacePolicyVersions: make(map[string][]skillmarketplace.PolicyVersion),
+		environmentVariables:      make(map[string]map[string]envvars.EncryptedVariable),
+		mcpRegistryServers:        make(map[string]mcpregistry.Server),
+		mcpRegistryVersions:       make(map[string][]mcpregistry.Version),
+		runIdempotency:            make(map[string]map[string]testRunIdempotency),
 	}
+	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
 		ID:           "fake",
 		ProviderType: "fake",
 		Enabled:      true,
-		CreatedAt:    time.Now().UTC(),
+		Revision:     1,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	store.models[llmModelKey("fake", "fake-demo")] = managedagents.LLMModel{
 		ProviderID:          "fake",
 		Model:               "fake-demo",
 		ContextWindowTokens: managedagents.DefaultContextWindowTokens,
+		CapabilityType:      managedagents.LLMModelCapabilityText,
+		Revision:            1,
 		CreatedAt:           time.Now().UTC(),
 		UpdatedAt:           time.Now().UTC(),
 	}
 	return store
+}
+
+func (s *testStore) ListEncryptedEnvironmentVariables(_ context.Context, workspaceID string) ([]envvars.EncryptedVariable, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.environmentVariables[workspaceID]
+	result := make([]envvars.EncryptedVariable, 0, len(items))
+	for _, item := range items {
+		item.Ciphertext = append([]byte(nil), item.Ciphertext...)
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (s *testStore) UpsertEncryptedEnvironmentVariable(_ context.Context, input envvars.EncryptedVariable) (envvars.EncryptedVariable, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.environmentVariables[input.WorkspaceID] == nil {
+		s.environmentVariables[input.WorkspaceID] = make(map[string]envvars.EncryptedVariable)
+	}
+	now := time.Now().UTC()
+	existing := s.environmentVariables[input.WorkspaceID][input.Name]
+	if existing.CreatedAt.IsZero() {
+		existing.CreatedAt = now
+	}
+	existing.WorkspaceID = input.WorkspaceID
+	existing.Name = input.Name
+	existing.Ciphertext = append([]byte(nil), input.Ciphertext...)
+	existing.UpdatedAt = now
+	s.environmentVariables[input.WorkspaceID][input.Name] = existing
+	return existing, nil
+}
+
+func (s *testStore) DeleteEncryptedEnvironmentVariable(_ context.Context, workspaceID string, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.environmentVariables[workspaceID][name]; !ok {
+		return managedagents.ErrNotFound
+	}
+	delete(s.environmentVariables[workspaceID], name)
+	return nil
 }
 
 func (s *testStore) EnsureLLMProvider(input managedagents.EnsureLLMProviderInput) (managedagents.LLMProvider, error) {
@@ -98,17 +198,61 @@ func (s *testStore) UpsertLLMProvider(input managedagents.UpsertLLMProviderInput
 		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider type is required", managedagents.ErrInvalid)
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
 	provider := managedagents.LLMProvider{
 		ID:           input.ID,
 		ProviderType: input.ProviderType,
 		BaseURL:      input.BaseURL,
 		APIKeyEnv:    input.APIKeyEnv,
 		Enabled:      input.Enabled,
-		CreatedAt:    time.Now().UTC(),
+		Revision:     1,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
+	if existing, ok := s.providers[provider.ID]; ok {
+		provider.Revision = existing.Revision + 1
+		provider.CreatedAt = existing.CreatedAt
+	}
+	s.providers[provider.ID] = provider
+	return provider, nil
+}
 
+func (s *testStore) CreateLLMProvider(input managedagents.UpsertLLMProviderInput) (managedagents.LLMProvider, error) {
+	if input.ID == "" || input.ProviderType == "" {
+		return managedagents.LLMProvider{}, managedagents.ErrInvalid
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.providers[input.ID]; exists {
+		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider %s already exists", managedagents.ErrConflict, input.ID)
+	}
+	now := time.Now().UTC()
+	provider := managedagents.LLMProvider{
+		ID: input.ID, ProviderType: input.ProviderType, BaseURL: input.BaseURL, APIKeyEnv: input.APIKeyEnv,
+		Enabled: input.Enabled, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	s.providers[provider.ID] = provider
+	return provider, nil
+}
+
+func (s *testStore) UpdateLLMProvider(input managedagents.UpdateLLMProviderInput) (managedagents.LLMProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	provider, exists := s.providers[input.ID]
+	if !exists {
+		return managedagents.LLMProvider{}, managedagents.ErrNotFound
+	}
+	if input.ExpectedRevision != provider.Revision {
+		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider revision changed", managedagents.ErrRevisionConflict)
+	}
+	provider.ProviderType = input.ProviderType
+	provider.BaseURL = input.BaseURL
+	provider.APIKeyEnv = input.APIKeyEnv
+	provider.Enabled = input.Enabled
+	provider.Revision++
+	provider.UpdatedAt = time.Now().UTC()
 	s.providers[provider.ID] = provider
 	return provider, nil
 }
@@ -146,9 +290,80 @@ func (s *testStore) SetLLMProviderEnabled(id string, enabled bool) (managedagent
 	if !ok {
 		return managedagents.LLMProvider{}, managedagents.ErrNotFound
 	}
-	provider.Enabled = enabled
+	if provider.Enabled != enabled {
+		provider.Enabled = enabled
+		provider.Revision++
+		provider.UpdatedAt = time.Now().UTC()
+	}
 	s.providers[id] = provider
 	return provider, nil
+}
+
+func (s *testStore) SetLLMProviderEnabledIfRevision(id string, enabled bool, expectedRevision int64) (managedagents.LLMProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	provider, ok := s.providers[id]
+	if !ok {
+		return managedagents.LLMProvider{}, managedagents.ErrNotFound
+	}
+	if provider.Revision != expectedRevision {
+		return managedagents.LLMProvider{}, fmt.Errorf("%w: llm provider revision changed", managedagents.ErrRevisionConflict)
+	}
+	if provider.Enabled != enabled {
+		provider.Enabled = enabled
+		provider.Revision++
+		provider.UpdatedAt = time.Now().UTC()
+	}
+	s.providers[id] = provider
+	return provider, nil
+}
+
+func (s *testStore) DeleteLLMProvider(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.providers[id]; !ok {
+		return managedagents.ErrNotFound
+	}
+	for _, versions := range s.agentConfigVersions {
+		for _, version := range versions {
+			if version.LLMProvider == id {
+				return fmt.Errorf("%w: llm provider %s is referenced by an agent configuration or session", managedagents.ErrConflict, id)
+			}
+		}
+	}
+	delete(s.providers, id)
+	for key, model := range s.models {
+		if model.ProviderID == id {
+			delete(s.models, key)
+		}
+	}
+	return nil
+}
+
+func (s *testStore) DeleteLLMProviderIfRevision(id string, expectedRevision int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	provider, ok := s.providers[id]
+	if !ok {
+		return managedagents.ErrNotFound
+	}
+	if provider.Revision != expectedRevision {
+		return fmt.Errorf("%w: llm provider revision changed", managedagents.ErrRevisionConflict)
+	}
+	for _, versions := range s.agentConfigVersions {
+		for _, version := range versions {
+			if version.LLMProvider == id {
+				return fmt.Errorf("%w: llm provider %s is referenced by an agent configuration or session", managedagents.ErrConflict, id)
+			}
+		}
+	}
+	delete(s.providers, id)
+	for key, model := range s.models {
+		if model.ProviderID == id {
+			delete(s.models, key)
+		}
+	}
+	return nil
 }
 
 func (s *testStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
@@ -164,16 +379,162 @@ func (s *testStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (man
 	if _, ok := s.providers[input.ProviderID]; !ok {
 		return managedagents.LLMModel{}, managedagents.ErrNotFound
 	}
+	key := llmModelKey(input.ProviderID, input.Model)
+	existing, exists := s.models[key]
+	var existingModel *managedagents.LLMModel
+	if exists {
+		existingModel = &existing
+	}
+	normalized, err := managedagents.NormalizeLLMModelInput(input, existingModel)
+	if err != nil {
+		return managedagents.LLMModel{}, err
+	}
 	now := time.Now().UTC()
 	model := managedagents.LLMModel{
-		ProviderID:          input.ProviderID,
-		Model:               input.Model,
-		ContextWindowTokens: input.ContextWindowTokens,
+		ProviderID:          normalized.ProviderID,
+		Model:               normalized.Model,
+		ContextWindowTokens: normalized.ContextWindowTokens,
+		CapabilityType:      normalized.CapabilityType,
+		Capabilities:        *normalized.Capabilities,
+		IsDefaultVision:     *normalized.IsDefaultVision,
+		IsDefaultEmbedding:  *normalized.IsDefaultEmbedding,
+		IsDefaultReranker:   *normalized.IsDefaultReranker,
+		Revision:            1,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	s.models[llmModelKey(input.ProviderID, input.Model)] = model
+	if exists {
+		model.Revision = existing.Revision
+		model.CreatedAt = existing.CreatedAt
+		if existing.ContextWindowTokens != model.ContextWindowTokens || existing.CapabilityType != model.CapabilityType ||
+			existing.Capabilities != model.Capabilities || existing.IsDefaultVision != model.IsDefaultVision ||
+			existing.IsDefaultEmbedding != model.IsDefaultEmbedding || existing.IsDefaultReranker != model.IsDefaultReranker {
+			model.Revision++
+		} else {
+			model.UpdatedAt = existing.UpdatedAt
+		}
+	}
+	if model.IsDefaultVision || model.IsDefaultEmbedding || model.IsDefaultReranker {
+		for existingKey, candidate := range s.models {
+			changed := false
+			if existingKey != key && model.IsDefaultVision && candidate.IsDefaultVision {
+				candidate.IsDefaultVision, changed = false, true
+			}
+			if existingKey != key && model.IsDefaultEmbedding && candidate.IsDefaultEmbedding {
+				candidate.IsDefaultEmbedding, changed = false, true
+			}
+			if existingKey != key && model.IsDefaultReranker && candidate.IsDefaultReranker {
+				candidate.IsDefaultReranker, changed = false, true
+			}
+			if changed {
+				candidate.Revision++
+				candidate.UpdatedAt = now
+				s.models[existingKey] = candidate
+			}
+		}
+	}
+	s.models[key] = model
 	return model, nil
+}
+
+func (s *testStore) CreateLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := llmModelKey(input.ProviderID, input.Model)
+	if input.ProviderID == "" || input.Model == "" {
+		return managedagents.LLMModel{}, managedagents.ErrInvalid
+	}
+	if _, ok := s.providers[input.ProviderID]; !ok {
+		return managedagents.LLMModel{}, managedagents.ErrNotFound
+	}
+	if _, exists := s.models[key]; exists {
+		return managedagents.LLMModel{}, fmt.Errorf("%w: llm model already exists", managedagents.ErrConflict)
+	}
+	if input.ContextWindowTokens <= 0 {
+		input.ContextWindowTokens = managedagents.DefaultContextWindowTokens
+	}
+	normalized, err := managedagents.NormalizeLLMModelInput(input, nil)
+	if err != nil {
+		return managedagents.LLMModel{}, err
+	}
+	now := time.Now().UTC()
+	if *normalized.IsDefaultVision || *normalized.IsDefaultEmbedding || *normalized.IsDefaultReranker {
+		for existingKey, candidate := range s.models {
+			changed := false
+			if *normalized.IsDefaultVision && candidate.IsDefaultVision {
+				candidate.IsDefaultVision, changed = false, true
+			}
+			if *normalized.IsDefaultEmbedding && candidate.IsDefaultEmbedding {
+				candidate.IsDefaultEmbedding, changed = false, true
+			}
+			if *normalized.IsDefaultReranker && candidate.IsDefaultReranker {
+				candidate.IsDefaultReranker, changed = false, true
+			}
+			if changed {
+				candidate.Revision++
+				candidate.UpdatedAt = now
+				s.models[existingKey] = candidate
+			}
+		}
+	}
+	model := managedagents.LLMModel{
+		ProviderID: normalized.ProviderID, Model: normalized.Model, ContextWindowTokens: normalized.ContextWindowTokens,
+		CapabilityType: normalized.CapabilityType, Capabilities: *normalized.Capabilities,
+		IsDefaultVision: *normalized.IsDefaultVision, IsDefaultEmbedding: *normalized.IsDefaultEmbedding,
+		IsDefaultReranker: *normalized.IsDefaultReranker, Revision: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	s.models[key] = model
+	return model, nil
+}
+
+func (s *testStore) UpdateLLMModel(input managedagents.UpdateLLMModelInput) (managedagents.LLMModel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := llmModelKey(input.ProviderID, input.Model)
+	existing, ok := s.models[key]
+	if !ok {
+		return managedagents.LLMModel{}, managedagents.ErrNotFound
+	}
+	if input.ExpectedRevision != existing.Revision {
+		return managedagents.LLMModel{}, fmt.Errorf("%w: llm model revision changed", managedagents.ErrRevisionConflict)
+	}
+	if input.ContextWindowTokens <= 0 {
+		input.ContextWindowTokens = managedagents.DefaultContextWindowTokens
+	}
+	normalized, err := managedagents.NormalizeLLMModelInput(input.UpsertLLMModelInput, &existing)
+	if err != nil {
+		return managedagents.LLMModel{}, err
+	}
+	now := time.Now().UTC()
+	if *normalized.IsDefaultVision || *normalized.IsDefaultEmbedding || *normalized.IsDefaultReranker {
+		for existingKey, candidate := range s.models {
+			changed := false
+			if existingKey != key && *normalized.IsDefaultVision && candidate.IsDefaultVision {
+				candidate.IsDefaultVision, changed = false, true
+			}
+			if existingKey != key && *normalized.IsDefaultEmbedding && candidate.IsDefaultEmbedding {
+				candidate.IsDefaultEmbedding, changed = false, true
+			}
+			if existingKey != key && *normalized.IsDefaultReranker && candidate.IsDefaultReranker {
+				candidate.IsDefaultReranker, changed = false, true
+			}
+			if changed {
+				candidate.Revision++
+				candidate.UpdatedAt = now
+				s.models[existingKey] = candidate
+			}
+		}
+	}
+	existing.ContextWindowTokens = normalized.ContextWindowTokens
+	existing.CapabilityType = normalized.CapabilityType
+	existing.Capabilities = *normalized.Capabilities
+	existing.IsDefaultVision = *normalized.IsDefaultVision
+	existing.IsDefaultEmbedding = *normalized.IsDefaultEmbedding
+	existing.IsDefaultReranker = *normalized.IsDefaultReranker
+	existing.Revision++
+	existing.UpdatedAt = now
+	s.models[key] = existing
+	return existing, nil
 }
 
 func (s *testStore) ListLLMModels(providerID string) ([]managedagents.LLMModel, error) {
@@ -196,14 +557,386 @@ func (s *testStore) ListLLMModels(providerID string) ([]managedagents.LLMModel, 
 	return models, nil
 }
 
+func (s *testStore) DeleteLLMModel(providerID string, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := llmModelKey(providerID, model)
+	if _, ok := s.models[key]; !ok {
+		return managedagents.ErrNotFound
+	}
+	for _, versions := range s.agentConfigVersions {
+		for _, version := range versions {
+			if version.LLMProvider == providerID && version.LLMModel == model {
+				return fmt.Errorf("%w: llm model %s/%s is referenced by an agent configuration or session", managedagents.ErrConflict, providerID, model)
+			}
+		}
+	}
+	delete(s.models, key)
+	return nil
+}
+
+func (s *testStore) DeleteLLMModelIfRevision(providerID string, model string, expectedRevision int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := llmModelKey(providerID, model)
+	existing, ok := s.models[key]
+	if !ok {
+		return managedagents.ErrNotFound
+	}
+	if existing.Revision != expectedRevision {
+		return fmt.Errorf("%w: llm model revision changed", managedagents.ErrRevisionConflict)
+	}
+	for _, versions := range s.agentConfigVersions {
+		for _, version := range versions {
+			if version.LLMProvider == providerID && version.LLMModel == model {
+				return fmt.Errorf("%w: llm model %s/%s is referenced by an agent configuration or session", managedagents.ErrConflict, providerID, model)
+			}
+		}
+	}
+	delete(s.models, key)
+	return nil
+}
+
 func llmModelKey(providerID string, model string) string {
 	return providerID + "\x00" + model
+}
+
+func (s *testStore) CreateSkill(_ context.Context, input skills.CreateSkillInput) (skills.Skill, error) {
+	if err := skills.ValidateIdentifier(input.Identifier); err != nil {
+		return skills.Skill{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	if strings.TrimSpace(input.Title) == "" {
+		return skills.Skill{}, fmt.Errorf("%w: skill title is required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	for _, existing := range s.skillRecords {
+		if existing.WorkspaceID == workspaceID && existing.Identifier == input.Identifier {
+			return skills.Skill{}, fmt.Errorf("%w: skill already exists", managedagents.ErrConflict)
+		}
+	}
+	s.nextSkillID++
+	item := skills.Skill{
+		ID: fmt.Sprintf("skl_%d", s.nextSkillID), WorkspaceID: workspaceID, Identifier: input.Identifier,
+		Title: input.Title, Description: input.Description, OwnerType: defaultString(input.OwnerType, skills.OwnerTypeWorkspace),
+		SourcePluginID: input.SourcePluginID, SourceType: defaultString(input.SourceType, skills.SourceTypeInline),
+		SourceLocator: input.SourceLocator, SourcePath: input.SourcePath,
+		Status: skills.StatusActive, CreatedBy: defaultString(input.CreatedBy, "system"), CreatedAt: time.Now().UTC(),
+	}
+	s.skillRecords[item.ID] = item
+	return item, nil
+}
+
+func (s *testStore) GetSkill(_ context.Context, id string) (skills.Skill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.skillRecords[id]
+	if !ok {
+		return skills.Skill{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) GetSkillByIdentifier(_ context.Context, workspaceID string, identifier string) (skills.Skill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspaceID = defaultString(workspaceID, managedagents.DefaultWorkspaceID)
+	for _, item := range s.skillRecords {
+		if item.WorkspaceID == workspaceID && item.Identifier == identifier {
+			return item, nil
+		}
+	}
+	return skills.Skill{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) ListSkills(_ context.Context, input skills.ListSkillsInput) ([]skills.Skill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	items := make([]skills.Skill, 0)
+	for _, item := range s.skillRecords {
+		if item.WorkspaceID == workspaceID && (input.IncludeArchived || item.Status == skills.StatusActive) {
+			items = append(items, item)
+		}
+	}
+	sort.Slice(items, func(left, right int) bool { return items[left].Identifier < items[right].Identifier })
+	return items, nil
+}
+
+func (s *testStore) ArchiveSkill(_ context.Context, id string) (skills.Skill, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.skillRecords[id]
+	if !ok {
+		return skills.Skill{}, managedagents.ErrNotFound
+	}
+	if item.Status == skills.StatusArchived {
+		return item, nil
+	}
+	for _, agent := range s.agents {
+		if agent.ArchivedAt != nil || agent.WorkspaceID != item.WorkspaceID {
+			continue
+		}
+		config, normalized := skills.NormalizeConfig(agent.ConfigVersion.Skills)
+		if !normalized {
+			return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s has an unreadable current skills config", managedagents.ErrConflict, item.Identifier, agent.ID)
+		}
+		for _, binding := range config.Enabled {
+			if binding.Skill == item.Identifier {
+				return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s currently enables it; disable it first", managedagents.ErrConflict, item.Identifier, agent.ID)
+			}
+		}
+	}
+	now := time.Now().UTC()
+	item.Status = skills.StatusArchived
+	item.ArchivedAt = &now
+	s.skillRecords[id] = item
+	return item, nil
+}
+
+func (s *testStore) CreateSkillVersion(_ context.Context, input skills.CreateVersionInput) (skills.Version, error) {
+	if err := skills.ValidateManifest(input.Manifest); err != nil {
+		return skills.Version{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.skillRecords[input.SkillID]
+	if !ok {
+		return skills.Version{}, managedagents.ErrNotFound
+	}
+	if item.Status != skills.StatusActive {
+		return skills.Version{}, managedagents.ErrConflict
+	}
+	manifest := cloneRaw(input.Manifest)
+	if len(manifest) == 0 || string(manifest) == "null" {
+		manifest = json.RawMessage(`{}`)
+	}
+	assets := cloneRaw(input.Assets)
+	if len(assets) == 0 || string(assets) == "null" {
+		assets = json.RawMessage(`[]`)
+	}
+	s.nextSkillVersionID++
+	versionNumber := len(s.skillVersions[input.SkillID]) + 1
+	checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(string(manifest)+"\x00"+input.ContentText+"\x00"+string(assets))))
+	version := skills.Version{
+		ID: fmt.Sprintf("sklv_%d", s.nextSkillVersionID), SkillID: input.SkillID, Version: versionNumber,
+		ContentFormat: defaultString(input.ContentFormat, "hybrid"), Manifest: manifest, ContentText: input.ContentText,
+		Assets: assets, Checksum: checksum, SourceRef: input.SourceRef, SourceRevision: input.SourceRevision,
+		SourceURL: input.SourceURL, CreatedBy: defaultString(input.CreatedBy, "system"), CreatedAt: time.Now().UTC(),
+	}
+	s.skillVersions[input.SkillID] = append(s.skillVersions[input.SkillID], version)
+	return version, nil
+}
+
+func (s *testStore) GetSkillVersion(_ context.Context, skillID string, versionNumber int) (skills.Version, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, version := range s.skillVersions[skillID] {
+		if version.Version == versionNumber {
+			return version, nil
+		}
+	}
+	return skills.Version{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) ListSkillVersions(_ context.Context, skillID string) ([]skills.Version, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.skillRecords[skillID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	versions := append([]skills.Version(nil), s.skillVersions[skillID]...)
+	slices.Reverse(versions)
+	return versions, nil
+}
+
+func (s *testStore) RecordSkillUsages(_ context.Context, usages []skills.Usage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skillUsages = append(s.skillUsages, usages...)
+	return nil
+}
+
+func (s *testStore) ListSkillUsages(_ context.Context, sessionID string, turnID string) ([]skills.Usage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]skills.Usage, 0)
+	for _, usage := range s.skillUsages {
+		if usage.SessionID == sessionID && (turnID == "" || usage.TurnID == turnID) {
+			result = append(result, usage)
+		}
+	}
+	return result, nil
+}
+
+func (s *testStore) CreateMarketplacePolicy(_ context.Context, input skillmarketplace.CreatePolicyInput) (skillmarketplace.PolicyRecord, skillmarketplace.PolicyVersion, error) {
+	normalized, err := skillmarketplace.NormalizePolicy(input.Config)
+	if err != nil {
+		return skillmarketplace.PolicyRecord{}, skillmarketplace.PolicyVersion{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	if input.ScopeType != skillmarketplace.PolicyScopeOrganization && input.ScopeType != skillmarketplace.PolicyScopeWorkspace {
+		return skillmarketplace.PolicyRecord{}, skillmarketplace.PolicyVersion{}, managedagents.ErrInvalid
+	}
+	if input.ScopeType == skillmarketplace.PolicyScopeOrganization && (input.OrganizationID == "" || input.WorkspaceID != "") {
+		return skillmarketplace.PolicyRecord{}, skillmarketplace.PolicyVersion{}, managedagents.ErrInvalid
+	}
+	if input.ScopeType == skillmarketplace.PolicyScopeWorkspace && (input.WorkspaceID == "" || input.OrganizationID != "") {
+		return skillmarketplace.PolicyRecord{}, skillmarketplace.PolicyVersion{}, managedagents.ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.marketplacePolicies {
+		if existing.Status != skillmarketplace.PolicyStatusActive {
+			continue
+		}
+		if existing.ScopeType == input.ScopeType && existing.OrganizationID == input.OrganizationID && existing.WorkspaceID == input.WorkspaceID {
+			return skillmarketplace.PolicyRecord{}, skillmarketplace.PolicyVersion{}, managedagents.ErrConflict
+		}
+	}
+	s.nextPolicyID++
+	s.nextPolicyVersionID++
+	now := time.Now().UTC()
+	revision, _ := skillmarketplace.PolicyRevision(normalized)
+	record := skillmarketplace.PolicyRecord{
+		ID: fmt.Sprintf("smpol_%06d", s.nextPolicyID), ScopeType: input.ScopeType,
+		OrganizationID: input.OrganizationID, WorkspaceID: input.WorkspaceID,
+		Status: skillmarketplace.PolicyStatusActive, CurrentVersion: 1,
+		CreatedBy: defaultString(input.CreatedBy, "system"), CreatedAt: now,
+	}
+	version := skillmarketplace.PolicyVersion{
+		ID: fmt.Sprintf("smpv_%06d", s.nextPolicyVersionID), PolicyID: record.ID, Version: 1,
+		Config: normalized, Checksum: revision, CreatedBy: record.CreatedBy, CreatedAt: now,
+	}
+	s.marketplacePolicies[record.ID] = record
+	s.marketplacePolicyVersions[record.ID] = []skillmarketplace.PolicyVersion{version}
+	return record, version, nil
+}
+
+func (s *testStore) GetMarketplacePolicy(_ context.Context, id string) (skillmarketplace.PolicyRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.marketplacePolicies[id]
+	if !ok {
+		return skillmarketplace.PolicyRecord{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) ListMarketplacePolicies(_ context.Context, input skillmarketplace.ListPoliciesInput) ([]skillmarketplace.PolicyRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := []skillmarketplace.PolicyRecord{}
+	for _, item := range s.marketplacePolicies {
+		if input.OrganizationID != "" && item.OrganizationID != input.OrganizationID {
+			continue
+		}
+		if input.WorkspaceID != "" && item.WorkspaceID != input.WorkspaceID {
+			continue
+		}
+		if !input.IncludeArchived && item.Status != skillmarketplace.PolicyStatusActive {
+			continue
+		}
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	return items, nil
+}
+
+func (s *testStore) PublishMarketplacePolicyVersion(_ context.Context, policyID string, config skillmarketplace.Policy, createdBy string) (skillmarketplace.PolicyVersion, error) {
+	normalized, err := skillmarketplace.NormalizePolicy(config)
+	if err != nil {
+		return skillmarketplace.PolicyVersion{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.marketplacePolicies[policyID]
+	if !ok {
+		return skillmarketplace.PolicyVersion{}, managedagents.ErrNotFound
+	}
+	if record.Status != skillmarketplace.PolicyStatusActive {
+		return skillmarketplace.PolicyVersion{}, managedagents.ErrConflict
+	}
+	s.nextPolicyVersionID++
+	revision, _ := skillmarketplace.PolicyRevision(normalized)
+	version := skillmarketplace.PolicyVersion{
+		ID: fmt.Sprintf("smpv_%06d", s.nextPolicyVersionID), PolicyID: policyID,
+		Version: record.CurrentVersion + 1, Config: normalized, Checksum: revision,
+		CreatedBy: defaultString(createdBy, "system"), CreatedAt: time.Now().UTC(),
+	}
+	record.CurrentVersion = version.Version
+	s.marketplacePolicies[policyID] = record
+	s.marketplacePolicyVersions[policyID] = append(s.marketplacePolicyVersions[policyID], version)
+	return version, nil
+}
+
+func (s *testStore) GetMarketplacePolicyVersion(_ context.Context, policyID string, versionNumber int) (skillmarketplace.PolicyVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, version := range s.marketplacePolicyVersions[policyID] {
+		if version.Version == versionNumber {
+			return version, nil
+		}
+	}
+	return skillmarketplace.PolicyVersion{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) ArchiveMarketplacePolicy(_ context.Context, id string) (skillmarketplace.PolicyRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.marketplacePolicies[id]
+	if !ok {
+		return skillmarketplace.PolicyRecord{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	record.Status = skillmarketplace.PolicyStatusArchived
+	record.ArchivedAt = &now
+	s.marketplacePolicies[id] = record
+	return record, nil
+}
+
+func (s *testStore) ResolveMarketplacePolicy(_ context.Context, workspaceID string) (skillmarketplace.EffectivePolicy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	workspaceID = defaultString(workspaceID, managedagents.DefaultWorkspaceID)
+	var selected *skillmarketplace.PolicyRecord
+	for _, item := range s.marketplacePolicies {
+		if item.Status != skillmarketplace.PolicyStatusActive {
+			continue
+		}
+		if item.ScopeType == skillmarketplace.PolicyScopeWorkspace && item.WorkspaceID == workspaceID {
+			copy := item
+			selected = &copy
+			break
+		}
+		if selected == nil && item.ScopeType == skillmarketplace.PolicyScopeOrganization && item.OrganizationID == "org_default" {
+			copy := item
+			selected = &copy
+		}
+	}
+	if selected == nil {
+		return skillmarketplace.EffectivePolicy{}, managedagents.ErrNotFound
+	}
+	versions := s.marketplacePolicyVersions[selected.ID]
+	for _, version := range versions {
+		if version.Version == selected.CurrentVersion {
+			return skillmarketplace.EffectivePolicy{
+				Source: selected.ScopeType, Policy: *selected, Version: version, Config: version.Config, Revision: version.Checksum,
+			}, nil
+		}
+	}
+	return skillmarketplace.EffectivePolicy{}, managedagents.ErrNotFound
 }
 
 func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedagents.Agent, error) {
 	if input.ID == "" || input.Name == "" || input.LLMProvider == "" || input.LLMModel == "" {
 		return managedagents.Agent{}, managedagents.ErrInvalid
 	}
+	normalizedMCP, err := normalizeTestStoreMCP(input.MCP)
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
+	input.MCP = normalizedMCP
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -232,6 +965,7 @@ func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedag
 			LLMModel:    input.LLMModel,
 			System:      input.System,
 			Tools:       cloneRaw(input.Tools),
+			MCP:         cloneRaw(input.MCP),
 			Skills:      cloneRaw(input.Skills),
 			CreatedAt:   now,
 		},
@@ -255,6 +989,11 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 	if input.LLMModel == "" {
 		return managedagents.Agent{}, fmt.Errorf("%w: agent llm_model is required", managedagents.ErrInvalid)
 	}
+	normalizedMCP, err := normalizeTestStoreMCP(input.MCP)
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
+	input.MCP = normalizedMCP
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -280,6 +1019,7 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 			LLMModel:    input.LLMModel,
 			System:      input.System,
 			Tools:       cloneRaw(input.Tools),
+			MCP:         cloneRaw(input.MCP),
 			Skills:      cloneRaw(input.Skills),
 			CreatedAt:   now,
 		},
@@ -297,6 +1037,21 @@ func (s *testStore) GetAgent(id string) (managedagents.Agent, error) {
 	agent, ok := s.agents[id]
 	if !ok {
 		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	return agent, nil
+}
+
+func (s *testStore) GetAgentScoped(id string, scope managedagents.AccessScope) (managedagents.Agent, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
+	agent, err := s.GetAgent(id)
+	if err != nil {
+		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	if agent.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Agent{}, managedagents.ErrForbidden
 	}
 	return agent, nil
 }
@@ -321,6 +1076,69 @@ func (s *testStore) ListAgents() ([]managedagents.Agent, error) {
 	return agents, nil
 }
 
+func (s *testStore) ListAgentsScoped(scope managedagents.AccessScope) ([]managedagents.Agent, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := s.ListAgents()
+	if err != nil {
+		return nil, err
+	}
+	filtered := agents[:0]
+	for _, agent := range agents {
+		if agent.WorkspaceID == scope.WorkspaceID {
+			filtered = append(filtered, agent)
+		}
+	}
+	return filtered, nil
+}
+
+func (s *testStore) UpdateAgent(input managedagents.UpdateAgentInput) (managedagents.Agent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	agent, ok := s.agents[input.AgentID]
+	if !ok {
+		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	if strings.TrimSpace(input.Name) != "" {
+		agent.Name = strings.TrimSpace(input.Name)
+	}
+	if strings.TrimSpace(input.LLMProvider) != "" || strings.TrimSpace(input.LLMModel) != "" || input.System != "" || input.Tools != nil || input.MCP != nil || input.Skills != nil {
+		next := agent.ConfigVersion
+		if strings.TrimSpace(input.LLMProvider) != "" {
+			next.LLMProvider = strings.TrimSpace(input.LLMProvider)
+		}
+		if strings.TrimSpace(input.LLMModel) != "" {
+			next.LLMModel = strings.TrimSpace(input.LLMModel)
+		}
+		if input.System != "" {
+			next.System = input.System
+		}
+		if input.Tools != nil {
+			next.Tools = cloneRaw(input.Tools)
+		}
+		if input.MCP != nil {
+			normalizedMCP, normalizeErr := normalizeTestStoreMCP(input.MCP)
+			if normalizeErr != nil {
+				return managedagents.Agent{}, normalizeErr
+			}
+			next.MCP = normalizedMCP
+		}
+		if input.Skills != nil {
+			next.Skills = cloneRaw(input.Skills)
+		}
+		agent.CurrentConfigVersion += 1
+		next.Version = agent.CurrentConfigVersion
+		next.CreatedAt = time.Now().UTC()
+		agent.ConfigVersion = next
+		s.agentConfigVersions[input.AgentID] = append(s.agentConfigVersions[input.AgentID], next)
+	}
+	s.agents[input.AgentID] = agent
+	return agent, nil
+}
+
 func (s *testStore) ListAgentConfigVersions(agentID string) ([]managedagents.AgentConfigVersion, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -342,6 +1160,11 @@ func (s *testStore) CreateAgentConfigVersion(input managedagents.CreateAgentConf
 	if input.LLMModel == "" {
 		return managedagents.Agent{}, fmt.Errorf("%w: agent llm_model is required", managedagents.ErrInvalid)
 	}
+	normalizedMCP, err := normalizeTestStoreMCP(input.MCP)
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
+	input.MCP = normalizedMCP
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -349,6 +1172,9 @@ func (s *testStore) CreateAgentConfigVersion(input managedagents.CreateAgentConf
 	agent, ok := s.agents[input.AgentID]
 	if !ok {
 		return managedagents.Agent{}, managedagents.ErrNotFound
+	}
+	if input.ExpectedCurrentVersion > 0 && input.ExpectedCurrentVersion != agent.CurrentConfigVersion {
+		return managedagents.Agent{}, fmt.Errorf("%w: Agent config changed from expected version %d to %d; retry against the latest config", managedagents.ErrRevisionConflict, input.ExpectedCurrentVersion, agent.CurrentConfigVersion)
 	}
 	provider, ok := s.providers[input.LLMProvider]
 	if !ok {
@@ -365,6 +1191,7 @@ func (s *testStore) CreateAgentConfigVersion(input managedagents.CreateAgentConf
 		LLMModel:    input.LLMModel,
 		System:      input.System,
 		Tools:       cloneRaw(input.Tools),
+		MCP:         cloneRaw(input.MCP),
 		Skills:      cloneRaw(input.Skills),
 		CreatedAt:   time.Now().UTC(),
 	}
@@ -400,6 +1227,446 @@ func (s *testStore) CreateEnvironment(input managedagents.CreateEnvironmentInput
 }
 
 func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.createSessionLocked(input)
+}
+
+func (s *testStore) CreateSubagentSession(input managedagents.CreateSubagentSessionInput) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	parentSessionID := strings.TrimSpace(input.Session.ParentSessionID)
+	parent, ok := s.sessions[parentSessionID]
+	if !ok {
+		return managedagents.Session{}, fmt.Errorf("%w: parent session %s", managedagents.ErrNotFound, parentSessionID)
+	}
+	if err := enforceTestStoreSubagentLimits(s.sessions, parent, strings.TrimSpace(input.Session.ParentTurnID), input.Limits); err != nil {
+		return managedagents.Session{}, err
+	}
+	input.Session.WorkspaceID = parent.WorkspaceID
+	input.Session.OwnerID = parent.OwnerID
+	input.Session.ParentSessionID = parent.ID
+	input.Session.SpawnDepth = parent.SpawnDepth + 1
+	return s.createSessionLocked(input.Session)
+}
+
+func (s *testStore) StartSubagentTurn(input managedagents.StartSubagentTurnInput) ([]managedagents.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[strings.TrimSpace(input.SessionID)]
+	if !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	if session.ParentSessionID == "" {
+		return nil, fmt.Errorf("%w: session %s is not a subagent", managedagents.ErrInvalid, session.ID)
+	}
+	if parentSessionID := strings.TrimSpace(input.ParentSessionID); parentSessionID != "" && session.ParentSessionID != parentSessionID {
+		return nil, fmt.Errorf("%w: session %s is not a child of parent session %s", managedagents.ErrInvalid, session.ID, parentSessionID)
+	}
+	if err := enforceTestStoreSubagentActiveLimits(s.sessions, session, input.Limits); err != nil {
+		return nil, err
+	}
+	events, err := s.applyEventLocked(&session, managedagents.AppendEventInput{Type: managedagents.EventUserMessage, Payload: cloneRaw(input.Payload)}, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	s.sessions[session.ID] = session
+	return events, nil
+}
+
+func (s *testStore) EnqueueSubagentStart(input managedagents.EnqueueSubagentStartInput) (managedagents.SubagentStartRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[strings.TrimSpace(input.SessionID)]
+	if !ok {
+		return managedagents.SubagentStartRequest{}, managedagents.ErrNotFound
+	}
+	for id, request := range s.startRequests {
+		if request.Status == "pending" && !request.ExpiresAt.After(time.Now().UTC()) {
+			request.Status = "expired"
+			s.startRequests[id] = request
+		}
+		if request.Status == "pending" && request.SessionID == session.ID {
+			return request, nil
+		}
+	}
+	workspaceQueued := 0
+	userQueued := 0
+	for _, request := range s.startRequests {
+		if request.Status != "pending" || request.WorkspaceID != session.WorkspaceID {
+			continue
+		}
+		workspaceQueued++
+		if request.OwnerID == session.OwnerID {
+			userQueued++
+		}
+	}
+	checks := []struct {
+		current, limit           int
+		errorType, policy, scope string
+	}{
+		{workspaceQueued, input.Limits.WorkspaceQueuedLimit, "subagent_workspace_queue_limit", "workspace_queue_limit", "workspace"},
+		{userQueued, input.Limits.UserQueuedLimit, "subagent_user_queue_limit", "user_queue_limit", "owner"},
+	}
+	for _, check := range checks {
+		if check.limit > 0 && check.current >= check.limit {
+			return managedagents.SubagentStartRequest{}, testStoreSubagentViolation(check.errorType, "subagent queue limit reached", map[string]any{
+				"scope": check.scope, "policy": check.policy, "current_queued": check.current, "limit": check.limit, "subagent_session_id": session.ID,
+			})
+		}
+	}
+	now := time.Now().UTC()
+	timeout := time.Duration(input.Limits.QueueTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 100 * 365 * 24 * time.Hour
+	}
+	request := managedagents.SubagentStartRequest{
+		ID: s.nextID("sreq", &s.nextStartRequestID), WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID,
+		SessionID: session.ID, ParentSessionID: session.ParentSessionID, ParentTurnID: input.ParentTurnID,
+		Payload: cloneRaw(input.Payload), Status: "pending", Priority: input.Priority, QueuedAt: now, ExpiresAt: now.Add(timeout), WaitSeconds: 0,
+	}
+	s.startRequests[request.ID] = request
+	return request, nil
+}
+
+func (s *testStore) GetPendingSubagentStart(sessionID string) (managedagents.SubagentStartRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, request := range s.startRequests {
+		if request.SessionID == sessionID && request.Status == "pending" && request.ExpiresAt.After(time.Now().UTC()) {
+			request.WaitSeconds = subagentStartWaitSeconds(request, time.Now().UTC())
+			return request, nil
+		}
+	}
+	return managedagents.SubagentStartRequest{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) CancelSubagentStart(input managedagents.CancelSubagentStartInput) (managedagents.SubagentStartRequest, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, request := range s.startRequests {
+		if request.SessionID != input.SessionID || request.Status != "pending" {
+			continue
+		}
+		if input.ParentSessionID != "" && request.ParentSessionID != input.ParentSessionID {
+			return managedagents.SubagentStartRequest{}, managedagents.ErrInvalid
+		}
+		now := time.Now().UTC()
+		request.Status = "canceled"
+		request.CanceledAt = &now
+		request.CancelReason = defaultString(strings.TrimSpace(input.Reason), "canceled by parent agent")
+		request.WaitSeconds = subagentStartWaitSeconds(request, now)
+		s.startRequests[id] = request
+		payload, _ := json.Marshal(map[string]any{
+			"request_id":        request.ID,
+			"session_id":        request.SessionID,
+			"parent_session_id": request.ParentSessionID,
+			"reason":            request.CancelReason,
+			"canceled_at":       now,
+			"wait_seconds":      request.WaitSeconds,
+		})
+		event := s.appendEventLocked(request.SessionID, managedagents.EventRuntimeSubagentStartCanceled, payload, now)
+		s.publishLocked(event)
+		return request, nil
+	}
+	return managedagents.SubagentStartRequest{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) CreateSubagentTaskGroup(input managedagents.CreateSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	strategy := normalizeTestSubagentTaskGroupStrategy(input.Strategy)
+	if strategy == "" {
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrInvalid
+	}
+	if input.PlannedCount <= 0 {
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrInvalid
+	}
+	group := managedagents.SubagentTaskGroup{
+		ID:              s.nextID("sgrp", &s.nextStartRequestID),
+		WorkspaceID:     input.WorkspaceID,
+		OwnerID:         input.OwnerID,
+		ParentSessionID: input.ParentSessionID,
+		ParentTurnID:    input.ParentTurnID,
+		ParentGroupID:   input.ParentGroupID,
+		ParentItemIndex: input.ParentItemIndex,
+		Strategy:        strategy,
+		ResultReducer:   normalizeTestSubagentTaskGroupReducer(input.ResultReducer),
+		Quorum:          input.Quorum,
+		FailFast:        input.FailFast,
+		PlannedCount:    input.PlannedCount,
+		CreatedAt:       time.Now().UTC(),
+	}
+	s.taskGroups[group.ID] = group
+	return group, nil
+}
+
+func (s *testStore) AppendSubagentTaskGroupItem(groupID string, input managedagents.AppendSubagentTaskGroupItemInput) (managedagents.SubagentTaskGroupItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.taskGroups[groupID]; !ok {
+		return managedagents.SubagentTaskGroupItem{}, managedagents.ErrNotFound
+	}
+	item := managedagents.SubagentTaskGroupItem{
+		GroupID:              groupID,
+		ItemIndex:            input.ItemIndex,
+		AgentID:              input.AgentID,
+		EnvironmentID:        input.EnvironmentID,
+		SessionID:            input.SessionID,
+		Title:                input.Title,
+		Message:              input.Message,
+		Priority:             input.Priority,
+		InitialState:         normalizeTestSubagentTaskGroupItemState(input.InitialState),
+		ErrorType:            input.ErrorType,
+		ErrorMessage:         input.ErrorMessage,
+		ExpectedResultSchema: cloneRaw(input.ExpectedResultSchema),
+		RetryCount:           0,
+		CreatedAt:            time.Now().UTC(),
+	}
+	s.taskGroupItems[groupID] = append(s.taskGroupItems[groupID], item)
+	sort.Slice(s.taskGroupItems[groupID], func(i, j int) bool {
+		return s.taskGroupItems[groupID][i].ItemIndex < s.taskGroupItems[groupID][j].ItemIndex
+	})
+	return item, nil
+}
+
+func (s *testStore) UpdateSubagentTaskGroupItem(groupID string, itemIndex int, input managedagents.UpdateSubagentTaskGroupItemInput) (managedagents.SubagentTaskGroupItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := s.taskGroupItems[groupID]
+	for index, item := range items {
+		if item.ItemIndex != itemIndex {
+			continue
+		}
+		item.SessionID = strings.TrimSpace(input.SessionID)
+		item.Title = strings.TrimSpace(input.Title)
+		item.Message = strings.TrimSpace(input.Message)
+		item.Priority = input.Priority
+		item.InitialState = normalizeTestSubagentTaskGroupItemState(input.InitialState)
+		item.ErrorType = strings.TrimSpace(input.ErrorType)
+		item.ErrorMessage = strings.TrimSpace(input.ErrorMessage)
+		item.ExpectedResultSchema = cloneRaw(input.ExpectedResultSchema)
+		if input.IncrementRetry {
+			item.RetryCount++
+		}
+		item.CreatedAt = time.Now().UTC()
+		items[index] = item
+		s.taskGroupItems[groupID] = items
+		return item, nil
+	}
+	return managedagents.SubagentTaskGroupItem{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) GetSubagentTaskGroup(id string) (managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	group, ok := s.taskGroups[id]
+	if !ok {
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrNotFound
+	}
+	return group, nil
+}
+
+func (s *testStore) ListSubagentTaskGroupsByParentSession(parentSessionID string) ([]managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	groups := make([]managedagents.SubagentTaskGroup, 0)
+	for _, group := range s.taskGroups {
+		if group.ParentSessionID == strings.TrimSpace(parentSessionID) {
+			groups = append(groups, group)
+		}
+	}
+	slices.SortFunc(groups, func(a, b managedagents.SubagentTaskGroup) int {
+		if a.CreatedAt.Equal(b.CreatedAt) {
+			return strings.Compare(b.ID, a.ID)
+		}
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+		return 1
+	})
+	return groups, nil
+}
+
+func (s *testStore) GetSubagentTaskGroupItemBySession(sessionID string) (managedagents.SubagentTaskGroupItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, items := range s.taskGroupItems {
+		for _, item := range items {
+			if item.SessionID == sessionID {
+				return item, nil
+			}
+		}
+	}
+	return managedagents.SubagentTaskGroupItem{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) ListSubagentTaskGroupItems(groupID string) ([]managedagents.SubagentTaskGroupItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := append([]managedagents.SubagentTaskGroupItem(nil), s.taskGroupItems[groupID]...)
+	return items, nil
+}
+
+func (s *testStore) ListChildSubagentTaskGroups(parentGroupID string, parentItemIndex int) ([]managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	groups := make([]managedagents.SubagentTaskGroup, 0)
+	for _, group := range s.taskGroups {
+		if group.ParentGroupID == parentGroupID && group.ParentItemIndex == parentItemIndex {
+			groups = append(groups, group)
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].CreatedAt.Equal(groups[j].CreatedAt) {
+			return groups[i].ID < groups[j].ID
+		}
+		return groups[i].CreatedAt.Before(groups[j].CreatedAt)
+	})
+	return groups, nil
+}
+
+func (s *testStore) CancelSubagentTaskGroup(input managedagents.CancelSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	group, ok := s.taskGroups[input.GroupID]
+	if !ok {
+		s.mu.Unlock()
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrNotFound
+	}
+	if input.ParentSessionID != "" && group.ParentSessionID != input.ParentSessionID {
+		s.mu.Unlock()
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrInvalid
+	}
+	if group.CanceledAt != nil {
+		s.mu.Unlock()
+		return group, nil
+	}
+	now := time.Now().UTC()
+	reason := defaultString(strings.TrimSpace(input.Reason), "canceled by parent agent")
+	group.CanceledAt = &now
+	group.CancelReason = reason
+	s.taskGroups[group.ID] = group
+	sessionIDs := make([]string, 0, len(s.taskGroupItems[group.ID]))
+	for _, item := range s.taskGroupItems[group.ID] {
+		if item.SessionID != "" {
+			sessionIDs = append(sessionIDs, item.SessionID)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, sessionID := range sessionIDs {
+		if _, err := s.ArchiveSession(sessionID); err != nil && !errors.Is(err, managedagents.ErrNotFound) {
+			return managedagents.SubagentTaskGroup{}, err
+		}
+	}
+	return group, nil
+}
+
+func (s *testStore) ReactivateSubagentTaskGroup(input managedagents.ReactivateSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	group, ok := s.taskGroups[input.GroupID]
+	if !ok {
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrNotFound
+	}
+	if input.ParentSessionID != "" && group.ParentSessionID != input.ParentSessionID {
+		return managedagents.SubagentTaskGroup{}, managedagents.ErrInvalid
+	}
+	group.CanceledAt = nil
+	group.CancelReason = ""
+	s.taskGroups[group.ID] = group
+	return group, nil
+}
+
+func (s *testStore) GetSubagentTaskGroupMetrics(input managedagents.GetSubagentTaskGroupMetricsInput) (managedagents.SubagentTaskGroupMetrics, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	metrics := managedagents.SubagentTaskGroupMetrics{WorkspaceID: workspaceID}
+	for _, group := range s.taskGroups {
+		if workspaceID != "" && group.WorkspaceID != workspaceID {
+			continue
+		}
+		items := s.taskGroupItems[group.ID]
+		itemStatuses := make([]string, 0, len(items))
+		for _, item := range items {
+			switch item.InitialState {
+			case managedagents.SubagentTaskGroupItemStateCreated:
+				metrics.ItemCreated++
+			case managedagents.SubagentTaskGroupItemStateStarted:
+				metrics.ItemStarted++
+			case managedagents.SubagentTaskGroupItemStateQueued:
+				metrics.ItemQueued++
+			case managedagents.SubagentTaskGroupItemStateRejected:
+				metrics.ItemRejected++
+			}
+			itemStatuses = append(itemStatuses, taskGroupItemStatusFromTestStoreLocked(s, item))
+		}
+		switch taskGroupStatusFromTestStore(group, itemStatuses) {
+		case "pending":
+			metrics.Pending++
+		case "running":
+			metrics.Running++
+		case "completed":
+			metrics.Completed++
+		case "failed":
+			metrics.Failed++
+		case "canceled":
+			metrics.Canceled++
+		}
+	}
+	return metrics, nil
+}
+
+func (s *testStore) GetSubagentMetrics(input managedagents.GetSubagentMetricsInput) (managedagents.SubagentMetrics, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	metrics := managedagents.SubagentMetrics{WorkspaceID: workspaceID}
+	now := time.Now().UTC()
+	for _, request := range s.startRequests {
+		if workspaceID != "" && request.WorkspaceID != workspaceID {
+			continue
+		}
+		if request.Status == "pending" {
+			metrics.Queued++
+			waitSeconds := subagentStartWaitSeconds(request, now)
+			if waitSeconds > metrics.WaitSeconds {
+				metrics.WaitSeconds = waitSeconds
+			}
+		}
+	}
+	for _, session := range s.sessions {
+		if workspaceID != "" && session.WorkspaceID != workspaceID {
+			continue
+		}
+		if session.ParentSessionID != "" && session.Status == managedagents.SessionStatusRunning && session.ArchivedAt == nil {
+			metrics.Running++
+		}
+	}
+	for sessionID, events := range s.events {
+		session, ok := s.sessions[sessionID]
+		if !ok {
+			continue
+		}
+		if workspaceID != "" && session.WorkspaceID != workspaceID {
+			continue
+		}
+		for _, event := range events {
+			if event.Type == managedagents.EventRuntimeSubagentStartRejected {
+				metrics.Rejected++
+			}
+		}
+	}
+	return metrics, nil
+}
+
+func (s *testStore) createSessionLocked(input managedagents.CreateSessionInput) (managedagents.Session, error) {
 	agentID := input.AgentID
 	if agentID == "" {
 		agentID = input.Agent
@@ -411,12 +1678,23 @@ func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (manag
 		return managedagents.Session{}, fmt.Errorf("%w: environment_id is required", managedagents.ErrInvalid)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	agent, ok := s.agents[agentID]
 	if !ok {
 		return managedagents.Session{}, fmt.Errorf("%w: agent %s", managedagents.ErrNotFound, agentID)
+	}
+	agentConfigVersion := agent.CurrentConfigVersion
+	if input.AgentConfigVersion > 0 {
+		found := false
+		for _, version := range s.agentConfigVersions[agentID] {
+			if version.Version == input.AgentConfigVersion {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return managedagents.Session{}, fmt.Errorf("%w: agent config version %s#%d", managedagents.ErrNotFound, agentID, input.AgentConfigVersion)
+		}
+		agentConfigVersion = input.AgentConfigVersion
 	}
 	environment, ok := s.environments[input.EnvironmentID]
 	if !ok {
@@ -427,18 +1705,35 @@ func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (manag
 	if workspaceID != agent.WorkspaceID || workspaceID != environment.WorkspaceID {
 		return managedagents.Session{}, fmt.Errorf("%w: workspace mismatch", managedagents.ErrInvalid)
 	}
+	if input.SpawnDepth < 0 {
+		return managedagents.Session{}, fmt.Errorf("%w: spawn_depth must be non-negative", managedagents.ErrInvalid)
+	}
+	if input.ParentSessionID != "" {
+		parentSession, ok := s.sessions[input.ParentSessionID]
+		if !ok {
+			return managedagents.Session{}, fmt.Errorf("%w: parent session %s", managedagents.ErrNotFound, input.ParentSessionID)
+		}
+		if parentSession.WorkspaceID != workspaceID {
+			return managedagents.Session{}, fmt.Errorf("%w: parent session workspace mismatch", managedagents.ErrInvalid)
+		}
+	}
 
 	now := time.Now().UTC()
 	id := s.nextID("sesn", &s.nextSessionID)
 	session := managedagents.Session{
 		ID:                 id,
 		WorkspaceID:        workspaceID,
+		OwnerID:            defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
 		AgentID:            agent.ID,
-		AgentConfigVersion: agent.CurrentConfigVersion,
+		AgentConfigVersion: agentConfigVersion,
 		EnvironmentID:      environment.ID,
+		ParentSessionID:    input.ParentSessionID,
+		ParentTurnID:       input.ParentTurnID,
+		SpawnDepth:         input.SpawnDepth,
 		Status:             managedagents.SessionStatusIdle,
 		Title:              input.Title,
 		RuntimeSettings:    json.RawMessage(`{}`),
+		Tags:               []string{},
 		CreatedBy:          defaultString(input.CreatedBy, "system"),
 		CreatedAt:          now,
 	}
@@ -448,6 +1743,82 @@ func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (manag
 	return session, nil
 }
 
+func enforceTestStoreSubagentLimits(sessions map[string]managedagents.Session, parent managedagents.Session, parentTurnID string, limits managedagents.SubagentLimits) error {
+	if limits.MaxDepth > 0 && parent.SpawnDepth >= limits.MaxDepth {
+		return testStoreSubagentViolation("subagent_depth_limit", "subagent spawn depth limit reached", map[string]any{
+			"scope": "session_tree", "policy": "max_depth", "current_depth": parent.SpawnDepth + 1, "limit": limits.MaxDepth, "session_id": parent.ID,
+		})
+	}
+	childrenForTurn := 0
+	childrenForSession := 0
+	for _, session := range sessions {
+		if session.ParentSessionID == parent.ID {
+			childrenForSession++
+			if session.ParentTurnID == parentTurnID {
+				childrenForTurn++
+			}
+		}
+	}
+	checks := []struct {
+		current   int
+		limit     int
+		errorType string
+		message   string
+		state     map[string]any
+		counter   string
+	}{
+		{childrenForTurn, limits.MaxChildrenPerTurn, "subagent_turn_fanout_limit", "subagent spawn limit reached for parent turn", map[string]any{"scope": "parent_turn", "policy": "max_children_per_turn", "parent_session_id": parent.ID, "parent_turn_id": parentTurnID}, "current_children"},
+		{childrenForSession, limits.MaxChildrenPerSession, "subagent_session_children_limit", "subagent session child limit reached", map[string]any{"scope": "parent_session", "policy": "max_children_per_session", "parent_session_id": parent.ID}, "current_children"},
+	}
+	for _, check := range checks {
+		if check.limit > 0 && check.current >= check.limit {
+			check.state[check.counter] = check.current
+			check.state["limit"] = check.limit
+			return testStoreSubagentViolation(check.errorType, check.message, check.state)
+		}
+	}
+	return nil
+}
+
+func enforceTestStoreSubagentActiveLimits(sessions map[string]managedagents.Session, target managedagents.Session, limits managedagents.SubagentLimits) error {
+	workspaceActive := 0
+	userActive := 0
+	for _, session := range sessions {
+		if session.ID == target.ID || session.ParentSessionID == "" || session.Status != managedagents.SessionStatusRunning || session.ArchivedAt != nil || session.WorkspaceID != target.WorkspaceID {
+			continue
+		}
+		workspaceActive++
+		if session.OwnerID == target.OwnerID {
+			userActive++
+		}
+	}
+	checks := []struct {
+		current   int
+		limit     int
+		errorType string
+		message   string
+		state     map[string]any
+	}{
+		{workspaceActive, limits.WorkspaceActiveLimit, "subagent_workspace_active_limit", "workspace subagent active limit reached", map[string]any{"scope": "workspace", "policy": "workspace_active_limit", "workspace_id": target.WorkspaceID}},
+		{userActive, limits.UserActiveLimit, "subagent_user_active_limit", "user subagent active limit reached", map[string]any{"scope": "owner", "policy": "user_active_limit", "workspace_id": target.WorkspaceID, "owner_id": target.OwnerID}},
+	}
+	for _, check := range checks {
+		if check.limit > 0 && check.current >= check.limit {
+			check.state["current_active"] = check.current
+			check.state["limit"] = check.limit
+			check.state["subagent_session_id"] = target.ID
+			return testStoreSubagentViolation(check.errorType, check.message, check.state)
+		}
+	}
+	return nil
+}
+
+func testStoreSubagentViolation(errorType string, message string, state map[string]any) error {
+	state["category"] = "quota"
+	state["conflict"] = true
+	return managedagents.SubagentQuotaViolation{Type: errorType, Message: message, State: state}
+}
+
 func (s *testStore) GetSession(id string) (managedagents.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -455,6 +1826,26 @@ func (s *testStore) GetSession(id string) (managedagents.Session, error) {
 	session, ok := s.sessions[id]
 	if !ok {
 		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	session.Tags = append([]string(nil), session.Tags...)
+	session.SummaryText = s.summaries[id].SummaryText
+	if session.SummaryText == "" {
+		session.SummaryText = latestTestStoreAgentMessage(s.events[id])
+	}
+	return session, nil
+}
+
+func (s *testStore) GetSessionScoped(id string, scope managedagents.AccessScope) (managedagents.Session, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.Session{}, err
+	}
+	session, err := s.GetSession(id)
+	if err != nil {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if session.WorkspaceID != scope.WorkspaceID || (scope.OwnerID != "" && session.OwnerID != scope.OwnerID) {
+		return managedagents.Session{}, managedagents.ErrForbidden
 	}
 	return session, nil
 }
@@ -472,15 +1863,38 @@ func (s *testStore) ListSessions(input managedagents.ListSessionsInput) ([]manag
 		if input.WorkspaceID != "" && session.WorkspaceID != input.WorkspaceID {
 			continue
 		}
+		if input.OwnerID != "" && session.OwnerID != input.OwnerID {
+			continue
+		}
+		if input.ParentSessionID != "" && session.ParentSessionID != input.ParentSessionID {
+			continue
+		}
+		if input.ParentTurnID != "" && session.ParentTurnID != input.ParentTurnID {
+			continue
+		}
+		if input.ParentedOnly && session.ParentSessionID == "" {
+			continue
+		}
 		if input.Status != "" && session.Status != input.Status {
 			continue
 		}
 		if !input.IncludeArchived && session.ArchivedAt != nil {
 			continue
 		}
+		session.Tags = append([]string(nil), session.Tags...)
+		session.SummaryText = s.summaries[session.ID].SummaryText
+		if session.SummaryText == "" {
+			session.SummaryText = latestTestStoreAgentMessage(s.events[session.ID])
+		}
 		sessions = append(sessions, session)
 	}
 	sort.Slice(sessions, func(i int, j int) bool {
+		if (sessions[i].PinnedAt != nil) != (sessions[j].PinnedAt != nil) {
+			return sessions[i].PinnedAt != nil
+		}
+		if sessions[i].PinnedAt != nil && sessions[j].PinnedAt != nil && !sessions[i].PinnedAt.Equal(*sessions[j].PinnedAt) {
+			return sessions[i].PinnedAt.After(*sessions[j].PinnedAt)
+		}
 		if sessions[i].CreatedAt.Equal(sessions[j].CreatedAt) {
 			return sessions[i].ID > sessions[j].ID
 		}
@@ -490,6 +1904,273 @@ func (s *testStore) ListSessions(input managedagents.ListSessionsInput) ([]manag
 		sessions = sessions[:limit]
 	}
 	return sessions, nil
+}
+
+func (s *testStore) ListSessionsScoped(input managedagents.ListSessionsInput, scope managedagents.AccessScope) ([]managedagents.Session, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	input.WorkspaceID = scope.WorkspaceID
+	input.OwnerID = scope.OwnerID
+	return s.ListSessions(input)
+}
+
+func latestTestStoreAgentMessage(events []managedagents.Event) string {
+	for index := len(events) - 1; index >= 0; index-- {
+		if events[index].Type == managedagents.EventAgentMessage {
+			return messagePayloadText(events[index].Payload)
+		}
+	}
+	return ""
+}
+
+func (s *testStore) ReapOrphanSubagents(managedagents.ReapOrphanSubagentsInput) ([]managedagents.ReapedSubagent, error) {
+	return []managedagents.ReapedSubagent{}, nil
+}
+
+func (s *testStore) RecordOperatorAudit(input managedagents.RecordOperatorAuditInput) (managedagents.OperatorAuditRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextOperatorAuditID++
+	details := cloneRaw(input.Details)
+	if len(details) == 0 {
+		details = json.RawMessage(`{}`)
+	}
+	record := managedagents.OperatorAuditRecord{
+		ID:            fmt.Sprintf("oaud_%06d", s.nextOperatorAuditID),
+		WorkspaceID:   input.WorkspaceID,
+		SessionID:     input.SessionID,
+		PrincipalID:   input.PrincipalID,
+		OperatorLabel: input.OperatorLabel,
+		Role:          input.Role,
+		Action:        input.Action,
+		ResourceType:  input.ResourceType,
+		ResourceID:    input.ResourceID,
+		Outcome:       input.Outcome,
+		ErrorMessage:  input.ErrorMessage,
+		Details:       details,
+		CreatedAt:     time.Now().UTC(),
+	}
+	s.operatorAudits = append(s.operatorAudits, record)
+	return record, nil
+}
+
+func (s *testStore) ListOperatorAudit(input managedagents.ListOperatorAuditInput) ([]managedagents.OperatorAuditRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	limit := input.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	records := make([]managedagents.OperatorAuditRecord, 0, len(s.operatorAudits))
+	for index := len(s.operatorAudits) - 1; index >= 0; index-- {
+		record := s.operatorAudits[index]
+		if input.WorkspaceID != "" && record.WorkspaceID != input.WorkspaceID {
+			continue
+		}
+		if input.SessionID != "" && record.SessionID != input.SessionID {
+			continue
+		}
+		if input.PrincipalID != "" && record.PrincipalID != input.PrincipalID {
+			continue
+		}
+		if input.Action != "" && record.Action != input.Action {
+			continue
+		}
+		records = append(records, record)
+		if len(records) == limit {
+			break
+		}
+	}
+	return records, nil
+}
+
+func (s *testStore) CreateAgentDeliberation(input managedagents.CreateAgentDeliberationInput) (managedagents.AgentDeliberation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, existing := range s.deliberations {
+		if input.Deliberation.IdempotencyKey != "" && existing.ParentSessionID == input.Deliberation.ParentSessionID && existing.IdempotencyKey == input.Deliberation.IdempotencyKey {
+			return managedagents.AgentDeliberation{}, managedagents.ErrConflict
+		}
+	}
+	s.nextDeliberationID++
+	now := time.Now().UTC()
+	item := input.Deliberation
+	item.ID = fmt.Sprintf("dlib_%06d", s.nextDeliberationID)
+	item.Status = managedagents.AgentDeliberationStatusRunning
+	item.Phase = managedagents.AgentDeliberationPhaseRound1Running
+	item.MaxParticipants = len(input.Participants)
+	item.MaxRounds = 2
+	item.Plan = cloneRaw(item.Plan)
+	item.CreatedAt = now
+	item.UpdatedAt = now
+	s.deliberations[item.ID] = item
+	participants := append([]managedagents.AgentDeliberationParticipant(nil), input.Participants...)
+	for index := range participants {
+		participants[index].DeliberationID = item.ID
+		participants[index].ParticipantIndex = index
+		participants[index].CreatedAt = now
+	}
+	s.deliberationParticipants[item.ID] = participants
+	return item, nil
+}
+
+func (s *testStore) GetAgentDeliberation(id string) (managedagents.AgentDeliberation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.deliberations[id]
+	if !ok {
+		return managedagents.AgentDeliberation{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) GetAgentDeliberationByIdempotency(parentSessionID string, idempotencyKey string) (managedagents.AgentDeliberation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, item := range s.deliberations {
+		if item.ParentSessionID == parentSessionID && item.IdempotencyKey == idempotencyKey && idempotencyKey != "" {
+			return item, nil
+		}
+	}
+	return managedagents.AgentDeliberation{}, managedagents.ErrNotFound
+}
+
+func (s *testStore) ListAgentDeliberationsByParentSession(parentSessionID string) ([]managedagents.AgentDeliberation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := []managedagents.AgentDeliberation{}
+	for _, item := range s.deliberations {
+		if item.ParentSessionID == parentSessionID {
+			items = append(items, item)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	return items, nil
+}
+
+func (s *testStore) UpdateAgentDeliberation(id string, input managedagents.UpdateAgentDeliberationInput) (managedagents.AgentDeliberation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.deliberations[id]
+	if !ok {
+		return managedagents.AgentDeliberation{}, managedagents.ErrNotFound
+	}
+	item.Status = input.Status
+	item.Phase = input.Phase
+	item.FinalGroupID = input.FinalGroupID
+	item.FinalResult = cloneRaw(input.FinalResult)
+	item.CancelReason = input.CancelReason
+	item.UpdatedAt = time.Now().UTC()
+	if input.Status == managedagents.AgentDeliberationStatusCanceled && item.CanceledAt == nil {
+		now := item.UpdatedAt
+		item.CanceledAt = &now
+	}
+	s.deliberations[id] = item
+	return item, nil
+}
+
+func (s *testStore) ListAgentDeliberationParticipants(deliberationID string) ([]managedagents.AgentDeliberationParticipant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]managedagents.AgentDeliberationParticipant(nil), s.deliberationParticipants[deliberationID]...), nil
+}
+
+func (s *testStore) CreateAgentDeliberationRound(round managedagents.AgentDeliberationRound) (managedagents.AgentDeliberationRound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deliberationRounds[round.DeliberationID] == nil {
+		s.deliberationRounds[round.DeliberationID] = map[int]managedagents.AgentDeliberationRound{}
+	}
+	if _, exists := s.deliberationRounds[round.DeliberationID][round.RoundNumber]; exists {
+		return managedagents.AgentDeliberationRound{}, managedagents.ErrConflict
+	}
+	round.CreatedAt = time.Now().UTC()
+	s.deliberationRounds[round.DeliberationID][round.RoundNumber] = round
+	return round, nil
+}
+
+func (s *testStore) GetAgentDeliberationRound(deliberationID string, roundNumber int) (managedagents.AgentDeliberationRound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	round, ok := s.deliberationRounds[deliberationID][roundNumber]
+	if !ok {
+		return managedagents.AgentDeliberationRound{}, managedagents.ErrNotFound
+	}
+	return round, nil
+}
+
+func (s *testStore) ListAgentDeliberationRounds(deliberationID string) ([]managedagents.AgentDeliberationRound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := []managedagents.AgentDeliberationRound{}
+	for _, round := range s.deliberationRounds[deliberationID] {
+		items = append(items, round)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].RoundNumber < items[j].RoundNumber })
+	return items, nil
+}
+
+func (s *testStore) UpdateAgentDeliberationRound(deliberationID string, roundNumber int, input managedagents.UpdateAgentDeliberationRoundInput) (managedagents.AgentDeliberationRound, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	round, ok := s.deliberationRounds[deliberationID][roundNumber]
+	if !ok {
+		return managedagents.AgentDeliberationRound{}, managedagents.ErrNotFound
+	}
+	round.Status = input.Status
+	round.ModeratorGroupID = input.ModeratorGroupID
+	round.Summary = cloneRaw(input.Summary)
+	round.Questions = cloneRaw(input.Questions)
+	if input.Complete && round.CompletedAt == nil {
+		now := time.Now().UTC()
+		round.CompletedAt = &now
+	}
+	s.deliberationRounds[deliberationID][roundNumber] = round
+	return round, nil
+}
+
+func (s *testStore) UpsertAgentDeliberationContribution(contribution managedagents.AgentDeliberationContribution) (managedagents.AgentDeliberationContribution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deliberationContributions[contribution.DeliberationID] == nil {
+		s.deliberationContributions[contribution.DeliberationID] = map[int]map[int]managedagents.AgentDeliberationContribution{}
+	}
+	if s.deliberationContributions[contribution.DeliberationID][contribution.RoundNumber] == nil {
+		s.deliberationContributions[contribution.DeliberationID][contribution.RoundNumber] = map[int]managedagents.AgentDeliberationContribution{}
+	}
+	now := time.Now().UTC()
+	if existing, ok := s.deliberationContributions[contribution.DeliberationID][contribution.RoundNumber][contribution.ParticipantIndex]; ok {
+		contribution.CreatedAt = existing.CreatedAt
+	} else {
+		contribution.CreatedAt = now
+	}
+	contribution.ContributionJSON = cloneRaw(contribution.ContributionJSON)
+	contribution.UpdatedAt = now
+	s.deliberationContributions[contribution.DeliberationID][contribution.RoundNumber][contribution.ParticipantIndex] = contribution
+	return contribution, nil
+}
+
+func (s *testStore) ListAgentDeliberationContributions(deliberationID string, roundNumber int) ([]managedagents.AgentDeliberationContribution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := []managedagents.AgentDeliberationContribution{}
+	for candidateRound, entries := range s.deliberationContributions[deliberationID] {
+		if roundNumber != 0 && candidateRound != roundNumber {
+			continue
+		}
+		for _, contribution := range entries {
+			items = append(items, contribution)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].RoundNumber == items[j].RoundNumber {
+			return items[i].ParticipantIndex < items[j].ParticipantIndex
+		}
+		return items[i].RoundNumber < items[j].RoundNumber
+	})
+	return items, nil
 }
 
 func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
@@ -505,11 +2186,60 @@ func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.
 	return session, nil
 }
 
+func (s *testStore) UpdateSessionMetadata(id string, input managedagents.UpdateSessionMetadataInput) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if input.Pinned == nil && input.Tags == nil {
+		return managedagents.Session{}, managedagents.ErrInvalid
+	}
+	if input.Pinned != nil {
+		if *input.Pinned {
+			now := time.Now().UTC()
+			if session.PinnedAt == nil {
+				session.PinnedAt = &now
+			}
+		} else {
+			session.PinnedAt = nil
+		}
+	}
+	if input.Tags != nil {
+		if len(*input.Tags) > 8 {
+			return managedagents.Session{}, managedagents.ErrInvalid
+		}
+		seen := map[string]struct{}{}
+		tags := make([]string, 0, len(*input.Tags))
+		for _, value := range *input.Tags {
+			tag := strings.TrimSpace(value)
+			if tag == "" {
+				continue
+			}
+			if len([]rune(tag)) > 32 {
+				return managedagents.Session{}, managedagents.ErrInvalid
+			}
+			key := strings.ToLower(tag)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			tags = append(tags, tag)
+		}
+		session.Tags = tags
+	}
+	s.sessions[id] = session
+	session.SummaryText = s.summaries[id].SummaryText
+	return session, nil
+}
+
 func (s *testStore) UpgradeSessionAgentConfig(id string, input managedagents.UpgradeSessionAgentConfigInput) (managedagents.UpgradeSessionAgentConfigResult, error) {
 	if id == "" {
 		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrInvalid
 	}
-	if !input.ToCurrent {
+	if input.TargetVersion < 0 || input.ToCurrent == (input.TargetVersion > 0) {
 		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrInvalid
 	}
 
@@ -536,15 +2266,22 @@ func (s *testStore) UpgradeSessionAgentConfig(id string, input managedagents.Upg
 		NewAgentConfigVersion:    session.AgentConfigVersion,
 		LatestAgentConfigVersion: agent.CurrentConfigVersion,
 	}
-	if agent.CurrentConfigVersion == session.AgentConfigVersion {
+	targetVersion := agent.CurrentConfigVersion
+	if input.TargetVersion > 0 {
+		if _, ok := s.agentConfigVersionLocked(session.AgentID, input.TargetVersion); !ok {
+			return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrNotFound
+		}
+		targetVersion = input.TargetVersion
+	}
+	if targetVersion == session.AgentConfigVersion {
 		return result, nil
 	}
-	if agent.CurrentConfigVersion < session.AgentConfigVersion {
+	if targetVersion < session.AgentConfigVersion {
 		return managedagents.UpgradeSessionAgentConfigResult{}, managedagents.ErrConflict
 	}
 
 	oldVersion := session.AgentConfigVersion
-	session.AgentConfigVersion = agent.CurrentConfigVersion
+	session.AgentConfigVersion = targetVersion
 	s.sessions[id] = session
 	payload := json.RawMessage(fmt.Sprintf(`{"old_agent_config_version":%d,"new_agent_config_version":%d,"updated_by":"%s"}`,
 		oldVersion, session.AgentConfigVersion, defaultString(input.UpdatedBy, "system")))
@@ -709,12 +2446,46 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 	if !ok {
 		return managedagents.AgentRuntimeConfig{}, managedagents.ErrNotFound
 	}
-	provider := s.providers[configVersion.LLMProvider]
+	providerID := configVersion.LLMProvider
+	modelName := configVersion.LLMModel
+	var overrides struct {
+		LLMProvider *string `json:"llm_provider"`
+		LLMModel    *string `json:"llm_model"`
+	}
+	if len(session.RuntimeSettings) > 0 && json.Unmarshal(session.RuntimeSettings, &overrides) == nil {
+		if overrides.LLMProvider != nil {
+			providerID = strings.TrimSpace(*overrides.LLMProvider)
+		}
+		if overrides.LLMModel != nil {
+			modelName = strings.TrimSpace(*overrides.LLMModel)
+		}
+	}
+	provider, ok := s.providers[providerID]
+	if !ok || !provider.Enabled {
+		return managedagents.AgentRuntimeConfig{}, managedagents.ErrInvalid
+	}
 	contextWindowTokens := managedagents.DefaultContextWindowTokens
-	if model, ok := s.models[llmModelKey(configVersion.LLMProvider, configVersion.LLMModel)]; ok {
+	capabilityType := managedagents.LLMModelCapabilityText
+	if model, ok := s.models[llmModelKey(providerID, modelName)]; ok {
 		contextWindowTokens = model.ContextWindowTokens
+		capabilityType = model.CapabilityType
+	} else {
+		return managedagents.AgentRuntimeConfig{}, managedagents.ErrInvalid
 	}
 	summary := s.summaries[sessionID]
+	var visionModel managedagents.LLMModel
+	var visionProvider managedagents.LLMProvider
+	for _, candidate := range s.models {
+		if !candidate.IsDefaultVision {
+			continue
+		}
+		candidateProvider, ok := s.providers[candidate.ProviderID]
+		if ok && candidateProvider.Enabled {
+			visionModel = candidate
+			visionProvider = candidateProvider
+		}
+		break
+	}
 
 	return managedagents.AgentRuntimeConfig{
 		SessionID:             sessionID,
@@ -722,17 +2493,24 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		AgentID:               agent.ID,
 		AgentConfigVersion:    session.AgentConfigVersion,
 		EnvironmentID:         session.EnvironmentID,
-		LLMProvider:           configVersion.LLMProvider,
+		LLMProvider:           providerID,
 		LLMProviderType:       defaultString(provider.ProviderType, "fake"),
-		LLMModel:              configVersion.LLMModel,
+		LLMModel:              modelName,
 		LLMBaseURL:            provider.BaseURL,
 		LLMAPIKeyEnv:          provider.APIKeyEnv,
 		ContextWindowTokens:   contextWindowTokens,
+		LLMCapabilityType:     capabilityType,
+		VisionLLMProvider:     visionProvider.ID,
+		VisionLLMProviderType: visionProvider.ProviderType,
+		VisionLLMModel:        visionModel.Model,
+		VisionLLMBaseURL:      visionProvider.BaseURL,
+		VisionLLMAPIKeyEnv:    visionProvider.APIKeyEnv,
 		SummaryText:           summary.SummaryText,
 		SummarySourceUntilSeq: summary.SourceUntilSeq,
 		System:                configVersion.System,
 		RuntimeSettings:       cloneRaw(session.RuntimeSettings),
 		Tools:                 cloneRaw(configVersion.Tools),
+		MCP:                   cloneRaw(configVersion.MCP),
 		Skills:                cloneRaw(configVersion.Skills),
 	}, nil
 }
@@ -765,6 +2543,14 @@ func (s *testStore) SaveSessionSummary(sessionID string, input managedagents.Ups
 	}
 	s.summaries[sessionID] = summary
 	return summary, nil
+}
+
+func normalizeTestStoreMCP(raw json.RawMessage) (json.RawMessage, error) {
+	normalized, err := mcppkg.CanonicalJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	return normalized, nil
 }
 
 func (s *testStore) UpsertSessionSummary(sessionID string, input managedagents.UpsertSessionSummaryInput) (managedagents.UpsertSessionSummaryResult, error) {
@@ -1265,6 +3051,21 @@ func (s *testStore) GetObjectRef(id string) (managedagents.ObjectRef, error) {
 	return object, nil
 }
 
+func (s *testStore) GetObjectRefScoped(id string, scope managedagents.AccessScope) (managedagents.ObjectRef, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.ObjectRef{}, err
+	}
+	object, err := s.GetObjectRef(id)
+	if err != nil {
+		return managedagents.ObjectRef{}, managedagents.ErrNotFound
+	}
+	if object.WorkspaceID != scope.WorkspaceID {
+		return managedagents.ObjectRef{}, managedagents.ErrForbidden
+	}
+	return object, nil
+}
+
 func (s *testStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1439,6 +3240,21 @@ func (s *testStore) GetWorker(id string) (managedagents.Worker, error) {
 	return worker, nil
 }
 
+func (s *testStore) GetWorkerScoped(id string, scope managedagents.AccessScope) (managedagents.Worker, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.Worker{}, err
+	}
+	worker, err := s.GetWorker(id)
+	if err != nil {
+		return managedagents.Worker{}, managedagents.ErrNotFound
+	}
+	if worker.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Worker{}, managedagents.ErrForbidden
+	}
+	return worker, nil
+}
+
 func (s *testStore) ListWorkers(input managedagents.ListWorkersInput) ([]managedagents.Worker, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1461,6 +3277,15 @@ func (s *testStore) ListWorkers(input managedagents.ListWorkersInput) ([]managed
 		return workers[i].RegisteredAt.After(workers[j].RegisteredAt)
 	})
 	return workers, nil
+}
+
+func (s *testStore) ListWorkersScoped(input managedagents.ListWorkersInput, scope managedagents.AccessScope) ([]managedagents.Worker, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	input.WorkspaceID = scope.WorkspaceID
+	return s.ListWorkers(input)
 }
 
 func (s *testStore) HeartbeatWorker(id string, input managedagents.WorkerHeartbeatInput) (managedagents.Worker, error) {
@@ -1578,6 +3403,21 @@ func (s *testStore) GetWorkerWork(id string) (managedagents.WorkerWork, error) {
 	work, ok := s.workerWork[id]
 	if !ok {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	return work, nil
+}
+
+func (s *testStore) GetWorkerWorkScoped(id string, scope managedagents.AccessScope) (managedagents.WorkerWork, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.WorkerWork{}, err
+	}
+	work, err := s.GetWorkerWork(id)
+	if err != nil {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	if work.WorkspaceID != scope.WorkspaceID {
+		return managedagents.WorkerWork{}, managedagents.ErrForbidden
 	}
 	return work, nil
 }
@@ -1882,16 +3722,71 @@ func (s *testStore) ArchiveSession(id string) (managedagents.Session, error) {
 	if !ok {
 		return managedagents.Session{}, managedagents.ErrNotFound
 	}
-	if session.Status == managedagents.SessionStatusTerminated {
+	if session.ArchivedAt != nil {
 		return session, nil
 	}
 
 	now := time.Now().UTC()
+	affected := make([]managedagents.SubagentStartRequest, 0)
+	for requestID, request := range s.startRequests {
+		if request.Status != "pending" || (request.SessionID != id && request.ParentSessionID != id) {
+			continue
+		}
+		request.Status, request.CanceledAt, request.CancelReason = "canceled", &now, "session archived"
+		request.WaitSeconds = subagentStartWaitSeconds(request, now)
+		s.startRequests[requestID] = request
+		affected = append(affected, request)
+	}
 	session.Status = managedagents.SessionStatusTerminated
 	session.ArchivedAt = &now
 	s.sessions[id] = session
 
+	for _, request := range affected {
+		payload, _ := json.Marshal(map[string]any{
+			"request_id":        request.ID,
+			"session_id":        request.SessionID,
+			"parent_session_id": request.ParentSessionID,
+			"reason":            "session archived",
+			"canceled_at":       now,
+			"wait_seconds":      request.WaitSeconds,
+		})
+		s.publishLocked(s.appendEventLocked(request.SessionID, managedagents.EventRuntimeSubagentStartCanceled, payload, now))
+	}
+	if len(affected) > 0 {
+		needsAggregate := false
+		for _, request := range affected {
+			if request.SessionID != id {
+				needsAggregate = true
+				break
+			}
+		}
+		if needsAggregate {
+			payload, _ := json.Marshal(map[string]any{"reason": "session archived", "canceled_requests": len(affected)})
+			s.publishLocked(s.appendEventLocked(id, managedagents.EventRuntimeSubagentStartCanceled, payload, now))
+		}
+	}
 	event := s.appendEventLocked(id, managedagents.EventSessionStatusTerminated, json.RawMessage(`{"status":"terminated"}`), now)
+	s.publishLocked(event)
+	return session, nil
+}
+
+func (s *testStore) RestoreSession(id string) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, ok := s.sessions[id]
+	if !ok {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if session.ArchivedAt == nil {
+		return session, nil
+	}
+
+	now := time.Now().UTC()
+	session.Status = managedagents.SessionStatusIdle
+	session.ArchivedAt = nil
+	s.sessions[id] = session
+	event := s.appendEventLocked(id, managedagents.EventSessionStatusIdle, json.RawMessage(`{"status":"idle","reason":"session restored"}`), now)
 	s.publishLocked(event)
 	return session, nil
 }
@@ -1907,6 +3802,66 @@ func (s *testStore) DeleteSession(id string) error {
 	delete(s.events, id)
 	s.closeSessionLocked(id)
 	return nil
+}
+
+func TestArchiveSessionCancelsQueuedChildStartsOnChildSessions(t *testing.T) {
+	store := newTestStore()
+	parentAgent := mustCreateAgentForSubagentTest(t, store, "Parent Agent")
+	childAgent := mustCreateAgentForSubagentTest(t, store, "Child Agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	parentSession := mustCreateSessionForSubagentTest(t, store, parentAgent.ID, environment.ID, "parent-session")
+	childSession := mustCreateSessionForSubagentTest(t, store, childAgent.ID, environment.ID, "child-session")
+	childSession.ParentSessionID = parentSession.ID
+	childSession.ParentTurnID = "turn_parent"
+	store.sessions[childSession.ID] = childSession
+
+	queuedAt := time.Now().UTC().Add(-5 * time.Second)
+	request := managedagents.SubagentStartRequest{
+		ID:              "sreq_000001",
+		WorkspaceID:     childSession.WorkspaceID,
+		OwnerID:         childSession.OwnerID,
+		SessionID:       childSession.ID,
+		ParentSessionID: parentSession.ID,
+		ParentTurnID:    "turn_parent",
+		Status:          "pending",
+		QueuedAt:        queuedAt,
+		ExpiresAt:       queuedAt.Add(time.Hour),
+	}
+	store.startRequests[request.ID] = request
+
+	archived, err := store.ArchiveSession(parentSession.ID)
+	if err != nil {
+		t.Fatalf("archive parent session: %v", err)
+	}
+	if archived.Status != managedagents.SessionStatusTerminated || archived.ArchivedAt == nil {
+		t.Fatalf("expected terminated parent session, got %+v", archived)
+	}
+
+	events, err := store.ListEvents(childSession.ID, 0)
+	if err != nil {
+		t.Fatalf("list child events: %v", err)
+	}
+	foundCanceled := false
+	for _, event := range events {
+		if event.Type != managedagents.EventRuntimeSubagentStartCanceled {
+			continue
+		}
+		foundCanceled = true
+		if payloadString(event.Payload, "request_id") != request.ID {
+			t.Fatalf("expected canceled request id %q, got payload %s", request.ID, string(event.Payload))
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("decode canceled payload: %v", err)
+		}
+		waitSeconds, ok := payload["wait_seconds"].(float64)
+		if !ok || waitSeconds < 4 {
+			t.Fatalf("expected wait_seconds on canceled payload, got %v", payload["wait_seconds"])
+		}
+	}
+	if !foundCanceled {
+		t.Fatalf("expected child canceled event, got %#v", events)
+	}
 }
 
 func (s *testStore) AppendEvents(sessionID string, inputs []managedagents.AppendEventInput) ([]managedagents.Event, error) {
@@ -1940,6 +3895,153 @@ func (s *testStore) AppendEvents(sessionID string, inputs []managedagents.Append
 
 	s.sessions[sessionID] = session
 	return events, nil
+}
+
+func (s *testStore) StartSessionRunContext(_ context.Context, sessionID string, input managedagents.StartSessionRunInput) (managedagents.StartSessionRunResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessions[sessionID]
+	if !ok {
+		return managedagents.StartSessionRunResult{}, managedagents.ErrNotFound
+	}
+	key := strings.TrimSpace(input.IdempotencyKey)
+	if key != "" {
+		if existing, found := s.runIdempotency[sessionID][key]; found {
+			if existing.RequestHash != input.RequestHash {
+				return managedagents.StartSessionRunResult{}, fmt.Errorf("%w: idempotency_conflict", managedagents.ErrConflict)
+			}
+			run, found := s.sessionRunLocked(sessionID, existing.RunID)
+			if !found {
+				return managedagents.StartSessionRunResult{}, managedagents.ErrNotFound
+			}
+			run.IdempotencyKey = key
+			run.RequestHash = existing.RequestHash
+			return managedagents.StartSessionRunResult{Run: run, Created: false}, nil
+		}
+	}
+	if session.Status != managedagents.SessionStatusIdle {
+		return managedagents.StartSessionRunResult{}, fmt.Errorf("%w: user.message requires idle session", managedagents.ErrSessionBusy)
+	}
+	now := time.Now().UTC()
+	events, err := s.applyEventLocked(&session, managedagents.AppendEventInput{Type: managedagents.EventUserMessage, Payload: cloneRaw(input.Payload)}, now)
+	if err != nil {
+		return managedagents.StartSessionRunResult{}, err
+	}
+	s.sessions[sessionID] = session
+	runID := payloadString(events[len(events)-1].Payload, "turn_id")
+	if key != "" {
+		if s.runIdempotency[sessionID] == nil {
+			s.runIdempotency[sessionID] = make(map[string]testRunIdempotency)
+		}
+		s.runIdempotency[sessionID][key] = testRunIdempotency{RunID: runID, RequestHash: input.RequestHash}
+	}
+	run, _ := s.sessionRunLocked(sessionID, runID)
+	run.IdempotencyKey = key
+	run.RequestHash = input.RequestHash
+	return managedagents.StartSessionRunResult{Run: run, Events: events, Created: true}, nil
+}
+
+func (s *testStore) GetSessionRunContext(_ context.Context, sessionID string, runID string) (managedagents.SessionRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return managedagents.SessionRun{}, managedagents.ErrNotFound
+	}
+	run, ok := s.sessionRunLocked(sessionID, runID)
+	if !ok {
+		return managedagents.SessionRun{}, managedagents.ErrNotFound
+	}
+	return run, nil
+}
+
+func (s *testStore) ListSessionRunsContext(_ context.Context, sessionID string) ([]managedagents.SessionRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	seen := map[string]bool{}
+	runs := []managedagents.SessionRun{}
+	for _, event := range s.events[sessionID] {
+		turnID := payloadString(event.Payload, "turn_id")
+		if turnID == "" || seen[turnID] {
+			continue
+		}
+		if run, ok := s.sessionRunLocked(sessionID, turnID); ok {
+			seen[turnID] = true
+			runs = append(runs, run)
+		}
+	}
+	return runs, nil
+}
+
+func (s *testStore) ListSessionRunEventsContext(_ context.Context, sessionID string, runID string, afterSeq int64) ([]managedagents.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	if _, ok := s.sessionRunLocked(sessionID, runID); !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	events := []managedagents.Event{}
+	for _, event := range s.events[sessionID] {
+		if event.Seq > afterSeq && payloadString(event.Payload, "turn_id") == runID {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func (s *testStore) sessionRunLocked(sessionID string, runID string) (managedagents.SessionRun, bool) {
+	run := managedagents.SessionRun{ID: runID, SessionID: sessionID, Status: managedagents.TurnStatusRunning}
+	found := false
+	for _, event := range s.events[sessionID] {
+		if payloadString(event.Payload, "turn_id") != runID {
+			continue
+		}
+		if !found {
+			run.StartedAt = event.CreatedAt
+			found = true
+		}
+		switch event.Type {
+		case managedagents.EventUserMessage:
+			run.UserEventID = event.ID
+			run.UserEventSeq = event.Seq
+		case managedagents.EventUserInterrupt:
+			run.Status = managedagents.TurnStatusInterrupted
+			ended := event.CreatedAt
+			run.InterruptRequestedAt = &ended
+			run.EndedAt = &ended
+		case managedagents.EventAgentMessage:
+			run.Status = managedagents.TurnStatusCompleted
+			ended := event.CreatedAt
+			run.EndedAt = &ended
+		case managedagents.EventSessionStatusIdle:
+			if payloadString(event.Payload, "last_turn_status") == managedagents.TurnStatusFailed {
+				run.Status = managedagents.TurnStatusFailed
+				run.ErrorMessage = payloadString(event.Payload, "reason")
+				ended := event.CreatedAt
+				run.EndedAt = &ended
+			}
+		}
+	}
+	if run.Status == managedagents.TurnStatusRunning {
+		for _, intervention := range s.interventions {
+			if intervention.SessionID == sessionID && intervention.TurnID == runID && intervention.Status == managedagents.InterventionStatusPending {
+				run.Status = managedagents.TurnStatusWaitingApproval
+				break
+			}
+		}
+	}
+	for key, values := range s.runIdempotency[sessionID] {
+		if values.RunID == runID {
+			run.IdempotencyKey = key
+			run.RequestHash = values.RequestHash
+			break
+		}
+	}
+	return run, found
 }
 
 func (s *testStore) CompleteSessionTurn(sessionID string, turnID string, agentPayload json.RawMessage) ([]managedagents.Event, error) {
@@ -2175,12 +4277,43 @@ func (s *testStore) applyEventLocked(session *managedagents.Session, input manag
 		}
 		userEvent := s.appendEventLocked(session.ID, input.Type, payloadWithTurnID(input.Payload, turnID), now)
 		interruptingEvent := s.appendEventLocked(session.ID, managedagents.EventSessionStatusInterrupting, statusPayload("interrupting", turnID), now)
+		rejectionEvents := make([]managedagents.Event, 0)
+		for key, intervention := range s.interventions {
+			if intervention.SessionID != session.ID || intervention.TurnID != turnID || intervention.Status != managedagents.InterventionStatusPending {
+				continue
+			}
+			intervention.Status = managedagents.InterventionStatusRejected
+			intervention.DecisionReason = "turn interrupted by user"
+			intervention.DecidedAt = &now
+			s.interventions[key] = intervention
+			payload, _ := json.Marshal(map[string]any{
+				"turn_id": turnID,
+				"message": "Tool call rejected because the turn was interrupted.",
+				"data": map[string]any{
+					"id":                intervention.CallID,
+					"identifier":        intervention.ToolIdentifier,
+					"api_name":          intervention.APIName,
+					"arguments":         rawJSONObject(intervention.Arguments),
+					"intervention_mode": intervention.InterventionMode,
+					"reason":            intervention.Reason,
+					"decision_reason":   intervention.DecisionReason,
+					"approval_source":   "user_interrupt",
+				},
+			})
+			rejectionEvents = append(rejectionEvents, s.appendEventLocked(session.ID, managedagents.EventRuntimeToolInterventionRejected, payload, now))
+		}
 		session.Status = managedagents.SessionStatusIdle
 		idleEvent := s.appendEventLocked(session.ID, managedagents.EventSessionStatusIdle, statusPayload("idle", turnID), now)
 		s.publishLocked(userEvent)
 		s.publishLocked(interruptingEvent)
+		for _, event := range rejectionEvents {
+			s.publishLocked(event)
+		}
 		s.publishLocked(idleEvent)
-		return []managedagents.Event{userEvent, interruptingEvent, idleEvent}, nil
+		events := []managedagents.Event{userEvent, interruptingEvent}
+		events = append(events, rejectionEvents...)
+		events = append(events, idleEvent)
+		return events, nil
 
 	default:
 		event := s.appendEventLocked(session.ID, input.Type, cloneRaw(input.Payload), now)
@@ -2194,6 +4327,7 @@ func (s *testStore) appendEventLocked(sessionID, eventType string, payload json.
 	event := managedagents.Event{
 		ID:        s.nextID("evt", &s.nextEventID),
 		SessionID: sessionID,
+		TurnID:    payloadString(payload, "turn_id"),
 		Seq:       seq,
 		Type:      eventType,
 		Payload:   cloneRaw(payload),
@@ -2249,6 +4383,218 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func subagentStartWaitSeconds(request managedagents.SubagentStartRequest, now time.Time) int64 {
+	end := now
+	switch {
+	case request.StartedAt != nil:
+		end = request.StartedAt.UTC()
+	case request.CanceledAt != nil:
+		end = request.CanceledAt.UTC()
+	}
+	if end.Before(request.QueuedAt) {
+		return 0
+	}
+	return int64(end.Sub(request.QueuedAt).Seconds())
+}
+
+func normalizeTestSubagentTaskGroupStrategy(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", managedagents.SubagentTaskGroupStrategyAllCompleted:
+		return managedagents.SubagentTaskGroupStrategyAllCompleted
+	case managedagents.SubagentTaskGroupStrategyAnyCompleted:
+		return managedagents.SubagentTaskGroupStrategyAnyCompleted
+	case managedagents.SubagentTaskGroupStrategyQuorum:
+		return managedagents.SubagentTaskGroupStrategyQuorum
+	default:
+		return ""
+	}
+}
+
+func normalizeTestSubagentTaskGroupReducer(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "":
+		return managedagents.SubagentTaskGroupReducerConcatText
+	case managedagents.SubagentTaskGroupReducerNone:
+		return managedagents.SubagentTaskGroupReducerNone
+	case managedagents.SubagentTaskGroupReducerConcatText:
+		return managedagents.SubagentTaskGroupReducerConcatText
+	case managedagents.SubagentTaskGroupReducerJSONList:
+		return managedagents.SubagentTaskGroupReducerJSONList
+	case managedagents.SubagentTaskGroupReducerJSONObject:
+		return managedagents.SubagentTaskGroupReducerJSONObject
+	case managedagents.SubagentTaskGroupReducerFirstSuccess:
+		return managedagents.SubagentTaskGroupReducerFirstSuccess
+	case managedagents.SubagentTaskGroupReducerMajorityText:
+		return managedagents.SubagentTaskGroupReducerMajorityText
+	case managedagents.SubagentTaskGroupReducerJSONValues:
+		return managedagents.SubagentTaskGroupReducerJSONValues
+	case managedagents.SubagentTaskGroupReducerMergeObjects:
+		return managedagents.SubagentTaskGroupReducerMergeObjects
+	case managedagents.SubagentTaskGroupReducerFirstValue:
+		return managedagents.SubagentTaskGroupReducerFirstValue
+	case managedagents.SubagentTaskGroupReducerMajorityValue:
+		return managedagents.SubagentTaskGroupReducerMajorityValue
+	default:
+		return ""
+	}
+}
+
+func normalizeTestSubagentTaskGroupItemState(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", managedagents.SubagentTaskGroupItemStateCreated:
+		return managedagents.SubagentTaskGroupItemStateCreated
+	case managedagents.SubagentTaskGroupItemStateStarted:
+		return managedagents.SubagentTaskGroupItemStateStarted
+	case managedagents.SubagentTaskGroupItemStateQueued:
+		return managedagents.SubagentTaskGroupItemStateQueued
+	case managedagents.SubagentTaskGroupItemStateRejected:
+		return managedagents.SubagentTaskGroupItemStateRejected
+	default:
+		return ""
+	}
+}
+
+func taskGroupItemStatusFromTestStoreLocked(s *testStore, item managedagents.SubagentTaskGroupItem) string {
+	if item.InitialState == managedagents.SubagentTaskGroupItemStateRejected || item.SessionID == "" {
+		return managedagents.SubagentTaskGroupItemStateRejected
+	}
+	for _, request := range s.startRequests {
+		if request.SessionID == item.SessionID && request.Status == "pending" {
+			return managedagents.SubagentTaskGroupItemStateQueued
+		}
+	}
+	session, ok := s.sessions[item.SessionID]
+	if !ok {
+		return managedagents.SessionStatusTerminated
+	}
+	if session.Status == managedagents.SessionStatusTerminated {
+		return managedagents.SessionStatusTerminated
+	}
+	if session.Status == managedagents.SessionStatusRunning {
+		for _, intervention := range s.interventionsBySessionLocked(item.SessionID) {
+			if intervention.Status == managedagents.InterventionStatusPending {
+				return managedagents.TurnStatusWaitingApproval
+			}
+		}
+		return managedagents.SessionStatusRunning
+	}
+	if session.Status == managedagents.SessionStatusIdle {
+		lastTurnStatus, _, hasAgentText := latestTaskGroupTurnOutcomeFromTestStore(s.events[item.SessionID])
+		switch {
+		case lastTurnStatus == managedagents.TurnStatusCompleted:
+			return managedagents.TurnStatusCompleted
+		case lastTurnStatus == managedagents.TurnStatusFailed:
+			return managedagents.TurnStatusFailed
+		case lastTurnStatus == managedagents.TurnStatusInterrupted:
+			return managedagents.SessionStatusTerminated
+		case hasAgentText:
+			return managedagents.TurnStatusCompleted
+		default:
+			return managedagents.SubagentTaskGroupItemStateCreated
+		}
+	}
+	return session.Status
+}
+
+func taskGroupStatusFromTestStore(group managedagents.SubagentTaskGroup, itemStatuses []string) string {
+	if group.CanceledAt != nil {
+		return "canceled"
+	}
+	total := len(itemStatuses)
+	completed := 0
+	failed := 0
+	terminal := 0
+	pendingOnly := true
+	for _, status := range itemStatuses {
+		switch status {
+		case managedagents.TurnStatusCompleted:
+			completed++
+			terminal++
+			pendingOnly = false
+		case managedagents.TurnStatusFailed, managedagents.SessionStatusTerminated, managedagents.SubagentTaskGroupItemStateRejected:
+			failed++
+			terminal++
+			pendingOnly = false
+		case managedagents.SubagentTaskGroupItemStateQueued, managedagents.SubagentTaskGroupItemStateCreated:
+		default:
+			pendingOnly = false
+		}
+	}
+	if pendingOnly {
+		return "pending"
+	}
+	remaining := total - terminal
+	switch group.Strategy {
+	case managedagents.SubagentTaskGroupStrategyAnyCompleted:
+		if completed > 0 {
+			return "completed"
+		}
+		if group.FailFast && failed > 0 {
+			return "failed"
+		}
+		if terminal == total {
+			return "failed"
+		}
+	case managedagents.SubagentTaskGroupStrategyQuorum:
+		if completed >= group.Quorum {
+			return "completed"
+		}
+		if group.FailFast && failed > 0 {
+			return "failed"
+		}
+		if completed+remaining < group.Quorum {
+			return "failed"
+		}
+	default:
+		if group.FailFast && failed > 0 {
+			return "failed"
+		}
+		if terminal == total {
+			if failed > 0 {
+				return "failed"
+			}
+			return "completed"
+		}
+	}
+	return "running"
+}
+
+func latestTaskGroupTurnOutcomeFromTestStore(events []managedagents.Event) (string, string, bool) {
+	lastTurnStatus := ""
+	reason := ""
+	hasAgentText := false
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		if event.Type == managedagents.EventAgentMessage {
+			hasAgentText = true
+		}
+		if event.Type != managedagents.EventSessionStatusIdle {
+			continue
+		}
+		var payload struct {
+			LastTurnStatus string `json:"last_turn_status"`
+			Reason         string `json:"reason"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			continue
+		}
+		lastTurnStatus = strings.TrimSpace(payload.LastTurnStatus)
+		reason = strings.TrimSpace(payload.Reason)
+		break
+	}
+	return lastTurnStatus, reason, hasAgentText
+}
+
+func (s *testStore) interventionsBySessionLocked(sessionID string) []managedagents.SessionIntervention {
+	items := make([]managedagents.SessionIntervention, 0)
+	for _, intervention := range s.interventions {
+		if intervention.SessionID == sessionID {
+			items = append(items, intervention)
+		}
+	}
+	return items
 }
 
 func cloneRaw(value json.RawMessage) json.RawMessage {

@@ -30,13 +30,14 @@ const (
 )
 
 type Manifest struct {
-	Identifier        string   `json:"identifier"`
-	Type              string   `json:"type,omitempty"`
-	Meta              Meta     `json:"meta"`
-	SystemRole        string   `json:"system_role"`
-	API               []API    `json:"api"`
-	Executors         []string `json:"executors,omitempty"`
-	HumanIntervention string   `json:"human_intervention,omitempty"`
+	Identifier        string         `json:"identifier"`
+	Type              string         `json:"type,omitempty"`
+	Meta              Meta           `json:"meta"`
+	Metadata          map[string]any `json:"metadata,omitempty"`
+	SystemRole        string         `json:"system_role"`
+	API               []API          `json:"api"`
+	Executors         []string       `json:"executors,omitempty"`
+	HumanIntervention string         `json:"human_intervention,omitempty"`
 }
 
 type Meta struct {
@@ -70,9 +71,26 @@ type ExecutionContext struct {
 	SessionID        string
 	EnvironmentID    string
 	TurnID           string
+	Environment      map[string]string
 	Deadline         *time.Time
 	Provider         capability.Provider
 	ArtifactRecorder ArtifactRecorder
+	DeferArtifacts   bool
+}
+
+func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {
+	if len(managed) == 0 {
+		return request
+	}
+	merged := make(map[string]string, len(request)+len(managed))
+	for key, value := range request {
+		merged[key] = value
+	}
+	// Managed values win so model-generated arguments cannot replace credentials.
+	for key, value := range managed {
+		merged[key] = value
+	}
+	return merged
 }
 
 type ArtifactRecorder interface {
@@ -204,7 +222,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{})
+	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{}, AgentRuntime{}, SkillsRuntime{})
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -535,8 +553,9 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 
 	result, err := runtime.Execute(ctx, call, executionContext)
 	if err != nil {
-		return failedResult(call, "tool_execution_failed", err.Error()), nil
+		return failedResult(call, "tool_execution_failed", redactEnvironmentText(err.Error(), executionContext.Environment)), nil
 	}
+	result = redactExecutionResultEnvironment(result, executionContext.Environment)
 	if result.Identifier == "" {
 		result.Identifier = call.Identifier
 	}
@@ -546,7 +565,7 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 	if result.ID == "" {
 		result.ID = call.ID
 	}
-	if executionContext.ArtifactRecorder != nil && !result.PendingIntervention && result.Error == nil {
+	if executionContext.ArtifactRecorder != nil && !executionContext.DeferArtifacts && !result.PendingIntervention && result.Error == nil {
 		artifactRefs, artifactErr := executionContext.ArtifactRecorder.RecordToolArtifact(ctx, call, executionContext, result)
 		if len(artifactRefs) > 0 {
 			result.Artifacts = append(result.Artifacts, artifactRefs...)
@@ -556,6 +575,62 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 		}
 	}
 	return result, nil
+}
+
+func redactExecutionResultEnvironment(result ExecutionResult, environment map[string]string) ExecutionResult {
+	if len(environment) == 0 {
+		return result
+	}
+	result.Content = redactEnvironmentText(result.Content, environment)
+	result.ArtifactError = redactEnvironmentText(result.ArtifactError, environment)
+	if result.Error != nil {
+		cloned := *result.Error
+		cloned.Message = redactEnvironmentText(cloned.Message, environment)
+		result.Error = &cloned
+	}
+	if len(result.State) > 0 {
+		var state any
+		if json.Unmarshal(result.State, &state) == nil {
+			state = redactEnvironmentValue(state, environment)
+			if encoded, err := json.Marshal(state); err == nil {
+				result.State = encoded
+			}
+		} else {
+			result.State = json.RawMessage(redactEnvironmentText(string(result.State), environment))
+		}
+	}
+	return result
+}
+
+func redactEnvironmentValue(value any, environment map[string]string) any {
+	switch typed := value.(type) {
+	case string:
+		return redactEnvironmentText(typed, environment)
+	case []any:
+		for index := range typed {
+			typed[index] = redactEnvironmentValue(typed[index], environment)
+		}
+	case map[string]any:
+		for key, item := range typed {
+			typed[key] = redactEnvironmentValue(item, environment)
+		}
+	}
+	return value
+}
+
+func redactEnvironmentText(value string, environment map[string]string) string {
+	type secret struct{ name, value string }
+	secrets := make([]secret, 0, len(environment))
+	for name, candidate := range environment {
+		if candidate != "" {
+			secrets = append(secrets, secret{name: name, value: candidate})
+		}
+	}
+	sort.Slice(secrets, func(i, j int) bool { return len(secrets[i].value) > len(secrets[j].value) })
+	for _, item := range secrets {
+		value = strings.ReplaceAll(value, item.value, "[REDACTED_ENV:"+item.name+"]")
+	}
+	return value
 }
 
 func NormalizeCall(call Call) Call {

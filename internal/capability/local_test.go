@@ -63,6 +63,26 @@ func TestLocalSystemProviderReadWriteFile(t *testing.T) {
 	}
 }
 
+func TestLocalSystemProviderWriteFileCreatesParentDirs(t *testing.T) {
+	provider := LocalSystemProvider{}
+	path := filepath.Join(t.TempDir(), "nested", "reports", "note.txt")
+
+	if _, err := provider.WriteFile(context.Background(), WriteFileRequest{
+		Path:    path,
+		Content: []byte("hello nested file"),
+	}); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+
+	result, err := provider.ReadFile(context.Background(), ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatalf("read nested file: %v", err)
+	}
+	if string(result.Content) != "hello nested file" {
+		t.Fatalf("expected nested file content, got %q", string(result.Content))
+	}
+}
+
 func TestLocalSystemProviderExecuteShellCode(t *testing.T) {
 	provider := LocalSystemProvider{}
 

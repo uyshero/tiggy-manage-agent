@@ -26,7 +26,7 @@ func (DefaultRuntime) Manifest() Manifest {
 			Title:       "Default Tools",
 			Description: "Run commands, execute code, and read or write files through the configured capability provider.",
 		},
-		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file.",
+		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use read_file to confirm no __TMA_PLACEHOLDER_...__ markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
@@ -34,7 +34,7 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "run_command",
 				Description:       "Run a command with optional args, working directory, environment variables, and stdin.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional file paths to persist as session artifacts after the command succeeds. Use absolute paths such as /mnt/data/report.csv in cloud_sandbox, or paths relative to work_dir."}},"required":["command"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the command succeeds. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["command"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityExec},
 				Risk:              ToolRiskExec,
@@ -46,7 +46,7 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "execute_code",
 				Description:       "Execute a short code snippet in a supported language.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional file paths to persist as session artifacts after the code finishes. Use absolute paths such as /mnt/data/report.csv in cloud_sandbox, or paths relative to work_dir."}},"required":["language","code"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the code finishes. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["language","code"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityCodeExecute, CapabilityExec},
 				Risk:              ToolRiskExec,
@@ -57,8 +57,8 @@ func (DefaultRuntime) Manifest() Manifest {
 				Name:           "read_file",
 				Namespace:      NamespaceDefault,
 				APIName:        "read_file",
-				Description:    "Read a file from the execution environment.",
-				Parameters:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`),
+				Description:    "Read a UTF-8 text file or extract text from a .docx file in the execution environment. Other binary formats return a safe explanatory result.",
+				Parameters:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to read. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."}},"required":["path"]}`),
 				Capabilities:   []string{CapabilityFilesystemRead},
 				Risk:           ToolRiskRead,
 				Runtime:        &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
@@ -68,8 +68,8 @@ func (DefaultRuntime) Manifest() Manifest {
 				Name:              "write_file",
 				Namespace:         NamespaceDefault,
 				APIName:           "write_file",
-				Description:       "Write a file in the execution environment.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}`),
+				Description:       "Write a small complete file or a skeleton for segmented generation. If the complete file may exceed 6000 tokens, write only a skeleton with unique numbered __TMA_PLACEHOLDER_<scope>_<number>__ markers, then replace them with edit_file. content has a hard limit of 8000 estimated tokens.",
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to write. In cloud_sandbox, uploaded inputs are under /workspace/uploads and final user deliverables must be written under /workspace; use /mnt/data only for caches, temporary files, and intermediate results. Absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"content":{"type":"string","description":"Complete small-file content, or a compact large-file skeleton with unique numbered placeholders. Recommended <=6000 estimated tokens; hard limit 8000."}},"required":["path","content"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityFilesystemWrite},
 				Risk:              ToolRiskWrite,
@@ -80,8 +80,8 @@ func (DefaultRuntime) Manifest() Manifest {
 				Name:              "edit_file",
 				Namespace:         NamespaceDefault,
 				APIName:           "edit_file",
-				Description:       "Perform exact string replacements in a file. Must read the file first before editing.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"file_path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"},"replace_all":{"type":"boolean"},"work_dir":{"type":"string"}},"required":["old_string","new_string"]}`),
+				Description:       "Perform an exact string replacement. For segmented generation, replace exactly one unique numbered skeleton placeholder with one complete semantic segment; consumed placeholders make retries idempotent. Must read the file first before ordinary edits, and must verify no placeholders remain before completion. new_string has a hard limit of 8000 estimated tokens.",
+				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to edit. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"file_path":{"type":"string","description":"Legacy alias for path. In cloud_sandbox, absolute file_path values must begin with /workspace or /mnt/data; otherwise use a relative path."},"old_string":{"type":"string","description":"Exact existing text. For segmented generation use one unique __TMA_PLACEHOLDER_<scope>_<number>__ marker."},"new_string":{"type":"string","description":"One complete semantic segment. Recommended <=6000 estimated tokens; hard limit 8000."},"replace_all":{"type":"boolean","description":"Keep false for unique placeholder replacement."},"work_dir":{"type":"string","description":"Base directory for relative paths. In cloud_sandbox, absolute work_dir values must begin with /workspace or /mnt/data."}},"required":["old_string","new_string"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityFilesystemRead, CapabilityFilesystemWrite},
 				Risk:              ToolRiskWrite,
@@ -99,12 +99,25 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 	if provider == nil {
 		return ExecutionResult{}, fmt.Errorf("capability provider is required")
 	}
+	if validationError := ValidateFileMutationCall(call); validationError != nil {
+		result := failedResult(call, validationError.Type, validationError.Message)
+		result.Content = validationError.Message
+		return result, nil
+	}
 
 	switch normalizeAPIName(call.APIName) {
 	case "run_command":
 		var request capability.RunCommandRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
 			return ExecutionResult{}, fmt.Errorf("decode run_command arguments: %w", err)
+		}
+		if err := validateDeliverableOutputPaths(provider, request.OutputPaths, request.WorkDir); err != nil {
+			result := failedResult(call, "invalid_output_path", err.Error())
+			result.Content = err.Error()
+			return result, nil
+		}
+		if _, delegated := provider.(interface{ HandlesManagedEnvironment() }); !delegated {
+			request.Env = mergeManagedEnvironment(request.Env, executionContext.Environment)
 		}
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.RunCommand(ctx, request)
@@ -116,6 +129,14 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		var request capability.ExecuteCodeRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
 			return ExecutionResult{}, fmt.Errorf("decode execute_code arguments: %w", err)
+		}
+		if err := validateDeliverableOutputPaths(provider, request.OutputPaths, request.WorkDir); err != nil {
+			result := failedResult(call, "invalid_output_path", err.Error())
+			result.Content = err.Error()
+			return result, nil
+		}
+		if _, delegated := provider.(interface{ HandlesManagedEnvironment() }); !delegated {
+			request.Env = mergeManagedEnvironment(request.Env, executionContext.Environment)
 		}
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.ExecuteCode(ctx, request)
@@ -137,11 +158,26 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		if err != nil {
 			return ExecutionResult{}, err
 		}
+		content, readable, err := readableFileContent(result.Path, result.Content)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
+		if !readable {
+			content = fmt.Sprintf("File %q contains binary data that read_file cannot decode as text. Use execute_code with a format-specific parser.", result.Path)
+			state, err = json.Marshal(map[string]any{
+				"path":       result.Path,
+				"binary":     true,
+				"size_bytes": len(result.Content),
+			})
+			if err != nil {
+				return ExecutionResult{}, err
+			}
+		}
 		return ExecutionResult{
 			ID:         call.ID,
 			Identifier: call.Identifier,
 			APIName:    call.APIName,
-			Content:    string(result.Content),
+			Content:    contentWithPlaceholderWarning(content),
 			State:      state,
 		}, nil
 	case "write_file":
@@ -154,6 +190,7 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		if err != nil {
 			return ExecutionResult{}, err
 		}
+		capability.ResetSegmentEditState(result.Path)
 		state, err := json.Marshal(result)
 		if err != nil {
 			return ExecutionResult{}, err
@@ -164,12 +201,19 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 			APIName:    call.APIName,
 			Content:    "Wrote file: " + result.Path,
 			State:      state,
+			ExportedFiles: []ArtifactExport{{
+				Path:         result.Path,
+				Name:         filepath.Base(result.Path),
+				Description:  "Generated by default.write_file",
+				ArtifactType: "file",
+			}},
 		}, nil
 	case "edit_file":
 		var request capability.EditFileRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
 			return ExecutionResult{}, fmt.Errorf("decode edit_file arguments: %w", err)
 		}
+		request.Idempotent = IsSegmentedFilePlaceholder(request.OldString)
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.EditFile(ctx, request)
 		if err != nil {
@@ -179,6 +223,26 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 	default:
 		return ExecutionResult{}, fmt.Errorf("unsupported local system api %q", call.APIName)
 	}
+}
+
+func validateDeliverableOutputPaths(provider capability.Provider, paths []string, workDir string) error {
+	descriptor, ok := provider.(capability.CapabilityDescriptor)
+	if !ok || descriptor.ToolRuntime() != ToolRuntimeCloudSandbox || len(paths) == 0 {
+		return nil
+	}
+	workDir = filepath.ToSlash(filepath.Clean(strings.TrimSpace(workDir)))
+	for _, rawPath := range paths {
+		outputPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rawPath)))
+		if outputPath == "." {
+			continue
+		}
+		absoluteOutsideWorkspace := filepath.IsAbs(outputPath) && outputPath != "/workspace" && !strings.HasPrefix(outputPath, "/workspace/")
+		relativeOutsideWorkspace := !filepath.IsAbs(outputPath) && filepath.IsAbs(workDir) && workDir != "/workspace" && !strings.HasPrefix(workDir, "/workspace/")
+		if absoluteOutsideWorkspace || relativeOutsideWorkspace {
+			return fmt.Errorf("output_paths entry %q is temporary in cloud_sandbox; copy or move the final deliverable under /workspace and publish that path", rawPath)
+		}
+	}
+	return nil
 }
 
 func editFileResult(call Call, result capability.EditFileResult) (ExecutionResult, error) {
@@ -198,6 +262,13 @@ func editFileResult(call Call, result capability.EditFileResult) (ExecutionResul
 			Type:    "edit_failed",
 			Message: result.Error,
 		}
+	} else {
+		executionResult.ExportedFiles = []ArtifactExport{{
+			Path:         result.Path,
+			Name:         filepath.Base(result.Path),
+			Description:  "Generated by default.edit_file",
+			ArtifactType: "file",
+		}}
 	}
 	return executionResult, nil
 }

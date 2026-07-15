@@ -2,6 +2,7 @@ package observability
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -65,11 +66,13 @@ type OTLPHTTPPushResult struct {
 }
 
 type Status struct {
-	Perfetto   ExporterStatus                           `json:"perfetto"`
-	OTLP       ExporterStatus                           `json:"otlp"`
-	Sampling   SamplingStatus                           `json:"sampling"`
-	Retry      RetryStatus                              `json:"retry"`
-	RecentRuns []managedagents.ObservabilityExporterRun `json:"recent_runs,omitempty"`
+	Perfetto                   ExporterStatus                           `json:"perfetto"`
+	OTLP                       ExporterStatus                           `json:"otlp"`
+	SecurityAuditOutbox        *managedagents.SecurityAuditOutboxStats  `json:"security_audit_outbox,omitempty"`
+	SecurityAuditIntegrityKeys *SecurityAuditIntegrityKeyStatus         `json:"security_audit_integrity_keys,omitempty"`
+	Sampling                   SamplingStatus                           `json:"sampling"`
+	Retry                      RetryStatus                              `json:"retry"`
+	RecentRuns                 []managedagents.ObservabilityExporterRun `json:"recent_runs,omitempty"`
 }
 
 type SamplingStatus struct {
@@ -340,7 +343,19 @@ func RetryFailedExporterRunsFromEnv(store ExporterRunStore) (RetryResult, error)
 	return RetryFailedExporterRuns(store, EnvExporterConfig(), time.Now().UTC(), 20)
 }
 
+func RetryFailedExporterRunsFromEnvContext(ctx context.Context, store ExporterRunStore) (RetryResult, error) {
+	return retryFailedExporterRuns(ctx, store, EnvExporterConfig(), time.Now().UTC(), 20, true)
+}
+
 func RetryFailedExporterRuns(store ExporterRunStore, config ExporterConfig, now time.Time, limit int) (RetryResult, error) {
+	return retryFailedExporterRuns(context.Background(), store, config, now, limit, false)
+}
+
+func RetryFailedExporterRunsContext(ctx context.Context, store ExporterRunStore, config ExporterConfig, now time.Time, limit int) (RetryResult, error) {
+	return retryFailedExporterRuns(ctx, store, config, now, limit, true)
+}
+
+func retryFailedExporterRuns(ctx context.Context, store ExporterRunStore, config ExporterConfig, now time.Time, limit int, scopedList bool) (RetryResult, error) {
 	if store == nil {
 		return RetryResult{}, fmt.Errorf("store is required")
 	}
@@ -354,22 +369,34 @@ func RetryFailedExporterRuns(store ExporterRunStore, config ExporterConfig, now 
 		now = time.Now().UTC()
 	}
 	maxAttempts := normalizeRetryMaxAttempts(config.RetryMaxAttempts)
-	runs, err := store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{
+	listInput := managedagents.ListObservabilityExporterRunsInput{
 		Status:          managedagents.ObservabilityExporterRunFailed,
 		RetryDueBefore:  now,
 		MaxAttemptCount: maxAttempts,
 		Limit:           limit,
-	})
+	}
+	var runs []managedagents.ObservabilityExporterRun
+	var err error
+	if scopedList {
+		runs, err = managedagents.ListObservabilityExporterRunsWithContext(ctx, store, listInput)
+	} else {
+		runs, err = store.ListObservabilityExporterRuns(listInput)
+	}
 	if err != nil {
 		return RetryResult{}, err
 	}
 	var result RetryResult
 	for _, run := range runs {
-		if !latestExporterRunMatches(store, run) {
+		runCtx, err := contextForExporterRun(ctx, run)
+		if err != nil {
 			result.Skipped++
 			continue
 		}
-		skipped, err := retryExporterRun(store, config, run)
+		if !latestExporterRunMatches(runCtx, store, run) {
+			result.Skipped++
+			continue
+		}
+		skipped, err := retryExporterRun(runCtx, store, config, run)
 		if skipped {
 			result.Skipped++
 			continue
@@ -384,12 +411,30 @@ func RetryFailedExporterRuns(store ExporterRunStore, config ExporterConfig, now 
 	return result, nil
 }
 
-func latestExporterRunMatches(store ExporterRunStore, run managedagents.ObservabilityExporterRun) bool {
-	latest, err := store.ListObservabilityExporterRuns(managedagents.ListObservabilityExporterRunsInput{
-		Exporter:  run.Exporter,
-		SessionID: run.SessionID,
-		TurnID:    run.TurnID,
-		Limit:     1,
+func contextForExporterRun(ctx context.Context, run managedagents.ObservabilityExporterRun) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	workspaceID := strings.TrimSpace(run.WorkspaceID)
+	if workspaceID == "" {
+		return ctx, nil
+	}
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+		if scope.WorkspaceID != workspaceID {
+			return nil, fmt.Errorf("exporter run workspace scope mismatch")
+		}
+		return ctx, nil
+	}
+	return managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: workspaceID})
+}
+
+func latestExporterRunMatches(ctx context.Context, store ExporterRunStore, run managedagents.ObservabilityExporterRun) bool {
+	latest, err := managedagents.ListObservabilityExporterRunsWithContext(ctx, store, managedagents.ListObservabilityExporterRunsInput{
+		WorkspaceID: run.WorkspaceID,
+		Exporter:    run.Exporter,
+		SessionID:   run.SessionID,
+		TurnID:      run.TurnID,
+		Limit:       1,
 	})
 	if err != nil || len(latest) == 0 {
 		return false
@@ -397,7 +442,7 @@ func latestExporterRunMatches(store ExporterRunStore, run managedagents.Observab
 	return latest[0].ID == run.ID
 }
 
-func retryExporterRun(store ExporterRunStore, config ExporterConfig, run managedagents.ObservabilityExporterRun) (bool, error) {
+func retryExporterRun(ctx context.Context, store ExporterRunStore, config ExporterConfig, run managedagents.ObservabilityExporterRun) (bool, error) {
 	attemptCount := run.AttemptCount + 1
 	if attemptCount <= 1 {
 		attemptCount = 2
@@ -408,15 +453,15 @@ func retryExporterRun(store ExporterRunStore, config ExporterConfig, run managed
 		TurnID:    run.TurnID,
 		TraceID:   run.TraceID,
 	}
-	events, err := store.ListEvents(run.SessionID, 0)
+	events, err := managedagents.ListEventsWithContext(ctx, store, run.SessionID, 0)
 	if err != nil {
-		recordExporterRun(store, config, run.Exporter, fallbackTrace, managedagents.ObservabilityExporterRunFailed, run.Destination, err.Error(), attemptCount, startedAt)
+		recordExporterRunContext(ctx, store, config, run.Exporter, fallbackTrace, managedagents.ObservabilityExporterRunFailed, run.Destination, err.Error(), attemptCount, startedAt)
 		return false, err
 	}
 	trace := ProjectTurnTrace(run.SessionID, run.TurnID, events)
 	if trace.TurnID == "" || len(trace.Steps) == 0 {
 		err := fmt.Errorf("trace not found for session %s turn %s", run.SessionID, run.TurnID)
-		recordExporterRun(store, config, run.Exporter, fallbackTrace, managedagents.ObservabilityExporterRunFailed, run.Destination, err.Error(), attemptCount, startedAt)
+		recordExporterRunContext(ctx, store, config, run.Exporter, fallbackTrace, managedagents.ObservabilityExporterRunFailed, run.Destination, err.Error(), attemptCount, startedAt)
 		return false, err
 	}
 	switch run.Exporter {
@@ -427,11 +472,11 @@ func retryExporterRun(store ExporterRunStore, config ExporterConfig, run managed
 		path, err := WritePerfettoFile(trace, firstNonEmpty(config.PerfettoDir, run.Destination))
 		if err != nil {
 			recordExporterFailure("perfetto", trace, err)
-			recordExporterRun(store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunFailed, firstNonEmpty(config.PerfettoDir, run.Destination), err.Error(), attemptCount, startedAt)
+			recordExporterRunContext(ctx, store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunFailed, firstNonEmpty(config.PerfettoDir, run.Destination), err.Error(), attemptCount, startedAt)
 			return false, err
 		}
 		recordExporterSuccess("perfetto", trace, path)
-		recordExporterRun(store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunSucceeded, path, path, attemptCount, startedAt)
+		recordExporterRunContext(ctx, store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunSucceeded, path, path, attemptCount, startedAt)
 		return false, nil
 	case managedagents.ObservabilityExporterOTLP:
 		if strings.TrimSpace(config.OTLPEndpoint) == "" {
@@ -440,11 +485,11 @@ func retryExporterRun(store ExporterRunStore, config ExporterConfig, run managed
 		push, err := PushOTLPHTTP(config.HTTPClient, config.OTLPEndpoint, config.OTLPToken, ExportOTel(trace))
 		if err != nil {
 			recordExporterFailure("otlp", trace, err)
-			recordExporterRun(store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunFailed, NormalizeOTLPTraceEndpoint(config.OTLPEndpoint), err.Error(), attemptCount, startedAt)
+			recordExporterRunContext(ctx, store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunFailed, NormalizeOTLPTraceEndpoint(config.OTLPEndpoint), err.Error(), attemptCount, startedAt)
 			return false, err
 		}
 		recordExporterSuccess("otlp", trace, push.Endpoint+" "+push.Status)
-		recordExporterRun(store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunSucceeded, push.Endpoint, push.Status, attemptCount, startedAt)
+		recordExporterRunContext(ctx, store, config, run.Exporter, trace, managedagents.ObservabilityExporterRunSucceeded, push.Endpoint, push.Status, attemptCount, startedAt)
 		return false, nil
 	default:
 		return true, nil
@@ -487,6 +532,10 @@ func recordExporterSkip(recorder exporterRunRecorder, config ExporterConfig, ses
 }
 
 func recordExporterRun(recorder exporterRunRecorder, config ExporterConfig, exporter string, trace TurnTrace, status string, destination string, message string, attemptCount int, startedAt time.Time) {
+	recordExporterRunContext(context.Background(), recorder, config, exporter, trace, status, destination, message, attemptCount, startedAt)
+}
+
+func recordExporterRunContext(ctx context.Context, recorder exporterRunRecorder, config ExporterConfig, exporter string, trace TurnTrace, status string, destination string, message string, attemptCount int, startedAt time.Time) {
 	if recorder == nil {
 		return
 	}
@@ -496,7 +545,7 @@ func recordExporterRun(recorder exporterRunRecorder, config ExporterConfig, expo
 	if attemptCount <= 0 {
 		attemptCount = 1
 	}
-	_, _ = recorder.RecordObservabilityExporterRun(managedagents.RecordObservabilityExporterRunInput{
+	_, _ = managedagents.RecordObservabilityExporterRunWithContext(ctx, recorder, managedagents.RecordObservabilityExporterRunInput{
 		Exporter:     exporter,
 		Status:       status,
 		SessionID:    trace.SessionID,

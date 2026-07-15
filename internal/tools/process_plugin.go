@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -91,7 +92,7 @@ func (r ProcessPluginRuntime) Execute(ctx context.Context, call Call, executionC
 	if err != nil {
 		return ExecutionResult{}, fmt.Errorf("encode plugin request: %w", err)
 	}
-	output, stderr, err := r.run(ctx, r.ExecuteTimeout, "execute", input)
+	output, stderr, err := r.run(ctx, r.ExecuteTimeout, "execute", input, executionContext.Environment)
 	if err != nil {
 		return ExecutionResult{}, fmt.Errorf("execute plugin %s: %w%s", r.Command, err, formatPluginStderr(stderr))
 	}
@@ -123,7 +124,7 @@ func (r ProcessPluginRuntime) Execute(ctx context.Context, call Call, executionC
 }
 
 func (r ProcessPluginRuntime) loadManifest(ctx context.Context) (Manifest, error) {
-	output, stderr, err := r.run(ctx, r.ManifestTimeout, "manifest", nil)
+	output, stderr, err := r.run(ctx, r.ManifestTimeout, "manifest", nil, nil)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("load plugin manifest from %s: %w%s", r.Command, err, formatPluginStderr(stderr))
 	}
@@ -137,7 +138,7 @@ func (r ProcessPluginRuntime) loadManifest(ctx context.Context) (Manifest, error
 	return manifest, nil
 }
 
-func (r ProcessPluginRuntime) run(ctx context.Context, timeout time.Duration, mode string, stdin []byte) ([]byte, string, error) {
+func (r ProcessPluginRuntime) run(ctx context.Context, timeout time.Duration, mode string, stdin []byte, environment map[string]string) ([]byte, string, error) {
 	if timeout <= 0 {
 		timeout = defaultPluginTimeout
 	}
@@ -146,6 +147,20 @@ func (r ProcessPluginRuntime) run(ctx context.Context, timeout time.Duration, mo
 	args := append([]string(nil), r.Args...)
 	args = append(args, mode)
 	command := exec.CommandContext(runCtx, r.Command, args...)
+	if len(environment) > 0 {
+		command.Env = append([]string(nil), os.Environ()...)
+		for key, value := range environment {
+			prefix := key + "="
+			filtered := command.Env[:0]
+			for _, entry := range command.Env {
+				if !strings.HasPrefix(entry, prefix) {
+					filtered = append(filtered, entry)
+				}
+			}
+			command.Env = filtered
+			command.Env = append(command.Env, key+"="+value)
+		}
+	}
 	if len(stdin) > 0 {
 		command.Stdin = bytes.NewReader(stdin)
 	}
@@ -203,7 +218,7 @@ func validatePluginManifest(manifest Manifest) error {
 
 func isReservedPluginNamespace(namespace string) bool {
 	switch namespace {
-	case NamespaceDefault, NamespaceArtifact, NamespaceBrowser, NamespaceAgent, NamespaceWeb:
+	case NamespaceDefault, NamespaceArtifact, NamespaceBrowser, NamespaceAgent, NamespaceSkills, NamespaceWeb:
 		return true
 	default:
 		return false

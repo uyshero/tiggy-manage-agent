@@ -2,6 +2,8 @@
 
 本文档基于当前 TMA Workbench 截图和 Codex 桌面截图，重新从“用户前台体验”分析差距。重点不是运维 Trace、Usage 或内部观测，而是用户打开应用后是否能理解任务、看见进展、管理文件、确认风险、拿到结果。
 
+企业工作台的插件化边界、扩展点、Manifest、SDK、权限和分阶段实施要求见 [TMA Workbench 插件开发标准](./workbench-plugin-standard.md)。本文档负责默认工作台体验，插件标准负责不同企业、部门和岗位如何在稳定 Shell 上扩展业务页面与操作。
+
 ## 一句话判断
 
 当前 Workbench 已经从调试壳迈出了第一步：有三栏布局、聊天、审批、Activity、Artifacts 和 Session 信息。但它仍然更像“Agent runtime 可视化面板”，还不像一个面向用户的 Codex 桌面工作台。
@@ -98,9 +100,9 @@ Details
 危险操作：二次确认
 ```
 
-### 6. 文件闭环还没形成
+### 6. 文件输入闭环已形成，Review 闭环仍待完善
 
-Codex 桌面截图右侧有文件树，底部有“已编辑文件 / review”卡片。当前 Workbench 有 Artifacts，但还没形成完整工作流：
+Codex 桌面截图右侧有文件树，底部有“已编辑文件 / review”卡片。当前 Workbench 已完成“上传文件 -> 作为结构化上下文 -> Agent 从云沙箱读取”，但完整 Review 工作流仍未形成：
 
 ```text
 上传文件 -> 作为上下文使用 -> Agent 读取/修改 -> 预览结果 -> Review diff -> 下载/继续追问
@@ -253,6 +255,17 @@ P1 目标：让 Workbench 不只是聊天，而是能围绕文件完成工作。
 引用 workspace 文件
 移除附件
 ```
+
+当前进度（2026-07-13）：
+
+- [x] 点击附件按钮或拖放上传本地文件。
+- [x] 发送前预览、移除、上传进度和失败重试。
+- [x] 最多 10 个文件，单文件 64 MB；文件字节落 object store，event 仅保留 object/artifact ref 与元数据。
+- [x] 云沙箱将上传文件同步到 `/workspace/uploads/{artifact_id}/{filename}`，模型上下文获得精确路径。
+- [ ] 从 Composer 引用已有 artifact。
+- [ ] 从 Composer 引用 workspace 文件。
+
+格式说明：文本、代码、Markdown、JSON 和 CSV 可直接读取分析；PNG/JPEG/GIF/WebP 可由当前 `text_image` 模型或设置中的统一视觉模型解析；PDF/Office 需要沙箱解析工具或文档 Skill。
 
 验收标准：
 

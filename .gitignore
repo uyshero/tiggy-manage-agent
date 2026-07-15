@@ -8,4 +8,6 @@ tmp/
 .gocache/
 .env
 .env.local
+.tma-worker.pid
+.tma-worker.log
 .verify-agent-runtime-server.log

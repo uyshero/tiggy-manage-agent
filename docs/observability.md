@@ -23,8 +23,10 @@
 - `GET /v1/sessions/{id}/trace?turn_id=...&format=perfetto|otel` 已可导出 Perfetto / OTel 风格 JSON；Perfetto args 与 OTel attributes 会携带 span depth / start offset / self duration / critical 标记，导出 metadata 会携带 trace graph，OTel span events 会携带关联的 session event seq/type/message。
 - `bin/tma trace export --format perfetto|otel|json --output FILE` 已可把导出落盘；`--otlp-endpoint URL` 已可把 OTel JSON 通过 OTLP/HTTP 推到 collector。
 - turn 完成后已可按环境变量自动 fan-out exporter：`TMA_PERFETTO=1` 写 Perfetto 文件，`TMA_OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` 推 OTLP/HTTP traces；`TMA_OBSERVABILITY_SAMPLE_RATE` 可对自动导出做确定性采样。
-- `GET /metrics` 已可输出 Prometheus 文本指标，覆盖 LLM usage、worker 数量、exporter 启用、自动导出采样率、最近成功/最近失败/最近尝试/最近持久化运行记录，以及指定 `session_id` / `turn_id` 的 event、trace、span、critical path、span depth、tool、approval 指标。
-- `GET /v1/observability/status` 与 `bin/tma observability status` 已可查看 exporter 启用状态、目的地、采样策略、最近成功/失败/尝试与持久化 recent runs，token 只暴露是否配置。
+- `GET /metrics` 已可输出 Prometheus 文本指标，覆盖授权决策（按 auth type/outcome/reason）、LLM usage、worker 数量、Skills 外部 binary scanner 次数/耗时、exporter 启用、自动导出采样率、最近成功/最近失败/最近尝试/最近持久化运行记录，以及指定 `session_id` / `turn_id` 的 event、trace、span、critical path、span depth、tool、approval 指标。逐身份授权调查使用结构化 `authorization_decision` 日志，Prometheus 标签不包含 subject、Workspace、Group 或路径。
+- 授权决策可通过 `TMA_SECURITY_AUDIT_OTLP_ENDPOINT` 发送到 OTLP/HTTP Logs `/v1/logs`；默认先写 PostgreSQL durable outbox，再由租约 worker 批量投递、指数退避并在最大次数后进入 dead letter。生产使用 HMAC-SHA256 完整性校验，下游按稳定 `event.id` 去重。发送、持久化失败、outbox 状态、最老积压和 key rotation blockers 进入 Prometheus；`deploy/prometheus/tma-security-alerts.yml` 提供认证失败、跨 scope、Operator 拒绝、persistence/export failure、dead letter、backlog、未知 key 引用和长期轮换阻塞规则。
+- `GET /v1/observability/status` 与 `bin/tma observability status` 已可查看 exporter 启用状态、目的地、采样策略、最近成功/失败/尝试、持久化 recent runs，以及授权审计 HMAC key rotation readiness；token 和完整性密钥只暴露是否配置或 key ID，不返回密钥值。
+- `GET /v1/observability/security-audit/integrity-keys` 与 `bin/tma observability integrity-keys` 提供逐 key ID 的 pending/delivering/delivered/dead-letter 计数和服务端 `safe_to_remove` 判定。
 - exporter 失败 run 已写入 `attempt_count` / `next_retry_at`，支持指数退避；server 默认会在后台周期性重试到期项，也可通过 `POST /v1/observability/retry`、Inspector Exporters 面板或 `bin/tma observability retry` 手动触发。
 - `GET /inspector` 已提供 embedded static Inspector UI（`internal/httpapi/inspector/index.html`、`styles.css`、`app.js`），可查看 turn 列表、trace stats、span waterfall / critical path、可过滤 span table、span 详情、span events/child counts、usage、summary、context coverage/diff、context budget 分账、pending approvals、artifacts、artifact inline preview、events、metrics、exporter / sampling 状态与 raw export，并支持 `#session=...&turn=...&trace=...&span=...` 深链定位。
 - turn 完成后会把本轮 tool / approval 轨迹摘要追加到 `session_summaries`，供后续 `ContextBuilder` 注入。
@@ -105,6 +107,9 @@ session.status_*
 runtime.started / thinking / llm_request / llm_response / llm_delta
 runtime.tool_call / tool_result
 runtime.tool_intervention_required / approved / rejected
+runtime.subagent_spawn_rejected / runtime.subagent_start_rejected
+runtime.subagent_start_queued / runtime.subagent_start_dequeued
+runtime.subagent_start_canceled / runtime.subagent_start_expired
 runtime.context_compacting / compacted / failed
 runtime.completed / failed
 ```
@@ -117,6 +122,20 @@ runtime.completed / failed
 - `RecordLLMUsage` 用量落库
 
 **原则（借鉴 Hermes Gateway）**：SSE / CLI 可读展示是**展示层投影**，不改变 DB 中事实 payload 契约。
+
+### Span closure 契约
+
+Server Core 不为每个内置动作重复写 `runtime.span_started/ended`。内置 Span 直接由语义事件闭合：
+
+- `runtime.started → runtime.completed|runtime.failed|session.status_idle`：`tma.interaction`；
+- `runtime.llm_request → runtime.llm_response`：`tma.llm`；
+- `runtime.tool_call → runtime.tool_result`：`tma.tool.*`；
+- `runtime.tool_intervention_required → approved|rejected`：`tma.tool.blocked_on_user`；
+- `runtime.context_compacting → compacted|compaction_failed`：`tma.context.compact`。
+
+同一 Turn 的 Runner 复用一个 trace state，成对事件使用相同 `span_id`，结束事件写 `span_status` 和 `duration_ms`。Store 直接写出的审批、interrupt synthetic tool result 和 idle 事件由 Trace 投影按确定性 span ID 补全。Turn 已进入 failed/interrupted/completed 终态但子操作缺少结束事件时，投影器会在 Turn 终点闭合为 `error` / `canceled`，避免 Inspector 永久显示 open。
+
+`runtime.span_started` / `runtime.span_event` / `runtime.span_ended` 保留给 Worker、插件或外部长任务表达没有对应内置语义事件的自定义 Span，不与上述核心事件强制双写。
 
 ## 给模型用的观测（ProjectForModel）
 
@@ -218,15 +237,14 @@ User rejected tool call edit_file: "don't modify package.json"
 ### Span 树（与 Claude Code sessionTracing 对齐）
 
 ```text
-tma.interaction                    # 一次 user.message → agent.message（turn）
-├── tma.llm_request                # runtime.llm_request
-│   └── tma.llm_response           # runtime.llm_response / llm_delta*
+tma.interaction                    # runtime.started → completed/failed/idle
+├── tma.llm                        # runtime.llm_request → llm_response
 ├── tma.tool                       # runtime.tool_call
 │   ├── tma.tool.blocked_on_user   # runtime.tool_intervention_required
 │   │   └── approved / rejected
 │   └── tma.tool.execution         # runtime.tool_result
 ├── tma.context.compact            # context_compacting / compacted
-└── tma.interaction.complete       # runtime.completed / agent.message
+└── interaction closure            # runtime.completed / failed / session idle
 ```
 
 `trace_id` 建议：`trc_{session_id}_{turn_id}`。
@@ -238,10 +256,17 @@ tma.interaction                    # 一次 user.message → agent.message（tur
 | `user.message` | interaction 开始 | 新 turn root |
 | `runtime.llm_request` | llm_request 开始 | 含 `tool_round` |
 | `runtime.llm_response` | llm_request 结束 | 写 usage |
+| `runtime.llm_chunk` | llm_request 子切片 | `data.type=text|reasoning|tool_call|usage|stop|error` |
 | `runtime.llm_delta` | llm_request 子切片 | 主要给 Perfetto |
 | `runtime.tool_call` | tool 开始 | |
 | `runtime.tool_result` | tool 结束 | `duration_ms`, `outcome` |
 | `runtime.tool_intervention_*` | intervention | 审批子 span |
+| `runtime.subagent_spawn_rejected` | governance event | subagent quota / depth 拒绝 |
+| `runtime.subagent_start_rejected` | governance event | workspace / user queued quota 拒绝 |
+| `runtime.subagent_start_queued` | governance event | 启动请求持久化排队 |
+| `runtime.subagent_start_dequeued` | governance event | 排队请求获得 active 槽位 |
+| `runtime.subagent_start_canceled` | governance event | 排队请求被显式或级联取消 |
+| `runtime.subagent_start_expired` | governance event | 排队请求超时 |
 | `runtime.context_compacting` | compact | |
 | `agent.message` | interaction 结束 | |
 | `runtime.failed` | interaction error | |
@@ -399,12 +424,14 @@ GET  /v1/traces/{trace_id}/spans/{span_id}    # span 详情深链
 GET  /metrics                                 # Prometheus
 GET  /metrics?session_id=...&turn_id=...      # Session / turn 维度指标
 GET  /v1/observability/status                 # Exporter 配置、采样与健康状态
+GET  /v1/observability/security-audit/integrity-keys # HMAC key rotation readiness
 POST /v1/observability/retry                  # 手动重试到期 exporter failures
 
 bin/tma trace show --session ... --turn ...   # 终端树形输出
 bin/tma trace export --session ... --format perfetto --output trace.json
 bin/tma trace export --session ... --format otel --otlp-endpoint http://collector:4318
 bin/tma observability status                  # Exporter 状态
+bin/tma observability integrity-keys          # HMAC 旧 key 移除检查
 bin/tma observability retry                   # 手动重试到期 exporter failures
 TMA_PERFETTO=1 TMA_PERFETTO_DIR=./traces bin/tma-server
 TMA_OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318 TMA_OBSERVABILITY_SAMPLE_RATE=0.1 bin/tma-server
@@ -444,6 +471,12 @@ bin/tma debug bundle --session ...            # 脱敏 events + logs（规划）
 | `tma_tool_duration_seconds` | Histogram | `identifier`, `api_name`, `outcome` |
 | `tma_llm_tokens_total` | Counter | `provider`, `model`, `token_type` |
 | `tma_intervention_total` | Counter | `action` |
+| `tma_skill_binary_scans_total` | Counter | `provider`, `outcome` |
+| `tma_skill_binary_scan_duration_milliseconds_total` | Counter | `provider`, `outcome` |
+| `tma_skill_asset_gc_runs_total` | Counter | `outcome`, `dry_run` |
+| `tma_skill_asset_gc_objects_total` | Counter | `outcome` |
+| `tma_skill_asset_gc_bytes_total` | Counter | `outcome` |
+| `tma_skill_asset_gc_candidates` | Gauge | - |
 | `tma_tool_rounds` | Histogram | — |
 | `tma_event_export_errors_total` | Counter | `exporter` |
 

@@ -1,22 +1,34 @@
 package execution
 
 import (
+	"context"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/internal/workerselect"
 )
 
 type ToolExecutionRequest struct {
-	Config           managedagents.AgentRuntimeConfig
-	SessionID        string
-	TurnID           string
-	ProviderResolver ProviderResolver
-	Store            WorkerBackedStore
-	ArtifactRecorder tools.ArtifactRecorder
-	Now              func() time.Time
+	Context           context.Context
+	Config            managedagents.AgentRuntimeConfig
+	SessionID         string
+	TurnID            string
+	ProviderResolver  ProviderResolver
+	Store             WorkerBackedStore
+	ArtifactRecorder  tools.ArtifactRecorder
+	Environment       map[string]string
+	EnvironmentCipher *envvars.Cipher
+	MCPHost           *mcp.StdioHost
+	MCPHTTPHost       *mcp.StreamableHTTPHost
+	MCPRuntimeGuard   *mcp.RuntimeGuard
+	Now               func() time.Time
 }
 
 type ToolExecution struct {
@@ -35,20 +47,33 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 	if sessionID == "" {
 		sessionID = config.SessionID
 	}
-	registry, toolPolicy := tools.DefaultRegistry().Configured(config.Tools)
+	lookup := func(key string) (string, bool) {
+		if value, ok := request.Environment[key]; ok {
+			return value, true
+		}
+		return os.LookupEnv(key)
+	}
+	resolveCtx := request.Context
+	if resolveCtx == nil {
+		resolveCtx = context.Background()
+	}
+	registry := tools.RegistryWithMCPWarningsLookupHostsGuard(resolveCtx, tools.DefaultRegistry(), config.MCP, lookup, request.MCPHost, request.MCPHTTPHost, mcpHostScope(config, sessionID), request.MCPRuntimeGuard, config.WorkspaceID)
+	registry, toolPolicy := registry.Configured(config.Tools)
 	provider := resolveToolProvider(request.ProviderResolver, config, sessionID, toolPolicy)
 	providerCapabilities := AvailableCapabilities(provider, toolPolicy)
 
 	workerBacked := false
 	localSystemUnavailable := false
-	if workerRegistry, ok := availableWorkerRegistry(request.Store, config.WorkspaceID, providerCapabilities, registry, request.now()); ok {
+	if workerRegistry, ok := availableWorkerRegistry(resolveCtx, request.Store, config.WorkspaceID, providerCapabilities, registry, request.now()); ok {
 		registry = workerRegistry
 		provider = WorkerBackedProvider{
-			Store:         request.Store,
-			WorkspaceID:   config.WorkspaceID,
-			SessionID:     sessionID,
-			EnvironmentID: config.EnvironmentID,
-			TurnID:        request.TurnID,
+			Store:             request.Store,
+			WorkspaceID:       config.WorkspaceID,
+			SessionID:         sessionID,
+			EnvironmentID:     config.EnvironmentID,
+			TurnID:            request.TurnID,
+			Environment:       request.Environment,
+			EnvironmentCipher: request.EnvironmentCipher,
 		}
 		workerBacked = true
 	} else if LocalSystemUnavailable(providerCapabilities, provider) {
@@ -70,10 +95,20 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 			SessionID:        sessionID,
 			EnvironmentID:    config.EnvironmentID,
 			TurnID:           request.TurnID,
+			Environment:      request.Environment,
 			Provider:         provider,
 			ArtifactRecorder: request.ArtifactRecorder,
 		},
 	}
+}
+
+func mcpHostScope(config managedagents.AgentRuntimeConfig, sessionID string) string {
+	return strings.Join([]string{
+		strings.TrimSpace(config.WorkspaceID),
+		strings.TrimSpace(sessionID),
+		strings.TrimSpace(config.AgentID),
+		strconv.Itoa(config.AgentConfigVersion),
+	}, "/")
 }
 
 func (request ToolExecutionRequest) now() time.Time {
@@ -86,6 +121,7 @@ func (request ToolExecutionRequest) now() time.Time {
 func resolveToolProvider(resolver ProviderResolver, config managedagents.AgentRuntimeConfig, sessionID string, toolPolicy tools.ConfigPolicy) capability.Provider {
 	providerRequest := ProviderRequest{
 		WorkspaceID:   config.WorkspaceID,
+		OwnerID:       config.OwnerID,
 		SessionID:     sessionID,
 		EnvironmentID: config.EnvironmentID,
 		ToolRuntime:   toolPolicy.Runtime,
@@ -141,7 +177,7 @@ func LocalSystemUnavailable(providerCapabilities tools.AvailableCapabilities, pr
 	return len(providerCapabilities.Capabilities) == 0
 }
 
-func availableWorkerRegistry(store workerselect.Store, workspaceID string, providerCapabilities tools.AvailableCapabilities, registry tools.Registry, now time.Time) (tools.Registry, bool) {
+func availableWorkerRegistry(ctx context.Context, store workerselect.Store, workspaceID string, providerCapabilities tools.AvailableCapabilities, registry tools.Registry, now time.Time) (tools.Registry, bool) {
 	if store == nil {
 		return tools.Registry{}, false
 	}
@@ -152,7 +188,7 @@ func availableWorkerRegistry(store workerselect.Store, workspaceID string, provi
 	if runtime != tools.ToolRuntimeLocalSystem {
 		return tools.Registry{}, false
 	}
-	workers, err := store.ListWorkers(managedagents.ListWorkersInput{
+	workers, err := managedagents.ListWorkersWithContext(ctx, store, managedagents.ListWorkersInput{
 		WorkspaceID: workspaceID,
 		Status:      managedagents.WorkerStatusOnline,
 	})

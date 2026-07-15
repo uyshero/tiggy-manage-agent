@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,10 +24,13 @@ import (
 	"tiggy-manage-agent/internal/httpapi"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/serverconfig"
+	"tiggy-manage-agent/internal/skillmarketplace"
+	"tiggy-manage-agent/internal/skillretention"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -59,9 +64,69 @@ func main() {
 		logger.Error("load server config failed", "error", err)
 		os.Exit(1)
 	}
-
 	store, cleanup := mustOpenStore(config.DatabaseURL, logger)
 	defer cleanup()
+	if err := validateProductionDatabaseTenantIsolation(config.Environment, store); err != nil {
+		logger.Error("validate production database tenant isolation failed", "error", err)
+		os.Exit(1)
+	}
+	var authorizationSink observability.AuthorizationDecisionSink
+	var securityAuditExporter *observability.SecurityAuditExporter
+	var securityAuditPipeline *observability.DurableSecurityAuditPipeline
+	if strings.TrimSpace(config.Observability.SecurityAudit.OTLPEndpoint) == "" {
+		logger.Info("security audit OTLP exporter disabled")
+	} else if config.Observability.SecurityAudit.Durable {
+		outboxStore, ok := store.(managedagents.SecurityAuditOutboxStore)
+		if !ok {
+			logger.Error("durable security audit requires an outbox-capable store")
+			os.Exit(1)
+		}
+		securityAuditPipeline, err = observability.NewDurableSecurityAuditPipeline(observability.DurableSecurityAuditConfig{
+			Store: outboxStore, Endpoint: config.Observability.SecurityAudit.OTLPEndpoint,
+			Token: config.Observability.SecurityAudit.OTLPToken, IntegrityKey: config.Observability.SecurityAudit.IntegrityKey,
+			IntegrityKeyID: config.Observability.SecurityAudit.IntegrityKeyID,
+			IntegrityKeys:  config.Observability.SecurityAudit.IntegrityKeys,
+			ServiceName:    "tiggy-manage-agent", BatchSize: config.Observability.SecurityAudit.BatchSize,
+			PollInterval:      config.Observability.SecurityAudit.WorkerInterval,
+			LeaseDuration:     config.Observability.SecurityAudit.LeaseDuration,
+			MaxAttempts:       config.Observability.SecurityAudit.MaxAttempts,
+			RetryInitialDelay: config.Observability.SecurityAudit.RetryInitialDelay,
+			RetryMaxDelay:     config.Observability.SecurityAudit.RetryMaxDelay,
+			Retention:         config.Observability.SecurityAudit.Retention,
+			PruneInterval:     config.Observability.SecurityAudit.PruneInterval,
+			PruneLimit:        config.Observability.SecurityAudit.PruneLimit,
+			HTTPClient:        &http.Client{Timeout: config.Observability.SecurityAudit.HTTPTimeout}, Logger: logger,
+		})
+		if err != nil {
+			logger.Error("build durable security audit pipeline failed", "error", err)
+			os.Exit(1)
+		}
+		authorizationSink = securityAuditPipeline
+		logger.Info("durable security audit OTLP pipeline enabled",
+			"endpoint", config.Observability.SecurityAudit.OTLPEndpoint,
+			"batch_size", config.Observability.SecurityAudit.BatchSize,
+			"retention", config.Observability.SecurityAudit.Retention,
+		)
+	} else {
+		securityAuditExporter, err = observability.NewSecurityAuditExporter(observability.SecurityAuditExporterConfig{
+			Endpoint: config.Observability.SecurityAudit.OTLPEndpoint,
+			Token:    config.Observability.SecurityAudit.OTLPToken, ServiceName: "tiggy-manage-agent",
+			QueueSize:     config.Observability.SecurityAudit.QueueSize,
+			BatchSize:     config.Observability.SecurityAudit.BatchSize,
+			FlushInterval: config.Observability.SecurityAudit.FlushInterval,
+			HTTPClient:    &http.Client{Timeout: config.Observability.SecurityAudit.HTTPTimeout}, Logger: logger,
+		})
+		if err != nil {
+			logger.Error("build security audit OTLP exporter failed", "error", err)
+			os.Exit(1)
+		}
+		authorizationSink = securityAuditExporter
+		logger.Info("in-memory security audit OTLP exporter enabled",
+			"endpoint", config.Observability.SecurityAudit.OTLPEndpoint,
+			"queue_size", config.Observability.SecurityAudit.QueueSize,
+			"batch_size", config.Observability.SecurityAudit.BatchSize,
+		)
+	}
 	if err := ensureDefaultLLMProvider(store, config, logger); err != nil {
 		logger.Error("ensure default llm provider failed", "error", err)
 		os.Exit(1)
@@ -71,6 +136,30 @@ func main() {
 		os.Exit(1)
 	}
 	objectStore := buildObjectStore(config, logger)
+	if postgresStore, ok := store.(*managedagents.PostgresStore); ok {
+		if err := postgresStore.ConfigureSkillPackageStorage(objectStore, config.ObjectStore.Bucket); err != nil {
+			logger.Error("configure skills package storage failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("using standard SKILL.md package storage",
+			"object_store_provider", config.ObjectStore.Provider,
+			"object_store_bucket", config.ObjectStore.Bucket,
+		)
+	}
+	binaryScanner, err := skillmarketplace.NewBinaryScanner(skillmarketplace.BinaryScannerConfig{
+		Provider: config.Skills.BinaryScanner.Provider, Endpoint: config.Skills.BinaryScanner.Endpoint,
+		Token: config.Skills.BinaryScanner.Token, Timeout: config.Skills.BinaryScanner.Timeout,
+		MaxAttempts: config.Skills.BinaryScanner.MaxAttempts, PollInterval: config.Skills.BinaryScanner.PollInterval,
+	})
+	if err != nil {
+		logger.Error("build skills binary scanner failed", "provider", config.Skills.BinaryScanner.Provider, "error", err)
+		os.Exit(1)
+	}
+	if binaryScanner == nil {
+		logger.Info("using built-in skills binary scanner")
+	} else {
+		logger.Info("using external skills binary scanner", "provider", binaryScanner.Provider(), "endpoint", config.Skills.BinaryScanner.Endpoint)
+	}
 	executionResolver, executionCleanup := buildExecutionResolver(config, store, objectStore, logger)
 	defer executionCleanup()
 	turnRunner, runnerCleanup, err := buildRunner(config, store, objectStore, executionResolver, logger)
@@ -80,10 +169,57 @@ func main() {
 	}
 	defer runnerCleanup()
 
+	serverContext, cancelServerContext := context.WithCancel(context.Background())
+	defer cancelServerContext()
 	server := &http.Server{
-		Addr:              config.HTTPAddr,
-		Handler:           httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAndAuth(store, turnRunner, logger, config.LLM.Provider, config.LLM.Model, objectStore, executionResolver, config.Worker.AuthToken, config.Worker.ControlAuthToken),
+		Addr: config.HTTPAddr,
+		Handler: httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyAndBinaryScanner(
+			store,
+			turnRunner,
+			logger,
+			config.LLM.Provider,
+			config.LLM.Model,
+			objectStore,
+			executionResolver,
+			config.Worker.AuthToken,
+			config.Worker.ControlAuthToken,
+			httpapi.AuthConfig{
+				Mode: config.Auth.Mode, JWTSecret: config.Auth.JWTSecret, JWTIssuer: config.Auth.JWTIssuer,
+				JWTAudience: config.Auth.JWTAudience, GatewayToken: config.Auth.GatewayToken,
+				OIDCIssuer: config.Auth.OIDCIssuer, OIDCAudience: config.Auth.OIDCAudience,
+				OIDCJWKSURL: config.Auth.OIDCJWKSURL, OIDCSigningAlgs: config.Auth.OIDCSigningAlgs,
+				OIDCHTTPTimeout:      time.Duration(config.Auth.OIDCHTTPTimeoutSecs) * time.Second,
+				OIDCRefreshInterval:  time.Duration(config.Auth.OIDCRefreshIntervalSecs) * time.Second,
+				OIDCMaxStale:         time.Duration(config.Auth.OIDCMaxStaleSecs) * time.Second,
+				OIDCClaimMapping:     config.Auth.OIDCClaimMapping,
+				OIDCWebLoginEnabled:  config.Auth.OIDCWebLoginEnabled,
+				OIDCWebClientID:      config.Auth.OIDCWebClientID,
+				OIDCWebClientSecret:  config.Auth.OIDCWebClientSecret,
+				OIDCWebRedirectURL:   config.Auth.OIDCWebRedirectURL,
+				OIDCWebPostLogoutURL: config.Auth.OIDCWebPostLogoutURL,
+				OIDCWebSessionSecret: config.Auth.OIDCWebSessionSecret,
+				OIDCCLIClientID:      config.Auth.OIDCCLIClientID,
+				CookieTrustedOrigins: config.Auth.CookieTrustedOrigins,
+				GatewayTrustedCIDRs:  config.Auth.GatewayTrustedCIDRs,
+				WorkerWorkspaceID:    config.Worker.AuthWorkspaceID,
+				AuthorizationSink:    authorizationSink,
+			},
+			httpapi.SubagentPolicy{
+				MaxDepth:              config.Subagent.MaxDepth,
+				MaxChildrenPerTurn:    config.Subagent.MaxChildrenPerTurn,
+				MaxChildrenPerSession: config.Subagent.MaxChildrenPerSession,
+				WorkspaceActiveLimit:  config.Subagent.WorkspaceActiveLimit,
+				UserActiveLimit:       config.Subagent.UserActiveLimit,
+				WorkspaceQueuedLimit:  config.Subagent.WorkspaceQueuedLimit,
+				UserQueuedLimit:       config.Subagent.UserQueuedLimit,
+				QueueTimeoutSeconds:   config.Subagent.QueueTimeoutSeconds,
+			},
+			binaryScanner,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
+		BaseContext: func(net.Listener) context.Context {
+			return serverContext
+		},
 	}
 	listener, err := net.Listen("tcp", config.HTTPAddr)
 	if err != nil {
@@ -100,6 +236,13 @@ func main() {
 	stopWorkerReaper := startWorkerReaper(config.Worker.Reaper, store, logger)
 	stopWorkerWorkReaper := startWorkerWorkReaper(config.Worker.WorkReaper, store, logger)
 	stopObservabilityRetry := startObservabilityExporterRetry(config.Observability.ExporterRetry, store, logger)
+	stopSecurityAuditWorker := startSecurityAuditWorker(securityAuditPipeline)
+	stopSkillAssetGC := func() {}
+	if retentionStore, ok := store.(skillretention.Store); ok {
+		stopSkillAssetGC = startSkillAssetGC(config.Skills.AssetRetention, retentionStore, objectStore, logger)
+	} else {
+		logger.Warn("skill asset GC worker disabled: store does not support retention")
+	}
 	stopTraceIndexRetention := func() {}
 	if traceStore, ok := store.(traceIndexRetentionStore); ok {
 		stopTraceIndexRetention = startTraceIndexRetention(config.Observability.TraceIndexRetention, traceStore, logger)
@@ -116,7 +259,10 @@ func main() {
 	}()
 
 	<-shutdownSignal()
+	// Shutdown waits for active SSE requests, so cancel their shared base context first.
+	cancelServerContext()
 	stopTraceIndexRetention()
+	stopSkillAssetGC()
 	stopObservabilityRetry()
 	stopWorkerReaper()
 	stopWorkerWorkReaper()
@@ -129,8 +275,94 @@ func main() {
 		logger.Error("server shutdown failed", "error", err)
 		os.Exit(1)
 	}
+	stopSecurityAuditWorker()
+	if securityAuditExporter != nil {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := securityAuditExporter.Close(flushCtx); err != nil {
+			logger.Warn("security audit OTLP exporter flush failed", "error", err)
+		}
+		flushCancel()
+	}
 
 	logger.Info("server stopped")
+}
+
+func startSecurityAuditWorker(pipeline *observability.DurableSecurityAuditPipeline) func() {
+	if pipeline == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pipeline.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func startSkillAssetGC(config serverconfig.SkillsAssetRetentionConfig, store skillretention.Store, objectStore objectstore.Client, logger *slog.Logger) func() {
+	if !config.WorkerEnabled {
+		logger.Info("skill asset GC worker disabled")
+		return func() {}
+	}
+	service, err := skillretention.NewService(store, objectStore, skillretention.Policy{
+		Enabled: config.Enabled, RetentionDays: config.RetentionDays, DeleteLimit: config.DeleteLimit,
+	})
+	if err != nil {
+		logger.Error("skill asset GC worker configuration invalid", "error", err)
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runAll := func() {
+		workspaceIDs, err := store.ListSkillAssetGCWorkspaceIDs(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				logger.Warn("skill asset GC workspace listing failed", "error", err)
+			}
+			return
+		}
+		for _, workspaceID := range workspaceIDs {
+			if ctx.Err() != nil {
+				return
+			}
+			effective, err := service.EffectivePolicy(ctx, workspaceID)
+			if err != nil {
+				logger.Warn("skill asset GC policy resolution failed", "workspace_id", workspaceID, "error", err)
+				continue
+			}
+			if !effective.Config.Enabled {
+				continue
+			}
+			result, err := service.Run(ctx, skillretention.RunRequest{WorkspaceID: workspaceID, RequestedBy: "system:skill-asset-gc"})
+			if err != nil {
+				if !errors.Is(err, skillretention.ErrConflict) && ctx.Err() == nil {
+					logger.Warn("skill asset GC run failed", "workspace_id", workspaceID, "error", err)
+				}
+				continue
+			}
+			logger.Info("skill asset GC run completed", "workspace_id", workspaceID, "run_id", result.Run.ID,
+				"status", result.Run.Status, "deleted_count", result.Run.DeletedCount, "failed_count", result.Run.FailedCount,
+				"bytes_deleted", result.Run.BytesDeleted)
+		}
+	}
+	go func() {
+		runAll()
+		ticker := time.NewTicker(config.WorkerInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runAll()
+			}
+		}
+	}()
+	logger.Info("skill asset GC worker enabled", "interval", config.WorkerInterval)
+	return cancel
 }
 
 func parseServerCLIOptions(args []string) (serverCLIOptions, error) {
@@ -526,6 +758,20 @@ func mustOpenStore(databaseURL string, logger *slog.Logger) (managedagents.Store
 	}
 }
 
+func validateProductionDatabaseTenantIsolation(environment string, store any) error {
+	environment = strings.ToLower(strings.TrimSpace(environment))
+	if environment != "production" && environment != "prod" {
+		return nil
+	}
+	validator, ok := store.(managedagents.DatabaseTenantIsolationValidator)
+	if !ok {
+		return errors.New("production database store does not support tenant isolation validation")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return validator.ValidateDatabaseTenantIsolation(ctx)
+}
+
 func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Config, logger *slog.Logger) error {
 	providerType := llm.ResolveProviderType(config.LLM.Provider, config.LLM.ProviderType)
 	baseURL := config.LLM.BaseURL
@@ -550,7 +796,7 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 		"llm_base_url", provider.BaseURL,
 		"llm_api_key_env", provider.APIKeyEnv,
 	)
-	model, err := store.UpsertLLMModel(managedagents.UpsertLLMModelInput{
+	model, err := ensureDefaultLLMModel(store, managedagents.UpsertLLMModelInput{
 		ProviderID:          provider.ID,
 		Model:               config.LLM.Model,
 		ContextWindowTokens: config.Context.DefaultWindowTokens,
@@ -565,6 +811,24 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 		"context_budget_ratio_percent", managedagents.ContextBudgetRatioPercent,
 	)
 	return nil
+}
+
+type defaultLLMModelStore interface {
+	ListLLMModels(providerID string) ([]managedagents.LLMModel, error)
+	UpsertLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error)
+}
+
+func ensureDefaultLLMModel(store defaultLLMModelStore, input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
+	models, err := store.ListLLMModels(input.ProviderID)
+	if err != nil {
+		return managedagents.LLMModel{}, err
+	}
+	for _, model := range models {
+		if model.Model == input.Model {
+			return model, nil
+		}
+	}
+	return store.UpsertLLMModel(input)
 }
 
 func ensureBuiltinGeneralAgent(store managedagents.Store, config serverconfig.Config, logger *slog.Logger) error {
@@ -649,18 +913,72 @@ func buildExecutionResolver(config serverconfig.Config, store managedagents.Stor
 	}, containerManager.Close
 }
 
+func buildMCPHTTPBaseClient(caBundlePath string) (*http.Client, error) {
+	caBundlePath = strings.TrimSpace(caBundlePath)
+	if caBundlePath == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(caBundlePath)
+	if err != nil {
+		return nil, fmt.Errorf("read MCP HTTP CA bundle: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("MCP HTTP CA bundle contains no valid PEM certificates")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	return &http.Client{Transport: transport}, nil
+}
+
 func buildRunner(config serverconfig.Config, store managedagents.Store, objectStore objectstore.Client, executionResolver execution.ProviderResolver, logger *slog.Logger) (runner.Runner, func(), error) {
 	llmManager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
-		Provider:     config.LLM.Provider,
-		ProviderType: config.LLM.ProviderType,
-		Model:        config.LLM.Model,
-		BaseURL:      config.LLM.BaseURL,
-		APIKey:       config.LLM.APIKey,
+		Provider:       config.LLM.Provider,
+		ProviderType:   config.LLM.ProviderType,
+		Model:          config.LLM.Model,
+		BaseURL:        config.LLM.BaseURL,
+		APIKey:         config.LLM.APIKey,
+		MaxAttempts:    config.LLM.MaxAttempts,
+		RetryBaseDelay: config.LLM.RetryBaseDelay,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	_, llmProvider, llmModel := llmManager.Current()
+	mcpHTTPBaseClient, err := buildMCPHTTPBaseClient(config.MCP.StreamableHTTPHost.CABundlePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	mcpHTTPEgressPolicy, err := mcp.NewEgressPolicy(mcp.EgressPolicyConfig{
+		AllowHTTP:            config.MCP.StreamableHTTPHost.EgressAllowHTTP,
+		AllowPrivateNetworks: config.MCP.StreamableHTTPHost.EgressAllowPrivateNetworks,
+		AllowedHosts:         config.MCP.StreamableHTTPHost.EgressAllowedHosts,
+		AllowedCIDRs:         config.MCP.StreamableHTTPHost.EgressAllowedCIDRs,
+		BaseHTTPClient:       mcpHTTPBaseClient,
+		OnBlock: func(event mcp.EgressBlockEvent) {
+			logger.Warn("mcp_http_egress_blocked", "reason", event.Reason)
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure MCP HTTP egress policy: %w", err)
+	}
+	mcpRuntimeGuard := mcp.NewRuntimeGuard(mcp.RuntimeGuardOptions{})
+	mcpHost := mcp.NewStdioHost(mcp.StdioHostOptions{
+		IdleTimeout:   config.MCP.StdioHost.IdleTimeout,
+		SweepInterval: config.MCP.StdioHost.SweepInterval,
+		MaxSessions:   config.MCP.StdioHost.MaxSessions,
+		Logger:        logger,
+	})
+	mcpHTTPHost := mcp.NewStreamableHTTPHost(mcp.StreamableHTTPHostOptions{
+		IdleTimeout:   config.MCP.StreamableHTTPHost.IdleTimeout,
+		SweepInterval: config.MCP.StreamableHTTPHost.SweepInterval,
+		MaxSessions:   config.MCP.StreamableHTTPHost.MaxSessions,
+		EgressPolicy:  mcpHTTPEgressPolicy,
+		Logger:        logger,
+	})
 
 	turnExecutor := runner.AgentRuntimeTurnExecutor{
 		Runtime: agentruntime.DemoRuntime{
@@ -672,6 +990,9 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		ArtifactBucket:   config.ObjectStore.Bucket,
 		Timeout:          config.Turn.Timeout,
 		ProviderResolver: executionResolver,
+		MCPHost:          mcpHost,
+		MCPHTTPHost:      mcpHTTPHost,
+		MCPRuntimeGuard:  mcpRuntimeGuard,
 	}
 	worker := runner.NewWorkerRunnerWithConfig(store, turnExecutor, runner.WorkerRunnerConfig{
 		WorkerCount:       config.Turn.WorkerCount,
@@ -692,7 +1013,33 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		"lease_duration", config.Turn.LeaseDuration.String(),
 		"heartbeat_interval", config.Turn.HeartbeatInterval.String(),
 	)
-	return worker, worker.Close, nil
+	logger.Info("using server MCP stdio host",
+		"scope", "session_agent_config",
+		"idle_timeout", config.MCP.StdioHost.IdleTimeout.String(),
+		"sweep_interval", config.MCP.StdioHost.SweepInterval.String(),
+		"max_sessions", config.MCP.StdioHost.MaxSessions,
+	)
+	logger.Info("using server MCP streamable_http host",
+		"scope", "session_agent_config",
+		"idle_timeout", config.MCP.StreamableHTTPHost.IdleTimeout.String(),
+		"sweep_interval", config.MCP.StreamableHTTPHost.SweepInterval.String(),
+		"max_sessions", config.MCP.StreamableHTTPHost.MaxSessions,
+		"egress_allow_http", config.MCP.StreamableHTTPHost.EgressAllowHTTP,
+		"egress_allow_private_networks", config.MCP.StreamableHTTPHost.EgressAllowPrivateNetworks,
+		"egress_allowed_host_count", len(config.MCP.StreamableHTTPHost.EgressAllowedHosts),
+		"egress_allowed_cidr_count", len(config.MCP.StreamableHTTPHost.EgressAllowedCIDRs),
+	)
+	logger.Info("using server MCP runtime guard",
+		"default_timeout", mcp.DefaultRuntimeTimeout.String(),
+		"default_max_concurrency", mcp.DefaultRuntimeMaxConcurrency,
+		"default_failure_threshold", mcp.DefaultRuntimeFailureThreshold,
+		"default_cooldown", mcp.DefaultRuntimeCooldown.String(),
+	)
+	return worker, func() {
+		worker.Close()
+		mcpHost.Close()
+		mcpHTTPHost.Close()
+	}, nil
 }
 
 func shutdownSignal() <-chan os.Signal {

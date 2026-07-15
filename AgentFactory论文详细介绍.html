@@ -1,0 +1,202 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AgentFactory论文详细介绍</title>
+    <style>
+        body {
+            font-family: 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            line-height: 1.8;
+            margin: 50px auto;
+            max-width: 800px;
+            padding: 0 30px;
+            color: #2c3e50;
+        }
+        h1 {
+            font-size: 2.2em;
+            text-align: center;
+            color: #1a365d;
+            border-bottom: 3px solid #3182ce;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+        }
+        h2 {
+            font-size: 1.6em;
+            color: #2b6cb0;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+            margin-top: 35px;
+            margin-bottom: 20px;
+        }
+        h3 {
+            font-size: 1.3em;
+            color: #2c5282;
+            margin-top: 25px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 25px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 14px 18px;
+            text-align: left;
+        }
+        th {
+            background: linear-gradient(135deg, #3182ce, #2c5282);
+            color: white;
+            font-weight: 600;
+        }
+        tr:nth-child(even) {
+            background-color: #f7fafc;
+        }
+        tr:hover {
+            background-color: #edf2f7;
+        }
+        code {
+            background-color: #f7fafc;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            color: #e53e3e;
+            font-size: 0.95em;
+        }
+        pre {
+            background-color: #1a202c;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            color: #e2e8f0;
+        }
+        pre code {
+            background: none;
+            color: #e2e8f0;
+            padding: 0;
+        }
+        hr {
+            border: none;
+            border-top: 2px solid #e2e8f0;
+            margin: 35px 0;
+        }
+        ul {
+            padding-left: 25px;
+        }
+        li {
+            margin: 10px 0;
+        }
+        strong {
+            color: #2c5282;
+        }
+        a {
+            color: #3182ce;
+            text-decoration: none;
+            border-bottom: 1px dotted #3182ce;
+        }
+        a:hover {
+            color: #2c5282;
+            border-bottom-style: solid;
+        }
+        .checkmark {
+            color: #38a169;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<h1>AgentFactory: A Self-Evolving Framework Through Executable Subagent Accumulation and Reuse</h1>
+<h2>基本信息</h2>
+<ul>
+<li><strong>arXiv编号</strong>：2603.18000</li>
+<li><strong>发表时间</strong>：2026年3月18日</li>
+<li><strong>作者</strong>：Zhang Zhang, Shuqi Lu, Hongjin Qian, Di He, Zheng Liu</li>
+<li><strong>开源代码</strong>：已提供GitHub链接</li>
+<li><strong>演示视频</strong>：已提供演示视频链接</li>
+</ul>
+<hr />
+<h2>核心问题</h2>
+<p>现有LLM-based agent的自进化方法主要将成功经验记录为<strong>文本提示词或反思（textual prompts or reflections）</strong>，这种方式存在根本缺陷：在复杂场景下无法可靠保证高效的任务重新执行。</p>
+<hr />
+<h2>核心创新：从"文本经验"到"可执行子代理"</h2>
+<p>AgentFactory提出了一种全新的自进化范式：</p>
+<ul>
+<li><strong>不将成功经验保存为文本，而是保存为可执行的子代理代码（executable subagent code）</strong></li>
+<li>这些子代理会根据执行反馈持续优化，随着任务数量增加变得越来越健壮和高效</li>
+<li>保存的子代理是纯Python代码，带有标准化文档，可在任何支持Python的系统间移植</li>
+</ul>
+<hr />
+<h2>工作机制</h2>
+<h3>1. 技能积累循环</h3>
+<pre><code>完成任务 → 生成可执行子代理模块 → 测试验证 → 版本化 → 添加到能力库
+</code></pre>
+<h3>2. 关键特性</h3>
+<ul>
+<li><strong>版本化管理</strong>：每个技能都有版本号，支持回滚和迭代</li>
+<li><strong>自动测试</strong>：子代理生成后经过自动化测试验证</li>
+<li><strong>技能组合</strong>：新任务可以组合调用已积累的多个技能</li>
+<li><strong>持续优化</strong>：根据实际执行反馈不断精炼已有技能</li>
+</ul>
+<hr />
+<h2>核心优势</h2>
+<h3>相比传统文本记忆的突破：</h3>
+<table>
+<thead>
+<tr>
+<th>传统方法</th>
+<th>AgentFactory</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>保存为文本反思/提示词</td>
+<td>保存为可执行代码</td>
+</tr>
+<tr>
+<td>依赖LLM重新解释理解</td>
+<td>直接执行，保证一致性</td>
+</tr>
+<tr>
+<td>复杂场景容易失效</td>
+<td>经过验证，可靠复用</td>
+</tr>
+<tr>
+<td>无法保证执行效率</td>
+<td>随迭代不断优化效率</td>
+</tr>
+</tbody>
+</table>
+<h3>实际效果：</h3>
+<ul>
+<li>✅ <strong>能力持续积累</strong>：可执行子代理库随时间不断增长和完善</li>
+<li>✅ <strong>任务难度降低</strong>：类似任务所需的努力逐步减少</li>
+<li>✅ <strong>无需人工干预</strong>：完全自动化的进化过程</li>
+<li>✅ <strong>跨系统可移植</strong>：纯Python代码，标准化文档</li>
+</ul>
+<hr />
+<h2>技术地位</h2>
+<p>AgentFactory代表了2026年AI Agent自进化领域的三大主流方向之一：</p>
+<ol>
+<li><strong>Meta HyperAgents</strong>：基于种群的达尔文式进化（补丁式自修改）</li>
+<li><strong>DARWIN框架</strong>：agent级别的神经网络权重和架构自改写</li>
+<li><strong>AgentFactory</strong>：通过"可执行技能"实现的模块化自进化</li>
+</ol>
+<hr />
+<h2>核心洞察</h2>
+<p>论文与同期研究共同验证了一个关键结论：</p>
+<blockquote>
+<p><strong>"AI自进化仅在结果可验证的领域有效"</strong></p>
+</blockquote>
+<p>自进化需要客观的评分函数——在成功难以量化的领域，系统无法可靠地自我改进。</p>
+<hr />
+<h2>资源链接</h2>
+<ul>
+<li>arXiv原文：https://arxiv.org/abs/2603.18000</li>
+<li>开源代码：论文中提供的GitHub链接</li>
+<li>演示视频：论文中提供的视频链接</li>
+</ul>
+<hr />
+<p><strong>总结</strong>：这篇论文标志着AI Agent从"文本记忆式进化"向"可执行技能积累"的范式转变，为构建真正能够持续学习和成长的自治系统提供了新的技术路径。</p>
+</body>
+</html>

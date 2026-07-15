@@ -8,7 +8,7 @@ import (
 
 func TestCommandSessionRuntimeUpdateSandboxSettings(t *testing.T) {
 	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
-		if r.Method != http.MethodPatch || r.URL.Path != "/v1/sessions/sesn_000001/runtime-settings" {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v2/sessions/sesn_000001/runtime-settings" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		var body map[string]any

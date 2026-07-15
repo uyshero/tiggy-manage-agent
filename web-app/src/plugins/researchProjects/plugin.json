@@ -1,0 +1,47 @@
+{
+  "protocol_version": "tma.workbench_plugin.v1",
+  "id": "com.tma.research-projects",
+  "name": "科研项目",
+  "description": "组织长期研究项目、已有任务成果与项目摘要",
+  "version": "0.1.0",
+  "entry": "./index.jsx",
+  "surfaces": ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"],
+  "engines": {
+    "workbench_api": ">=1.0.0 <2.0.0",
+    "design_system": ">=1.0.0 <2.0.0"
+  },
+  "permissions": [],
+  "contributes": {
+    "navigation": [
+      {
+        "id": "projects",
+        "group": "workspace",
+        "title": "科研项目",
+        "route": "/plugins/com.tma.research-projects/projects",
+        "order": 120
+      }
+    ],
+    "routes": [
+      {
+        "id": "projects",
+        "path": "/plugins/com.tma.research-projects/projects",
+        "component": "ResearchProjectsPage",
+        "required_permissions": []
+      }
+    ],
+    "commands": [
+      {
+        "id": "com.tma.research-projects.create-project",
+        "title": "创建科研项目",
+        "risk": "write",
+        "required_permissions": []
+      },
+      {
+        "id": "com.tma.research-projects.export-brief",
+        "title": "导出项目摘要",
+        "risk": "read",
+        "required_permissions": []
+      }
+    ]
+  }
+}

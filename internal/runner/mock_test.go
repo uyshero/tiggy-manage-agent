@@ -14,6 +14,7 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -313,6 +314,22 @@ func TestWorkerRunnerPersistentQueueRestoresInterventionResume(t *testing.T) {
 	}
 }
 
+func TestWorkerRunnerPersistentQueueReapsOrphansBeforeClaimingWork(t *testing.T) {
+	store := newPersistentMockStore(managedagents.SessionTurnWork{
+		SessionID: "sesn_000001", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`),
+	})
+	store.setReaped(managedagents.ReapedSubagent{
+		Session: managedagents.Session{ID: "sesn_orphan", Status: managedagents.SessionStatusTerminated},
+		Reason:  "orphaned_parent_terminated",
+	})
+	executed := make(chan TurnRequest, 1)
+	runner := NewWorkerRunnerWithConfig(store, recordingExecutor{executed: executed}, persistentRunnerTestConfig(1), nil)
+	defer runner.Close()
+
+	<-executed
+	waitFor(t, func() bool { return store.orphanReapCalls() > 0 })
+}
+
 func TestWorkerRunnerPostProcessingDoesNotBlockTurnConsumer(t *testing.T) {
 	store := newPersistentMockStore(
 		managedagents.SessionTurnWork{SessionID: "sesn_000001", TurnID: "turn_000001", UserEventSeq: 4, UserPayload: json.RawMessage(`{"content":[]}`)},
@@ -346,6 +363,10 @@ type mockStore struct {
 	history          []managedagents.ConversationMessage
 	runtimeSettings  json.RawMessage
 	toolsConfig      json.RawMessage
+	skillsConfig     json.RawMessage
+	skillRecord      skills.Skill
+	skillVersion     skills.Version
+	skillUsages      []skills.Usage
 	workers          []managedagents.Worker
 	workerWork       map[string]managedagents.WorkerWork
 	enqueuedWork     []managedagents.EnqueueWorkerWorkInput
@@ -414,8 +435,26 @@ func (s *mockStore) GetAgent(string) (managedagents.Agent, error) {
 	return managedagents.Agent{}, nil
 }
 
+func (s *mockStore) GetAgentScoped(id string, scope managedagents.AccessScope) (managedagents.Agent, error) {
+	if _, err := managedagents.ValidateAccessScope(scope); err != nil {
+		return managedagents.Agent{}, err
+	}
+	return s.GetAgent(id)
+}
+
 func (s *mockStore) ListAgents() ([]managedagents.Agent, error) {
 	return nil, nil
+}
+
+func (s *mockStore) ListAgentsScoped(scope managedagents.AccessScope) ([]managedagents.Agent, error) {
+	if _, err := managedagents.ValidateAccessScope(scope); err != nil {
+		return nil, err
+	}
+	return s.ListAgents()
+}
+
+func (s *mockStore) UpdateAgent(managedagents.UpdateAgentInput) (managedagents.Agent, error) {
+	return managedagents.Agent{}, nil
 }
 
 func (s *mockStore) ListAgentConfigVersions(string) ([]managedagents.AgentConfigVersion, error) {
@@ -446,6 +485,14 @@ func (s *mockStore) UpsertLLMProvider(input managedagents.UpsertLLMProviderInput
 	}, nil
 }
 
+func (s *mockStore) CreateLLMProvider(input managedagents.UpsertLLMProviderInput) (managedagents.LLMProvider, error) {
+	return s.UpsertLLMProvider(input)
+}
+
+func (s *mockStore) UpdateLLMProvider(input managedagents.UpdateLLMProviderInput) (managedagents.LLMProvider, error) {
+	return s.UpsertLLMProvider(input.UpsertLLMProviderInput)
+}
+
 func (s *mockStore) GetLLMProvider(string) (managedagents.LLMProvider, error) {
 	return managedagents.LLMProvider{}, nil
 }
@@ -456,6 +503,18 @@ func (s *mockStore) ListLLMProviders() ([]managedagents.LLMProvider, error) {
 
 func (s *mockStore) SetLLMProviderEnabled(string, bool) (managedagents.LLMProvider, error) {
 	return managedagents.LLMProvider{}, nil
+}
+
+func (s *mockStore) SetLLMProviderEnabledIfRevision(string, bool, int64) (managedagents.LLMProvider, error) {
+	return managedagents.LLMProvider{}, nil
+}
+
+func (s *mockStore) DeleteLLMProvider(string) error {
+	return nil
+}
+
+func (s *mockStore) DeleteLLMProviderIfRevision(string, int64) error {
+	return nil
 }
 
 func (s *mockStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
@@ -469,8 +528,24 @@ func (s *mockStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (man
 	}, nil
 }
 
+func (s *mockStore) CreateLLMModel(input managedagents.UpsertLLMModelInput) (managedagents.LLMModel, error) {
+	return s.UpsertLLMModel(input)
+}
+
+func (s *mockStore) UpdateLLMModel(input managedagents.UpdateLLMModelInput) (managedagents.LLMModel, error) {
+	return s.UpsertLLMModel(input.UpsertLLMModelInput)
+}
+
 func (s *mockStore) ListLLMModels(string) ([]managedagents.LLMModel, error) {
 	return nil, nil
+}
+
+func (s *mockStore) DeleteLLMModel(string, string) error {
+	return nil
+}
+
+func (s *mockStore) DeleteLLMModelIfRevision(string, string, int64) error {
+	return nil
 }
 
 func (s *mockStore) CreateEnvironment(managedagents.CreateEnvironmentInput) (managedagents.Environment, error) {
@@ -479,6 +554,74 @@ func (s *mockStore) CreateEnvironment(managedagents.CreateEnvironmentInput) (man
 
 func (s *mockStore) CreateSession(managedagents.CreateSessionInput) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) CreateSubagentSession(managedagents.CreateSubagentSessionInput) (managedagents.Session, error) {
+	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) StartSubagentTurn(managedagents.StartSubagentTurnInput) ([]managedagents.Event, error) {
+	return nil, nil
+}
+
+func (s *mockStore) EnqueueSubagentStart(managedagents.EnqueueSubagentStartInput) (managedagents.SubagentStartRequest, error) {
+	return managedagents.SubagentStartRequest{}, nil
+}
+
+func (s *mockStore) GetPendingSubagentStart(string) (managedagents.SubagentStartRequest, error) {
+	return managedagents.SubagentStartRequest{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) CancelSubagentStart(managedagents.CancelSubagentStartInput) (managedagents.SubagentStartRequest, error) {
+	return managedagents.SubagentStartRequest{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) CreateSubagentTaskGroup(managedagents.CreateSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	return managedagents.SubagentTaskGroup{}, nil
+}
+
+func (s *mockStore) AppendSubagentTaskGroupItem(string, managedagents.AppendSubagentTaskGroupItemInput) (managedagents.SubagentTaskGroupItem, error) {
+	return managedagents.SubagentTaskGroupItem{}, nil
+}
+
+func (s *mockStore) UpdateSubagentTaskGroupItem(string, int, managedagents.UpdateSubagentTaskGroupItemInput) (managedagents.SubagentTaskGroupItem, error) {
+	return managedagents.SubagentTaskGroupItem{}, nil
+}
+
+func (s *mockStore) GetSubagentTaskGroup(string) (managedagents.SubagentTaskGroup, error) {
+	return managedagents.SubagentTaskGroup{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) ListSubagentTaskGroupsByParentSession(string) ([]managedagents.SubagentTaskGroup, error) {
+	return nil, nil
+}
+
+func (s *mockStore) GetSubagentTaskGroupItemBySession(string) (managedagents.SubagentTaskGroupItem, error) {
+	return managedagents.SubagentTaskGroupItem{}, managedagents.ErrNotFound
+}
+
+func (s *mockStore) ListSubagentTaskGroupItems(string) ([]managedagents.SubagentTaskGroupItem, error) {
+	return nil, nil
+}
+
+func (s *mockStore) ListChildSubagentTaskGroups(string, int) ([]managedagents.SubagentTaskGroup, error) {
+	return nil, nil
+}
+
+func (s *mockStore) CancelSubagentTaskGroup(managedagents.CancelSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	return managedagents.SubagentTaskGroup{}, nil
+}
+
+func (s *mockStore) ReactivateSubagentTaskGroup(managedagents.ReactivateSubagentTaskGroupInput) (managedagents.SubagentTaskGroup, error) {
+	return managedagents.SubagentTaskGroup{}, nil
+}
+
+func (s *mockStore) GetSubagentTaskGroupMetrics(managedagents.GetSubagentTaskGroupMetricsInput) (managedagents.SubagentTaskGroupMetrics, error) {
+	return managedagents.SubagentTaskGroupMetrics{}, nil
+}
+
+func (s *mockStore) GetSubagentMetrics(managedagents.GetSubagentMetricsInput) (managedagents.SubagentMetrics, error) {
+	return managedagents.SubagentMetrics{}, nil
 }
 
 func (s *mockStore) GetSession(sessionID string) (managedagents.Session, error) {
@@ -493,12 +636,65 @@ func (s *mockStore) GetSession(sessionID string) (managedagents.Session, error) 
 	return managedagents.Session{}, managedagents.ErrNotFound
 }
 
+func (s *mockStore) GetSessionScoped(sessionID string, scope managedagents.AccessScope) (managedagents.Session, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.Session{}, err
+	}
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return managedagents.Session{}, err
+	}
+	if session.WorkspaceID != "" && session.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if scope.OwnerID != "" && session.OwnerID != "" && session.OwnerID != scope.OwnerID {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	return session, nil
+}
+
 func (s *mockStore) ListSessions(managedagents.ListSessionsInput) ([]managedagents.Session, error) {
 	return nil, nil
 }
 
+func (s *mockStore) ListSessionsScoped(input managedagents.ListSessionsInput, scope managedagents.AccessScope) ([]managedagents.Session, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	input.WorkspaceID = scope.WorkspaceID
+	input.OwnerID = scope.OwnerID
+	return s.ListSessions(input)
+}
+
 func (s *mockStore) UpdateSessionRuntimeSettings(string, managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) UpdateSessionMetadata(id string, input managedagents.UpdateSessionMetadataInput) (managedagents.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sessions == nil {
+		return managedagents.Session{}, nil
+	}
+	session, ok := s.sessions[id]
+	if !ok {
+		return managedagents.Session{}, managedagents.ErrNotFound
+	}
+	if input.Pinned != nil {
+		if *input.Pinned {
+			now := time.Now().UTC()
+			session.PinnedAt = &now
+		} else {
+			session.PinnedAt = nil
+		}
+	}
+	if input.Tags != nil {
+		session.Tags = append([]string(nil), (*input.Tags)...)
+	}
+	s.sessions[id] = session
+	return session, nil
 }
 
 func (s *mockStore) UpgradeSessionAgentConfig(string, managedagents.UpgradeSessionAgentConfigInput) (managedagents.UpgradeSessionAgentConfigResult, error) {
@@ -554,7 +750,53 @@ func (s *mockStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		SummarySourceUntilSeq: 2,
 		RuntimeSettings:       append(json.RawMessage(nil), s.runtimeSettings...),
 		Tools:                 append(json.RawMessage(nil), s.toolsConfig...),
+		Skills:                append(json.RawMessage(nil), s.skillsConfig...),
 	}, nil
+}
+
+func (s *mockStore) CreateSkill(context.Context, skills.CreateSkillInput) (skills.Skill, error) {
+	return skills.Skill{}, errors.New("unsupported")
+}
+
+func (s *mockStore) GetSkill(context.Context, string) (skills.Skill, error) {
+	return s.skillRecord, nil
+}
+
+func (s *mockStore) GetSkillByIdentifier(_ context.Context, _ string, identifier string) (skills.Skill, error) {
+	if identifier != s.skillRecord.Identifier {
+		return skills.Skill{}, managedagents.ErrNotFound
+	}
+	return s.skillRecord, nil
+}
+
+func (s *mockStore) ListSkills(context.Context, skills.ListSkillsInput) ([]skills.Skill, error) {
+	return []skills.Skill{s.skillRecord}, nil
+}
+
+func (s *mockStore) ArchiveSkill(context.Context, string) (skills.Skill, error) {
+	return skills.Skill{}, errors.New("unsupported")
+}
+
+func (s *mockStore) CreateSkillVersion(context.Context, skills.CreateVersionInput) (skills.Version, error) {
+	return skills.Version{}, errors.New("unsupported")
+}
+
+func (s *mockStore) GetSkillVersion(_ context.Context, skillID string, version int) (skills.Version, error) {
+	if skillID != s.skillVersion.SkillID || version != s.skillVersion.Version {
+		return skills.Version{}, managedagents.ErrNotFound
+	}
+	return s.skillVersion, nil
+}
+
+func (s *mockStore) ListSkillVersions(context.Context, string) ([]skills.Version, error) {
+	return []skills.Version{s.skillVersion}, nil
+}
+
+func (s *mockStore) RecordSkillUsages(_ context.Context, usages []skills.Usage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skillUsages = append(s.skillUsages, usages...)
+	return nil
 }
 
 func (s *mockStore) GetSessionSummary(sessionID string) (managedagents.SessionSummary, error) {
@@ -592,6 +834,10 @@ func (s *mockStore) UpsertSessionSummary(string, managedagents.UpsertSessionSumm
 }
 
 func (s *mockStore) ArchiveSession(string) (managedagents.Session, error) {
+	return managedagents.Session{}, nil
+}
+
+func (s *mockStore) RestoreSession(string) (managedagents.Session, error) {
 	return managedagents.Session{}, nil
 }
 
@@ -847,6 +1093,21 @@ func (s *mockStore) GetObjectRef(string) (managedagents.ObjectRef, error) {
 	return managedagents.ObjectRef{}, nil
 }
 
+func (s *mockStore) GetObjectRefScoped(id string, scope managedagents.AccessScope) (managedagents.ObjectRef, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.ObjectRef{}, err
+	}
+	object, err := s.GetObjectRef(id)
+	if err != nil {
+		return managedagents.ObjectRef{}, err
+	}
+	if object.WorkspaceID != "" && object.WorkspaceID != scope.WorkspaceID {
+		return managedagents.ObjectRef{}, managedagents.ErrNotFound
+	}
+	return object, nil
+}
+
 func (s *mockStore) CreateSessionArtifact(input managedagents.CreateSessionArtifactInput) (managedagents.SessionArtifact, error) {
 	s.mu.Lock()
 	s.createdArtifacts = append(s.createdArtifacts, input)
@@ -895,6 +1156,21 @@ func (s *mockStore) GetWorker(string) (managedagents.Worker, error) {
 	return managedagents.Worker{}, managedagents.ErrNotFound
 }
 
+func (s *mockStore) GetWorkerScoped(id string, scope managedagents.AccessScope) (managedagents.Worker, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.Worker{}, err
+	}
+	worker, err := s.GetWorker(id)
+	if err != nil {
+		return managedagents.Worker{}, err
+	}
+	if worker.WorkspaceID != "" && worker.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Worker{}, managedagents.ErrNotFound
+	}
+	return worker, nil
+}
+
 func (s *mockStore) ListWorkers(input managedagents.ListWorkersInput) ([]managedagents.Worker, error) {
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
 	workers := []managedagents.Worker{}
@@ -908,6 +1184,15 @@ func (s *mockStore) ListWorkers(input managedagents.ListWorkersInput) ([]managed
 		workers = append(workers, worker)
 	}
 	return workers, nil
+}
+
+func (s *mockStore) ListWorkersScoped(input managedagents.ListWorkersInput, scope managedagents.AccessScope) ([]managedagents.Worker, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return nil, err
+	}
+	input.WorkspaceID = scope.WorkspaceID
+	return s.ListWorkers(input)
 }
 
 func (s *mockStore) HeartbeatWorker(string, managedagents.WorkerHeartbeatInput) (managedagents.Worker, error) {
@@ -955,6 +1240,21 @@ func (s *mockStore) GetWorkerWork(id string) (managedagents.WorkerWork, error) {
 	}
 	work, ok := s.workerWork[id]
 	if !ok {
+		return managedagents.WorkerWork{}, managedagents.ErrNotFound
+	}
+	return work, nil
+}
+
+func (s *mockStore) GetWorkerWorkScoped(id string, scope managedagents.AccessScope) (managedagents.WorkerWork, error) {
+	scope, err := managedagents.ValidateAccessScope(scope)
+	if err != nil {
+		return managedagents.WorkerWork{}, err
+	}
+	work, err := s.GetWorkerWork(id)
+	if err != nil {
+		return managedagents.WorkerWork{}, err
+	}
+	if work.WorkspaceID != "" && work.WorkspaceID != scope.WorkspaceID {
 		return managedagents.WorkerWork{}, managedagents.ErrNotFound
 	}
 	return work, nil
@@ -1092,6 +1392,8 @@ type persistentMockStore struct {
 	queueMu   sync.Mutex
 	pending   []managedagents.SessionTurnWork
 	renewable bool
+	reaped    []managedagents.ReapedSubagent
+	reapCalls int
 }
 
 func newPersistentMockStore(work ...managedagents.SessionTurnWork) *persistentMockStore {
@@ -1120,6 +1422,18 @@ func (s *persistentMockStore) ClaimSessionTurns(input managedagents.ClaimSession
 	return claimed, nil
 }
 
+func (s *persistentMockStore) ReapOrphanSubagents(managedagents.ReapOrphanSubagentsInput) ([]managedagents.ReapedSubagent, error) {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	s.reapCalls++
+	if len(s.reaped) == 0 {
+		return nil, nil
+	}
+	out := append([]managedagents.ReapedSubagent(nil), s.reaped...)
+	s.reaped = nil
+	return out, nil
+}
+
 func (s *persistentMockStore) RenewSessionTurnLease(managedagents.RenewSessionTurnLeaseInput) (bool, error) {
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
@@ -1134,6 +1448,18 @@ func (s *persistentMockStore) setRenewable(value bool) {
 	s.queueMu.Lock()
 	s.renewable = value
 	s.queueMu.Unlock()
+}
+
+func (s *persistentMockStore) setReaped(items ...managedagents.ReapedSubagent) {
+	s.queueMu.Lock()
+	s.reaped = append([]managedagents.ReapedSubagent(nil), items...)
+	s.queueMu.Unlock()
+}
+
+func (s *persistentMockStore) orphanReapCalls() int {
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	return s.reapCalls
 }
 
 type concurrentExecutor struct {

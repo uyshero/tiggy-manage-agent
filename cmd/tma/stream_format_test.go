@@ -3,9 +3,63 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"tiggy-manage-agent/sdk/tma"
 )
+
+func TestStreamSDKEventsFormatsStructuredEvent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/sessions/sesn_1/events/stream" || r.URL.Query().Get("after_seq") != "0" {
+			t.Fatalf("unexpected stream request %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"id\":\"evt_1\",\"session_id\":\"sesn_1\",\"turn_id\":\"turn_1\",\"seq\":1,\"type\":\"user.message\",\"payload\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}],\"turn_id\":\"turn_1\"},\"created_at\":\"2026-07-14T00:00:00Z\"}\n\n")
+	}))
+	defer server.Close()
+
+	client, err := tma.NewClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	stream, err := client.Sessions.Events(ctx, "sesn_1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	output := &cancelAfterWriteBuffer{cancel: cancel}
+	err = streamSDKEvents(ctx, stream, output, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected local cancellation after first event, got %v", err)
+	}
+	if output.String() != "user> hello\n\n" {
+		t.Fatalf("unexpected structured event output %q", output.String())
+	}
+}
+
+type cancelAfterWriteBuffer struct {
+	bytes.Buffer
+	cancel context.CancelFunc
+}
+
+func (w *cancelAfterWriteBuffer) Write(payload []byte) (int, error) {
+	written, err := w.Buffer.Write(payload)
+	w.cancel()
+	return written, err
+}
+
+func (w *cancelAfterWriteBuffer) WriteString(value string) (int, error) {
+	written, err := w.Buffer.WriteString(value)
+	w.cancel()
+	return written, err
+}
 
 func TestStreamSSEPassesThroughOrdinaryEvents(t *testing.T) {
 	input := "id: evt_1\nevent: runtime.unknown\ndata: {\"seq\":2,\"type\":\"runtime.unknown\"}\n\n"
@@ -96,6 +150,57 @@ func TestStreamSSEFormatsLLMDelta(t *testing.T) {
 
 	if !strings.Contains(output.String(), "delta> hello") {
 		t.Fatalf("expected readable delta, got %q", output.String())
+	}
+}
+
+func TestStreamSSEFormatsReasoningChunkWithoutDuplicatingTextChunk(t *testing.T) {
+	input := "id: evt_1\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":6,\"type\":\"runtime.llm_chunk\",\"payload\":{\"turn_id\":\"turn_123\",\"data\":{\"index\":1,\"type\":\"reasoning\",\"text\":\"check evidence\"}}}\n\n" +
+		"id: evt_2\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":7,\"type\":\"runtime.llm_chunk\",\"payload\":{\"turn_id\":\"turn_123\",\"data\":{\"index\":2,\"type\":\"text\",\"text\":\"hello\"}}}\n\n" +
+		"id: evt_3\n" +
+		"event: runtime.llm_delta\n" +
+		"data: {\"seq\":8,\"type\":\"runtime.llm_delta\",\"payload\":{\"turn_id\":\"turn_123\",\"data\":{\"index\":2,\"text\":\"hello\"}}}\n\n"
+
+	var output bytes.Buffer
+	if err := streamSSE(strings.NewReader(input), &output); err != nil {
+		t.Fatalf("stream sse: %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "reasoning> check evidence") || strings.Count(text, "hello") != 1 {
+		t.Fatalf("expected reasoning and one compatible text delta, got %q", text)
+	}
+	if strings.Contains(text, "event: runtime.llm_chunk") {
+		t.Fatalf("expected formatted chunk output, got %q", text)
+	}
+}
+
+func TestStreamSSEHandlesStructuredLLMChunks(t *testing.T) {
+	input := "id: evt_1\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":6,\"type\":\"runtime.llm_chunk\",\"payload\":{\"data\":{\"index\":1,\"type\":\"tool_call\",\"tool_call\":{\"id\":\"call_1\",\"name\":\"default.read_file\",\"arguments\":\"{\"}}}}\n\n" +
+		"id: evt_2\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":7,\"type\":\"runtime.llm_chunk\",\"payload\":{\"data\":{\"index\":2,\"type\":\"usage\",\"usage\":{\"total_tokens\":9}}}}\n\n" +
+		"id: evt_3\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":8,\"type\":\"runtime.llm_chunk\",\"payload\":{\"data\":{\"index\":3,\"type\":\"stop\",\"finish_reason\":\"tool_calls\"}}}\n\n" +
+		"id: evt_4\n" +
+		"event: runtime.llm_chunk\n" +
+		"data: {\"seq\":9,\"type\":\"runtime.llm_chunk\",\"payload\":{\"data\":{\"index\":4,\"type\":\"error\",\"error\":{\"class\":\"server\",\"message\":\"stream unavailable\"}}}}\n\n"
+
+	var output bytes.Buffer
+	if err := streamSSE(strings.NewReader(input), &output); err != nil {
+		t.Fatalf("stream sse: %v", err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "llm-error> stream unavailable") {
+		t.Fatalf("expected readable stream error, got %q", text)
+	}
+	if strings.Contains(text, "tool_call") || strings.Contains(text, "total_tokens") || strings.Contains(text, "finish_reason") || strings.Contains(text, "event: runtime.llm_chunk") {
+		t.Fatalf("expected non-text structured chunks to avoid raw SSE output, got %q", text)
 	}
 }
 

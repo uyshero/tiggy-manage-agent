@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 )
@@ -130,6 +131,17 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 	if err := tools.ValidateWorkInvocation(invocation); err != nil {
 		return workFailure("invalid tool execution payload: " + err.Error())
 	}
+	var environment map[string]string
+	if invocation.EnvironmentEnvelope != "" {
+		cipher, err := envvars.CipherFromEnvironment()
+		if err != nil {
+			return workFailure("managed environment is unavailable on worker: " + err.Error())
+		}
+		environment, err = cipher.OpenMap(invocation.EnvironmentEnvelope, envvars.EnvelopeAssociatedData(work.WorkspaceID, work.SessionID, work.TurnID))
+		if err != nil {
+			return workFailure("decrypt managed environment on worker: " + err.Error())
+		}
+	}
 	registry := e.registry()
 	if _, ok := registry.Get(invocation.Namespace); !ok {
 		return workFailure("unsupported tool namespace: " + invocation.Namespace)
@@ -148,6 +160,7 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 		SessionID:     work.SessionID,
 		EnvironmentID: work.EnvironmentID,
 		TurnID:        work.TurnID,
+		Environment:   environment,
 		Provider:      e.provider(),
 	})
 	exportedFiles, artifactRefs, exportErr := e.collectExportedFiles(ctx, work, tools.Call{
