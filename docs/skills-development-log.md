@@ -290,7 +290,7 @@
 - localhost S3 新发布临时 v1，直接生成 `SKILL.md`、`references/guide.md` 和 archive；实际 GC 删除 3/3 objects、429 bytes，均非 missing。
 - Workbench 在 `1280x720` 与 `390x844` 显示 package format/root/download，页面和详情面板均无横向溢出，console 无 warning/error。
 - 临时 Skill `skl_000062`、policy `sarp_000023`、run `sagcr_000034`、3 tombstones 和 6 条测试 audit 已清理；保留的 4 个历史 versions 均为 `tma.skill-package.v1`。
-- `go test ./...`、package 聚焦 PostgreSQL E2E、HTTP/skillpackage tests、`npm --prefix web-app run build` 和 `git diff --check` 通过。
+- `go test ./...`、package 聚焦 PostgreSQL E2E、HTTP/skillpackage tests、`npm --prefix apps/workbench run build` 和 `git diff --check` 通过。
 
 ## 2026-07-13：Session Artifact 离线 ZIP 导入
 
@@ -410,7 +410,7 @@
 
 - `internal/skills` 覆盖合法输入、脱敏错误、离线引用、Secret 注解、开放 object、legacy compatibility 和 Runtime Resolve。
 - Marketplace parser 覆盖 GitHub/Artifact front matter manifest 保留；service/HTTP 覆盖非法 Enable 不发布 Agent config、合法输入冻结到 binding，以及非法 version Schema 返回 `400` 且不创建 version。
-- `web-app/src/skillInputs.test.js` 覆盖 manifest 解析、控件映射、本地 `$ref`、默认值、可选字段省略、显式 `false`、数字/JSON 转换和逐字段错误。
+- `apps/workbench/src/skillInputs.test.js` 覆盖 manifest 解析、控件映射、本地 `$ref`、默认值、可选字段省略、显式 `false`、数字/JSON 转换和逐字段错误。
 - `go test ./...` 全仓通过，Workbench 58 个 Node tests 均通过；production build 与 `git diff --check` 通过。
 
 真实验收：

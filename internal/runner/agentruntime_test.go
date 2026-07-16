@@ -45,15 +45,17 @@ func TestAgentRuntimeTurnExecutorReturnsRuntimePayload(t *testing.T) {
 	if result.Usage.WorkspaceID != "wksp_default" || result.Usage.AgentID != "agt_000001" || result.Usage.AgentConfigVersion != 1 || result.Usage.ProviderID != "fake" || result.Usage.Model != "fake-demo" {
 		t.Fatalf("unexpected usage record: %#v", result.Usage)
 	}
-	if got := store.runtimeEventTypes(); len(got) != 5 ||
+	if got := store.runtimeEventTypes(); len(got) != 7 ||
 		got[0] != "runtime.started" ||
 		got[1] != "runtime.thinking" ||
 		got[2] != "runtime.llm_request" ||
 		got[3] != "runtime.llm_response" ||
-		got[4] != "runtime.completed" {
+		got[4] != "runtime.turn_completing" ||
+		got[5] != "runtime.completion_validated" ||
+		got[6] != "runtime.completed" {
 		t.Fatalf("unexpected runtime events: %#v", got)
 	}
-	if len(store.runtimePayloads) != 5 {
+	if len(store.runtimePayloads) != 7 {
 		t.Fatalf("expected runtime payloads, got %d", len(store.runtimePayloads))
 	}
 	var started map[string]any
@@ -71,7 +73,7 @@ func TestAgentRuntimeTurnExecutorReturnsRuntimePayload(t *testing.T) {
 		t.Fatalf("expected native llm span fields, got %#v", responsePayload)
 	}
 	var completedPayload map[string]any
-	if err := json.Unmarshal(store.runtimePayloads[4], &completedPayload); err != nil {
+	if err := json.Unmarshal(store.runtimePayloads[6], &completedPayload); err != nil {
 		t.Fatalf("decode completed payload: %v", err)
 	}
 	if completedPayload["span_id"] != started["span_id"] || completedPayload["span_name"] != "tma.interaction" || completedPayload["span_kind"] != "interaction" || completedPayload["span_status"] != "ok" || completedPayload["duration_ms"] == nil || completedPayload["parent_span_id"] != nil {
@@ -114,6 +116,75 @@ func TestAgentRuntimeTurnExecutorResolvesFrozenSkillsAndRecordsUsage(t *testing.
 	}
 	if !containsString(store.runtimeEventTypes(), managedagents.EventRuntimeSkillsResolved) {
 		t.Fatalf("expected skills resolved event, got %#v", store.runtimeEventTypes())
+	}
+}
+
+func TestAgentRuntimeTurnExecutorMaterializesExecutableSkillPackages(t *testing.T) {
+	assets, err := skills.EncodeAssetBundle(skills.AssetBundle{Files: []skills.AssetFile{{
+		Path: "scripts/check-deps.mjs", Content: "console.log('ok')\n", Executable: true,
+	}}})
+	if err != nil {
+		t.Fatalf("encode skill assets: %v", err)
+	}
+	store := &mockStore{
+		skillsConfig: json.RawMessage(`{"enabled":[{"skill":"web-access","version":2,"mode":"full"}]}`),
+		skillRecord:  skills.Skill{ID: "skl_web", WorkspaceID: "wksp_default", Identifier: "web-access", Title: "Web Access", Status: skills.StatusActive},
+		skillVersion: skills.Version{
+			ID: "sklv_web_2", SkillID: "skl_web", Version: 2, PackageChecksum: "package-v2", Assets: assets,
+			ContentText: `Run node "${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs".`,
+		},
+	}
+	provider := &materializingProvider{}
+	runtime := &captureRuntime{}
+	executor := AgentRuntimeTurnExecutor{
+		Runtime: runtime, Store: store,
+		ProviderResolver: &captureProviderResolver{provider: provider},
+	}
+	if _, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_skill_package", UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"browse"}]}`),
+	}); err != nil {
+		t.Fatalf("run materialized skill turn: %v", err)
+	}
+	if len(provider.packages) != 1 || provider.packages[0].Identifier != "web-access" || len(provider.packages[0].Files) != 2 {
+		t.Fatalf("unexpected materialized packages: %#v", provider.packages)
+	}
+	if provider.packages[0].Files[1].Path != "scripts/check-deps.mjs" || !provider.packages[0].Files[1].Executable {
+		t.Fatalf("expected executable package script, got %#v", provider.packages[0].Files)
+	}
+	skillContext := string(runtime.request.Config.Skills)
+	if strings.Contains(skillContext, "CLAUDE_SKILL_DIR") || !strings.Contains(skillContext, "/workspace/.tma/skills/web-access/2/scripts/check-deps.mjs") {
+		t.Fatalf("expected bound runtime skill path, got %s", skillContext)
+	}
+	environment := runtime.request.Config.ToolExecutionContext.Environment
+	if environment["CLAUDE_SKILL_DIR"] != "/workspace/.tma/skills/web-access/2" || environment["TMA_SKILL_DIR_WEB_ACCESS"] != "/workspace/.tma/skills/web-access/2" {
+		t.Fatalf("unexpected runtime skill environment: %#v", environment)
+	}
+}
+
+func TestAgentRuntimeTurnExecutorInjectsCurrentTaskPlan(t *testing.T) {
+	store := &taskPlanMockStore{
+		mockStore: &mockStore{},
+		plan: managedagents.SessionTaskPlan{
+			ID: "plan_000001", Goal: "Deliver task tracking", HandlingMode: managedagents.TaskPlanModePlanned, Status: managedagents.TaskPlanStatusActive,
+			Items: []managedagents.SessionTaskItem{
+				{ID: "task_000001", Description: "Implement storage", Status: managedagents.TaskItemStatusCompleted, Evidence: "Postgres test passed"},
+				{ID: "task_000002", Description: "Wire runtime", Status: managedagents.TaskItemStatusInProgress},
+			},
+		},
+	}
+	runtime := &captureRuntime{}
+	executor := AgentRuntimeTurnExecutor{Runtime: runtime, Store: store}
+	if _, err := executor.RunTurn(t.Context(), TurnRequest{SessionID: "sesn_000001", TurnID: "turn_plan", UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"continue"}]}`)}); err != nil {
+		t.Fatalf("run task plan turn: %v", err)
+	}
+	context := runtime.request.Config.TaskPlanContext
+	for _, expected := range []string{"plan_000001", "Deliver task tracking", "[completed] Implement storage", "Postgres test passed", "[in_progress] Wire runtime", "item_id=task_000002"} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("task plan context is missing %q: %s", expected, context)
+		}
+	}
+	if runtime.request.Config.ToolExecutionContext.TaskService == nil {
+		t.Fatal("expected task tool service in execution context")
 	}
 }
 
@@ -363,8 +434,8 @@ func TestAgentRuntimeTurnExecutorFiltersToolsByProviderCapabilities(t *testing.T
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 11 || !names["default.read_file"] || !names["web.search"] || !names["web.crawl"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
-		t.Fatalf("expected provider capability filter to keep read_file plus server builtin web and skills tools, got %#v", modelTools)
+	if len(modelTools) != 14 || !names["default.read_file"] || !names["web.search"] || !names["web.crawl"] || !names["interaction.ask_user"] || !names["interaction.request_upload"] || !names["interaction.request_plan_approval"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
+		t.Fatalf("expected provider capability filter to keep read_file plus server builtin interaction, web, and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "run_command"); ok {
 		t.Fatal("expected run_command to be unavailable without exec capability")
@@ -681,6 +752,29 @@ func TestAgentRuntimeTurnExecutorSavesPendingInterventionSteps(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeTurnExecutorSavesPlanApprovalSnapshot(t *testing.T) {
+	store := &mockStore{}
+	executor := AgentRuntimeTurnExecutor{Runtime: planApprovalStepRuntime{}, Store: store}
+	if _, err := executor.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000004",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"review"}]}`),
+	}); err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	interventions := store.savedInterventions()
+	if len(interventions) != 1 {
+		t.Fatalf("expected one saved plan approval, got %#v", interventions)
+	}
+	got := interventions[0]
+	if got.Kind != managedagents.InterventionKindPlanApproval || got.APIName != tools.InteractionAPIRequestPlanApproval || got.InterventionMode != "request_plan_approval" {
+		t.Fatalf("unexpected plan approval fields: %#v", got)
+	}
+	var snapshot tools.PlanApprovalSnapshot
+	if err := json.Unmarshal(got.Request, &snapshot); err != nil || snapshot.Plan.ID != "plan_000001" || len(snapshot.Plan.Items) != 1 {
+		t.Fatalf("expected persisted plan snapshot, request=%s err=%v", string(got.Request), err)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorNormalizesMalformedContinuationArguments(t *testing.T) {
 	store := &mockStore{}
 	executor := AgentRuntimeTurnExecutor{Runtime: malformedContinuationInterventionRuntime{}, Store: store}
@@ -798,6 +892,36 @@ type captureRuntime struct {
 	request agentruntime.TurnRequest
 }
 
+type taskPlanMockStore struct {
+	*mockStore
+	plan managedagents.SessionTaskPlan
+	err  error
+}
+
+func (s *taskPlanMockStore) CreateSessionTaskPlanContext(context.Context, string, managedagents.CreateSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: s.plan}, s.err
+}
+
+func (s *taskPlanMockStore) GetCurrentSessionTaskPlanContext(context.Context, string) (managedagents.SessionTaskPlan, error) {
+	return s.plan, s.err
+}
+
+func (s *taskPlanMockStore) ListSessionTaskPlansContext(context.Context, string) ([]managedagents.SessionTaskPlan, error) {
+	return []managedagents.SessionTaskPlan{s.plan}, s.err
+}
+
+func (s *taskPlanMockStore) UpdateSessionTaskItemsContext(context.Context, string, managedagents.UpdateSessionTaskItemsInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: s.plan}, s.err
+}
+
+func (s *taskPlanMockStore) CompleteSessionTaskPlanContext(context.Context, string, managedagents.FinishSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: s.plan}, s.err
+}
+
+func (s *taskPlanMockStore) CancelSessionTaskPlanContext(context.Context, string, managedagents.FinishSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: s.plan}, s.err
+}
+
 func (r *captureRuntime) RunTurn(_ context.Context, request agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
 	r.request = request
 	return agentruntime.TurnResult{
@@ -819,6 +943,23 @@ func (r *captureProviderResolver) ResolveProvider(request execution.ProviderRequ
 }
 
 type readOnlyProvider struct{}
+
+type materializingProvider struct {
+	readOnlyProvider
+	packages []capability.RuntimeSkillPackage
+}
+
+func (p *materializingProvider) MaterializeRuntimeSkills(_ context.Context, packages []capability.RuntimeSkillPackage) ([]capability.MaterializedRuntimeSkill, error) {
+	p.packages = append([]capability.RuntimeSkillPackage(nil), packages...)
+	result := make([]capability.MaterializedRuntimeSkill, 0, len(packages))
+	for _, pkg := range packages {
+		result = append(result, capability.MaterializedRuntimeSkill{
+			Identifier: pkg.Identifier, Version: pkg.Version,
+			Directory: fmt.Sprintf("/workspace/.tma/skills/%s/%d", pkg.Identifier, pkg.Version),
+		})
+	}
+	return result, nil
+}
 
 func (readOnlyProvider) ToolRuntime() string {
 	return "local_system"
@@ -906,6 +1047,36 @@ func (interventionStepRuntime) RunTurn(ctx context.Context, request agentruntime
 	return agentruntime.TurnResult{
 		AgentPayload: json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`),
 	}, nil
+}
+
+type planApprovalStepRuntime struct{}
+
+func (planApprovalStepRuntime) RunTurn(ctx context.Context, request agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
+	plan := managedagents.SessionTaskPlan{
+		ID: "plan_000001", SessionID: request.SessionID, Goal: "Review deployment", HandlingMode: managedagents.TaskPlanModePlanned,
+		Status: managedagents.TaskPlanStatusActive, Items: []managedagents.SessionTaskItem{{ID: "item_1", Description: "Deploy", Status: managedagents.TaskItemStatusPending}},
+	}
+	if err := request.EmitStep(ctx, agentruntime.Step{
+		Type: managedagents.EventRuntimePlanApprovalRequired,
+		Data: map[string]any{
+			"id": "call_plan", "identifier": tools.InteractionIdentifier, "api_name": tools.InteractionAPIRequestPlanApproval,
+			"arguments": map[string]any{"plan_id": plan.ID}, "kind": managedagents.InterventionKindPlanApproval,
+			"intervention_mode": "request_plan_approval", "reason": "plan_review",
+		},
+		Private: map[string]any{
+			"arguments":             json.RawMessage(`{"plan_id":"plan_000001"}`),
+			"request":               mustMarshalTestRaw(tools.PlanApprovalSnapshot{Plan: plan, Summary: "Review"}),
+			"continuation_messages": []llm.Message{{Role: "assistant"}},
+		},
+	}); err != nil {
+		return agentruntime.TurnResult{}, err
+	}
+	return agentruntime.TurnResult{AgentPayload: json.RawMessage(`{"content":[]}`)}, nil
+}
+
+func mustMarshalTestRaw(value any) json.RawMessage {
+	raw, _ := json.Marshal(value)
+	return raw
 }
 
 type malformedContinuationInterventionRuntime struct{}

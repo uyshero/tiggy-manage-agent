@@ -433,7 +433,7 @@ config_revision
 建议将当前设置页从单体 `App.jsx` 拆出：
 
 ```text
-web-app/src/settings/
+apps/workbench/src/settings/
 ├── SettingsShell.jsx
 ├── settingsRegistry.js
 ├── ExtensionDirectory.jsx

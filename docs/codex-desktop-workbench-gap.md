@@ -1,6 +1,6 @@
 # Codex Desktop Workbench Gap Roadmap
 
-本文档把当前 `web-app` Workbench 的真实状态，和未来面向 Codex 桌面功能开发所需的能力做一次收敛。它不是排期承诺，而是用来判断下一步先补什么、哪些能力必须进桌面壳、哪些能力应继续留在 TMA runtime。
+本文档把当前 `apps/workbench` Workbench 的真实状态，和未来面向 Codex 桌面功能开发所需的能力做一次收敛。它不是排期承诺，而是用来判断下一步先补什么、哪些能力必须进桌面壳、哪些能力应继续留在 TMA runtime。
 
 ## 当前判断
 
@@ -54,7 +54,7 @@ P0 的目标是把“能跑”变成“看得懂、跟得上、可恢复”。
 
 1. 接入 SSE 事件流
 
-当前 `web-app` 使用 `waitForReply` 轮询 session、events、interventions、artifacts。应改为基于 `/v1/sessions/{session_id}/events/stream?after_seq=...` 建立 EventSource，断线后用 `after_seq` 补历史。
+当前 `apps/workbench` 使用 `waitForReply` 轮询 session、events、interventions、artifacts。应改为基于 `/v1/sessions/{session_id}/events/stream?after_seq=...` 建立 EventSource，断线后用 `after_seq` 补历史。
 
 验收标准：
 

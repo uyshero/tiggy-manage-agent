@@ -7,7 +7,7 @@
 当前链路：
 
 ```text
-cmd/server
+cmd/tma-server
   -> WorkerRunner
   -> AgentRuntimeTurnExecutor
   -> agentruntime.DemoRuntime

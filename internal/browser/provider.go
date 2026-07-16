@@ -227,7 +227,11 @@ func (p CommandProvider) run(ctx context.Context, action string, request command
 		return PageState{}, err
 	}
 	if commandResult.ExitCode != 0 {
-		return PageState{}, fmt.Errorf("browser runner exited with code %d: %s", commandResult.ExitCode, strings.TrimSpace(commandResult.Stderr))
+		detail := strings.TrimSpace(commandResult.Stderr)
+		if commandResult.ExitCode == 137 && detail == "" {
+			detail = "process received SIGKILL; sandbox memory limit may be exhausted"
+		}
+		return PageState{}, fmt.Errorf("browser runner exited with code %d: %s", commandResult.ExitCode, detail)
 	}
 	var state PageState
 	if err := json.Unmarshal([]byte(commandResult.Stdout), &state); err != nil {

@@ -47,6 +47,14 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 		t.Fatalf("unexpected agent manifest: %#v", manifest)
 	}
 
+	interactionRuntime, ok := registry.Get(InteractionIdentifier)
+	if !ok {
+		t.Fatalf("expected %s runtime", InteractionIdentifier)
+	}
+	if manifest := interactionRuntime.Manifest(); manifest.Identifier != InteractionIdentifier || len(manifest.API) != 3 {
+		t.Fatalf("unexpected interaction manifest: %#v", manifest)
+	}
+
 	skillsRuntime, ok := registry.Get(SkillsIdentifier)
 	if !ok {
 		t.Fatalf("expected %s runtime", SkillsIdentifier)
@@ -104,14 +112,14 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	for _, manifest := range decoded.Tools {
 		identifiers[manifest.Identifier] = true
 	}
-	if len(decoded.Tools) != 5 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[BrowserIdentifier] || !identifiers[AgentIdentifier] || !identifiers[SkillsIdentifier] {
+	if len(decoded.Tools) != 7 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[BrowserIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
 }
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 49 {
+	if len(modelTools) != 57 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -125,8 +133,37 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
+	}
+}
+
+func TestFileMutationModelToolsDeclareProactiveContentLimits(t *testing.T) {
+	modelTools := DefaultRegistry().ModelTools()
+	wanted := map[string]string{
+		DefaultIdentifier + ".write_file": "content",
+		DefaultIdentifier + ".edit_file":  "new_string",
+	}
+	for _, modelTool := range modelTools {
+		field, ok := wanted[modelTool.Function.Name]
+		if !ok {
+			continue
+		}
+		var schema struct {
+			Properties map[string]struct {
+				MaxLength int `json:"maxLength"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(modelTool.Function.Parameters, &schema); err != nil {
+			t.Fatalf("decode %s schema: %v", modelTool.Function.Name, err)
+		}
+		if schema.Properties[field].MaxLength != 8000 {
+			t.Fatalf("expected %s.%s maxLength=8000, got %#v", modelTool.Function.Name, field, schema.Properties[field])
+		}
+		delete(wanted, modelTool.Function.Name)
+	}
+	if len(wanted) != 0 {
+		t.Fatalf("missing file mutation tool schemas: %#v", wanted)
 	}
 }
 
@@ -238,8 +275,8 @@ func TestRegistryAvailableFiltersByCapabilities(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 11 || !names[DefaultIdentifier+".read_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
-		t.Fatalf("expected read_file plus server builtin web and skills tools, got %#v", modelTools)
+	if len(modelTools) != 19 || !names[DefaultIdentifier+".read_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[TaskIdentifier+".create_plan"] || !names[TaskIdentifier+".update_items"] || !names[TaskIdentifier+".get_plan"] || !names[TaskIdentifier+".complete_plan"] || !names[TaskIdentifier+".cancel_plan"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+		t.Fatalf("expected read_file plus server builtin interaction, task, web, and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := registry.GetAPI(DefaultIdentifier, "run_command"); ok {
 		t.Fatal("expected run_command to be unavailable without exec capability")
@@ -258,12 +295,17 @@ func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
 	})
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 15 {
+	if len(modelTools) != 23 {
 		t.Fatalf("expected all default tools to be available for local_system provider, got %#v", modelTools)
 	}
 	names := map[string]bool{}
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
+	}
+	for _, name := range []string{"ask_user", "request_upload", "request_plan_approval"} {
+		if !names[InteractionIdentifier+"."+name] {
+			t.Fatalf("expected server builtin interaction.%s to remain available, got %#v", name, modelTools)
+		}
 	}
 	for _, name := range []string{"search", "inspect", "discover", "preview", "read_asset", "install", "enable", "disable"} {
 		if !names[SkillsIdentifier+"."+name] {
@@ -320,6 +362,25 @@ func TestRegistryExecutorInjectsManagedEnvironmentAndRedactsOutput(t *testing.T)
 	}
 	if strings.Contains(string(result.State), "managed-secret-value") {
 		t.Fatalf("state exposed managed value: %s", result.State)
+	}
+}
+
+func TestRegistryExecutorKeepsRuntimeSkillPathsVisible(t *testing.T) {
+	result, err := NewDefaultExecutor().Execute(context.Background(), Call{
+		ID: "call_skill_env", Name: "run_command",
+		Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf '%s|%s' \"$CLAUDE_SKILL_DIR\" \"$SERVICE_API_KEY\""]}`),
+	}, ExecutionContext{
+		SessionID: "sesn_000001", TurnID: "turn_000001", Provider: capability.LocalSystemProvider{},
+		Environment: map[string]string{
+			"CLAUDE_SKILL_DIR": "/workspace/.tma/skills/web-access/2",
+			"SERVICE_API_KEY":  "managed-secret-value",
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute tool: %v", err)
+	}
+	if result.Content != "/workspace/.tma/skills/web-access/2|[REDACTED_ENV:SERVICE_API_KEY]" {
+		t.Fatalf("expected public skill path and redacted secret, got %q", result.Content)
 	}
 }
 

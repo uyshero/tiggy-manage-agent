@@ -3,7 +3,6 @@ package httpapi
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -73,13 +72,4 @@ func jsonRequest(t *testing.T, method string, path string, body string) *http.Re
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	return request
-}
-
-func decodeEnvironmentVariablesResponse(t *testing.T, body string) map[string]any {
-	t.Helper()
-	var response map[string]any
-	if err := json.Unmarshal([]byte(body), &response); err != nil {
-		t.Fatal(err)
-	}
-	return response
 }

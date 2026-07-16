@@ -384,7 +384,7 @@ Phase 0A 的 `contributes` 只接受 `navigation`、`routes` 和 `commands`。Wi
 
 当前实现：
 
-- `web-app/src/workbench/plugin.schema.json` 提供 CLI 和 IDE 可使用的 JSON Schema。
+- `apps/workbench/src/workbench/plugin.schema.json` 提供 CLI 和 IDE 可使用的 JSON Schema。
 - `pluginManifest.js` 提供浏览器与 Node 共用的运行时校验、标准化和冻结。
 - Engine Range 首期接受精确 SemVer 或由空格连接的 `>=`、`>`、`<=`、`<`、`=` 比较器。
 - 结构非法、包路径逃逸、路由越界、Command 命名空间越权和未声明权限会直接拒绝。
@@ -430,7 +430,7 @@ Runtime 必须保证：
 - Manifest 声明与运行时注册不一致时拒绝该 Contribution。
 - 插件 ID 与代码导出的 ID 不一致时拒绝激活。
 
-静态插件包在 `web-app/src/plugins/index.js` Catalog 中按以下结构注册：
+静态插件包在 `apps/workbench/src/plugins/index.js` Catalog 中按以下结构注册：
 
 ```ts
 {
@@ -1051,8 +1051,8 @@ Phase 0A 的资源 Provider 使用稳定 `sourcePrefix` 或 `supports(resource)`
 当前进度（2026-07-14）：
 
 - [x] 完成科研纵向场景的 Dialog、Notification、File 和 Preview 盘点，见 [Workbench Phase 0A 公共能力盘点](./workbench-phase0a-capability-inventory.md)。
-- [x] 定义并实现 `ResourceRef`、`CommandDefinition` 和最小 `PluginContext` 契约，代码位于 `web-app/src/workbench/contracts.js`。
-- [x] 增加契约单元测试和 `web-app` 测试命令。
+- [x] 定义并实现 `ResourceRef`、`CommandDefinition` 和最小 `PluginContext` 契约，代码位于 `apps/workbench/src/workbench/contracts.js`。
+- [x] 增加契约单元测试和 `apps/workbench` 测试命令。
 - [x] 固定桌面、桌面壳、平板和手机的多端适配与验证标准。
 - [x] 实现可排队的 Dialog Service 与响应式 Dialog Host，并迁移删除任务和中断任务确认。
 - [x] 增加标准 Searchable Choice Dialog，科研插件的任务与 Artifact 选择不再使用长下拉或自定义选择器。
@@ -1068,7 +1068,7 @@ Phase 0A 的资源 Provider 使用稳定 `sourcePrefix` 或 `supports(resource)`
 本地可信插件开发入口：
 
 ```bash
-cd web-app
+cd apps/workbench
 npm run plugin:create -- --id com.example.due-diligence --name 企业尽调
 npm run plugin:check
 npm test
@@ -1104,7 +1104,7 @@ npm run build
 
 当前纵向实现采用“前端先验证、后端暂不固化”的边界：
 
-- 插件目录为 `web-app/src/plugins/researchProjects/`，通过静态 Catalog 注册，不修改 Shell Router 和业务页面。
+- 插件目录为 `apps/workbench/src/plugins/researchProjects/`，通过静态 Catalog 注册，不修改 Shell Router 和业务页面。
 - 当前支持创建、编辑、归档和恢复科研项目，按进行中/已归档筛选并搜索项目、目标与下一步。
 - 项目详情包含概览、资料和研究发现三个工作视图；概览展示研究阶段、下一步、资料/发现/待验证统计和最近沉淀，研究发现区分结论、假设与待验证问题。
 - 插件先通过宿主 `TaskService.list` 让用户选择最近任务，再调用 `ArtifactService.list` 获取该任务已有成果，转换为标准 `ResourceRef` 关联到项目，不要求用户手工输入 Session ID，也不直接拼 `/v2` URL；资料记录来源 Session 和关联时间。

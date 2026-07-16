@@ -48,7 +48,7 @@ ensure_worker_bin() {
     return 0
   fi
   echo "Building $WORKER_BIN"
-  go build -o "$WORKER_BIN" ./cmd/worker
+  go build -o "$WORKER_BIN" ./cmd/tma-worker
 }
 
 launch_detached() {

@@ -115,6 +115,8 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 		"GET /v2/sessions/sesn%2F1/events?after_seq=7":                       true,
 		"GET /v2/sessions/sesn%2F1/summary":                                  true,
 		"PUT /v2/sessions/sesn%2F1/summary":                                  true,
+		"GET /v2/sessions/sesn%2F1/task-plan":                                true,
+		"GET /v2/sessions/sesn%2F1/task-plans":                               true,
 		"GET /v2/sessions/sesn%2F1/interventions?status=pending":             true,
 		"POST /v2/sessions/sesn%2F1/interventions/turn%2F1/call%2F1/approve": true,
 		"POST /v2/sessions/sesn%2F1/artifacts":                               true,
@@ -145,6 +147,10 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 			fmt.Fprint(w, `{"events":[{"id":"evt_1","session_id":"sesn/1","seq":1,"type":"custom","created_at":"2026-07-15T00:00:00Z"}]}`)
 		case strings.HasSuffix(r.URL.Path, "/summary"):
 			fmt.Fprint(w, `{"session_id":"sesn/1","summary_text":"summary","source_until_seq":8,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`)
+		case strings.HasSuffix(r.URL.Path, "/task-plans"):
+			fmt.Fprint(w, `{"plans":[{"id":"plan_1","workspace_id":"default","owner_id":"user","session_id":"sesn/1","goal":"Ship","handling_mode":"planned","status":"active","items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/task-plan"):
+			fmt.Fprint(w, `{"plan":{"id":"plan_1","workspace_id":"default","owner_id":"user","session_id":"sesn/1","goal":"Ship","handling_mode":"planned","status":"active","items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}}`)
 		case strings.Contains(r.URL.Path, "/interventions/"):
 			fmt.Fprint(w, `{"intervention":{"session_id":"sesn/1","turn_id":"turn/1","call_id":"call/1","status":"approved"},"events":[]}`)
 		case strings.HasSuffix(r.URL.Path, "/interventions"):
@@ -175,7 +181,8 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 	if _, err = client.Sessions.Restore(ctx, "sesn/1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = client.Sessions.UpdateRuntimeSettings(ctx, "sesn/1", UpdateSessionRuntimeSettingsRequest{}); err != nil {
+	completionRetries := 3
+	if _, err = client.Sessions.UpdateRuntimeSettings(ctx, "sesn/1", UpdateSessionRuntimeSettingsRequest{CompletionGate: &CompletionGateRuntimeSettings{MaxRetries: &completionRetries}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = client.Sessions.UpgradeConfig(ctx, "sesn/1", UpgradeSessionConfigRequest{ToVersion: 2}); err != nil {
@@ -189,6 +196,12 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 	}
 	if _, err = client.Sessions.GetSummary(ctx, "sesn/1"); err != nil {
 		t.Fatal(err)
+	}
+	if plan, taskPlanErr := client.Sessions.TaskPlan(ctx, "sesn/1"); taskPlanErr != nil || plan.ID != "plan_1" {
+		t.Fatalf("unexpected current task plan: plan=%+v err=%v", plan, taskPlanErr)
+	}
+	if plans, taskPlansErr := client.Sessions.TaskPlans(ctx, "sesn/1"); taskPlansErr != nil || len(plans) != 1 || plans[0].ID != "plan_1" {
+		t.Fatalf("unexpected task plan history: plans=%+v err=%v", plans, taskPlansErr)
 	}
 	if _, err = client.Sessions.UpsertSummary(ctx, "sesn/1", UpsertSessionSummaryRequest{SummaryText: "summary", SourceUntilSeq: 8}); err != nil {
 		t.Fatal(err)

@@ -1,9 +1,0 @@
-{"time":"2026-07-10T17:32:14.924155+08:00","level":"INFO","msg":"worker registered","worker_id":"wrk_000063","workspace_id":"wksp_default","worker_type":"local"}
-{"time":"2026-07-10T17:32:14.930663+08:00","level":"INFO","msg":"worker heartbeat","worker_id":"wrk_000063","status":"online"}
-{"time":"2026-07-10T17:32:16.938094+08:00","level":"INFO","msg":"worker work received","worker_id":"wrk_000063","work_id":"work_000113","work_type":"tool_execution","session_id":"sesn_000149","turn_id":"turn_000001"}
-{"time":"2026-07-10T17:32:16.942064+08:00","level":"INFO","msg":"worker work acknowledged","worker_id":"wrk_000063","work_id":"work_000113"}
-{"time":"2026-07-10T17:32:17.102826+08:00","level":"INFO","msg":"worker work completed","worker_id":"wrk_000063","work_id":"work_000113","status":"completed"}
-{"time":"2026-07-10T17:32:18.932786+08:00","level":"INFO","msg":"worker work received","worker_id":"wrk_000063","work_id":"work_000114","work_type":"tool_execution","session_id":"sesn_000150","turn_id":"turn_000001"}
-{"time":"2026-07-10T17:32:18.936439+08:00","level":"INFO","msg":"worker work acknowledged","worker_id":"wrk_000063","work_id":"work_000114"}
-{"time":"2026-07-10T17:32:19.121941+08:00","level":"INFO","msg":"worker work completed","worker_id":"wrk_000063","work_id":"work_000114","status":"completed"}
-{"time":"2026-07-10T17:32:19.886989+08:00","level":"INFO","msg":"worker stopped","worker_id":"wrk_000063"}

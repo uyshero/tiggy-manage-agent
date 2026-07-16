@@ -714,6 +714,8 @@ func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagent
 		ToolIdentifier:    input.ToolIdentifier,
 		APIName:           input.APIName,
 		Arguments:         input.Arguments,
+		Kind:              input.Kind,
+		Request:           input.Request,
 		InterventionMode:  input.InterventionMode,
 		Reason:            input.Reason,
 		Status:            managedagents.InterventionStatusPending,
@@ -732,6 +734,10 @@ func (s *mockStore) DecideSessionIntervention(string, managedagents.DecideSessio
 }
 
 func (s *mockStore) MarkSessionTurnWaitingApproval(string, string) error {
+	return nil
+}
+
+func (s *mockStore) MarkSessionTurnWaitingHuman(string, string) error {
 	return nil
 }
 

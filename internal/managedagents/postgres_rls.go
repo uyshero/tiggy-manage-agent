@@ -434,6 +434,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('session_artifacts', 'session_artifacts_workspace_isolation'),
 				('session_events', 'session_events_session_isolation'),
 				('session_interventions', 'session_interventions_session_isolation'),
+				('session_task_items', 'session_task_items_plan_isolation'),
+				('session_task_plans', 'session_task_plans_session_isolation'),
 				('session_summaries', 'session_summaries_session_isolation'),
 				('session_turn_skill_usages', 'session_turn_skill_usages_session_isolation'),
 				('session_turns', 'session_turns_session_isolation'),
@@ -507,7 +509,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 43 {
+	if checked != 45 {
 		return errors.New("tenant RLS tables are missing; apply migrations 000045 through 000065")
 	}
 
@@ -539,6 +541,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_skill_version_id_seq'),
 				('tma_subagent_start_request_id_seq'),
 				('tma_subagent_task_group_id_seq'),
+				('tma_task_item_id_seq'),
+				('tma_task_plan_id_seq'),
 				('tma_worker_id_seq'),
 				('tma_worker_work_id_seq')
 		)
@@ -570,7 +574,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 27 {
+	if checked != 29 {
 		return errors.New("tenant resource sequences are missing; apply migrations 000001, 000015, 000016, 000017, 000018, 000031, 000032, 000033, 000036, 000038, 000048, and 000056")
 	}
 	return nil

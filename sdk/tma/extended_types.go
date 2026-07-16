@@ -119,15 +119,16 @@ type UpdateSessionMetadataRequest struct {
 }
 
 type RerunSessionRequest struct {
-	MessageSeq               *int64  `json:"message_seq,omitempty"`
-	Title                    *string `json:"title,omitempty"`
-	LLMProvider              *string `json:"llm_provider,omitempty"`
-	LLMModel                 *string `json:"llm_model,omitempty"`
-	InterventionMode         *string `json:"intervention_mode,omitempty"`
-	ToolRuntime              *string `json:"tool_runtime,omitempty"`
-	CloudSandboxRoot         *string `json:"cloud_sandbox_root,omitempty"`
-	CloudSandboxImage        *string `json:"cloud_sandbox_image,omitempty"`
-	CloudSandboxAllowNetwork *bool   `json:"cloud_sandbox_allow_network,omitempty"`
+	MessageSeq               *int64                         `json:"message_seq,omitempty"`
+	Title                    *string                        `json:"title,omitempty"`
+	LLMProvider              *string                        `json:"llm_provider,omitempty"`
+	LLMModel                 *string                        `json:"llm_model,omitempty"`
+	InterventionMode         *string                        `json:"intervention_mode,omitempty"`
+	ToolRuntime              *string                        `json:"tool_runtime,omitempty"`
+	CloudSandboxRoot         *string                        `json:"cloud_sandbox_root,omitempty"`
+	CloudSandboxImage        *string                        `json:"cloud_sandbox_image,omitempty"`
+	CloudSandboxAllowNetwork *bool                          `json:"cloud_sandbox_allow_network,omitempty"`
+	CompletionGate           *CompletionGateRuntimeSettings `json:"completion_gate,omitempty"`
 }
 
 type RerunSessionResponse struct {
@@ -182,8 +183,16 @@ type AgentRuntimeConfig struct {
 }
 
 type SessionRuntimeCapabilities struct {
-	DefaultRuntime    string   `json:"default_runtime"`
-	AvailableRuntimes []string `json:"available_runtimes"`
+	DefaultRuntime    string                              `json:"default_runtime"`
+	AvailableRuntimes []string                            `json:"available_runtimes"`
+	HumanInteraction  HumanInteractionRuntimeCapabilities `json:"human_interaction,omitempty"`
+}
+
+type HumanInteractionRuntimeCapabilities struct {
+	Enabled        bool     `json:"enabled"`
+	Modes          []string `json:"modes"`
+	SupportsUpload bool     `json:"supports_upload"`
+	Fallback       string   `json:"fallback"`
 }
 
 type CancelAgentDeliberationRequest struct {

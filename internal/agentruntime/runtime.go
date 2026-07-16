@@ -22,6 +22,7 @@ import (
 const DemoProtocolVersion = "tma.agent_runtime.demo.v1"
 
 var ErrPendingIntervention = errors.New("pending tool intervention")
+var ErrPendingHumanInput = errors.New("pending human input")
 var ErrVisionModelNotConfigured = errors.New("image attachments require a text+image model or a configured default vision model")
 
 const (
@@ -32,7 +33,6 @@ const (
 	compactionPromptReservedMetadata = 2000
 	defaultMaxLLMOutputTokens        = 16384
 	maxInvalidToolArgumentRetries    = 2
-	maxCompletionGateRetries         = 3
 )
 
 type Step struct {
@@ -56,8 +56,10 @@ type TurnRequest struct {
 
 type InterventionResume struct {
 	Call              tools.Call
+	Kind              string
 	Status            string
 	DecisionReason    string
+	Response          json.RawMessage
 	Continuation      []llm.Message
 	ContinuationRound int
 	ContinuationState json.RawMessage
@@ -90,6 +92,7 @@ type Config struct {
 	ContextWindowTokens   int
 	SummaryText           string
 	SummarySourceUntilSeq int64
+	TaskPlanContext       string
 	System                string
 	RuntimeSettings       json.RawMessage
 	Tools                 json.RawMessage
@@ -114,6 +117,7 @@ type DemoRuntime struct {
 	Client         llm.Client
 	Model          string
 	ContextBuilder ContextBuilder
+	CompletionGate CompletionGate
 	MaxToolRounds  int
 	Now            func() time.Time
 }
@@ -149,7 +153,7 @@ func (runtime DemoRuntime) RunTurn(ctx context.Context, request TurnRequest) (Tu
 	provider := currentProvider(client, request.Config.LLMProvider)
 	model := currentModel(client, defaultString(request.Config.LLMModel, runtime.Model))
 	contextBudget := contextBudgetFromSettings(request.Config.ContextWindowTokens, request.Config.RuntimeSettings)
-	pinnedContext := pinnedContextFromSettings(request.Config.RuntimeSettings)
+	pinnedContext := combinePinnedContext(pinnedContextFromSettings(request.Config.RuntimeSettings), request.Config.TaskPlanContext)
 	currentDateContext := buildCurrentDateContext(runtime.currentTime())
 	currentUserImages := request.ImageParts
 	currentUserSupplement := ""
@@ -338,17 +342,34 @@ func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnR
 	model := currentModel(client, defaultString(request.Config.LLMModel, runtime.Model))
 	call := tools.NormalizeCall(resume.Call)
 	fileGenerationState := segmentedFileGenerationStateFromRaw(resume.ContinuationState)
-	executionResult, err := runtime.resolveInterventionResult(ctx, request, call, resume.Status, resume.DecisionReason, fileGenerationState)
+	var executionResult tools.ExecutionResult
+	var err error
+	if resume.Kind == managedagents.InterventionKindClarification || resume.Kind == managedagents.InterventionKindUploadRequest {
+		executionResult, err = runtime.resolveHumanInputResult(call, resume.Status, resume.Response, resume.DecisionReason)
+		if err == nil {
+			err = emitInterventionToolResult(ctx, request, call, executionResult, resume.DecisionReason, 0)
+		}
+	} else if resume.Kind == managedagents.InterventionKindPlanApproval {
+		executionResult, err = runtime.resolvePlanApprovalResult(call, resume.Status, resume.DecisionReason)
+		if err == nil {
+			err = emitInterventionToolResult(ctx, request, call, executionResult, resume.DecisionReason, 0)
+		}
+	} else {
+		executionResult, err = runtime.resolveInterventionResult(ctx, request, call, resume.Status, resume.DecisionReason, fileGenerationState)
+	}
 	if err != nil {
 		return TurnResult{}, err
 	}
-	if resume.Status == managedagents.InterventionStatusApproved {
+	if resume.Kind != managedagents.InterventionKindClarification && resume.Kind != managedagents.InterventionKindUploadRequest && resume.Kind != managedagents.InterventionKindPlanApproval && resume.Status == managedagents.InterventionStatusApproved {
 		fileGenerationState.observe(call, executionResult, true)
 	}
 
 	if len(resume.Continuation) == 0 {
-		if resume.Status == managedagents.InterventionStatusRejected {
-			return TurnResult{}, errors.New(executionResult.Error.Message)
+		if resume.Status == managedagents.InterventionStatusRejected && resume.Kind != managedagents.InterventionKindPlanApproval {
+			if executionResult.Error != nil {
+				return TurnResult{}, errors.New(executionResult.Error.Message)
+			}
+			return TurnResult{}, errors.New("intervention rejected without resumable continuation")
 		}
 		fileExecutionContext := request.Config.ToolExecutionContext
 		fileExecutionContext.SessionID = defaultString(fileExecutionContext.SessionID, request.SessionID)
@@ -409,6 +430,64 @@ func (runtime DemoRuntime) resumeIntervention(ctx context.Context, request TurnR
 	return llmTurnResult(payload, llmResponse.Usage, provider, request.Config.LLMProviderType, model, "", 0), nil
 }
 
+func (runtime DemoRuntime) resolvePlanApprovalResult(call tools.Call, status string, reason string) (tools.ExecutionResult, error) {
+	request, err := tools.ParsePlanApprovalRequest(call.Arguments)
+	if err != nil {
+		return tools.ExecutionResult{}, err
+	}
+	state := map[string]any{
+		"approved": false,
+		"plan_id":  request.PlanID,
+	}
+	if strings.TrimSpace(reason) != "" {
+		state["decision_reason"] = reason
+	}
+	content := "The user rejected the plan. Revise or cancel the plan before continuing."
+	switch status {
+	case managedagents.InterventionStatusApproved:
+		state["approved"] = true
+		content = "The user approved the plan direction. Continue with the plan. This decision does not approve any later tool call or side effect."
+	case managedagents.InterventionStatusRejected:
+	default:
+		return tools.ExecutionResult{}, fmt.Errorf("unsupported plan approval result %q", status)
+	}
+	if strings.TrimSpace(reason) != "" {
+		content += " Decision reason: " + reason
+	}
+	return tools.ExecutionResult{
+		ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
+		Content: content, State: mustMarshalRaw(state),
+	}, nil
+}
+
+func (runtime DemoRuntime) resolveHumanInputResult(call tools.Call, status string, response json.RawMessage, reason string) (tools.ExecutionResult, error) {
+	state := map[string]any{"status": status}
+	content := "User input request " + status + "."
+	switch status {
+	case managedagents.InterventionStatusAnswered:
+		if len(response) == 0 || !json.Valid(response) {
+			return tools.ExecutionResult{}, errors.New("answered human input requires a valid response")
+		}
+		var value any
+		if err := json.Unmarshal(response, &value); err != nil {
+			return tools.ExecutionResult{}, fmt.Errorf("decode human input response: %w", err)
+		}
+		state["response"] = value
+		content = "User submitted the requested information: " + string(response)
+	case managedagents.InterventionStatusSkipped, managedagents.InterventionStatusCanceled, managedagents.InterventionStatusExpired:
+		if strings.TrimSpace(reason) != "" {
+			state["reason"] = reason
+			content += " Reason: " + reason
+		}
+	default:
+		return tools.ExecutionResult{}, fmt.Errorf("unsupported human input result %q", status)
+	}
+	return tools.ExecutionResult{
+		ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
+		Content: content, State: mustMarshalRaw(state),
+	}, nil
+}
+
 func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, request TurnRequest, call tools.Call, status string, decisionReason string, fileGenerationState *segmentedFileGenerationState) (tools.ExecutionResult, error) {
 	if status == managedagents.InterventionStatusRejected {
 		message := "Tool call rejected by user."
@@ -450,9 +529,6 @@ func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, reques
 	}
 	if err := emitInterventionToolResult(ctx, request, call, result, decisionReason, time.Since(startedAt)); err != nil {
 		return tools.ExecutionResult{}, err
-	}
-	if result.Error != nil {
-		return result, fmt.Errorf("tool %s.%s failed: %s", call.Identifier, call.APIName, result.Error.Message)
 	}
 	return result, nil
 }
@@ -556,6 +632,8 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 	requestForLLM.Tools = append([]llm.Tool(nil), turnRequest.Config.ModelTools...)
 	invalidToolArgumentRetries := 0
 	completionGateRetries := 0
+	completionAttempt := 0
+	completionMaxRetries := completionGateMaxRetries(turnRequest.Config.RuntimeSettings)
 	calibration := tokenEstimateCalibration{}
 	if fileGenerationState == nil {
 		fileGenerationState = newSegmentedFileGenerationState()
@@ -619,8 +697,21 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 			return llm.Response{}, err
 		}
 
-		llmResponse, err := generateLLM(ctx, client, requestForLLM, turnRequest, round)
+		mutationLimits := fileMutationLimits(turnRequest.Config.RuntimeSettings, provider, model)
+		llmResponse, err := generateLLM(ctx, client, requestForLLM, turnRequest, round, mutationLimits)
 		if err != nil {
+			var streamLimitError *fileMutationStreamLimitError
+			if errors.As(err, &streamLimitError) {
+				invalidToolArgumentRetries++
+				if invalidToolArgumentRetries >= maxInvalidToolArgumentRetries {
+					return llm.Response{}, errors.New("model repeatedly streamed an oversized file mutation instead of planning segmented generation")
+				}
+				requestForLLM.Messages = append(requestForLLM.Messages, llm.Message{
+					Role:    "user",
+					Content: []llm.ContentPart{{Type: "text", Text: streamLimitError.recoveryMessage()}},
+				})
+				continue
+			}
 			return llm.Response{}, err
 		}
 		if err := emitStep(ctx, turnRequest, Step{
@@ -639,6 +730,18 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 
 		toolCalls, ok := toolCallsFromLLMResponse(llmResponse)
 		if !ok || len(toolCalls) == 0 {
+			completionAttempt++
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimeTurnCompleting,
+				Message: "Validating candidate response before completion.",
+				Data: map[string]any{
+					"attempt":     completionAttempt,
+					"tool_round":  round,
+					"max_retries": completionMaxRetries,
+				},
+			}); err != nil {
+				return llm.Response{}, err
+			}
 			fileExecutionContext := turnRequest.Config.ToolExecutionContext
 			fileExecutionContext.WorkspaceID = defaultString(fileExecutionContext.WorkspaceID, turnRequest.Config.WorkspaceID)
 			fileExecutionContext.SessionID = defaultString(fileExecutionContext.SessionID, turnRequest.SessionID)
@@ -647,22 +750,74 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 			if fileExecutionContext.Deadline == nil {
 				fileExecutionContext.Deadline = deadlineFromContext(ctx)
 			}
+			verdict := CompletionVerdict{Outcome: CompletionOutcomePass, Validator: "builtin.deterministic"}
+			if strings.TrimSpace(contentPartsText(llmResponse.Message.Content)) == "" {
+				verdict = CompletionVerdict{
+					Outcome:   CompletionOutcomeRetry,
+					Validator: "builtin.non_empty_response",
+					Reason:    "model returned an empty final response",
+					Feedback:  "Runtime completion gate blocked this response because it was empty. Continue the task and return a non-empty final response.",
+				}
+			}
 			blocker, verifyErr := fileGenerationState.completionBlock(ctx, fileExecutionContext)
 			if verifyErr != nil {
-				return llm.Response{}, verifyErr
+				verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "builtin.segmented_file_generation", Reason: verifyErr.Error()}
+				if emitErr := emitStep(ctx, turnRequest, Step{Type: managedagents.EventRuntimeCompletionFailed, Message: "Completion validation failed.", Data: completionVerdictEventData(verdict, completionAttempt, round, completionMaxRetries)}); emitErr != nil {
+					return llm.Response{}, emitErr
+				}
+				return llm.Response{}, fmt.Errorf("completion validation failed: %w", verifyErr)
 			}
-			if blocker != "" {
+			if verdict.Outcome == CompletionOutcomePass && blocker != "" {
+				verdict = CompletionVerdict{Outcome: CompletionOutcomeRetry, Validator: "builtin.segmented_file_generation", Reason: "segmented file verification is incomplete", Feedback: blocker}
+			}
+			if verdict.Outcome == CompletionOutcomePass && runtime.CompletionGate != nil {
+				candidate := CompletionCandidate{
+					SessionID: turnRequest.SessionID, TurnID: turnRequest.TurnID, ToolRound: round, Attempt: completionAttempt,
+					Response: llmResponse, Messages: append([]llm.Message(nil), requestForLLM.Messages...),
+				}
+				customVerdict, gateErr := runtime.CompletionGate.Validate(ctx, candidate)
+				if gateErr != nil {
+					if ctx.Err() != nil {
+						return llm.Response{}, ctx.Err()
+					}
+					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "custom", Reason: gateErr.Error()}
+				} else if normalized, normalizeErr := normalizeCompletionVerdict(customVerdict, "custom"); normalizeErr != nil {
+					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "custom", Reason: normalizeErr.Error()}
+				} else {
+					verdict = normalized
+				}
+			}
+
+			switch verdict.Outcome {
+			case CompletionOutcomeRetry:
 				completionGateRetries++
-				if completionGateRetries >= maxCompletionGateRetries {
-					return llm.Response{}, errors.New("model repeatedly attempted to finish before segmented file verification succeeded")
+				if completionGateRetries > completionMaxRetries {
+					failedVerdict := verdict
+					failedVerdict.Outcome = CompletionOutcomeFail
+					failedVerdict.Reason = fmt.Sprintf("completion validation retry limit reached (max_retries=%d): %s", completionMaxRetries, defaultString(verdict.Reason, "candidate did not pass"))
+					if err := emitStep(ctx, turnRequest, Step{Type: managedagents.EventRuntimeCompletionFailed, Message: "Completion validation retry limit reached.", Data: completionVerdictEventData(failedVerdict, completionAttempt, round, completionMaxRetries)}); err != nil {
+						return llm.Response{}, err
+					}
+					return llm.Response{}, errors.New(failedVerdict.Reason)
+				}
+				if err := emitStep(ctx, turnRequest, Step{Type: managedagents.EventRuntimeCompletionBlocked, Message: "Candidate response was blocked by completion validation.", Data: completionVerdictEventData(verdict, completionAttempt, round, completionMaxRetries)}); err != nil {
+					return llm.Response{}, err
 				}
 				requestForLLM.Messages = append(requestForLLM.Messages,
 					llm.Message{Role: "assistant", Content: llmResponse.Message.Content},
-					llm.Message{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: blocker}}},
+					llm.Message{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: verdict.Feedback}}},
 				)
 				continue
+			case CompletionOutcomeFail:
+				if err := emitStep(ctx, turnRequest, Step{Type: managedagents.EventRuntimeCompletionFailed, Message: "Completion validation failed.", Data: completionVerdictEventData(verdict, completionAttempt, round, completionMaxRetries)}); err != nil {
+					return llm.Response{}, err
+				}
+				return llm.Response{}, fmt.Errorf("completion validation failed (%s): %s", verdict.Validator, defaultString(verdict.Reason, "validator rejected candidate"))
+			case CompletionOutcomePass:
+				if err := emitStep(ctx, turnRequest, Step{Type: managedagents.EventRuntimeCompletionValidated, Message: "Candidate response passed completion validation.", Data: completionVerdictEventData(verdict, completionAttempt, round, completionMaxRetries)}); err != nil {
+					return llm.Response{}, err
+				}
 			}
-			completionGateRetries = 0
 			if err := fileGenerationState.publishFinalArtifacts(ctx, fileExecutionContext); err != nil {
 				return llm.Response{}, fmt.Errorf("publish validated segmented file artifact: %w", err)
 			}
@@ -784,6 +939,11 @@ func fitRoundOutputBudget(request *llm.Request, budget ContextBudgetBreakdown, e
 }
 
 func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest TurnRequest, executor tools.Executor, calls []tools.Call, continuationMessages []llm.Message, continuationRound int, fileGenerationState *segmentedFileGenerationState, provider string, model string) ([]toolCallExecutionResult, error) {
+	for _, candidate := range calls {
+		if tools.IsParkingInteractionCall(candidate) && len(calls) != 1 {
+			return nil, fmt.Errorf("interaction.%s must be the only tool call in a model response", tools.NormalizeCall(candidate).APIName)
+		}
+	}
 	results := make([]toolCallExecutionResult, 0, len(calls))
 	registry := turnRequest.Config.ToolRegistry
 	policy := tools.InterventionPolicy{Mode: turnRequest.Config.InterventionMode}
@@ -848,7 +1008,113 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		}
 		executionContext.DeferArtifacts = fileGenerationState.shouldDeferArtifacts(call)
 
-		if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
+		if tools.IsAskUserCall(call) {
+			interactionRequest, parseErr := tools.ParseAskUserRequest(call.Arguments)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			requestData := mustMarshalRaw(interactionRequest)
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimeHumanInputRequired,
+				Message: "Agent requested additional user input.",
+				Data: withToolEventMetadata(map[string]any{
+					"id":                call.ID,
+					"identifier":        call.Identifier,
+					"api_name":          call.APIName,
+					"arguments":         interactionRequest,
+					"kind":              managedagents.InterventionKindClarification,
+					"intervention_mode": "request_user_input",
+					"reason":            "clarification",
+				}, toolMetadata),
+				Private: map[string]any{
+					"continuation_messages": continuationMessages,
+					"continuation_round":    continuationRound,
+					"continuation_state":    fileGenerationState.raw(),
+					"arguments":             append(json.RawMessage(nil), call.Arguments...),
+					"request":               requestData,
+				},
+			}); err != nil {
+				return nil, err
+			}
+			return nil, ErrPendingHumanInput
+		}
+
+		if tools.IsUploadRequestCall(call) {
+			uploadRequest, parseErr := tools.ParseUploadRequest(call.Arguments)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			requestData := mustMarshalRaw(uploadRequest)
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimeHumanInputRequired,
+				Message: "Agent requested file upload from the user.",
+				Data: withToolEventMetadata(map[string]any{
+					"id":                call.ID,
+					"identifier":        call.Identifier,
+					"api_name":          call.APIName,
+					"arguments":         uploadRequest,
+					"kind":              managedagents.InterventionKindUploadRequest,
+					"intervention_mode": "request_upload",
+					"reason":            "upload_request",
+				}, toolMetadata),
+				Private: map[string]any{
+					"continuation_messages": continuationMessages,
+					"continuation_round":    continuationRound,
+					"continuation_state":    fileGenerationState.raw(),
+					"arguments":             append(json.RawMessage(nil), call.Arguments...),
+					"request":               requestData,
+				},
+			}); err != nil {
+				return nil, err
+			}
+			return nil, ErrPendingHumanInput
+		}
+
+		if tools.IsPlanApprovalCall(call) {
+			approvalRequest, parseErr := tools.ParsePlanApprovalRequest(call.Arguments)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			if executionContext.TaskService == nil {
+				return nil, errors.New("request_plan_approval requires task planning in this runtime")
+			}
+			plan, loadErr := executionContext.TaskService.GetPlan(ctx, executionContext.SessionID)
+			if loadErr != nil {
+				return nil, fmt.Errorf("load active task plan for approval: %w", loadErr)
+			}
+			if approvalRequest.PlanID != "" && approvalRequest.PlanID != plan.ID {
+				return nil, fmt.Errorf("request_plan_approval plan_id %q does not match current active plan %q", approvalRequest.PlanID, plan.ID)
+			}
+			approvalRequest.PlanID = plan.ID
+			call.Arguments = mustMarshalRaw(approvalRequest)
+			requestData := mustMarshalRaw(tools.PlanApprovalSnapshot{Plan: plan, Summary: approvalRequest.Summary})
+			if err := emitStep(ctx, turnRequest, Step{
+				Type:    managedagents.EventRuntimePlanApprovalRequired,
+				Message: "Agent requested approval for the current task plan.",
+				Data: withToolEventMetadata(map[string]any{
+					"id":                call.ID,
+					"identifier":        call.Identifier,
+					"api_name":          call.APIName,
+					"arguments":         approvalRequest,
+					"kind":              managedagents.InterventionKindPlanApproval,
+					"intervention_mode": "request_plan_approval",
+					"reason":            "plan_review",
+					"plan_id":           plan.ID,
+				}, toolMetadata),
+				Private: map[string]any{
+					"continuation_messages": continuationMessages,
+					"continuation_round":    continuationRound,
+					"continuation_state":    fileGenerationState.raw(),
+					"arguments":             append(json.RawMessage(nil), call.Arguments...),
+					"request":               requestData,
+				},
+			}); err != nil {
+				return nil, err
+			}
+			return nil, ErrPendingIntervention
+		}
+
+		if manifest, api, ok := registry.GetAPI(call.Identifier, call.APIName); ok && !tools.IsTaskCall(call) {
 			decision := policy.EvaluateCall(manifest, api, call, executionContext)
 			planApproved := fileGenerationState.planApproves(call)
 			if planApproved {
@@ -921,9 +1187,6 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 			return nil, err
 		}
 		results = append(results, result)
-		if executionResult.Error != nil && executionResult.Error.Type != "human_intervention_required" {
-			return results, fmt.Errorf("tool %s.%s failed: %s", call.Identifier, call.APIName, executionResult.Error.Message)
-		}
 	}
 	return results, nil
 }
@@ -1632,10 +1895,6 @@ func defaultInt64(value int64, fallback int64) int64 {
 	return value
 }
 
-func contextInputBudgetTokens(contextWindowTokens int, runtimeSettings json.RawMessage) int {
-	return contextBudgetFromSettings(contextWindowTokens, runtimeSettings).MaxInputTokens
-}
-
 func contextBudgetFromSettings(contextWindowTokens int, runtimeSettings json.RawMessage) contextBudgetLimits {
 	if contextWindowTokens <= 0 {
 		contextWindowTokens = managedagents.DefaultContextWindowTokens
@@ -1722,6 +1981,16 @@ func pinnedContextFromSettings(runtimeSettings json.RawMessage) string {
 	return formatPinnedContext(defaultAny(settings.PinnedContext, settings.ProtectedContext))
 }
 
+func combinePinnedContext(values ...string) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func formatPinnedContext(value any) string {
 	switch typed := value.(type) {
 	case nil:
@@ -1785,7 +2054,22 @@ func compactionSummaryMaxChars(runtimeSettings json.RawMessage) int {
 	return defaultCompactionSummaryMaxChars
 }
 
-func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest, toolRound int) (llm.Response, error) {
+type fileMutationStreamLimitError struct {
+	APIName           string
+	EstimatedTokens   int
+	RecommendedTokens int
+	MaxTokens         int
+}
+
+func (err *fileMutationStreamLimitError) Error() string {
+	return fmt.Sprintf("streamed %s arguments reached %d estimated tokens", err.APIName, err.EstimatedTokens)
+}
+
+func (err *fileMutationStreamLimitError) recoveryMessage() string {
+	return fmt.Sprintf("Stop generating the large %s payload. Its streamed arguments already reached the recommended limit of %d estimated tokens. Regenerate this step as exactly one small write_file skeleton with unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder per later edit_file call. Keep every segment below %d estimated tokens.", err.APIName, err.RecommendedTokens, err.MaxTokens)
+}
+
+func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest, toolRound int, mutationLimits tools.FileMutationLimits) (llm.Response, error) {
 	streamingClient, ok := client.(llm.StreamingClient)
 	if !ok {
 		response, err := client.Generate(ctx, llmRequest)
@@ -1803,10 +2087,37 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 		return response, nil
 	}
 
+	streamLimits := normalizedStreamMutationLimits(mutationLimits)
+	type streamedToolCall struct {
+		name      strings.Builder
+		arguments strings.Builder
+	}
+	streamedToolCalls := map[int]*streamedToolCall{}
+
 	return streamingClient.GenerateStream(ctx, llmRequest, func(delta llm.Delta) error {
 		kind := defaultString(delta.Kind, llm.DeltaKindText)
 		if !llmDeltaHasPayload(delta, kind) {
 			return nil
+		}
+		if kind == llm.DeltaKindToolCall && delta.ToolCall != nil {
+			partial := delta.ToolCall
+			call := streamedToolCalls[partial.Index]
+			if call == nil {
+				call = &streamedToolCall{}
+				streamedToolCalls[partial.Index] = call
+			}
+			call.name.WriteString(partial.Name)
+			call.arguments.WriteString(partial.Arguments)
+			apiName := normalizeToolAPIName(call.name.String())
+			if apiName == "write_file" || apiName == "edit_file" {
+				estimated := tools.EstimateSerializedFileMutationTokens(call.arguments.String())
+				if estimated > streamLimits.RecommendedTokens {
+					return &fileMutationStreamLimitError{
+						APIName: apiName, EstimatedTokens: estimated,
+						RecommendedTokens: streamLimits.RecommendedTokens, MaxTokens: streamLimits.MaxTokens,
+					}
+				}
+			}
 		}
 		if err := emitLLMChunk(ctx, turnRequest, delta, toolRound); err != nil {
 			return err
@@ -1826,6 +2137,16 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 			},
 		})
 	})
+}
+
+func normalizedStreamMutationLimits(limits tools.FileMutationLimits) tools.FileMutationLimits {
+	if limits.MaxTokens <= 0 || limits.MaxTokens > tools.MaxFileMutationTokens {
+		limits.MaxTokens = tools.MaxFileMutationTokens
+	}
+	if limits.RecommendedTokens <= 0 || limits.RecommendedTokens > limits.MaxTokens {
+		limits.RecommendedTokens = minInt(tools.RecommendedFileMutationTokens, limits.MaxTokens)
+	}
+	return limits
 }
 
 func emitLLMChunk(ctx context.Context, turnRequest TurnRequest, delta llm.Delta, toolRound int) error {

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const commandTestTimeout = 15 * time.Second
+
 func TestCommandTurnExecutorReturnsAgentPayload(t *testing.T) {
 	command := writeExecutable(t, `#!/bin/sh
 input=$(cat)
@@ -19,7 +21,7 @@ esac
 
 	executor := CommandTurnExecutor{
 		Command: command,
-		Timeout: 5 * time.Second,
+		Timeout: commandTestTimeout,
 	}
 	result, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -42,7 +44,7 @@ printf '{"content":[{"type":"text","text":"legacy output"}]}'
 
 	executor := CommandTurnExecutor{
 		Command: command,
-		Timeout: 5 * time.Second,
+		Timeout: commandTestTimeout,
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -61,7 +63,7 @@ printf 'not-json'
 
 	executor := CommandTurnExecutor{
 		Command: command,
-		Timeout: 5 * time.Second,
+		Timeout: commandTestTimeout,
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -80,7 +82,7 @@ printf '{"protocol_version":"tma.command.v2","content":[]}'
 
 	executor := CommandTurnExecutor{
 		Command: command,
-		Timeout: 5 * time.Second,
+		Timeout: commandTestTimeout,
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",

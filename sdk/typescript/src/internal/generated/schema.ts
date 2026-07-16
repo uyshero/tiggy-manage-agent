@@ -916,6 +916,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject": {
         parameters: {
             query?: never;
@@ -926,6 +942,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_reject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_respond"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_skip"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1230,6 +1278,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["post_v2_sessions_by_session_id_task_groups_by_group_id_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/task-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_sessions_by_session_id_task_plan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/task-plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_sessions_by_session_id_task_plans"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2644,6 +2724,22 @@ export interface components {
             cloud_sandbox_root?: string;
             cloud_sandbox_image?: string;
             cloud_sandbox_allow_network?: boolean;
+            human_interaction?: components["schemas"]["HumanInteractionRuntimeSettings"];
+            completion_gate?: components["schemas"]["CompletionGateRuntimeSettings"];
+        };
+        HumanInteractionRuntimeSettings: {
+            enabled?: boolean;
+            modes?: ("select" | "multiselect" | "form" | "freeform")[];
+            supports_upload?: boolean;
+            /** @enum {string} */
+            fallback?: "assistant_message" | "fail";
+        };
+        CompletionGateRuntimeSettings: {
+            /**
+             * Format: int32
+             * @description Defaults to 3 when omitted.
+             */
+            max_retries?: number;
         };
         AgentRuntimeConfig: {
             session_id: string;
@@ -2686,6 +2782,13 @@ export interface components {
         SessionRuntimeCapabilities: {
             default_runtime: string;
             available_runtimes: string[];
+            human_interaction?: components["schemas"]["HumanInteractionRuntimeCapabilities"];
+        };
+        HumanInteractionRuntimeCapabilities: {
+            enabled: boolean;
+            modes: string[];
+            supports_upload: boolean;
+            fallback: string;
         };
         RerunSessionRequest: components["schemas"]["UpdateSessionRuntimeSettingsRequest"] & {
             title?: string;
@@ -2720,7 +2823,7 @@ export interface components {
             id: string;
             session_id: string;
             /** @enum {string} */
-            status: "running" | "waiting_approval" | "completed" | "failed" | "interrupted";
+            status: "running" | "waiting_approval" | "waiting_human" | "completed" | "failed" | "interrupted";
             user_event_id?: string;
             /** Format: int64 */
             user_event_seq?: number;
@@ -2773,20 +2876,30 @@ export interface components {
             arguments?: {
                 [key: string]: unknown;
             };
+            /** @enum {string} */
+            kind?: "tool_approval" | "clarification" | "plan_approval" | "upload_request";
+            request?: unknown;
+            response?: unknown;
             intervention_mode?: string;
             reason?: string;
-            status: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected" | "answered" | "skipped" | "canceled" | "expired";
             decision_reason?: string;
             /** Format: date-time */
             requested_at?: string;
             /** Format: date-time */
             decided_at?: string | null;
+            /** Format: date-time */
+            responded_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
         };
         InterventionList: {
             interventions: components["schemas"]["Intervention"][];
         };
         InterventionDecisionRequest: {
             reason?: string;
+            response?: unknown;
         };
         InterventionDecision: {
             intervention: components["schemas"]["Intervention"];
@@ -2801,6 +2914,49 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        SessionTaskItem: {
+            id: string;
+            plan_id: string;
+            /** Format: int32 */
+            index: number;
+            description: string;
+            /** @enum {string} */
+            status: "pending" | "in_progress" | "completed" | "blocked";
+            evidence?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        SessionTaskPlan: {
+            id: string;
+            workspace_id: string;
+            owner_id: string;
+            session_id: string;
+            created_turn_id?: string;
+            updated_turn_id?: string;
+            title?: string;
+            goal: string;
+            /** @enum {string} */
+            handling_mode: "tracked" | "planned";
+            /** @enum {string} */
+            status: "active" | "completed" | "canceled" | "superseded";
+            items: components["schemas"]["SessionTaskItem"][];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        SessionTaskPlanCurrent: {
+            plan: components["schemas"]["SessionTaskPlan"];
+        };
+        SessionTaskPlanList: {
+            plans: components["schemas"]["SessionTaskPlan"][];
         };
         UpsertSessionSummaryRequest: {
             summary_text: string;
@@ -7169,7 +7325,118 @@ export interface operations {
             };
         };
     };
+    post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                turn_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterventionDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterventionDecision"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_reject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                turn_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterventionDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterventionDecision"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_respond: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                turn_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterventionDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterventionDecision"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_sessions_by_session_id_interventions_by_turn_id_by_call_id_skip: {
         parameters: {
             query?: never;
             header?: never;
@@ -7888,6 +8155,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentTaskGroupResponse"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_sessions_by_session_id_task_plan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTaskPlanCurrent"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_sessions_by_session_id_task_plans: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionTaskPlanList"];
                 };
             };
             /** @description API error */

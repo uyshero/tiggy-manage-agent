@@ -156,7 +156,11 @@ const playwrightRunnerScript = `
 
   async function observe(page) {
     const elements = await page.evaluate(() => {
-      const candidates = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"],[tabindex]'));
+      const candidates = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"],[tabindex]')).filter(el => {
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      });
       return candidates.slice(0, 80).map((el, index) => {
         const role = el.getAttribute('role') || el.tagName.toLowerCase();
         const text = (el.innerText || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.value || '').replace(/\s+/g, ' ').trim();
@@ -198,7 +202,11 @@ const playwrightRunnerScript = `
     if (!match) return '';
     const index = Number(match[1]) - 1;
     return await page.evaluate((index) => {
-      const candidates = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"],[tabindex]'));
+      const candidates = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"],[tabindex]')).filter(el => {
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+      });
       const node = candidates[index];
       if (!node) return '';
       if (node.id) return '#' + CSS.escape(node.id);
@@ -229,16 +237,49 @@ const playwrightRunnerScript = `
     return selector;
   }
 
+  async function firstVisibleLocator(locator) {
+    const count = Math.min(await locator.count(), 100);
+    for (let index = 0; index < count; index++) {
+      const candidate = locator.nth(index);
+      if (await candidate.isVisible().catch(() => false)) return candidate;
+    }
+    return null;
+  }
+
+  async function visibleActionLocator(page, selector, action, timeout) {
+    const requested = page.locator(selector);
+    let locator = await firstVisibleLocator(requested);
+    if (locator) return locator;
+    await page.waitForTimeout(Math.min(500, timeout));
+    locator = await firstVisibleLocator(requested);
+    if (locator) return locator;
+    if (action !== 'type') {
+      throw new Error('browser ' + action + ' selector ' + JSON.stringify(selector) + ' matched no visible element');
+    }
+    const alternatives = page.locator('input:not([type="hidden"]),textarea,[contenteditable="true"]');
+    const editable = [];
+    const count = Math.min(await alternatives.count(), 100);
+    for (let index = 0; index < count; index++) {
+      const candidate = alternatives.nth(index);
+      if (await candidate.isVisible().catch(() => false) && await candidate.isEditable().catch(() => false)) {
+        editable.push(candidate);
+      }
+    }
+    if (editable.length === 1) return editable[0];
+    throw new Error('browser type selector ' + JSON.stringify(selector) + ' matched no visible editable element; visible editable candidates=' + editable.length);
+  }
+
   async function applyAction(page, action, timeout) {
     if (!action || !action.action) return;
     if (action.action === 'click') {
       if (!action.selector) throw new Error('browser replay click requires selector');
-      await page.locator(action.selector).first().click({ timeout });
+      const locator = await visibleActionLocator(page, action.selector, 'click', timeout);
+      await locator.click({ timeout });
       return;
     }
     if (action.action === 'type') {
       if (!action.selector) throw new Error('browser replay type requires selector');
-      const locator = page.locator(action.selector).first();
+      const locator = await visibleActionLocator(page, action.selector, 'type', timeout);
       if (action.clear) await locator.fill('', { timeout });
       await locator.fill(String(action.text || ''), { timeout });
     }

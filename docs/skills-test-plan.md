@@ -279,8 +279,8 @@ path: skills/pdf/SKILL.md
 - `go test ./internal/skills ./internal/skillmarketplace -count=1` 通过。
 - `go test ./internal/httpapi -run 'Skill|Skills|UpgradeSessionAgentConfig' -count=1` 通过。
 - `go test ./internal/tools ./internal/runner ./internal/agentruntime -count=1` 通过。
-- `npm --prefix web-app test` 通过，共 58 个 tests，其中 5 个覆盖 typed Skill inputs。
-- `npm --prefix web-app run build` 通过。
+- `npm --prefix apps/workbench test` 通过，共 58 个 tests，其中 5 个覆盖 typed Skill inputs。
+- `npm --prefix apps/workbench run build` 通过。
 - 真实非法 Enable 返回 `400` 且 Agent config version 不变；合法 Workbench Enable 发布精确 v1 binding，Resolve Preview 为 `resolved` 并渲染同一 typed inputs。
 - `1280x720` 与 `390x844` 几何检查均无横向溢出或 viewport 外控件；最终 rebuild 后的移动按钮规则已进入生成 CSS。浏览器 URL 策略阻止最后一次 reload，因此最终 bundle 未重复截图。
 - 临时 Agent 已恢复空 binding，Skill/Session 已归档，不可变 package objects 保留。
@@ -382,7 +382,7 @@ path: skills/pdf/SKILL.md
 2026-07-14 结果：通过。
 
 - 聚焦自动化覆盖 `skills.disable` manifest/write approval、只移除目标 binding、幂等、乐观并发冲突、管理 API/operator audit、Archive 保护和历史回放；PostgreSQL Skill registry 集成测试通过。
-- `go test ./internal/tools ./internal/runner ./internal/agentruntime`、Skills 聚焦 HTTP/service 测试、`npm --prefix web-app run build` 和 `git diff --check` 通过；Server 重建重启后 `/health` 返回 `status=ok`。
+- `go test ./internal/tools ./internal/runner ./internal/agentruntime`、Skills 聚焦 HTTP/service 测试、`npm --prefix apps/workbench run build` 和 `git diff --check` 通过；Server 重建重启后 `/health` 返回 `status=ok`。
 - 真实 Agent `agt_000146` 的 Session `sesn_000229` 先精确应用 Enable config v2，再通过独立 `skills.disable` 审批发布 v3。Disable 调用 ID 为 `call_tau8xy8wsc7rz0qzxwkacij5`，intervention required/approved 为 seq 197/198，tool result 为 seq 201。
 - Disable 结果为 `removed=true`、previous v2、new v3、Session v2、`requires_session_upgrade=true`；Agent v3 的 `skills.enabled=[]`。Workbench 精确应用 v3 后写入 `session.config_updated` seq 377，并只展示“重新启用”。
 - v3 后续 Turn 的 `runtime.skills_resolved` seq 381 为 `skills=null`；旧生命周期卡没有“请求停用”或“应用到当前会话”，未发生陈旧配置应用。
@@ -408,7 +408,7 @@ path: skills/pdf/SKILL.md
 
 - Service/HTTP 覆盖首次变更、相同 binding、JSON 键序变化、Disable 和精确 Session config；Workbench helper 覆盖 pending/session-still-enabled/target-version 状态。
 - `go test ./internal/httpapi ./internal/tools -run 'Skill|Skills' -count=1` 通过。
-- `npm --prefix web-app test` 通过，共 70 个 tests。
+- `npm --prefix apps/workbench test` 通过，共 70 个 tests。
 
 2026-07-14 真实离线 E2E：通过。
 
@@ -489,7 +489,7 @@ path: skills/pdf/SKILL.md
 
 - `go test ./internal/httpapi ./cmd/tma -run 'Test(UpgradeSessionAgentConfig|CommandSessionConfigUpgrade)' -count=1` 通过。
 - `go test ./...` 全仓测试通过。
-- `npm --prefix web-app run build` production build 通过。
+- `npm --prefix apps/workbench run build` production build 通过。
 - 真实 PostgreSQL、S3、LLM、审批、Workbench 精确 Session upgrade 和 Skill marker 验收通过。
 
 ## 2026-07-13 执行结果

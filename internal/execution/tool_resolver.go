@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -59,6 +60,13 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 	}
 	registry := tools.RegistryWithMCPWarningsLookupHostsGuard(resolveCtx, tools.DefaultRegistry(), config.MCP, lookup, request.MCPHost, request.MCPHTTPHost, mcpHostScope(config, sessionID), request.MCPRuntimeGuard, config.WorkspaceID)
 	registry, toolPolicy := registry.Configured(config.Tools)
+	if config.SpawnDepth > 0 || strings.TrimSpace(config.ParentSessionID) != "" || !HumanInteractionEnabled(config.RuntimeSettings) {
+		registry = registry.Without(tools.InteractionIdentifier)
+	}
+	taskService := resolveTaskToolService(request.Store)
+	if taskService == nil {
+		registry = registry.Without(tools.TaskIdentifier)
+	}
 	provider := resolveToolProvider(request.ProviderResolver, config, sessionID, toolPolicy)
 	providerCapabilities := AvailableCapabilities(provider, toolPolicy)
 
@@ -98,8 +106,31 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 			Environment:      request.Environment,
 			Provider:         provider,
 			ArtifactRecorder: request.ArtifactRecorder,
+			TaskService:      taskService,
 		},
 	}
+}
+
+func HumanInteractionEnabled(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return true
+	}
+	var decoded struct {
+		HumanInteraction *struct {
+			Enabled *bool `json:"enabled"`
+		} `json:"human_interaction"`
+		HumanInteractionEnabled *bool `json:"human_interaction_enabled"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return true
+	}
+	if decoded.HumanInteraction != nil && decoded.HumanInteraction.Enabled != nil {
+		return *decoded.HumanInteraction.Enabled
+	}
+	if decoded.HumanInteractionEnabled != nil {
+		return *decoded.HumanInteractionEnabled
+	}
+	return true
 }
 
 func mcpHostScope(config managedagents.AgentRuntimeConfig, sessionID string) string {

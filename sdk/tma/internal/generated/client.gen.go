@@ -89,6 +89,39 @@ const (
 	EnabledSkillModeSummary      EnabledSkillMode = "summary"
 )
 
+// Defines values for HumanInteractionRuntimeSettingsFallback.
+const (
+	AssistantMessage HumanInteractionRuntimeSettingsFallback = "assistant_message"
+	Fail             HumanInteractionRuntimeSettingsFallback = "fail"
+)
+
+// Defines values for HumanInteractionRuntimeSettingsModes.
+const (
+	Form        HumanInteractionRuntimeSettingsModes = "form"
+	Freeform    HumanInteractionRuntimeSettingsModes = "freeform"
+	Multiselect HumanInteractionRuntimeSettingsModes = "multiselect"
+	Select      HumanInteractionRuntimeSettingsModes = "select"
+)
+
+// Defines values for InterventionKind.
+const (
+	Clarification InterventionKind = "clarification"
+	PlanApproval  InterventionKind = "plan_approval"
+	ToolApproval  InterventionKind = "tool_approval"
+	UploadRequest InterventionKind = "upload_request"
+)
+
+// Defines values for InterventionStatus.
+const (
+	InterventionStatusAnswered InterventionStatus = "answered"
+	InterventionStatusApproved InterventionStatus = "approved"
+	InterventionStatusCanceled InterventionStatus = "canceled"
+	InterventionStatusExpired  InterventionStatus = "expired"
+	InterventionStatusPending  InterventionStatus = "pending"
+	InterventionStatusRejected InterventionStatus = "rejected"
+	InterventionStatusSkipped  InterventionStatus = "skipped"
+)
+
 // Defines values for LLMDiagnosticResultErrorType.
 const (
 	Authentication    LLMDiagnosticResultErrorType = "authentication"
@@ -240,10 +273,10 @@ const (
 
 // Defines values for MarketplacePreviewResultInstallState.
 const (
-	Blocked    MarketplacePreviewResultInstallState = "blocked"
-	NewInstall MarketplacePreviewResultInstallState = "new_install"
-	Unchanged  MarketplacePreviewResultInstallState = "unchanged"
-	Upgrade    MarketplacePreviewResultInstallState = "upgrade"
+	MarketplacePreviewResultInstallStateBlocked    MarketplacePreviewResultInstallState = "blocked"
+	MarketplacePreviewResultInstallStateNewInstall MarketplacePreviewResultInstallState = "new_install"
+	MarketplacePreviewResultInstallStateUnchanged  MarketplacePreviewResultInstallState = "unchanged"
+	MarketplacePreviewResultInstallStateUpgrade    MarketplacePreviewResultInstallState = "upgrade"
 )
 
 // Defines values for MarketplaceSecurityFindingSeverity.
@@ -312,6 +345,29 @@ const (
 	RunStatusInterrupted     RunStatus = "interrupted"
 	RunStatusRunning         RunStatus = "running"
 	RunStatusWaitingApproval RunStatus = "waiting_approval"
+	RunStatusWaitingHuman    RunStatus = "waiting_human"
+)
+
+// Defines values for SessionTaskItemStatus.
+const (
+	SessionTaskItemStatusBlocked    SessionTaskItemStatus = "blocked"
+	SessionTaskItemStatusCompleted  SessionTaskItemStatus = "completed"
+	SessionTaskItemStatusInProgress SessionTaskItemStatus = "in_progress"
+	SessionTaskItemStatusPending    SessionTaskItemStatus = "pending"
+)
+
+// Defines values for SessionTaskPlanHandlingMode.
+const (
+	Planned SessionTaskPlanHandlingMode = "planned"
+	Tracked SessionTaskPlanHandlingMode = "tracked"
+)
+
+// Defines values for SessionTaskPlanStatus.
+const (
+	SessionTaskPlanStatusActive     SessionTaskPlanStatus = "active"
+	SessionTaskPlanStatusCanceled   SessionTaskPlanStatus = "canceled"
+	SessionTaskPlanStatusCompleted  SessionTaskPlanStatus = "completed"
+	SessionTaskPlanStatusSuperseded SessionTaskPlanStatus = "superseded"
 )
 
 // Defines values for SkillOwnerType.
@@ -380,16 +436,16 @@ const (
 
 // Defines values for SkillRetentionPolicyStatus.
 const (
-	Active   SkillRetentionPolicyStatus = "active"
-	Archived SkillRetentionPolicyStatus = "archived"
+	SkillRetentionPolicyStatusActive   SkillRetentionPolicyStatus = "active"
+	SkillRetentionPolicyStatusArchived SkillRetentionPolicyStatus = "archived"
 )
 
 // Defines values for SkillUsageStatus.
 const (
-	Degraded SkillUsageStatus = "degraded"
-	Failed   SkillUsageStatus = "failed"
-	Resolved SkillUsageStatus = "resolved"
-	Skipped  SkillUsageStatus = "skipped"
+	SkillUsageStatusDegraded SkillUsageStatus = "degraded"
+	SkillUsageStatusFailed   SkillUsageStatus = "failed"
+	SkillUsageStatusResolved SkillUsageStatus = "resolved"
+	SkillUsageStatusSkipped  SkillUsageStatus = "skipped"
 )
 
 // APIError defines model for APIError.
@@ -816,6 +872,12 @@ type CancelWorkerWorkRequest struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// CompletionGateRuntimeSettings defines model for CompletionGateRuntimeSettings.
+type CompletionGateRuntimeSettings struct {
+	// MaxRetries Defaults to 3 when omitted.
+	MaxRetries *int32 `json:"max_retries,omitempty"`
+}
+
 // CreateAgentConfigVersionRequest defines model for CreateAgentConfigVersionRequest.
 type CreateAgentConfigVersionRequest = UpdateAgentRequest
 
@@ -1048,6 +1110,28 @@ type EventList struct {
 // EventStream Server-sent event stream whose data fields contain Event JSON.
 type EventStream = string
 
+// HumanInteractionRuntimeCapabilities defines model for HumanInteractionRuntimeCapabilities.
+type HumanInteractionRuntimeCapabilities struct {
+	Enabled        bool     `json:"enabled"`
+	Fallback       string   `json:"fallback"`
+	Modes          []string `json:"modes"`
+	SupportsUpload bool     `json:"supports_upload"`
+}
+
+// HumanInteractionRuntimeSettings defines model for HumanInteractionRuntimeSettings.
+type HumanInteractionRuntimeSettings struct {
+	Enabled        *bool                                    `json:"enabled,omitempty"`
+	Fallback       *HumanInteractionRuntimeSettingsFallback `json:"fallback,omitempty"`
+	Modes          *[]HumanInteractionRuntimeSettingsModes  `json:"modes,omitempty"`
+	SupportsUpload *bool                                    `json:"supports_upload,omitempty"`
+}
+
+// HumanInteractionRuntimeSettingsFallback defines model for HumanInteractionRuntimeSettings.Fallback.
+type HumanInteractionRuntimeSettingsFallback string
+
+// HumanInteractionRuntimeSettingsModes defines model for HumanInteractionRuntimeSettings.Modes.
+type HumanInteractionRuntimeSettingsModes string
+
 // InspectorTaskGroupState defines model for InspectorTaskGroupState.
 type InspectorTaskGroupState struct {
 	State         AgentTaskGroupResponse `json:"state"`
@@ -1062,14 +1146,25 @@ type Intervention struct {
 	CallId           string                  `json:"call_id"`
 	DecidedAt        *time.Time              `json:"decided_at"`
 	DecisionReason   *string                 `json:"decision_reason,omitempty"`
+	ExpiresAt        *time.Time              `json:"expires_at"`
 	InterventionMode *string                 `json:"intervention_mode,omitempty"`
+	Kind             *InterventionKind       `json:"kind,omitempty"`
 	Reason           *string                 `json:"reason,omitempty"`
+	Request          *interface{}            `json:"request,omitempty"`
 	RequestedAt      *time.Time              `json:"requested_at,omitempty"`
+	RespondedAt      *time.Time              `json:"responded_at"`
+	Response         *interface{}            `json:"response,omitempty"`
 	SessionId        string                  `json:"session_id"`
-	Status           string                  `json:"status"`
+	Status           InterventionStatus      `json:"status"`
 	ToolIdentifier   *string                 `json:"tool_identifier,omitempty"`
 	TurnId           string                  `json:"turn_id"`
 }
+
+// InterventionKind defines model for Intervention.Kind.
+type InterventionKind string
+
+// InterventionStatus defines model for Intervention.Status.
+type InterventionStatus string
 
 // InterventionDecision defines model for InterventionDecision.
 type InterventionDecision struct {
@@ -1079,7 +1174,8 @@ type InterventionDecision struct {
 
 // InterventionDecisionRequest defines model for InterventionDecisionRequest.
 type InterventionDecisionRequest struct {
-	Reason *string `json:"reason,omitempty"`
+	Reason   *string      `json:"reason,omitempty"`
+	Response *interface{} `json:"response,omitempty"`
 }
 
 // InterventionList defines model for InterventionList.
@@ -2126,15 +2222,17 @@ type RequeueWorkerWorkRequest struct {
 
 // RerunSessionRequest defines model for RerunSessionRequest.
 type RerunSessionRequest struct {
-	CloudSandboxAllowNetwork *bool   `json:"cloud_sandbox_allow_network,omitempty"`
-	CloudSandboxImage        *string `json:"cloud_sandbox_image,omitempty"`
-	CloudSandboxRoot         *string `json:"cloud_sandbox_root,omitempty"`
-	InterventionMode         *string `json:"intervention_mode,omitempty"`
-	LlmModel                 *string `json:"llm_model,omitempty"`
-	LlmProvider              *string `json:"llm_provider,omitempty"`
-	MessageSeq               *int64  `json:"message_seq,omitempty"`
-	Title                    *string `json:"title,omitempty"`
-	ToolRuntime              *string `json:"tool_runtime,omitempty"`
+	CloudSandboxAllowNetwork *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
+	CloudSandboxImage        *string                          `json:"cloud_sandbox_image,omitempty"`
+	CloudSandboxRoot         *string                          `json:"cloud_sandbox_root,omitempty"`
+	CompletionGate           *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+	HumanInteraction         *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
+	InterventionMode         *string                          `json:"intervention_mode,omitempty"`
+	LlmModel                 *string                          `json:"llm_model,omitempty"`
+	LlmProvider              *string                          `json:"llm_provider,omitempty"`
+	MessageSeq               *int64                           `json:"message_seq,omitempty"`
+	Title                    *string                          `json:"title,omitempty"`
+	ToolRuntime              *string                          `json:"tool_runtime,omitempty"`
 }
 
 // RerunSessionResponse defines model for RerunSessionResponse.
@@ -2294,8 +2392,9 @@ type SessionList struct {
 
 // SessionRuntimeCapabilities defines model for SessionRuntimeCapabilities.
 type SessionRuntimeCapabilities struct {
-	AvailableRuntimes []string `json:"available_runtimes"`
-	DefaultRuntime    string   `json:"default_runtime"`
+	AvailableRuntimes []string                             `json:"available_runtimes"`
+	DefaultRuntime    string                               `json:"default_runtime"`
+	HumanInteraction  *HumanInteractionRuntimeCapabilities `json:"human_interaction,omitempty"`
 }
 
 // SessionSummary defines model for SessionSummary.
@@ -2335,6 +2434,56 @@ type SessionTaskGroupTreeSummary struct {
 	Running        int32 `json:"running"`
 	Sessions       int32 `json:"sessions"`
 	Waiting        int32 `json:"waiting"`
+}
+
+// SessionTaskItem defines model for SessionTaskItem.
+type SessionTaskItem struct {
+	CompletedAt *time.Time            `json:"completed_at"`
+	CreatedAt   time.Time             `json:"created_at"`
+	Description string                `json:"description"`
+	Evidence    *string               `json:"evidence,omitempty"`
+	Id          string                `json:"id"`
+	Index       int32                 `json:"index"`
+	PlanId      string                `json:"plan_id"`
+	Status      SessionTaskItemStatus `json:"status"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+}
+
+// SessionTaskItemStatus defines model for SessionTaskItem.Status.
+type SessionTaskItemStatus string
+
+// SessionTaskPlan defines model for SessionTaskPlan.
+type SessionTaskPlan struct {
+	CompletedAt   *time.Time                  `json:"completed_at"`
+	CreatedAt     time.Time                   `json:"created_at"`
+	CreatedTurnId *string                     `json:"created_turn_id,omitempty"`
+	Goal          string                      `json:"goal"`
+	HandlingMode  SessionTaskPlanHandlingMode `json:"handling_mode"`
+	Id            string                      `json:"id"`
+	Items         []SessionTaskItem           `json:"items"`
+	OwnerId       string                      `json:"owner_id"`
+	SessionId     string                      `json:"session_id"`
+	Status        SessionTaskPlanStatus       `json:"status"`
+	Title         *string                     `json:"title,omitempty"`
+	UpdatedAt     time.Time                   `json:"updated_at"`
+	UpdatedTurnId *string                     `json:"updated_turn_id,omitempty"`
+	WorkspaceId   string                      `json:"workspace_id"`
+}
+
+// SessionTaskPlanHandlingMode defines model for SessionTaskPlan.HandlingMode.
+type SessionTaskPlanHandlingMode string
+
+// SessionTaskPlanStatus defines model for SessionTaskPlan.Status.
+type SessionTaskPlanStatus string
+
+// SessionTaskPlanCurrent defines model for SessionTaskPlanCurrent.
+type SessionTaskPlanCurrent struct {
+	Plan SessionTaskPlan `json:"plan"`
+}
+
+// SessionTaskPlanList defines model for SessionTaskPlanList.
+type SessionTaskPlanList struct {
+	Plans []SessionTaskPlan `json:"plans"`
 }
 
 // SessionUsage defines model for SessionUsage.
@@ -3087,13 +3236,15 @@ type UpdateSessionMetadataRequest struct {
 
 // UpdateSessionRuntimeSettingsRequest defines model for UpdateSessionRuntimeSettingsRequest.
 type UpdateSessionRuntimeSettingsRequest struct {
-	CloudSandboxAllowNetwork *bool   `json:"cloud_sandbox_allow_network,omitempty"`
-	CloudSandboxImage        *string `json:"cloud_sandbox_image,omitempty"`
-	CloudSandboxRoot         *string `json:"cloud_sandbox_root,omitempty"`
-	InterventionMode         *string `json:"intervention_mode,omitempty"`
-	LlmModel                 *string `json:"llm_model,omitempty"`
-	LlmProvider              *string `json:"llm_provider,omitempty"`
-	ToolRuntime              *string `json:"tool_runtime,omitempty"`
+	CloudSandboxAllowNetwork *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
+	CloudSandboxImage        *string                          `json:"cloud_sandbox_image,omitempty"`
+	CloudSandboxRoot         *string                          `json:"cloud_sandbox_root,omitempty"`
+	CompletionGate           *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+	HumanInteraction         *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
+	InterventionMode         *string                          `json:"intervention_mode,omitempty"`
+	LlmModel                 *string                          `json:"llm_model,omitempty"`
+	LlmProvider              *string                          `json:"llm_provider,omitempty"`
+	ToolRuntime              *string                          `json:"tool_runtime,omitempty"`
 }
 
 // UpgradeSessionConfigRequest defines model for UpgradeSessionConfigRequest.
@@ -3540,8 +3691,17 @@ type PostV2SessionsBySessionIdEventsJSONRequestBody = AppendEventsRequest
 // PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveJSONRequestBody defines body for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApprove for application/json ContentType.
 type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveJSONRequestBody = InterventionDecisionRequest
 
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody defines body for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel for application/json ContentType.
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody = InterventionDecisionRequest
+
 // PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody defines body for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdReject for application/json ContentType.
 type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody = InterventionDecisionRequest
+
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody defines body for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond for application/json ContentType.
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody = InterventionDecisionRequest
+
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody defines body for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip for application/json ContentType.
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody = InterventionDecisionRequest
 
 // PostV2SessionsBySessionIdRerunJSONRequestBody defines body for PostV2SessionsBySessionIdRerun for application/json ContentType.
 type PostV2SessionsBySessionIdRerunJSONRequestBody = RerunSessionRequest
@@ -4165,10 +4325,25 @@ type ClientInterface interface {
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApprove(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBody request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBody request with any body
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdReject(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBody request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBody request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionsBySessionIdOperatorAudit request
 	GetV2SessionsBySessionIdOperatorAudit(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4242,6 +4417,12 @@ type ClientInterface interface {
 
 	// PostV2SessionsBySessionIdTaskGroupsByGroupIdRetry request
 	PostV2SessionsBySessionIdTaskGroupsByGroupIdRetry(ctx context.Context, sessionId string, groupId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2SessionsBySessionIdTaskPlan request
+	GetV2SessionsBySessionIdTaskPlan(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2SessionsBySessionIdTaskPlans request
+	GetV2SessionsBySessionIdTaskPlans(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionsBySessionIdTrace request
 	GetV2SessionsBySessionIdTrace(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdTraceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5623,6 +5804,30 @@ func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApprove(c
 	return c.Client.Do(req)
 }
 
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequestWithBody(c.Server, sessionId, turnId, callId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequest(c.Server, sessionId, turnId, callId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectRequestWithBody(c.Server, sessionId, turnId, callId, contentType, body)
 	if err != nil {
@@ -5637,6 +5842,54 @@ func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWit
 
 func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdReject(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectRequest(c.Server, sessionId, turnId, callId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequestWithBody(c.Server, sessionId, turnId, callId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequest(c.Server, sessionId, turnId, callId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBody(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequestWithBody(c.Server, sessionId, turnId, callId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequest(c.Server, sessionId, turnId, callId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5949,6 +6202,30 @@ func (c *Client) PostV2SessionsBySessionIdTaskGroupsByGroupIdItemsByItemIndexRet
 
 func (c *Client) PostV2SessionsBySessionIdTaskGroupsByGroupIdRetry(ctx context.Context, sessionId string, groupId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SessionsBySessionIdTaskGroupsByGroupIdRetryRequest(c.Server, sessionId, groupId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdTaskPlan(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdTaskPlanRequest(c.Server, sessionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdTaskPlans(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdTaskPlansRequest(c.Server, sessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -10162,6 +10439,67 @@ func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveRequestWith
 	return req, nil
 }
 
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequest calls the generic PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel builder with application/json body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequest(server string, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequestWithBody(server, sessionId, turnId, callId, "application/json", bodyReader)
+}
+
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequestWithBody generates requests for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel with any type of body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelRequestWithBody(server string, sessionId string, turnId string, callId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "turn_id", runtime.ParamLocationPath, turnId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "call_id", runtime.ParamLocationPath, callId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/interventions/%s/%s/cancel", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectRequest calls the generic PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdReject builder with application/json body
 func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectRequest(server string, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -10204,6 +10542,128 @@ func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectRequestWithB
 	}
 
 	operationPath := fmt.Sprintf("/v2/sessions/%s/interventions/%s/%s/reject", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequest calls the generic PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond builder with application/json body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequest(server string, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequestWithBody(server, sessionId, turnId, callId, "application/json", bodyReader)
+}
+
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequestWithBody generates requests for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond with any type of body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondRequestWithBody(server string, sessionId string, turnId string, callId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "turn_id", runtime.ParamLocationPath, turnId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "call_id", runtime.ParamLocationPath, callId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/interventions/%s/%s/respond", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequest calls the generic PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip builder with application/json body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequest(server string, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequestWithBody(server, sessionId, turnId, callId, "application/json", bodyReader)
+}
+
+// NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequestWithBody generates requests for PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip with any type of body
+func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequestWithBody(server string, sessionId string, turnId string, callId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "turn_id", runtime.ParamLocationPath, turnId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "call_id", runtime.ParamLocationPath, callId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/interventions/%s/%s/skip", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -11124,6 +11584,74 @@ func NewPostV2SessionsBySessionIdTaskGroupsByGroupIdRetryRequest(server string, 
 	}
 
 	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2SessionsBySessionIdTaskPlanRequest generates requests for GetV2SessionsBySessionIdTaskPlan
+func NewGetV2SessionsBySessionIdTaskPlanRequest(server string, sessionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/task-plan", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2SessionsBySessionIdTaskPlansRequest generates requests for GetV2SessionsBySessionIdTaskPlans
+func NewGetV2SessionsBySessionIdTaskPlansRequest(server string, sessionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/task-plans", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -14660,10 +15188,25 @@ type ClientWithResponsesInterface interface {
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveResponse, error)
 
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBodyWithResponse request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse, error)
+
 	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBodyWithResponse request with any body
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse, error)
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse, error)
+
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBodyWithResponse request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse, error)
+
+	// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBodyWithResponse request with any body
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error)
+
+	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error)
 
 	// GetV2SessionsBySessionIdOperatorAuditWithResponse request
 	GetV2SessionsBySessionIdOperatorAuditWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdOperatorAuditResponse, error)
@@ -14737,6 +15280,12 @@ type ClientWithResponsesInterface interface {
 
 	// PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryWithResponse request
 	PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryWithResponse(ctx context.Context, sessionId string, groupId string, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryResponse, error)
+
+	// GetV2SessionsBySessionIdTaskPlanWithResponse request
+	GetV2SessionsBySessionIdTaskPlanWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTaskPlanResponse, error)
+
+	// GetV2SessionsBySessionIdTaskPlansWithResponse request
+	GetV2SessionsBySessionIdTaskPlansWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTaskPlansResponse, error)
 
 	// GetV2SessionsBySessionIdTraceWithResponse request
 	GetV2SessionsBySessionIdTraceWithResponse(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdTraceParams, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTraceResponse, error)
@@ -16673,6 +17222,29 @@ func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveResponse) S
 	return 0
 }
 
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InterventionDecision
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -16690,6 +17262,52 @@ func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse) St
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InterventionDecision
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InterventionDecision
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -17173,6 +17791,52 @@ func (r PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryResponse) Status() stri
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2SessionsBySessionIdTaskPlanResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SessionTaskPlanCurrent
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdTaskPlanResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdTaskPlanResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2SessionsBySessionIdTaskPlansResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SessionTaskPlanList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdTaskPlansResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdTaskPlansResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -19417,6 +20081,23 @@ func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCa
 	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveResponse(rsp)
 }
 
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBodyWithResponse request with arbitrary body returning *PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithBody(ctx, sessionId, turnId, callId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancel(ctx, sessionId, turnId, callId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse(rsp)
+}
+
 // PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBodyWithResponse request with arbitrary body returning *PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse
 func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse, error) {
 	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithBody(ctx, sessionId, turnId, callId, contentType, body, reqEditors...)
@@ -19432,6 +20113,40 @@ func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCa
 		return nil, err
 	}
 	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse(rsp)
+}
+
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBodyWithResponse request with arbitrary body returning *PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithBody(ctx, sessionId, turnId, callId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespond(ctx, sessionId, turnId, callId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse(rsp)
+}
+
+// PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBodyWithResponse request with arbitrary body returning *PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBodyWithResponse(ctx context.Context, sessionId string, turnId string, callId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithBody(ctx, sessionId, turnId, callId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip(ctx, sessionId, turnId, callId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse(rsp)
 }
 
 // GetV2SessionsBySessionIdOperatorAuditWithResponse request returning *GetV2SessionsBySessionIdOperatorAuditResponse
@@ -19661,6 +20376,24 @@ func (c *ClientWithResponses) PostV2SessionsBySessionIdTaskGroupsByGroupIdRetryW
 		return nil, err
 	}
 	return ParsePostV2SessionsBySessionIdTaskGroupsByGroupIdRetryResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdTaskPlanWithResponse request returning *GetV2SessionsBySessionIdTaskPlanResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdTaskPlanWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTaskPlanResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdTaskPlan(ctx, sessionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdTaskPlanResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdTaskPlansWithResponse request returning *GetV2SessionsBySessionIdTaskPlansResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdTaskPlansWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTaskPlansResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdTaskPlans(ctx, sessionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdTaskPlansResponse(rsp)
 }
 
 // GetV2SessionsBySessionIdTraceWithResponse request returning *GetV2SessionsBySessionIdTraceResponse
@@ -22829,6 +23562,39 @@ func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdApproveResponse(
 	return response, nil
 }
 
+// ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse parses an HTTP response from a PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelWithResponse call
+func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse(rsp *http.Response) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdCancelResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InterventionDecision
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse parses an HTTP response from a PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectWithResponse call
 func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse(rsp *http.Response) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -22838,6 +23604,72 @@ func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse(r
 	}
 
 	response := &PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRejectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InterventionDecision
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse parses an HTTP response from a PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondWithResponse call
+func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse(rsp *http.Response) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdRespondResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InterventionDecision
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse parses an HTTP response from a PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithResponse call
+func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse(rsp *http.Response) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -23538,6 +24370,72 @@ func ParsePostV2SessionsBySessionIdTaskGroupsByGroupIdRetryResponse(rsp *http.Re
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest AgentTaskGroupResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2SessionsBySessionIdTaskPlanResponse parses an HTTP response from a GetV2SessionsBySessionIdTaskPlanWithResponse call
+func ParseGetV2SessionsBySessionIdTaskPlanResponse(rsp *http.Response) (*GetV2SessionsBySessionIdTaskPlanResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdTaskPlanResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionTaskPlanCurrent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2SessionsBySessionIdTaskPlansResponse parses an HTTP response from a GetV2SessionsBySessionIdTaskPlansWithResponse call
+func ParseGetV2SessionsBySessionIdTaskPlansResponse(rsp *http.Response) (*GetV2SessionsBySessionIdTaskPlansResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdTaskPlansResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionTaskPlanList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

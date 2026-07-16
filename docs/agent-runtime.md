@@ -307,7 +307,7 @@ bin/tma usage summary --provider volcengine-agent-plan --group-by model
 现在改为：
 
 ```text
-cmd/server
+cmd/tma-server
   -> WorkerRunner
   -> AgentRuntimeTurnExecutor
   -> agentruntime.DemoRuntime
@@ -380,7 +380,7 @@ Provider 长期路线、模型能力和 token usage 审计设计见 [llm-provide
 - 未来接远端 worker 或独立进程 runtime
 - 保持 `LocalSystemProvider.RunCommand` 的端到端测试入口
 
-但它不再是 `cmd/server` 的默认执行路径。
+但它不再是 `cmd/tma-server` 的默认执行路径。
 
 ## 后续路线
 

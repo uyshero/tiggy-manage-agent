@@ -13,6 +13,11 @@ import (
 
 const BrowserIdentifier = NamespaceBrowser
 
+const (
+	DefaultBrowserSandboxImage  = "tma-browser-sandbox:playwright"
+	DefaultBrowserSandboxMemory = "1g"
+)
+
 type BrowserRuntime struct {
 	Provider browsercap.Provider
 }
@@ -192,10 +197,9 @@ func browserProviderFromCapability(provider capability.Provider) browsercap.Prov
 	}
 	commandProvider := browsercap.NewCommandProvider(provider)
 	if onlyboxes, ok := provider.(capability.OnlyboxesProvider); ok {
-		if strings.TrimSpace(browserSandboxImage()) != "" {
-			onlyboxes.Image = browserSandboxImage()
-		}
+		onlyboxes.Image = browserSandboxImage()
 		onlyboxes.ContainerScope = "browser"
+		onlyboxes.MemoryLimit = browserSandboxMemory()
 		commandProvider.Runner = onlyboxes
 		commandProvider.StateRoot = "/mnt/data/browser"
 	}
@@ -203,7 +207,17 @@ func browserProviderFromCapability(provider capability.Provider) browsercap.Prov
 }
 
 func browserSandboxImage() string {
-	return strings.TrimSpace(os.Getenv("TMA_BROWSER_SANDBOX_IMAGE"))
+	if configured := strings.TrimSpace(os.Getenv("TMA_BROWSER_SANDBOX_IMAGE")); configured != "" {
+		return configured
+	}
+	return DefaultBrowserSandboxImage
+}
+
+func browserSandboxMemory() string {
+	if configured := strings.TrimSpace(os.Getenv("TMA_BROWSER_SANDBOX_MEMORY")); configured != "" {
+		return configured
+	}
+	return DefaultBrowserSandboxMemory
 }
 
 func decodeBrowserArgs(raw json.RawMessage, target any) error {

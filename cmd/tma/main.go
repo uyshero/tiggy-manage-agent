@@ -1261,17 +1261,6 @@ func (c *apiClient) do(method, path string, requestBody any, responseBody any) e
 	return sdk.DoJSON(context.Background(), method, sdkAPIPath(method, path), requestBody, responseBody)
 }
 
-func (c *apiClient) download(path string, output io.Writer) error {
-	if output == nil {
-		output = os.Stdout
-	}
-	sdk, err := c.sdkClient()
-	if err != nil {
-		return err
-	}
-	return sdk.Download(context.Background(), sdkAPIPath(http.MethodGet, path), output)
-}
-
 func (c *apiClient) streamSessionEvents(ctx context.Context, sessionID string, afterSeq int64, output io.Writer) error {
 	sdk, err := c.sdkClient()
 	if err != nil {

@@ -7,8 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,11 @@ import (
 
 const DefaultOnlyboxesImage = "coolfan1024/onlyboxes-runtime:default"
 const DefaultOnlyboxesDataDirTTL = time.Hour
+const DefaultOnlyboxesMemoryLimit = "512m"
+
+const runtimeSkillsSandboxRoot = "/workspace/.tma/skills"
+
+var runtimeSkillIdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
 
 type OnlyboxesProvider struct {
 	Image            string
@@ -30,6 +37,7 @@ type OnlyboxesProvider struct {
 	OwnerID          string
 	SessionID        string
 	ContainerScope   string
+	MemoryLimit      string
 	DockerCommand    string
 	Store            SessionDataStore
 	ObjectStore      objectstore.Client
@@ -62,6 +70,103 @@ func (OnlyboxesProvider) ToolCapabilities() []string {
 		"browser.interact",
 		"browser.capture",
 	}
+}
+
+func (p OnlyboxesProvider) MaterializeRuntimeSkills(_ context.Context, packages []RuntimeSkillPackage) ([]MaterializedRuntimeSkill, error) {
+	root, err := p.workspaceDir()
+	if err != nil {
+		return nil, err
+	}
+	hostSkillsRoot, err := resolveContainerPathInside(root, strings.TrimPrefix(runtimeSkillsSandboxRoot, "/workspace"))
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(hostSkillsRoot, 0o755); err != nil {
+		return nil, fmt.Errorf("create runtime skills root: %w", err)
+	}
+
+	result := make([]MaterializedRuntimeSkill, 0, len(packages))
+	for _, pkg := range packages {
+		materialized, err := materializeRuntimeSkillPackage(hostSkillsRoot, pkg)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, materialized)
+	}
+	return result, nil
+}
+
+func materializeRuntimeSkillPackage(hostSkillsRoot string, pkg RuntimeSkillPackage) (result MaterializedRuntimeSkill, err error) {
+	identifier := strings.TrimSpace(pkg.Identifier)
+	if !runtimeSkillIdentifierPattern.MatchString(identifier) || pkg.Version <= 0 {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("invalid runtime skill package %q version %d", identifier, pkg.Version)
+	}
+	versionName := strconv.Itoa(pkg.Version)
+	parent := filepath.Join(hostSkillsRoot, identifier)
+	target := filepath.Join(parent, versionName)
+	if !pathInsideRoot(target, hostSkillsRoot) {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("runtime skill target %q is outside skills root", target)
+	}
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill parent: %w", err)
+	}
+	directory := path.Join(runtimeSkillsSandboxRoot, identifier, versionName)
+	marker := filepath.Join(target, ".tma-runtime-checksum")
+	if stored, readErr := os.ReadFile(marker); readErr == nil && strings.TrimSpace(string(stored)) == strings.TrimSpace(pkg.Checksum) {
+		return MaterializedRuntimeSkill{Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
+	}
+
+	staging, err := os.MkdirTemp(parent, ".tmp-"+versionName+"-")
+	if err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill staging directory: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+	for _, file := range pkg.Files {
+		cleanPath, cleanErr := cleanRuntimeSkillFilePath(file.Path)
+		if cleanErr != nil {
+			return MaterializedRuntimeSkill{}, fmt.Errorf("materialize runtime skill %s: %w", identifier, cleanErr)
+		}
+		filePath := filepath.Join(staging, filepath.FromSlash(cleanPath))
+		if !pathInsideRoot(filePath, staging) {
+			return MaterializedRuntimeSkill{}, fmt.Errorf("runtime skill file %q escapes package root", file.Path)
+		}
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+			return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill file directory: %w", err)
+		}
+		mode := os.FileMode(0o644)
+		if file.Executable {
+			mode = 0o755
+		}
+		if err := os.WriteFile(filePath, file.Content, mode); err != nil {
+			return MaterializedRuntimeSkill{}, fmt.Errorf("write runtime skill file %q: %w", cleanPath, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(staging, ".tma-runtime-checksum"), []byte(strings.TrimSpace(pkg.Checksum)+"\n"), 0o444); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("write runtime skill checksum: %w", err)
+	}
+	if err := os.RemoveAll(target); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("replace runtime skill target: %w", err)
+	}
+	if err := os.Rename(staging, target); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("commit runtime skill package: %w", err)
+	}
+	return MaterializedRuntimeSkill{Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
+}
+
+func cleanRuntimeSkillFilePath(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "/") || strings.Contains(value, "\\") {
+		return "", fmt.Errorf("runtime skill file path must be relative and slash-separated")
+	}
+	cleaned := path.Clean(value)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("runtime skill file path %q escapes package root", value)
+	}
+	return cleaned, nil
 }
 
 func (p OnlyboxesProvider) RequiresNetworkApproval() bool {
@@ -114,7 +219,7 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 		"--pull", "missing",
 		"--rm",
 		"--cpus", "1",
-		"--memory", "512m",
+		"--memory", p.memoryLimit(),
 		"--pids-limit", "256",
 		"--workdir", containerWorkDir,
 		"--volume", root + ":/workspace:rw",
@@ -143,6 +248,13 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 		Args:    args,
 		Stdin:   request.Stdin,
 	})
+}
+
+func (p OnlyboxesProvider) memoryLimit() string {
+	if value := strings.TrimSpace(p.MemoryLimit); value != "" {
+		return value
+	}
+	return DefaultOnlyboxesMemoryLimit
 }
 
 func (p OnlyboxesProvider) ExecuteCode(ctx context.Context, request ExecuteCodeRequest) (CommandResult, error) {
@@ -636,11 +748,6 @@ func (p OnlyboxesProvider) resolveSandboxFilePath(path string, workDir string) (
 		}
 		return resolvePathRelativeToRoot(root, base, path)
 	}
-}
-
-func isSandboxDataPath(path string) bool {
-	path = strings.TrimSpace(path)
-	return path == "/mnt/data" || strings.HasPrefix(path, "/mnt/data/")
 }
 
 func resolveContainerPathInside(root string, value string) (string, error) {

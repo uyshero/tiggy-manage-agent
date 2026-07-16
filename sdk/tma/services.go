@@ -345,6 +345,22 @@ func (s *SessionsService) GetSummary(ctx context.Context, sessionID string) (Ses
 	return summary, err
 }
 
+func (s *SessionsService) TaskPlan(ctx context.Context, sessionID string) (SessionTaskPlan, error) {
+	var response struct {
+		Plan SessionTaskPlan `json:"plan"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, sessionPath(sessionID)+"/task-plan", nil, &response)
+	return response.Plan, err
+}
+
+func (s *SessionsService) TaskPlans(ctx context.Context, sessionID string) ([]SessionTaskPlan, error) {
+	var response struct {
+		Plans []SessionTaskPlan `json:"plans"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, sessionPath(sessionID)+"/task-plans", nil, &response)
+	return response.Plans, err
+}
+
 func (s *SessionsService) UpsertSummary(ctx context.Context, sessionID string, request UpsertSessionSummaryRequest) (SessionSummary, error) {
 	var summary SessionSummary
 	err := s.client.DoJSON(ctx, http.MethodPut, sessionPath(sessionID)+"/summary", request, &summary)
@@ -443,6 +459,25 @@ func (s *InterventionsService) DecideResult(ctx context.Context, sessionID strin
 	path := sessionPath(sessionID) + "/interventions/" + url.PathEscape(turnID) + "/" + url.PathEscape(callID) + "/" + decision
 	var result InterventionDecision
 	err := s.client.DoJSON(ctx, http.MethodPost, path, map[string]string{"reason": reason}, &result)
+	return result, err
+}
+
+func (s *InterventionsService) Respond(ctx context.Context, sessionID string, turnID string, callID string, response any) (InterventionDecision, error) {
+	return s.resolve(ctx, sessionID, turnID, callID, "respond", map[string]any{"response": response})
+}
+
+func (s *InterventionsService) Skip(ctx context.Context, sessionID string, turnID string, callID string, reason string) (InterventionDecision, error) {
+	return s.resolve(ctx, sessionID, turnID, callID, "skip", map[string]any{"reason": reason})
+}
+
+func (s *InterventionsService) Cancel(ctx context.Context, sessionID string, turnID string, callID string, reason string) (InterventionDecision, error) {
+	return s.resolve(ctx, sessionID, turnID, callID, "cancel", map[string]any{"reason": reason})
+}
+
+func (s *InterventionsService) resolve(ctx context.Context, sessionID string, turnID string, callID string, action string, body any) (InterventionDecision, error) {
+	path := sessionPath(sessionID) + "/interventions/" + url.PathEscape(turnID) + "/" + url.PathEscape(callID) + "/" + action
+	var result InterventionDecision
+	err := s.client.DoJSON(ctx, http.MethodPost, path, body, &result)
 	return result, err
 }
 

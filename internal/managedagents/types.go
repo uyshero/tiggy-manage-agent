@@ -49,6 +49,18 @@ const (
 	EventRuntimeToolInterventionRequired  = "runtime.tool_intervention_required"
 	EventRuntimeToolInterventionApproved  = "runtime.tool_intervention_approved"
 	EventRuntimeToolInterventionRejected  = "runtime.tool_intervention_rejected"
+	EventRuntimeHumanInputRequired        = "runtime.human_input_required"
+	EventRuntimeHumanInputSubmitted       = "runtime.human_input_submitted"
+	EventRuntimeHumanInputSkipped         = "runtime.human_input_skipped"
+	EventRuntimeHumanInputCanceled        = "runtime.human_input_canceled"
+	EventRuntimePlanApprovalRequired      = "runtime.plan_approval_required"
+	EventRuntimePlanApprovalApproved      = "runtime.plan_approval_approved"
+	EventRuntimePlanApprovalRejected      = "runtime.plan_approval_rejected"
+	EventRuntimeTaskPlanCreated           = "runtime.task_plan_created"
+	EventRuntimeTaskItemsUpdated          = "runtime.task_items_updated"
+	EventRuntimeTaskPlanCompleted         = "runtime.task_plan_completed"
+	EventRuntimeTaskPlanCanceled          = "runtime.task_plan_canceled"
+	EventRuntimeTaskPlanSuperseded        = "runtime.task_plan_superseded"
 	EventRuntimeToolResult                = "runtime.tool_result"
 	EventRuntimeSubagentSpawnRejected     = "runtime.subagent_spawn_rejected"
 	EventRuntimeSubagentStartRejected     = "runtime.subagent_start_rejected"
@@ -73,6 +85,10 @@ const (
 	EventRuntimeSkillsResolved            = "runtime.skills_resolved"
 	EventRuntimeSkillsTruncated           = "runtime.skills_truncated"
 	EventRuntimeSkillsFailed              = "runtime.skills_failed"
+	EventRuntimeTurnCompleting            = "runtime.turn_completing"
+	EventRuntimeCompletionValidated       = "runtime.completion_validated"
+	EventRuntimeCompletionBlocked         = "runtime.completion_blocked"
+	EventRuntimeCompletionFailed          = "runtime.completion_validation_failed"
 	EventRuntimeCompleted                 = "runtime.completed"
 	EventRuntimeFailed                    = "runtime.failed"
 	EventSessionConfigUpdated             = "session.config_updated"
@@ -80,9 +96,32 @@ const (
 	InterventionStatusPending  = "pending"
 	InterventionStatusApproved = "approved"
 	InterventionStatusRejected = "rejected"
+	InterventionStatusAnswered = "answered"
+	InterventionStatusSkipped  = "skipped"
+	InterventionStatusCanceled = "canceled"
+	InterventionStatusExpired  = "expired"
+
+	InterventionKindToolApproval  = "tool_approval"
+	InterventionKindClarification = "clarification"
+	InterventionKindPlanApproval  = "plan_approval"
+	InterventionKindUploadRequest = "upload_request"
+
+	TaskPlanModeTracked = "tracked"
+	TaskPlanModePlanned = "planned"
+
+	TaskPlanStatusActive     = "active"
+	TaskPlanStatusCompleted  = "completed"
+	TaskPlanStatusCanceled   = "canceled"
+	TaskPlanStatusSuperseded = "superseded"
+
+	TaskItemStatusPending    = "pending"
+	TaskItemStatusInProgress = "in_progress"
+	TaskItemStatusCompleted  = "completed"
+	TaskItemStatusBlocked    = "blocked"
 
 	TurnStatusRunning         = "running"
 	TurnStatusWaitingApproval = "waiting_approval"
+	TurnStatusWaitingHuman    = "waiting_human"
 	TurnStatusInterrupted     = "interrupted"
 	TurnStatusCompleted       = "completed"
 	TurnStatusFailed          = "failed"
@@ -360,12 +399,17 @@ type SessionIntervention struct {
 	ToolIdentifier    string          `json:"tool_identifier"`
 	APIName           string          `json:"api_name"`
 	Arguments         json.RawMessage `json:"arguments,omitempty"`
+	Kind              string          `json:"kind"`
+	Request           json.RawMessage `json:"request,omitempty"`
+	Response          json.RawMessage `json:"response,omitempty"`
 	InterventionMode  string          `json:"intervention_mode"`
 	Reason            string          `json:"reason,omitempty"`
 	Status            string          `json:"status"`
 	DecisionReason    string          `json:"decision_reason,omitempty"`
 	RequestedAt       time.Time       `json:"requested_at"`
 	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
+	RespondedAt       *time.Time      `json:"responded_at,omitempty"`
+	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
 	Continuation      json.RawMessage `json:"-"`
 	ContinuationRound int             `json:"-"`
 }
@@ -376,6 +420,9 @@ type SaveSessionInterventionInput struct {
 	ToolIdentifier    string          `json:"tool_identifier"`
 	APIName           string          `json:"api_name"`
 	Arguments         json.RawMessage `json:"arguments,omitempty"`
+	Kind              string          `json:"kind,omitempty"`
+	Request           json.RawMessage `json:"request,omitempty"`
+	ExpiresAt         *time.Time      `json:"expires_at,omitempty"`
 	InterventionMode  string          `json:"intervention_mode"`
 	Reason            string          `json:"reason,omitempty"`
 	Continuation      json.RawMessage `json:"-"`
@@ -383,10 +430,11 @@ type SaveSessionInterventionInput struct {
 }
 
 type DecideSessionInterventionInput struct {
-	TurnID         string `json:"turn_id"`
-	CallID         string `json:"call_id"`
-	Status         string `json:"status"`
-	DecisionReason string `json:"decision_reason,omitempty"`
+	TurnID         string          `json:"turn_id"`
+	CallID         string          `json:"call_id"`
+	Status         string          `json:"status"`
+	DecisionReason string          `json:"decision_reason,omitempty"`
+	Response       json.RawMessage `json:"response,omitempty"`
 }
 
 type DecideSessionInterventionResult struct {
@@ -406,6 +454,66 @@ type SessionSummary struct {
 	SourceUntilSeq int64     `json:"source_until_seq"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type SessionTaskPlan struct {
+	ID            string            `json:"id"`
+	WorkspaceID   string            `json:"workspace_id"`
+	OwnerID       string            `json:"owner_id"`
+	SessionID     string            `json:"session_id"`
+	CreatedTurnID string            `json:"created_turn_id,omitempty"`
+	UpdatedTurnID string            `json:"updated_turn_id,omitempty"`
+	Title         string            `json:"title,omitempty"`
+	Goal          string            `json:"goal"`
+	HandlingMode  string            `json:"handling_mode"`
+	Status        string            `json:"status"`
+	Items         []SessionTaskItem `json:"items"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
+}
+
+type SessionTaskItem struct {
+	ID          string     `json:"id"`
+	PlanID      string     `json:"plan_id"`
+	Index       int        `json:"index"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Evidence    string     `json:"evidence,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type CreateSessionTaskPlanInput struct {
+	TurnID       string   `json:"turn_id,omitempty"`
+	Title        string   `json:"title,omitempty"`
+	Goal         string   `json:"goal"`
+	HandlingMode string   `json:"handling_mode,omitempty"`
+	Items        []string `json:"items"`
+}
+
+type UpdateSessionTaskItemInput struct {
+	ItemID   string `json:"item_id"`
+	Status   string `json:"status"`
+	Evidence string `json:"evidence,omitempty"`
+}
+
+type UpdateSessionTaskItemsInput struct {
+	TurnID string                       `json:"turn_id,omitempty"`
+	PlanID string                       `json:"plan_id,omitempty"`
+	Items  []UpdateSessionTaskItemInput `json:"items"`
+}
+
+type FinishSessionTaskPlanInput struct {
+	TurnID string `json:"turn_id,omitempty"`
+	PlanID string `json:"plan_id,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type SessionTaskPlanResult struct {
+	Plan   SessionTaskPlan `json:"plan"`
+	Events []Event         `json:"events,omitempty"`
 }
 
 type UpsertSessionSummaryInput struct {
@@ -957,6 +1065,8 @@ type UpgradeSessionAgentConfigResult struct {
 
 type AgentRuntimeConfig struct {
 	SessionID             string          `json:"session_id"`
+	ParentSessionID       string          `json:"parent_session_id,omitempty"`
+	SpawnDepth            int             `json:"spawn_depth,omitempty"`
 	WorkspaceID           string          `json:"workspace_id"`
 	OwnerID               string          `json:"owner_id"`
 	AgentID               string          `json:"agent_id"`

@@ -182,7 +182,7 @@ func TestGenerateLLMStreamsRequestsWithTools(t *testing.T) {
 			Type:     "function",
 			Function: llm.ToolFunction{Name: "default.read_file"},
 		}},
-	}, TurnRequest{}, 0)
+	}, TurnRequest{}, 0, tools.FileMutationLimits{})
 	if err != nil {
 		t.Fatalf("generate llm: %v", err)
 	}
@@ -191,6 +191,30 @@ func TestGenerateLLMStreamsRequestsWithTools(t *testing.T) {
 	}
 	if got := contentPartsText(response.Message.Content); got != "streamed with tools" {
 		t.Fatalf("unexpected streamed response %q", got)
+	}
+}
+
+func TestGenerateLLMStopsLargeFileMutationAtRecommendedStreamLimit(t *testing.T) {
+	client := &oversizedFileMutationStreamingClient{}
+	emittedToolChunks := 0
+	_, err := generateLLM(t.Context(), client, llm.Request{}, TurnRequest{EmitStep: func(_ context.Context, step Step) error {
+		if step.Type == managedagents.EventRuntimeLLMChunk && step.Data["type"] == llm.DeltaKindToolCall {
+			emittedToolChunks++
+		}
+		if step.Type == managedagents.EventRuntimeToolResult {
+			t.Fatal("proactive stream limit must not emit a tool failure result")
+		}
+		return nil
+	}}, 0, tools.FileMutationLimits{RecommendedTokens: 50, MaxTokens: 100})
+	var limitError *fileMutationStreamLimitError
+	if !errors.As(err, &limitError) {
+		t.Fatalf("expected proactive file mutation stream limit, got %v", err)
+	}
+	if limitError.APIName != "write_file" || limitError.EstimatedTokens <= 50 {
+		t.Fatalf("unexpected stream limit details: %#v", limitError)
+	}
+	if emittedToolChunks != 1 {
+		t.Fatalf("expected only the initial safe tool chunk to be emitted, got %d", emittedToolChunks)
 	}
 }
 
@@ -618,6 +642,193 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 	}
 }
 
+func TestDemoRuntimeParksAndResumesForHumanInput(t *testing.T) {
+	client := &askUserThenFinalClient{}
+	registry := tools.NewRegistry(tools.InteractionRuntime{})
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+	config := Config{
+		ModelTools: tools.DefaultRegistry().ModelTools(), ToolRegistry: registry,
+		ToolExecutor: tools.RegistryExecutor{Registry: registry},
+	}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"deploy it"}]}`),
+		Config:      config,
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingHumanInput) {
+		t.Fatalf("expected human input pause, got %v", err)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimeHumanInputRequired)
+	if required.Data["kind"] != managedagents.InterventionKindClarification {
+		t.Fatalf("unexpected human input step: %#v", required)
+	}
+	continuation, ok := required.Private["continuation_messages"].([]llm.Message)
+	if !ok || len(continuation) == 0 {
+		t.Fatalf("expected persisted continuation: %#v", required.Private)
+	}
+
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call: tools.Call{ID: "call_ask", Identifier: tools.InteractionIdentifier, APIName: tools.InteractionAPIAskUser},
+			Kind: managedagents.InterventionKindClarification, Status: managedagents.InterventionStatusAnswered,
+			Response: json.RawMessage(`{"deployment":"private"}`), Continuation: continuation,
+		},
+		Config: config,
+	})
+	if err != nil {
+		t.Fatalf("resume human input: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "continuing with private deployment" {
+		t.Fatalf("unexpected resumed answer %q", got)
+	}
+	if client.calls != 2 || !strings.Contains(messagesText(client.lastRequest.Messages), `"deployment":"private"`) {
+		t.Fatalf("expected answered input as tool result, calls=%d request=%#v", client.calls, client.lastRequest)
+	}
+}
+
+func TestDemoRuntimeParksAndResumesForUploadRequest(t *testing.T) {
+	client := &uploadRequestThenFinalClient{}
+	registry := tools.NewRegistry(tools.InteractionRuntime{})
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+	config := Config{
+		ModelTools: registry.ModelTools(), ToolRegistry: registry,
+		ToolExecutor: tools.RegistryExecutor{Registry: registry},
+	}
+
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"analyze my contract"}]}`),
+		Config:      config,
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrPendingHumanInput) {
+		t.Fatalf("expected upload request pause, got %v", err)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimeHumanInputRequired)
+	if required.Data["kind"] != managedagents.InterventionKindUploadRequest || required.Data["intervention_mode"] != "request_upload" {
+		t.Fatalf("unexpected upload request step: %#v", required)
+	}
+	var uploadRequest tools.UploadRequest
+	if raw, ok := required.Private["request"].(json.RawMessage); !ok || json.Unmarshal(raw, &uploadRequest) != nil || uploadRequest.MaxFiles != 2 || uploadRequest.Accept[0] != ".pdf" {
+		t.Fatalf("expected persisted upload request, got %#v", required.Private["request"])
+	}
+	continuation, ok := required.Private["continuation_messages"].([]llm.Message)
+	if !ok || len(continuation) == 0 {
+		t.Fatalf("expected persisted continuation: %#v", required.Private)
+	}
+
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call: tools.Call{ID: "call_upload", Identifier: tools.InteractionIdentifier, APIName: tools.InteractionAPIRequestUpload},
+			Kind: managedagents.InterventionKindUploadRequest, Status: managedagents.InterventionStatusAnswered,
+			Response: json.RawMessage(`{"artifacts":[{"artifact_id":"art_1","object_ref_id":"obj_1","name":"contract.pdf"}]}`),
+			Continuation: continuation,
+		},
+		Config: config,
+	})
+	if err != nil {
+		t.Fatalf("resume upload request: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "analyzing uploaded contract" {
+		t.Fatalf("unexpected resumed answer %q", got)
+	}
+	if client.calls != 2 || !strings.Contains(messagesText(client.lastRequest.Messages), `"artifact_id":"art_1"`) {
+		t.Fatalf("expected uploaded artifact response as tool result, calls=%d request=%#v", client.calls, client.lastRequest)
+	}
+}
+
+func TestDemoRuntimeParksAndResumesForPlanApproval(t *testing.T) {
+	client := &planApprovalThenFinalClient{}
+	registry := tools.NewRegistry(tools.InteractionRuntime{})
+	planService := &runtimeTaskService{plan: managedagents.SessionTaskPlan{
+		ID: "plan_000001", SessionID: "sesn_000001", Title: "Production rollout", Goal: "Deploy safely",
+		HandlingMode: managedagents.TaskPlanModePlanned, Status: managedagents.TaskPlanStatusActive,
+		Items: []managedagents.SessionTaskItem{
+			{ID: "item_1", PlanID: "plan_000001", Index: 0, Description: "Prepare", Status: managedagents.TaskItemStatusCompleted, Evidence: "config ready"},
+			{ID: "item_2", PlanID: "plan_000001", Index: 1, Description: "Deploy", Status: managedagents.TaskItemStatusPending},
+			{ID: "item_3", PlanID: "plan_000001", Index: 2, Description: "Verify", Status: managedagents.TaskItemStatusPending},
+		},
+	}}
+	config := Config{
+		ModelTools: registry.ModelTools(), ToolRegistry: registry,
+		ToolExecutor:         tools.RegistryExecutor{Registry: registry},
+		ToolExecutionContext: tools.ExecutionContext{TaskService: planService},
+	}
+	var steps []Step
+	runtime := DemoRuntime{Client: client}
+	_, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"plan the rollout"}]}`), Config: config,
+		EmitStep: func(_ context.Context, step Step) error { steps = append(steps, step); return nil },
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected plan approval pause, got %v", err)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimePlanApprovalRequired)
+	if required.Data["kind"] != managedagents.InterventionKindPlanApproval || required.Data["plan_id"] != "plan_000001" {
+		t.Fatalf("unexpected plan approval event: %#v", required)
+	}
+	var snapshot tools.PlanApprovalSnapshot
+	if raw, ok := required.Private["request"].(json.RawMessage); !ok || json.Unmarshal(raw, &snapshot) != nil || snapshot.Plan.ID != "plan_000001" || len(snapshot.Plan.Items) != 3 {
+		t.Fatalf("expected full plan snapshot, got %#v", required.Private["request"])
+	}
+	continuation, ok := required.Private["continuation_messages"].([]llm.Message)
+	if !ok || len(continuation) == 0 {
+		t.Fatalf("expected resumable continuation: %#v", required.Private)
+	}
+
+	result, err := runtime.RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call: tools.Call{ID: "call_plan_approval", Identifier: tools.InteractionIdentifier, APIName: tools.InteractionAPIRequestPlanApproval, Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`)},
+			Kind: managedagents.InterventionKindPlanApproval, Status: managedagents.InterventionStatusApproved,
+			DecisionReason: "Proceed", Continuation: continuation,
+		},
+		Config: config,
+	})
+	if err != nil {
+		t.Fatalf("resume plan approval: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "executing approved plan" {
+		t.Fatalf("unexpected resumed result %q", got)
+	}
+	if client.calls != 2 || !strings.Contains(messagesText(client.lastRequest.Messages), "does not approve any later tool call") {
+		t.Fatalf("expected synthetic plan decision tool result, calls=%d request=%#v", client.calls, client.lastRequest)
+	}
+}
+
+func TestDemoRuntimePlanRejectionReturnsToModelWithoutExecutingTool(t *testing.T) {
+	client := &planApprovalThenFinalClient{calls: 1}
+	registry := tools.NewRegistry(tools.InteractionRuntime{})
+	result, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call: tools.Call{ID: "call_plan_approval", Identifier: tools.InteractionIdentifier, APIName: tools.InteractionAPIRequestPlanApproval, Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`)},
+			Kind: managedagents.InterventionKindPlanApproval, Status: managedagents.InterventionStatusRejected,
+			DecisionReason: "Reduce scope", Continuation: []llm.Message{{Role: "assistant"}},
+		},
+		Config: Config{ToolRegistry: registry, ToolExecutor: tools.RegistryExecutor{Registry: registry}},
+	})
+	if err != nil {
+		t.Fatalf("resume rejected plan: %v", err)
+	}
+	if payloadText(result.AgentPayload) != "executing approved plan" || !strings.Contains(messagesText(client.lastRequest.Messages), "Revise or cancel the plan") {
+		t.Fatalf("expected rejection observation to return to model: result=%s request=%#v", payloadText(result.AgentPayload), client.lastRequest)
+	}
+}
+
 func TestDemoRuntimeRejectsMalformedToolArgumentsBeforeApproval(t *testing.T) {
 	client := &malformedThenSensitiveToolClient{}
 	provider := &countingCapabilityProvider{}
@@ -758,6 +969,106 @@ func TestDemoRuntimeRequiresApprovalBeforeInstallingSkill(t *testing.T) {
 	requiredStep := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
 	if requiredStep.Data["identifier"] != tools.SkillsIdentifier || requiredStep.Data["api_name"] != "install" {
 		t.Fatalf("expected skills.install approval step, got %#v", requiredStep)
+	}
+}
+
+func TestDemoRuntimeSummarizesSkillsPreviewFailure(t *testing.T) {
+	client := &recoverableSkillsFailureClient{
+		apiName:   "preview",
+		arguments: json.RawMessage(`{"source":{"provider":"github","repository":"missing/repository"}}`),
+		finalText: "Skill preview failed, so installation was not attempted.",
+	}
+	service := &countingSkillsToolService{previewErr: errors.New("preview skill package: github API returned 404: Not Found")}
+	registry := tools.NewRegistry(tools.SkillsRuntime{Service: service})
+	var steps []Step
+
+	result, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"install the GitHub skill"}]}`),
+		Config: Config{
+			ModelTools: registry.ModelTools(), ToolRegistry: registry,
+			ToolExecutor: tools.RegistryExecutor{Registry: registry},
+		},
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("run turn after preview failure: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != client.finalText {
+		t.Fatalf("expected failure summary, got %q", got)
+	}
+	if service.previewCalls != 1 || len(client.requests) != 2 {
+		t.Fatalf("expected one failed preview followed by one summary request, preview=%d requests=%d", service.previewCalls, len(client.requests))
+	}
+	if summaryContext := messagesText(client.requests[1].Messages); !strings.Contains(summaryContext, `"success":false`) || !strings.Contains(summaryContext, "github API returned 404") {
+		t.Fatalf("expected failed tool result in summary context: %s", summaryContext)
+	}
+	toolResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	executionError, ok := toolResult.Data["error"].(*tools.ExecutionError)
+	if !ok || executionError.Type != "tool_execution_failed" {
+		t.Fatalf("expected observable tool failure, got %#v", toolResult.Data)
+	}
+	if !hasStepType(steps, managedagents.EventRuntimeCompleted) {
+		t.Fatalf("expected turn to complete after summarizing tool failure, got %#v", steps)
+	}
+}
+
+func TestDemoRuntimeSummarizesApprovedSkillsInstallFailure(t *testing.T) {
+	client := &recoverableSkillsFailureClient{
+		apiName:   "install",
+		arguments: json.RawMessage(`{"identifier":"missing-skill","title":"Missing Skill","content_text":"instructions"}`),
+		finalText: "Skill installation failed; no skill was installed.",
+	}
+	service := &countingSkillsToolService{installErr: errors.New("fetch remote skill: github API returned 404: Not Found")}
+	registry := tools.NewRegistry(tools.SkillsRuntime{Service: service})
+	config := Config{
+		ModelTools: registry.ModelTools(), ToolRegistry: registry,
+		InterventionMode: tools.InterventionModeRequestApproval,
+		ToolExecutor:     tools.RegistryExecutor{Registry: registry},
+	}
+	var steps []Step
+	emitStep := func(_ context.Context, step Step) error {
+		steps = append(steps, step)
+		return nil
+	}
+
+	_, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"install the skill"}]}`),
+		Config:      config, EmitStep: emitStep,
+	})
+	if !errors.Is(err, ErrPendingIntervention) {
+		t.Fatalf("expected install approval, got %v", err)
+	}
+	required := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
+	continuation, ok := required.Private["continuation_messages"].([]llm.Message)
+	if !ok || len(continuation) == 0 {
+		t.Fatalf("expected resumable continuation, got %#v", required.Private)
+	}
+	continuationRound, _ := required.Private["continuation_round"].(int)
+
+	result, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_000001", TurnID: "turn_000001",
+		ResumeIntervention: &InterventionResume{
+			Call:   tools.Call{ID: "call_recoverable_skill_failure", Identifier: tools.SkillsIdentifier, APIName: "install", Arguments: client.arguments},
+			Status: managedagents.InterventionStatusApproved, Continuation: continuation, ContinuationRound: continuationRound,
+		},
+		Config: config, EmitStep: emitStep,
+	})
+	if err != nil {
+		t.Fatalf("resume after approved install failure: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != client.finalText {
+		t.Fatalf("expected install failure summary, got %q", got)
+	}
+	if service.installCalls != 1 || len(client.requests) != 2 {
+		t.Fatalf("expected one failed install followed by one summary request, install=%d requests=%d", service.installCalls, len(client.requests))
+	}
+	if summaryContext := messagesText(client.requests[1].Messages); !strings.Contains(summaryContext, `"success":false`) || !strings.Contains(summaryContext, "github API returned 404") {
+		t.Fatalf("expected approved tool failure in summary context: %s", summaryContext)
 	}
 }
 
@@ -982,7 +1293,7 @@ func TestDemoRuntimeResumesApprovedInterventionThroughToolLoop(t *testing.T) {
 	if got := payloadText(result.AgentPayload); got != "captured" {
 		t.Fatalf("expected resumed final answer, got %q", got)
 	}
-	if !hasStepType(steps, managedagents.EventRuntimeToolResult) || !hasStepType(steps, managedagents.EventRuntimeCompleted) {
+	if !hasStepType(steps, managedagents.EventRuntimeToolResult) || !hasStepType(steps, managedagents.EventRuntimeCompletionValidated) || !hasStepType(steps, managedagents.EventRuntimeCompleted) {
 		t.Fatalf("expected resumed runtime steps, got %#v", steps)
 	}
 	if len(client.request.Messages) != 2 || client.request.Messages[1].Role != "tool" || client.request.Messages[1].ToolCallID != "call_edit" {
@@ -1579,6 +1890,26 @@ type toolStreamingSelectionClient struct {
 	streamCalled   bool
 }
 
+type oversizedFileMutationStreamingClient struct{}
+
+func (*oversizedFileMutationStreamingClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return llm.Response{}, errors.New("non-streaming generation should not be used")
+}
+
+func (*oversizedFileMutationStreamingClient) GenerateStream(_ context.Context, _ llm.Request, onDelta func(llm.Delta) error) (llm.Response, error) {
+	if err := onDelta(llm.Delta{Kind: llm.DeltaKindToolCall, ToolCall: &llm.ToolCallDelta{
+		Index: 0, ID: "call_write", Name: "default.write_file", Arguments: `{"path":"report.html","content":"`,
+	}}); err != nil {
+		return llm.Response{}, err
+	}
+	if err := onDelta(llm.Delta{Kind: llm.DeltaKindToolCall, ToolCall: &llm.ToolCallDelta{
+		Index: 0, Arguments: strings.Repeat("complete semantic report section ", 40),
+	}}); err != nil {
+		return llm.Response{}, err
+	}
+	return llm.Response{}, errors.New("expected stream limit callback to stop generation")
+}
+
 func (client *toolStreamingSelectionClient) Generate(context.Context, llm.Request) (llm.Response, error) {
 	client.generateCalled = true
 	return llm.Response{}, nil
@@ -1759,6 +2090,107 @@ type sensitiveToolLoopLLMClient struct {
 	requests []llm.Request
 }
 
+type askUserThenFinalClient struct {
+	calls       int
+	lastRequest llm.Request
+}
+
+type uploadRequestThenFinalClient struct {
+	calls       int
+	lastRequest llm.Request
+}
+
+type planApprovalThenFinalClient struct {
+	calls       int
+	lastRequest llm.Request
+}
+
+func (client *planApprovalThenFinalClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	client.calls++
+	client.lastRequest = request
+	if client.calls == 1 {
+		return llm.Response{Message: llm.Message{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID: "call_plan_approval", Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      tools.InteractionIdentifier + "." + tools.InteractionAPIRequestPlanApproval,
+					Arguments: json.RawMessage(`{"plan_id":"plan_000001","summary":"Review production rollout"}`),
+				},
+			}},
+		}}, nil
+	}
+	return llm.Response{Message: llm.Message{
+		Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "executing approved plan"}},
+	}}, nil
+}
+
+type runtimeTaskService struct {
+	plan managedagents.SessionTaskPlan
+}
+
+func (service *runtimeTaskService) CreatePlan(context.Context, string, managedagents.CreateSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: service.plan}, nil
+}
+
+func (service *runtimeTaskService) GetPlan(context.Context, string) (managedagents.SessionTaskPlan, error) {
+	return service.plan, nil
+}
+
+func (service *runtimeTaskService) UpdateItems(context.Context, string, managedagents.UpdateSessionTaskItemsInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: service.plan}, nil
+}
+
+func (service *runtimeTaskService) CompletePlan(context.Context, string, managedagents.FinishSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: service.plan}, nil
+}
+
+func (service *runtimeTaskService) CancelPlan(context.Context, string, managedagents.FinishSessionTaskPlanInput) (managedagents.SessionTaskPlanResult, error) {
+	return managedagents.SessionTaskPlanResult{Plan: service.plan}, nil
+}
+
+func (client *askUserThenFinalClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	client.calls++
+	client.lastRequest = request
+	if client.calls == 1 {
+		return llm.Response{Message: llm.Message{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID: "call_ask", Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      tools.InteractionIdentifier + "." + tools.InteractionAPIAskUser,
+					Arguments: json.RawMessage(`{"question":"Which deployment model should be used?","mode":"select","choices":[{"id":"private","label":"Private"},{"id":"saas","label":"SaaS"}]}`),
+				},
+			}},
+		}}, nil
+	}
+	return llm.Response{Message: llm.Message{
+		Role:    "assistant",
+		Content: []llm.ContentPart{{Type: "text", Text: "continuing with private deployment"}},
+	}}, nil
+}
+
+func (client *uploadRequestThenFinalClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	client.calls++
+	client.lastRequest = request
+	if client.calls == 1 {
+		return llm.Response{Message: llm.Message{
+			Role: "assistant",
+			ToolCalls: []llm.ToolCall{{
+				ID: "call_upload", Type: "function",
+				Function: llm.ToolCallFunction{
+					Name:      tools.InteractionIdentifier + "." + tools.InteractionAPIRequestUpload,
+					Arguments: json.RawMessage(`{"prompt":"Upload the contract PDF","accept":[".pdf","application/pdf"],"max_files":2,"max_bytes":10485760,"required":true}`),
+				},
+			}},
+		}}, nil
+	}
+	return llm.Response{Message: llm.Message{
+		Role:    "assistant",
+		Content: []llm.ContentPart{{Type: "text", Text: "analyzing uploaded contract"}},
+	}}, nil
+}
+
 type malformedThenSensitiveToolClient struct {
 	requests []llm.Request
 }
@@ -1854,11 +2286,34 @@ func (c *offlineSkillsFlowLLMClient) Generate(_ context.Context, request llm.Req
 	}
 }
 
+type recoverableSkillsFailureClient struct {
+	requests  []llm.Request
+	apiName   string
+	arguments json.RawMessage
+	finalText string
+}
+
+func (c *recoverableSkillsFailureClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	c.requests = append(c.requests, request)
+	if len(c.requests) == 1 {
+		return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_recoverable_skill_failure", Type: "function", Function: llm.ToolCallFunction{
+				Name: "skills." + c.apiName, Arguments: c.arguments,
+			},
+		}}}}, nil
+	}
+	return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{
+		Type: "text", Text: c.finalText,
+	}}}}, nil
+}
+
 type countingSkillsToolService struct {
 	previewCalls   int
 	installCalls   int
 	previewRequest tools.SkillsPreviewRequest
 	installRequest tools.SkillsInstallRequest
+	previewErr     error
+	installErr     error
 }
 
 func (*countingSkillsToolService) Search(context.Context, tools.SkillsSearchRequest) (tools.SkillsSearchResponse, error) {
@@ -1876,6 +2331,9 @@ func (*countingSkillsToolService) Discover(context.Context, tools.SkillsDiscover
 func (s *countingSkillsToolService) Preview(_ context.Context, request tools.SkillsPreviewRequest) (tools.SkillsPreviewResponse, error) {
 	s.previewCalls++
 	s.previewRequest = request
+	if s.previewErr != nil {
+		return tools.SkillsPreviewResponse{}, s.previewErr
+	}
 	return tools.SkillsPreviewResponse{
 		Identifier: "offline-review", Source: request.Source, Revision: "zip-revision", InstallState: "new_install",
 	}, nil
@@ -1888,6 +2346,9 @@ func (*countingSkillsToolService) ReadAsset(context.Context, tools.SkillsReadAss
 func (s *countingSkillsToolService) Install(_ context.Context, request tools.SkillsInstallRequest) (tools.SkillsInstallResponse, error) {
 	s.installCalls++
 	s.installRequest = request
+	if s.installErr != nil {
+		return tools.SkillsInstallResponse{}, s.installErr
+	}
 	return tools.SkillsInstallResponse{}, nil
 }
 

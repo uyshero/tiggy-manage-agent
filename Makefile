@@ -1,4 +1,4 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-browser-takeover-local verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk build build-web-ui build-app-ui build-inspector-ui build-cli build-worker build-browser-sandbox fmt db-up db-down db-logs migrate-up
+.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-browser-takeover-local verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-sandbox fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
@@ -6,7 +6,7 @@ TMA_ONLYBOXES_TEST_IMAGE ?= coolfan1024/onlyboxes-runtime:default
 TMA_BROWSER_SANDBOX_IMAGE ?= tma-browser-sandbox:playwright
 
 run:
-	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" GOCACHE="$(GOCACHE_DIR)" go run ./cmd/server
+	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" GOCACHE="$(GOCACHE_DIR)" go run ./cmd/tma-server
 
 server-start: build build-cli
 	scripts/tma_server.sh start
@@ -111,10 +111,10 @@ verify-mcp-all: build build-cli db-up
 	GOCACHE="$(GOCACHE_DIR)" go test ./internal/httpapi -run MCPRegistry -count=1
 	GOCACHE="$(GOCACHE_DIR)" go test -race ./internal/mcp ./internal/mcpregistry ./internal/execution ./internal/observability -count=1
 	scripts/verify_mcp_all.sh
-	npm --prefix web-app test
-	npm --prefix web-app run build
-	npm --prefix web-inspector test -- --run
-	npm --prefix web-inspector run build
+	npm --prefix apps/workbench test
+	npm --prefix apps/workbench run build
+	npm --prefix apps/inspector test -- --run
+	npm --prefix apps/inspector run build
 	git diff --check
 
 verify-web-search-crawl: build build-cli db-up migrate-up
@@ -181,24 +181,25 @@ verify-worker-backed-large-local-export: build build-cli build-worker db-up migr
 	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" TMA_VERIFY_BASE_URL="http://localhost:18088" TMA_VERIFY_HTTP_ADDR=":18088" TMA_VERIFY_SERVER_LOG=".verify-worker-large-export-server.log" TMA_VERIFY_WORKER_LOG=".verify-worker-large-export-worker.log" TMA_VERIFY_WORKER_EXPORT_TEXT="tma.verify_worker_large_export" TMA_VERIFY_WORKER_EXPORT_MARKER="tma-worker-large-export-ok" scripts/verify_worker_backed_local_export.sh
 
 build:
-	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-server ./cmd/server
+	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-server ./cmd/tma-server
 
-build-web-ui: build-inspector-ui build-app-ui
+build-web-ui: build-inspector-ui build-workbench-ui
 
-build-app-ui: test-typescript-sdk
-	npm --prefix web-app run build
+build-workbench-ui: test-typescript-sdk
+	npm --prefix apps/workbench run build
 
 build-inspector-ui: test-typescript-sdk
-	npm --prefix web-inspector run build
+	npm --prefix apps/inspector run build
 
 build-cli:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma ./cmd/tma
 
 build-worker:
-	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-worker ./cmd/worker
+	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-worker ./cmd/tma-worker
 
 build-browser-sandbox:
 	docker build -f docker/browser-sandbox.Dockerfile -t "$(TMA_BROWSER_SANDBOX_IMAGE)" .
+	docker run --rm --entrypoint sh "$(TMA_BROWSER_SANDBOX_IMAGE)" -lc 'node -e '\''const { chromium } = require("playwright-core"); (async () => { const browser = await chromium.launch({ headless: true, executablePath: process.env.TMA_BROWSER_EXECUTABLE_PATH, args: ["--no-sandbox"] }); console.log("Chromium " + await browser.version()); await browser.close(); })().catch(error => { console.error(error); process.exit(1); });'\'''
 
 fmt:
 	GOCACHE="$(GOCACHE_DIR)" go fmt ./...

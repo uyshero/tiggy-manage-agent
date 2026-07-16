@@ -76,6 +76,7 @@ type ExecutionContext struct {
 	Provider         capability.Provider
 	ArtifactRecorder ArtifactRecorder
 	DeferArtifacts   bool
+	TaskService      TaskToolService
 }
 
 func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {
@@ -222,7 +223,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{}, AgentRuntime{}, SkillsRuntime{})
+	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -435,6 +436,17 @@ func (r Registry) Get(identifier string) (Runtime, bool) {
 	return runtime, ok
 }
 
+func (r Registry) Without(identifiers ...string) Registry {
+	excluded := stringSet(identifiers)
+	filtered := Registry{runtimes: make(map[string]Runtime, len(r.runtimes))}
+	for identifier, runtime := range r.runtimes {
+		if !excluded[identifier] {
+			filtered.runtimes[identifier] = runtime
+		}
+	}
+	return filtered
+}
+
 func (r Registry) GetAPI(identifier string, apiName string) (Manifest, API, bool) {
 	runtime, ok := r.runtimes[identifier]
 	if !ok {
@@ -622,7 +634,7 @@ func redactEnvironmentText(value string, environment map[string]string) string {
 	type secret struct{ name, value string }
 	secrets := make([]secret, 0, len(environment))
 	for name, candidate := range environment {
-		if candidate != "" {
+		if candidate != "" && !isPublicRuntimeEnvironment(name) {
 			secrets = append(secrets, secret{name: name, value: candidate})
 		}
 	}
@@ -631,6 +643,11 @@ func redactEnvironmentText(value string, environment map[string]string) string {
 		value = strings.ReplaceAll(value, item.value, "[REDACTED_ENV:"+item.name+"]")
 	}
 	return value
+}
+
+func isPublicRuntimeEnvironment(name string) bool {
+	return name == "CLAUDE_SKILL_DIR" || name == "TMA_SKILLS_DIR" || name == "TMA_SKILL_DIR" ||
+		name == "TMA_SKILL_DIRS_JSON" || strings.HasPrefix(name, "TMA_SKILL_DIR_")
 }
 
 func NormalizeCall(call Call) Call {

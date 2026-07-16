@@ -55,14 +55,15 @@ html = """<!doctype html>
   <body>
     <main>
       <h1>tma-browser-fixture</h1>
-      <label for="verify-input">Value</label>
-      <input id="verify-input" name="verify-input" />
+      <input id="verify-input" name="verify-input-hidden" style="display: none" />
+      <label for="verify-input-visible">Value</label>
+      <input id="verify-input-visible" name="verify-input" />
       <button id="verify-button" type="button">Verify</button>
       <p id="status">waiting</p>
     </main>
     <script>
       document.getElementById("verify-button").addEventListener("click", () => {
-        const value = document.getElementById("verify-input").value || "empty";
+        const value = document.getElementById("verify-input-visible").value || "empty";
         document.getElementById("status").textContent = "tma-browser-flow-ok " + value;
       });
     </script>
@@ -164,6 +165,8 @@ echo "server_log=$SERVER_LOG"
 
 TMA_HTTP_ADDR="$HTTP_ADDR" \
 TMA_DATABASE_URL="$DATABASE_URL" \
+TMA_AUTH_MODE=disabled \
+TMA_AUTH_OIDC_WEB_LOGIN_ENABLED=false \
 TMA_LLM_PROVIDER=fake \
 TMA_LLM_MODEL=fake-demo \
 TMA_TOOL_RUNTIME=cloud_sandbox \

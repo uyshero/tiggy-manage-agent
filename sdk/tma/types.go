@@ -225,13 +225,26 @@ type CreateSessionRequest struct {
 }
 
 type UpdateSessionRuntimeSettingsRequest struct {
-	LLMProvider       *string `json:"llm_provider,omitempty"`
-	LLMModel          *string `json:"llm_model,omitempty"`
-	InterventionMode  *string `json:"intervention_mode,omitempty"`
-	ToolRuntime       *string `json:"tool_runtime,omitempty"`
-	CloudSandboxRoot  *string `json:"cloud_sandbox_root,omitempty"`
-	CloudSandboxImage *string `json:"cloud_sandbox_image,omitempty"`
-	AllowNetwork      *bool   `json:"cloud_sandbox_allow_network,omitempty"`
+	LLMProvider       *string                          `json:"llm_provider,omitempty"`
+	LLMModel          *string                          `json:"llm_model,omitempty"`
+	InterventionMode  *string                          `json:"intervention_mode,omitempty"`
+	ToolRuntime       *string                          `json:"tool_runtime,omitempty"`
+	CloudSandboxRoot  *string                          `json:"cloud_sandbox_root,omitempty"`
+	CloudSandboxImage *string                          `json:"cloud_sandbox_image,omitempty"`
+	AllowNetwork      *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
+	HumanInteraction  *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
+	CompletionGate    *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+}
+
+type HumanInteractionRuntimeSettings struct {
+	Enabled        *bool    `json:"enabled,omitempty"`
+	Modes          []string `json:"modes,omitempty"`
+	SupportsUpload *bool    `json:"supports_upload,omitempty"`
+	Fallback       *string  `json:"fallback,omitempty"`
+}
+
+type CompletionGateRuntimeSettings struct {
+	MaxRetries *int `json:"max_retries,omitempty"`
 }
 
 type UpgradeSessionConfigRequest struct {
@@ -313,12 +326,17 @@ type Intervention struct {
 	ToolIdentifier   string          `json:"tool_identifier"`
 	APIName          string          `json:"api_name"`
 	Arguments        json.RawMessage `json:"arguments,omitempty"`
+	Kind             string          `json:"kind"`
+	Request          json.RawMessage `json:"request,omitempty"`
+	Response         json.RawMessage `json:"response,omitempty"`
 	InterventionMode string          `json:"intervention_mode"`
 	Reason           string          `json:"reason,omitempty"`
 	Status           string          `json:"status"`
 	DecisionReason   string          `json:"decision_reason,omitempty"`
 	RequestedAt      time.Time       `json:"requested_at"`
 	DecidedAt        *time.Time      `json:"decided_at,omitempty"`
+	RespondedAt      *time.Time      `json:"responded_at,omitempty"`
+	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
 }
 
 type InterventionDecision struct {
@@ -332,6 +350,35 @@ type SessionSummary struct {
 	SourceUntilSeq int64     `json:"source_until_seq"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type SessionTaskItem struct {
+	ID          string     `json:"id"`
+	PlanID      string     `json:"plan_id"`
+	Index       int        `json:"index"`
+	Description string     `json:"description"`
+	Status      string     `json:"status"`
+	Evidence    string     `json:"evidence,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type SessionTaskPlan struct {
+	ID            string            `json:"id"`
+	WorkspaceID   string            `json:"workspace_id"`
+	OwnerID       string            `json:"owner_id"`
+	SessionID     string            `json:"session_id"`
+	CreatedTurnID string            `json:"created_turn_id,omitempty"`
+	UpdatedTurnID string            `json:"updated_turn_id,omitempty"`
+	Title         string            `json:"title,omitempty"`
+	Goal          string            `json:"goal"`
+	HandlingMode  string            `json:"handling_mode"`
+	Status        string            `json:"status"`
+	Items         []SessionTaskItem `json:"items"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
 }
 
 type UpsertSessionSummaryRequest struct {

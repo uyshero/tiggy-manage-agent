@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 )
@@ -288,11 +289,106 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 	if request.AllowNetwork != nil {
 		settings["cloud_sandbox_allow_network"] = *request.AllowNetwork
 	}
+	if request.HumanInteraction != nil {
+		humanInteraction := map[string]any{}
+		if existing, ok := settings["human_interaction"].(map[string]any); ok {
+			for key, value := range existing {
+				humanInteraction[key] = value
+			}
+		}
+		if request.HumanInteraction.Enabled != nil {
+			humanInteraction["enabled"] = *request.HumanInteraction.Enabled
+		}
+		if request.HumanInteraction.Modes != nil {
+			humanInteraction["modes"] = normalizedHumanInteractionModes(request.HumanInteraction.Modes)
+		}
+		if request.HumanInteraction.SupportsUpload != nil {
+			humanInteraction["supports_upload"] = *request.HumanInteraction.SupportsUpload
+		}
+		if request.HumanInteraction.Fallback != nil {
+			humanInteraction["fallback"] = normalizeHumanInteractionFallback(*request.HumanInteraction.Fallback)
+		}
+		settings["human_interaction"] = humanInteraction
+	}
+	if request.CompletionGate != nil && request.CompletionGate.MaxRetries != nil {
+		maxRetries := *request.CompletionGate.MaxRetries
+		if maxRetries < 1 {
+			maxRetries = 1
+		}
+		if maxRetries > 10 {
+			maxRetries = 10
+		}
+		settings["completion_gate"] = map[string]any{"max_retries": maxRetries}
+	}
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		return managedagents.Session{}, err
 	}
 	return managedagents.UpdateSessionRuntimeSettingsWithContext(ctx, s.store, session.ID, managedagents.UpdateSessionRuntimeSettingsInput{RuntimeSettings: raw})
+}
+
+func humanInteractionCapabilities(raw json.RawMessage) humanInteractionCapabilitiesResponse {
+	capability := humanInteractionCapabilitiesResponse{
+		Enabled:        execution.HumanInteractionEnabled(raw),
+		Modes:          []string{"select", "multiselect", "form", "freeform"},
+		SupportsUpload: false,
+		Fallback:       "assistant_message",
+	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return capability
+	}
+	var decoded struct {
+		HumanInteraction struct {
+			Modes          []string `json:"modes"`
+			SupportsUpload *bool    `json:"supports_upload"`
+			Fallback       *string  `json:"fallback"`
+		} `json:"human_interaction"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return capability
+	}
+	if decoded.HumanInteraction.Modes != nil {
+		capability.Modes = normalizedHumanInteractionModes(decoded.HumanInteraction.Modes)
+	}
+	if decoded.HumanInteraction.SupportsUpload != nil {
+		capability.SupportsUpload = *decoded.HumanInteraction.SupportsUpload
+	}
+	if decoded.HumanInteraction.Fallback != nil {
+		capability.Fallback = normalizeHumanInteractionFallback(*decoded.HumanInteraction.Fallback)
+	}
+	return humanInteractionCapabilitiesResponse{
+		Enabled:        capability.Enabled,
+		Modes:          capability.Modes,
+		SupportsUpload: capability.SupportsUpload,
+		Fallback:       capability.Fallback,
+	}
+}
+
+func normalizedHumanInteractionModes(values []string) []string {
+	allowed := map[string]bool{"select": true, "multiselect": true, "form": true, "freeform": true}
+	result := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		mode := strings.ToLower(strings.TrimSpace(value))
+		if !allowed[mode] || seen[mode] {
+			continue
+		}
+		seen[mode] = true
+		result = append(result, mode)
+	}
+	if len(result) == 0 {
+		return []string{"select", "multiselect", "form", "freeform"}
+	}
+	return result
+}
+
+func normalizeHumanInteractionFallback(value string) string {
+	switch strings.TrimSpace(value) {
+	case "assistant_message", "fail":
+		return strings.TrimSpace(value)
+	default:
+		return "assistant_message"
+	}
 }
 
 func selectRerunMessage(events []managedagents.Event, seq int64) (managedagents.Event, error) {

@@ -121,6 +121,44 @@ func TestGitHubClientFetchesReferencedPackageFiles(t *testing.T) {
 	}
 }
 
+func TestGitHubClientFetchesSkillDirectoryModuleDependencies(t *testing.T) {
+	files := map[string]string{
+		"/repos/acme/web-access/contents/SKILL.md":                      "Run `node \"${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs\"`.",
+		"/repos/acme/web-access/contents/scripts/check-deps.mjs":        "import { selectBrowser } from './browser-discovery.mjs';\nconst proxy = path.join(ROOT, 'scripts', 'cdp-proxy.mjs');\nconst template = path.join(ROOT, 'templates', 'config.env.template');\n",
+		"/repos/acme/web-access/contents/scripts/browser-discovery.mjs": "export const selectBrowser = () => 'chrome';\n",
+		"/repos/acme/web-access/contents/scripts/cdp-proxy.mjs":         "import { selectBrowser } from './browser-discovery.mjs';\n",
+		"/repos/acme/web-access/contents/templates/config.env.template": "WEB_ACCESS_BROWSER=\n",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		content, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"type":"file","encoding":"base64","content":%q,"sha":%q,"html_url":%q}`,
+			base64.StdEncoding.EncodeToString([]byte(content)), "sha-"+pathBase(r.URL.Path), "https://github.com/acme/web-access/blob/main/"+strings.TrimPrefix(r.URL.Path, "/repos/acme/web-access/contents/"))
+	}))
+	defer server.Close()
+
+	client := &GitHubClient{HTTPClient: server.Client(), BaseURL: server.URL}
+	pkg, err := client.Fetch(context.Background(), Source{Repository: "acme/web-access", Ref: "main", Path: "SKILL.md"})
+	if err != nil {
+		t.Fatalf("fetch package: %v", err)
+	}
+	want := []string{"scripts/browser-discovery.mjs", "scripts/cdp-proxy.mjs", "scripts/check-deps.mjs", "templates/config.env.template"}
+	if len(pkg.Files) != len(want) {
+		t.Fatalf("expected %d package files, got %#v", len(want), pkg.Files)
+	}
+	for index, path := range want {
+		if pkg.Files[index].Path != path {
+			t.Fatalf("expected file %d to be %q, got %#v", index, path, pkg.Files)
+		}
+	}
+	if !pkg.Files[0].Executable || !pkg.Files[1].Executable || !pkg.Files[2].Executable || pkg.Files[3].Executable {
+		t.Fatalf("unexpected executable metadata: %#v", pkg.Files)
+	}
+}
+
 func TestGitHubClientFetchesControlledBinaryAssets(t *testing.T) {
 	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 24)...)
 	pdf := []byte("%PDF-1.4\n%%EOF")

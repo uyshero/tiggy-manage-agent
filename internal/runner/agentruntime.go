@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/llm"
@@ -97,6 +99,11 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, err
 	}
+	taskPlanContext, err := e.resolveTaskPlanContext(ctx, request.SessionID)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, err
+	}
 	var history []managedagents.ConversationMessage
 	if request.ResumeIntervention == nil {
 		history, err = e.resolveConversationHistory(ctx, request.SessionID, request.UserEventSeq)
@@ -142,6 +149,20 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		MCPHTTPHost:       e.MCPHTTPHost,
 		MCPRuntimeGuard:   e.MCPRuntimeGuard,
 	})
+	materializedSkills, err := e.materializeResolvedSkills(ctx, toolExecution.Provider, resolvedSkills)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, err
+	}
+	if len(materializedSkills.directories) > 0 {
+		resolvedSkills, err = skills.BindRuntimeDirectories(resolvedSkills, materializedSkills.directories)
+		if err != nil {
+			_ = e.recordRuntimeFailed(ctx, err, emit)
+			return TurnResult{}, fmt.Errorf("bind runtime skill directories: %w", err)
+		}
+		managedEnvironment = mergeRuntimeSkillEnvironment(managedEnvironment, materializedSkills)
+		toolExecution.Context.Environment = managedEnvironment
+	}
 	result, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
 		SessionID:          request.SessionID,
 		TurnID:             request.TurnID,
@@ -166,6 +187,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			ContextWindowTokens:   config.ContextWindowTokens,
 			SummaryText:           config.SummaryText,
 			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
+			TaskPlanContext:       taskPlanContext,
 			System:                config.System,
 			RuntimeSettings:       config.RuntimeSettings,
 			Tools:                 toolExecution.Registry.ModelContext(),
@@ -182,6 +204,9 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	if err != nil {
 		if errors.Is(err, agentruntime.ErrPendingIntervention) {
 			return TurnResult{}, ErrTurnWaitingApproval
+		}
+		if errors.Is(err, agentruntime.ErrPendingHumanInput) {
+			return TurnResult{}, ErrTurnWaitingHuman
 		}
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		if ctx.Err() != nil {
@@ -208,6 +233,163 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
 		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
 	}, nil
+}
+
+type runtimeSkillMaterialization struct {
+	directories       map[string]string
+	compatibilityDirs []string
+}
+
+func (e AgentRuntimeTurnExecutor) materializeResolvedSkills(ctx context.Context, provider capability.Provider, resolved skills.ResolveResult) (runtimeSkillMaterialization, error) {
+	materializer, ok := provider.(capability.RuntimeSkillMaterializer)
+	if !ok || len(resolved.Skills) == 0 {
+		return runtimeSkillMaterialization{}, nil
+	}
+	packages := make([]capability.RuntimeSkillPackage, 0, len(resolved.Skills))
+	compatibilityIdentifiers := make(map[string]bool)
+	for _, item := range resolved.Skills {
+		if item.Status != skills.UsageResolved && item.Status != skills.UsageDegraded {
+			continue
+		}
+		bundle, err := skills.DecodeAssetBundle(item.Version.Assets)
+		if err != nil {
+			return runtimeSkillMaterialization{}, fmt.Errorf("decode runtime skill %s assets: %w", item.Skill.Identifier, err)
+		}
+		files := make([]capability.RuntimeSkillFile, 0, len(bundle.Files)+1)
+		files = append(files, capability.RuntimeSkillFile{Path: "SKILL.md", Content: []byte(item.Version.ContentText)})
+		for _, asset := range bundle.Files {
+			content, err := e.runtimeSkillAssetContent(ctx, item.Skill.WorkspaceID, asset)
+			if err != nil {
+				return runtimeSkillMaterialization{}, fmt.Errorf("load runtime skill %s asset %s: %w", item.Skill.Identifier, asset.Path, err)
+			}
+			files = append(files, capability.RuntimeSkillFile{Path: asset.Path, Content: content, Executable: asset.Executable})
+		}
+		checksum := strings.TrimSpace(item.Version.PackageChecksum)
+		if checksum == "" {
+			checksum = strings.TrimSpace(item.Version.Checksum)
+		}
+		packages = append(packages, capability.RuntimeSkillPackage{
+			Identifier: item.Skill.Identifier, Version: item.Version.Version, Checksum: checksum, Files: files,
+		})
+		if strings.Contains(item.Version.ContentText, "CLAUDE_SKILL_DIR") || strings.Contains(item.Version.ContentText, "TMA_SKILL_DIR") {
+			compatibilityIdentifiers[item.Skill.Identifier] = true
+		}
+	}
+	if len(packages) == 0 {
+		return runtimeSkillMaterialization{}, nil
+	}
+	materialized, err := materializer.MaterializeRuntimeSkills(ctx, packages)
+	if err != nil {
+		return runtimeSkillMaterialization{}, fmt.Errorf("materialize runtime skills: %w", err)
+	}
+	result := runtimeSkillMaterialization{directories: make(map[string]string, len(materialized))}
+	for _, item := range materialized {
+		result.directories[item.Identifier] = item.Directory
+		if compatibilityIdentifiers[item.Identifier] {
+			result.compatibilityDirs = append(result.compatibilityDirs, item.Directory)
+		}
+	}
+	return result, nil
+}
+
+func (e AgentRuntimeTurnExecutor) runtimeSkillAssetContent(ctx context.Context, workspaceID string, asset skills.AssetFile) ([]byte, error) {
+	if !asset.Binary {
+		return []byte(asset.Content), nil
+	}
+	var content []byte
+	if strings.TrimSpace(asset.ContentBase64) != "" {
+		decoded, err := base64.StdEncoding.DecodeString(asset.ContentBase64)
+		if err != nil {
+			return nil, fmt.Errorf("decode inline binary asset: %w", err)
+		}
+		content = decoded
+	} else {
+		if e.Store == nil || e.ObjectStore == nil || strings.TrimSpace(asset.ObjectRefID) == "" {
+			return nil, errors.New("binary skill asset storage is unavailable")
+		}
+		objectRef, err := managedagents.GetObjectRefWithContext(ctx, e.Store, asset.ObjectRefID)
+		if err != nil {
+			return nil, err
+		}
+		if objectRef.WorkspaceID != workspaceID {
+			return nil, managedagents.ErrForbidden
+		}
+		object, err := e.ObjectStore.GetObject(ctx, objectstore.GetObjectInput{Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion})
+		if err != nil {
+			return nil, err
+		}
+		defer object.Body.Close()
+		content, err = io.ReadAll(io.LimitReader(object.Body, int64(asset.Size)+1))
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(content) != asset.Size {
+		return nil, fmt.Errorf("binary skill asset size mismatch: expected %d, got %d", asset.Size, len(content))
+	}
+	checksum := sha256.Sum256(content)
+	if !strings.EqualFold(asset.ChecksumSHA256, fmt.Sprintf("%x", checksum)) {
+		return nil, errors.New("binary skill asset checksum mismatch")
+	}
+	return content, nil
+}
+
+func mergeRuntimeSkillEnvironment(environment map[string]string, materialized runtimeSkillMaterialization) map[string]string {
+	result := make(map[string]string, len(environment)+len(materialized.directories)+3)
+	for key, value := range environment {
+		result[key] = value
+	}
+	result["TMA_SKILLS_DIR"] = "/workspace/.tma/skills"
+	encodedDirectories, _ := json.Marshal(materialized.directories)
+	result["TMA_SKILL_DIRS_JSON"] = string(encodedDirectories)
+	for identifier, directory := range materialized.directories {
+		result[runtimeSkillEnvironmentKey(identifier)] = directory
+	}
+	if len(materialized.compatibilityDirs) == 1 {
+		result["TMA_SKILL_DIR"] = materialized.compatibilityDirs[0]
+		result["CLAUDE_SKILL_DIR"] = materialized.compatibilityDirs[0]
+	}
+	return result
+}
+
+func runtimeSkillEnvironmentKey(identifier string) string {
+	var builder strings.Builder
+	builder.WriteString("TMA_SKILL_DIR_")
+	for _, char := range strings.ToUpper(identifier) {
+		if (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			builder.WriteRune(char)
+		} else {
+			builder.WriteByte('_')
+		}
+	}
+	return builder.String()
+}
+
+func (e AgentRuntimeTurnExecutor) resolveTaskPlanContext(ctx context.Context, sessionID string) (string, error) {
+	store, ok := e.Store.(managedagents.SessionTaskPlanStore)
+	if !ok {
+		return "", nil
+	}
+	plan, err := store.GetCurrentSessionTaskPlanContext(ctx, sessionID)
+	if errors.Is(err, managedagents.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("resolve current task plan: %w", err)
+	}
+	lines := []string{
+		"Current task plan (protected execution state; update only through task.*):",
+		fmt.Sprintf("Plan: %s [%s, %s]", plan.ID, plan.HandlingMode, plan.Status),
+		"Goal: " + plan.Goal,
+	}
+	for index, item := range plan.Items {
+		line := fmt.Sprintf("%d. [%s] %s (item_id=%s)", index+1, item.Status, item.Description, item.ID)
+		if evidence := strings.TrimSpace(item.Evidence); evidence != "" {
+			line += " Evidence: " + evidence
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 func conversationHistoryAfterSeq(history []managedagents.ConversationMessage, seq int64) []managedagents.ConversationMessage {
@@ -430,8 +612,10 @@ func runtimeInterventionResume(intervention *managedagents.SessionIntervention) 
 			APIName:    intervention.APIName,
 			Arguments:  append(json.RawMessage(nil), intervention.Arguments...),
 		},
+		Kind:              intervention.Kind,
 		Status:            intervention.Status,
 		DecisionReason:    intervention.DecisionReason,
+		Response:          append(json.RawMessage(nil), intervention.Response...),
 		Continuation:      continuation,
 		ContinuationRound: intervention.ContinuationRound,
 		ContinuationState: continuationState,
@@ -494,7 +678,7 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 		if eventType == "" {
 			return errors.New("runtime step type is required")
 		}
-		if eventType == managedagents.EventRuntimeToolInterventionRequired {
+		if eventType == managedagents.EventRuntimeToolInterventionRequired || eventType == managedagents.EventRuntimeHumanInputRequired || eventType == managedagents.EventRuntimePlanApprovalRequired {
 			if err := e.savePendingIntervention(ctx, request, step); err != nil {
 				return err
 			}
@@ -589,11 +773,11 @@ func (s *runtimeTraceState) decorate(eventType string, data map[string]any) {
 			duration = now.Sub(s.contextStart)
 			s.contextStart = time.Time{}
 		}
-	case managedagents.EventRuntimeToolInterventionRequired:
+	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeHumanInputRequired, managedagents.EventRuntimePlanApprovalRequired:
 		if callID != "" {
 			s.approvalStart[callID] = now
 		}
-	case managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected:
+	case managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected, managedagents.EventRuntimeHumanInputSubmitted, managedagents.EventRuntimeHumanInputSkipped, managedagents.EventRuntimeHumanInputCanceled, managedagents.EventRuntimePlanApprovalApproved, managedagents.EventRuntimePlanApprovalRejected:
 		if startedAt, ok := s.approvalStart[callID]; ok {
 			duration = now.Sub(startedAt)
 			delete(s.approvalStart, callID)
@@ -630,11 +814,11 @@ func spanStatusForRuntimeEvent(eventType string, data map[string]any) string {
 			return "ok"
 		}
 		return "error"
-	case managedagents.EventRuntimeToolInterventionApproved:
+	case managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeHumanInputSubmitted, managedagents.EventRuntimePlanApprovalApproved:
 		return "approved"
-	case managedagents.EventRuntimeToolInterventionRejected:
+	case managedagents.EventRuntimeToolInterventionRejected, managedagents.EventRuntimeHumanInputSkipped, managedagents.EventRuntimeHumanInputCanceled, managedagents.EventRuntimePlanApprovalRejected:
 		return "rejected"
-	case managedagents.EventRuntimeToolInterventionRequired:
+	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeHumanInputRequired, managedagents.EventRuntimePlanApprovalRequired:
 		return "waiting"
 	default:
 		return "point"
@@ -645,7 +829,7 @@ func parentSpanForRuntimeEvent(turnID string, eventType string, callID string) s
 	switch eventType {
 	case managedagents.EventRuntimeStarted, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
 		return ""
-	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected:
+	case managedagents.EventRuntimeToolInterventionRequired, managedagents.EventRuntimeToolInterventionApproved, managedagents.EventRuntimeToolInterventionRejected, managedagents.EventRuntimeHumanInputRequired, managedagents.EventRuntimeHumanInputSubmitted, managedagents.EventRuntimeHumanInputSkipped, managedagents.EventRuntimeHumanInputCanceled, managedagents.EventRuntimePlanApprovalRequired, managedagents.EventRuntimePlanApprovalApproved, managedagents.EventRuntimePlanApprovalRejected:
 		return observability.ToolSpanID(turnID, callID, 0)
 	default:
 		return observability.InteractionSpanID(turnID)
@@ -662,6 +846,10 @@ func (e AgentRuntimeTurnExecutor) savePendingIntervention(ctx context.Context, r
 	apiName, _ := step.Data["api_name"].(string)
 	mode, _ := step.Data["intervention_mode"].(string)
 	reason, _ := step.Data["reason"].(string)
+	kind, _ := step.Data["kind"].(string)
+	if kind == "" {
+		kind = managedagents.InterventionKindToolApproval
+	}
 	if callID == "" || identifier == "" || apiName == "" {
 		return nil
 	}
@@ -705,18 +893,28 @@ func (e AgentRuntimeTurnExecutor) savePendingIntervention(ctx context.Context, r
 		continuationRound = value
 	}
 
+	var interactionRequest json.RawMessage
+	if value, ok := step.Private["request"].(json.RawMessage); ok && len(value) > 0 {
+		interactionRequest = append(json.RawMessage(nil), value...)
+	}
+
 	if _, err := managedagents.SaveSessionInterventionWithContext(ctx, e.Store, request.SessionID, managedagents.SaveSessionInterventionInput{
 		TurnID:            request.TurnID,
 		CallID:            callID,
 		ToolIdentifier:    identifier,
 		APIName:           apiName,
 		Arguments:         arguments,
+		Kind:              kind,
+		Request:           interactionRequest,
 		InterventionMode:  mode,
 		Reason:            reason,
 		Continuation:      continuation,
 		ContinuationRound: continuationRound,
 	}); err != nil {
 		return err
+	}
+	if kind == managedagents.InterventionKindClarification || kind == managedagents.InterventionKindUploadRequest {
+		return managedagents.MarkSessionTurnWaitingHumanWithContext(ctx, e.Store, request.SessionID, request.TurnID)
 	}
 	return managedagents.MarkSessionTurnWaitingApprovalWithContext(ctx, e.Store, request.SessionID, request.TurnID)
 }

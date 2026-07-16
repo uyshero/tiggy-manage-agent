@@ -18,7 +18,7 @@ TMA_TURN_COMMAND_ARGS=["scripts/command_turn_echo.sh"]
 当前服务端固定使用 `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`，不再读取 command 相关环境变量：
 
 ```text
-cmd/server
+cmd/tma-server
   -> WorkerRunner
   -> AgentRuntimeTurnExecutor
   -> agentruntime.DemoRuntime

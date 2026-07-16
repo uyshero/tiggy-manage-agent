@@ -46,7 +46,7 @@ ensure_server_bin() {
     return 0
   fi
   echo "Building $SERVER_BIN"
-  go build -o "$SERVER_BIN" ./cmd/server
+  go build -o "$SERVER_BIN" ./cmd/tma-server
 }
 
 ensure_cli_bin() {

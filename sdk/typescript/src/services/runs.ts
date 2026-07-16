@@ -69,6 +69,14 @@ export class RunHandle {
     return this.interventions.reject(this.run.session_id, this.run.id, callId, reason, signal);
   }
 
+  respond(callId: string, response: unknown, signal?: AbortSignal): Promise<InterventionDecision> {
+    return this.interventions.respond(this.run.session_id, this.run.id, callId, response, signal);
+  }
+
+  skip(callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
+    return this.interventions.skip(this.run.session_id, this.run.id, callId, reason, signal);
+  }
+
   async wait(signal?: AbortSignal): Promise<RunResult> {
     let lastEvent: Event | undefined;
     let output: unknown;

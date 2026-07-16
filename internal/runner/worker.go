@@ -383,8 +383,8 @@ func (r *WorkerRunner) runJob(job workerJob) {
 	result, err := r.turnExecutor.RunTurn(job.ctx, job.request)
 	stopHeartbeat()
 	if err != nil {
-		if errors.Is(err, ErrTurnWaitingApproval) {
-			r.logger.Info("worker runner turn waiting for approval", "session_id", job.request.SessionID, "turn_id", job.request.TurnID)
+		if errors.Is(err, ErrTurnWaitingApproval) || errors.Is(err, ErrTurnWaitingHuman) {
+			r.logger.Info("worker runner turn waiting for human intervention", "session_id", job.request.SessionID, "turn_id", job.request.TurnID)
 			return
 		}
 		if job.ctx.Err() != nil {

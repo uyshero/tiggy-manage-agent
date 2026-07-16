@@ -20,4 +20,21 @@ export class InterventionsService extends ServiceBase {
   reject(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
     return this.decide(sessionId, turnId, callId, "reject", reason, signal);
   }
+
+  respond(sessionId: string, turnId: string, callId: string, response: unknown, signal?: AbortSignal): Promise<InterventionDecision> {
+    return this.resolve(sessionId, turnId, callId, "respond", { response }, signal);
+  }
+
+  skip(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
+    return this.resolve(sessionId, turnId, callId, "skip", { reason }, signal);
+  }
+
+  cancel(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
+    return this.resolve(sessionId, turnId, callId, "cancel", { reason }, signal);
+  }
+
+  private resolve(sessionId: string, turnId: string, callId: string, action: "respond" | "skip" | "cancel", body: unknown, signal?: AbortSignal): Promise<InterventionDecision> {
+    const path = resourcePath(`${sessionPath(sessionId)}/interventions`, turnId, callId) + `/${action}`;
+    return this.transport.requestJSON("POST", path, body, signal ? { signal } : {});
+  }
 }

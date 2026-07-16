@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	browsercap "tiggy-manage-agent/internal/browser"
+	"tiggy-manage-agent/internal/capability"
 )
 
 func TestBrowserRuntimeExecutesProviderOpen(t *testing.T) {
@@ -97,6 +98,39 @@ func TestBrowserRuntimeLocalSystemOnlyAPIs(t *testing.T) {
 		if len(api.Runtime.Allowed) != 1 || api.Runtime.Allowed[0] != ToolRuntimeLocalSystem {
 			t.Fatalf("expected %s to allow only local_system, got %#v", name, api.Runtime.Allowed)
 		}
+	}
+}
+
+func TestBrowserProviderUsesDedicatedOnlyboxesScopeAndDefaultImage(t *testing.T) {
+	t.Setenv("TMA_BROWSER_SANDBOX_IMAGE", "")
+	provider := browserProviderFromCapability(capability.OnlyboxesProvider{Image: "default-onlyboxes:latest"})
+	commandProvider, ok := provider.(browsercap.CommandProvider)
+	if !ok {
+		t.Fatalf("expected command browser provider, got %T", provider)
+	}
+	onlyboxes, ok := commandProvider.Runner.(capability.OnlyboxesProvider)
+	if !ok {
+		t.Fatalf("expected onlyboxes runner, got %T", commandProvider.Runner)
+	}
+	if onlyboxes.ContainerScope != "browser" || onlyboxes.Image != DefaultBrowserSandboxImage {
+		t.Fatalf("unexpected browser scope provider: %#v", onlyboxes)
+	}
+	if onlyboxes.MemoryLimit != DefaultBrowserSandboxMemory {
+		t.Fatalf("unexpected browser memory limit %q", onlyboxes.MemoryLimit)
+	}
+	if commandProvider.StateRoot != "/mnt/data/browser" {
+		t.Fatalf("unexpected browser state root %q", commandProvider.StateRoot)
+	}
+}
+
+func TestBrowserProviderAllowsDedicatedImageOverride(t *testing.T) {
+	t.Setenv("TMA_BROWSER_SANDBOX_IMAGE", "registry.example/tma-browser:v2")
+	t.Setenv("TMA_BROWSER_SANDBOX_MEMORY", "2g")
+	provider := browserProviderFromCapability(capability.OnlyboxesProvider{Image: "default-onlyboxes:latest"})
+	commandProvider := provider.(browsercap.CommandProvider)
+	onlyboxes := commandProvider.Runner.(capability.OnlyboxesProvider)
+	if onlyboxes.Image != "registry.example/tma-browser:v2" || onlyboxes.ContainerScope != "browser" || onlyboxes.MemoryLimit != "2g" {
+		t.Fatalf("unexpected browser image override: %#v", onlyboxes)
 	}
 }
 

@@ -57,7 +57,7 @@ func RenderVersion(skill Skill, version Version, mode string, inputs json.RawMes
 		fmt.Fprintln(&builder, "\nPackage assets available through skills.read_asset:")
 		for _, file := range bundle.Files {
 			if file.Executable {
-				fmt.Fprintf(&builder, "- %s (%d bytes; script reference text, not auto-executable)\n", file.Path, file.Size)
+				fmt.Fprintf(&builder, "- %s (%d bytes; executable package script, requires a separate approved execution call)\n", file.Path, file.Size)
 				continue
 			}
 			fmt.Fprintf(&builder, "- %s (%d bytes)\n", file.Path, file.Size)

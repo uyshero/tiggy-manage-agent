@@ -2867,7 +2867,7 @@ func (s *PostgresStore) taskGroupItemStatusForMetrics(ctx context.Context, item 
 	if session.Status == SessionStatusRunning {
 		pending, err := ListSessionInterventionsWithContext(ctx, s, item.SessionID, InterventionStatusPending)
 		if err == nil && len(pending) > 0 {
-			return TurnStatusWaitingApproval
+			return PendingInterventionTurnStatus(pending)
 		}
 		return SessionStatusRunning
 	}
@@ -3204,7 +3204,7 @@ func terminateOpenTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, now
 			lease_owner = NULL,
 			lease_expires_at = NULL,
 			last_heartbeat_at = NULL
-		WHERE session_id = $1 AND status IN ('running', 'waiting_approval')
+		WHERE session_id = $1 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, now)
 	return err
 }
@@ -3345,6 +3345,8 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 	}
 
 	config.RuntimeSettings = cloneRaw(runtimeSettings)
+	config.ParentSessionID = session.ParentSessionID
+	config.SpawnDepth = session.SpawnDepth
 	config.Tools = cloneRaw(tools)
 	config.MCP = cloneRaw(mcp)
 	config.Skills = cloneRaw(skills)
@@ -4127,6 +4129,13 @@ func (s *PostgresStore) saveSessionInterventionContext(ctx context.Context, sess
 	if input.InterventionMode == "" {
 		return SessionIntervention{}, fmt.Errorf("%w: intervention intervention_mode is required", ErrInvalid)
 	}
+	kind := normalizeInterventionKind(input.Kind)
+	if kind == "" {
+		return SessionIntervention{}, fmt.Errorf("%w: unsupported intervention kind %q", ErrInvalid, input.Kind)
+	}
+	if len(input.Request) > 0 && !json.Valid(input.Request) {
+		return SessionIntervention{}, fmt.Errorf("%w: intervention request must be valid JSON", ErrInvalid)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return SessionIntervention{}, err
@@ -4160,9 +4169,14 @@ func (s *PostgresStore) saveSessionInterventionContext(ctx context.Context, sess
 			decided_at,
 			decision_reason,
 			continuation_messages_json,
-			continuation_round
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, NULL, NULL, $15)
 		ON CONFLICT (session_id, turn_id, call_id) DO UPDATE
 		SET
 			tool_identifier = EXCLUDED.tool_identifier,
@@ -4175,7 +4189,12 @@ func (s *PostgresStore) saveSessionInterventionContext(ctx context.Context, sess
 			decided_at = NULL,
 			decision_reason = NULL,
 			continuation_messages_json = EXCLUDED.continuation_messages_json,
-			continuation_round = EXCLUDED.continuation_round
+			continuation_round = EXCLUDED.continuation_round,
+			kind = EXCLUDED.kind,
+			request_json = EXCLUDED.request_json,
+			response_json = NULL,
+			responded_at = NULL,
+			expires_at = EXCLUDED.expires_at
 		RETURNING
 			session_id,
 			turn_id,
@@ -4190,8 +4209,13 @@ func (s *PostgresStore) saveSessionInterventionContext(ctx context.Context, sess
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
-	`, sessionID, input.TurnID, input.CallID, input.ToolIdentifier, input.APIName, nullableRaw(input.Arguments), input.InterventionMode, input.Reason, InterventionStatusPending, now, nullableRaw(input.Continuation), input.ContinuationRound)
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
+	`, sessionID, input.TurnID, input.CallID, input.ToolIdentifier, input.APIName, nullableRaw(input.Arguments), input.InterventionMode, input.Reason, InterventionStatusPending, now, nullableRaw(input.Continuation), input.ContinuationRound, kind, nullableRaw(input.Request), input.ExpiresAt)
 	intervention, err := scanSessionIntervention(row)
 	if err != nil {
 		return SessionIntervention{}, err
@@ -4246,7 +4270,12 @@ func (s *PostgresStore) listSessionInterventionsContext(ctx context.Context, ses
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
 		FROM session_interventions
 		WHERE session_id = $1
 			AND ($2 = '' OR status = $2)
@@ -4292,8 +4321,11 @@ func (s *PostgresStore) decideSessionInterventionContext(ctx context.Context, se
 		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention call_id is required", ErrInvalid)
 	}
 	status := normalizeInterventionStatus(input.Status)
-	if status != InterventionStatusApproved && status != InterventionStatusRejected {
-		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention decision must be approved or rejected", ErrInvalid)
+	if status == "" || status == InterventionStatusPending {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: unsupported intervention result %q", ErrInvalid, input.Status)
+	}
+	if len(input.Response) > 0 && !json.Valid(input.Response) {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention response must be valid JSON", ErrInvalid)
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -4327,19 +4359,25 @@ func (s *PostgresStore) decideSessionInterventionContext(ctx context.Context, se
 		}
 		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention %s is already %s", ErrInvalid, input.CallID, current.Status)
 	}
+	if !interventionStatusAllowed(current.Kind, status) {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention kind %s does not accept result %s", ErrInvalid, current.Kind, status)
+	}
+	if status == InterventionStatusAnswered && len(input.Response) == 0 {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: answered clarification requires response", ErrInvalid)
+	}
 	turnStatus, err := getSessionTurnStatusForUpdateTx(ctx, tx, sessionID, input.TurnID)
 	if err != nil {
 		return DecideSessionInterventionResult{}, err
 	}
 	turnTerminal := turnStatus == TurnStatusInterrupted || turnStatus == TurnStatusCompleted || turnStatus == TurnStatusFailed
-	if turnTerminal && status == InterventionStatusApproved {
-		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn is %s and cannot be approved", ErrConflict, turnStatus)
+	if turnTerminal && (status == InterventionStatusApproved || status == InterventionStatusAnswered) {
+		return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn is %s and cannot resume", ErrConflict, turnStatus)
 	}
 
 	now := time.Now().UTC()
 	row := tx.QueryRowContext(ctx, `
 		UPDATE session_interventions
-		SET status = $4, decision_reason = $5, decided_at = $6
+		SET status = $4, decision_reason = $5, decided_at = $6, response_json = $7, responded_at = $6
 		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
 		RETURNING
 			session_id,
@@ -4355,19 +4393,19 @@ func (s *PostgresStore) decideSessionInterventionContext(ctx context.Context, se
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
-	`, sessionID, input.TurnID, input.CallID, status, input.DecisionReason, now)
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
+	`, sessionID, input.TurnID, input.CallID, status, input.DecisionReason, now, nullableRaw(input.Response))
 	decided, err := scanSessionIntervention(row)
 	if err != nil {
 		return DecideSessionInterventionResult{}, err
 	}
 
-	eventType := EventRuntimeToolInterventionApproved
-	message := "Tool call approved by user."
-	if status == InterventionStatusRejected {
-		eventType = EventRuntimeToolInterventionRejected
-		message = "Tool call rejected by user."
-	}
+	eventType, message := interventionResultEvent(current.Kind, status)
 	payload, err := interventionDecisionPayload(decided, message, "user")
 	if err != nil {
 		return DecideSessionInterventionResult{}, err
@@ -4402,6 +4440,18 @@ func (s *PostgresStore) MarkSessionTurnWaitingApproval(sessionID string, turnID 
 }
 
 func (s *PostgresStore) markSessionTurnWaitingApprovalContext(ctx context.Context, sessionID string, turnID string) error {
+	return s.markSessionTurnWaitingStatusContext(ctx, sessionID, turnID, TurnStatusWaitingApproval)
+}
+
+func (s *PostgresStore) MarkSessionTurnWaitingHuman(sessionID string, turnID string) error {
+	return s.markSessionTurnWaitingHumanContext(context.Background(), sessionID, turnID)
+}
+
+func (s *PostgresStore) markSessionTurnWaitingHumanContext(ctx context.Context, sessionID string, turnID string) error {
+	return s.markSessionTurnWaitingStatusContext(ctx, sessionID, turnID, TurnStatusWaitingHuman)
+}
+
+func (s *PostgresStore) markSessionTurnWaitingStatusContext(ctx context.Context, sessionID string, turnID string, waitingStatus string) error {
 	if sessionID == "" {
 		return fmt.Errorf("%w: session_id is required", ErrInvalid)
 	}
@@ -4433,7 +4483,7 @@ func (s *PostgresStore) markSessionTurnWaitingApprovalContext(ctx context.Contex
 			lease_expires_at = NULL,
 			last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ($3, $4)
-	`, sessionID, turnID, TurnStatusWaitingApproval, TurnStatusRunning)
+	`, sessionID, turnID, waitingStatus, TurnStatusRunning)
 	if err != nil {
 		return err
 	}
@@ -7830,7 +7880,7 @@ func currentTurnID(ctx context.Context, tx *sql.Tx, sessionID string) (string, e
 	err := tx.QueryRowContext(ctx, `
 		SELECT id
 		FROM session_turns
-		WHERE session_id = $1 AND status IN ('running', 'waiting_approval')
+		WHERE session_id = $1 AND status IN ('running', 'waiting_approval', 'waiting_human')
 		ORDER BY started_at DESC
 		LIMIT 1
 	`, sessionID).Scan(&turnID)
@@ -7875,7 +7925,7 @@ func completeTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, n
 		UPDATE session_turns
 		SET status = 'completed', ended_at = $3,
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
-		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, now)
 	return err
 }
@@ -7885,7 +7935,7 @@ func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, 
 		UPDATE session_turns
 		SET status = 'interrupted', interrupt_requested_at = $3, ended_at = $3,
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
-		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, now)
 	return err
 }
@@ -7895,7 +7945,7 @@ func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason strin
 		UPDATE session_turns
 		SET status = 'failed', error_message = $3, ended_at = $4,
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
-		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval')
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, nullableString(reason), now)
 	return err
 }
@@ -8134,7 +8184,12 @@ func getSessionInterventionForUpdateTx(ctx context.Context, tx *sql.Tx, sessionI
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
 		FROM session_interventions
 		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
 		FOR UPDATE
@@ -8158,7 +8213,12 @@ func getSessionInterventionTx(ctx context.Context, tx *sql.Tx, sessionID string,
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
 		FROM session_interventions
 		WHERE session_id = $1 AND turn_id = $2 AND call_id = $3
 	`, sessionID, turnID, callID)
@@ -8185,6 +8245,10 @@ func interventionDecisionPayload(intervention SessionIntervention, message strin
 			"identifier":        intervention.ToolIdentifier,
 			"api_name":          intervention.APIName,
 			"arguments":         rawJSONObject(intervention.Arguments),
+			"kind":              intervention.Kind,
+			"request":           rawJSONValue(intervention.Request),
+			"response":          rawJSONValue(intervention.Response),
+			"status":            intervention.Status,
 			"intervention_mode": intervention.InterventionMode,
 			"reason":            intervention.Reason,
 			"decision_reason":   intervention.DecisionReason,
@@ -8193,10 +8257,42 @@ func interventionDecisionPayload(intervention SessionIntervention, message strin
 	})
 }
 
+func interventionResultEvent(kind, status string) (string, string) {
+	if kind == InterventionKindClarification || kind == InterventionKindUploadRequest {
+		switch status {
+		case InterventionStatusAnswered:
+			return EventRuntimeHumanInputSubmitted, "User submitted requested information."
+		case InterventionStatusSkipped:
+			return EventRuntimeHumanInputSkipped, "User skipped the requested information."
+		default:
+			return EventRuntimeHumanInputCanceled, "User input request was canceled."
+		}
+	}
+	if kind == InterventionKindPlanApproval {
+		if status == InterventionStatusRejected {
+			return EventRuntimePlanApprovalRejected, "Task plan rejected by user."
+		}
+		return EventRuntimePlanApprovalApproved, "Task plan approved by user."
+	}
+	if status == InterventionStatusRejected {
+		return EventRuntimeToolInterventionRejected, "Tool call rejected by user."
+	}
+	return EventRuntimeToolInterventionApproved, "Tool call approved by user."
+}
+
 func (s *PostgresStore) rejectPendingTurnInterventionsTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, reason string, now time.Time) ([]Event, error) {
 	rows, err := tx.QueryContext(ctx, `
 		UPDATE session_interventions
-		SET status = $3, decision_reason = $4, decided_at = $5
+		SET status = CASE
+				WHEN kind IN ('clarification', 'upload_request') THEN 'canceled'
+				ELSE $3
+			END,
+			decision_reason = $4,
+			decided_at = $5,
+			responded_at = CASE
+				WHEN kind IN ('clarification', 'upload_request') THEN $5
+				ELSE responded_at
+			END
 		WHERE session_id = $1 AND turn_id = $2 AND status = $6
 		RETURNING
 			session_id,
@@ -8212,7 +8308,12 @@ func (s *PostgresStore) rejectPendingTurnInterventionsTx(ctx context.Context, tx
 			requested_at,
 			decided_at,
 			continuation_messages_json,
-			continuation_round
+			continuation_round,
+			kind,
+			request_json,
+			response_json,
+			responded_at,
+			expires_at
 	`, sessionID, turnID, InterventionStatusRejected, reason, now, InterventionStatusPending)
 	if err != nil {
 		return nil, err
@@ -8236,11 +8337,19 @@ func (s *PostgresStore) rejectPendingTurnInterventionsTx(ctx context.Context, tx
 
 	events := make([]Event, 0, len(interventions)*2)
 	for _, intervention := range interventions {
-		payload, err := interventionDecisionPayload(intervention, "Tool call rejected because the turn was interrupted.", "user_interrupt")
+		eventType, eventMessage := interventionResultEvent(intervention.Kind, intervention.Status)
+		if intervention.Kind == InterventionKindToolApproval {
+			eventMessage = "Tool call rejected because the turn was interrupted."
+		} else if intervention.Kind == InterventionKindPlanApproval {
+			eventMessage = "Task plan rejected because the turn was interrupted."
+		} else {
+			eventMessage = "User input request canceled because the turn was interrupted."
+		}
+		payload, err := interventionDecisionPayload(intervention, eventMessage, "user_interrupt")
 		if err != nil {
 			return nil, err
 		}
-		event, err := s.appendEventTx(ctx, tx, sessionID, EventRuntimeToolInterventionRejected, payload, now)
+		event, err := s.appendEventTx(ctx, tx, sessionID, eventType, payload, now)
 		if err != nil {
 			return nil, err
 		}
@@ -8260,7 +8369,15 @@ func (s *PostgresStore) rejectPendingTurnInterventionsTx(ctx context.Context, tx
 }
 
 func interruptedToolResultPayload(intervention SessionIntervention) (json.RawMessage, error) {
-	const message = "Tool call canceled because the turn was interrupted by the user."
+	message := "Tool call canceled because the turn was interrupted by the user."
+	errorType := "tool_canceled"
+	if intervention.Kind == InterventionKindPlanApproval {
+		message = "Task plan review canceled because the turn was interrupted by the user."
+		errorType = "plan_review_canceled"
+	} else if intervention.Kind == InterventionKindClarification || intervention.Kind == InterventionKindUploadRequest {
+		message = "User input request canceled because the turn was interrupted by the user."
+		errorType = "human_input_canceled"
+	}
 	return json.Marshal(map[string]any{
 		"turn_id": intervention.TurnID,
 		"message": message,
@@ -8276,7 +8393,7 @@ func interruptedToolResultPayload(intervention SessionIntervention) (json.RawMes
 			"content":          message,
 			"approval_source":  "user_interrupt",
 			"error": map[string]any{
-				"type":    "tool_canceled",
+				"type":    errorType,
 				"message": message,
 			},
 		},
@@ -8291,8 +8408,8 @@ func markSessionTurnResumableTx(ctx context.Context, tx *sql.Tx, sessionID strin
 			lease_owner = NULL,
 			lease_expires_at = NULL,
 			last_heartbeat_at = NULL
-		WHERE session_id = $1 AND id = $2 AND status IN ($4, $5)
-	`, sessionID, turnID, callID, TurnStatusRunning, TurnStatusWaitingApproval)
+		WHERE session_id = $1 AND id = $2 AND status IN ($4, $5, $6)
+	`, sessionID, turnID, callID, TurnStatusRunning, TurnStatusWaitingApproval, TurnStatusWaitingHuman)
 	if err != nil {
 		return false, err
 	}
@@ -8307,9 +8424,13 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 	var intervention SessionIntervention
 	var arguments []byte
 	var continuation []byte
+	var request []byte
+	var response []byte
 	var reason sql.NullString
 	var decisionReason sql.NullString
 	var decidedAt sql.NullTime
+	var respondedAt sql.NullTime
+	var expiresAt sql.NullTime
 
 	err := scanner.Scan(
 		&intervention.SessionID,
@@ -8326,6 +8447,11 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 		&decidedAt,
 		&continuation,
 		&intervention.ContinuationRound,
+		&intervention.Kind,
+		&request,
+		&response,
+		&respondedAt,
+		&expiresAt,
 	)
 	if err == sql.ErrNoRows {
 		return SessionIntervention{}, ErrNotFound
@@ -8336,10 +8462,18 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 
 	intervention.Arguments = cloneRaw(arguments)
 	intervention.Continuation = cloneRaw(continuation)
+	intervention.Request = cloneRaw(request)
+	intervention.Response = cloneRaw(response)
 	intervention.Reason = reason.String
 	intervention.DecisionReason = decisionReason.String
 	if decidedAt.Valid {
 		intervention.DecidedAt = &decidedAt.Time
+	}
+	if respondedAt.Valid {
+		intervention.RespondedAt = &respondedAt.Time
+	}
+	if expiresAt.Valid {
+		intervention.ExpiresAt = &expiresAt.Time
 	}
 	return intervention, nil
 }
@@ -8535,4 +8669,8 @@ func rawJSONObject(raw json.RawMessage) any {
 		return string(raw)
 	}
 	return value
+}
+
+func rawJSONValue(raw json.RawMessage) any {
+	return rawJSONObject(raw)
 }

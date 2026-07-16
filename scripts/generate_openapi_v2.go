@@ -186,6 +186,8 @@ var coreContracts = map[string]routeContract{
 	"post /v2/sessions/{session_id}/config/upgrade":                            {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
 	"get /v2/sessions/{session_id}/summary":                                    {ResponseSchema: "SessionSummary"},
 	"put /v2/sessions/{session_id}/summary":                                    {RequestSchema: "UpsertSessionSummaryRequest", RequestRequired: true, ResponseSchema: "SessionSummary"},
+	"get /v2/sessions/{session_id}/task-plan":                                  {ResponseSchema: "SessionTaskPlanCurrent"},
+	"get /v2/sessions/{session_id}/task-plans":                                 {ResponseSchema: "SessionTaskPlanList"},
 	"get /v2/sessions/{session_id}/usage":                                      {ResponseSchema: "SessionUsage"},
 	"get /v2/sessions/{session_id}/trace":                                      {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
 	"get /v2/sessions/{session_id}/operator-audit":                             {ResponseSchema: "OperatorAuditList"},
@@ -193,6 +195,9 @@ var coreContracts = map[string]routeContract{
 	"get /v2/sessions/{session_id}/interventions":                              {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
 	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve": {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
 	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject":  {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond": {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel":  {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
 	"post /v2/sessions/{session_id}/events":                                    {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
 	"get /v2/sessions/{session_id}/events":                                     {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
 	"get /v2/sessions/{session_id}/events/stream":                              {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
@@ -809,6 +814,21 @@ paths:
         cloud_sandbox_root: {type: string}
         cloud_sandbox_image: {type: string}
         cloud_sandbox_allow_network: {type: boolean}
+        human_interaction: {$ref: "#/components/schemas/HumanInteractionRuntimeSettings"}
+        completion_gate: {$ref: "#/components/schemas/CompletionGateRuntimeSettings"}
+    HumanInteractionRuntimeSettings:
+      type: object
+      properties:
+        enabled: {type: boolean}
+        modes:
+          type: array
+          items: {type: string, enum: [select, multiselect, form, freeform]}
+        supports_upload: {type: boolean}
+        fallback: {type: string, enum: [assistant_message, fail]}
+    CompletionGateRuntimeSettings:
+      type: object
+      properties:
+        max_retries: {type: integer, format: int32, minimum: 1, maximum: 10, description: Defaults to 3 when omitted.}
     AgentRuntimeConfig:
       type: object
       required: [session_id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, llm_provider, llm_model, context_window_tokens, llm_capability_type, system]
@@ -844,6 +864,15 @@ paths:
       properties:
         default_runtime: {type: string}
         available_runtimes: {type: array, items: {type: string}}
+        human_interaction: {$ref: "#/components/schemas/HumanInteractionRuntimeCapabilities"}
+    HumanInteractionRuntimeCapabilities:
+      type: object
+      required: [enabled, modes, supports_upload, fallback]
+      properties:
+        enabled: {type: boolean}
+        modes: {type: array, items: {type: string}}
+        supports_upload: {type: boolean}
+        fallback: {type: string}
     RerunSessionRequest:
       allOf:
         - {$ref: "#/components/schemas/UpdateSessionRuntimeSettingsRequest"}
@@ -881,7 +910,7 @@ paths:
       properties:
         id: {type: string}
         session_id: {type: string}
-        status: {type: string, enum: [running, waiting_approval, completed, failed, interrupted]}
+        status: {type: string, enum: [running, waiting_approval, waiting_human, completed, failed, interrupted]}
         user_event_id: {type: string}
         user_event_seq: {type: integer, format: int64, maximum: 9007199254740991}
         attempt: {type: integer, format: int32}
@@ -936,12 +965,17 @@ paths:
         tool_identifier: {type: string}
         api_name: {type: string}
         arguments: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        kind: {type: string, enum: [tool_approval, clarification, plan_approval, upload_request]}
+        request: {x-tma-dynamic-json: true}
+        response: {x-tma-dynamic-json: true}
         intervention_mode: {type: string}
         reason: {type: string}
-        status: {type: string}
+        status: {type: string, enum: [pending, approved, rejected, answered, skipped, canceled, expired]}
         decision_reason: {type: string}
         requested_at: {type: string, format: date-time}
         decided_at: {type: string, format: date-time, nullable: true}
+        responded_at: {type: string, format: date-time, nullable: true}
+        expires_at: {type: string, format: date-time, nullable: true}
     InterventionList:
       type: object
       required: [interventions]
@@ -951,6 +985,7 @@ paths:
       type: object
       properties:
         reason: {type: string}
+        response: {x-tma-dynamic-json: true}
     InterventionDecision:
       type: object
       required: [intervention, events]
@@ -966,6 +1001,47 @@ paths:
         source_until_seq: {type: integer, format: int64, maximum: 9007199254740991}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    SessionTaskItem:
+      type: object
+      required: [id, plan_id, index, description, status, created_at, updated_at]
+      properties:
+        id: {type: string}
+        plan_id: {type: string}
+        index: {type: integer, format: int32, minimum: 0}
+        description: {type: string}
+        status: {type: string, enum: [pending, in_progress, completed, blocked]}
+        evidence: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time, nullable: true}
+    SessionTaskPlan:
+      type: object
+      required: [id, workspace_id, owner_id, session_id, goal, handling_mode, status, items, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        owner_id: {type: string}
+        session_id: {type: string}
+        created_turn_id: {type: string}
+        updated_turn_id: {type: string}
+        title: {type: string}
+        goal: {type: string}
+        handling_mode: {type: string, enum: [tracked, planned]}
+        status: {type: string, enum: [active, completed, canceled, superseded]}
+        items: {type: array, items: {$ref: "#/components/schemas/SessionTaskItem"}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time, nullable: true}
+    SessionTaskPlanCurrent:
+      type: object
+      required: [plan]
+      properties:
+        plan: {$ref: "#/components/schemas/SessionTaskPlan"}
+    SessionTaskPlanList:
+      type: object
+      required: [plans]
+      properties:
+        plans: {type: array, items: {$ref: "#/components/schemas/SessionTaskPlan"}}
     UpsertSessionSummaryRequest:
       type: object
       required: [summary_text, source_until_seq]

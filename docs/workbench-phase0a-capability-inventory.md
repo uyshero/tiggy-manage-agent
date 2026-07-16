@@ -1,6 +1,6 @@
 # Workbench Phase 0A 公共能力盘点
 
-本文档记录科研纵向场景需要复用的 Dialog、Notification、File 和 Preview 能力现状，并确定 Phase 0A 的标准化边界。盘点基于当前 `web-app` 实现，目标是先形成可验证的公共契约，不在本阶段重写现有页面。
+本文档记录科研纵向场景需要复用的 Dialog、Notification、File 和 Preview 能力现状，并确定 Phase 0A 的标准化边界。盘点基于当前 `apps/workbench` 实现，目标是先形成可验证的公共契约，不在本阶段重写现有页面。
 
 上位标准见 [TMA Workbench 插件开发标准](./workbench-plugin-standard.md)。
 
@@ -29,10 +29,10 @@
 当前前端是 React 19 + Vite 的 JavaScript 应用。主要工作台逻辑集中在：
 
 ```text
-web-app/src/App.jsx
-web-app/src/SkillsManagement.jsx
-web-app/src/api.js
-web-app/src/styles.css
+apps/workbench/src/App.jsx
+apps/workbench/src/SkillsManagement.jsx
+apps/workbench/src/api.js
+apps/workbench/src/styles.css
 ```
 
 公共能力目前以组件、局部 State 和 API 函数存在，尚未形成 Workbench Service 或插件可用的稳定契约。
@@ -92,8 +92,8 @@ dialog.open(dialogID, input) -> Promise<unknown>
 首轮契约完成后，已继续实现统一 React Dialog Host 和可排队的 Dialog Service：
 
 ```text
-web-app/src/workbench/dialogService.js
-web-app/src/workbench/DialogHost.jsx
+apps/workbench/src/workbench/dialogService.js
+apps/workbench/src/workbench/DialogHost.jsx
 ```
 
 当前支持：
@@ -139,8 +139,8 @@ notifications.show(notification) -> notificationID
 首轮 Notification Service 和 Host 已实现：
 
 ```text
-web-app/src/workbench/notificationService.js
-web-app/src/workbench/NotificationHost.jsx
+apps/workbench/src/workbench/notificationService.js
+apps/workbench/src/workbench/NotificationHost.jsx
 ```
 
 当前能力：

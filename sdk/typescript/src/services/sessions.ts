@@ -11,6 +11,7 @@ import type {
   SessionComparison,
   SessionRuntimeCapabilities,
   SessionSummary,
+  SessionTaskPlan,
   SessionUsage,
   UpdateSessionMetadataRequest,
   UpdateSessionRuntimeSettingsRequest,
@@ -90,6 +91,14 @@ export class SessionsService extends ServiceBase {
 
   summary(sessionId: string, signal?: AbortSignal): Promise<SessionSummary> {
     return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/summary`, undefined, signal ? { signal } : {});
+  }
+
+  taskPlan(sessionId: string, signal?: AbortSignal): Promise<SessionTaskPlan> {
+    return this.transport.requestJSON<{ plan: SessionTaskPlan }>("GET", `${sessionPath(sessionId)}/task-plan`, undefined, signal ? { signal } : {}).then((value) => value.plan);
+  }
+
+  taskPlans(sessionId: string, signal?: AbortSignal): Promise<SessionTaskPlan[]> {
+    return this.transport.requestJSON<{ plans: SessionTaskPlan[] }>("GET", `${sessionPath(sessionId)}/task-plans`, undefined, signal ? { signal } : {}).then((value) => value.plans);
   }
 
   usage(sessionId: string, signal?: AbortSignal): Promise<SessionUsage> {

@@ -109,6 +109,14 @@ type sessionTurnApprovalMarker interface {
 	MarkSessionTurnWaitingApproval(sessionID string, turnID string) error
 }
 
+type sessionTurnHumanMarker interface {
+	MarkSessionTurnWaitingHuman(sessionID string, turnID string) error
+}
+
+type sessionTurnHumanContextMarker interface {
+	MarkSessionTurnWaitingHumanContext(ctx context.Context, sessionID string, turnID string) error
+}
+
 type agentRuntimeConfigResolver interface {
 	ResolveAgentRuntimeConfig(sessionID string) (AgentRuntimeConfig, error)
 }
@@ -296,6 +304,16 @@ func MarkSessionTurnWaitingApprovalWithContext(ctx context.Context, store sessio
 		return scoped.MarkSessionTurnWaitingApprovalContext(ctx, sessionID, turnID)
 	}
 	return store.MarkSessionTurnWaitingApproval(sessionID, turnID)
+}
+
+func MarkSessionTurnWaitingHumanWithContext(ctx context.Context, store sessionTurnApprovalMarker, sessionID string, turnID string) error {
+	if scoped, ok := store.(sessionTurnHumanContextMarker); ok {
+		return scoped.MarkSessionTurnWaitingHumanContext(ctx, sessionID, turnID)
+	}
+	if marker, ok := store.(sessionTurnHumanMarker); ok {
+		return marker.MarkSessionTurnWaitingHuman(sessionID, turnID)
+	}
+	return MarkSessionTurnWaitingApprovalWithContext(ctx, store, sessionID, turnID)
 }
 
 func ResolveAgentRuntimeConfigWithContext(ctx context.Context, store agentRuntimeConfigResolver, sessionID string) (AgentRuntimeConfig, error) {

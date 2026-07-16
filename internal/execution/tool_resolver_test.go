@@ -39,6 +39,50 @@ func TestResolveToolExecutionDefaultsToCloudSandbox(t *testing.T) {
 	}
 }
 
+func TestResolveToolExecutionHidesHumanInteractionFromSubagents(t *testing.T) {
+	resolved := ResolveToolExecution(ToolExecutionRequest{
+		Config: managedagents.AgentRuntimeConfig{
+			WorkspaceID: "wksp_default", SessionID: "sesn_child", ParentSessionID: "sesn_parent", SpawnDepth: 1,
+		},
+		TurnID: "turn_000001",
+	})
+	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); ok {
+		t.Fatal("expected interaction.ask_user to be hidden from subagents")
+	}
+}
+
+func TestResolveToolExecutionHidesHumanInteractionWhenDisabled(t *testing.T) {
+	resolved := ResolveToolExecution(ToolExecutionRequest{
+		Config: managedagents.AgentRuntimeConfig{
+			WorkspaceID: "wksp_default",
+			SessionID:   "sesn_headless",
+			RuntimeSettings: json.RawMessage(`{
+				"human_interaction": {"enabled": false, "fallback": "assistant_message"}
+			}`),
+		},
+		TurnID: "turn_000001",
+	})
+	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); ok {
+		t.Fatal("expected interaction.ask_user to be hidden for non-interactive sessions")
+	}
+	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIRequestPlanApproval); ok {
+		t.Fatal("expected interaction.request_plan_approval to be hidden for non-interactive sessions")
+	}
+}
+
+func TestResolveToolExecutionKeepsHumanInteractionEnabledByDefault(t *testing.T) {
+	resolved := ResolveToolExecution(ToolExecutionRequest{
+		Config: managedagents.AgentRuntimeConfig{
+			WorkspaceID: "wksp_default",
+			SessionID:   "sesn_web",
+		},
+		TurnID: "turn_000001",
+	})
+	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); !ok {
+		t.Fatal("expected interaction.ask_user to remain visible by default")
+	}
+}
+
 func TestResolveToolExecutionHidesLocalSystemWithoutWorker(t *testing.T) {
 	resolved := ResolveToolExecution(ToolExecutionRequest{
 		Config: managedagents.AgentRuntimeConfig{

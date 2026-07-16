@@ -182,6 +182,7 @@ func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
 		textResponse("validated and finished"),
 	}}
 	artifactRecorder := &recordingArtifactRecorder{}
+	var steps []Step
 
 	result, err := (DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(t.Context(), TurnRequest{
 		SessionID: "sesn_segment", TurnID: "turn_segment",
@@ -191,6 +192,7 @@ func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
 			ToolExecutor:         tools.NewDefaultExecutor(),
 			ToolExecutionContext: tools.ExecutionContext{Provider: capabilityLocalProvider(), ArtifactRecorder: artifactRecorder},
 		},
+		EmitStep: collectCompletionSteps(&steps),
 	})
 	if err != nil {
 		t.Fatalf("run turn: %v", err)
@@ -203,6 +205,10 @@ func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
 	}
 	if got := messagesText(client.requests[3].Messages); !containsAll(got, "Runtime completion gate blocked", "requires a successful syntax check") {
 		t.Fatalf("missing hard completion feedback: %s", got)
+	}
+	blocked := firstStepType(steps, managedagents.EventRuntimeCompletionBlocked)
+	if blocked.Data["validator"] != "builtin.segmented_file_generation" {
+		t.Fatalf("expected segmented-file completion validator event, got %#v", blocked.Data)
 	}
 	content, readErr := os.ReadFile(path)
 	if readErr != nil || string(content) != "function report() { return 1; }" {

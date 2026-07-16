@@ -1399,22 +1399,6 @@ func rawJSONObject(raw json.RawMessage) any {
 	return value
 }
 
-func envPairs(env map[string]string) []string {
-	if len(env) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(env))
-	for key := range env {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	pairs := make([]string, 0, len(keys))
-	for _, key := range keys {
-		pairs = append(pairs, key+"="+env[key])
-	}
-	return pairs
-}
-
 func mergeEnvPairs(base []string, overrides map[string]string) []string {
 	merged := append([]string(nil), base...)
 	for key, value := range overrides {

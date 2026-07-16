@@ -88,12 +88,22 @@ func TestOnlyboxesContainerManagerRecreatesContainerWhenConfigChanges(t *testing
 	if _, err := provider.RunCommand(context.Background(), RunCommandRequest{Command: "sh"}); err != nil {
 		t.Fatalf("first command: %v", err)
 	}
-	provider.Image = "onlyboxes/test:v2"
+	provider.MemoryLimit = "1g"
 	if _, err := provider.RunCommand(context.Background(), RunCommandRequest{Command: "sh"}); err != nil {
 		t.Fatalf("second command: %v", err)
 	}
 	if runner.runCount() != 2 || runner.removeCount() != 1 {
 		t.Fatalf("expected config change to rebuild container, runs=%d removes=%d calls=%#v", runner.runCount(), runner.removeCount(), runner.callsSnapshot())
+	}
+	calls := runner.callsSnapshot()
+	lastRun := ""
+	for _, call := range calls {
+		if len(call) > 0 && call[0] == "run" {
+			lastRun = strings.Join(call, " ")
+		}
+	}
+	if !strings.Contains(lastRun, "--memory 1g") {
+		t.Fatalf("expected rebuilt container to use 1g, calls=%#v", calls)
 	}
 }
 

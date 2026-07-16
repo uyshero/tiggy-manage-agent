@@ -92,6 +92,10 @@ func (s *PostgresStore) MarkSessionTurnWaitingApprovalContext(ctx context.Contex
 	return s.markSessionTurnWaitingApprovalContext(ctx, sessionID, turnID)
 }
 
+func (s *PostgresStore) MarkSessionTurnWaitingHumanContext(ctx context.Context, sessionID string, turnID string) error {
+	return s.markSessionTurnWaitingHumanContext(ctx, sessionID, turnID)
+}
+
 func (s *PostgresStore) ResolveAgentRuntimeConfigContext(ctx context.Context, sessionID string) (AgentRuntimeConfig, error) {
 	return s.resolveAgentRuntimeConfigContext(ctx, sessionID)
 }

@@ -190,6 +190,23 @@ type SessionRunStore interface {
 	ListSessionRunEventsContext(ctx context.Context, sessionID string, runID string, afterSeq int64) ([]Event, error)
 }
 
+// SessionTaskPlanReader keeps read-only API consumers independent from the
+// runtime's task-plan mutation surface.
+type SessionTaskPlanReader interface {
+	GetCurrentSessionTaskPlanContext(ctx context.Context, sessionID string) (SessionTaskPlan, error)
+	ListSessionTaskPlansContext(ctx context.Context, sessionID string) ([]SessionTaskPlan, error)
+}
+
+// SessionTaskPlanStore is deliberately separate from Store so task tracking can
+// be adopted by runtimes without widening every existing Store implementation.
+type SessionTaskPlanStore interface {
+	SessionTaskPlanReader
+	CreateSessionTaskPlanContext(ctx context.Context, sessionID string, input CreateSessionTaskPlanInput) (SessionTaskPlanResult, error)
+	UpdateSessionTaskItemsContext(ctx context.Context, sessionID string, input UpdateSessionTaskItemsInput) (SessionTaskPlanResult, error)
+	CompleteSessionTaskPlanContext(ctx context.Context, sessionID string, input FinishSessionTaskPlanInput) (SessionTaskPlanResult, error)
+	CancelSessionTaskPlanContext(ctx context.Context, sessionID string, input FinishSessionTaskPlanInput) (SessionTaskPlanResult, error)
+}
+
 type SubagentStartQueueStore interface {
 	PromoteSubagentStarts(input PromoteSubagentStartsInput) ([]SubagentStartPromotion, error)
 }

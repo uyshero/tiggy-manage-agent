@@ -78,6 +78,8 @@ new TMAClient("https://tma.example.com", options);
 createLowLevelClient("https://tma.example.com");
 client.sessions.list(sessionQuery);
 client.sessions.summary("session/1");
+client.sessions.taskPlan("session/1");
+client.sessions.taskPlans("session/1");
 client.sessions.usage("session/1");
 client.sessions.upgradeConfig("session/1", { to_current: true, updated_by: "type-contract" });
 client.sessions.appendEvents("session/1", { events: [{ type: "custom.event", payload: { extension: true } }] });

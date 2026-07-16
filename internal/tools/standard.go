@@ -9,12 +9,14 @@ import (
 const (
 	WorkProtocolVersion = "tma.work.v1"
 
-	NamespaceDefault  = "default"
-	NamespaceArtifact = "artifact"
-	NamespaceBrowser  = "browser"
-	NamespaceAgent    = "agent"
-	NamespaceSkills   = "skills"
-	NamespaceWeb      = "web"
+	NamespaceDefault     = "default"
+	NamespaceArtifact    = "artifact"
+	NamespaceBrowser     = "browser"
+	NamespaceAgent       = "agent"
+	NamespaceInteraction = "interaction"
+	NamespaceTask        = "task"
+	NamespaceSkills      = "skills"
+	NamespaceWeb         = "web"
 
 	ToolRuntimeAuto         = "auto"
 	ToolRuntimeCloudSandbox = "cloud_sandbox"
@@ -91,6 +93,10 @@ func NormalizeToolNamespace(value string) (string, bool) {
 		return NamespaceBrowser, true
 	case NamespaceAgent:
 		return NamespaceAgent, true
+	case NamespaceInteraction:
+		return NamespaceInteraction, true
+	case NamespaceTask:
+		return NamespaceTask, true
 	case NamespaceWeb:
 		return NamespaceWeb, true
 	case ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem:

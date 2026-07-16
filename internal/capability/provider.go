@@ -49,6 +49,31 @@ type ArtifactExportProvider interface {
 	ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error)
 }
 
+// RuntimeSkillMaterializer exposes immutable Skill packages inside an execution
+// environment before the model can invoke package scripts or read package files.
+type RuntimeSkillMaterializer interface {
+	MaterializeRuntimeSkills(ctx context.Context, packages []RuntimeSkillPackage) ([]MaterializedRuntimeSkill, error)
+}
+
+type RuntimeSkillPackage struct {
+	Identifier string
+	Version    int
+	Checksum   string
+	Files      []RuntimeSkillFile
+}
+
+type RuntimeSkillFile struct {
+	Path       string
+	Content    []byte
+	Executable bool
+}
+
+type MaterializedRuntimeSkill struct {
+	Identifier string
+	Version    int
+	Directory  string
+}
+
 type ExportArtifactFileRequest struct {
 	Path    string `json:"path"`
 	WorkDir string `json:"work_dir,omitempty"`

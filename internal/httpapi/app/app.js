@@ -26166,6 +26166,12 @@ class SessionsService extends ServiceBase {
   summary(sessionId, signal) {
     return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/summary`, void 0, signal ? { signal } : {});
   }
+  taskPlan(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/task-plan`, void 0, signal ? { signal } : {}).then((value) => value.plan);
+  }
+  taskPlans(sessionId, signal) {
+    return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/task-plans`, void 0, signal ? { signal } : {}).then((value) => value.plans);
+  }
   usage(sessionId, signal) {
     return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/usage`, void 0, signal ? { signal } : {});
   }
@@ -26295,6 +26301,19 @@ class InterventionsService extends ServiceBase {
   }
   reject(sessionId, turnId, callId, reason = "", signal) {
     return this.decide(sessionId, turnId, callId, "reject", reason, signal);
+  }
+  respond(sessionId, turnId, callId, response, signal) {
+    return this.resolve(sessionId, turnId, callId, "respond", { response }, signal);
+  }
+  skip(sessionId, turnId, callId, reason = "", signal) {
+    return this.resolve(sessionId, turnId, callId, "skip", { reason }, signal);
+  }
+  cancel(sessionId, turnId, callId, reason = "", signal) {
+    return this.resolve(sessionId, turnId, callId, "cancel", { reason }, signal);
+  }
+  resolve(sessionId, turnId, callId, action, body, signal) {
+    const path2 = resourcePath(`${sessionPath(sessionId)}/interventions`, turnId, callId) + `/${action}`;
+    return this.transport.requestJSON("POST", path2, body, signal ? { signal } : {});
   }
 }
 class LLMService extends ServiceBase {
@@ -26702,6 +26721,12 @@ class RunHandle {
   }
   reject(callId, reason = "", signal) {
     return this.interventions.reject(this.run.session_id, this.run.id, callId, reason, signal);
+  }
+  respond(callId, response, signal) {
+    return this.interventions.respond(this.run.session_id, this.run.id, callId, response, signal);
+  }
+  skip(callId, reason = "", signal) {
+    return this.interventions.skip(this.run.session_id, this.run.id, callId, reason, signal);
   }
   async wait(signal) {
     let lastEvent;
@@ -27228,6 +27253,14 @@ function deleteLLMModel(providerId, model, revision, options = {}) {
 async function testLLMModel(providerId, model) {
   return coreSDK.llm.testModel(providerId, model);
 }
+async function taskPlan(sessionId, options = {}) {
+  try {
+    return { plan: await coreSDK.sessions.taskPlan(sessionId, options.signal) };
+  } catch (error) {
+    if ((error == null ? void 0 : error.status) === 404) return { plan: null };
+    throw error;
+  }
+}
 async function artifacts(sessionId) {
   return { artifacts: await coreSDK.artifacts.list(sessionId) };
 }
@@ -27261,6 +27294,15 @@ function approveIntervention(sessionId, turnId, callId, body = {}, options = {})
 }
 function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) {
   return coreSDK.interventions.reject(sessionId, turnId, callId, body.reason || "", options.signal);
+}
+function respondIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.respond(sessionId, turnId, callId, body.response, options.signal);
+}
+function skipIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.skip(sessionId, turnId, callId, body.reason || "", options.signal);
+}
+function cancelIntervention(sessionId, turnId, callId, body = {}, options = {}) {
+  return coreSDK.interventions.cancel(sessionId, turnId, callId, body.reason || "", options.signal);
 }
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key);
 class SkillInputsValidationError extends Error {
@@ -29427,6 +29469,7 @@ function buildToolCallLifecycles(events2) {
         lifecycle.call = latestEvent(lifecycle.call, event);
         break;
       case "runtime.tool_intervention_required":
+      case "runtime.human_input_required":
         lifecycle.required = latestEvent(lifecycle.required, event);
         break;
       case "runtime.tool_intervention_approved":
@@ -29434,7 +29477,13 @@ function buildToolCallLifecycles(events2) {
         lifecycle.decision = latestEvent(lifecycle.decision, event);
         break;
       case "runtime.tool_intervention_rejected":
+      case "runtime.human_input_skipped":
+      case "runtime.human_input_canceled":
         lifecycle.rejected = latestEvent(lifecycle.rejected, event);
+        lifecycle.decision = latestEvent(lifecycle.decision, event);
+        break;
+      case "runtime.human_input_submitted":
+        lifecycle.approved = latestEvent(lifecycle.approved, event);
         lifecycle.decision = latestEvent(lifecycle.decision, event);
         break;
       case "runtime.tool_result":
@@ -29528,6 +29577,46 @@ function providerErrorPresentation(error, fallbackMessage = "") {
     detail: `${description2} 原始错误：${original}${suffix}`
   };
 }
+function objectRecord(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function selectedChoiceIDs(value, choices = []) {
+  const selected = objectRecord(value);
+  const orderedChoices = Array.isArray(choices) ? choices : [];
+  return orderedChoices.filter((choice) => Boolean(selected[choice.id])).map((choice) => choice.id);
+}
+function fieldValue(field, answer) {
+  const value = objectRecord(answer)[field.id];
+  if (field.type === "multiselect") return selectedChoiceIDs(value, field.choices || []);
+  return value ?? "";
+}
+function fieldHasValue(field, answer) {
+  const value = fieldValue(field, answer);
+  if (Array.isArray(value)) return value.length > 0;
+  return String(value || "").trim() !== "";
+}
+function buildHumanInputResponse(mode, choices, fields, answer) {
+  const normalizedMode = String(mode || "freeform");
+  if (normalizedMode === "multiselect") {
+    return { mode: normalizedMode, answers: selectedChoiceIDs(answer, choices) };
+  }
+  if (normalizedMode === "form") {
+    const values = {};
+    for (const field of Array.isArray(fields) ? fields : []) {
+      values[field.id] = fieldValue(field, answer);
+    }
+    return { mode: normalizedMode, fields: values };
+  }
+  return { mode: normalizedMode, answer };
+}
+function canSubmitHumanInput(mode, choices, fields, answer) {
+  const response = buildHumanInputResponse(mode, choices, fields, answer);
+  if (mode === "multiselect") return response.answers.length > 0;
+  if (mode === "form") {
+    return (Array.isArray(fields) ? fields : []).every((field) => !field.required || fieldHasValue(field, answer));
+  }
+  return String(response.answer || "").trim() !== "";
+}
 function payload$1(event) {
   return (event == null ? void 0 : event.payload) && typeof event.payload === "object" ? event.payload : {};
 }
@@ -29567,6 +29656,61 @@ function mergeReasoningChunks(events2) {
     };
   }
   return merged;
+}
+const taskPlanEventTypes = /* @__PURE__ */ new Set([
+  "runtime.task_plan_created",
+  "runtime.task_items_updated",
+  "runtime.task_plan_completed",
+  "runtime.task_plan_canceled",
+  "runtime.task_plan_superseded"
+]);
+function latestTaskPlan(events2, snapshot = null) {
+  let current = normalizePlan(snapshot);
+  const snapshotUpdatedAt = dateMillis(current == null ? void 0 : current.updated_at);
+  const ordered = [...events2 || []].sort((left, right) => Number((left == null ? void 0 : left.seq) || 0) - Number((right == null ? void 0 : right.seq) || 0));
+  for (const event of ordered) {
+    if (!taskPlanEventTypes.has(event == null ? void 0 : event.type)) continue;
+    const eventCreatedAt = dateMillis(event == null ? void 0 : event.created_at);
+    if (snapshotUpdatedAt !== null && eventCreatedAt !== null && eventCreatedAt <= snapshotUpdatedAt) continue;
+    const payload2 = objectValue$2(event.payload);
+    const plan = normalizePlan(payload2.plan);
+    if (plan) {
+      current = plan;
+      continue;
+    }
+    const planID = String(payload2.plan_id || "").trim();
+    if (current && planID === current.id) {
+      current = { ...current, status: String(payload2.status || current.status) };
+    }
+  }
+  if (!current || ["canceled", "superseded"].includes(current.status)) return null;
+  return current;
+}
+function dateMillis(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function normalizePlan(value) {
+  const plan = objectValue$2(value);
+  const id2 = String(plan.id || "").trim();
+  if (!id2 || !Array.isArray(plan.items)) return null;
+  return {
+    ...plan,
+    id: id2,
+    goal: String(plan.goal || "").trim(),
+    handling_mode: String(plan.handling_mode || "tracked").trim(),
+    status: String(plan.status || "active").trim(),
+    items: plan.items.map((item, index2) => ({
+      ...objectValue$2(item),
+      id: String((item == null ? void 0 : item.id) || `item-${index2 + 1}`).trim(),
+      description: String((item == null ? void 0 : item.description) || "").trim(),
+      status: String((item == null ? void 0 : item.status) || "pending").trim(),
+      evidence: String((item == null ? void 0 : item.evidence) || "").trim()
+    }))
+  };
+}
+function objectValue$2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 const focusableSelector = [
   "button:not([disabled])",
@@ -32894,6 +33038,17 @@ const sessionSyncEventTypes = /* @__PURE__ */ new Set([
   "runtime.tool_intervention_required",
   "runtime.tool_intervention_approved",
   "runtime.tool_intervention_rejected",
+  "runtime.human_input_required",
+  "runtime.human_input_submitted",
+  "runtime.human_input_skipped",
+  "runtime.human_input_canceled",
+  "runtime.plan_approval_required",
+  "runtime.plan_approval_approved",
+  "runtime.plan_approval_rejected",
+  "runtime.turn_completing",
+  "runtime.completion_validated",
+  "runtime.completion_blocked",
+  "runtime.completion_validation_failed",
   "runtime.failed",
   "runtime.completed",
   "session.status_idle",
@@ -32943,6 +33098,50 @@ function FileIcon() {
 }
 function CloseIcon() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 4 8 8m0-8-8 8", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5" }) });
+}
+function CompactChevronIcon({ expanded = false }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: expanded ? "m4 10 4-4 4 4" : "m4 6 4 4 4-4", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5" }) });
+}
+function TaskPlanPrompt({ plan }) {
+  var _a2;
+  const [expanded, setExpanded] = reactExports.useState((plan == null ? void 0 : plan.status) === "active");
+  reactExports.useEffect(() => {
+    setExpanded((plan == null ? void 0 : plan.status) === "active");
+  }, [plan == null ? void 0 : plan.id, plan == null ? void 0 : plan.status]);
+  if (!((_a2 = plan == null ? void 0 : plan.items) == null ? void 0 : _a2.length)) return null;
+  const completed = plan.items.filter((item) => item.status === "completed").length;
+  const activeIndex = plan.items.findIndex((item) => item.status === "in_progress");
+  const pendingIndex = plan.items.findIndex((item) => item.status === "pending" || item.status === "blocked");
+  const currentIndex = activeIndex >= 0 ? activeIndex : pendingIndex >= 0 ? pendingIndex : plan.items.length - 1;
+  const currentStep = Math.max(1, currentIndex + 1);
+  const complete = plan.status === "completed" || completed === plan.items.length;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: `task-plan-prompt ${expanded ? "expanded" : "collapsed"} ${complete ? "complete" : ""}`, "aria-label": "当前任务计划", children: [
+    expanded ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-plan-popover", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: plan.handling_mode === "planned" ? "执行计划" : "任务清单" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: plan.goal || "当前任务" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          completed,
+          "/",
+          plan.items.length
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("ol", { children: plan.items.map((item, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: item.status, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "task-plan-status", "aria-hidden": "true" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.description || `步骤 ${index2 + 1}` }),
+          item.status === "blocked" && item.evidence ? /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.evidence }) : null
+        ] })
+      ] }, item.id)) })
+    ] }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "task-plan-trigger", type: "button", "aria-expanded": expanded, onClick: () => setExpanded((current) => !current), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "task-plan-trigger-status", "aria-hidden": "true" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: complete ? `${completed} / ${plan.items.length} 步已完成` : `第 ${currentStep} / ${plan.items.length} 步` }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "task-plan-trigger-chevron", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded }) })
+    ] })
+  ] });
 }
 function formatFileSize(size) {
   const bytes = Number(size || 0);
@@ -33474,6 +33673,139 @@ function ApprovalCard({ intervention, onApprove, onReject, busy, active }) {
     /* @__PURE__ */ jsxRuntimeExports.jsxs("details", { className: "approval-details", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("summary", { children: "参数" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: pretty(intervention.arguments || {}) })
+    ] })
+  ] });
+}
+function PlanApprovalCard({ intervention, onApprove, onReject, busy, active }) {
+  const request = objectValue(intervention.request || intervention.arguments);
+  const plan = objectValue(request.plan);
+  const args = objectValue(intervention.arguments);
+  const items = Array.isArray(plan.items) ? [...plan.items].sort((left, right) => Number(left.index || 0) - Number(right.index || 0)) : [];
+  const statusLabels = {
+    pending: "待执行",
+    in_progress: "进行中",
+    completed: "已完成",
+    blocked: "受阻"
+  };
+  const title = plan.title || plan.goal || "执行计划";
+  const goal = plan.title && plan.goal ? plan.goal : "请审阅以下步骤后决定是否继续。";
+  const mode = plan.handling_mode === "planned" ? "需审阅计划" : "跟踪任务清单";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "plan-approval-card", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "plan-approval-header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "plan-approval-eyebrow", children: "计划审阅" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: title }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: goal })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "plan-approval-meta", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: mode }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: intervention.status || "pending" })
+      ] })
+    ] }),
+    request.summary ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "plan-approval-summary", children: request.summary }) : null,
+    items.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("ol", { className: "plan-approval-items", children: items.map((item, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { className: item.status || "pending", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "plan-approval-index", children: index2 + 1 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.description || `步骤 ${index2 + 1}` }),
+        item.evidence ? /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.evidence }) : null
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "plan-approval-item-status", children: statusLabels[item.status] || item.status || "待执行" })
+    ] }, item.id || `${intervention.call_id}-${index2}`)) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "plan-approval-empty", children: [
+      "计划快照不可用 · ",
+      args.plan_id || "未知计划"
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "plan-approval-boundary", children: "批准仅确认计划方向，不会批准后续命令、文件修改或其他工具执行。" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { className: "plan-approval-footer", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+        "计划 ",
+        plan.id || args.plan_id || "-",
+        " · 任务轮次 ",
+        intervention.turn_id
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: busy, onClick: () => onApprove(intervention), children: active ? "提交中..." : "批准计划" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: busy, onClick: () => onReject(intervention), children: "提出修改" })
+      ] })
+    ] })
+  ] });
+}
+function HumanInputCard({ intervention, onRespond, onSkip, onCancel, busy, active }) {
+  const request = objectValue(intervention.request || intervention.arguments);
+  const mode = String(request.mode || "freeform");
+  const choices = Array.isArray(request.choices) ? request.choices : [];
+  const fields = Array.isArray(request.fields) ? request.fields : [];
+  const [answer, setAnswer] = reactExports.useState(mode === "multiselect" || mode === "form" ? {} : "");
+  const isForm = mode === "form";
+  const title = isForm ? "需要补充资料" : "需要补充信息";
+  const detail = request.question || (isForm ? "请填写以下字段后继续。" : "请回答后继续。");
+  const requiredCount = fields.filter((field) => field.required).length;
+  function toggleChoice(id2) {
+    setAnswer((current) => ({ ...objectRecord(current), [id2]: !objectRecord(current)[id2] }));
+  }
+  function setField(id2, value) {
+    setAnswer((current) => ({ ...objectRecord(current), [id2]: value }));
+  }
+  const response = buildHumanInputResponse(mode, choices, fields, answer);
+  const canSubmit = canSubmitHumanInput(mode, choices, fields, answer);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `approval-card human-input-card risk-read ${isForm ? "form" : "question"}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-card-header human-input-header", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "human-input-eyebrow", children: title }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: detail }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: isForm ? `${fields.length} 个字段${requiredCount ? ` · ${requiredCount} 个必填` : ""}` : "用户输入" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: intervention.status || "pending" })
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `approval-summary human-input-body ${isForm ? "form" : ""}`, children: [
+      mode === "select" ? choices.map((choice) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "tool-picker-item", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "radio", name: `interaction-${intervention.call_id}`, value: choice.id, checked: answer === choice.id, onChange: () => setAnswer(choice.id) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: choice.label }),
+          choice.description ? ` · ${choice.description}` : ""
+        ] })
+      ] }, choice.id)) : null,
+      mode === "multiselect" ? choices.map((choice) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "tool-picker-item", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: Boolean(objectRecord(answer)[choice.id]), onChange: () => toggleChoice(choice.id) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: choice.label }),
+          choice.description ? ` · ${choice.description}` : ""
+        ] })
+      ] }, choice.id)) : null,
+      mode === "form" ? fields.map((field) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "human-input-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          field.label,
+          field.required ? /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: "必填" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "可选" })
+        ] }),
+        field.type === "select" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { "aria-required": field.required || void 0, value: objectRecord(answer)[field.id] || "", onChange: (event) => setField(field.id, event.target.value), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "请选择" }),
+          (field.choices || []).map((choice) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: choice.id, children: choice.label }, choice.id))
+        ] }) : field.type === "multiselect" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "human-input-choice-grid", children: (field.choices || []).map((choice) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "tool-picker-item", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              type: "checkbox",
+              checked: Boolean(objectRecord(objectRecord(answer)[field.id])[choice.id]),
+              onChange: () => setField(field.id, { ...objectRecord(objectRecord(answer)[field.id]), [choice.id]: !objectRecord(objectRecord(answer)[field.id])[choice.id] })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: choice.label }),
+            choice.description ? ` · ${choice.description}` : ""
+          ] })
+        ] }, choice.id)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("input", { "aria-required": field.required || void 0, value: objectRecord(answer)[field.id] || "", placeholder: field.placeholder || "", onChange: (event) => setField(field.id, event.target.value) })
+      ] }, field.id)) : null,
+      mode === "freeform" ? /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: answer, onChange: (event) => setAnswer(event.target.value), rows: 4, placeholder: "填写后提交，智能体会从同一轮继续。" }) : null
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-actions", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: busy || !canSubmit, onClick: () => onRespond(intervention, response), children: active ? "提交中..." : "提交" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: busy, onClick: () => onSkip(intervention), children: "跳过" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: busy, onClick: () => onCancel(intervention), children: "取消任务" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+      "请求 ",
+      intervention.call_id,
+      " · 任务轮次 ",
+      intervention.turn_id
     ] })
   ] });
 }
@@ -35936,6 +36268,7 @@ function llmChunkActivity(data2) {
   }
 }
 function activityView(event) {
+  var _a2, _b;
   const data2 = eventData(event);
   switch (event == null ? void 0 : event.type) {
     case "agent.message":
@@ -35988,6 +36321,42 @@ function activityView(event) {
       return { title: "审批已通过", detail: data2.decision_reason || "正在继续任务。", kind: "ok" };
     case "runtime.tool_intervention_rejected":
       return { title: "审批被拒绝", detail: data2.decision_reason || "该工具调用未被允许。", kind: "error" };
+    case "runtime.human_input_required":
+      return { title: "需要补充信息", detail: objectValue(data2.request).question || objectValue(data2.arguments).question || "等待用户输入。", kind: "warn" };
+    case "runtime.human_input_submitted":
+      return { title: "信息已提交", detail: "正在继续任务。", kind: "ok" };
+    case "runtime.human_input_skipped":
+      return { title: "已跳过问题", detail: data2.decision_reason || "智能体将根据现有信息继续。", kind: "warn" };
+    case "runtime.human_input_canceled":
+      return { title: "问题已取消", detail: data2.decision_reason || "用户输入请求已取消。", kind: "error" };
+    case "runtime.plan_approval_required":
+      return { title: "计划等待审阅", detail: objectValue(data2.request).summary || objectValue(data2.arguments).summary || "请确认计划方向后继续。", kind: "warn" };
+    case "runtime.plan_approval_approved":
+      return { title: "计划已批准", detail: data2.decision_reason || "智能体将按计划继续，后续工具仍单独审批。", kind: "ok" };
+    case "runtime.plan_approval_rejected":
+      return { title: "计划需要修改", detail: data2.decision_reason || "智能体将根据意见修订计划。", kind: "warn" };
+    case "runtime.task_plan_created":
+      return { title: "执行计划已创建", detail: shortText(((_a2 = payload(event).plan) == null ? void 0 : _a2.goal) || "智能体开始按步骤推进任务。", 180), kind: "ok" };
+    case "runtime.task_items_updated": {
+      const plan = objectValue(payload(event).plan);
+      const items = Array.isArray(plan.items) ? plan.items : [];
+      const completed = items.filter((item) => item.status === "completed").length;
+      return { title: "计划进度已更新", detail: items.length ? `${completed}/${items.length} 个步骤已完成。` : "任务步骤状态已更新。", kind: "running" };
+    }
+    case "runtime.task_plan_completed":
+      return { title: "执行计划已完成", detail: shortText(((_b = payload(event).plan) == null ? void 0 : _b.goal) || "全部步骤已完成。", 180), kind: "ok" };
+    case "runtime.task_plan_canceled":
+      return { title: "执行计划已取消", detail: payload(event).reason || "当前计划已取消。", kind: "warn" };
+    case "runtime.task_plan_superseded":
+      return { title: "执行计划已替换", detail: "智能体已根据最新目标创建新计划。", kind: "warn" };
+    case "runtime.turn_completing":
+      return { title: "正在验证完成状态", detail: `正在检查第 ${Number(data2.attempt || 1)} 个候选回复。`, kind: "running" };
+    case "runtime.completion_validated":
+      return { title: "完成验证已通过", detail: data2.validator ? `验证器：${data2.validator}` : "候选回复可以交付。", kind: "ok" };
+    case "runtime.completion_blocked":
+      return { title: "继续执行任务", detail: shortText(data2.reason || "候选回复尚未通过完成验证。", 180), kind: "warn" };
+    case "runtime.completion_validation_failed":
+      return { title: "完成验证失败", detail: shortText(data2.reason || "任务未能通过完成验证。", 220), kind: "error" };
     case "runtime.completed":
     case "session.status_idle":
       return { title: "任务空闲", detail: payload(event).last_turn_status === "failed" ? payload(event).reason || "上一轮执行失败。" : "等待下一条消息。", kind: payload(event).last_turn_status === "failed" ? "error" : "ok" };
@@ -36217,6 +36586,20 @@ function turnActivityLabel(event) {
       return "工具调用需要确认后才能继续。";
     case "runtime.tool_intervention_approved":
       return "审批已通过，正在继续执行...";
+    case "runtime.plan_approval_required":
+      return "执行计划需要审阅后才能继续。";
+    case "runtime.plan_approval_approved":
+      return "计划已批准，正在继续任务...";
+    case "runtime.plan_approval_rejected":
+      return "计划需要修改，正在重新规划...";
+    case "runtime.turn_completing":
+      return "正在验证任务是否真正完成...";
+    case "runtime.completion_validated":
+      return "完成验证已通过，正在交付结果...";
+    case "runtime.completion_blocked":
+      return "完成验证未通过，正在继续执行...";
+    case "runtime.completion_validation_failed":
+      return "任务未能通过完成验证。";
     default:
       return "";
   }
@@ -36236,7 +36619,7 @@ function turnSignal(events2, options = {}) {
   );
   const idleEvent = reverseEvents.find((event) => event.type === "session.status_idle");
   const terminatedEvent = reverseEvents.find((event) => event.type === "session.status_terminated");
-  const approvalEvent = reverseEvents.find((event) => event.type === "runtime.tool_intervention_required");
+  const approvalEvent = reverseEvents.find((event) => event.type === "runtime.tool_intervention_required" || event.type === "runtime.plan_approval_required");
   const progressEvent = reverseEvents.find(
     (event) => [
       "runtime.started",
@@ -36247,14 +36630,17 @@ function turnSignal(events2, options = {}) {
       "runtime.llm_response",
       "runtime.tool_call",
       "runtime.tool_result",
-      "runtime.tool_intervention_approved"
+      "runtime.tool_intervention_approved",
+      "runtime.plan_approval_approved",
+      "runtime.plan_approval_rejected"
     ].includes(event.type)
   );
   if (interventions2.length) {
+    const planOnly = interventions2.every((intervention) => intervention.kind === "plan_approval");
     return {
       kind: "approval",
-      title: interventions2.length === 1 ? "等待审批" : `${interventions2.length} 个审批待处理`,
-      detail: approvalEvent ? turnActivityLabel(approvalEvent) : "Approve or reject to continue."
+      title: planOnly ? "执行计划等待审阅" : interventions2.length === 1 ? "等待审批" : `${interventions2.length} 个审批待处理`,
+      detail: approvalEvent ? turnActivityLabel(approvalEvent) : planOnly ? "批准计划或提出修改后继续。" : "批准或拒绝后继续。"
     };
   }
   if (failureEvent) {
@@ -36520,6 +36906,23 @@ function ProcessEventCard({
     status = "error";
     statusLabel = "已拒绝";
     defaultExpanded = true;
+  } else if (event.type === "runtime.plan_approval_required") {
+    title = "执行计划等待审阅";
+    metaLabel = "计划审批";
+    preview = args.summary || "请确认计划方向后继续。";
+    detailObject = { arguments: Object.keys(args).length ? args : void 0 };
+    tone = "warn";
+    status = "warning";
+    statusLabel = "待审阅";
+    defaultExpanded = true;
+  } else if (event.type === "runtime.plan_approval_rejected") {
+    title = "计划需要修改";
+    metaLabel = "计划审批";
+    preview = data2.decision_reason || "智能体将根据意见修订计划。";
+    tone = "warn";
+    status = "warning";
+    statusLabel = "需修改";
+    defaultExpanded = true;
   } else if (event.type === "runtime.failed") {
     title = "任务失败";
     metaLabel = "执行错误";
@@ -36727,7 +37130,7 @@ function streamedAgentReply(events2) {
   const requestEvent = [...ordered].reverse().find((event) => event.type === "runtime.llm_request" && Number(event.seq || 0) > lastFinalMessageSeq);
   if (!requestEvent) return null;
   const requestSeq = Number(requestEvent.seq || 0);
-  const stopped = ordered.some((event) => Number(event.seq || 0) > requestSeq && ["agent.message", "runtime.progress_message", "runtime.tool_call", "runtime.tool_intervention_required", "runtime.failed"].includes(event.type));
+  const stopped = ordered.some((event) => Number(event.seq || 0) > requestSeq && ["agent.message", "runtime.progress_message", "runtime.tool_call", "runtime.tool_intervention_required", "runtime.plan_approval_required", "runtime.failed"].includes(event.type));
   if (stopped) return null;
   const chunkEvents = ordered.filter((event) => event.type === "runtime.llm_chunk" && eventData(event).type === "text" && Number(event.seq || 0) > requestSeq);
   const deltaEvents = chunkEvents.length ? chunkEvents : ordered.filter((event) => event.type === "runtime.llm_delta" && Number(event.seq || 0) > requestSeq);
@@ -36790,11 +37193,21 @@ function latestIdleTurnStatus(events2) {
 }
 function parseSessionRuntimeSettings(raw) {
   if (!raw || typeof raw !== "object") return {};
+  const humanInteraction = raw.human_interaction && typeof raw.human_interaction === "object" && !Array.isArray(raw.human_interaction) ? raw.human_interaction : {};
   return {
     interventionMode: typeof raw.intervention_mode === "string" ? raw.intervention_mode : "",
     llmModel: typeof raw.llm_model === "string" ? raw.llm_model : "",
     llmProvider: typeof raw.llm_provider === "string" ? raw.llm_provider : "",
-    toolRuntime: typeof raw.tool_runtime === "string" ? raw.tool_runtime : ""
+    toolRuntime: typeof raw.tool_runtime === "string" ? raw.tool_runtime : "",
+    humanInteractionEnabled: humanInteraction.enabled !== false
+  };
+}
+function humanInteractionRuntimeSettings(enabled = true) {
+  return {
+    enabled: enabled !== false,
+    modes: ["select", "multiselect", "form", "freeform"],
+    supports_upload: false,
+    fallback: "assistant_message"
   };
 }
 function rememberedSessionID() {
@@ -36829,6 +37242,7 @@ function WorkbenchApp() {
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
+  const [taskPlanResponse, setTaskPlanResponse] = reactExports.useState({ plan: null });
   const [interventionResponse, setInterventionResponse] = reactExports.useState({ interventions: [] });
   const [artifactResponse, setArtifactResponse] = reactExports.useState({ artifacts: [] });
   const [sessionMeta, setSessionMeta] = reactExports.useState(null);
@@ -36846,6 +37260,7 @@ function WorkbenchApp() {
   const [availableAgents, setAvailableAgents] = reactExports.useState([]);
   const [taskHoverPreview, setTaskHoverPreview] = reactExports.useState(null);
   const [settingsDraft, setSettingsDraft] = reactExports.useState({
+    humanInteractionEnabled: true,
     interventionMode: "request_approval",
     llmModel: "",
     llmProvider: "",
@@ -37035,6 +37450,7 @@ function WorkbenchApp() {
     });
   }
   const events$1 = eventsResponse.events || [];
+  const currentTaskPlan = reactExports.useMemo(() => latestTaskPlan(events$1, taskPlanResponse.plan), [events$1, taskPlanResponse.plan]);
   const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(events$1), [events$1]);
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
   const chatTimelineEvents = reactExports.useMemo(
@@ -37048,7 +37464,10 @@ function WorkbenchApp() {
         "runtime.tool_call",
         "runtime.tool_result",
         "runtime.tool_intervention_required",
+        "runtime.human_input_required",
         "runtime.tool_intervention_rejected",
+        "runtime.plan_approval_required",
+        "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type) && (event.type !== "runtime.llm_chunk" || isReasoningChunk(event));
     }),
@@ -37258,9 +37677,10 @@ function WorkbenchApp() {
     });
   }, [availableAgents, selectedAgent == null ? void 0 : selectedAgent.id]);
   async function loadSession(value) {
-    const [nextSession, nextEvents, nextInterventions, nextArtifacts] = await Promise.all([
+    const [nextSession, nextEvents, nextTaskPlan, nextInterventions, nextArtifacts] = await Promise.all([
       session(value).catch((error) => ({ error: String(error), id: value })),
       events(value).catch((error) => ({ events: [], error: String(error) })),
+      taskPlan(value).catch((error) => ({ plan: null, error: String(error) })),
       interventions(value, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       artifacts(value).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
@@ -37271,6 +37691,7 @@ function WorkbenchApp() {
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
     setEventsResponse(nextEvents);
+    setTaskPlanResponse(nextTaskPlan);
     setInterventionResponse(nextInterventions);
     setArtifactResponse(nextArtifacts);
     if (nextSession == null ? void 0 : nextSession.id) {
@@ -37289,6 +37710,7 @@ function WorkbenchApp() {
       setModelOptions([]);
       setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
       setSettingsDraft({
+        humanInteractionEnabled: true,
         interventionMode: "request_approval",
         llmModel: "",
         llmProvider: "",
@@ -37316,6 +37738,7 @@ function WorkbenchApp() {
     const parsedSettings = parseSessionRuntimeSettings((sessionValue == null ? void 0 : sessionValue.runtime_settings) || {});
     const preferredRuntime = parsedSettings.toolRuntime || capabilities.default_runtime || "cloud_sandbox";
     setSettingsDraft({
+      humanInteractionEnabled: parsedSettings.humanInteractionEnabled !== false,
       interventionMode: parsedSettings.interventionMode || "request_approval",
       llmModel: parsedSettings.llmModel || config.llm_model || "",
       llmProvider: parsedSettings.llmProvider || config.llm_provider || "",
@@ -37336,8 +37759,9 @@ function WorkbenchApp() {
   async function syncSession(value = sessionID) {
     const sessionValue = String(value || "").trim();
     if (!sessionValue) return null;
-    const [nextSession, nextInterventions, nextArtifacts] = await Promise.all([
+    const [nextSession, nextTaskPlan, nextInterventions, nextArtifacts] = await Promise.all([
       session(sessionValue).catch((error) => ({ error: String(error), id: sessionValue })),
+      taskPlan(sessionValue).catch((error) => ({ plan: null, error: String(error) })),
       interventions(sessionValue, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       artifacts(sessionValue).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
@@ -37347,6 +37771,7 @@ function WorkbenchApp() {
       setEnvironmentID(nextSession.environment_id || "");
       setRecentSessions((current) => [nextSession, ...current.filter((item) => item.id !== nextSession.id)]);
     }
+    setTaskPlanResponse(nextTaskPlan);
     setInterventionResponse(nextInterventions);
     setArtifactResponse(nextArtifacts);
     return {
@@ -37728,6 +38153,7 @@ function WorkbenchApp() {
     );
     if (shouldApplyInitialSettings) {
       const updatedSession = await updateSessionRuntimeSettings(session2.id, {
+        human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
         llm_model: settingsDraft.llmModel || ((_b2 = agent2.config_version) == null ? void 0 : _b2.llm_model) || "",
         llm_provider: settingsDraft.llmProvider || ((_c2 = agent2.config_version) == null ? void 0 : _c2.llm_provider) || "",
@@ -38213,7 +38639,8 @@ function WorkbenchApp() {
     setWaitingForReply(true);
     setStatus("approving");
     try {
-      const response = await approveIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: "approved from app" });
+      const isPlanApproval = intervention.kind === "plan_approval";
+      const response = await approveIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: isPlanApproval ? "plan approved from app" : "approved from app" });
       setEventsResponse((current) => ({
         ...current,
         events: mergeEvents(current.events, response.events || [])
@@ -38228,7 +38655,7 @@ function WorkbenchApp() {
       setStatus("waiting for reply");
       workbenchNotificationService.show({
         level: "success",
-        title: "审批已通过",
+        title: isPlanApproval ? "计划已批准" : "审批已通过",
         message: `${intervention.api_name} · ${intervention.call_id}`,
         dedupeKey: `approval.approved.${decisionKey}`
       });
@@ -38239,6 +38666,47 @@ function WorkbenchApp() {
         title: "审批失败",
         message: error.message || String(error),
         dedupeKey: `approval.failed.${decisionKey}`
+      });
+      throw error;
+    } finally {
+      if (approvalDecisionRef.current === decisionKey) approvalDecisionRef.current = "";
+      setDecidingApprovalID("");
+    }
+  }
+  async function resolveHumanInput(intervention, action, response) {
+    const decisionKey = `${sessionID}:${intervention.turn_id}:${intervention.call_id}`;
+    if (approvalDecisionRef.current) return;
+    approvalDecisionRef.current = decisionKey;
+    setDecidingApprovalID(intervention.call_id);
+    setStatus(action === "respond" ? "submitting response" : `${action} human input`);
+    try {
+      let result;
+      if (action === "respond") {
+        result = await respondIntervention(sessionID, intervention.turn_id, intervention.call_id, { response });
+      } else if (action === "skip") {
+        result = await skipIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: "skipped from app" });
+      } else {
+        result = await cancelIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: "canceled from app" });
+      }
+      setEventsResponse((current) => ({
+        ...current,
+        events: mergeEvents(current.events, result.events || [])
+      }));
+      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(result.events || []));
+      setInterventionResponse((current) => ({
+        ...current,
+        interventions: (current.interventions || []).filter((item) => item.call_id !== intervention.call_id)
+      }));
+      await syncSession(sessionID);
+      setWaitingForReply(true);
+      setStatus("waiting for reply");
+    } catch (error) {
+      setWaitingForReply(false);
+      workbenchNotificationService.show({
+        level: "error",
+        title: "提交用户输入失败",
+        message: error.message || String(error),
+        dedupeKey: `interaction.failed.${decisionKey}`
       });
       throw error;
     } finally {
@@ -38327,7 +38795,8 @@ function WorkbenchApp() {
     var _a3;
     const decisionKey = `${sessionID}:${intervention.turn_id}:${intervention.call_id}`;
     if (approvalDecisionRef.current) return;
-    const reason = window.prompt("拒绝原因", "在页面中拒绝");
+    const isPlanApproval = intervention.kind === "plan_approval";
+    const reason = window.prompt(isPlanApproval ? "请填写计划修改意见" : "拒绝原因", isPlanApproval ? "请调整计划后重新提交" : "在页面中拒绝");
     if (reason === null) return;
     approvalDecisionRef.current = decisionKey;
     setDecidingApprovalID(intervention.call_id);
@@ -38337,10 +38806,10 @@ function WorkbenchApp() {
       const synced = await syncSession(sessionID);
       const resumesTurn = ((_a3 = synced == null ? void 0 : synced.session) == null ? void 0 : _a3.status) === "running";
       setWaitingForReply(resumesTurn);
-      setStatus(resumesTurn ? "waiting for reply" : "tool call rejected");
+      setStatus(resumesTurn ? "waiting for reply" : isPlanApproval ? "plan revision requested" : "tool call rejected");
       workbenchNotificationService.show({
         level: "success",
-        title: "已拒绝工具调用",
+        title: isPlanApproval ? "已提出计划修改" : "已拒绝工具调用",
         message: `${intervention.api_name} · ${intervention.call_id}`,
         dedupeKey: `approval.rejected.${decisionKey}`
       });
@@ -38381,12 +38850,14 @@ function WorkbenchApp() {
     setSessionID("");
     setSessionMeta(null);
     setEventsResponse({ events: [] });
+    setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
     setRuntimeConfig(null);
     setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
     setSettingsDraft({
+      humanInteractionEnabled: true,
       interventionMode: "request_approval",
       llmModel: ((_a3 = defaultAgentConfig == null ? void 0 : defaultAgentConfig.config_version) == null ? void 0 : _a3.llm_model) || "",
       llmProvider: ((_b2 = defaultAgentConfig == null ? void 0 : defaultAgentConfig.config_version) == null ? void 0 : _b2.llm_provider) || "",
@@ -38437,6 +38908,7 @@ function WorkbenchApp() {
     setSessionMeta(null);
     setEnvironmentID("");
     setEventsResponse({ events: [] });
+    setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
@@ -38461,6 +38933,7 @@ function WorkbenchApp() {
     setStatus("saving settings");
     try {
       const updatedSession = await updateSessionRuntimeSettings(sessionID, {
+        human_interaction: humanInteractionRuntimeSettings(nextDraft.humanInteractionEnabled),
         intervention_mode: nextDraft.interventionMode,
         llm_model: nextDraft.llmModel,
         llm_provider: nextDraft.llmProvider,
@@ -38678,6 +39151,7 @@ function WorkbenchApp() {
     setSessionMeta(null);
     setEnvironmentID("");
     setEventsResponse({ events: [] });
+    setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     eventStreamCursorRef.current = 0;
@@ -38955,18 +39429,13 @@ function WorkbenchApp() {
           ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "user-thread", onScroll: handleThreadScroll, ref: threadRef, children: [
               hasPendingApprovals ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-alert", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
-                    interventions$1.length,
-                    " approval",
-                    interventions$1.length === 1 ? "" : "s",
-                    " waiting"
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: "Review the pending tool call before the agent continues." })
-                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
+                  interventions$1.length,
+                  " 个待处理项"
+                ] }) }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-alert-actions", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => interruptFromApprovals().catch((error) => setStatus(error.message)), children: "终止任务" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setApprovalsOpen(true), children: "查看审批" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setApprovalsOpen(true), children: "查看待处理项" })
                 ] })
               ] }) : null,
               /* @__PURE__ */ jsxRuntimeExports.jsx(WorkflowProgress, { run: workflowRun, onStop: () => stopWorkflowRun().catch((error) => setStatus(error.message)) }),
@@ -39064,6 +39533,7 @@ function WorkbenchApp() {
                 /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-text", children: "正在处理并生成回复…" })
               ] }) : null
             ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPlanPrompt, { plan: currentTaskPlan }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "composer", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "div",
               {
@@ -39381,10 +39851,10 @@ function WorkbenchApp() {
         onTogglePin: () => toggleTaskPin(metadataSession).catch((error) => setStatus(error.message))
       }
     ) : null,
-    approvalsOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-modal-backdrop", role: "presentation", onClick: deferApprovals, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "approval-modal", role: "dialog", "aria-modal": "true", "aria-label": "Approvals", onClick: (event) => event.stopPropagation(), children: [
+    approvalsOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-modal-backdrop", role: "presentation", onClick: deferApprovals, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "approval-modal", role: "dialog", "aria-modal": "true", "aria-label": "审批与问题", onClick: (event) => event.stopPropagation(), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-modal-header", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Approvals" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "审批与问题" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: sessionID ? `Session ${sessionID}` : "No session selected" })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-modal-actions", children: [
@@ -39393,7 +39863,28 @@ function WorkbenchApp() {
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: Boolean(decidingApprovalID), onClick: deferApprovals, children: "稍后处理" })
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-list-main", children: interventions$1.length ? interventions$1.map((intervention) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-list-main", children: interventions$1.length ? interventions$1.map((intervention) => intervention.kind === "clarification" || intervention.kind === "upload_request" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        HumanInputCard,
+        {
+          intervention,
+          busy: Boolean(decidingApprovalID),
+          active: decidingApprovalID === intervention.call_id,
+          onRespond: (item, response) => resolveHumanInput(item, "respond", response).catch((error) => setStatus(error.message)),
+          onSkip: (item) => resolveHumanInput(item, "skip").catch((error) => setStatus(error.message)),
+          onCancel: (item) => resolveHumanInput(item, "cancel").catch((error) => setStatus(error.message))
+        },
+        intervention.call_id
+      ) : intervention.kind === "plan_approval" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        PlanApprovalCard,
+        {
+          intervention,
+          busy: Boolean(decidingApprovalID),
+          active: decidingApprovalID === intervention.call_id,
+          onApprove: (item) => approve(item).catch((error) => setStatus(error.message)),
+          onReject: (item) => reject(item).catch((error) => setStatus(error.message))
+        },
+        intervention.call_id
+      ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
         ApprovalCard,
         {
           intervention,
@@ -39403,10 +39894,7 @@ function WorkbenchApp() {
           onReject: (item) => reject(item).catch((error) => setStatus(error.message))
         },
         intervention.call_id
-      )) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "empty-state compact", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "No pending approvals" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: "When a tool call needs confirmation, it will appear here with Approve and Reject actions." })
-      ] }) })
+      )) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-state compact", children: /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "没有待处理项" }) }) })
     ] }) }) : null,
     taskHoverPreview ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",

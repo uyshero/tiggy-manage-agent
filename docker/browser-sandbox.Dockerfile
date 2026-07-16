@@ -17,7 +17,11 @@ RUN npm init -y >/dev/null \
     fonts-noto-cjk \
     fonts-noto-color-emoji \
     ca-certificates \
+  && ln -sf /usr/bin/chromium /usr/bin/chromium-browser \
+  && ln -sf /usr/bin/chromium /usr/bin/google-chrome \
   && npm install --omit=dev "playwright-core@${PLAYWRIGHT_NPM_VERSION}" \
+  && chromium --version \
+  && node -e 'require("playwright-core").chromium' \
   && npm cache clean --force \
   && rm -rf /var/lib/apt/lists/*
 

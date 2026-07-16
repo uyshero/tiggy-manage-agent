@@ -14,12 +14,7 @@ import (
 )
 
 type turnTraceResponse = tma.TurnTrace
-type turnTraceStats = tma.TurnTraceStats
-type turnTraceGraph = tma.TurnTraceGraph
-type turnTraceSpanEdge = tma.TurnTraceSpanEdge
 type turnTraceSpan = tma.TurnTraceSpan
-type turnTraceStep = tma.TurnTraceStep
-type turnTraceArtifact = tma.TurnTraceArtifact
 
 func commandTrace(client *apiClient, args []string) error {
 	if len(args) == 0 {

@@ -11,3 +11,7 @@ tmp/
 .tma-worker.pid
 .tma-worker.log
 .verify-agent-runtime-server.log
+*.log
+*.pid
+__pycache__/
+*.py[cod]

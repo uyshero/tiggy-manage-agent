@@ -4,7 +4,7 @@
 
 该协议用于把 TMA 的 `WorkerRunner` 接到外部 Agent Runtime、远端 worker、Python/Node/Go 脚本或其他独立执行进程。
 
-当前 `cmd/server` 默认路径已经改为 `AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`。`CommandTurnExecutor` 暂时保留为外部进程适配器和协议验证入口。
+当前 `cmd/tma-server` 默认路径已经改为 `AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`。`CommandTurnExecutor` 暂时保留为外部进程适配器和协议验证入口。
 
 完整环境变量说明见 [configuration.md](./configuration.md)。
 

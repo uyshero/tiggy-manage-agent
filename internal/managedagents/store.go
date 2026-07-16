@@ -80,9 +80,60 @@ func normalizeInterventionStatus(value string) string {
 		return InterventionStatusApproved
 	case InterventionStatusRejected:
 		return InterventionStatusRejected
+	case InterventionStatusAnswered:
+		return InterventionStatusAnswered
+	case InterventionStatusSkipped:
+		return InterventionStatusSkipped
+	case InterventionStatusCanceled:
+		return InterventionStatusCanceled
+	case InterventionStatusExpired:
+		return InterventionStatusExpired
 	default:
 		return ""
 	}
+}
+
+func normalizeInterventionKind(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", InterventionKindToolApproval:
+		return InterventionKindToolApproval
+	case InterventionKindClarification:
+		return InterventionKindClarification
+	case InterventionKindPlanApproval:
+		return InterventionKindPlanApproval
+	case InterventionKindUploadRequest:
+		return InterventionKindUploadRequest
+	default:
+		return ""
+	}
+}
+
+func interventionStatusAllowed(kind, status string) bool {
+	switch kind {
+	case InterventionKindToolApproval, InterventionKindPlanApproval:
+		return status == InterventionStatusApproved || status == InterventionStatusRejected
+	case InterventionKindClarification, InterventionKindUploadRequest:
+		return status == InterventionStatusAnswered || status == InterventionStatusSkipped || status == InterventionStatusCanceled || status == InterventionStatusExpired
+	default:
+		return false
+	}
+}
+
+func PendingInterventionTurnStatus(interventions []SessionIntervention) string {
+	hasPending := false
+	for _, intervention := range interventions {
+		if intervention.Status != InterventionStatusPending {
+			continue
+		}
+		hasPending = true
+		if intervention.Kind == InterventionKindClarification || intervention.Kind == InterventionKindUploadRequest {
+			return TurnStatusWaitingHuman
+		}
+	}
+	if hasPending {
+		return TurnStatusWaitingApproval
+	}
+	return ""
 }
 
 func normalizeObjectVisibility(value string) string {
@@ -145,25 +196,6 @@ func normalizeWorkerWorkType(value string) string {
 		return WorkerWorkTypeSandboxCommand
 	case WorkerWorkTypeArtifactSync:
 		return WorkerWorkTypeArtifactSync
-	default:
-		return ""
-	}
-}
-
-func normalizeWorkerWorkStatus(value string) string {
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case WorkerWorkStatusPending:
-		return WorkerWorkStatusPending
-	case WorkerWorkStatusLeased:
-		return WorkerWorkStatusLeased
-	case WorkerWorkStatusRunning:
-		return WorkerWorkStatusRunning
-	case WorkerWorkStatusCompleted:
-		return WorkerWorkStatusCompleted
-	case WorkerWorkStatusFailed:
-		return WorkerWorkStatusFailed
-	case WorkerWorkStatusCanceled:
-		return WorkerWorkStatusCanceled
 	default:
 		return ""
 	}

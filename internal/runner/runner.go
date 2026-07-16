@@ -12,6 +12,7 @@ import (
 var (
 	ErrTurnAlreadyRunning  = errors.New("turn already running")
 	ErrTurnWaitingApproval = errors.New("turn waiting for approval")
+	ErrTurnWaitingHuman    = errors.New("turn waiting for human input")
 )
 
 // TurnRequest 是 HTTP / Store 层提交给 Runner 的一次执行请求。

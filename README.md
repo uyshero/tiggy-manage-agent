@@ -42,16 +42,21 @@ Expected response:
 ## Layout
 
 ```text
-cmd/server/        HTTP server entrypoint
-cmd/tma/           CLI entrypoint
-cmd/worker/        Minimal long-running worker entrypoint
-internal/httpapi/  HTTP routes and handlers
-internal/managedagents/  TMA resource model, Store interface, and PostgresStore
-internal/runner/  Replaceable turn Runner interface, WorkerRunner, AgentRuntimeTurnExecutor, and test helpers
-internal/agentruntime/  Agent runtime interface and current demo runtime
-internal/capability/  Capability provider interfaces for command, code, and file operations
-internal/serverconfig/  Server environment and .env configuration parser
-sql/migrations/  Postgres schema migrations
+cmd/tma-server/          HTTP server entrypoint
+cmd/tma-worker/          Long-running worker entrypoint
+cmd/tma/                 CLI entrypoint
+apps/workbench/          User-facing React workbench
+apps/inspector/          Operations and trace inspector
+sdk/tma/                 Go Core SDK
+sdk/typescript/          TypeScript Core SDK
+api/v2/                  OpenAPI source and contract tests
+internal/httpapi/        HTTP routes, handlers, and embedded web assets
+internal/managedagents/  Resource model, Store interface, and PostgresStore
+internal/runner/         Turn scheduling and execution
+internal/agentruntime/   Agent runtime implementation
+internal/capability/     Command, code, and file capability providers
+internal/serverconfig/   Server configuration parser
+sql/migrations/         Postgres schema migrations
 ```
 
 ## Extension Development
@@ -130,7 +135,7 @@ Configuration reference is in [docs/configuration.md](./docs/configuration.md).
 postgres://tma:tma@localhost:5432/tma?sslmode=disable
 ```
 
-Direct `go run ./cmd/server` still requires `TMA_DATABASE_URL` from `.env` or your shell.
+Direct `go run ./cmd/tma-server` still requires `TMA_DATABASE_URL` from `.env` or your shell.
 
 The local `tma` database user is also the migration owner and is development-only. Production `tma-server` must use a separate non-owner PostgreSQL runtime role without `SUPERUSER` or `BYPASSRLS`; startup validates the forced workspace RLS policy for managed environment variables. See [Database configuration](./docs/configuration.md#tma_database_url).
 
@@ -384,7 +389,7 @@ records `session.status_running` and `user.message`; the background worker then
 records `agent.message` and `session.status_idle` when the runtime finishes.
 The demo runtime also records `runtime.started`, `runtime.thinking`, `runtime.llm_request`, `runtime.llm_response`, and `runtime.completed` events so the execution process is visible in `event list` and SSE streams.
 
-HTTP depends on the `internal/runner.Runner` interface. `cmd/server` injects a `WorkerRunner` backed by `AgentRuntimeTurnExecutor`, so HTTP handlers do not know runtime execution details.
+HTTP depends on the `internal/runner.Runner` interface. `cmd/tma-server` injects a `WorkerRunner` backed by `AgentRuntimeTurnExecutor`, so HTTP handlers do not know runtime execution details.
 If a Runner cannot start or complete a turn, the Store marks that turn as `failed`, records the failure reason, and returns the Session to `idle`.
 `CompleteSessionTurn` stores the `agent.message` payload produced by Runner; response text lives in AgentRuntime output, not in Store.
 

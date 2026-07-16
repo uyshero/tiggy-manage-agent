@@ -114,11 +114,28 @@ type sessionRuntimeSettingsRequest struct {
 	CloudSandboxRoot  *string `json:"cloud_sandbox_root"`
 	CloudSandboxImage *string `json:"cloud_sandbox_image"`
 	AllowNetwork      *bool   `json:"cloud_sandbox_allow_network"`
+	HumanInteraction  *struct {
+		Enabled        *bool    `json:"enabled"`
+		Modes          []string `json:"modes,omitempty"`
+		SupportsUpload *bool    `json:"supports_upload,omitempty"`
+		Fallback       *string  `json:"fallback,omitempty"`
+	} `json:"human_interaction"`
+	CompletionGate *struct {
+		MaxRetries *int `json:"max_retries"`
+	} `json:"completion_gate"`
 }
 
 type sessionRuntimeCapabilitiesResponse struct {
-	DefaultRuntime    string   `json:"default_runtime"`
-	AvailableRuntimes []string `json:"available_runtimes"`
+	DefaultRuntime    string                               `json:"default_runtime"`
+	AvailableRuntimes []string                             `json:"available_runtimes"`
+	HumanInteraction  humanInteractionCapabilitiesResponse `json:"human_interaction"`
+}
+
+type humanInteractionCapabilitiesResponse struct {
+	Enabled        bool     `json:"enabled"`
+	Modes          []string `json:"modes"`
+	SupportsUpload bool     `json:"supports_upload"`
+	Fallback       string   `json:"fallback"`
 }
 
 type sessionConfigUpgradeRequest struct {
@@ -128,7 +145,8 @@ type sessionConfigUpgradeRequest struct {
 }
 
 type interventionDecisionRequest struct {
-	Reason string `json:"reason,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	Response json.RawMessage `json:"response,omitempty"`
 }
 
 type workerDiagnoseRequest struct {
@@ -525,6 +543,7 @@ func (s *Server) getSessionRuntimeCapabilities(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, sessionRuntimeCapabilitiesResponse{
 		DefaultRuntime:    execution.ToolRuntimeCloudSandbox,
 		AvailableRuntimes: available,
+		HumanInteraction:  humanInteractionCapabilities(session.RuntimeSettings),
 	})
 }
 
@@ -2378,10 +2397,6 @@ func (s *Server) getDefaultAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agent)
 }
 
-func (s *Server) ensureDefaultAgent() (managedagents.Agent, error) {
-	return s.ensureDefaultAgentForWorkspace(context.Background(), managedagents.DefaultWorkspaceID)
-}
-
 func (s *Server) ensureDefaultAgentForWorkspace(ctx context.Context, workspaceID string) (managedagents.Agent, error) {
 	input := managedagents.BuiltinGeneralAgentInputForWorkspace(workspaceID, s.defaultLLMProvider, s.defaultLLMModel)
 	agent, err := managedagents.GetAgentWithContext(ctx, s.store, input.ID)
@@ -2998,6 +3013,18 @@ func (s *Server) rejectSessionIntervention(w http.ResponseWriter, r *http.Reques
 	s.decideSessionIntervention(w, r, managedagents.InterventionStatusRejected)
 }
 
+func (s *Server) respondSessionIntervention(w http.ResponseWriter, r *http.Request) {
+	s.decideSessionIntervention(w, r, managedagents.InterventionStatusAnswered)
+}
+
+func (s *Server) skipSessionIntervention(w http.ResponseWriter, r *http.Request) {
+	s.decideSessionIntervention(w, r, managedagents.InterventionStatusSkipped)
+}
+
+func (s *Server) cancelSessionIntervention(w http.ResponseWriter, r *http.Request) {
+	s.decideSessionIntervention(w, r, managedagents.InterventionStatusCanceled)
+}
+
 func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Request, status string) {
 	var request interventionDecisionRequest
 	if err := decodeJSON(r, &request); err != nil {
@@ -3009,6 +3036,7 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 		CallID:         r.PathValue("call_id"),
 		Status:         status,
 		DecisionReason: request.Reason,
+		Response:       append(json.RawMessage(nil), request.Response...),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -3246,14 +3274,22 @@ func (s *Server) appendApprovalReminderIfWaiting(ctx context.Context, sessionID 
 		Payload: approvalReminderPayload(pending),
 	})
 	for _, intervention := range pending {
+		eventType := managedagents.EventRuntimeToolInterventionRequired
+		message := "Tool call is still waiting for approval."
+		if intervention.Kind == managedagents.InterventionKindClarification || intervention.Kind == managedagents.InterventionKindUploadRequest {
+			eventType = managedagents.EventRuntimeHumanInputRequired
+			message = "The task is still waiting for requested user input."
+		}
 		payload, err := json.Marshal(map[string]any{
 			"turn_id": intervention.TurnID,
-			"message": "Tool call is still waiting for approval.",
+			"message": message,
 			"data": map[string]any{
 				"id":                intervention.CallID,
 				"identifier":        intervention.ToolIdentifier,
 				"api_name":          intervention.APIName,
 				"arguments":         rawJSONValue(intervention.Arguments),
+				"kind":              intervention.Kind,
+				"request":           rawJSONValue(intervention.Request),
 				"intervention_mode": intervention.InterventionMode,
 				"reason":            intervention.Reason,
 			},
@@ -3262,7 +3298,7 @@ func (s *Server) appendApprovalReminderIfWaiting(ctx context.Context, sessionID 
 			return nil, err
 		}
 		events = append(events, managedagents.AppendEventInput{
-			Type:    managedagents.EventRuntimeToolInterventionRequired,
+			Type:    eventType,
 			Payload: payload,
 		})
 	}
@@ -3271,11 +3307,20 @@ func (s *Server) appendApprovalReminderIfWaiting(ctx context.Context, sessionID 
 
 func approvalReminderPayload(pending []managedagents.SessionIntervention) json.RawMessage {
 	turnID := pending[0].TurnID
-	lines := []string{"A tool call is waiting for approval before this session can continue."}
+	lines := []string{"This task is waiting for human input before it can continue."}
 	for _, intervention := range pending {
-		lines = append(lines, fmt.Sprintf("- %s.%s call=%s", intervention.ToolIdentifier, intervention.APIName, intervention.CallID))
+		if intervention.Kind == managedagents.InterventionKindClarification || intervention.Kind == managedagents.InterventionKindUploadRequest {
+			var request map[string]any
+			_ = json.Unmarshal(intervention.Request, &request)
+			question, _ := request["question"].(string)
+			if strings.TrimSpace(question) == "" {
+				question = "additional information requested"
+			}
+			lines = append(lines, fmt.Sprintf("- Question: %s (call=%s)", question, intervention.CallID))
+		} else {
+			lines = append(lines, fmt.Sprintf("- Approval: %s.%s call=%s", intervention.ToolIdentifier, intervention.APIName, intervention.CallID))
+		}
 	}
-	lines = append(lines, "Approve or reject the pending call, then send your next message.")
 	payload, err := json.Marshal(map[string]any{
 		"protocol_version": "tma.agent_runtime.demo.v1",
 		"turn_id":          turnID,

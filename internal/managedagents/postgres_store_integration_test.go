@@ -160,7 +160,7 @@ func TestPostgresSkillRegistryVersionsAndUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create skill usage agent: %v", err)
 	}
-	if !strings.Contains(string(agent.ConfigVersion.Skills), `"mode":"full"`) || !strings.Contains(string(agent.ConfigVersion.Skills), `"priority":100`) {
+	if !strings.Contains(string(agent.ConfigVersion.Skills), `"mode":"summary"`) || !strings.Contains(string(agent.ConfigVersion.Skills), `"priority":100`) {
 		t.Fatalf("expected normalized store binding, got %s", agent.ConfigVersion.Skills)
 	}
 	legacyAgent, err := store.CreateAgent(CreateAgentInput{
@@ -1319,6 +1319,79 @@ func TestPostgresStoreAppendsRuntimeEventForCurrentTurn(t *testing.T) {
 	}
 }
 
+func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	ctx := context.Background()
+
+	first, err := store.CreateSessionTaskPlanContext(ctx, session.ID, CreateSessionTaskPlanInput{
+		TurnID: "turn_plan_1", Goal: "Ship the task planning workflow",
+		Items: []string{"Define the state", "Implement the runtime", "Verify the workflow"},
+	})
+	if err != nil {
+		t.Fatalf("create first task plan: %v", err)
+	}
+	if first.Plan.HandlingMode != TaskPlanModeTracked || len(first.Plan.Items) != 3 || len(first.Events) != 1 || first.Events[0].Type != EventRuntimeTaskPlanCreated {
+		t.Fatalf("unexpected first task plan result: %+v", first)
+	}
+
+	created, err := store.CreateSessionTaskPlanContext(ctx, session.ID, CreateSessionTaskPlanInput{
+		TurnID: "turn_plan_2", Goal: "Ship the revised task planning workflow", HandlingMode: TaskPlanModePlanned,
+		Items: []string{"Define the schema", "Implement storage", "Expose tools", "Inject context", "Run verification"},
+	})
+	if err != nil {
+		t.Fatalf("create replacement task plan: %v", err)
+	}
+	if len(created.Events) != 2 || created.Events[0].Type != EventRuntimeTaskPlanSuperseded || created.Events[1].Type != EventRuntimeTaskPlanCreated {
+		t.Fatalf("expected superseded and created events, got %+v", created.Events)
+	}
+	var firstStatus string
+	if err := store.db.QueryRowContext(ctx, `SELECT status FROM session_task_plans WHERE id = $1`, first.Plan.ID).Scan(&firstStatus); err != nil || firstStatus != TaskPlanStatusSuperseded {
+		t.Fatalf("expected first plan superseded, status=%q err=%v", firstStatus, err)
+	}
+
+	invalidUpdates := []UpdateSessionTaskItemInput{
+		{ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusInProgress},
+		{ItemID: created.Plan.Items[1].ID, Status: TaskItemStatusInProgress},
+	}
+	if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{PlanID: created.Plan.ID, Items: invalidUpdates}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected multiple in_progress items to be rejected, got %v", err)
+	}
+
+	updates := make([]UpdateSessionTaskItemInput, 0, len(created.Plan.Items))
+	for _, item := range created.Plan.Items {
+		updates = append(updates, UpdateSessionTaskItemInput{ItemID: item.ID, Status: TaskItemStatusCompleted, Evidence: "verified " + item.Description})
+	}
+	updated, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{TurnID: "turn_plan_2", PlanID: created.Plan.ID, Items: updates})
+	if err != nil {
+		t.Fatalf("complete task items: %v", err)
+	}
+	if len(updated.Events) != 1 || updated.Events[0].Type != EventRuntimeTaskItemsUpdated {
+		t.Fatalf("unexpected task update events: %+v", updated.Events)
+	}
+
+	completed, err := store.CompleteSessionTaskPlanContext(ctx, session.ID, FinishSessionTaskPlanInput{TurnID: "turn_plan_2", PlanID: created.Plan.ID})
+	if err != nil {
+		t.Fatalf("complete task plan: %v", err)
+	}
+	if completed.Plan.Status != TaskPlanStatusCompleted || completed.Plan.CompletedAt == nil || len(completed.Events) != 1 || completed.Events[0].Type != EventRuntimeTaskPlanCompleted {
+		t.Fatalf("unexpected completed task plan: %+v", completed)
+	}
+	if _, err := store.GetCurrentSessionTaskPlanContext(ctx, session.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected no active plan after completion, got %v", err)
+	}
+	history, err := store.ListSessionTaskPlansContext(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("list task plan history: %v", err)
+	}
+	if len(history) != 2 || history[0].ID != created.Plan.ID || history[0].Status != TaskPlanStatusCompleted || history[1].ID != first.Plan.ID || history[1].Status != TaskPlanStatusSuperseded {
+		t.Fatalf("unexpected task plan history: %+v", history)
+	}
+	if len(history[0].Items) != 5 || history[0].Items[0].Evidence == "" || len(history[1].Items) != 3 {
+		t.Fatalf("expected complete items in task plan history: %+v", history)
+	}
+}
+
 func TestPostgresStoreStreamsCrossInstanceBurstWithoutLoss(t *testing.T) {
 	storeA := newPostgresIntegrationStore(t)
 	storeB := newPostgresIntegrationStore(t)
@@ -1559,6 +1632,52 @@ func TestPostgresStoreSessionTurnClaimRestoresApprovedIntervention(t *testing.T)
 	}
 	if _, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}}); err != nil {
 		t.Fatalf("cleanup interrupt: %v", err)
+	}
+}
+
+func TestPostgresStorePlanApprovalIsUniqueAndResumable(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	events, err := store.AppendEvents(session.ID, []AppendEventInput{{
+		Type: EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"review plan"}]}`),
+	}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(events[len(events)-1].Payload, "turn_id")
+	if _, err := store.SaveSessionIntervention(session.ID, SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_plan", ToolIdentifier: "interaction", APIName: "request_plan_approval",
+		Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`), Kind: InterventionKindPlanApproval,
+		Request:          json.RawMessage(`{"plan":{"id":"plan_000001","goal":"Ship safely","items":[]}}`),
+		InterventionMode: "request_plan_approval", Reason: "plan_review",
+		Continuation: json.RawMessage(`[{"role":"assistant","content":[]}]`),
+	}); err != nil {
+		t.Fatalf("save plan approval: %v", err)
+	}
+	if _, err := store.SaveSessionIntervention(session.ID, SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_plan_duplicate", ToolIdentifier: "interaction", APIName: "request_plan_approval",
+		Kind: InterventionKindPlanApproval, InterventionMode: "request_plan_approval",
+	}); err == nil {
+		t.Fatal("expected only one pending plan approval per turn")
+	}
+	if err := store.MarkSessionTurnWaitingApproval(session.ID, turnID); err != nil {
+		t.Fatalf("mark waiting approval: %v", err)
+	}
+	decision, err := store.DecideSessionIntervention(session.ID, DecideSessionInterventionInput{
+		TurnID: turnID, CallID: "call_plan", Status: InterventionStatusRejected, DecisionReason: "reduce scope",
+	})
+	if err != nil {
+		t.Fatalf("reject plan approval: %v", err)
+	}
+	if len(decision.Events) != 1 || decision.Events[0].Type != EventRuntimePlanApprovalRejected {
+		t.Fatalf("expected dedicated plan rejection event, got %+v", decision.Events)
+	}
+	claimed, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-plan-resume", LeaseDuration: time.Minute, Limit: 1})
+	if err != nil {
+		t.Fatalf("claim plan resume: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ResumeIntervention == nil || claimed[0].ResumeIntervention.Kind != InterventionKindPlanApproval || claimed[0].ResumeIntervention.Status != InterventionStatusRejected {
+		t.Fatalf("expected rejected plan decision to resume same turn, got %+v", claimed)
 	}
 }
 
@@ -2544,7 +2663,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		agents, agent_config_versions, environments, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
-		session_events, session_interventions, session_summaries, session_turn_skill_usages, session_turns, sessions,
+		session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
 		skill_marketplace_entries, skill_marketplace_policies, skill_marketplace_policy_versions,
@@ -2573,7 +2692,8 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		tma_skill_id_seq, tma_skill_marketplace_entry_id_seq,
 		tma_skill_marketplace_policy_id_seq, tma_skill_marketplace_policy_version_id_seq,
 		tma_skill_usage_id_seq, tma_skill_version_id_seq, tma_subagent_start_request_id_seq,
-		tma_subagent_task_group_id_seq, tma_worker_id_seq, tma_worker_work_id_seq TO `+role); err != nil {
+		tma_subagent_task_group_id_seq, tma_task_item_id_seq, tma_task_plan_id_seq,
+		tma_worker_id_seq, tma_worker_work_id_seq TO `+role); err != nil {
 		t.Fatalf("grant tenant object sequence access to RLS test role: %v", err)
 	}
 
@@ -3925,7 +4045,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_events", "session_interventions", "session_summaries", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}

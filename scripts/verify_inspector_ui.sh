@@ -77,8 +77,6 @@ html = fetch("")
 html_expected = [
     "TMA Inspector",
     'id="root"',
-    "/inspector/assets/api.js",
-    "/inspector/assets/utils.js",
     "/inspector/assets/app.js",
     "/inspector/assets/styles.css",
 ]
@@ -115,32 +113,6 @@ if missing:
     print("Inspector app.js missing expected content:", ", ".join(missing), file=sys.stderr)
     raise SystemExit(1)
 
-api_js = fetch("/assets/api.js")
-api_expected = [
-    "/v1/sessions/",
-    "session_id",
-    "turn_id",
-    "offset",
-    "/artifacts/",
-    "/download",
-    "artifactDownloadPath",
-]
-missing = [item for item in api_expected if item not in api_js]
-if missing:
-    print("Inspector api.js missing expected content:", ", ".join(missing), file=sys.stderr)
-    raise SystemExit(1)
-
-utils_js = fetch("/assets/utils.js")
-utils_expected = [
-    "bin/tma session artifact download --session",
-    "/v1/sessions/",
-    "sessionArtifactCLI",
-    "sessionArtifactCommand",
-]
-missing = [item for item in utils_expected if item not in utils_js]
-if missing:
-    print("Inspector utils.js missing expected content:", ", ".join(missing), file=sys.stderr)
-    raise SystemExit(1)
 PY
 
 echo "Inspector UI verification passed"

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tiggy-manage-agent/internal/capability"
@@ -113,6 +114,14 @@ func TestCommandProviderCloseUsesBrowserAction(t *testing.T) {
 	}
 	if payload.Action != "close" || !payload.Persistent {
 		t.Fatalf("unexpected close payload: %#v", payload)
+	}
+}
+
+func TestCommandProviderExplainsSIGKILLExit(t *testing.T) {
+	provider := CommandProvider{Runner: &fakeCommandRunner{result: capability.CommandResult{ExitCode: 137}}}
+	_, err := provider.Open(context.Background(), OpenRequest{})
+	if err == nil || !strings.Contains(err.Error(), "sandbox memory limit may be exhausted") {
+		t.Fatalf("expected memory diagnostic for exit 137, got %v", err)
 	}
 }
 

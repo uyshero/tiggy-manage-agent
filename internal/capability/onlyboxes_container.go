@@ -201,7 +201,7 @@ func (m *OnlyboxesContainerManager) ensureContainer(ctx context.Context, state *
 		"--label", "tma.onlyboxes.scope=" + onlyboxesContainerScope(command.Scope),
 		"--label", "tma.onlyboxes.fingerprint=" + fingerprint,
 		"--cpus", "1",
-		"--memory", "512m",
+		"--memory", command.Provider.memoryLimit(),
 		"--pids-limit", "256",
 		"--workdir", "/workspace",
 		"--volume", command.WorkspaceRoot + ":/workspace:rw",
@@ -339,6 +339,7 @@ func inspectOnlyboxesContainer(ctx context.Context, runner Provider, dockerComma
 func onlyboxesContainerFingerprint(command onlyboxesContainerCommand) string {
 	payload := strings.Join([]string{
 		command.Provider.image(),
+		"memory=" + command.Provider.memoryLimit(),
 		command.WorkspaceRoot,
 		command.DataDir,
 		fmt.Sprintf("network_disabled=%t", command.Provider.DisableNetwork),

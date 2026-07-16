@@ -958,11 +958,14 @@ browser.takeover
 browser.close
 ```
 
-浏览器 runner 需要 Node.js 和 Playwright 包。`cloud_sandbox` 场景推荐单独准备轻量 headless 镜像，并通过 `TMA_BROWSER_SANDBOX_IMAGE` 指定；该变量只覆盖 `browser.*` 工具使用的镜像，不影响普通 `default.*` 命令工具：
+浏览器 runner 需要 Node.js、Playwright 和 Chromium。`cloud_sandbox` 的 `browser` scope 默认使用 `tma-browser-sandbox:playwright`，与普通命令的 `default` scope 分离。`TMA_BROWSER_SANDBOX_IMAGE` 可覆盖浏览器镜像，但不会影响普通 `default.*` 命令工具：
 
 ```env
-TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright
+TMA_BROWSER_SANDBOX_IMAGE=tma-browser-sandbox:playwright
+TMA_BROWSER_SANDBOX_MEMORY=1g
 ```
+
+`TMA_BROWSER_SANDBOX_MEMORY` 只控制 `browser` scope 的容器内存；普通 `default` scope 仍使用 512 MB。修改该值后，现有 browser 容器会在下一次调用时按新 fingerprint 自动重建。
 
 本仓库提供了第一版浏览器沙箱镜像：
 

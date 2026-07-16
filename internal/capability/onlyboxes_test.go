@@ -53,6 +53,56 @@ func TestOnlyboxesProviderRunsCommandThroughDocker(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesProviderMaterializesRuntimeSkills(t *testing.T) {
+	root := t.TempDir()
+	provider := OnlyboxesProvider{WorkspaceRoot: root}
+	packages := []RuntimeSkillPackage{{
+		Identifier: "web-access", Version: 2, Checksum: "checksum-v2",
+		Files: []RuntimeSkillFile{
+			{Path: "SKILL.md", Content: []byte("# Web Access\n")},
+			{Path: "scripts/check-deps.mjs", Content: []byte("console.log('ok')\n"), Executable: true},
+		},
+	}}
+
+	materialized, err := provider.MaterializeRuntimeSkills(t.Context(), packages)
+	if err != nil {
+		t.Fatalf("materialize runtime skills: %v", err)
+	}
+	if len(materialized) != 1 || materialized[0].Directory != "/workspace/.tma/skills/web-access/2" {
+		t.Fatalf("unexpected materialization result: %#v", materialized)
+	}
+	hostRoot := filepath.Join(resolvedRoot(t, root), ".tma", "skills", "web-access", "2")
+	content, err := os.ReadFile(filepath.Join(hostRoot, "scripts", "check-deps.mjs"))
+	if err != nil || string(content) != "console.log('ok')\n" {
+		t.Fatalf("unexpected materialized script content=%q err=%v", content, err)
+	}
+	info, err := os.Stat(filepath.Join(hostRoot, "scripts", "check-deps.mjs"))
+	if err != nil || info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("expected executable script, info=%#v err=%v", info, err)
+	}
+
+	packages[0].Checksum = "checksum-v2-rebuilt"
+	packages[0].Files[1].Content = []byte("console.log('updated')\n")
+	if _, err := provider.MaterializeRuntimeSkills(t.Context(), packages); err != nil {
+		t.Fatalf("replace runtime skill: %v", err)
+	}
+	content, err = os.ReadFile(filepath.Join(hostRoot, "scripts", "check-deps.mjs"))
+	if err != nil || string(content) != "console.log('updated')\n" {
+		t.Fatalf("expected updated materialized script, content=%q err=%v", content, err)
+	}
+}
+
+func TestOnlyboxesProviderRejectsUnsafeRuntimeSkillPaths(t *testing.T) {
+	provider := OnlyboxesProvider{WorkspaceRoot: t.TempDir()}
+	_, err := provider.MaterializeRuntimeSkills(t.Context(), []RuntimeSkillPackage{{
+		Identifier: "web-access", Version: 1, Checksum: "checksum",
+		Files: []RuntimeSkillFile{{Path: "../escape.mjs", Content: []byte("bad")}},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "escapes package root") {
+		t.Fatalf("expected unsafe package path rejection, got %v", err)
+	}
+}
+
 func TestOnlyboxesProviderDisablesNetworkWhenConfigured(t *testing.T) {
 	root := t.TempDir()
 	runner := &captureProvider{}

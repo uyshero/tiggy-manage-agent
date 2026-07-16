@@ -94,7 +94,7 @@ describe("TMAClient", () => {
     expect(run.status).toBe("future_terminal");
   });
 
-  it("exposes typed Session summary and usage reads with escaped IDs", async () => {
+  it("exposes typed Session summary, task Plan, and usage reads with escaped IDs", async () => {
     const requests: string[] = [];
     server = await startServer((request, response) => {
       requests.push(`${request.method} ${request.url}`);
@@ -105,15 +105,34 @@ describe("TMAClient", () => {
         });
         return;
       }
+      const taskPlan = {
+        id: "plan_1", workspace_id: "default", owner_id: "user", session_id: "session/1",
+        goal: "Ship", handling_mode: "planned", status: "active", items: [],
+        created_at: "2026-07-15T00:00:00Z", updated_at: "2026-07-15T00:00:00Z",
+      };
+      if (request.url?.endsWith("/task-plans")) {
+        json(response, 200, { plans: [taskPlan] });
+        return;
+      }
+      if (request.url?.endsWith("/task-plan")) {
+        json(response, 200, { plan: taskPlan });
+        return;
+      }
       json(response, 200, { session_id: "session/1", summary: { total_tokens: 12 }, records: [] });
     });
     const client = new TMAClient(server.baseURL);
     const summary = await client.sessions.summary("session/1");
+    const taskPlan = await client.sessions.taskPlan("session/1");
+    const taskPlans = await client.sessions.taskPlans("session/1");
     const usage = await client.sessions.usage("session/1");
     expect(summary.source_until_seq).toBe(7);
+    expect(taskPlan.id).toBe("plan_1");
+    expect(taskPlans).toHaveLength(1);
     expect(usage.summary.total_tokens).toBe(12);
     expect(requests).toEqual([
       "GET /v2/sessions/session%2F1/summary",
+      "GET /v2/sessions/session%2F1/task-plan",
+      "GET /v2/sessions/session%2F1/task-plans",
       "GET /v2/sessions/session%2F1/usage",
     ]);
   });

@@ -1,6 +1,0 @@
-{"time":"2026-07-09T18:21:20.498413+08:00","level":"INFO","msg":"worker registered","worker_id":"wrk_000008","workspace_id":"wksp_default","worker_type":"local"}
-{"time":"2026-07-09T18:21:20.502204+08:00","level":"INFO","msg":"worker heartbeat","worker_id":"wrk_000008"}
-{"time":"2026-07-09T18:21:22.52451+08:00","level":"INFO","msg":"worker work received","worker_id":"wrk_000008","work_id":"work_000007","work_type":"tool_execution","session_id":"sesn_000064","turn_id":"turn_000001"}
-{"time":"2026-07-09T18:21:22.537369+08:00","level":"INFO","msg":"worker work acknowledged","worker_id":"wrk_000008","work_id":"work_000007"}
-{"time":"2026-07-09T18:21:22.5966+08:00","level":"INFO","msg":"worker work completed","worker_id":"wrk_000008","work_id":"work_000007","status":"completed"}
-{"time":"2026-07-09T18:21:23.502024+08:00","level":"ERROR","msg":"worker exited","error":"Get \"http://localhost:18087/v1/workers/wrk_000008/work/poll?lease_seconds=30\": context canceled"}

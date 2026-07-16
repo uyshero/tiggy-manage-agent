@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -2419,13 +2420,17 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 		"intervention_mode": "approve_for_me",
 		"tool_runtime": "cloud_sandbox",
 		"cloud_sandbox_root": ".",
-		"cloud_sandbox_allow_network": true
+		"cloud_sandbox_allow_network": true,
+		"human_interaction": {"enabled": false, "modes": ["form", "select"], "fallback": "fail"},
+		"completion_gate": {"max_retries": 99}
 	}`, http.StatusOK)
 	assertRuntimeSettings(t, updated.RuntimeSettings, map[string]any{
 		"intervention_mode":           "approve_for_me",
 		"tool_runtime":                "cloud_sandbox",
 		"cloud_sandbox_root":          ".",
 		"cloud_sandbox_allow_network": true,
+		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
+		"completion_gate":             map[string]any{"max_retries": float64(10)},
 	})
 
 	merged := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
@@ -2436,6 +2441,8 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 		"tool_runtime":                "local_system",
 		"cloud_sandbox_root":          ".",
 		"cloud_sandbox_allow_network": true,
+		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
+		"completion_gate":             map[string]any{"max_retries": float64(10)},
 	})
 
 	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
@@ -2444,7 +2451,13 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 		"tool_runtime":                "local_system",
 		"cloud_sandbox_root":          ".",
 		"cloud_sandbox_allow_network": true,
+		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
+		"completion_gate":             map[string]any{"max_retries": float64(10)},
 	})
+	capabilities := getJSON[sessionRuntimeCapabilitiesResponse](t, server, "/v1/sessions/"+session.ID+"/runtime-capabilities")
+	if capabilities.HumanInteraction.Enabled || capabilities.HumanInteraction.Fallback != "fail" || !containsString(capabilities.HumanInteraction.Modes, "form") {
+		t.Fatalf("unexpected human interaction capabilities: %#v", capabilities.HumanInteraction)
+	}
 }
 
 func TestSessionInterventionApproveRejectAPI(t *testing.T) {
@@ -2555,6 +2568,112 @@ func TestSessionInterventionDecisionRetriesAfterSchedulingFailure(t *testing.T) 
 	retried := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_retry/approve", `{}`, http.StatusOK)
 	if len(retried.Events) != 0 || len(runner.starts) != 2 || runner.starts[1].ResumeIntervention == nil {
 		t.Fatalf("expected persisted decision to be resumable after scheduling failure, response=%#v starts=%#v", retried, runner.starts)
+	}
+}
+
+func TestSessionClarificationResponseResumesTurn(t *testing.T) {
+	store := newTestStore()
+	recorder := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(store, recorder, nil)
+	agent, err := store.CreateAgent(managedagents.CreateAgentInput{Name: "clarifying-agent", LLMProvider: "fake", LLMModel: "fake-demo"})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	environment, err := store.CreateEnvironment(managedagents.CreateEnvironmentInput{Name: "clarifying-env", Config: json.RawMessage(`{"type":"cloud"}`)})
+	if err != nil {
+		t.Fatalf("create environment: %v", err)
+	}
+	session, err := store.CreateSession(managedagents.CreateSessionInput{AgentID: agent.ID, EnvironmentID: environment.ID})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	events, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[]}`)}})
+	if err != nil {
+		t.Fatalf("start turn: %v", err)
+	}
+	turnID := payloadString(events[1].Payload, "turn_id")
+	request := json.RawMessage(`{"question":"Deployment?","mode":"select","choices":[{"id":"private","label":"Private"},{"id":"saas","label":"SaaS"}]}`)
+	continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_ask","type":"function","function":{"name":"interaction.ask_user","arguments":{"question":"Deployment?","mode":"select"}}}]}]`)
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_ask", ToolIdentifier: "interaction", APIName: "ask_user",
+		Kind: managedagents.InterventionKindClarification, Request: request, Arguments: request,
+		InterventionMode: "request_user_input", Reason: "clarification", Continuation: continuation,
+	}); err != nil {
+		t.Fatalf("save clarification: %v", err)
+	}
+
+	answered := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost,
+		"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_ask/respond",
+		`{"response":{"deployment":"private"}}`, http.StatusOK)
+	if answered.Intervention.Status != managedagents.InterventionStatusAnswered || string(answered.Intervention.Response) != `{"deployment":"private"}` {
+		t.Fatalf("unexpected clarification result: %#v", answered.Intervention)
+	}
+	if len(answered.Events) != 1 || answered.Events[0].Type != managedagents.EventRuntimeHumanInputSubmitted {
+		t.Fatalf("expected submitted event, got %#v", answered.Events)
+	}
+	if len(recorder.starts) != 1 || recorder.starts[0].ResumeIntervention == nil || recorder.starts[0].ResumeIntervention.Kind != managedagents.InterventionKindClarification {
+		t.Fatalf("expected clarification resume, got %#v", recorder.starts)
+	}
+	postJSONWithStatus[map[string]string](t, server, http.MethodPost,
+		"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_ask/approve", `{}`, http.StatusBadRequest)
+}
+
+func TestSessionPlanApprovalDecisionResumesTurn(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		action    string
+		status    string
+		eventType string
+	}{
+		{name: "approve", action: "approve", status: managedagents.InterventionStatusApproved, eventType: managedagents.EventRuntimePlanApprovalApproved},
+		{name: "reject", action: "reject", status: managedagents.InterventionStatusRejected, eventType: managedagents.EventRuntimePlanApprovalRejected},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newTestStore()
+			recorder := &recordingRunner{}
+			server := NewServerWithStoreAndRunner(store, recorder, nil)
+			agent, err := store.CreateAgent(managedagents.CreateAgentInput{Name: "planning-agent", LLMProvider: "fake", LLMModel: "fake-demo"})
+			if err != nil {
+				t.Fatalf("create agent: %v", err)
+			}
+			environment, err := store.CreateEnvironment(managedagents.CreateEnvironmentInput{Name: "planning-env", Config: json.RawMessage(`{"type":"cloud"}`)})
+			if err != nil {
+				t.Fatalf("create environment: %v", err)
+			}
+			session, err := store.CreateSession(managedagents.CreateSessionInput{AgentID: agent.ID, EnvironmentID: environment.ID})
+			if err != nil {
+				t.Fatalf("create session: %v", err)
+			}
+			events, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[]}`)}})
+			if err != nil {
+				t.Fatalf("start turn: %v", err)
+			}
+			turnID := payloadString(events[1].Payload, "turn_id")
+			request := json.RawMessage(`{"plan":{"id":"plan_000001","goal":"Ship safely","handling_mode":"planned","status":"active","items":[{"id":"item_1","index":0,"description":"Prepare","status":"pending"}]}}`)
+			continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_plan","type":"function","function":{"name":"interaction.request_plan_approval","arguments":{"plan_id":"plan_000001"}}}]}]`)
+			if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+				TurnID: turnID, CallID: "call_plan", ToolIdentifier: "interaction", APIName: "request_plan_approval",
+				Kind: managedagents.InterventionKindPlanApproval, Request: request, Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`),
+				InterventionMode: "request_plan_approval", Reason: "plan_review", Continuation: continuation,
+			}); err != nil {
+				t.Fatalf("save plan approval: %v", err)
+			}
+			if err := store.MarkSessionTurnWaitingApproval(session.ID, turnID); err != nil {
+				t.Fatalf("mark waiting approval: %v", err)
+			}
+			postJSONWithStatus[map[string]string](t, server, http.MethodPost,
+				"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_plan/respond", `{"response":{"answer":"yes"}}`, http.StatusBadRequest)
+
+			decided := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost,
+				"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_plan/"+test.action,
+				`{"reason":"reviewed in app"}`, http.StatusOK)
+			if decided.Intervention.Status != test.status || len(decided.Events) != 1 || decided.Events[0].Type != test.eventType {
+				t.Fatalf("unexpected plan decision: %#v", decided)
+			}
+			if len(recorder.starts) != 1 || recorder.starts[0].ResumeIntervention == nil || recorder.starts[0].ResumeIntervention.Kind != managedagents.InterventionKindPlanApproval {
+				t.Fatalf("expected same-turn plan resume, got %#v", recorder.starts)
+			}
+		})
 	}
 }
 
@@ -3099,8 +3218,6 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	}
 	if body := inspectorResponse.Body.String(); !strings.Contains(body, "TMA Inspector") ||
 		!strings.Contains(body, `href="/inspector/assets/styles.css"`) ||
-		!strings.Contains(body, `src="/inspector/assets/api.js"`) ||
-		!strings.Contains(body, `src="/inspector/assets/utils.js"`) ||
 		!strings.Contains(body, `type="module" crossorigin src="/inspector/assets/app.js"`) ||
 		!strings.Contains(body, `id="root"`) {
 		t.Fatalf("expected React inspector shell, got %q", body)
@@ -3113,8 +3230,6 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 	}
 	if body := appResponse.Body.String(); !strings.Contains(body, "TMA Workbench") ||
 		!strings.Contains(body, `href="/app/assets/styles.css"`) ||
-		!strings.Contains(body, `src="/app/assets/api.js"`) ||
-		!strings.Contains(body, `src="/app/assets/utils.js"`) ||
 		!strings.Contains(body, `type="module" crossorigin src="/app/assets/app.js"`) ||
 		!strings.Contains(body, `id="root"`) {
 		t.Fatalf("expected React app shell, got %q", body)
@@ -3168,6 +3283,9 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "spanKind") ||
 		!strings.Contains(appJS, "Artifact Preview") ||
 		!strings.Contains(appJS, "Context Coverage") ||
+		!strings.Contains(appJS, "Plan History") ||
+		!strings.Contains(appJS, "taskPlanHistory") ||
+		!strings.Contains(appJS, "Evidence") ||
 		!strings.Contains(appJS, "Context Budget") ||
 		!strings.Contains(appJS, "Exporters") ||
 		!strings.Contains(appJS, "Auto refresh every 5s") ||
@@ -3223,46 +3341,6 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "data-copy") {
 		t.Fatalf("expected inspector app.js behavior, got %q", appJS)
 	}
-	inspectorAPIRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/api.js", nil)
-	inspectorAPIResponse := httptest.NewRecorder()
-	server.ServeHTTP(inspectorAPIResponse, inspectorAPIRequest)
-	if inspectorAPIResponse.Code != http.StatusOK {
-		t.Fatalf("inspector api.js expected status 200, got %d: %s", inspectorAPIResponse.Code, inspectorAPIResponse.Body.String())
-	}
-	if contentType := inspectorAPIResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
-		t.Fatalf("expected javascript content type, got %q", contentType)
-	}
-	if apiJS := inspectorAPIResponse.Body.String(); !strings.Contains(apiJS, "TMAInspectorAPI") ||
-		!strings.Contains(apiJS, "/v1/traces?") ||
-		!strings.Contains(apiJS, "session_id") ||
-		!strings.Contains(apiJS, "turn_id") ||
-		!strings.Contains(apiJS, "/v1/traces/") ||
-		!strings.Contains(apiJS, "/spans/") ||
-		!strings.Contains(apiJS, "/v1/spans?") ||
-		!strings.Contains(apiJS, "min_duration_ms") ||
-		!strings.Contains(apiJS, "/v1/observability/status") ||
-		!strings.Contains(apiJS, "/v1/observability/retry") ||
-		!strings.Contains(apiJS, "approve") ||
-		!strings.Contains(apiJS, "reject") {
-		t.Fatalf("expected inspector api.js behavior, got %q", apiJS)
-	}
-	inspectorUtilsRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/utils.js", nil)
-	inspectorUtilsResponse := httptest.NewRecorder()
-	server.ServeHTTP(inspectorUtilsResponse, inspectorUtilsRequest)
-	if inspectorUtilsResponse.Code != http.StatusOK {
-		t.Fatalf("inspector utils.js expected status 200, got %d: %s", inspectorUtilsResponse.Code, inspectorUtilsResponse.Body.String())
-	}
-	if contentType := inspectorUtilsResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
-		t.Fatalf("expected javascript content type, got %q", contentType)
-	}
-	if utilsJS := inspectorUtilsResponse.Body.String(); !strings.Contains(utilsJS, "TMAInspectorUtils") ||
-		!strings.Contains(utilsJS, "escapeHTML") ||
-		!strings.Contains(utilsJS, "formatDuration") ||
-		!strings.Contains(utilsJS, "pillClass") ||
-		!strings.Contains(utilsJS, "stepClass") ||
-		!strings.Contains(utilsJS, "bin/tma session artifact download --session") {
-		t.Fatalf("expected inspector utils.js behavior, got %q", utilsJS)
-	}
 	inspectorCSSRequest := httptest.NewRequest(http.MethodGet, "/inspector/assets/styles.css", nil)
 	inspectorCSSResponse := httptest.NewRecorder()
 	server.ServeHTTP(inspectorCSSResponse, inspectorCSSRequest)
@@ -3281,6 +3359,8 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(styles, ".budget-bar") ||
 		!strings.Contains(styles, ".mcp-protocol-summary") ||
 		!strings.Contains(styles, ".mcp-operation-lifecycle") ||
+		!strings.Contains(styles, ".task-plan-history") ||
+		!strings.Contains(styles, ".task-plan-evidence") ||
 		!strings.Contains(styles, ".preview-media") ||
 		!strings.Contains(styles, ".health-line") {
 		t.Fatalf("expected inspector styles, got %q", styles)
@@ -3645,6 +3725,60 @@ func TestUpsertSessionSummaryWritesCompactionEvents(t *testing.T) {
 	summary := getJSON[managedagents.SessionSummary](t, server, "/v1/sessions/"+session.ID+"/summary")
 	if summary.SummaryText != result.Summary.SummaryText {
 		t.Fatalf("expected stored summary, got %+v", summary)
+	}
+}
+
+func TestSessionTaskPlanSnapshotAndHistory(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+
+	emptyResponse := httptest.NewRecorder()
+	server.ServeHTTP(emptyResponse, httptest.NewRequest(http.MethodGet, "/v2/sessions/"+session.ID+"/task-plan", nil))
+	if emptyResponse.Code != http.StatusNotFound {
+		t.Fatalf("expected no active task plan status 404, got %d: %s", emptyResponse.Code, emptyResponse.Body.String())
+	}
+
+	now := time.Now().UTC()
+	active := managedagents.SessionTaskPlan{
+		ID: "plan_active", SessionID: session.ID, WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID,
+		Goal: "Ship the snapshot API", HandlingMode: managedagents.TaskPlanModePlanned, Status: managedagents.TaskPlanStatusActive,
+		CreatedAt: now, UpdatedAt: now,
+		Items: []managedagents.SessionTaskItem{{ID: "task_active_1", PlanID: "plan_active", Index: 0, Description: "Expose the API", Status: managedagents.TaskItemStatusInProgress, CreatedAt: now, UpdatedAt: now}},
+	}
+	completed := managedagents.SessionTaskPlan{
+		ID: "plan_completed", SessionID: session.ID, WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID,
+		Goal: "Prepare storage", HandlingMode: managedagents.TaskPlanModeTracked, Status: managedagents.TaskPlanStatusCompleted,
+		CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Minute), CompletedAt: &now,
+		Items: []managedagents.SessionTaskItem{{ID: "task_completed_1", PlanID: "plan_completed", Index: 0, Description: "Create tables", Status: managedagents.TaskItemStatusCompleted, Evidence: "migration passed", CreatedAt: now.Add(-time.Hour), UpdatedAt: now}},
+	}
+	store.mu.Lock()
+	store.taskPlans[session.ID] = []managedagents.SessionTaskPlan{active, completed}
+	store.mu.Unlock()
+
+	current := getJSON[struct {
+		Plan managedagents.SessionTaskPlan `json:"plan"`
+	}](t, server, "/v2/sessions/"+session.ID+"/task-plan")
+	if current.Plan.ID != active.ID || len(current.Plan.Items) != 1 {
+		t.Fatalf("unexpected current task plan snapshot: %+v", current)
+	}
+	history := getJSON[struct {
+		Plans []managedagents.SessionTaskPlan `json:"plans"`
+	}](t, server, "/v1/sessions/"+session.ID+"/task-plans")
+	if len(history.Plans) != 2 || history.Plans[0].ID != active.ID || history.Plans[1].Items[0].Evidence != "migration passed" {
+		t.Fatalf("unexpected task plan history: %+v", history)
 	}
 }
 
@@ -4789,7 +4923,7 @@ func assertRuntimeSettings(t *testing.T, raw json.RawMessage, expected map[strin
 		t.Fatalf("unexpected runtime settings size: got %#v want %#v", actual, expected)
 	}
 	for key, value := range expected {
-		if actual[key] != value {
+		if !reflect.DeepEqual(actual[key], value) {
 			t.Fatalf("unexpected runtime setting %s: got %q want %q in %#v", key, actual[key], value, actual)
 		}
 	}

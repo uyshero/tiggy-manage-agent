@@ -37,10 +37,14 @@ const (
 )
 
 var (
-	githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
-	markdownLinkPattern     = regexp.MustCompile(`\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
-	inlineCodePattern       = regexp.MustCompile("`([^`\\n]+)`")
-	plainDocumentPattern    = regexp.MustCompile(`\b[A-Z][A-Z0-9_-]*\.(?:md|txt)\b`)
+	githubRepositoryPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	markdownLinkPattern      = regexp.MustCompile(`\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
+	inlineCodePattern        = regexp.MustCompile("`([^`\\n]+)`")
+	plainDocumentPattern     = regexp.MustCompile(`\b[A-Z][A-Z0-9_-]*\.(?:md|txt)\b`)
+	skillDirReferencePattern = regexp.MustCompile(`\$\{(?:CLAUDE|TMA)_SKILL_DIR\}/([A-Za-z0-9_./-]+)`)
+	moduleImportPattern      = regexp.MustCompile(`(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{1,2}/[^"']+)["']`)
+	pathJoinPattern          = regexp.MustCompile(`path\.join\(\s*(?:ROOT|SKILL_ROOT)\s*,\s*([^)]+)\)`)
+	quotedPathSegmentPattern = regexp.MustCompile(`["']([^"']+)["']`)
 )
 
 type Source struct {
@@ -622,11 +626,31 @@ func referencedPaths(content string) []string {
 	for _, match := range plainDocumentPattern.FindAllString(content, -1) {
 		appendReference(match)
 	}
+	for _, match := range skillDirReferencePattern.FindAllStringSubmatch(content, -1) {
+		appendReference("skill-root:" + match[1])
+	}
+	for _, match := range moduleImportPattern.FindAllStringSubmatch(content, -1) {
+		appendReference(match[1])
+	}
+	for _, match := range pathJoinPattern.FindAllStringSubmatch(content, -1) {
+		segments := quotedPathSegmentPattern.FindAllStringSubmatch(match[1], -1)
+		parts := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			parts = append(parts, segment[1])
+		}
+		if len(parts) > 0 {
+			appendReference("skill-root:" + path.Join(parts...))
+		}
+	}
 	return result
 }
 
 func resolvePackageReference(packageRoot string, fromPath string, reference string) (string, string) {
 	reference = strings.Trim(strings.TrimSpace(reference), "<>\"'")
+	rootRelative := strings.HasPrefix(reference, "skill-root:")
+	if rootRelative {
+		reference = strings.TrimPrefix(reference, "skill-root:")
+	}
 	lower := strings.ToLower(reference)
 	if reference == "" || strings.HasPrefix(reference, "#") || strings.HasPrefix(reference, "/") ||
 		strings.Contains(reference, "://") || strings.HasPrefix(lower, "mailto:") || strings.HasPrefix(lower, "data:") {
@@ -639,7 +663,11 @@ func resolvePackageReference(packageRoot string, fromPath string, reference stri
 	if err != nil {
 		return "", fmt.Sprintf("skipped invalid package reference %q", reference)
 	}
-	resolved := path.Clean(path.Join(path.Dir(fromPath), decoded))
+	base := path.Dir(fromPath)
+	if rootRelative {
+		base = packageRoot
+	}
+	resolved := path.Clean(path.Join(base, decoded))
 	if resolved == "." || resolved == ".." || strings.HasPrefix(resolved, "../") ||
 		(packageRoot != "" && resolved != packageRoot && !strings.HasPrefix(resolved, packageRoot+"/")) {
 		return "", fmt.Sprintf("skipped out-of-package reference %q", reference)
@@ -663,7 +691,7 @@ func relativePackagePath(packageRoot string, repositoryPath string) string {
 
 func isAllowedTextAssetExtension(extension string) bool {
 	switch strings.ToLower(extension) {
-	case ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv", ".py", ".js", ".ts", ".sh", ".go", ".html", ".css", ".sql":
+	case ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv", ".py", ".js", ".mjs", ".cjs", ".ts", ".sh", ".go", ".html", ".css", ".sql", ".template":
 		return true
 	default:
 		return false
@@ -681,7 +709,7 @@ func isAllowedBinaryAssetExtension(extension string) bool {
 
 func isScriptExtension(extension string) bool {
 	switch strings.ToLower(extension) {
-	case ".py", ".js", ".ts", ".sh", ".go", ".sql":
+	case ".py", ".js", ".mjs", ".cjs", ".ts", ".sh", ".go", ".sql":
 		return true
 	default:
 		return false

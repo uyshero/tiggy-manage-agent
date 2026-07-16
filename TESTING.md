@@ -893,7 +893,7 @@ http://localhost:18089/inspector
 
 最小点检路径：
 
-- 页面标题为 `TMA Inspector`，脚本资源来自 `/inspector/assets/api.js`、`utils.js`、`app.js`
+- 页面标题为 `TMA Inspector`，模块脚本来自 `/inspector/assets/app.js`
 - `Recent Traces` 有数据时，点击 trace 卡片后应填充 Trace ID / Session / Turn，并渲染 Waterfall、Spans、Timeline 和 Raw JSON
 - `Recent Traces` / `Span Search` 返回超过第一页时应显示 `Load more`，点击后追加下一页而不是覆盖当前列表
 - 在 `Session` 输入框填入 session id 后，点 `Filter by Session` 或按 Enter，`Recent Traces` 和 `Span Search` 应只显示该 session 的结果；点 `Clear` 恢复全局 catalog
@@ -1466,9 +1466,9 @@ go test ./internal/mcp ./internal/tools
 - initialize 后同一短会话后续请求会带上 `Mcp-Protocol-Version`；initialize response 返回 `Mcp-Session-Id` 时，也会带上该 session header。
 - initialize response 返回的 server `capabilities` 会被解析、保存到 MCP runtime，并在 tooling health 响应中展示。
 - tooling health 在 MCP tools 加载成功后会额外探测 `resources/list` / `resources/templates/list` / `prompts/list`，并在响应中展示 `resource_count` / `resource_template_count` / `prompt_count`；探测失败只进入诊断，不会覆盖 tools 在线状态。
-- `npm --prefix web-app run build` 会同步验证 Workbench MCP 健康检查 badge 可展示 capabilities 和三类 catalog count，Agent 编辑器可保留 `expose.resources` / `expose.prompts` 开关，并更新内嵌静态资源。
-- `npm --prefix web-inspector test -- --run` 会覆盖 Inspector MCP 工具来源统计、诊断 badge、`tma.mcp_result.v1` / `tma.mcp_context_result.v1` 摘要，以及 `MCP Protocol` 对 call/result、重复 call ID、pending/unpaired 操作的顺序配对；测试确认 arguments、endpoint、Authorization、error message、content text 和 structured content value 不进入协议投影。
-- `npm --prefix web-inspector run build` 会验证 Inspector Timeline / Recent Events 的 MCP badge、result/context 摘要卡和独立 `MCP Protocol` 面板，并更新内嵌静态资源。浏览器验收应使用真实 MCP Session，在 1280px 与 390px viewport 检查 request/response 横向/纵向布局、`scrollWidth == clientWidth`、无控件重叠，并确认面板范围不含 marker、路径、Authorization 或 endpoint；控制台不得有 error/warn。
+- `npm --prefix apps/workbench run build` 会同步验证 Workbench MCP 健康检查 badge 可展示 capabilities 和三类 catalog count，Agent 编辑器可保留 `expose.resources` / `expose.prompts` 开关，并更新内嵌静态资源。
+- `npm --prefix apps/inspector test -- --run` 会覆盖 Inspector MCP 工具来源统计、诊断 badge、`tma.mcp_result.v1` / `tma.mcp_context_result.v1` 摘要，以及 `MCP Protocol` 对 call/result、重复 call ID、pending/unpaired 操作的顺序配对；测试确认 arguments、endpoint、Authorization、error message、content text 和 structured content value 不进入协议投影。
+- `npm --prefix apps/inspector run build` 会验证 Inspector Timeline / Recent Events 的 MCP badge、result/context 摘要卡和独立 `MCP Protocol` 面板，并更新内嵌静态资源。浏览器验收应使用真实 MCP Session，在 1280px 与 390px viewport 检查 request/response 横向/纵向布局、`scrollWidth == clientWidth`、无控件重叠，并确认面板范围不含 marker、路径、Authorization 或 endpoint；控制台不得有 error/warn。
 - `listen: true` 会启动可选 GET SSE listener；listener 会处理 server request fallback response，并在重连时发送 `Last-Event-ID`。
 - `roots` 配置会归一化；stdio 与 `streamable_http` initialize 都会声明 `roots: { listChanged: false }`，收到 `roots/list` 时返回配置的 roots。
 - stdio 子进程测试会在 `tools/list` 完成前反向发送 `ping`、`roots/list`、`sampling/createMessage`、`elicitation/create` 和未知方法，校验 client 不会丢弃 server request，并分别返回空结果、roots、`-32000` 安全拒绝和 `-32601` fallback。
@@ -1487,7 +1487,7 @@ go test ./internal/mcp ./internal/tools
 - execution resolver 会连续解析同一 Session 的两个 Turn，确认只建立一个远程 MCP Session；切换 Session 后必须执行第二次隔离 initialize。
 - `go test -race ./internal/mcp ./internal/execution -count=1` 覆盖 stdio/HTTP host 的请求串行、取消、回收、listener 状态和 resolver 复用路径。
 - server config 测试覆盖两类 host lifecycle/capacity 默认值、dotenv 覆盖和非法范围；HTTP 测试覆盖 tooling health 的 `mcp_host` / `mcp_http_host` 快照及两组 Prometheus 指标。
-- `npm --prefix web-app run build` 验证 Workbench 健康检查会分别展示 Server Host 与 Remote HTTP Host 的生命周期、目录变更、progress、日志和非法通知状态；Agent 编辑器可配置 stdio/Streamable HTTP、URL、SSE listener 和八级 logging，并在单项 MCP 重测后保留最新 host 快照。浏览器验收还应在 1280px 桌面和 390px 手机 viewport 检查 MCP row 的 `scrollWidth == clientWidth`、页面无横向滚动且子控件无相交；切换到 Streamable HTTP 后应出现“服务 URL”、启用 SSE 开关并保留 logging level 选择。
+- `npm --prefix apps/workbench run build` 验证 Workbench 健康检查会分别展示 Server Host 与 Remote HTTP Host 的生命周期、目录变更、progress、日志和非法通知状态；Agent 编辑器可配置 stdio/Streamable HTTP、URL、SSE listener 和八级 logging，并在单项 MCP 重测后保留最新 host 快照。浏览器验收还应在 1280px 桌面和 390px 手机 viewport 检查 MCP row 的 `scrollWidth == clientWidth`、页面无横向滚动且子控件无相交；切换到 Streamable HTTP 后应出现“服务 URL”、启用 SSE 开关并保留 logging level 选择。
 - MCP client 支持 `resources/list` / `resources/read`，覆盖 stdio 与 `streamable_http` 两种 transport；resources 默认只作为底层协议能力，配置 `expose.resources` 后会注册只读 `mcp_list_resources` / `mcp_read_resource` Agent 桥接工具。
 - MCP client 支持 `resources/templates/list` 与分页；配置 `expose.resources` 后额外注册只读 `mcp_list_resource_templates`，tooling health 返回 `resource_template_count`。
 - MCP client 支持 `prompts/list` / `prompts/get`，覆盖 stdio 与 `streamable_http` 两种 transport；prompts 默认只作为底层协议能力，配置 `expose.prompts` 后会注册只读 `mcp_list_prompts` / `mcp_get_prompt` Agent 桥接工具，不会自动注入模型上下文。
@@ -1499,7 +1499,7 @@ go test ./internal/mcp ./internal/tools
 - OAuth client credentials / refresh token 会覆盖配置解析、`client_secret_post` / `client_secret_basic` token 请求、Bearer 注入到 Streamable HTTP MCP 请求、带 `expires_in` token 的进程内缓存/刷新，以及 token endpoint 非 2xx 错误不回显 response body / secret。
 - Server 级 `TMA_MCP_HTTP_CA_BUNDLE` 会把 PEM 根证书追加到系统 trust pool，并由 egress policy 的基础 HTTP client 统一提供给 OAuth、主 MCP、listener 和 DELETE；无效 PEM 会让 Server 启动失败，且不会降级为 insecure TLS。
 - Remote MCP egress 测试覆盖默认 HTTPS-only、host wildcard allowlist、RFC1918/ULA 开关、精确 CIDR 放行、loopback/link-local/metadata 阻断、DNS 同时返回公共与 metadata 地址时整次拒绝、跨 authority redirect 拒绝和非法 host/CIDR 配置。OAuth token endpoint 与 tooling health 必须复用同一 policy 并累计 `egress_blocked_total`。
-- `npm --prefix web-app run build` 还会验证 Remote HTTP Host 展示“仅 HTTPS/允许 HTTP”“阻止私网/允许私网”、host/CIDR allowlist 数量和出站阻断计数；页面不展示实际内部目标。
+- `npm --prefix apps/workbench run build` 还会验证 Remote HTTP Host 展示“仅 HTTPS/允许 HTTP”“阻止私网/允许私网”、host/CIDR allowlist 数量和出站阻断计数；页面不展示实际内部目标。
 - Server 实机验收可创建一个 URL 指向 `http://169.254.169.254/latest/meta-data` 的 Streamable HTTP MCP Agent，再调用 `POST /v1/agents/{agent_id}/tooling-health`。预期返回 `configuration_error` 和 reason-only `mcp egress policy blocked request (http_not_allowed)`，响应中不能出现目标 IP/path；同一响应的 `mcp_http_host.egress_blocked_total` 及 `/metrics` 的 `tma_mcp_streamable_http_host_egress_blocked_total` 必须立即增加。
 - egress block callback 单测只允许输出固定 reason；Server 日志应出现 `mcp_http_egress_blocked reason=http_not_allowed`，不得包含被阻断 URL、host、IP、CIDR、header 或 OAuth 内容。
 - `internal/tools` 单测会校验 `LoadMCPRuntime` 生成 runtime-scoped resolved client snapshot；同一个 `MCPRuntime.Execute` 不会在后续工具调用中重新解析 `env_ref`，避免同一 runtime 内 MCP 配置漂移。环境变量或 secret 轮换需要重新加载 Agent config / runtime。
@@ -1607,8 +1607,8 @@ go test ./internal/mcp \
 go test ./internal/httpapi \
   -run TestMCPRegistryRuntimeStatusIsWorkspaceScopedAndFiltersUnknownServers \
   -count=3
-npm --prefix web-app test
-npm --prefix web-app run build
+npm --prefix apps/workbench test
+npm --prefix apps/workbench run build
 ```
 
 覆盖点：
@@ -1651,9 +1651,9 @@ make verify-mcp-registry
 注册表与固定版本 binding 的聚焦回归：
 
 ```bash
-go test ./internal/mcpregistry ./internal/httpapi ./internal/managedagents ./internal/runner ./cmd/server -count=1
+go test ./internal/mcpregistry ./internal/httpapi ./internal/managedagents ./internal/runner ./cmd/tma-server -count=1
 go test -race ./internal/mcpregistry ./internal/httpapi -count=1
-npm --prefix web-app run build
+npm --prefix apps/workbench run build
 ```
 
 覆盖点：

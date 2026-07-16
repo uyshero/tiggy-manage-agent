@@ -246,7 +246,7 @@ func (s agentToolService) Wait(ctx context.Context, request tools.AgentWaitReque
 		if status == managedagents.SessionStatusIdle || status == managedagents.SessionStatusFailed || status == managedagents.SessionStatusTerminated {
 			return response, nil
 		}
-		if returnOnWaitingApproval && status == managedagents.TurnStatusWaitingApproval {
+		if returnOnWaitingApproval && (status == managedagents.TurnStatusWaitingApproval || status == managedagents.TurnStatusWaitingHuman) {
 			return response, nil
 		}
 
@@ -833,7 +833,7 @@ func (s agentToolService) dispatchRunnerEvents(ctx context.Context, sessionID st
 
 func sessionDerivedStatus(session managedagents.Session, pending []managedagents.SessionIntervention) string {
 	if len(pending) > 0 {
-		return managedagents.TurnStatusWaitingApproval
+		return managedagents.PendingInterventionTurnStatus(pending)
 	}
 	return session.Status
 }
@@ -1251,7 +1251,8 @@ func taskGroupHasOutstandingItems(state taskGroupState) bool {
 		case managedagents.SubagentTaskGroupItemStateCreated,
 			managedagents.SubagentTaskGroupItemStateQueued,
 			managedagents.SessionStatusRunning,
-			managedagents.TurnStatusWaitingApproval:
+			managedagents.TurnStatusWaitingApproval,
+			managedagents.TurnStatusWaitingHuman:
 			return true
 		}
 	}
@@ -1377,7 +1378,7 @@ func (s agentToolService) taskGroupItemState(ctx context.Context, parentSession 
 	case state.QueueRequest != nil:
 		state.Status = managedagents.SubagentTaskGroupItemStateQueued
 	case len(pending) > 0:
-		state.Status = managedagents.TurnStatusWaitingApproval
+		state.Status = managedagents.PendingInterventionTurnStatus(pending)
 	case session.Status == managedagents.SessionStatusIdle && state.LastTurnStatus == managedagents.TurnStatusCompleted:
 		state.Status = managedagents.TurnStatusCompleted
 	case session.Status == managedagents.SessionStatusIdle && state.LastTurnStatus == managedagents.TurnStatusFailed:
@@ -1577,7 +1578,7 @@ func evaluateTaskGroup(group managedagents.SubagentTaskGroup, items []tools.Agen
 			summary.Terminal++
 		case managedagents.SubagentTaskGroupItemStateQueued:
 			summary.Queued++
-		case managedagents.TurnStatusWaitingApproval:
+		case managedagents.TurnStatusWaitingApproval, managedagents.TurnStatusWaitingHuman:
 			summary.Waiting++
 		default:
 			summary.Running++

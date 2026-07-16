@@ -160,8 +160,14 @@ func IsSegmentedFilePlaceholder(value string) bool {
 // the plain text because escaping also consumes model output tokens.
 func EstimateFileMutationTokens(value string) int {
 	encoded, _ := json.Marshal(value)
-	estimated := estimateSerializedTextTokens(string(encoded))
-	byteEstimate := (len(encoded) + 2) / 3
+	return EstimateSerializedFileMutationTokens(string(encoded))
+}
+
+// EstimateSerializedFileMutationTokens handles an in-progress JSON argument
+// stream that is already serialized and must not be escaped a second time.
+func EstimateSerializedFileMutationTokens(value string) int {
+	estimated := estimateSerializedTextTokens(value)
+	byteEstimate := (len(value) + 2) / 3
 	if byteEstimate > estimated {
 		return byteEstimate
 	}

@@ -1,6 +1,0 @@
-{"time":"2026-07-09T19:47:31.894473+08:00","level":"INFO","msg":"worker registered","worker_id":"wrk_000019","workspace_id":"wksp_default","worker_type":"local"}
-{"time":"2026-07-09T19:47:31.898073+08:00","level":"INFO","msg":"worker heartbeat","worker_id":"wrk_000019"}
-{"time":"2026-07-09T19:47:32.909162+08:00","level":"INFO","msg":"worker work received","worker_id":"wrk_000019","work_id":"work_000015","work_type":"tool_execution","session_id":"sesn_000080","turn_id":"turn_000001"}
-{"time":"2026-07-09T19:47:32.913267+08:00","level":"INFO","msg":"worker work acknowledged","worker_id":"wrk_000019","work_id":"work_000015"}
-{"time":"2026-07-09T19:47:32.92701+08:00","level":"INFO","msg":"worker work completed","worker_id":"wrk_000019","work_id":"work_000015","status":"completed"}
-{"time":"2026-07-09T19:47:33.974071+08:00","level":"INFO","msg":"worker stopped","worker_id":"wrk_000019"}
