@@ -346,21 +346,23 @@ async function main() {
       `
     });
     await cdp.send("Page.navigate", { url: `${baseURL}/inspector` });
-    await waitFor(cdp, `Boolean(document.querySelector("#traceCatalog"))`, "Inspector root");
-    await waitFor(cdp, `document.querySelectorAll("#traceCatalog .turn-item").length >= 20`, "initial trace page");
-    await waitFor(cdp, `Boolean(document.querySelector("#moreTraces"))`, "trace load more button");
-    const traceCountBefore = await cdp.eval(`document.querySelectorAll("#traceCatalog .turn-item").length`);
-    await cdp.eval(`document.querySelector("#moreTraces").click(); true`);
-    await waitFor(cdp, `document.querySelectorAll("#traceCatalog .turn-item").length > ${traceCountBefore}`, "trace load more append");
-
+    await waitFor(cdp, `document.querySelectorAll("#agent option").length > 1`, "Agent catalog");
     await cdp.eval(`(() => {
-      const input = document.querySelector("#session");
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-      setter.call(input, ${JSON.stringify(featured.session.id)});
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      document.querySelector("#filterTraces").click();
+      const agentSelect = document.querySelector("#agent");
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setter.call(agentSelect, ${JSON.stringify(agent.id)});
+      agentSelect.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
     })()`);
+    await waitFor(cdp, `document.querySelectorAll("#session option").length >= 26`, "Agent Session catalog");
+    await cdp.eval(`(() => {
+      const sessionSelect = document.querySelector("#session");
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setter.call(sessionSelect, ${JSON.stringify(featured.session.id)});
+      sessionSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+    await waitFor(cdp, `document.querySelectorAll("#traceCatalog .turn-item").length === 1`, "Session Trace catalog");
     await waitFor(cdp, `document.querySelectorAll("#spanCatalog .turn-item").length >= 20`, "filtered span page");
     await waitFor(cdp, `Boolean(document.querySelector("#moreSpans"))`, "span load more button");
     const spanCountBefore = await cdp.eval(`document.querySelectorAll("#spanCatalog .turn-item").length`);

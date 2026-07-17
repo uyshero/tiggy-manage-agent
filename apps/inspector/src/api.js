@@ -47,6 +47,16 @@ export function trace(sessionId, turnId, format, options = {}) {
     : coreSDK.traces.getSession(sessionId, turnId || undefined, options.signal);
 }
 
+export async function agents(options = {}) {
+  return { agents: await coreSDK.agents.list(options.signal) };
+}
+
+export async function sessions(options = {}) {
+  return {
+    sessions: await coreSDK.sessions.list({ limit: 100, includeArchived: true }, options.signal)
+  };
+}
+
 export function createAgent(body) {
   return postJSON("/v1/agents", body);
 }

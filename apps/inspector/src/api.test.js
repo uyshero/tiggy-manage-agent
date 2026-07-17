@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  agents,
   artifactDownloadPath,
   artifacts,
   approveIntervention,
@@ -10,6 +11,7 @@ import {
   observabilityStatus,
   rejectIntervention,
   session,
+  sessions,
   summary,
   taskPlans,
   spanByID,
@@ -19,6 +21,31 @@ import {
   traceCatalog,
   usage
 } from "./api.js";
+
+test("Inspector selection catalogs use v2 Agent and Session SDK services", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (path, options) => {
+    const url = String(path);
+    calls.push({ url, options });
+    if (url.endsWith("/v2/agents")) return { ok: true, json: async () => ({ agents: [{ id: "agent/1" }] }) };
+    return { ok: true, json: async () => ({ sessions: [{ id: "session/1", agent_id: "agent/1" }] }) };
+  };
+  try {
+    const controller = new AbortController();
+    const agentCatalog = await agents({ signal: controller.signal });
+    const sessionCatalog = await sessions({ signal: controller.signal });
+    assert.equal(agentCatalog.agents[0].id, "agent/1");
+    assert.equal(sessionCatalog.sessions[0].agent_id, "agent/1");
+    assert.deepEqual(calls.map((call) => call.url), [
+      "http://localhost/v2/agents",
+      "http://localhost/v2/sessions?include_archived=true&limit=100"
+    ]);
+    assert.equal(calls.every((call) => call.options.signal === controller.signal), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("events requests only records after the supplied sequence", async () => {
   const originalFetch = globalThis.fetch;

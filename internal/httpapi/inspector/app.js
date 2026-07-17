@@ -15425,6 +15425,14 @@ async function getBlob(path) {
 function trace(sessionId, turnId, format, options = {}) {
   return format ? coreSDK.traces.exportSession(sessionId, format, turnId || void 0, options.signal) : coreSDK.traces.getSession(sessionId, turnId || void 0, options.signal);
 }
+async function agents(options = {}) {
+  return { agents: await coreSDK.agents.list(options.signal) };
+}
+async function sessions(options = {}) {
+  return {
+    sessions: await coreSDK.sessions.list({ limit: 100, includeArchived: true }, options.signal)
+  };
+}
 function createAgent(body) {
   return postJSON("/v1/agents", body);
 }
@@ -15531,6 +15539,7 @@ function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) 
 }
 const inspectorAPI = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
+  agents,
   approveIntervention,
   artifactDownloadPath,
   artifacts,
@@ -15551,6 +15560,7 @@ const inspectorAPI = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.define
   retryObservability,
   sendSessionMessage,
   session,
+  sessions,
   spanByID,
   spanCatalog,
   summary,
@@ -15932,7 +15942,7 @@ const {
 } = utils;
 const catalogPageSize = 20;
 const artifactPreviewTextLimit = 10240;
-const inspectorManualMarkdown = '# TMA Inspector 用户使用手册\n\n本文档面向使用 TMA Inspector 排查 Agent 执行过程的开发、测试和运维人员。Inspector 是 TMA Server 内置的观测与调试页面，用于查看 Session、Turn、Trace、Span、上下文、工具调用、审批、制品和导出器状态。\n\n> Inspector 当前是专家调试页面，不是面向最终用户的聊天界面。页面包含原始事件、工具参数和运行时元数据，不应直接暴露到公网。\n\n## 1. 功能概览\n\nInspector 支持以下操作：\n\n- 按 Session、Turn 或 Trace ID 定位一次执行；\n- 搜索近期 Trace 和跨 Session Span；\n- 查看 Trace 概览、关键路径、Span 瀑布图和时间线；\n- 查看 Session 摘要、Plan 历史、Token 用量和上下文预算；\n- 区分 MCP、Worker Plugin 和 Builtin 工具事件；\n- 审批或拒绝等待中的工具调用；\n- 预览、下载 Session 制品并复制 CLI 下载命令；\n- 查看 Prometheus 指标、Exporter 状态和原始导出数据；\n- 导出 Trace JSON、Perfetto JSON 或 OTel JSON；\n- 通过 URL Hash 分享 Session、Turn、Trace 和 Span 深链。\n\n### 1.1 Session、Turn、Trace 与 Span\n\n这四个概念描述的是不同层级，不是同一对象的不同名称：\n\n```text\nSession：一项持续任务或一段连续会话\n├── Turn 1：一次用户输入到 Agent 本轮结束\n│   └── Trace 1：Turn 1 的完整执行轨迹\n│       ├── Span：本轮整体执行\n│       ├── Span：LLM 请求\n│       ├── Span：工具调用\n│       └── Span：审批等待\n├── Turn 2\n│   └── Trace 2\n└── Session 级摘要、制品、用量和有序事件\n```\n\n#### Session\n\n`Session` 是持续时间最长的任务容器，可理解为“一项任务”或“一段连续对话”。它绑定 Agent、Environment 和运行设置，并保存跨 Turn 共用的数据：\n\n- 有序事件历史；\n- Session 摘要；\n- Plan/Todo 当前状态和历史版本；\n- LLM 用量记录；\n- 制品；\n- 等待中的人工审批；\n- Session 状态和运行配置。\n\n同一个 Session 可以先后执行多个 Turn。Inspector 中的 Session ID 通常以 `sesn_` 开头。\n\n#### Turn\n\n`Turn` 是 Session 中的一轮执行：通常从一次用户输入开始，到 Agent 给出本轮响应、失败或进入等待状态结束。工具调用、LLM 多轮推理和审批后的 continuation 都可以发生在同一个 Turn 内。\n\nTurn 有独立的 ID、状态、开始/结束时间和用量。切换 Turn 可以比较同一任务不同轮次的行为，但不会切换到另一个 Session。\n\n#### Trace\n\n`Trace` 是一个 Turn 的完整可观测执行轨迹。它把本轮的事件投影成便于分析的时间线、统计、调用图和 Span 树。\n\n在 TMA 中，`session_events` 是持久化事实源，Trace 是从这些事件生成的观测视图。因此 Trace 不是另一次执行，也不会改变 Agent 状态。Trace 可以导出为 TMA JSON、Perfetto JSON 或 OTel JSON。\n\n通常一个 Turn 对应一条 Trace。使用 Trace ID 可以直接反查所属 Session 和 Turn。\n\n#### Span\n\n`Span` 是 Trace 中一个有起止时间的执行单元，例如一次 LLM 请求、一次工具调用、一次审批等待或一次上下文压缩。Span 可以包含子 Span，从而形成调用树。\n\n常用字段：\n\n- `kind`：操作类别，例如 `llm`、`tool`、`approval`；\n- `status`：`ok`、`error`、`open` 等状态；\n- `duration_ms`：Span 总耗时，包含子 Span；\n- `self_duration_ms`：扣除子 Span 后自身占用的时间；\n- `parent_span_id` / `child_span_ids`：父子关系；\n- `critical`：是否位于决定 Turn 总耗时的关键路径；\n- `events` / `attributes`：Span 内事件和诊断属性。\n\n关键路径 Span 不一定失败，它表示该 Span 的耗时会直接影响整条 Trace 的完成时间。\n\n#### Event 与 Timeline Step\n\n`Event` 是 Session 中按 `seq` 单调排序的持久化事实，例如用户消息、LLM 请求、工具结果和运行完成。Inspector 的 `Recent Events` 展示原始事件。\n\n`Timeline Step` 是 Trace 为人类阅读而生成的事件投影，可能提取消息、工具、结果和制品摘要。一个 Step 不等于一个 Span：Step 侧重“发生了什么”，Span 侧重“这段操作持续多久、与其他操作是什么关系”。\n\n## 2. 启动与访问\n\n### 2.1 前置条件\n\n本地使用需要：\n\n- Go；\n- Docker 和 Docker Compose；\n- 可用的 Postgres；\n- 仅在重新构建 Inspector 前端时需要 Node.js 和 npm。\n\n### 2.2 启动 TMA Server\n\n在项目根目录执行：\n\n```bash\nmake db-up\nmake migrate-up\nmake run\n```\n\n默认服务地址为 `http://localhost:8080`。先检查服务健康状态：\n\n```bash\ncurl http://localhost:8080/health\n```\n\n预期返回：\n\n```json\n{"status":"ok","service":"tiggy-manage-agent"}\n```\n\n也可以后台启动：\n\n```bash\nmake server-start\nmake server-status\n```\n\n停止后台服务：\n\n```bash\nmake server-stop\n```\n\n### 2.3 打开 Inspector\n\n浏览器访问：\n\n```text\nhttp://localhost:8080/inspector\n```\n\nInspector 静态资源嵌入在 TMA Server 中，不需要单独启动前端服务。\n\n如修改了 `apps/inspector/src` 下的前端源码，需重新构建并重启 Server：\n\n```bash\nmake build-inspector-ui\nmake server-restart\n```\n\n## 3. 界面结构\n\n页面分为左侧检索区和右侧详情区。\n\n### 3.1 左侧检索区\n\n| 区域 | 用途 |\n| --- | --- |\n| Query | 输入 Session、Trace ID，选择 Turn 和导出格式 |\n| Recent Traces | 浏览近期 Trace，可按当前 Session 和 Turn 筛选 |\n| Span Search | 跨 Trace 搜索 Span |\n| Turns | 查看当前 Session 下的 Turn 并切换 |\n\n### 3.2 右侧详情区\n\n| 区域 | 用途 |\n| --- | --- |\n| Overview | 显示 Turn、耗时、Step、Span、工具、MCP 和错误数量 |\n| Session | Session 状态、Agent、Environment、创建信息和运行设置 |\n| Trace Summary | Trace 状态、步骤统计及执行摘要 |\n| Context Summary | 已持久化的 Session 上下文摘要 |\n| Usage | LLM 调用、Token 和延迟统计 |\n| Plan History | 按最新优先查看 Plan 状态、步骤进度和完成证据 |\n| Context Coverage | 摘要已覆盖和尚未汇总的事件范围 |\n| Context Budget | 上下文窗口、输入、工具 Schema、固定上下文和输出预留预算 |\n| Tool Sources | 按 MCP、Worker Plugin、Builtin 过滤工具事件 |\n| Waterfall | Span 的起止时间、层级、耗时和关键路径 |\n| Spans | 当前 Trace 内 Span 的筛选、详情、事件和属性 |\n| Timeline | 按事件序号显示执行步骤 |\n| Pending Approvals | 审批或拒绝待执行工具调用 |\n| Artifacts | 预览、下载制品或复制 CLI 命令 |\n| Recent Events | 查看最近 18 条 Session 原始事件 |\n| Metrics | 当前 Session/Turn 的 Prometheus 文本指标 |\n| Exporters | Perfetto、OTLP、采样和重试状态 |\n| Raw Export | 当前 Trace 或所选格式的原始 JSON |\n\n## 4. 快速定位一次执行\n\n### 4.1 使用 Session ID\n\n1. 在 `Session` 输入框填入 Session ID，例如 `sesn_000001`。\n2. 单击 `Load`。\n3. 默认加载该 Session 最新 Turn。\n4. 在 `Turn` 下拉框或左侧 `Turns` 列表中切换历史 Turn。\n\n注意：在 Session 输入框按回车只会执行 `Filter by Session`，刷新左侧 Trace/Span 目录，不会加载右侧详情。要加载完整详情，请单击 `Load`。\n\nSession ID 可从 Workbench、CLI 输出、API 响应或服务端日志中获得。\n\n### 4.2 使用 Trace ID\n\n1. 在 `Trace ID` 输入框填入 Trace ID。\n2. 单击 `Load Trace`，或在输入框按回车。\n3. Inspector 会自动回填对应的 Session 和 Turn，并加载完整详情。\n\n也可以直接单击 `Recent Traces` 中的记录。\n\n### 4.3 使用 Recent Traces\n\n- 初次打开页面会加载最近 20 条 Trace；\n- `Filter by Session` 使用 Query 中的 Session/Turn 筛选目录；\n- `Clear` 清空当前定位并恢复近期目录；\n- 出现 `Load more` 时可继续加载下一页，每页 20 条；\n- 每条记录显示 Turn 状态、Session 标题、耗时、Span 数量和摘要。\n\n分页使用 Server 返回的不透明 cursor。Inspector 不根据当前条数计算 offset；修改 Session、Turn 或筛选条件后会重新从第一页开始查询。\n\n### 4.4 自动刷新\n\n勾选 `Auto refresh every 5s` 后，只要已填写 Session ID，Inspector 每 5 秒重新加载当前 Session/Turn 的详情。上一轮请求尚未完成时不会启动重叠请求；页面进入后台时暂停，重新回到页面后立即补一次刷新；Turn 进入 `completed`、`failed`、`canceled` 或 `terminated` 终态后自动关闭。\n\n自动刷新期间，Events 使用最后收到的 `seq` 作为 `after_seq` 增量读取，并在浏览器中按序号去重合并。手动加载或切换 Session 时仍会执行一次完整读取，确保本地事件状态正确。\n\nInspector 的 Session、Trace/Span、Events、Usage、Summary、Plan History、Artifacts、Interventions 和 Observability 只读请求通过 TypeScript Core SDK 访问 `/v2`，并共享同一个取消信号。Artifact Preview 使用 SDK 下载，普通 Download 链接指向同一 `/v2` 资源。Approve/Reject 也通过 SDK 的 Interventions 服务提交到 `/v2`；Metrics 继续使用 Prometheus 接口。\n\n适用场景：\n\n- 观察运行中的 Turn；\n- 等待工具调用完成；\n- 等待审批后的 continuation；\n- 查看新产生的事件或制品。\n\n排查完成后建议关闭自动刷新，减少数据库和 Trace 投影请求。\n\n## 5. Trace 与 Span 分析\n\n### 5.1 先看 Overview 和 Trace Summary\n\n建议先确认：\n\n- Turn 状态是否为 `completed`、`failed`、`running` 或等待状态；\n- `Duration` 是否异常；\n- `Errors` 是否大于 0；\n- `Tools` 和 approval waits 是否符合预期；\n- Trace Summary 是否已经指出失败步骤或关键工具。\n\n### 5.2 使用 Waterfall 定位慢步骤\n\nWaterfall 以整次 Turn 时长为横轴显示 Span：\n\n- 横条越长，Span 耗时越长；\n- 缩进表示父子层级；\n- `critical` 样式表示 Span 位于关键路径；\n- error/failed/rejected 状态会突出显示；\n- 单击一行会同步选中下方 Span 详情。\n\n优先检查关键路径上耗时最长或状态异常的 Span，再结合 Timeline 和 Attributes 确认原因。\n\n### 5.3 筛选当前 Trace 内的 Span\n\n`Spans` 面板提供两个过滤条件：\n\n- `Filter`：匹配 Span 名称、ID、父 Span ID、Kind、Status、Attribute 和 Event；\n- `Kind`：只保留当前 Trace 中指定类型的 Span。\n\n单击 `Clear` 清除这两个过滤条件。单击表格行可查看该 Span 的：\n\n- 状态、耗时和事件序号范围；\n- 父 Span 和子 Span；\n- Span Events；\n- Attributes。\n\nSpan 详情中的子 Span ID 可直接单击跳转。\n\n### 5.4 跨 Trace 搜索 Span\n\n左侧 `Span Search` 用于跨 Session/Trace 排查同类问题，支持：\n\n- 关键字：名称、ID 或 Attribute；\n- Kind：`interaction`、`llm`、`tool`、`approval`、`context`、`event`；\n- Status：例如 `ok`、`error`、`open`；\n- Critical：是否位于关键路径；\n- Min Duration：最小耗时，单位毫秒。\n\n单击 `Search Spans` 执行搜索。结果顶部显示当前已加载页面的 Kind、Status 和 Critical 聚合数量；继续加载时会累加新页统计。单击结果会加载对应 Trace 并定位 Span。\n\n### 5.5 阅读 Timeline\n\nTimeline 按 Session Event 的 `seq` 顺序展示执行过程，常见类型包括：\n\n- `runtime.llm_request` / `runtime.llm_response`：模型请求与响应；\n- `runtime.tool_call` / `runtime.tool_result`：工具调用与结果；\n- `runtime.tool_intervention_required`：等待人工审批；\n- `runtime.context_compacting` / `runtime.context_compacted`：上下文压缩；\n- `runtime.completed` / `runtime.failed`：Turn 完成或失败。\n\n工具结果过大时，Timeline 会显示截断提示，包括原始字符数、可见字符数或被省略的状态字节数。截断仅影响页面预览；完整内容应通过关联 Artifact 下载。\n\n## 6. 工具来源筛选\n\n`Tool Sources` 按事件中的 `tool_source` 统计工具来源：\n\n- `MCP`：Agent 绑定的 MCP Server 工具；\n- `Worker Plugin`：由 Worker 进程插件提供的工具；\n- `Builtin`：TMA Server 内置工具；\n- `other`：存在来源但不属于上述类型的事件。\n\n单击 `All`、`MCP`、`Worker Plugin` 或 `Builtin` 可过滤 `Timeline` 和 `Recent Events`。该筛选不会改变 Waterfall、Span 表或 Usage。\n\n当工具来源为 `MCP` 时，Timeline 和 Recent Events 会额外显示 MCP 诊断 badge，包括 transport、MCP protocol version、server capabilities、tool count、OAuth、SSE listener、resources/prompts expose 等非敏感信息。这些信息来自 `runtime.tool_call` / `runtime.tool_result` 事件里的 `mcp_*` metadata，不包含 MCP endpoint URL、headers、client secret、access token 或原始 OAuth response body。\n\n`MCP Protocol` 面板会把同一 call ID 的 `runtime.tool_call` 与 `runtime.tool_result` 配对为一次协议操作，并展示：\n\n- `tools/call`、`resources/list`、`resources/templates/list`、`resources/read`、`prompts/list` 或 `prompts/get` 方法；\n- request / response event seq、时间、状态和执行耗时；\n- transport、protocol version、capabilities、tool count、OAuth / SSE / expose 等诊断事实；\n- result protocol、artifact 数量、截断状态、错误类型和脱敏后的 MCP result 摘要。\n\n重复 call ID 会按事件顺序逐个配对；只有 request 或只有 response 时会保留 pending / unpaired 操作，避免静默丢失不完整链路。面板不会读取或显示 arguments、endpoint、headers、error message、content text、resource body、prompt text 或 structured content value。\n\n对 `runtime.tool_result`，Inspector 还会读取 `state.protocol_version` 并展示 MCP 结果摘要：\n\n- `tma.mcp_result.v1`：显示 tool name、`is_error`、content item 数量、content type、structured content 是否存在和 meta key 数量。\n- `tma.mcp_context_result.v1`：按桥接类型显示 resource、resource template、resource content、prompt 或 prompt message 的脱敏数量与有限元数据。\n- `tma.mcp_context_result.v1`：显示 resources/prompts 桥接工具名称、resource/prompt/message 数量、mime type、text/blob item 数量和 prompt roles。\n\n摘要卡不会展开 MCP content text、resource body、prompt message text 或 structured_content 值；如需完整 payload，应在受控环境中查看 Recent Events 原始 JSON、Raw Export 或关联制品。\n\n## 7. 上下文、计划与用量\n\n### 7.1 Context Summary\n\n显示当前 Session 已持久化的摘要。摘要通常用于后续 Turn 的上下文续接，不等同于完整事件历史。\n\n### 7.2 Plan History\n\n`Plan History` 通过 Session 的持久化快照展示全部 Plan，按创建时间最新优先排列。顶部汇总 `active`、`completed`、`canceled` 和 `superseded` 数量，可按状态筛选。\n\n展开一条 Plan 可以查看 handling mode、创建/更新时间、关联 Turn，以及每个步骤的状态。完成步骤的 `Evidence` 是 Agent 标记完成时提交的验证依据；没有 evidence 的 pending、in_progress 或 blocked 步骤不会伪装成已完成。\n\n该面板是只读观测面，不用于批准计划，也不会修改 Plan 状态。计划批准应使用独立的 `plan_approval` 流程，不能用工具审批代替。\n\n### 7.3 Context Coverage\n\n重点字段：\n\n- `source_until_seq`：摘要已处理到的事件序号；\n- `latest event seq`：当前加载事件中的最大序号；\n- `covered events`：已被摘要覆盖的事件数；\n- `unsummarized events`：尚未进入摘要的事件数。\n\n面板最多展示最近 8 条未汇总事件。运行中的 Turn 存在少量未汇总事件通常是正常现象；Turn 完成很久后仍持续增加，需要检查 summary 刷新流程。\n\n### 7.4 Context Budget\n\n面板从最新携带 `context_budget` 的运行步骤中读取预算，常见字段包括：\n\n- `context_window_tokens`：模型上下文窗口；\n- `max_input_tokens`：允许的最大输入；\n- `message_tokens`：消息占用；\n- `tool_schema_tokens`：工具 Schema 占用；\n- `pinned_context_tokens`：固定上下文占用；\n- `reserved_output_tokens`：为模型输出预留的 Token。\n\n同时检查 `context_truncated`、`summary_included` 和 `pinned_context_included`。若没有携带上下文预算的事件，页面会显示 `No context budget loaded.`，不代表 Turn 一定异常。\n\n### 7.5 Usage\n\nUsage 显示调用记录数、总 Token 和累计延迟，并保留后端返回的完整 JSON。排查成本或配额问题时，应结合 Provider、Model、输入/输出 Token 和具体 Turn 查看。\n\n## 8. 审批工具调用\n\n当 Agent 使用 `request_approval` 干预模式且某个工具需要人工确认时，调用会出现在 `Pending Approvals`。\n\n审批前检查：\n\n1. 工具标识和 API 名称；\n2. `arguments` 中的命令、路径、网络目标和写入内容；\n3. Session 和 Turn 是否为预期任务；\n4. 操作是否可能删除数据、覆盖文件或调用外部系统。\n\n操作含义：\n\n- `Approve`：立即以固定原因 `approved from inspector` 批准调用，并继续执行；\n- `Reject`：弹出原因输入框，确认后拒绝调用，并让运行时按拒绝结果继续处理；\n- 取消 Reject 弹窗：不提交任何决定。\n\n> `Approve` 是有副作用的运行控制操作，不提供二次确认。不要在无法确认参数和执行环境时批准。\n\n提交后 Inspector 会重新加载当前 Session。若调用仍显示 pending，先关闭自动刷新并手动 `Load`；仍无变化时查看页面顶部状态、Recent Events 和服务端日志。\n\n## 9. 制品预览与下载\n\n`Artifacts` 面板列出当前 Session 的制品。每个制品提供：\n\n- `Preview`：在 `Artifact Preview` 面板内预览；\n- `Download`：在新窗口打开下载地址；\n- `Copy CLI`：复制等价的命令行下载命令。\n\n命令格式：\n\n```bash\nbin/tma session artifact download \\\n  --session SESSION_ID \\\n  --artifact ARTIFACT_ID \\\n  --output OUTPUT_PATH\n```\n\n内联预览规则：\n\n- 图片：直接显示；\n- JSON、文本、XML、YAML：以文本显示，JSON 会格式化；\n- 文本超过 10,240 字符：只显示前 10,240 字符并标记截断；\n- 其他二进制格式：只显示 MIME、大小和地址，需下载查看。\n\nTimeline 中关联的制品也提供相同的 Preview、Download 和 Copy CLI 操作。\n\n## 10. 导出 Trace\n\n在 Query 中选择 `Export Format`：\n\n- `Trace JSON`：TMA 原生 Trace 投影，适合程序分析和问题归档；\n- `Perfetto JSON`：可导入 Perfetto 查看时间轴；\n- `OTel JSON`：OpenTelemetry 风格数据，适合 Collector 或观测系统接入。\n\n操作：\n\n- `Preview Export`：将所选格式加载到 `Raw Export`；\n- `Download`：下载 JSON 文件，文件名为 `<session>-<turn>-<format>.json`。\n\nPerfetto 使用方式：\n\n1. 下载 `perfetto` 格式；\n2. 打开 `https://ui.perfetto.dev`；\n3. 选择 `Open trace file` 并导入下载的 JSON。\n\n也可以使用 CLI：\n\n```bash\nbin/tma trace show --session SESSION_ID --turn TURN_ID\n\nbin/tma trace export \\\n  --session SESSION_ID \\\n  --turn TURN_ID \\\n  --format perfetto \\\n  --output trace.json\n```\n\n## 11. Metrics 与 Exporters\n\n### 11.1 Metrics\n\n`Metrics` 面板展示 `/metrics?session_id=...&turn_id=...` 返回的 Prometheus 文本。可用于确认：\n\n- Trace、Span、工具和审批数量；\n- LLM Usage；\n- Exporter 是否启用及最近尝试状态；\n- 当前服务进程可见的 Worker 与运行时指标。\n\n### 11.2 Exporters\n\n`Exporters` 面板显示：\n\n- Sampling 是否启用及采样率；\n- 自动重试是否启用、最大次数和近期待重试数；\n- Perfetto 目的地和最近成功/失败/尝试；\n- OTLP HTTP 目的地、Token 是否已配置和最近状态；\n- 最近 5 条持久化 Exporter Run。\n\n`Retry due exporters` 只重试已到期且符合重试条件的失败任务，不会无条件重放所有导出。\n\n如果 Server 配置了 `TMA_WORKER_CONTROL_AUTH_TOKEN`，该重试 API 需要 Bearer Token，而当前 Inspector 页面不会附加控制面 Token。此时请使用 CLI：\n\n```bash\nbin/tma \\\n  --base-url http://localhost:8080 \\\n  --auth-token "$TMA_WORKER_CONTROL_AUTH_TOKEN" \\\n  observability retry\n```\n\n只读的 Exporter 状态仍可在 Inspector 中查看。\n\n## 12. 深链与分享\n\nInspector 会把当前定位同步到 URL Hash：\n\n```text\nhttp://localhost:8080/inspector#session=SESSION_ID&turn=TURN_ID&trace=TRACE_ID&span=SPAN_ID\n```\n\n支持参数：\n\n- `session`：Session ID；\n- `turn`：Turn ID；\n- `trace`：Trace ID；\n- `span`：Span ID。\n\n打开深链后，Inspector 优先按 Trace ID 加载；只有 Session 时加载指定或最新 Turn。单击 Waterfall/Span 会更新 `span` 参数，便于分享精确位置。\n\n分享前注意：\n\n- URL 本身不包含页面数据，但 ID 可能属于内部运行标识；\n- 接收者必须能访问同一个 TMA Server；\n- 不要把包含生产 Session ID 的链接发到公开渠道；\n- 页面没有冻结快照，后端数据变化后同一链接的展示也可能变化。\n\n## 13. 常见排查流程\n\n### 13.1 Turn 失败\n\n1. 加载 Session 和失败 Turn；\n2. 查看 Overview 的 Errors 和 Trace Summary；\n3. 在 Waterfall 中定位 error/failed Span；\n4. 查看 Span Events 和 Attributes；\n5. 在 Timeline 中找到对应 `runtime.tool_result` 或 `runtime.failed`；\n6. 查看 Recent Events 的完整 payload；\n7. 需要归档时下载 Trace JSON。\n\n### 13.2 Turn 一直运行\n\n1. 开启 5 秒自动刷新；\n2. 查看 Pending Approvals 是否有待处理调用；\n3. 查看 Timeline 最后一条事件；\n4. 检查关键路径上的 open Span；\n5. 查看 Context 是否正在 compacting；\n6. 检查 Worker、Server 日志和相关 Exporter/工具状态。\n\n### 13.3 工具调用很慢\n\n1. 在 Span Search 中选择 `tool` 并设置最小耗时；\n2. 打开命中结果；\n3. 对照 Waterfall 的关键路径；\n4. 查看工具来源是 MCP、Worker Plugin 还是 Builtin；\n5. 检查 Span Attributes、工具结果和外部依赖耗时。\n\n### 13.4 Token 使用异常\n\n1. 查看 Usage 的输入/输出 Token；\n2. 查看 Context Budget 的 message、tool schema 和 pinned context 分账；\n3. 检查 `context_truncated`；\n4. 查看 Context Coverage 是否有大量未汇总事件；\n5. 对照 Timeline 中上下文压缩事件。\n\n## 14. 常见问题\n\n### 页面无法打开\n\n检查：\n\n```bash\ncurl http://localhost:8080/health\ncurl -I http://localhost:8080/inspector\n```\n\n若服务未运行，执行 `make run` 或 `make server-start`。若修改过监听地址，使用实际的 `TMA_HTTP_ADDR` 对应端口。\n\n### 页面打开但没有 Recent Traces\n\n可能原因：\n\n- 数据库中还没有产生 Turn 事件；\n- 当前 Session/Turn 筛选条件没有命中；\n- 数据库迁移未完成；\n- Server 连接了另一套数据库。\n\n先点 `Clear`，再确认 `.env` 或 shell 中的 `TMA_DATABASE_URL`。\n\n### Load 后显示错误文本\n\n页面顶部状态会显示后端错误。常见原因包括 Session ID 不存在、Trace 尚未生成、数据库连接失败或接口返回非 2xx。结合浏览器 Network 面板和 `.tma-server.log` 排查。\n\n### 数据没有实时更新\n\nInspector 使用定时重新加载，不是 SSE 实时流。确认已勾选自动刷新且 Session ID 非空，或手动单击 `Load`。\n\n### Artifact 不能内联预览\n\n二进制格式不支持内联预览；文本大于 10,240 字符会截断。使用 `Download` 或 `Copy CLI` 获取完整文件。\n\n### Retry due exporters 返回 401\n\nServer 启用了控制面鉴权。当前 Inspector 不发送 Bearer Token，请使用带 `--auth-token` 的 `bin/tma observability retry`。\n\n### 某些面板显示 No data\n\nInspector 对 Usage、Summary、Artifacts、Events、Interventions、Metrics 和 Exporter Status 使用独立请求。某个面板无数据不一定代表整个 Trace 加载失败，也可能是该 Turn 没有产生对应记录或相关能力未启用。\n\n## 15. 安全与使用限制\n\n- Inspector 当前没有独立登录页或完整 RBAC；生产环境应由企业网关、VPN 或反向代理限制访问。\n- 页面可能展示工具参数、文件路径、提示词片段、事件 payload 和制品内容，应按内部敏感数据处理。\n- Approve/Reject 和 Exporter Retry 是写操作；共享屏幕或录屏时避免暴露敏感参数。\n- Inspector 的 Trace/Span 目录基于近期数据投影和索引，不应替代长期审计与告警系统。\n- Raw Export 和下载制品在离开 TMA 后不再受 TMA 访问边界保护，应存放在受控位置。\n\n## 16. 验证 Inspector\n\n静态页面与接口验收：\n\n```bash\nmake verify-inspector-ui\n```\n\n浏览器 Smoke Test：\n\n```bash\nmake verify-inspector-browser-smoke\n```\n\n第二个命令需要本机可用的 Chrome/Chromium 调试环境。两项验证都会构建 Inspector，并启动临时测试服务；详细失败原因可查看脚本输出和对应 `.verify-inspector-*.log`。\n\n更多接口和观测设计说明参见：\n\n- [Observability 设计与实现](./observability.md)\n- [API Reference](./api-reference.md)\n- [TMA Configuration](./configuration.md)\n';
+const inspectorManualMarkdown = '# TMA Inspector 用户使用手册\n\n本文档面向使用 TMA Inspector 排查 Agent 执行过程的开发、测试和运维人员。Inspector 是 TMA Server 内置的观测与调试页面，用于查看 Session、Turn、Trace、Span、上下文、工具调用、审批、制品和导出器状态。\n\n> Inspector 当前是专家调试页面，不是面向最终用户的聊天界面。页面包含原始事件、工具参数和运行时元数据，不应直接暴露到公网。\n\n## 1. 功能概览\n\nInspector 支持以下操作：\n\n- 按 Agent、Session、Trace 和 Turn 的层级定位一次执行；\n- 在当前 Session 内浏览 Trace 和搜索 Span；\n- 查看 Trace 概览、关键路径、Span 瀑布图和时间线；\n- 查看 Session 摘要、Plan 历史、Token 用量和上下文预算；\n- 区分 MCP、Worker Plugin 和 Builtin 工具事件；\n- 审批或拒绝等待中的工具调用；\n- 预览、下载 Session 制品并复制 CLI 下载命令；\n- 查看 Prometheus 指标、Exporter 状态和原始导出数据；\n- 导出 Trace JSON、Perfetto JSON 或 OTel JSON；\n- 通过 URL Hash 分享 Session、Turn、Trace 和 Span 深链。\n\n### 1.1 Session、Turn、Trace 与 Span\n\n这四个概念描述的是不同层级，不是同一对象的不同名称：\n\n```text\nSession：一项持续任务或一段连续会话\n├── Turn 1：一次用户输入到 Agent 本轮结束\n│   └── Trace 1：Turn 1 的完整执行轨迹\n│       ├── Span：本轮整体执行\n│       ├── Span：LLM 请求\n│       ├── Span：工具调用\n│       └── Span：审批等待\n├── Turn 2\n│   └── Trace 2\n└── Session 级摘要、制品、用量和有序事件\n```\n\n#### Session\n\n`Session` 是持续时间最长的任务容器，可理解为“一项任务”或“一段连续对话”。它绑定 Agent、Environment 和运行设置，并保存跨 Turn 共用的数据：\n\n- 有序事件历史；\n- Session 摘要；\n- Plan/Todo 当前状态和历史版本；\n- LLM 用量记录；\n- 制品；\n- 等待中的人工审批；\n- Session 状态和运行配置。\n\n同一个 Session 可以先后执行多个 Turn。Inspector 中的 Session ID 通常以 `sesn_` 开头。\n\n#### Turn\n\n`Turn` 是 Session 中的一轮执行：通常从一次用户输入开始，到 Agent 给出本轮响应、失败或进入等待状态结束。工具调用、LLM 多轮推理和审批后的 continuation 都可以发生在同一个 Turn 内。\n\nTurn 有独立的 ID、状态、开始/结束时间和用量。切换 Turn 可以比较同一任务不同轮次的行为，但不会切换到另一个 Session。\n\n#### Trace\n\n`Trace` 是一个 Turn 的完整可观测执行轨迹。它把本轮的事件投影成便于分析的时间线、统计、调用图和 Span 树。\n\n在 TMA 中，`session_events` 是持久化事实源，Trace 是从这些事件生成的观测视图。因此 Trace 不是另一次执行，也不会改变 Agent 状态。Trace 可以导出为 TMA JSON、Perfetto JSON 或 OTel JSON。\n\n通常一个 Turn 对应一条 Trace。使用 Trace ID 可以直接反查所属 Session 和 Turn。\n\n#### Span\n\n`Span` 是 Trace 中一个有起止时间的执行单元，例如一次 LLM 请求、一次工具调用、一次审批等待或一次上下文压缩。Span 可以包含子 Span，从而形成调用树。\n\n常用字段：\n\n- `kind`：操作类别，例如 `llm`、`tool`、`approval`；\n- `status`：`ok`、`error`、`open` 等状态；\n- `duration_ms`：Span 总耗时，包含子 Span；\n- `self_duration_ms`：扣除子 Span 后自身占用的时间；\n- `parent_span_id` / `child_span_ids`：父子关系；\n- `critical`：是否位于决定 Turn 总耗时的关键路径；\n- `events` / `attributes`：Span 内事件和诊断属性。\n\n关键路径 Span 不一定失败，它表示该 Span 的耗时会直接影响整条 Trace 的完成时间。\n\n#### Event 与 Timeline Step\n\n`Event` 是 Session 中按 `seq` 单调排序的持久化事实，例如用户消息、LLM 请求、工具结果和运行完成。Inspector 的 `Recent Events` 展示原始事件。\n\n`Timeline Step` 是 Trace 为人类阅读而生成的事件投影，可能提取消息、工具、结果和制品摘要。一个 Step 不等于一个 Span：Step 侧重“发生了什么”，Span 侧重“这段操作持续多久、与其他操作是什么关系”。\n\n## 2. 启动与访问\n\n### 2.1 前置条件\n\n本地使用需要：\n\n- Go；\n- Docker 和 Docker Compose；\n- 可用的 Postgres；\n- 仅在重新构建 Inspector 前端时需要 Node.js 和 npm。\n\n### 2.2 启动 TMA Server\n\n在项目根目录执行：\n\n```bash\nmake db-up\nmake migrate-up\nmake run\n```\n\n默认服务地址为 `http://localhost:8080`。先检查服务健康状态：\n\n```bash\ncurl http://localhost:8080/health\n```\n\n预期返回：\n\n```json\n{"status":"ok","service":"tiggy-manage-agent"}\n```\n\n也可以后台启动：\n\n```bash\nmake server-start\nmake server-status\n```\n\n停止后台服务：\n\n```bash\nmake server-stop\n```\n\n### 2.3 打开 Inspector\n\n浏览器访问：\n\n```text\nhttp://localhost:8080/inspector\n```\n\nInspector 静态资源嵌入在 TMA Server 中，不需要单独启动前端服务。\n\n如修改了 `apps/inspector/src` 下的前端源码，需重新构建并重启 Server：\n\n```bash\nmake build-inspector-ui\nmake server-restart\n```\n\n## 3. 界面结构\n\n页面分为左侧检索区和右侧详情区。\n\n### 3.1 左侧检索区\n\n| 区域 | 用途 |\n| --- | --- |\n| Query | 依次选择 Agent、Session、Trace，并选择 Turn 和导出格式 |\n| Session Traces | 浏览当前 Session 的 Trace |\n| Session Span Search | 在当前 Session 内跨 Trace 搜索 Span |\n| Turns | 查看当前 Session 下的 Turn 并切换 |\n\n### 3.2 右侧详情区\n\n| 区域 | 用途 |\n| --- | --- |\n| Overview | 显示 Turn、耗时、Step、Span、工具、MCP 和错误数量 |\n| Session | Session 状态、Agent、Environment、创建信息和运行设置 |\n| Trace Summary | Trace 状态、步骤统计及执行摘要 |\n| Context Summary | 已持久化的 Session 上下文摘要 |\n| Usage | LLM 调用、Token 和延迟统计 |\n| Plan History | 按最新优先查看 Plan 状态、步骤进度和完成证据 |\n| Context Coverage | 摘要已覆盖和尚未汇总的事件范围 |\n| Context Budget | 上下文窗口、输入、工具 Schema、固定上下文和输出预留预算 |\n| Tool Sources | 按 MCP、Worker Plugin、Builtin 过滤工具事件 |\n| Waterfall | Span 的起止时间、层级、耗时和关键路径 |\n| Spans | 当前 Trace 内 Span 的筛选、详情、事件和属性 |\n| Timeline | 按事件序号显示执行步骤 |\n| Pending Approvals | 审批或拒绝待执行工具调用 |\n| Artifacts | 预览、下载制品或复制 CLI 命令 |\n| Recent Events | 查看最近 18 条 Session 原始事件 |\n| Metrics | 当前 Session/Turn 的 Prometheus 文本指标 |\n| Exporters | Perfetto、OTLP、采样和重试状态 |\n| Raw Export | 当前 Trace 或所选格式的原始 JSON |\n\n## 4. 快速定位一次执行\n\n### 4.1 按 Agent 和 Session 定位\n\n1. 在 `1. Agent` 中选择智能体。\n2. 在 `2. Session` 中选择该智能体下的 Session。\n3. Inspector 自动加载该 Session 最新 Turn，并刷新 Session 范围内的 Trace 和 Span 目录。\n4. 在 `3. Trace`、`Turn` 下拉框或左侧 `Turns` 列表中切换具体执行。\n\n切换 Agent 会清空已选 Session 和右侧诊断结果，避免显示另一个 Agent 的旧 Trace。Session 下拉框只展示当前 Agent 的 Session，包含最近的归档记录。\n\n### 4.2 使用 Session Traces\n\n- `Session Traces` 只显示当前 Session 的 Trace；\n- `3. Trace` 下拉框和 Trace 列表使用相同的 Session 范围；\n- 出现 `Load more` 时可继续加载下一页，每页 20 条；\n- 每条记录显示 Turn 状态、Session 标题、耗时、Span 数量和摘要。\n\n分页使用 Server 返回的不透明 cursor。Inspector 不根据当前条数计算 offset；修改 Session 后会重新从第一页开始查询。\n\n### 4.3 深链接定位\n\n带 `session` 或 `trace` 参数的 Inspector 深链接仍可直接打开。页面会反查并回填所属 Agent、Session、Trace 和 Turn，然后按相同层级加载详情。\n\n### 4.4 自动刷新\n\n勾选 `Auto refresh every 5s` 后，只要已填写 Session ID，Inspector 每 5 秒重新加载当前 Session/Turn 的详情。上一轮请求尚未完成时不会启动重叠请求；页面进入后台时暂停，重新回到页面后立即补一次刷新；Turn 进入 `completed`、`failed`、`canceled` 或 `terminated` 终态后自动关闭。\n\n自动刷新期间，Events 使用最后收到的 `seq` 作为 `after_seq` 增量读取，并在浏览器中按序号去重合并。手动加载或切换 Session 时仍会执行一次完整读取，确保本地事件状态正确。\n\nInspector 的 Session、Trace/Span、Events、Usage、Summary、Plan History、Artifacts、Interventions 和 Observability 只读请求通过 TypeScript Core SDK 访问 `/v2`，并共享同一个取消信号。Artifact Preview 使用 SDK 下载，普通 Download 链接指向同一 `/v2` 资源。Approve/Reject 也通过 SDK 的 Interventions 服务提交到 `/v2`；Metrics 继续使用 Prometheus 接口。\n\n适用场景：\n\n- 观察运行中的 Turn；\n- 等待工具调用完成；\n- 等待审批后的 continuation；\n- 查看新产生的事件或制品。\n\n排查完成后建议关闭自动刷新，减少数据库和 Trace 投影请求。\n\n## 5. Trace 与 Span 分析\n\n### 5.1 先看 Overview 和 Trace Summary\n\n建议先确认：\n\n- Turn 状态是否为 `completed`、`failed`、`running` 或等待状态；\n- `Duration` 是否异常；\n- `Errors` 是否大于 0；\n- `Tools` 和 approval waits 是否符合预期；\n- Trace Summary 是否已经指出失败步骤或关键工具。\n\n### 5.2 使用 Waterfall 定位慢步骤\n\nWaterfall 以整次 Turn 时长为横轴显示 Span：\n\n- 横条越长，Span 耗时越长；\n- 缩进表示父子层级；\n- `critical` 样式表示 Span 位于关键路径；\n- error/failed/rejected 状态会突出显示；\n- 单击一行会同步选中下方 Span 详情。\n\n优先检查关键路径上耗时最长或状态异常的 Span，再结合 Timeline 和 Attributes 确认原因。\n\n### 5.3 筛选当前 Trace 内的 Span\n\n`Spans` 面板提供两个过滤条件：\n\n- `Filter`：匹配 Span 名称、ID、父 Span ID、Kind、Status、Attribute 和 Event；\n- `Kind`：只保留当前 Trace 中指定类型的 Span。\n\n单击 `Clear` 清除这两个过滤条件。单击表格行可查看该 Span 的：\n\n- 状态、耗时和事件序号范围；\n- 父 Span 和子 Span；\n- Span Events；\n- Attributes。\n\nSpan 详情中的子 Span ID 可直接单击跳转。\n\n### 5.4 在 Session 内搜索 Span\n\n左侧 `Session Span Search` 用于在当前 Session 的 Trace 中排查同类问题，支持：\n\n- 关键字：名称、ID 或 Attribute；\n- Kind：`interaction`、`llm`、`tool`、`approval`、`context`、`event`；\n- Status：例如 `ok`、`error`、`open`；\n- Critical：是否位于关键路径；\n- Min Duration：最小耗时，单位毫秒。\n\n单击 `Search Spans` 执行搜索。结果顶部显示当前已加载页面的 Kind、Status 和 Critical 聚合数量；继续加载时会累加新页统计。单击结果会加载对应 Trace 并定位 Span。\n\n### 5.5 阅读 Timeline\n\nTimeline 按 Session Event 的 `seq` 顺序展示执行过程，常见类型包括：\n\n- `runtime.llm_request` / `runtime.llm_response`：模型请求与响应；\n- `runtime.tool_call` / `runtime.tool_result`：工具调用与结果；\n- `runtime.tool_intervention_required`：等待人工审批；\n- `runtime.context_compacting` / `runtime.context_compacted`：上下文压缩；\n- `runtime.completed` / `runtime.failed`：Turn 完成或失败。\n\n工具结果过大时，Timeline 会显示截断提示，包括原始字符数、可见字符数或被省略的状态字节数。截断仅影响页面预览；完整内容应通过关联 Artifact 下载。\n\n## 6. 工具来源筛选\n\n`Tool Sources` 按事件中的 `tool_source` 统计工具来源：\n\n- `MCP`：Agent 绑定的 MCP Server 工具；\n- `Worker Plugin`：由 Worker 进程插件提供的工具；\n- `Builtin`：TMA Server 内置工具；\n- `other`：存在来源但不属于上述类型的事件。\n\n单击 `All`、`MCP`、`Worker Plugin` 或 `Builtin` 可过滤 `Timeline` 和 `Recent Events`。该筛选不会改变 Waterfall、Span 表或 Usage。\n\n当工具来源为 `MCP` 时，Timeline 和 Recent Events 会额外显示 MCP 诊断 badge，包括 transport、MCP protocol version、server capabilities、tool count、OAuth、SSE listener、resources/prompts expose 等非敏感信息。这些信息来自 `runtime.tool_call` / `runtime.tool_result` 事件里的 `mcp_*` metadata，不包含 MCP endpoint URL、headers、client secret、access token 或原始 OAuth response body。\n\n`MCP Protocol` 面板会把同一 call ID 的 `runtime.tool_call` 与 `runtime.tool_result` 配对为一次协议操作，并展示：\n\n- `tools/call`、`resources/list`、`resources/templates/list`、`resources/read`、`prompts/list` 或 `prompts/get` 方法；\n- request / response event seq、时间、状态和执行耗时；\n- transport、protocol version、capabilities、tool count、OAuth / SSE / expose 等诊断事实；\n- result protocol、artifact 数量、截断状态、错误类型和脱敏后的 MCP result 摘要。\n\n重复 call ID 会按事件顺序逐个配对；只有 request 或只有 response 时会保留 pending / unpaired 操作，避免静默丢失不完整链路。面板不会读取或显示 arguments、endpoint、headers、error message、content text、resource body、prompt text 或 structured content value。\n\n对 `runtime.tool_result`，Inspector 还会读取 `state.protocol_version` 并展示 MCP 结果摘要：\n\n- `tma.mcp_result.v1`：显示 tool name、`is_error`、content item 数量、content type、structured content 是否存在和 meta key 数量。\n- `tma.mcp_context_result.v1`：按桥接类型显示 resource、resource template、resource content、prompt 或 prompt message 的脱敏数量与有限元数据。\n- `tma.mcp_context_result.v1`：显示 resources/prompts 桥接工具名称、resource/prompt/message 数量、mime type、text/blob item 数量和 prompt roles。\n\n摘要卡不会展开 MCP content text、resource body、prompt message text 或 structured_content 值；如需完整 payload，应在受控环境中查看 Recent Events 原始 JSON、Raw Export 或关联制品。\n\n## 7. 上下文、计划与用量\n\n### 7.1 Context Summary\n\n显示当前 Session 已持久化的摘要。摘要通常用于后续 Turn 的上下文续接，不等同于完整事件历史。\n\n### 7.2 Plan History\n\n`Plan History` 通过 Session 的持久化快照展示全部 Plan，按创建时间最新优先排列。顶部汇总 `active`、`completed`、`canceled` 和 `superseded` 数量，可按状态筛选。\n\n展开一条 Plan 可以查看 handling mode、创建/更新时间、关联 Turn，以及每个步骤的状态。完成步骤的 `Evidence` 是 Agent 标记完成时提交的验证依据；没有 evidence 的 pending、in_progress 或 blocked 步骤不会伪装成已完成。\n\n该面板是只读观测面，不用于批准计划，也不会修改 Plan 状态。计划批准应使用独立的 `plan_approval` 流程，不能用工具审批代替。\n\n### 7.3 Context Coverage\n\n重点字段：\n\n- `source_until_seq`：摘要已处理到的事件序号；\n- `latest event seq`：当前加载事件中的最大序号；\n- `covered events`：已被摘要覆盖的事件数；\n- `unsummarized events`：尚未进入摘要的事件数。\n\n面板最多展示最近 8 条未汇总事件。运行中的 Turn 存在少量未汇总事件通常是正常现象；Turn 完成很久后仍持续增加，需要检查 summary 刷新流程。\n\n### 7.4 Context Budget\n\n面板从最新携带 `context_budget` 的运行步骤中读取预算，常见字段包括：\n\n- `context_window_tokens`：模型上下文窗口；\n- `max_input_tokens`：允许的最大输入；\n- `message_tokens`：消息占用；\n- `tool_schema_tokens`：工具 Schema 占用；\n- `pinned_context_tokens`：固定上下文占用；\n- `reserved_output_tokens`：为模型输出预留的 Token。\n\n同时检查 `context_truncated`、`summary_included` 和 `pinned_context_included`。若没有携带上下文预算的事件，页面会显示 `No context budget loaded.`，不代表 Turn 一定异常。\n\n### 7.5 Usage\n\nUsage 显示调用记录数、总 Token 和累计延迟，并保留后端返回的完整 JSON。排查成本或配额问题时，应结合 Provider、Model、输入/输出 Token 和具体 Turn 查看。\n\n## 8. 审批工具调用\n\n当 Agent 使用 `request_approval` 干预模式且某个工具需要人工确认时，调用会出现在 `Pending Approvals`。\n\n审批前检查：\n\n1. 工具标识和 API 名称；\n2. `arguments` 中的命令、路径、网络目标和写入内容；\n3. Session 和 Turn 是否为预期任务；\n4. 操作是否可能删除数据、覆盖文件或调用外部系统。\n\n操作含义：\n\n- `Approve`：立即以固定原因 `approved from inspector` 批准调用，并继续执行；\n- `Reject`：弹出原因输入框，确认后拒绝调用，并让运行时按拒绝结果继续处理；\n- 取消 Reject 弹窗：不提交任何决定。\n\n> `Approve` 是有副作用的运行控制操作，不提供二次确认。不要在无法确认参数和执行环境时批准。\n\n提交后 Inspector 会重新加载当前 Session。若调用仍显示 pending，先关闭自动刷新并手动 `Load`；仍无变化时查看页面顶部状态、Recent Events 和服务端日志。\n\n## 9. 制品预览与下载\n\n`Artifacts` 面板列出当前 Session 的制品。每个制品提供：\n\n- `Preview`：在 `Artifact Preview` 面板内预览；\n- `Download`：在新窗口打开下载地址；\n- `Copy CLI`：复制等价的命令行下载命令。\n\n命令格式：\n\n```bash\nbin/tma session artifact download \\\n  --session SESSION_ID \\\n  --artifact ARTIFACT_ID \\\n  --output OUTPUT_PATH\n```\n\n内联预览规则：\n\n- 图片：直接显示；\n- JSON、文本、XML、YAML：以文本显示，JSON 会格式化；\n- 文本超过 10,240 字符：只显示前 10,240 字符并标记截断；\n- 其他二进制格式：只显示 MIME、大小和地址，需下载查看。\n\nTimeline 中关联的制品也提供相同的 Preview、Download 和 Copy CLI 操作。\n\n## 10. 导出 Trace\n\n在 Query 中选择 `Export Format`：\n\n- `Trace JSON`：TMA 原生 Trace 投影，适合程序分析和问题归档；\n- `Perfetto JSON`：可导入 Perfetto 查看时间轴；\n- `OTel JSON`：OpenTelemetry 风格数据，适合 Collector 或观测系统接入。\n\n操作：\n\n- `Preview Export`：将所选格式加载到 `Raw Export`；\n- `Download`：下载 JSON 文件，文件名为 `<session>-<turn>-<format>.json`。\n\nPerfetto 使用方式：\n\n1. 下载 `perfetto` 格式；\n2. 打开 `https://ui.perfetto.dev`；\n3. 选择 `Open trace file` 并导入下载的 JSON。\n\n也可以使用 CLI：\n\n```bash\nbin/tma trace show --session SESSION_ID --turn TURN_ID\n\nbin/tma trace export \\\n  --session SESSION_ID \\\n  --turn TURN_ID \\\n  --format perfetto \\\n  --output trace.json\n```\n\n## 11. Metrics 与 Exporters\n\n### 11.1 Metrics\n\n`Metrics` 面板展示 `/metrics?session_id=...&turn_id=...` 返回的 Prometheus 文本。可用于确认：\n\n- Trace、Span、工具和审批数量；\n- LLM Usage；\n- Exporter 是否启用及最近尝试状态；\n- 当前服务进程可见的 Worker 与运行时指标。\n\n### 11.2 Exporters\n\n`Exporters` 面板显示：\n\n- Sampling 是否启用及采样率；\n- 自动重试是否启用、最大次数和近期待重试数；\n- Perfetto 目的地和最近成功/失败/尝试；\n- OTLP HTTP 目的地、Token 是否已配置和最近状态；\n- 最近 5 条持久化 Exporter Run。\n\n`Retry due exporters` 只重试已到期且符合重试条件的失败任务，不会无条件重放所有导出。\n\n如果 Server 配置了 `TMA_WORKER_CONTROL_AUTH_TOKEN`，该重试 API 需要 Bearer Token，而当前 Inspector 页面不会附加控制面 Token。此时请使用 CLI：\n\n```bash\nbin/tma \\\n  --base-url http://localhost:8080 \\\n  --auth-token "$TMA_WORKER_CONTROL_AUTH_TOKEN" \\\n  observability retry\n```\n\n只读的 Exporter 状态仍可在 Inspector 中查看。\n\n## 12. 深链与分享\n\nInspector 会把当前定位同步到 URL Hash：\n\n```text\nhttp://localhost:8080/inspector#session=SESSION_ID&turn=TURN_ID&trace=TRACE_ID&span=SPAN_ID\n```\n\n支持参数：\n\n- `session`：Session ID；\n- `turn`：Turn ID；\n- `trace`：Trace ID；\n- `span`：Span ID。\n\n打开深链后，Inspector 优先按 Trace ID 加载；只有 Session 时加载指定或最新 Turn。单击 Waterfall/Span 会更新 `span` 参数，便于分享精确位置。\n\n分享前注意：\n\n- URL 本身不包含页面数据，但 ID 可能属于内部运行标识；\n- 接收者必须能访问同一个 TMA Server；\n- 不要把包含生产 Session ID 的链接发到公开渠道；\n- 页面没有冻结快照，后端数据变化后同一链接的展示也可能变化。\n\n## 13. 常见排查流程\n\n### 13.1 Turn 失败\n\n1. 加载 Session 和失败 Turn；\n2. 查看 Overview 的 Errors 和 Trace Summary；\n3. 在 Waterfall 中定位 error/failed Span；\n4. 查看 Span Events 和 Attributes；\n5. 在 Timeline 中找到对应 `runtime.tool_result` 或 `runtime.failed`；\n6. 查看 Recent Events 的完整 payload；\n7. 需要归档时下载 Trace JSON。\n\n### 13.2 Turn 一直运行\n\n1. 开启 5 秒自动刷新；\n2. 查看 Pending Approvals 是否有待处理调用；\n3. 查看 Timeline 最后一条事件；\n4. 检查关键路径上的 open Span；\n5. 查看 Context 是否正在 compacting；\n6. 检查 Worker、Server 日志和相关 Exporter/工具状态。\n\n### 13.3 工具调用很慢\n\n1. 在 Session Span Search 中选择 `tool` 并设置最小耗时；\n2. 打开命中结果；\n3. 对照 Waterfall 的关键路径；\n4. 查看工具来源是 MCP、Worker Plugin 还是 Builtin；\n5. 检查 Span Attributes、工具结果和外部依赖耗时。\n\n### 13.4 Token 使用异常\n\n1. 查看 Usage 的输入/输出 Token；\n2. 查看 Context Budget 的 message、tool schema 和 pinned context 分账；\n3. 检查 `context_truncated`；\n4. 查看 Context Coverage 是否有大量未汇总事件；\n5. 对照 Timeline 中上下文压缩事件。\n\n## 14. 常见问题\n\n### 页面无法打开\n\n检查：\n\n```bash\ncurl http://localhost:8080/health\ncurl -I http://localhost:8080/inspector\n```\n\n若服务未运行，执行 `make run` 或 `make server-start`。若修改过监听地址，使用实际的 `TMA_HTTP_ADDR` 对应端口。\n\n### 选择 Session 后没有 Trace\n\n可能原因：\n\n- 数据库中还没有产生 Turn 事件；\n- 当前 Agent 下没有对应 Session，或该 Session 尚未产生 Trace；\n- 数据库迁移未完成；\n- Server 连接了另一套数据库。\n\n先确认选择了正确的 Agent 和 Session，再检查 `.env` 或 shell 中的 `TMA_DATABASE_URL`。\n\n### Load 后显示错误文本\n\n页面顶部状态会显示后端错误。常见原因包括 Session ID 不存在、Trace 尚未生成、数据库连接失败或接口返回非 2xx。结合浏览器 Network 面板和 `.tma-server.log` 排查。\n\n### 数据没有实时更新\n\nInspector 使用定时重新加载，不是 SSE 实时流。确认已选择 Session 并勾选自动刷新，或手动单击 `Refresh`。\n\n### Artifact 不能内联预览\n\n二进制格式不支持内联预览；文本大于 10,240 字符会截断。使用 `Download` 或 `Copy CLI` 获取完整文件。\n\n### Retry due exporters 返回 401\n\nServer 启用了控制面鉴权。当前 Inspector 不发送 Bearer Token，请使用带 `--auth-token` 的 `bin/tma observability retry`。\n\n### 某些面板显示 No data\n\nInspector 对 Usage、Summary、Artifacts、Events、Interventions、Metrics 和 Exporter Status 使用独立请求。某个面板无数据不一定代表整个 Trace 加载失败，也可能是该 Turn 没有产生对应记录或相关能力未启用。\n\n## 15. 安全与使用限制\n\n- Inspector 当前没有独立登录页或完整 RBAC；生产环境应由企业网关、VPN 或反向代理限制访问。\n- 页面可能展示工具参数、文件路径、提示词片段、事件 payload 和制品内容，应按内部敏感数据处理。\n- Approve/Reject 和 Exporter Retry 是写操作；共享屏幕或录屏时避免暴露敏感参数。\n- Inspector 的 Trace/Span 目录基于近期数据投影和索引，不应替代长期审计与告警系统。\n- Raw Export 和下载制品在离开 TMA 后不再受 TMA 访问边界保护，应存放在受控位置。\n\n## 16. 验证 Inspector\n\n静态页面与接口验收：\n\n```bash\nmake verify-inspector-ui\n```\n\n浏览器 Smoke Test：\n\n```bash\nmake verify-inspector-browser-smoke\n```\n\n第二个命令需要本机可用的 Chrome/Chromium 调试环境。两项验证都会构建 Inspector，并启动临时测试服务；详细失败原因可查看脚本输出和对应 `.verify-inspector-*.log`。\n\n更多接口和观测设计说明参见：\n\n- [Observability 设计与实现](./observability.md)\n- [API Reference](./api-reference.md)\n- [TMA Configuration](./configuration.md)\n';
 function isAbortError(error) {
   return (error == null ? void 0 : error.name) === "AbortError";
 }
@@ -16132,6 +16142,10 @@ function App() {
   var _a2;
   const [status, setStatus] = reactExports.useState("idle");
   const [manualOpen, setManualOpen] = reactExports.useState(false);
+  const [agentID, setAgentID] = reactExports.useState("");
+  const [agentCatalog, setAgentCatalog] = reactExports.useState({ agents: [] });
+  const [sessionCatalog, setSessionCatalog] = reactExports.useState({ sessions: [] });
+  const [selectionCatalogLoading, setSelectionCatalogLoading] = reactExports.useState(true);
   const [sessionID, setSessionID] = reactExports.useState("");
   const [traceID, setTraceID] = reactExports.useState("");
   const [turnID, setTurnID] = reactExports.useState("");
@@ -16161,10 +16175,15 @@ function App() {
   const [artifactPreview, setArtifactPreview] = reactExports.useState(null);
   const [toolSourceFilter, setToolSourceFilter] = reactExports.useState("");
   const bootingFromHash = reactExports.useRef(false);
+  const selectionRequestRef = reactExports.useRef(0);
   const loadRequestRef = reactExports.useRef(null);
   const eventsRef = reactExports.useRef({ events: [] });
   const eventsSessionIDRef = reactExports.useRef("");
   const spans = (currentTrace == null ? void 0 : currentTrace.spans) || [];
+  const agentSessions = reactExports.useMemo(
+    () => (sessionCatalog.sessions || []).filter((session2) => session2.agent_id === agentID),
+    [agentID, sessionCatalog.sessions]
+  );
   const selectedSpan = reactExports.useMemo(
     () => spans.find((span) => span.span_id === selectedSpanID) || null,
     [spans, selectedSpanID]
@@ -16193,23 +16212,35 @@ function App() {
     });
     setRaw(pretty(trace2));
   }, []);
-  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false) {
+  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false, selectionRequest = 0) {
+    if (!nextSession) {
+      const empty = { traces: [], next_cursor: "", has_more: false };
+      setTraceCatalog(empty);
+      return empty;
+    }
     const response = await traceCatalog({ limit: catalogPageSize, cursor, session: nextSession, turn: nextTurn });
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return response;
     setTraceCatalog((previous) => append ? { ...response, traces: [...previous.traces || [], ...response.traces || []] } : response);
     return response;
   }
-  async function loadSpanCatalog(cursor = "", append = false) {
+  async function loadSpanCatalog(cursor = "", append = false, nextSession = sessionID, nextTurn = turnID, selectionRequest = 0) {
+    if (!nextSession) {
+      const empty = { spans: [], next_cursor: "", has_more: false };
+      setSpanCatalog(empty);
+      return empty;
+    }
     const response = await spanCatalog({
       limit: catalogPageSize,
       cursor,
-      session: sessionID,
-      turn: turnID,
+      session: nextSession,
+      turn: nextTurn,
       query: globalSpanQuery.trim(),
       kind: globalSpanKind.trim(),
       status: globalSpanStatus.trim(),
       critical: globalSpanCritical.trim(),
       minDuration: globalSpanMinDuration.trim()
     });
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return response;
     setSpanCatalog((previous) => append ? {
       ...response,
       spans: [...previous.spans || [], ...response.spans || []],
@@ -16219,13 +16250,69 @@ function App() {
     } : response);
     return response;
   }
-  async function filterCatalogs() {
+  async function filterCatalogs(nextSession = sessionID, nextTurn = turnID, selectionRequest = 0) {
+    if (!nextSession) {
+      setTraceCatalog({ traces: [] });
+      setSpanCatalog({ spans: [] });
+      setStatus("select a session first");
+      return;
+    }
     setSelectedSpanID("");
-    setInspectorHash({ session: sessionID, turn: turnID, trace: "", span: "" });
-    await Promise.all([loadTraceCatalog(), loadSpanCatalog()]);
-    setStatus(sessionID ? `filtered ${sessionID}` : "loaded recent catalogs");
+    setInspectorHash({ session: nextSession, turn: nextTurn, trace: "", span: "" });
+    await Promise.all([
+      loadTraceCatalog(nextSession, nextTurn, "", false, selectionRequest),
+      loadSpanCatalog("", false, nextSession, nextTurn, selectionRequest)
+    ]);
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return;
+    setStatus(`loaded trace catalogs for ${nextSession}`);
+  }
+  function clearInspectionResults() {
+    if (loadRequestRef.current) loadRequestRef.current.abort();
+    setTurnID("");
+    setTraceID("");
+    setSelectedSpanID("");
+    setCurrentTrace(null);
+    setTraceCatalog({ traces: [] });
+    setSpanCatalog({ spans: [] });
+    setSessionMeta(null);
+    setUsage(null);
+    setSummary(null);
+    setTaskPlans({ plans: [] });
+    setArtifacts({ artifacts: [] });
+    setEvents({ events: [] });
+    eventsRef.current = { events: [] };
+    eventsSessionIDRef.current = "";
+    setInterventions({ interventions: [] });
+    setMetrics("No metrics loaded.");
+    setExporters(null);
+    setRaw("No raw export loaded.");
+    setArtifactPreview(null);
+    setAutoRefresh(false);
+  }
+  function selectAgent(nextAgentID) {
+    selectionRequestRef.current += 1;
+    clearInspectionResults();
+    setAgentID(nextAgentID);
+    setSessionID("");
+    setInspectorHash({ session: "", turn: "", trace: "", span: "" });
+    setStatus(nextAgentID ? "select a session" : "select an agent");
+  }
+  async function selectSession(nextSessionID) {
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
+    clearInspectionResults();
+    setSessionID(nextSessionID);
+    setInspectorHash({ session: nextSessionID, turn: "", trace: "", span: "" });
+    if (!nextSessionID) {
+      setStatus("select a session");
+      return;
+    }
+    await filterCatalogs(nextSessionID, "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
+    await load(nextSessionID, "");
   }
   async function load(nextSession = sessionID, nextTurn = turnID, options = {}) {
+    var _a3;
     if (!nextSession) {
       setStatus("session required");
       return null;
@@ -16257,6 +16344,11 @@ function App() {
       const nextEvents = incrementalEvents ? mergeEventResponses(eventsRef.current, results[4]) : results[4];
       renderTrace(trace$1);
       setSessionMeta(results[0]);
+      setAgentID(((_a3 = results[0]) == null ? void 0 : _a3.agent_id) || "");
+      setSessionCatalog((previous) => (previous.sessions || []).some((session2) => {
+        var _a4;
+        return session2.id === ((_a4 = results[0]) == null ? void 0 : _a4.id);
+      }) ? previous : { sessions: [results[0], ...previous.sessions || []].filter(Boolean) });
       setUsage(results[1]);
       setSummary(results[2]);
       setArtifacts(results[3]);
@@ -16281,6 +16373,8 @@ function App() {
     }
   }
   async function loadTraceByID(nextTraceID = traceID) {
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
     const value = String(nextTraceID || "").trim();
     if (!value) {
       setStatus("trace id required");
@@ -16289,13 +16383,18 @@ function App() {
     if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading trace ${value}`);
     const trace2 = await traceByID(value);
+    if (selectionRequestRef.current !== selectionRequest) return;
     setTraceID(trace2.trace_id || value);
     setSessionID(trace2.session_id || "");
     setTurnID(trace2.turn_id || "");
+    await filterCatalogs(trace2.session_id || "", "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
     await load(trace2.session_id || "", trace2.turn_id || "");
   }
   async function loadSpanByID(nextTraceID, nextSpanID) {
     var _a3, _b2;
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
     const traceValue = String(nextTraceID || "").trim();
     const spanValue = String(nextSpanID || "").trim();
     if (!traceValue || !spanValue) {
@@ -16305,10 +16404,13 @@ function App() {
     if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading span ${spanValue}`);
     const detail = await spanByID(traceValue, spanValue);
+    if (selectionRequestRef.current !== selectionRequest) return;
     setSelectedSpanID(((_a3 = detail.span) == null ? void 0 : _a3.span_id) || spanValue);
     setTraceID(detail.trace_id || traceValue);
     setSessionID(detail.session_id || "");
     setTurnID(detail.turn_id || "");
+    await filterCatalogs(detail.session_id || "", "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
     await load(detail.session_id || "", detail.turn_id || "");
     setStatus(`loaded span ${((_b2 = detail.span) == null ? void 0 : _b2.span_id) || spanValue}`);
   }
@@ -16407,32 +16509,42 @@ function App() {
     setStatus("rejected");
   }
   const bootInspectorFromHash = reactExports.useCallback(async () => {
+    var _a3;
     if (bootingFromHash.current) return;
     bootingFromHash.current = true;
+    setSelectionCatalogLoading(true);
     try {
       const params = inspectorHashParams();
       const nextSession = params.get("session") || "";
       const nextTurn = params.get("turn") || "";
       const nextTrace = params.get("trace") || "";
       const nextSpan = params.get("span") || "";
+      const [agentsResponse, sessionsResponse] = await Promise.all([
+        agents(),
+        sessions()
+      ]);
+      setAgentCatalog(agentsResponse);
+      setSessionCatalog(sessionsResponse);
       setSessionID(nextSession);
+      setAgentID(((_a3 = (sessionsResponse.sessions || []).find((session2) => session2.id === nextSession)) == null ? void 0 : _a3.agent_id) || "");
       setTurnID(nextTurn);
       setTraceID(nextTrace);
       setSelectedSpanID(nextSpan);
-      await Promise.all([
-        traceCatalog({ limit: catalogPageSize, session: nextSession, turn: nextTurn }).then(setTraceCatalog).catch((error) => setStatus(error.message)),
-        spanCatalog({ limit: catalogPageSize, session: nextSession, turn: nextTurn }).then(setSpanCatalog).catch((error) => setStatus(error.message))
-      ]);
       if (nextTrace) {
         await loadTraceByID(nextTrace);
         return;
       }
       if (nextSession) {
+        await filterCatalogs(nextSession, "");
         await load(nextSession, nextTurn);
         return;
       }
+      setTraceCatalog({ traces: [] });
+      setSpanCatalog({ spans: [] });
       setInspectorHash({ session: nextSession, turn: nextTurn, trace: nextTrace, span: nextSpan });
+      setStatus((agentsResponse.agents || []).length ? "select an agent" : "no agents available");
     } finally {
+      setSelectionCatalogLoading(false);
       bootingFromHash.current = false;
     }
   }, []);
@@ -16518,18 +16630,41 @@ function App() {
     manualOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(ManualDialog, { onClose: () => setManualOpen(false) }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "layout", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Query", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toolbar", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Session", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "session", value: sessionID, onChange: (event) => setSessionID(event.target.value), onKeyDown: (event) => {
-            if (event.key === "Enter") filterCatalogs().catch((error) => setStatus(error.message));
-          }, autoComplete: "off", placeholder: "sesn_000001" }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Trace ID", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "traceId", value: traceID, onChange: (event) => setTraceID(event.target.value), onKeyDown: (event) => {
-            if (event.key === "Enter") loadTraceByID().catch((error) => setStatus(error.message));
-          }, autoComplete: "off", placeholder: "trace_id" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Query", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toolbar inspector-query-flow", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "1. Agent", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "agent", value: agentID, disabled: selectionCatalogLoading, onChange: (event) => selectAgent(event.target.value), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: selectionCatalogLoading ? "Loading agents..." : "Select an agent" }),
+            agentID && !(agentCatalog.agents || []).some((agent) => agent.id === agentID) ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: agentID, children: agentID }) : null,
+            (agentCatalog.agents || []).map((agent) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: agent.id, children: agent.name || agent.id }, agent.id))
+          ] }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "2. Session", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "session", value: sessionID, disabled: !agentID || selectionCatalogLoading, onChange: (event) => selectSession(event.target.value).catch((error) => setStatus(error.message)), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: agentID ? "Select a session" : "Select an agent first" }),
+            sessionID && !agentSessions.some((session2) => session2.id === sessionID) ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: sessionID, children: sessionID }) : null,
+            agentSessions.map((session2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: session2.id, children: [
+              session2.title || session2.id,
+              " (",
+              session2.status || "unknown",
+              ")"
+            ] }, session2.id))
+          ] }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "3. Trace", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "traceId", value: traceID, disabled: !sessionID || !(traceCatalog$1.traces || []).length, onChange: (event) => {
+            const value = event.target.value;
+            setTraceID(value);
+            if (value) loadTraceByID(value).catch((error) => setStatus(error.message));
+          }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: sessionID ? "Select a trace" : "Select a session first" }),
+            traceID && !(traceCatalog$1.traces || []).some((trace2) => trace2.trace_id === traceID) ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: traceID, children: traceID }) : null,
+            (traceCatalog$1.traces || []).map((trace2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: trace2.trace_id, children: [
+              trace2.turn_id || trace2.trace_id,
+              " (",
+              trace2.turn_status || "running",
+              ")"
+            ] }, trace2.trace_id))
+          ] }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Turn", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "turn", value: turnID, onChange: (event) => {
             const value = event.target.value;
             setTurnID(value);
             if (sessionID) load(sessionID, value).catch((error) => setStatus(error.message));
-          }, children: [
+          }, disabled: !sessionID, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "latest" }),
             ((currentTrace == null ? void 0 : currentTrace.turns) || []).map((turn) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: turn.turn_id, children: [
               turn.turn_id,
@@ -16544,28 +16679,20 @@ function App() {
             /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "otel", children: "OTel JSON" })
           ] }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "toggle", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", id: "autoRefresh", checked: autoRefresh, disabled: terminalTurn, onChange: (event) => setAutoRefresh(event.target.checked) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", id: "autoRefresh", checked: autoRefresh, disabled: !sessionID || terminalTurn, onChange: (event) => setAutoRefresh(event.target.checked) }),
             "Auto refresh every 5s"
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { id: "load", onClick: () => load().catch((error) => setStatus(error.message)), children: "Load" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "loadTrace", onClick: () => loadTraceByID().catch((error) => setStatus(error.message)), children: "Load Trace" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "export", onClick: () => exportTrace(false).catch((error) => setStatus(error.message)), children: "Preview Export" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "download", onClick: () => exportTrace(true).catch((error) => setStatus(error.message)), children: "Download" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { id: "load", disabled: !sessionID, onClick: () => selectSession(sessionID).catch((error) => setStatus(error.message)), children: "Refresh" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "export", disabled: !sessionID, onClick: () => exportTrace(false).catch((error) => setStatus(error.message)), children: "Preview Export" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "download", disabled: !sessionID, onClick: () => exportTrace(true).catch((error) => setStatus(error.message)), children: "Download" })
           ] })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(RecentTraces, { traces: traceCatalog$1.traces || [], activeSession: sessionID, activeTurn: turnID, onFilter: () => filterCatalogs().catch((error) => setStatus(error.message)), onClear: () => {
-          setSessionID("");
-          setTurnID("");
-          setTraceID("");
-          setCurrentTrace(null);
-          setSelectedSpanID("");
-          setInspectorHash({ session: "", turn: "", trace: "", span: "" });
-          filterCatalogs().catch((error) => setStatus(error.message));
-        }, hasMore: Boolean(traceCatalog$1.has_more), onMore: () => loadTraceCatalog(sessionID, turnID, traceCatalog$1.next_cursor || "", true).catch((error) => setStatus(error.message)), onLoadTrace: (id) => loadTraceByID(id).catch((error) => setStatus(error.message)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(RecentTraces, { traces: traceCatalog$1.traces || [], activeSession: sessionID, activeTurn: turnID, hasMore: Boolean(traceCatalog$1.has_more), onMore: () => loadTraceCatalog(sessionID, "", traceCatalog$1.next_cursor || "", true).catch((error) => setStatus(error.message)), onLoadTrace: (id) => loadTraceByID(id).catch((error) => setStatus(error.message)) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           SpanSearch,
           {
+            disabled: !sessionID,
             query: globalSpanQuery,
             kind: globalSpanKind,
             status: globalSpanStatus,
@@ -16693,12 +16820,8 @@ function CompletionQuality({ summary: summary2 }) {
     ] })
   ] });
 }
-function RecentTraces({ traces, activeSession, activeTurn, hasMore, onFilter, onClear, onMore, onLoadTrace }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Recent Traces", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "actions", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "filterTraces", type: "button", onClick: onFilter, children: "Filter by Session" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "clearTraceFilter", type: "button", onClick: onClear, children: "Clear" })
-    ] }),
+function RecentTraces({ traces, activeSession, activeTurn, hasMore, onMore, onLoadTrace }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Session Traces", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "turn-list", id: "traceCatalog", children: traces.length ? traces.map((trace2) => {
       const active = trace2.session_id === activeSession && trace2.turn_id === activeTurn;
       return /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: `turn-item ${active ? "active" : ""}`.trim(), type: "button", "data-trace-id": trace2.trace_id || "", onClick: () => onLoadTrace(trace2.trace_id), children: [
@@ -16717,19 +16840,19 @@ function RecentTraces({ traces, activeSession, activeTurn, hasMore, onFilter, on
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: trace2.trace_id }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "summary compact", style: { marginTop: 8 }, children: trace2.summary || "No summary." })
       ] }, trace2.trace_id);
-    }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No recent traces loaded." }) }),
+    }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: activeSession ? "No traces found for this session." : "Select a session to load traces." }) }),
     hasMore ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "moreTraces", type: "button", onClick: onMore, children: "Load more" }) : null
   ] }) });
 }
-function SpanSearch({ query, kind, status, critical, minDuration, response, onChange, onSearch, onMore, onLoadSpan }) {
+function SpanSearch({ disabled, query, kind, status, critical, minDuration, response, onChange, onSearch, onMore, onLoadSpan }) {
   const spans = response.spans || [];
   const aggregate = (entry, formatter = (key) => key) => entry ? Object.entries(entry).map(([key, value]) => `${formatter(key)}: ${value}`).join(" | ") : "";
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Span Search", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Search", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanQuery", value: query, onChange: (event) => onChange.setGlobalSpanQuery(event.target.value), onKeyDown: (event) => {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Session Span Search", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Search", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanQuery", value: query, disabled, onChange: (event) => onChange.setGlobalSpanQuery(event.target.value), onKeyDown: (event) => {
       if (event.key === "Enter") onSearch();
     }, autoComplete: "off", placeholder: "name, id, attribute" }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "span-search-controls", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Kind", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "globalSpanKind", value: kind, onChange: (event) => onChange.setGlobalSpanKind(event.target.value), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Kind", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "globalSpanKind", value: kind, disabled, onChange: (event) => onChange.setGlobalSpanKind(event.target.value), children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "all" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "interaction", children: "interaction" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "llm", children: "llm" }),
@@ -16738,19 +16861,19 @@ function SpanSearch({ query, kind, status, critical, minDuration, response, onCh
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "context", children: "context" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "event", children: "event" })
       ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Status", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanStatus", value: status, onChange: (event) => onChange.setGlobalSpanStatus(event.target.value), onKeyDown: (event) => {
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Status", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanStatus", value: status, disabled, onChange: (event) => onChange.setGlobalSpanStatus(event.target.value), onKeyDown: (event) => {
         if (event.key === "Enter") onSearch();
       }, autoComplete: "off", placeholder: "ok, error, open" }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Critical", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "globalSpanCritical", value: critical, onChange: (event) => onChange.setGlobalSpanCritical(event.target.value), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Critical", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "globalSpanCritical", value: critical, disabled, onChange: (event) => onChange.setGlobalSpanCritical(event.target.value), children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "all" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "true", children: "critical" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "false", children: "non-critical" })
       ] }) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Min Duration", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanMinDuration", value: minDuration, onChange: (event) => onChange.setGlobalSpanMinDuration(event.target.value), onKeyDown: (event) => {
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Min Duration", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { id: "globalSpanMinDuration", value: minDuration, disabled, onChange: (event) => onChange.setGlobalSpanMinDuration(event.target.value), onKeyDown: (event) => {
         if (event.key === "Enter") onSearch();
       }, type: "number", min: "0", step: "1", inputMode: "numeric", placeholder: "ms" }) })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "actions", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "searchSpans", type: "button", onClick: onSearch, children: "Search Spans" }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "actions", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "searchSpans", type: "button", disabled, onClick: onSearch, children: "Search Spans" }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "meta", id: "spanAggregates", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: aggregate(response.kind_counts) || "no kind counts" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: aggregate(response.status_counts) || "no status counts" }),
@@ -16771,7 +16894,7 @@ function SpanSearch({ query, kind, status, critical, minDuration, response, onCh
         " | self ",
         formatDuration(span.self_duration_ms || 0)
       ] })
-    ] }, `${span.trace_id}-${span.span_id}`)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "No span search loaded." }) }),
+    ] }, `${span.trace_id}-${span.span_id}`)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: disabled ? "Select a session to search spans." : "No spans found for this session." }) }),
     response.has_more ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", id: "moreSpans", type: "button", onClick: onMore, children: "Load more" }) : null
   ] }) });
 }

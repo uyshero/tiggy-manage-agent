@@ -8,8 +8,8 @@
 
 Inspector 支持以下操作：
 
-- 按 Session、Turn 或 Trace ID 定位一次执行；
-- 搜索近期 Trace 和跨 Session Span；
+- 按 Agent、Session、Trace 和 Turn 的层级定位一次执行；
+- 在当前 Session 内浏览 Trace 和搜索 Span；
 - 查看 Trace 概览、关键路径、Span 瀑布图和时间线；
 - 查看 Session 摘要、Plan 历史、Token 用量和上下文预算；
 - 区分 MCP、Worker Plugin 和 Builtin 工具事件；
@@ -157,9 +157,9 @@ make server-restart
 
 | 区域 | 用途 |
 | --- | --- |
-| Query | 输入 Session、Trace ID，选择 Turn 和导出格式 |
-| Recent Traces | 浏览近期 Trace，可按当前 Session 和 Turn 筛选 |
-| Span Search | 跨 Trace 搜索 Span |
+| Query | 依次选择 Agent、Session、Trace，并选择 Turn 和导出格式 |
+| Session Traces | 浏览当前 Session 的 Trace |
+| Session Span Search | 在当前 Session 内跨 Trace 搜索 Span |
 | Turns | 查看当前 Session 下的 Turn 并切换 |
 
 ### 3.2 右侧详情区
@@ -187,34 +187,27 @@ make server-restart
 
 ## 4. 快速定位一次执行
 
-### 4.1 使用 Session ID
+### 4.1 按 Agent 和 Session 定位
 
-1. 在 `Session` 输入框填入 Session ID，例如 `sesn_000001`。
-2. 单击 `Load`。
-3. 默认加载该 Session 最新 Turn。
-4. 在 `Turn` 下拉框或左侧 `Turns` 列表中切换历史 Turn。
+1. 在 `1. Agent` 中选择智能体。
+2. 在 `2. Session` 中选择该智能体下的 Session。
+3. Inspector 自动加载该 Session 最新 Turn，并刷新 Session 范围内的 Trace 和 Span 目录。
+4. 在 `3. Trace`、`Turn` 下拉框或左侧 `Turns` 列表中切换具体执行。
 
-注意：在 Session 输入框按回车只会执行 `Filter by Session`，刷新左侧 Trace/Span 目录，不会加载右侧详情。要加载完整详情，请单击 `Load`。
+切换 Agent 会清空已选 Session 和右侧诊断结果，避免显示另一个 Agent 的旧 Trace。Session 下拉框只展示当前 Agent 的 Session，包含最近的归档记录。
 
-Session ID 可从 Workbench、CLI 输出、API 响应或服务端日志中获得。
+### 4.2 使用 Session Traces
 
-### 4.2 使用 Trace ID
-
-1. 在 `Trace ID` 输入框填入 Trace ID。
-2. 单击 `Load Trace`，或在输入框按回车。
-3. Inspector 会自动回填对应的 Session 和 Turn，并加载完整详情。
-
-也可以直接单击 `Recent Traces` 中的记录。
-
-### 4.3 使用 Recent Traces
-
-- 初次打开页面会加载最近 20 条 Trace；
-- `Filter by Session` 使用 Query 中的 Session/Turn 筛选目录；
-- `Clear` 清空当前定位并恢复近期目录；
+- `Session Traces` 只显示当前 Session 的 Trace；
+- `3. Trace` 下拉框和 Trace 列表使用相同的 Session 范围；
 - 出现 `Load more` 时可继续加载下一页，每页 20 条；
 - 每条记录显示 Turn 状态、Session 标题、耗时、Span 数量和摘要。
 
-分页使用 Server 返回的不透明 cursor。Inspector 不根据当前条数计算 offset；修改 Session、Turn 或筛选条件后会重新从第一页开始查询。
+分页使用 Server 返回的不透明 cursor。Inspector 不根据当前条数计算 offset；修改 Session 后会重新从第一页开始查询。
+
+### 4.3 深链接定位
+
+带 `session` 或 `trace` 参数的 Inspector 深链接仍可直接打开。页面会反查并回填所属 Agent、Session、Trace 和 Turn，然后按相同层级加载详情。
 
 ### 4.4 自动刷新
 
@@ -273,9 +266,9 @@ Waterfall 以整次 Turn 时长为横轴显示 Span：
 
 Span 详情中的子 Span ID 可直接单击跳转。
 
-### 5.4 跨 Trace 搜索 Span
+### 5.4 在 Session 内搜索 Span
 
-左侧 `Span Search` 用于跨 Session/Trace 排查同类问题，支持：
+左侧 `Session Span Search` 用于在当前 Session 的 Trace 中排查同类问题，支持：
 
 - 关键字：名称、ID 或 Attribute；
 - Kind：`interaction`、`llm`、`tool`、`approval`、`context`、`event`；
@@ -528,7 +521,7 @@ http://localhost:8080/inspector#session=SESSION_ID&turn=TURN_ID&trace=TRACE_ID&s
 
 ### 13.3 工具调用很慢
 
-1. 在 Span Search 中选择 `tool` 并设置最小耗时；
+1. 在 Session Span Search 中选择 `tool` 并设置最小耗时；
 2. 打开命中结果；
 3. 对照 Waterfall 的关键路径；
 4. 查看工具来源是 MCP、Worker Plugin 还是 Builtin；
@@ -555,16 +548,16 @@ curl -I http://localhost:8080/inspector
 
 若服务未运行，执行 `make run` 或 `make server-start`。若修改过监听地址，使用实际的 `TMA_HTTP_ADDR` 对应端口。
 
-### 页面打开但没有 Recent Traces
+### 选择 Session 后没有 Trace
 
 可能原因：
 
 - 数据库中还没有产生 Turn 事件；
-- 当前 Session/Turn 筛选条件没有命中；
+- 当前 Agent 下没有对应 Session，或该 Session 尚未产生 Trace；
 - 数据库迁移未完成；
 - Server 连接了另一套数据库。
 
-先点 `Clear`，再确认 `.env` 或 shell 中的 `TMA_DATABASE_URL`。
+先确认选择了正确的 Agent 和 Session，再检查 `.env` 或 shell 中的 `TMA_DATABASE_URL`。
 
 ### Load 后显示错误文本
 
@@ -572,7 +565,7 @@ curl -I http://localhost:8080/inspector
 
 ### 数据没有实时更新
 
-Inspector 使用定时重新加载，不是 SSE 实时流。确认已勾选自动刷新且 Session ID 非空，或手动单击 `Load`。
+Inspector 使用定时重新加载，不是 SSE 实时流。确认已选择 Session 并勾选自动刷新，或手动单击 `Refresh`。
 
 ### Artifact 不能内联预览
 

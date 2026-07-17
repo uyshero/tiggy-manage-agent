@@ -4590,6 +4590,7 @@ function WorkbenchApp() {
   const [task, setTask] = useState("");
   const [composerFiles, setComposerFiles] = useState([]);
   const [composerDragActive, setComposerDragActive] = useState(false);
+  const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
@@ -6699,14 +6700,8 @@ function WorkbenchApp() {
           <div className="topbar-context">{activePluginRoute?.title || sessionMeta?.title || sessionID || "通用智能体工作区"}</div>
         </div>
         <div className="topbar-status">
-          <span className="status-readout">{status}</span>
-          <Pill value={runState} />
-          {principal ? (
-            <div className="topbar-identity">
-              <span title={principal.subject}>{principal.subject}</span>
-              <small>{principal.roles?.[principal.roles.length - 1] || "viewer"}</small>
-            </div>
-          ) : null}
+          {principal ? <span className="topbar-role">{principal.roles?.[principal.roles.length - 1] || "viewer"}</span> : null}
+          <button className="secondary topbar-settings" type="button" onClick={openSettingsPage}>设置</button>
           <button className="secondary topbar-logout" type="button" onClick={() => logout().catch((error) => setStatus(error.message))}>退出</button>
         </div>
       </header>
@@ -6845,28 +6840,6 @@ function WorkbenchApp() {
               </div>
             </div>
           </Panel>
-          {pluginNavigation.length ? (
-            <Panel title="扩展" className="plugin-navigation-panel">
-              <nav className="plugin-navigation" aria-label="扩展页面">
-                {pluginNavigation.map((item) => (
-                  <button
-                    className={item.route === pluginRoutePath ? "active" : ""}
-                    key={`${item.pluginID}:${item.id}`}
-                    type="button"
-                    onClick={() => navigatePluginRoute(item.route)}
-                  >
-                    <span aria-hidden="true" className="plugin-navigation-mark" />
-                    <span>{item.title}</span>
-                  </button>
-                ))}
-              </nav>
-            </Panel>
-          ) : null}
-          <div className="sidebar-footer">
-            <button className="secondary sidebar-settings-button" type="button" onClick={openSettingsPage}>
-              <span>设置</span>
-            </button>
-          </div>
         </aside>
         <main className={`user-main ${pluginRoutePath ? "plugin-route-main" : ""}`}>
           {pluginRoutePath ? (
@@ -7082,30 +7055,44 @@ function WorkbenchApp() {
                   ) : null}
                   <div className="composer-toolbar">
                     <div className="composer-settings-inline">
-                      <label className="composer-setting">
-                        <span>审批</span>
-                        <select
-                          disabled={savingSettings}
-                          value={settingsDraft.interventionMode}
-                          onChange={(event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message))}
+                      <div className={`composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`}>
+                        <button
+                          className="secondary composer-settings-toggle"
+                          type="button"
+                          aria-expanded={mobileRuntimeSettingsOpen}
+                          aria-controls="composer-runtime-settings"
+                          onClick={() => setMobileRuntimeSettingsOpen((current) => !current)}
                         >
-                          <option value="request_approval">先审批</option>
-                          <option value="approve_for_me">替我审批</option>
-                          <option value="full_access">完全访问</option>
-                        </select>
-                      </label>
-                      <label className="composer-setting">
-                        <span>运行环境</span>
-                        <select
-                          disabled={savingSettings}
-                          value={settingsDraft.toolRuntime}
-                          onChange={(event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message))}
-                        >
-                          {runtimeOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </label>
+                          <span>审批与运行环境</span>
+                          <CompactChevronIcon expanded={mobileRuntimeSettingsOpen} />
+                        </button>
+                        <div className="composer-collapsible-settings" id="composer-runtime-settings">
+                          <label className="composer-setting">
+                            <span>审批</span>
+                            <select
+                              disabled={savingSettings}
+                              value={settingsDraft.interventionMode}
+                              onChange={(event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message))}
+                            >
+                              <option value="request_approval">先审批</option>
+                              <option value="approve_for_me">替我审批</option>
+                              <option value="full_access">完全访问</option>
+                            </select>
+                          </label>
+                          <label className="composer-setting">
+                            <span>运行环境</span>
+                            <select
+                              disabled={savingSettings}
+                              value={settingsDraft.toolRuntime}
+                              onChange={(event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message))}
+                            >
+                              {runtimeOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
                       <label className="composer-setting composer-setting-model">
                         <span>模型</span>
                         <select

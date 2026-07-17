@@ -254,6 +254,10 @@ function StatCard({ label, value, sub }) {
 function App() {
   const [status, setStatus] = useState("idle");
   const [manualOpen, setManualOpen] = useState(false);
+  const [agentID, setAgentID] = useState("");
+  const [agentCatalog, setAgentCatalog] = useState({ agents: [] });
+  const [sessionCatalog, setSessionCatalog] = useState({ sessions: [] });
+  const [selectionCatalogLoading, setSelectionCatalogLoading] = useState(true);
   const [sessionID, setSessionID] = useState("");
   const [traceID, setTraceID] = useState("");
   const [turnID, setTurnID] = useState("");
@@ -283,11 +287,16 @@ function App() {
   const [artifactPreview, setArtifactPreview] = useState(null);
   const [toolSourceFilter, setToolSourceFilter] = useState("");
   const bootingFromHash = useRef(false);
+  const selectionRequestRef = useRef(0);
   const loadRequestRef = useRef(null);
   const eventsRef = useRef({ events: [] });
   const eventsSessionIDRef = useRef("");
 
   const spans = currentTrace?.spans || [];
+  const agentSessions = useMemo(
+    () => (sessionCatalog.sessions || []).filter((session) => session.agent_id === agentID),
+    [agentID, sessionCatalog.sessions]
+  );
   const selectedSpan = useMemo(
     () => spans.find((span) => span.span_id === selectedSpanID) || null,
     [spans, selectedSpanID]
@@ -318,24 +327,36 @@ function App() {
     setRaw(pretty(trace));
   }, []);
 
-  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false) {
+  async function loadTraceCatalog(nextSession = sessionID, nextTurn = turnID, cursor = "", append = false, selectionRequest = 0) {
+    if (!nextSession) {
+      const empty = { traces: [], next_cursor: "", has_more: false };
+      setTraceCatalog(empty);
+      return empty;
+    }
     const response = await inspectorAPI.traceCatalog({ limit: catalogPageSize, cursor, session: nextSession, turn: nextTurn });
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return response;
     setTraceCatalog((previous) => append ? { ...response, traces: [...(previous.traces || []), ...(response.traces || [])] } : response);
     return response;
   }
 
-  async function loadSpanCatalog(cursor = "", append = false) {
+  async function loadSpanCatalog(cursor = "", append = false, nextSession = sessionID, nextTurn = turnID, selectionRequest = 0) {
+    if (!nextSession) {
+      const empty = { spans: [], next_cursor: "", has_more: false };
+      setSpanCatalog(empty);
+      return empty;
+    }
     const response = await inspectorAPI.spanCatalog({
       limit: catalogPageSize,
       cursor,
-      session: sessionID,
-      turn: turnID,
+      session: nextSession,
+      turn: nextTurn,
       query: globalSpanQuery.trim(),
       kind: globalSpanKind.trim(),
       status: globalSpanStatus.trim(),
       critical: globalSpanCritical.trim(),
       minDuration: globalSpanMinDuration.trim()
     });
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return response;
     setSpanCatalog((previous) => append ? {
       ...response,
       spans: [...(previous.spans || []), ...(response.spans || [])],
@@ -346,11 +367,69 @@ function App() {
     return response;
   }
 
-  async function filterCatalogs() {
+  async function filterCatalogs(nextSession = sessionID, nextTurn = turnID, selectionRequest = 0) {
+    if (!nextSession) {
+      setTraceCatalog({ traces: [] });
+      setSpanCatalog({ spans: [] });
+      setStatus("select a session first");
+      return;
+    }
     setSelectedSpanID("");
-    setInspectorHash({ session: sessionID, turn: turnID, trace: "", span: "" });
-    await Promise.all([loadTraceCatalog(), loadSpanCatalog()]);
-    setStatus(sessionID ? `filtered ${sessionID}` : "loaded recent catalogs");
+    setInspectorHash({ session: nextSession, turn: nextTurn, trace: "", span: "" });
+    await Promise.all([
+      loadTraceCatalog(nextSession, nextTurn, "", false, selectionRequest),
+      loadSpanCatalog("", false, nextSession, nextTurn, selectionRequest)
+    ]);
+    if (selectionRequest && selectionRequestRef.current !== selectionRequest) return;
+    setStatus(`loaded trace catalogs for ${nextSession}`);
+  }
+
+  function clearInspectionResults() {
+    if (loadRequestRef.current) loadRequestRef.current.abort();
+    setTurnID("");
+    setTraceID("");
+    setSelectedSpanID("");
+    setCurrentTrace(null);
+    setTraceCatalog({ traces: [] });
+    setSpanCatalog({ spans: [] });
+    setSessionMeta(null);
+    setUsage(null);
+    setSummary(null);
+    setTaskPlans({ plans: [] });
+    setArtifacts({ artifacts: [] });
+    setEvents({ events: [] });
+    eventsRef.current = { events: [] };
+    eventsSessionIDRef.current = "";
+    setInterventions({ interventions: [] });
+    setMetrics("No metrics loaded.");
+    setExporters(null);
+    setRaw("No raw export loaded.");
+    setArtifactPreview(null);
+    setAutoRefresh(false);
+  }
+
+  function selectAgent(nextAgentID) {
+    selectionRequestRef.current += 1;
+    clearInspectionResults();
+    setAgentID(nextAgentID);
+    setSessionID("");
+    setInspectorHash({ session: "", turn: "", trace: "", span: "" });
+    setStatus(nextAgentID ? "select a session" : "select an agent");
+  }
+
+  async function selectSession(nextSessionID) {
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
+    clearInspectionResults();
+    setSessionID(nextSessionID);
+    setInspectorHash({ session: nextSessionID, turn: "", trace: "", span: "" });
+    if (!nextSessionID) {
+      setStatus("select a session");
+      return;
+    }
+    await filterCatalogs(nextSessionID, "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
+    await load(nextSessionID, "");
   }
 
   async function load(nextSession = sessionID, nextTurn = turnID, options = {}) {
@@ -389,6 +468,10 @@ function App() {
       const nextEvents = incrementalEvents ? mergeEventResponses(eventsRef.current, results[4]) : results[4];
       renderTrace(trace);
       setSessionMeta(results[0]);
+      setAgentID(results[0]?.agent_id || "");
+      setSessionCatalog((previous) => (previous.sessions || []).some((session) => session.id === results[0]?.id)
+        ? previous
+        : { sessions: [results[0], ...(previous.sessions || [])].filter(Boolean) });
       setUsage(results[1]);
       setSummary(results[2]);
       setArtifacts(results[3]);
@@ -415,6 +498,8 @@ function App() {
   }
 
   async function loadTraceByID(nextTraceID = traceID) {
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
     const value = String(nextTraceID || "").trim();
     if (!value) {
       setStatus("trace id required");
@@ -423,13 +508,18 @@ function App() {
     if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading trace ${value}`);
     const trace = await inspectorAPI.traceByID(value);
+    if (selectionRequestRef.current !== selectionRequest) return;
     setTraceID(trace.trace_id || value);
     setSessionID(trace.session_id || "");
     setTurnID(trace.turn_id || "");
+    await filterCatalogs(trace.session_id || "", "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
     await load(trace.session_id || "", trace.turn_id || "");
   }
 
   async function loadSpanByID(nextTraceID, nextSpanID) {
+    const selectionRequest = selectionRequestRef.current + 1;
+    selectionRequestRef.current = selectionRequest;
     const traceValue = String(nextTraceID || "").trim();
     const spanValue = String(nextSpanID || "").trim();
     if (!traceValue || !spanValue) {
@@ -439,10 +529,13 @@ function App() {
     if (loadRequestRef.current) loadRequestRef.current.abort();
     setStatus(`loading span ${spanValue}`);
     const detail = await inspectorAPI.spanByID(traceValue, spanValue);
+    if (selectionRequestRef.current !== selectionRequest) return;
     setSelectedSpanID(detail.span?.span_id || spanValue);
     setTraceID(detail.trace_id || traceValue);
     setSessionID(detail.session_id || "");
     setTurnID(detail.turn_id || "");
+    await filterCatalogs(detail.session_id || "", "", selectionRequest);
+    if (selectionRequestRef.current !== selectionRequest) return;
     await load(detail.session_id || "", detail.turn_id || "");
     setStatus(`loaded span ${detail.span?.span_id || spanValue}`);
   }
@@ -549,30 +642,39 @@ function App() {
   const bootInspectorFromHash = useCallback(async () => {
     if (bootingFromHash.current) return;
     bootingFromHash.current = true;
+    setSelectionCatalogLoading(true);
     try {
       const params = inspectorHashParams();
       const nextSession = params.get("session") || "";
       const nextTurn = params.get("turn") || "";
       const nextTrace = params.get("trace") || "";
       const nextSpan = params.get("span") || "";
+      const [agentsResponse, sessionsResponse] = await Promise.all([
+        inspectorAPI.agents(),
+        inspectorAPI.sessions()
+      ]);
+      setAgentCatalog(agentsResponse);
+      setSessionCatalog(sessionsResponse);
       setSessionID(nextSession);
+      setAgentID((sessionsResponse.sessions || []).find((session) => session.id === nextSession)?.agent_id || "");
       setTurnID(nextTurn);
       setTraceID(nextTrace);
       setSelectedSpanID(nextSpan);
-      await Promise.all([
-        inspectorAPI.traceCatalog({ limit: catalogPageSize, session: nextSession, turn: nextTurn }).then(setTraceCatalog).catch((error) => setStatus(error.message)),
-        inspectorAPI.spanCatalog({ limit: catalogPageSize, session: nextSession, turn: nextTurn }).then(setSpanCatalog).catch((error) => setStatus(error.message))
-      ]);
       if (nextTrace) {
         await loadTraceByID(nextTrace);
         return;
       }
       if (nextSession) {
+        await filterCatalogs(nextSession, "");
         await load(nextSession, nextTurn);
         return;
       }
+      setTraceCatalog({ traces: [] });
+      setSpanCatalog({ spans: [] });
       setInspectorHash({ session: nextSession, turn: nextTurn, trace: nextTrace, span: nextSpan });
+      setStatus((agentsResponse.agents || []).length ? "select an agent" : "no agents available");
     } finally {
+      setSelectionCatalogLoading(false);
       bootingFromHash.current = false;
     }
   }, []);
@@ -662,23 +764,48 @@ function App() {
       <div className="layout">
         <aside>
           <Panel title="Query">
-            <div className="toolbar">
-              <Field label="Session">
-                <input id="session" value={sessionID} onChange={(event) => setSessionID(event.target.value)} onKeyDown={(event) => {
-                  if (event.key === "Enter") filterCatalogs().catch((error) => setStatus(error.message));
-                }} autoComplete="off" placeholder="sesn_000001" />
+            <div className="toolbar inspector-query-flow">
+              <Field label="1. Agent">
+                <select id="agent" value={agentID} disabled={selectionCatalogLoading} onChange={(event) => selectAgent(event.target.value)}>
+                  <option value="">{selectionCatalogLoading ? "Loading agents..." : "Select an agent"}</option>
+                  {agentID && !(agentCatalog.agents || []).some((agent) => agent.id === agentID) ? <option value={agentID}>{agentID}</option> : null}
+                  {(agentCatalog.agents || []).map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.name || agent.id}</option>
+                  ))}
+                </select>
               </Field>
-              <Field label="Trace ID">
-                <input id="traceId" value={traceID} onChange={(event) => setTraceID(event.target.value)} onKeyDown={(event) => {
-                  if (event.key === "Enter") loadTraceByID().catch((error) => setStatus(error.message));
-                }} autoComplete="off" placeholder="trace_id" />
+              <Field label="2. Session">
+                <select id="session" value={sessionID} disabled={!agentID || selectionCatalogLoading} onChange={(event) => selectSession(event.target.value).catch((error) => setStatus(error.message))}>
+                  <option value="">{agentID ? "Select a session" : "Select an agent first"}</option>
+                  {sessionID && !agentSessions.some((session) => session.id === sessionID) ? <option value={sessionID}>{sessionID}</option> : null}
+                  {agentSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.title || session.id} ({session.status || "unknown"})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="3. Trace">
+                <select id="traceId" value={traceID} disabled={!sessionID || !(traceCatalog.traces || []).length} onChange={(event) => {
+                  const value = event.target.value;
+                  setTraceID(value);
+                  if (value) loadTraceByID(value).catch((error) => setStatus(error.message));
+                }}>
+                  <option value="">{sessionID ? "Select a trace" : "Select a session first"}</option>
+                  {traceID && !(traceCatalog.traces || []).some((trace) => trace.trace_id === traceID) ? <option value={traceID}>{traceID}</option> : null}
+                  {(traceCatalog.traces || []).map((trace) => (
+                    <option key={trace.trace_id} value={trace.trace_id}>
+                      {trace.turn_id || trace.trace_id} ({trace.turn_status || "running"})
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Turn">
                 <select id="turn" value={turnID} onChange={(event) => {
                   const value = event.target.value;
                   setTurnID(value);
                   if (sessionID) load(sessionID, value).catch((error) => setStatus(error.message));
-                }}>
+                }} disabled={!sessionID}>
                   <option value="">latest</option>
                   {(currentTrace?.turns || []).map((turn) => (
                     <option key={turn.turn_id} value={turn.turn_id}>{turn.turn_id} ({turn.status || "running"})</option>
@@ -693,27 +820,19 @@ function App() {
                 </select>
               </Field>
               <label className="toggle">
-                <input type="checkbox" id="autoRefresh" checked={autoRefresh} disabled={terminalTurn} onChange={(event) => setAutoRefresh(event.target.checked)} />
+                <input type="checkbox" id="autoRefresh" checked={autoRefresh} disabled={!sessionID || terminalTurn} onChange={(event) => setAutoRefresh(event.target.checked)} />
                 Auto refresh every 5s
               </label>
               <div className="actions">
-                <button id="load" onClick={() => load().catch((error) => setStatus(error.message))}>Load</button>
-                <button className="secondary" id="loadTrace" onClick={() => loadTraceByID().catch((error) => setStatus(error.message))}>Load Trace</button>
-                <button className="secondary" id="export" onClick={() => exportTrace(false).catch((error) => setStatus(error.message))}>Preview Export</button>
-                <button className="secondary" id="download" onClick={() => exportTrace(true).catch((error) => setStatus(error.message))}>Download</button>
+                <button id="load" disabled={!sessionID} onClick={() => selectSession(sessionID).catch((error) => setStatus(error.message))}>Refresh</button>
+                <button className="secondary" id="export" disabled={!sessionID} onClick={() => exportTrace(false).catch((error) => setStatus(error.message))}>Preview Export</button>
+                <button className="secondary" id="download" disabled={!sessionID} onClick={() => exportTrace(true).catch((error) => setStatus(error.message))}>Download</button>
               </div>
             </div>
           </Panel>
-          <RecentTraces traces={traceCatalog.traces || []} activeSession={sessionID} activeTurn={turnID} onFilter={() => filterCatalogs().catch((error) => setStatus(error.message))} onClear={() => {
-            setSessionID("");
-            setTurnID("");
-            setTraceID("");
-            setCurrentTrace(null);
-            setSelectedSpanID("");
-            setInspectorHash({ session: "", turn: "", trace: "", span: "" });
-            filterCatalogs().catch((error) => setStatus(error.message));
-          }} hasMore={Boolean(traceCatalog.has_more)} onMore={() => loadTraceCatalog(sessionID, turnID, traceCatalog.next_cursor || "", true).catch((error) => setStatus(error.message))} onLoadTrace={(id) => loadTraceByID(id).catch((error) => setStatus(error.message))} />
+          <RecentTraces traces={traceCatalog.traces || []} activeSession={sessionID} activeTurn={turnID} hasMore={Boolean(traceCatalog.has_more)} onMore={() => loadTraceCatalog(sessionID, "", traceCatalog.next_cursor || "", true).catch((error) => setStatus(error.message))} onLoadTrace={(id) => loadTraceByID(id).catch((error) => setStatus(error.message))} />
           <SpanSearch
+            disabled={!sessionID}
             query={globalSpanQuery}
             kind={globalSpanKind}
             status={globalSpanStatus}
@@ -832,14 +951,10 @@ function CompletionQuality({ summary }) {
   );
 }
 
-function RecentTraces({ traces, activeSession, activeTurn, hasMore, onFilter, onClear, onMore, onLoadTrace }) {
+function RecentTraces({ traces, activeSession, activeTurn, hasMore, onMore, onLoadTrace }) {
   return (
-    <Panel title="Recent Traces">
+    <Panel title="Session Traces">
       <div className="stack">
-        <div className="actions">
-          <button className="secondary" id="filterTraces" type="button" onClick={onFilter}>Filter by Session</button>
-          <button className="secondary" id="clearTraceFilter" type="button" onClick={onClear}>Clear</button>
-        </div>
         <div className="turn-list" id="traceCatalog">
           {traces.length ? traces.map((trace) => {
             const active = trace.session_id === activeSession && trace.turn_id === activeTurn;
@@ -851,7 +966,7 @@ function RecentTraces({ traces, activeSession, activeTurn, hasMore, onFilter, on
                 <div className="summary compact" style={{ marginTop: 8 }}>{trace.summary || "No summary."}</div>
               </button>
             );
-          }) : <Empty>No recent traces loaded.</Empty>}
+          }) : <Empty>{activeSession ? "No traces found for this session." : "Select a session to load traces."}</Empty>}
         </div>
         {hasMore ? <button className="secondary" id="moreTraces" type="button" onClick={onMore}>Load more</button> : null}
       </div>
@@ -859,20 +974,20 @@ function RecentTraces({ traces, activeSession, activeTurn, hasMore, onFilter, on
   );
 }
 
-function SpanSearch({ query, kind, status, critical, minDuration, response, onChange, onSearch, onMore, onLoadSpan }) {
+function SpanSearch({ disabled, query, kind, status, critical, minDuration, response, onChange, onSearch, onMore, onLoadSpan }) {
   const spans = response.spans || [];
   const aggregate = (entry, formatter = (key) => key) => entry ? Object.entries(entry).map(([key, value]) => `${formatter(key)}: ${value}`).join(" | ") : "";
   return (
-    <Panel title="Span Search">
+    <Panel title="Session Span Search">
       <div className="stack">
         <Field label="Search">
-          <input id="globalSpanQuery" value={query} onChange={(event) => onChange.setGlobalSpanQuery(event.target.value)} onKeyDown={(event) => {
+          <input id="globalSpanQuery" value={query} disabled={disabled} onChange={(event) => onChange.setGlobalSpanQuery(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") onSearch();
           }} autoComplete="off" placeholder="name, id, attribute" />
         </Field>
         <div className="span-search-controls">
           <Field label="Kind">
-            <select id="globalSpanKind" value={kind} onChange={(event) => onChange.setGlobalSpanKind(event.target.value)}>
+            <select id="globalSpanKind" value={kind} disabled={disabled} onChange={(event) => onChange.setGlobalSpanKind(event.target.value)}>
               <option value="">all</option>
               <option value="interaction">interaction</option>
               <option value="llm">llm</option>
@@ -883,24 +998,24 @@ function SpanSearch({ query, kind, status, critical, minDuration, response, onCh
             </select>
           </Field>
           <Field label="Status">
-            <input id="globalSpanStatus" value={status} onChange={(event) => onChange.setGlobalSpanStatus(event.target.value)} onKeyDown={(event) => {
+            <input id="globalSpanStatus" value={status} disabled={disabled} onChange={(event) => onChange.setGlobalSpanStatus(event.target.value)} onKeyDown={(event) => {
               if (event.key === "Enter") onSearch();
             }} autoComplete="off" placeholder="ok, error, open" />
           </Field>
           <Field label="Critical">
-            <select id="globalSpanCritical" value={critical} onChange={(event) => onChange.setGlobalSpanCritical(event.target.value)}>
+            <select id="globalSpanCritical" value={critical} disabled={disabled} onChange={(event) => onChange.setGlobalSpanCritical(event.target.value)}>
               <option value="">all</option>
               <option value="true">critical</option>
               <option value="false">non-critical</option>
             </select>
           </Field>
           <Field label="Min Duration">
-            <input id="globalSpanMinDuration" value={minDuration} onChange={(event) => onChange.setGlobalSpanMinDuration(event.target.value)} onKeyDown={(event) => {
+            <input id="globalSpanMinDuration" value={minDuration} disabled={disabled} onChange={(event) => onChange.setGlobalSpanMinDuration(event.target.value)} onKeyDown={(event) => {
               if (event.key === "Enter") onSearch();
             }} type="number" min="0" step="1" inputMode="numeric" placeholder="ms" />
           </Field>
         </div>
-        <div className="actions"><button className="secondary" id="searchSpans" type="button" onClick={onSearch}>Search Spans</button></div>
+        <div className="actions"><button className="secondary" id="searchSpans" type="button" disabled={disabled} onClick={onSearch}>Search Spans</button></div>
         <div className="meta" id="spanAggregates">
           <span>{aggregate(response.kind_counts) || "no kind counts"}</span>
           <span>{aggregate(response.status_counts) || "no status counts"}</span>
@@ -919,7 +1034,7 @@ function SpanSearch({ query, kind, status, critical, minDuration, response, onCh
               <div className="subtle">{[span.session_title || span.session_id, span.turn_id, span.span_id].filter(Boolean).join(" | ")}</div>
               <div className="subtle">depth {span.depth || 0} | self {formatDuration(span.self_duration_ms || 0)}</div>
             </button>
-          )) : <Empty>No span search loaded.</Empty>}
+          )) : <Empty>{disabled ? "Select a session to search spans." : "No spans found for this session."}</Empty>}
         </div>
         {response.has_more ? <button className="secondary" id="moreSpans" type="button" onClick={onMore}>Load more</button> : null}
       </div>

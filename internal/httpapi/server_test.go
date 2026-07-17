@@ -3270,9 +3270,11 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "TMAInspectorAPI") ||
 		!strings.Contains(appJS, "TMAInspectorUtils") ||
 		!strings.Contains(appJS, "Turns") ||
-		!strings.Contains(appJS, "Recent Traces") ||
-		!strings.Contains(appJS, "Trace ID") ||
-		!strings.Contains(appJS, "Span Search") ||
+		!strings.Contains(appJS, "Session Traces") ||
+		!strings.Contains(appJS, "1. Agent") ||
+		!strings.Contains(appJS, "2. Session") ||
+		!strings.Contains(appJS, "3. Trace") ||
+		!strings.Contains(appJS, "Session Span Search") ||
 		!strings.Contains(appJS, "globalSpanKind") ||
 		!strings.Contains(appJS, "globalSpanCritical") ||
 		!strings.Contains(appJS, "globalSpanMinDuration") ||

@@ -37239,6 +37239,7 @@ function WorkbenchApp() {
   const [task, setTask] = reactExports.useState("");
   const [composerFiles, setComposerFiles] = reactExports.useState([]);
   const [composerDragActive, setComposerDragActive] = reactExports.useState(false);
+  const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = reactExports.useState(false);
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
@@ -37532,7 +37533,7 @@ function WorkbenchApp() {
     interventions: interventions$1,
     includeSuccess: waitingForReply
   }), [events$1, interventions$1, lastUserSeq, effectiveSessionStatus, waitingForReply]);
-  const runState = reactExports.useMemo(() => {
+  reactExports.useMemo(() => {
     if (interventions$1.length) return "waiting approval";
     if (effectiveSessionStatus) return effectiveSessionStatus;
     return sessionID ? "active" : "not started";
@@ -38986,11 +38987,6 @@ function WorkbenchApp() {
     if (isSessionBusy) await interruptTask(workflowRun.sessionID);
   }
   const hasTaskSearch = Boolean(taskSearch.trim());
-  function navigatePluginRoute(path2) {
-    clearArtifactPreview();
-    setSettingsOpen(false);
-    window.location.hash = encodeURI(path2);
-  }
   function closePluginRoute() {
     if (!pluginRoutePath && !window.location.hash) return;
     window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
@@ -39237,12 +39233,8 @@ function WorkbenchApp() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-context", children: (activePluginRoute == null ? void 0 : activePluginRoute.title) || (sessionMeta == null ? void 0 : sessionMeta.title) || sessionID || "通用智能体工作区" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-status", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "status-readout", children: status }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: runState }),
-        principal ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-identity", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { title: principal.subject, children: principal.subject }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: ((_a2 = principal.roles) == null ? void 0 : _a2[principal.roles.length - 1]) || "viewer" })
-        ] }) : null,
+        principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-role", children: ((_a2 = principal.roles) == null ? void 0 : _a2[principal.roles.length - 1]) || "viewer" }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-settings", type: "button", onClick: openSettingsPage, children: "设置" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" })
       ] })
     ] }),
@@ -39396,21 +39388,7 @@ function WorkbenchApp() {
                 ] }) : null,
                 !filteredTaskSessions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: hasTaskSearch ? "没有匹配的任务。" : "暂无任务。" }) : null
               ] }) })
-            ] }) }),
-            pluginNavigation.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "扩展", className: "plugin-navigation-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "plugin-navigation", "aria-label": "扩展页面", children: pluginNavigation.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "button",
-              {
-                className: item.route === pluginRoutePath ? "active" : "",
-                type: "button",
-                onClick: () => navigatePluginRoute(item.route),
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", className: "plugin-navigation-mark" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.title })
-                ]
-              },
-              `${item.pluginID}:${item.id}`
-            )) }) }) : null,
-            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sidebar-footer", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary sidebar-settings-button", type: "button", onClick: openSettingsPage, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "设置" }) }) })
+            ] }) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: `user-main ${pluginRoutePath ? "plugin-route-main" : ""}`, children: pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
             PluginRouteHost,
@@ -39626,33 +39604,51 @@ function WorkbenchApp() {
                   ] }, item.key)) }) : null,
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-settings-inline", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                          "select",
+                          "button",
                           {
-                            disabled: savingSettings,
-                            value: settingsDraft.interventionMode,
-                            onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
+                            className: "secondary composer-settings-toggle",
+                            type: "button",
+                            "aria-expanded": mobileRuntimeSettingsOpen,
+                            "aria-controls": "composer-runtime-settings",
+                            onClick: () => setMobileRuntimeSettingsOpen((current) => !current),
                             children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批与运行环境" }),
+                              /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded: mobileRuntimeSettingsOpen })
                             ]
                           }
-                        )
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "select",
-                          {
-                            disabled: savingSettings,
-                            value: settingsDraft.toolRuntime,
-                            onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
-                            children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
-                          }
-                        )
+                        ),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-collapsible-settings", id: "composer-runtime-settings", children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                              "select",
+                              {
+                                disabled: savingSettings,
+                                value: settingsDraft.interventionMode,
+                                onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
+                                ]
+                              }
+                            )
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(
+                              "select",
+                              {
+                                disabled: savingSettings,
+                                value: settingsDraft.toolRuntime,
+                                onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
+                                children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
+                              }
+                            )
+                          ] })
+                        ] })
                       ] }),
                       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting composer-setting-model", children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "模型" }),
