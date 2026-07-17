@@ -88,6 +88,29 @@ func TestParseWorkerConfigConcurrency(t *testing.T) {
 	}
 }
 
+func TestParseWorkerConfigReadFileLimits(t *testing.T) {
+	t.Setenv("TMA_WORKER_PLUGINS", "")
+	cfg, err := parseWorkerConfig([]string{
+		"--name", "test-worker",
+		"--read-file-default-max-bytes", "16384",
+		"--read-file-hard-max-bytes", "65536",
+		"--read-file-small-file-bytes", "4096",
+		"--read-file-max-lines", "900",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := (capability.ReadFileLimits{DefaultMaxBytes: 16384, HardMaxBytes: 65536, SmallFileBytes: 4096, MaxLines: 900})
+	if cfg.ReadFileLimits != want {
+		t.Fatalf("unexpected worker read limits: got %#v want %#v", cfg.ReadFileLimits, want)
+	}
+	if _, err := parseWorkerConfig([]string{
+		"--name", "test-worker", "--read-file-default-max-bytes", "70000", "--read-file-hard-max-bytes", "65536",
+	}); err == nil || !strings.Contains(err.Error(), "read_file_default_max_bytes") {
+		t.Fatalf("expected worker read limit validation, got %v", err)
+	}
+}
+
 func TestParseWorkerConfigPlugins(t *testing.T) {
 	t.Setenv("TMA_WORKER_PLUGINS", "/opt/tma/robot,/opt/tma/office")
 	cfg, err := parseWorkerConfig([]string{"--name", "test-worker", "--plugin", "/opt/tma/computer", "--plugin", "/opt/tma/robot"})

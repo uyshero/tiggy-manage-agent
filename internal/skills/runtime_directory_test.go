@@ -11,12 +11,12 @@ func TestBindRuntimeDirectoriesRewritesDirectExecPaths(t *testing.T) {
 		Rendered:        "Run node ${CLAUDE_SKILL_DIR}/scripts/check-deps.mjs then read $TMA_SKILL_DIR/config.env.",
 		EstimatedTokens: 10,
 	}}}
-	bound, err := BindRuntimeDirectories(result, map[string]string{"web-access": "/workspace/.tma/skills/web-access/2"})
+	bound, err := BindRuntimeDirectories(result, map[string]string{"web-access": "/tma/skills/skl_web_access/2"})
 	if err != nil {
 		t.Fatalf("bind runtime directories: %v", err)
 	}
 	content := string(bound.Rendered)
-	if strings.Contains(content, "SKILL_DIR") || !strings.Contains(content, "/workspace/.tma/skills/web-access/2/scripts/check-deps.mjs") || !strings.Contains(content, "do not search server or home directories") {
+	if strings.Contains(content, "SKILL_DIR") || !strings.Contains(content, "/tma/skills/skl_web_access/2/scripts/check-deps.mjs") || !strings.Contains(content, "do not search server or home directories") {
 		t.Fatalf("unexpected bound skill context: %s", content)
 	}
 	if bound.EstimatedTokens <= 0 || bound.Skills[0].EstimatedTokens <= 0 {
@@ -29,7 +29,7 @@ func TestBindRuntimeDirectoriesAdaptsDesktopBrowserSkills(t *testing.T) {
 		Skill: Skill{Identifier: "web-access"}, Version: Version{Version: 2, ContentText: "Run check-deps.mjs before cdp-proxy.mjs."},
 		Rendered: "Run check-deps.mjs before cdp-proxy.mjs.", EstimatedTokens: 10,
 	}}}
-	bound, err := BindRuntimeDirectories(result, map[string]string{"web-access": "/workspace/.tma/skills/web-access/2"})
+	bound, err := BindRuntimeDirectories(result, map[string]string{"web-access": "/tma/skills/skl_web_access/2"})
 	if err != nil {
 		t.Fatalf("bind runtime directories: %v", err)
 	}

@@ -18,6 +18,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AgentAgentKind.
+const (
+	AgentAgentKindCustom  AgentAgentKind = "custom"
+	AgentAgentKindGeneral AgentAgentKind = "general"
+)
+
+// Defines values for AgentOwnerType.
+const (
+	AgentOwnerTypeUser      AgentOwnerType = "user"
+	AgentOwnerTypeWorkspace AgentOwnerType = "workspace"
+)
+
+// Defines values for AgentVisibility.
+const (
+	AgentVisibilityPrivate   AgentVisibility = "private"
+	AgentVisibilityWorkspace AgentVisibility = "workspace"
+)
+
 // Defines values for AgentExportDocumentFormat.
 const (
 	AgentExportDocumentFormatTmaAgent AgentExportDocumentFormat = "tma.agent"
@@ -46,6 +64,24 @@ const (
 	AuthClientConfigurationModeOidc     AuthClientConfigurationMode = "oidc"
 )
 
+// Defines values for CreateAgentRequestAgentKind.
+const (
+	CreateAgentRequestAgentKindCustom  CreateAgentRequestAgentKind = "custom"
+	CreateAgentRequestAgentKindGeneral CreateAgentRequestAgentKind = "general"
+)
+
+// Defines values for CreateAgentRequestOwnerType.
+const (
+	CreateAgentRequestOwnerTypeUser      CreateAgentRequestOwnerType = "user"
+	CreateAgentRequestOwnerTypeWorkspace CreateAgentRequestOwnerType = "workspace"
+)
+
+// Defines values for CreateAgentRequestVisibility.
+const (
+	CreateAgentRequestVisibilityPrivate   CreateAgentRequestVisibility = "private"
+	CreateAgentRequestVisibilityWorkspace CreateAgentRequestVisibility = "workspace"
+)
+
 // Defines values for CreateMarketplacePolicyRequestScopeType.
 const (
 	CreateMarketplacePolicyRequestScopeTypeOrganization CreateMarketplacePolicyRequestScopeType = "organization"
@@ -56,6 +92,7 @@ const (
 const (
 	CreateSkillRequestOwnerTypeBuiltin   CreateSkillRequestOwnerType = "builtin"
 	CreateSkillRequestOwnerTypePlugin    CreateSkillRequestOwnerType = "plugin"
+	CreateSkillRequestOwnerTypeUser      CreateSkillRequestOwnerType = "user"
 	CreateSkillRequestOwnerTypeWorkspace CreateSkillRequestOwnerType = "workspace"
 )
 
@@ -67,6 +104,12 @@ const (
 	CreateSkillRequestSourceTypeGithub   CreateSkillRequestSourceType = "github"
 	CreateSkillRequestSourceTypeInline   CreateSkillRequestSourceType = "inline"
 	CreateSkillRequestSourceTypePlugin   CreateSkillRequestSourceType = "plugin"
+)
+
+// Defines values for CreateSkillRequestVisibility.
+const (
+	CreateSkillRequestVisibilityPrivate   CreateSkillRequestVisibility = "private"
+	CreateSkillRequestVisibilityWorkspace CreateSkillRequestVisibility = "workspace"
 )
 
 // Defines values for CreateSkillRetentionPolicyRequestScopeType.
@@ -330,6 +373,12 @@ const (
 	TmaSkillsContextV1 RenderedSkillsContextFormat = "tma.skills.context.v1"
 )
 
+// Defines values for RerunSessionRequestAgentConfigUpdatePolicy.
+const (
+	RerunSessionRequestAgentConfigUpdatePolicyFollowLatest RerunSessionRequestAgentConfigUpdatePolicy = "follow_latest"
+	RerunSessionRequestAgentConfigUpdatePolicyPinned       RerunSessionRequestAgentConfigUpdatePolicy = "pinned"
+)
+
 // Defines values for ResolvedSkillStatus.
 const (
 	ResolvedSkillStatusDegraded ResolvedSkillStatus = "degraded"
@@ -374,6 +423,7 @@ const (
 const (
 	SkillOwnerTypeBuiltin   SkillOwnerType = "builtin"
 	SkillOwnerTypePlugin    SkillOwnerType = "plugin"
+	SkillOwnerTypeUser      SkillOwnerType = "user"
 	SkillOwnerTypeWorkspace SkillOwnerType = "workspace"
 )
 
@@ -391,6 +441,12 @@ const (
 const (
 	SkillStatusActive   SkillStatus = "active"
 	SkillStatusArchived SkillStatus = "archived"
+)
+
+// Defines values for SkillVisibility.
+const (
+	SkillVisibilityPrivate   SkillVisibility = "private"
+	SkillVisibilityWorkspace SkillVisibility = "workspace"
 )
 
 // Defines values for SkillAssetCandidateReason.
@@ -430,8 +486,8 @@ const (
 
 // Defines values for SkillRetentionPolicyScopeType.
 const (
-	SkillRetentionPolicyScopeTypeOrganization SkillRetentionPolicyScopeType = "organization"
-	SkillRetentionPolicyScopeTypeWorkspace    SkillRetentionPolicyScopeType = "workspace"
+	Organization SkillRetentionPolicyScopeType = "organization"
+	Workspace    SkillRetentionPolicyScopeType = "workspace"
 )
 
 // Defines values for SkillRetentionPolicyStatus.
@@ -448,6 +504,17 @@ const (
 	SkillUsageStatusSkipped  SkillUsageStatus = "skipped"
 )
 
+// Defines values for TaskEvidenceRefKind.
+const (
+	ToolResult TaskEvidenceRefKind = "tool_result"
+)
+
+// Defines values for UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy.
+const (
+	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyFollowLatest UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "follow_latest"
+	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyPinned       UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "pinned"
+)
+
 // APIError defines model for APIError.
 type APIError struct {
 	Code string `json:"code"`
@@ -461,14 +528,27 @@ type APIError struct {
 
 // Agent defines model for Agent.
 type Agent struct {
+	AgentKind            AgentAgentKind     `json:"agent_kind"`
 	ArchivedAt           *time.Time         `json:"archived_at"`
 	ConfigVersion        AgentConfigVersion `json:"config_version"`
 	CreatedAt            time.Time          `json:"created_at"`
 	CurrentConfigVersion int32              `json:"current_config_version"`
 	Id                   string             `json:"id"`
 	Name                 string             `json:"name"`
+	OwnerId              string             `json:"owner_id"`
+	OwnerType            AgentOwnerType     `json:"owner_type"`
+	Visibility           AgentVisibility    `json:"visibility"`
 	WorkspaceId          string             `json:"workspace_id"`
 }
+
+// AgentAgentKind defines model for Agent.AgentKind.
+type AgentAgentKind string
+
+// AgentOwnerType defines model for Agent.OwnerType.
+type AgentOwnerType string
+
+// AgentVisibility defines model for Agent.Visibility.
+type AgentVisibility string
 
 // AgentConfigRollbackResponse defines model for AgentConfigRollbackResponse.
 type AgentConfigRollbackResponse struct {
@@ -883,17 +963,30 @@ type CreateAgentConfigVersionRequest = UpdateAgentRequest
 
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
-	LlmModel    *string                 `json:"llm_model,omitempty"`
-	LlmProvider *string                 `json:"llm_provider,omitempty"`
-	Mcp         *map[string]interface{} `json:"mcp,omitempty"`
+	AgentKind   *CreateAgentRequestAgentKind `json:"agent_kind,omitempty"`
+	LlmModel    *string                      `json:"llm_model,omitempty"`
+	LlmProvider *string                      `json:"llm_provider,omitempty"`
+	Mcp         *map[string]interface{}      `json:"mcp,omitempty"`
 	// Deprecated:
-	Model       *string                 `json:"model,omitempty"`
-	Name        string                  `json:"name"`
-	Skills      *map[string]interface{} `json:"skills,omitempty"`
-	System      string                  `json:"system"`
-	Tools       *map[string]interface{} `json:"tools,omitempty"`
-	WorkspaceId *string                 `json:"workspace_id,omitempty"`
+	Model       *string                       `json:"model,omitempty"`
+	Name        string                        `json:"name"`
+	OwnerId     *string                       `json:"owner_id,omitempty"`
+	OwnerType   *CreateAgentRequestOwnerType  `json:"owner_type,omitempty"`
+	Skills      *map[string]interface{}       `json:"skills,omitempty"`
+	System      string                        `json:"system"`
+	Tools       *map[string]interface{}       `json:"tools,omitempty"`
+	Visibility  *CreateAgentRequestVisibility `json:"visibility,omitempty"`
+	WorkspaceId *string                       `json:"workspace_id,omitempty"`
 }
+
+// CreateAgentRequestAgentKind defines model for CreateAgentRequest.AgentKind.
+type CreateAgentRequestAgentKind string
+
+// CreateAgentRequestOwnerType defines model for CreateAgentRequest.OwnerType.
+type CreateAgentRequestOwnerType string
+
+// CreateAgentRequestVisibility defines model for CreateAgentRequest.Visibility.
+type CreateAgentRequestVisibility string
 
 // CreateArtifactRequest defines model for CreateArtifactRequest.
 type CreateArtifactRequest struct {
@@ -986,12 +1079,14 @@ type CreateSessionRequest struct {
 type CreateSkillRequest struct {
 	Description    *string                       `json:"description,omitempty"`
 	Identifier     string                        `json:"identifier"`
+	OwnerId        *string                       `json:"owner_id,omitempty"`
 	OwnerType      *CreateSkillRequestOwnerType  `json:"owner_type,omitempty"`
 	SourceLocator  *string                       `json:"source_locator,omitempty"`
 	SourcePath     *string                       `json:"source_path,omitempty"`
 	SourcePluginId *string                       `json:"source_plugin_id,omitempty"`
 	SourceType     *CreateSkillRequestSourceType `json:"source_type,omitempty"`
 	Title          string                        `json:"title"`
+	Visibility     *CreateSkillRequestVisibility `json:"visibility,omitempty"`
 	WorkspaceId    *string                       `json:"workspace_id,omitempty"`
 }
 
@@ -1000,6 +1095,9 @@ type CreateSkillRequestOwnerType string
 
 // CreateSkillRequestSourceType defines model for CreateSkillRequest.SourceType.
 type CreateSkillRequestSourceType string
+
+// CreateSkillRequestVisibility defines model for CreateSkillRequest.Visibility.
+type CreateSkillRequestVisibility string
 
 // CreateSkillRetentionPolicyRequest defines model for CreateSkillRetentionPolicyRequest.
 type CreateSkillRetentionPolicyRequest struct {
@@ -1044,6 +1142,7 @@ type EnabledSkill struct {
 	Mode     *EnabledSkillMode       `json:"mode,omitempty"`
 	Priority *int32                  `json:"priority,omitempty"`
 	Skill    string                  `json:"skill"`
+	SkillId  *string                 `json:"skill_id,omitempty"`
 	Version  *int32                  `json:"version,omitempty"`
 }
 
@@ -1109,6 +1208,14 @@ type EventList struct {
 
 // EventStream Server-sent event stream whose data fields contain Event JSON.
 type EventStream = string
+
+// ForkSkillRequest defines model for ForkSkillRequest.
+type ForkSkillRequest struct {
+	Description *string `json:"description,omitempty"`
+	Identifier  string  `json:"identifier"`
+	Title       string  `json:"title"`
+	Version     int32   `json:"version"`
+}
 
 // HumanInteractionRuntimeCapabilities defines model for HumanInteractionRuntimeCapabilities.
 type HumanInteractionRuntimeCapabilities struct {
@@ -2137,6 +2244,11 @@ type PublishMarketplacePolicyRequest struct {
 	Config MarketplacePolicyConfig `json:"config"`
 }
 
+// PublishSkillDraftRequest defines model for PublishSkillDraftRequest.
+type PublishSkillDraftRequest struct {
+	ExpectedRevision *int64 `json:"expected_revision,omitempty"`
+}
+
 // PublishSkillRetentionPolicyRequest defines model for PublishSkillRetentionPolicyRequest.
 type PublishSkillRetentionPolicyRequest struct {
 	Config *SkillRetentionPolicyConfigInput `json:"config,omitempty"`
@@ -2161,6 +2273,15 @@ type PutLLMModelRequest struct {
 
 // PutLLMModelRequestCapabilityType defines model for PutLLMModelRequest.CapabilityType.
 type PutLLMModelRequestCapabilityType string
+
+// PutSkillDraftRequest defines model for PutSkillDraftRequest.
+type PutSkillDraftRequest struct {
+	Assets           *SkillAssets   `json:"assets,omitempty"`
+	ContentFormat    *string        `json:"content_format,omitempty"`
+	ContentText      *string        `json:"content_text,omitempty"`
+	ExpectedRevision *int64         `json:"expected_revision,omitempty"`
+	Manifest         *SkillManifest `json:"manifest,omitempty"`
+}
 
 // ReapExpiredWorkerWorkRequest defines model for ReapExpiredWorkerWorkRequest.
 type ReapExpiredWorkerWorkRequest struct {
@@ -2222,18 +2343,23 @@ type RequeueWorkerWorkRequest struct {
 
 // RerunSessionRequest defines model for RerunSessionRequest.
 type RerunSessionRequest struct {
-	CloudSandboxAllowNetwork *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
-	CloudSandboxImage        *string                          `json:"cloud_sandbox_image,omitempty"`
-	CloudSandboxRoot         *string                          `json:"cloud_sandbox_root,omitempty"`
-	CompletionGate           *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
-	HumanInteraction         *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
-	InterventionMode         *string                          `json:"intervention_mode,omitempty"`
-	LlmModel                 *string                          `json:"llm_model,omitempty"`
-	LlmProvider              *string                          `json:"llm_provider,omitempty"`
-	MessageSeq               *int64                           `json:"message_seq,omitempty"`
-	Title                    *string                          `json:"title,omitempty"`
-	ToolRuntime              *string                          `json:"tool_runtime,omitempty"`
+	// AgentConfigUpdatePolicy Defaults to follow_latest.
+	AgentConfigUpdatePolicy  *RerunSessionRequestAgentConfigUpdatePolicy `json:"agent_config_update_policy,omitempty"`
+	CloudSandboxAllowNetwork *bool                                       `json:"cloud_sandbox_allow_network,omitempty"`
+	CloudSandboxImage        *string                                     `json:"cloud_sandbox_image,omitempty"`
+	CloudSandboxRoot         *string                                     `json:"cloud_sandbox_root,omitempty"`
+	CompletionGate           *CompletionGateRuntimeSettings              `json:"completion_gate,omitempty"`
+	HumanInteraction         *HumanInteractionRuntimeSettings            `json:"human_interaction,omitempty"`
+	InterventionMode         *string                                     `json:"intervention_mode,omitempty"`
+	LlmModel                 *string                                     `json:"llm_model,omitempty"`
+	LlmProvider              *string                                     `json:"llm_provider,omitempty"`
+	MessageSeq               *int64                                      `json:"message_seq,omitempty"`
+	Title                    *string                                     `json:"title,omitempty"`
+	ToolRuntime              *string                                     `json:"tool_runtime,omitempty"`
 }
+
+// RerunSessionRequestAgentConfigUpdatePolicy Defaults to follow_latest.
+type RerunSessionRequestAgentConfigUpdatePolicy string
 
 // RerunSessionResponse defines model for RerunSessionResponse.
 type RerunSessionResponse struct {
@@ -2284,6 +2410,8 @@ type RetryAgentDeliberationParticipantRequest struct {
 
 // Run defines model for Run.
 type Run struct {
+	AgentConfigVersion   int32      `json:"agent_config_version"`
+	AgentId              string     `json:"agent_id"`
 	Attempt              int32      `json:"attempt"`
 	EndedAt              *time.Time `json:"ended_at"`
 	ErrorMessage         *string    `json:"error_message,omitempty"`
@@ -2438,15 +2566,16 @@ type SessionTaskGroupTreeSummary struct {
 
 // SessionTaskItem defines model for SessionTaskItem.
 type SessionTaskItem struct {
-	CompletedAt *time.Time            `json:"completed_at"`
-	CreatedAt   time.Time             `json:"created_at"`
-	Description string                `json:"description"`
-	Evidence    *string               `json:"evidence,omitempty"`
-	Id          string                `json:"id"`
-	Index       int32                 `json:"index"`
-	PlanId      string                `json:"plan_id"`
-	Status      SessionTaskItemStatus `json:"status"`
-	UpdatedAt   time.Time             `json:"updated_at"`
+	CompletedAt  *time.Time            `json:"completed_at"`
+	CreatedAt    time.Time             `json:"created_at"`
+	Description  string                `json:"description"`
+	Evidence     *string               `json:"evidence,omitempty"`
+	EvidenceRefs []TaskEvidenceRef     `json:"evidence_refs"`
+	Id           string                `json:"id"`
+	Index        int32                 `json:"index"`
+	PlanId       string                `json:"plan_id"`
+	Status       SessionTaskItemStatus `json:"status"`
+	UpdatedAt    time.Time             `json:"updated_at"`
 }
 
 // SessionTaskItemStatus defines model for SessionTaskItem.Status.
@@ -2495,20 +2624,24 @@ type SessionUsage struct {
 
 // Skill defines model for Skill.
 type Skill struct {
-	ArchivedAt     *time.Time      `json:"archived_at"`
-	CreatedAt      time.Time       `json:"created_at"`
-	CreatedBy      string          `json:"created_by"`
-	Description    *string         `json:"description,omitempty"`
-	Id             string          `json:"id"`
-	Identifier     string          `json:"identifier"`
-	OwnerType      SkillOwnerType  `json:"owner_type"`
-	SourceLocator  *string         `json:"source_locator,omitempty"`
-	SourcePath     *string         `json:"source_path,omitempty"`
-	SourcePluginId *string         `json:"source_plugin_id,omitempty"`
-	SourceType     SkillSourceType `json:"source_type"`
-	Status         SkillStatus     `json:"status"`
-	Title          string          `json:"title"`
-	WorkspaceId    string          `json:"workspace_id"`
+	ArchivedAt        *time.Time      `json:"archived_at"`
+	CreatedAt         time.Time       `json:"created_at"`
+	CreatedBy         string          `json:"created_by"`
+	Description       *string         `json:"description,omitempty"`
+	ForkedFromSkillId *string         `json:"forked_from_skill_id,omitempty"`
+	ForkedFromVersion *int32          `json:"forked_from_version,omitempty"`
+	Id                string          `json:"id"`
+	Identifier        string          `json:"identifier"`
+	OwnerId           string          `json:"owner_id"`
+	OwnerType         SkillOwnerType  `json:"owner_type"`
+	SourceLocator     *string         `json:"source_locator,omitempty"`
+	SourcePath        *string         `json:"source_path,omitempty"`
+	SourcePluginId    *string         `json:"source_plugin_id,omitempty"`
+	SourceType        SkillSourceType `json:"source_type"`
+	Status            SkillStatus     `json:"status"`
+	Title             string          `json:"title"`
+	Visibility        SkillVisibility `json:"visibility"`
+	WorkspaceId       string          `json:"workspace_id"`
 }
 
 // SkillOwnerType defines model for Skill.OwnerType.
@@ -2519,6 +2652,9 @@ type SkillSourceType string
 
 // SkillStatus defines model for Skill.Status.
 type SkillStatus string
+
+// SkillVisibility defines model for Skill.Visibility.
+type SkillVisibility string
 
 // SkillAssetBundle defines model for SkillAssetBundle.
 type SkillAssetBundle struct {
@@ -2714,6 +2850,18 @@ type SkillConfig struct {
 // SkillConfigInput defines model for SkillConfigInput.
 type SkillConfigInput struct {
 	Enabled *[]EnabledSkill `json:"enabled,omitempty"`
+}
+
+// SkillDraft defines model for SkillDraft.
+type SkillDraft struct {
+	Assets        SkillAssets   `json:"assets"`
+	ContentFormat string        `json:"content_format"`
+	ContentText   string        `json:"content_text"`
+	Manifest      SkillManifest `json:"manifest"`
+	Revision      int64         `json:"revision"`
+	SkillId       string        `json:"skill_id"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	UpdatedBy     string        `json:"updated_by"`
 }
 
 // SkillList defines model for SkillList.
@@ -2956,6 +3104,18 @@ type SubagentTaskGroupItem struct {
 	SessionId            *string                 `json:"session_id,omitempty"`
 	Title                *string                 `json:"title,omitempty"`
 }
+
+// TaskEvidenceRef defines model for TaskEvidenceRef.
+type TaskEvidenceRef struct {
+	ArtifactIds *[]string           `json:"artifact_ids,omitempty"`
+	Kind        TaskEvidenceRefKind `json:"kind"`
+	Tool        string              `json:"tool"`
+	ToolCallId  string              `json:"tool_call_id"`
+	TurnId      string              `json:"turn_id"`
+}
+
+// TaskEvidenceRefKind defines model for TaskEvidenceRef.Kind.
+type TaskEvidenceRefKind string
 
 // ToolingHealthItem defines model for ToolingHealthItem.
 type ToolingHealthItem struct {
@@ -3236,16 +3396,21 @@ type UpdateSessionMetadataRequest struct {
 
 // UpdateSessionRuntimeSettingsRequest defines model for UpdateSessionRuntimeSettingsRequest.
 type UpdateSessionRuntimeSettingsRequest struct {
-	CloudSandboxAllowNetwork *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
-	CloudSandboxImage        *string                          `json:"cloud_sandbox_image,omitempty"`
-	CloudSandboxRoot         *string                          `json:"cloud_sandbox_root,omitempty"`
-	CompletionGate           *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
-	HumanInteraction         *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
-	InterventionMode         *string                          `json:"intervention_mode,omitempty"`
-	LlmModel                 *string                          `json:"llm_model,omitempty"`
-	LlmProvider              *string                          `json:"llm_provider,omitempty"`
-	ToolRuntime              *string                          `json:"tool_runtime,omitempty"`
+	// AgentConfigUpdatePolicy Defaults to follow_latest.
+	AgentConfigUpdatePolicy  *UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy `json:"agent_config_update_policy,omitempty"`
+	CloudSandboxAllowNetwork *bool                                                       `json:"cloud_sandbox_allow_network,omitempty"`
+	CloudSandboxImage        *string                                                     `json:"cloud_sandbox_image,omitempty"`
+	CloudSandboxRoot         *string                                                     `json:"cloud_sandbox_root,omitempty"`
+	CompletionGate           *CompletionGateRuntimeSettings                              `json:"completion_gate,omitempty"`
+	HumanInteraction         *HumanInteractionRuntimeSettings                            `json:"human_interaction,omitempty"`
+	InterventionMode         *string                                                     `json:"intervention_mode,omitempty"`
+	LlmModel                 *string                                                     `json:"llm_model,omitempty"`
+	LlmProvider              *string                                                     `json:"llm_provider,omitempty"`
+	ToolRuntime              *string                                                     `json:"tool_runtime,omitempty"`
 }
+
+// UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy Defaults to follow_latest.
+type UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy string
 
 // UpgradeSessionConfigRequest defines model for UpgradeSessionConfigRequest.
 type UpgradeSessionConfigRequest struct {
@@ -3775,8 +3940,17 @@ type PostV2SkillsResolvePreviewJSONRequestBody = ResolveSkillsPreviewRequest
 // PostV2SkillsBySkillIdDisableJSONRequestBody defines body for PostV2SkillsBySkillIdDisable for application/json ContentType.
 type PostV2SkillsBySkillIdDisableJSONRequestBody = MarketplaceDisableRequest
 
+// PutV2SkillsBySkillIdDraftJSONRequestBody defines body for PutV2SkillsBySkillIdDraft for application/json ContentType.
+type PutV2SkillsBySkillIdDraftJSONRequestBody = PutSkillDraftRequest
+
+// PostV2SkillsBySkillIdDraftPublishJSONRequestBody defines body for PostV2SkillsBySkillIdDraftPublish for application/json ContentType.
+type PostV2SkillsBySkillIdDraftPublishJSONRequestBody = PublishSkillDraftRequest
+
 // PostV2SkillsBySkillIdEnableJSONRequestBody defines body for PostV2SkillsBySkillIdEnable for application/json ContentType.
 type PostV2SkillsBySkillIdEnableJSONRequestBody = MarketplaceEnableRequest
+
+// PostV2SkillsBySkillIdForkJSONRequestBody defines body for PostV2SkillsBySkillIdFork for application/json ContentType.
+type PostV2SkillsBySkillIdForkJSONRequestBody = ForkSkillRequest
 
 // PostV2SkillsBySkillIdVersionsJSONRequestBody defines body for PostV2SkillsBySkillIdVersions for application/json ContentType.
 type PostV2SkillsBySkillIdVersionsJSONRequestBody = CreateSkillVersionRequest
@@ -4582,10 +4756,28 @@ type ClientInterface interface {
 
 	PostV2SkillsBySkillIdDisable(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDisableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2SkillsBySkillIdDraft request
+	GetV2SkillsBySkillIdDraft(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2SkillsBySkillIdDraftWithBody request with any body
+	PutV2SkillsBySkillIdDraftWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2SkillsBySkillIdDraft(ctx context.Context, skillId string, body PutV2SkillsBySkillIdDraftJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2SkillsBySkillIdDraftPublishWithBody request with any body
+	PostV2SkillsBySkillIdDraftPublishWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SkillsBySkillIdDraftPublish(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDraftPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostV2SkillsBySkillIdEnableWithBody request with any body
 	PostV2SkillsBySkillIdEnableWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostV2SkillsBySkillIdEnable(ctx context.Context, skillId string, body PostV2SkillsBySkillIdEnableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2SkillsBySkillIdForkWithBody request with any body
+	PostV2SkillsBySkillIdForkWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SkillsBySkillIdFork(ctx context.Context, skillId string, body PostV2SkillsBySkillIdForkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SkillsBySkillIdVersions request
 	GetV2SkillsBySkillIdVersions(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6944,6 +7136,66 @@ func (c *Client) PostV2SkillsBySkillIdDisable(ctx context.Context, skillId strin
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetV2SkillsBySkillIdDraft(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SkillsBySkillIdDraftRequest(c.Server, skillId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2SkillsBySkillIdDraftWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2SkillsBySkillIdDraftRequestWithBody(c.Server, skillId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2SkillsBySkillIdDraft(ctx context.Context, skillId string, body PutV2SkillsBySkillIdDraftJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2SkillsBySkillIdDraftRequest(c.Server, skillId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SkillsBySkillIdDraftPublishWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SkillsBySkillIdDraftPublishRequestWithBody(c.Server, skillId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SkillsBySkillIdDraftPublish(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDraftPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SkillsBySkillIdDraftPublishRequest(c.Server, skillId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PostV2SkillsBySkillIdEnableWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SkillsBySkillIdEnableRequestWithBody(c.Server, skillId, contentType, body)
 	if err != nil {
@@ -6958,6 +7210,30 @@ func (c *Client) PostV2SkillsBySkillIdEnableWithBody(ctx context.Context, skillI
 
 func (c *Client) PostV2SkillsBySkillIdEnable(ctx context.Context, skillId string, body PostV2SkillsBySkillIdEnableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SkillsBySkillIdEnableRequest(c.Server, skillId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SkillsBySkillIdForkWithBody(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SkillsBySkillIdForkRequestWithBody(c.Server, skillId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SkillsBySkillIdFork(ctx context.Context, skillId string, body PostV2SkillsBySkillIdForkJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SkillsBySkillIdForkRequest(c.Server, skillId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -13639,6 +13915,134 @@ func NewPostV2SkillsBySkillIdDisableRequestWithBody(server string, skillId strin
 	return req, nil
 }
 
+// NewGetV2SkillsBySkillIdDraftRequest generates requests for GetV2SkillsBySkillIdDraft
+func NewGetV2SkillsBySkillIdDraftRequest(server string, skillId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "skill_id", runtime.ParamLocationPath, skillId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/skills/%s/draft", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2SkillsBySkillIdDraftRequest calls the generic PutV2SkillsBySkillIdDraft builder with application/json body
+func NewPutV2SkillsBySkillIdDraftRequest(server string, skillId string, body PutV2SkillsBySkillIdDraftJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2SkillsBySkillIdDraftRequestWithBody(server, skillId, "application/json", bodyReader)
+}
+
+// NewPutV2SkillsBySkillIdDraftRequestWithBody generates requests for PutV2SkillsBySkillIdDraft with any type of body
+func NewPutV2SkillsBySkillIdDraftRequestWithBody(server string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "skill_id", runtime.ParamLocationPath, skillId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/skills/%s/draft", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2SkillsBySkillIdDraftPublishRequest calls the generic PostV2SkillsBySkillIdDraftPublish builder with application/json body
+func NewPostV2SkillsBySkillIdDraftPublishRequest(server string, skillId string, body PostV2SkillsBySkillIdDraftPublishJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SkillsBySkillIdDraftPublishRequestWithBody(server, skillId, "application/json", bodyReader)
+}
+
+// NewPostV2SkillsBySkillIdDraftPublishRequestWithBody generates requests for PostV2SkillsBySkillIdDraftPublish with any type of body
+func NewPostV2SkillsBySkillIdDraftPublishRequestWithBody(server string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "skill_id", runtime.ParamLocationPath, skillId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/skills/%s/draft/publish", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewPostV2SkillsBySkillIdEnableRequest calls the generic PostV2SkillsBySkillIdEnable builder with application/json body
 func NewPostV2SkillsBySkillIdEnableRequest(server string, skillId string, body PostV2SkillsBySkillIdEnableJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -13667,6 +14071,53 @@ func NewPostV2SkillsBySkillIdEnableRequestWithBody(server string, skillId string
 	}
 
 	operationPath := fmt.Sprintf("/v2/skills/%s/enable", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2SkillsBySkillIdForkRequest calls the generic PostV2SkillsBySkillIdFork builder with application/json body
+func NewPostV2SkillsBySkillIdForkRequest(server string, skillId string, body PostV2SkillsBySkillIdForkJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SkillsBySkillIdForkRequestWithBody(server, skillId, "application/json", bodyReader)
+}
+
+// NewPostV2SkillsBySkillIdForkRequestWithBody generates requests for PostV2SkillsBySkillIdFork with any type of body
+func NewPostV2SkillsBySkillIdForkRequestWithBody(server string, skillId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "skill_id", runtime.ParamLocationPath, skillId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/skills/%s/fork", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -15445,10 +15896,28 @@ type ClientWithResponsesInterface interface {
 
 	PostV2SkillsBySkillIdDisableWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDisableJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdDisableResponse, error)
 
+	// GetV2SkillsBySkillIdDraftWithResponse request
+	GetV2SkillsBySkillIdDraftWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetV2SkillsBySkillIdDraftResponse, error)
+
+	// PutV2SkillsBySkillIdDraftWithBodyWithResponse request with any body
+	PutV2SkillsBySkillIdDraftWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2SkillsBySkillIdDraftResponse, error)
+
+	PutV2SkillsBySkillIdDraftWithResponse(ctx context.Context, skillId string, body PutV2SkillsBySkillIdDraftJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2SkillsBySkillIdDraftResponse, error)
+
+	// PostV2SkillsBySkillIdDraftPublishWithBodyWithResponse request with any body
+	PostV2SkillsBySkillIdDraftPublishWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdDraftPublishResponse, error)
+
+	PostV2SkillsBySkillIdDraftPublishWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDraftPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdDraftPublishResponse, error)
+
 	// PostV2SkillsBySkillIdEnableWithBodyWithResponse request with any body
 	PostV2SkillsBySkillIdEnableWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdEnableResponse, error)
 
 	PostV2SkillsBySkillIdEnableWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdEnableJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdEnableResponse, error)
+
+	// PostV2SkillsBySkillIdForkWithBodyWithResponse request with any body
+	PostV2SkillsBySkillIdForkWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdForkResponse, error)
+
+	PostV2SkillsBySkillIdForkWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdForkJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdForkResponse, error)
 
 	// GetV2SkillsBySkillIdVersionsWithResponse request
 	GetV2SkillsBySkillIdVersionsWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetV2SkillsBySkillIdVersionsResponse, error)
@@ -18764,6 +19233,75 @@ func (r PostV2SkillsBySkillIdDisableResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2SkillsBySkillIdDraftResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SkillDraft
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SkillsBySkillIdDraftResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SkillsBySkillIdDraftResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2SkillsBySkillIdDraftResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *SkillDraft
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2SkillsBySkillIdDraftResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2SkillsBySkillIdDraftResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2SkillsBySkillIdDraftPublishResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *SkillVersion
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SkillsBySkillIdDraftPublishResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SkillsBySkillIdDraftPublishResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2SkillsBySkillIdEnableResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -18782,6 +19320,29 @@ func (r PostV2SkillsBySkillIdEnableResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2SkillsBySkillIdEnableResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2SkillsBySkillIdForkResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *Skill
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SkillsBySkillIdForkResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SkillsBySkillIdForkResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -20908,6 +21469,49 @@ func (c *ClientWithResponses) PostV2SkillsBySkillIdDisableWithResponse(ctx conte
 	return ParsePostV2SkillsBySkillIdDisableResponse(rsp)
 }
 
+// GetV2SkillsBySkillIdDraftWithResponse request returning *GetV2SkillsBySkillIdDraftResponse
+func (c *ClientWithResponses) GetV2SkillsBySkillIdDraftWithResponse(ctx context.Context, skillId string, reqEditors ...RequestEditorFn) (*GetV2SkillsBySkillIdDraftResponse, error) {
+	rsp, err := c.GetV2SkillsBySkillIdDraft(ctx, skillId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SkillsBySkillIdDraftResponse(rsp)
+}
+
+// PutV2SkillsBySkillIdDraftWithBodyWithResponse request with arbitrary body returning *PutV2SkillsBySkillIdDraftResponse
+func (c *ClientWithResponses) PutV2SkillsBySkillIdDraftWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2SkillsBySkillIdDraftResponse, error) {
+	rsp, err := c.PutV2SkillsBySkillIdDraftWithBody(ctx, skillId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2SkillsBySkillIdDraftResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2SkillsBySkillIdDraftWithResponse(ctx context.Context, skillId string, body PutV2SkillsBySkillIdDraftJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2SkillsBySkillIdDraftResponse, error) {
+	rsp, err := c.PutV2SkillsBySkillIdDraft(ctx, skillId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2SkillsBySkillIdDraftResponse(rsp)
+}
+
+// PostV2SkillsBySkillIdDraftPublishWithBodyWithResponse request with arbitrary body returning *PostV2SkillsBySkillIdDraftPublishResponse
+func (c *ClientWithResponses) PostV2SkillsBySkillIdDraftPublishWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdDraftPublishResponse, error) {
+	rsp, err := c.PostV2SkillsBySkillIdDraftPublishWithBody(ctx, skillId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SkillsBySkillIdDraftPublishResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SkillsBySkillIdDraftPublishWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdDraftPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdDraftPublishResponse, error) {
+	rsp, err := c.PostV2SkillsBySkillIdDraftPublish(ctx, skillId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SkillsBySkillIdDraftPublishResponse(rsp)
+}
+
 // PostV2SkillsBySkillIdEnableWithBodyWithResponse request with arbitrary body returning *PostV2SkillsBySkillIdEnableResponse
 func (c *ClientWithResponses) PostV2SkillsBySkillIdEnableWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdEnableResponse, error) {
 	rsp, err := c.PostV2SkillsBySkillIdEnableWithBody(ctx, skillId, contentType, body, reqEditors...)
@@ -20923,6 +21527,23 @@ func (c *ClientWithResponses) PostV2SkillsBySkillIdEnableWithResponse(ctx contex
 		return nil, err
 	}
 	return ParsePostV2SkillsBySkillIdEnableResponse(rsp)
+}
+
+// PostV2SkillsBySkillIdForkWithBodyWithResponse request with arbitrary body returning *PostV2SkillsBySkillIdForkResponse
+func (c *ClientWithResponses) PostV2SkillsBySkillIdForkWithBodyWithResponse(ctx context.Context, skillId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdForkResponse, error) {
+	rsp, err := c.PostV2SkillsBySkillIdForkWithBody(ctx, skillId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SkillsBySkillIdForkResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SkillsBySkillIdForkWithResponse(ctx context.Context, skillId string, body PostV2SkillsBySkillIdForkJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SkillsBySkillIdForkResponse, error) {
+	rsp, err := c.PostV2SkillsBySkillIdFork(ctx, skillId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SkillsBySkillIdForkResponse(rsp)
 }
 
 // GetV2SkillsBySkillIdVersionsWithResponse request returning *GetV2SkillsBySkillIdVersionsResponse
@@ -25780,6 +26401,105 @@ func ParsePostV2SkillsBySkillIdDisableResponse(rsp *http.Response) (*PostV2Skill
 	return response, nil
 }
 
+// ParseGetV2SkillsBySkillIdDraftResponse parses an HTTP response from a GetV2SkillsBySkillIdDraftWithResponse call
+func ParseGetV2SkillsBySkillIdDraftResponse(rsp *http.Response) (*GetV2SkillsBySkillIdDraftResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SkillsBySkillIdDraftResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SkillDraft
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2SkillsBySkillIdDraftResponse parses an HTTP response from a PutV2SkillsBySkillIdDraftWithResponse call
+func ParsePutV2SkillsBySkillIdDraftResponse(rsp *http.Response) (*PutV2SkillsBySkillIdDraftResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2SkillsBySkillIdDraftResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SkillDraft
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2SkillsBySkillIdDraftPublishResponse parses an HTTP response from a PostV2SkillsBySkillIdDraftPublishWithResponse call
+func ParsePostV2SkillsBySkillIdDraftPublishResponse(rsp *http.Response) (*PostV2SkillsBySkillIdDraftPublishResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SkillsBySkillIdDraftPublishResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest SkillVersion
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostV2SkillsBySkillIdEnableResponse parses an HTTP response from a PostV2SkillsBySkillIdEnableWithResponse call
 func ParsePostV2SkillsBySkillIdEnableResponse(rsp *http.Response) (*PostV2SkillsBySkillIdEnableResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -25803,6 +26523,39 @@ func ParsePostV2SkillsBySkillIdEnableResponse(rsp *http.Response) (*PostV2Skills
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
 		var dest MarketplaceEnableResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2SkillsBySkillIdForkResponse parses an HTTP response from a PostV2SkillsBySkillIdForkWithResponse call
+func ParsePostV2SkillsBySkillIdForkResponse(rsp *http.Response) (*PostV2SkillsBySkillIdForkResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SkillsBySkillIdForkResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Skill
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

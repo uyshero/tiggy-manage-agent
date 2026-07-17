@@ -9,6 +9,7 @@ window.TMAInspectorAPI = inspectorAPI;
 window.TMAInspectorUtils = utils;
 
 const {
+  completionQualitySummary,
   formatDuration,
   formatTime,
   filterTaskPlans,
@@ -294,6 +295,7 @@ function App() {
   const availableSpanKinds = useMemo(() => {
     return Array.from(new Set(spans.map((span) => span.kind).filter(Boolean))).sort();
   }, [spans]);
+  const completionQuality = useMemo(() => completionQualitySummary(metrics), [metrics]);
 
   const syncInspectorHash = useCallback((overrides = {}) => {
     setInspectorHash({
@@ -798,13 +800,35 @@ function App() {
           </section>
           <Panel title="Artifact Preview"><ArtifactPreview preview={artifactPreview} /></Panel>
           <section className="triple">
-            <Panel title="Metrics"><pre id="metrics" className="code">{metrics}</pre></Panel>
+            <Panel title="Completion Quality"><CompletionQuality summary={completionQuality} /></Panel>
             <Panel title="Exporters"><Exporters response={exporters} onRetry={() => retryExporters().catch((error) => setStatus(error.message))} /></Panel>
-            <Panel title="Raw Export"><pre id="raw" className="code">{raw}</pre></Panel>
+            <Panel title="Metrics"><pre id="metrics" className="code">{metrics}</pre></Panel>
           </section>
+          <Panel title="Raw Export"><pre id="raw" className="code">{raw}</pre></Panel>
         </main>
       </div>
     </>
+  );
+}
+
+function CompletionQuality({ summary }) {
+  if (!summary?.attempts) return <div className="empty">No completion validation attempts for this turn.</div>;
+  const retryPercent = Math.round(summary.retryRate * 100);
+  const status = summary.fail > 0 ? "failed" : summary.retry > 0 ? "blocked" : "completed";
+  return (
+    <div className="completion-quality">
+      <div className="completion-quality-head">
+        <Pill value={status} />
+        <span>{summary.attempts} validation attempt(s)</span>
+      </div>
+      <dl className="completion-quality-grid">
+        <div><dt>Passed</dt><dd>{summary.pass}</dd></div>
+        <div><dt>Retried</dt><dd>{summary.retry}</dd></div>
+        <div><dt>Failed</dt><dd>{summary.fail}</dd></div>
+        <div><dt>Retry rate</dt><dd>{retryPercent}%</dd></div>
+      </dl>
+      <div className="subtle">Validators: {summary.validators.join(", ") || "unknown"}</div>
+    </div>
   );
 }
 

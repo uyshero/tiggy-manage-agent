@@ -3286,6 +3286,9 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "Plan History") ||
 		!strings.Contains(appJS, "taskPlanHistory") ||
 		!strings.Contains(appJS, "Evidence") ||
+		!strings.Contains(appJS, "Completion Quality") ||
+		!strings.Contains(appJS, "completionQualitySummary") ||
+		!strings.Contains(appJS, "Retry rate") ||
 		!strings.Contains(appJS, "Context Budget") ||
 		!strings.Contains(appJS, "Exporters") ||
 		!strings.Contains(appJS, "Auto refresh every 5s") ||

@@ -733,7 +733,7 @@ func TestDemoRuntimeParksAndResumesForUploadRequest(t *testing.T) {
 		ResumeIntervention: &InterventionResume{
 			Call: tools.Call{ID: "call_upload", Identifier: tools.InteractionIdentifier, APIName: tools.InteractionAPIRequestUpload},
 			Kind: managedagents.InterventionKindUploadRequest, Status: managedagents.InterventionStatusAnswered,
-			Response: json.RawMessage(`{"artifacts":[{"artifact_id":"art_1","object_ref_id":"obj_1","name":"contract.pdf"}]}`),
+			Response:     json.RawMessage(`{"artifacts":[{"artifact_id":"art_1","object_ref_id":"obj_1","name":"contract.pdf"}]}`),
 			Continuation: continuation,
 		},
 		Config: config,
@@ -904,6 +904,79 @@ func TestDemoRuntimeStopsAfterRepeatedMalformedToolArguments(t *testing.T) {
 	}
 	if client.calls != maxInvalidToolArgumentRetries {
 		t.Fatalf("expected %d model calls before stopping, got %d", maxInvalidToolArgumentRetries, client.calls)
+	}
+}
+
+func TestDemoRuntimeCorrectsSchemaInvalidToolArgumentsBeforeExecution(t *testing.T) {
+	client := &schemaInvalidThenValidToolClient{}
+	runtimeTool := &schemaValidationRuntime{}
+	registry := tools.NewRegistry(runtimeTool)
+	var steps []Step
+
+	result, err := (DemoRuntime{Client: client, MaxToolRounds: 5}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_schema", TurnID: "turn_schema",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"run schema tool"}]}`),
+		Config: Config{
+			ModelTools: registry.ModelTools(), ToolRegistry: registry,
+			ToolExecutor: tools.RegistryExecutor{Registry: registry},
+		},
+		EmitStep: func(_ context.Context, step Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("run schema correction loop: %v", err)
+	}
+	if payloadText(result.AgentPayload) != "schema-valid final" || client.calls != 3 || runtimeTool.calls != 1 {
+		t.Fatalf("unexpected correction result=%q model_calls=%d tool_calls=%d", payloadText(result.AgentPayload), client.calls, runtimeTool.calls)
+	}
+	firstResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	executionError, ok := firstResult.Data["error"].(*tools.ExecutionError)
+	if !ok || executionError.Type != "invalid_tool_arguments" || !strings.Contains(executionError.Message, "/required") {
+		t.Fatalf("expected schema validation result, got %#v", firstResult.Data)
+	}
+	if !strings.Contains(messagesText(client.requests[1].Messages), "registered JSON Schema validation") || !strings.Contains(messagesText(client.requests[1].Messages), "Do not retry the unchanged payload") {
+		t.Fatalf("schema recovery feedback missing from retry: %#v", client.requests[1].Messages)
+	}
+}
+
+func TestDemoRuntimeStopsAfterRepeatedSchemaInvalidToolArguments(t *testing.T) {
+	client := &alwaysSchemaInvalidToolClient{}
+	runtimeTool := &schemaValidationRuntime{}
+	registry := tools.NewRegistry(runtimeTool)
+
+	_, err := (DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_schema", TurnID: "turn_schema",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"run schema tool"}]}`),
+		Config: Config{
+			ModelTools: registry.ModelTools(), ToolRegistry: registry,
+			ToolExecutor: tools.RegistryExecutor{Registry: registry},
+		},
+	})
+	if err == nil || err.Error() != "model repeatedly returned invalid or oversized tool arguments" {
+		t.Fatalf("expected schema retry circuit breaker, got %v", err)
+	}
+	if client.calls != maxInvalidToolArgumentRetries || runtimeTool.calls != 0 {
+		t.Fatalf("invalid schema calls escaped guard: model_calls=%d tool_calls=%d", client.calls, runtimeTool.calls)
+	}
+}
+
+func TestDemoRuntimeFailsClosedForInvalidRegisteredToolSchema(t *testing.T) {
+	runtimeTool := &invalidSchemaRuntime{}
+	registry := tools.NewRegistry(runtimeTool)
+	client := &completionScriptClient{responses: []llm.Response{schemaToolResponse("call_invalid_schema", `{"value":"candidate"}`)}}
+
+	_, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_schema", TurnID: "turn_schema",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"run invalid schema tool"}]}`),
+		Config: Config{
+			ModelTools: registry.ModelTools(), ToolRegistry: registry,
+			ToolExecutor: tools.RegistryExecutor{Registry: registry},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "registered tool schema validation failed") || runtimeTool.calls != 0 {
+		t.Fatalf("invalid schema did not fail closed: err=%v calls=%d", err, runtimeTool.calls)
 	}
 }
 
@@ -2197,6 +2270,75 @@ type malformedThenSensitiveToolClient struct {
 
 type alwaysMalformedToolClient struct {
 	calls int
+}
+
+type schemaInvalidThenValidToolClient struct {
+	calls    int
+	requests []llm.Request
+}
+
+type alwaysSchemaInvalidToolClient struct {
+	calls int
+}
+
+type schemaValidationRuntime struct {
+	calls int
+}
+
+type invalidSchemaRuntime struct {
+	calls int
+}
+
+func (runtime *invalidSchemaRuntime) Manifest() tools.Manifest {
+	return tools.Manifest{
+		Identifier: "schema_test", Type: "builtin", Executors: []string{tools.ExecutorServer},
+		API: []tools.API{{Name: "check", Description: "Invalid schema fixture.", Risk: tools.ToolRiskRead, Parameters: json.RawMessage(`{"type":"object"`)}},
+	}
+}
+
+func (runtime *invalidSchemaRuntime) Execute(context.Context, tools.Call, tools.ExecutionContext) (tools.ExecutionResult, error) {
+	runtime.calls++
+	return tools.ExecutionResult{Identifier: "schema_test", APIName: "check", Content: "must not execute"}, nil
+}
+
+func (runtime *schemaValidationRuntime) Manifest() tools.Manifest {
+	return tools.Manifest{
+		Identifier: "schema_test", Type: "builtin", Executors: []string{tools.ExecutorServer},
+		API: []tools.API{{
+			Name: "check", Description: "Validate a deterministic value.", Risk: tools.ToolRiskRead,
+			Parameters: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"value":{"type":"string","minLength":1},"mode":{"type":"string","enum":["strict"]}},"required":["value","mode"]}`),
+		}},
+	}
+}
+
+func (runtime *schemaValidationRuntime) Execute(context.Context, tools.Call, tools.ExecutionContext) (tools.ExecutionResult, error) {
+	runtime.calls++
+	return tools.ExecutionResult{Identifier: "schema_test", APIName: "check", Content: "schema check passed"}, nil
+}
+
+func (client *schemaInvalidThenValidToolClient) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	client.calls++
+	client.requests = append(client.requests, request)
+	switch client.calls {
+	case 1:
+		return schemaToolResponse("call_schema_invalid", `{"value":"candidate"}`), nil
+	case 2:
+		return schemaToolResponse("call_schema_valid", `{"value":"candidate","mode":"strict"}`), nil
+	default:
+		return textResponse("schema-valid final"), nil
+	}
+}
+
+func (client *alwaysSchemaInvalidToolClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	client.calls++
+	return schemaToolResponse(fmt.Sprintf("call_schema_invalid_%d", client.calls), `{"value":"candidate","mode":"unsupported"}`), nil
+}
+
+func schemaToolResponse(callID, arguments string) llm.Response {
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: callID, Type: "function",
+		Function: llm.ToolCallFunction{Name: "schema_test.check", Arguments: json.RawMessage(arguments)},
+	}}}}
 }
 
 type oversizedThenSkeletonWriteClient struct {

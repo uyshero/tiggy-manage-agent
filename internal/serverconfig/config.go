@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/identity"
 )
 
@@ -235,6 +236,7 @@ type ToolRuntimeConfig struct {
 	ContainerCleanupIntervalSeconds int
 	AllowNetwork                    bool
 	AllowLocalSystem                bool
+	ReadFileLimits                  capability.ReadFileLimits
 }
 
 type MCPConfig struct {
@@ -432,6 +434,12 @@ func FromEnv() (Config, error) {
 			ContainerCleanupIntervalSeconds: envIntOrDefault("TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS", DefaultCloudSandboxContainerCleanupIntervalSec),
 			AllowNetwork:                    envBoolOrDefault("TMA_CLOUD_SANDBOX_ALLOW_NETWORK", DefaultCloudSandboxAllowNetwork),
 			AllowLocalSystem:                envBoolOrDefault("TMA_ALLOW_SERVER_LOCAL_SYSTEM", false),
+			ReadFileLimits: capability.ReadFileLimits{
+				DefaultMaxBytes: envIntOrDefault("TMA_READ_FILE_DEFAULT_MAX_BYTES", capability.DefaultReadFileDefaultMaxBytes),
+				HardMaxBytes:    envIntOrDefault("TMA_READ_FILE_HARD_MAX_BYTES", capability.DefaultReadFileHardMaxBytes),
+				SmallFileBytes:  envIntOrDefault("TMA_READ_FILE_SMALL_FILE_BYTES", capability.DefaultReadFileSmallFileBytes),
+				MaxLines:        envIntOrDefault("TMA_READ_FILE_MAX_LINES", capability.DefaultReadFileMaxLines),
+			},
 		},
 		MCP: MCPConfig{
 			StdioHost: MCPStdioHostConfig{
@@ -575,6 +583,9 @@ func FromEnv() (Config, error) {
 	}
 	if config.LLM.RetryBaseDelayMillis < 1 || config.LLM.RetryBaseDelayMillis > 60000 {
 		return Config{}, errors.New("TMA_LLM_RETRY_BASE_DELAY_MS must be between 1 and 60000")
+	}
+	if err := config.ToolRuntime.ReadFileLimits.Validate(); err != nil {
+		return Config{}, err
 	}
 	if err := validateAuthConfig(config); err != nil {
 		return Config{}, err

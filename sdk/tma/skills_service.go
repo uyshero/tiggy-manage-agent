@@ -6,9 +6,34 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type SkillsService struct{ client *Client }
+
+type SkillDraft struct {
+	SkillID       string            `json:"skill_id"`
+	Revision      int64             `json:"revision"`
+	ContentFormat string            `json:"content_format"`
+	Manifest      SkillManifest     `json:"manifest"`
+	ContentText   string            `json:"content_text"`
+	Assets        *SkillAssetBundle `json:"assets"`
+	UpdatedBy     string            `json:"updated_by"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+}
+type PutSkillDraftRequest struct {
+	ExpectedRevision int64             `json:"expected_revision,omitempty"`
+	ContentFormat    string            `json:"content_format,omitempty"`
+	Manifest         SkillManifest     `json:"manifest"`
+	ContentText      string            `json:"content_text"`
+	Assets           *SkillAssetBundle `json:"assets,omitempty"`
+}
+type ForkSkillRequest struct {
+	Version     int32  `json:"version"`
+	Identifier  string `json:"identifier"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+}
 
 func (s *SkillsService) Create(ctx context.Context, request CreateSkillRequest) (Skill, error) {
 	var skill Skill
@@ -47,6 +72,27 @@ func (s *SkillsService) CreateVersion(ctx context.Context, skillID string, reque
 	var version SkillVersion
 	err := s.client.DoJSON(ctx, http.MethodPost, skillPath(skillID)+"/versions", request, &version)
 	return version, err
+}
+
+func (s *SkillsService) GetDraft(ctx context.Context, skillID string) (SkillDraft, error) {
+	var result SkillDraft
+	err := s.client.DoJSON(ctx, http.MethodGet, skillPath(skillID)+"/draft", nil, &result)
+	return result, err
+}
+func (s *SkillsService) PutDraft(ctx context.Context, skillID string, request PutSkillDraftRequest) (SkillDraft, error) {
+	var result SkillDraft
+	err := s.client.DoJSON(ctx, http.MethodPut, skillPath(skillID)+"/draft", request, &result)
+	return result, err
+}
+func (s *SkillsService) PublishDraft(ctx context.Context, skillID string, expectedRevision int64) (SkillVersion, error) {
+	var result SkillVersion
+	err := s.client.DoJSON(ctx, http.MethodPost, skillPath(skillID)+"/draft/publish", map[string]int64{"expected_revision": expectedRevision}, &result)
+	return result, err
+}
+func (s *SkillsService) Fork(ctx context.Context, skillID string, request ForkSkillRequest) (Skill, error) {
+	var result Skill
+	err := s.client.DoJSON(ctx, http.MethodPost, skillPath(skillID)+"/fork", request, &result)
+	return result, err
 }
 
 func (s *SkillsService) ListVersions(ctx context.Context, skillID string) ([]SkillVersion, error) {

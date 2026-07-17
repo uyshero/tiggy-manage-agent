@@ -1,9 +1,11 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -149,6 +151,10 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		MCPHTTPHost:       e.MCPHTTPHost,
 		MCPRuntimeGuard:   e.MCPRuntimeGuard,
 	})
+	if err := e.restoreWorkspaceSnapshot(ctx, toolExecution.Provider, config, request.SessionID); err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, err
+	}
 	materializedSkills, err := e.materializeResolvedSkills(ctx, toolExecution.Provider, resolvedSkills)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
@@ -229,10 +235,94 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			)
 		}
 	}
+	if err := e.checkpointWorkspaceSnapshot(ctx, toolExecution.Provider, config, request); err != nil {
+		slog.Default().Warn("workspace snapshot checkpoint failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
+	}
 	return TurnResult{
 		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
 		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
 	}, nil
+}
+
+func (e AgentRuntimeTurnExecutor) restoreWorkspaceSnapshot(ctx context.Context, provider capability.Provider, config managedagents.AgentRuntimeConfig, sessionID string) error {
+	runtime, ok := provider.(capability.WorkspaceSnapshotProvider)
+	store, storeOK := e.Store.(managedagents.WorkspaceSnapshotStore)
+	if !ok || !storeOK || e.ObjectStore == nil {
+		return nil
+	}
+	snapshot, err := store.GetLatestWorkspaceSnapshot(ctx, sessionID)
+	if errors.Is(err, managedagents.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get latest workspace snapshot: %w", err)
+	}
+	objectRef, err := managedagents.GetObjectRefWithContext(ctx, e.Store, snapshot.ObjectRefID)
+	if err != nil {
+		return err
+	}
+	object, err := e.ObjectStore.GetObject(ctx, objectstore.GetObjectInput{Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion})
+	if err != nil {
+		return fmt.Errorf("download workspace snapshot: %w", err)
+	}
+	defer object.Body.Close()
+	archive, err := io.ReadAll(io.LimitReader(object.Body, snapshot.SizeBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(archive)) != snapshot.SizeBytes {
+		return fmt.Errorf("workspace snapshot size mismatch")
+	}
+	checksum := sha256.Sum256(archive)
+	if !strings.EqualFold(hex.EncodeToString(checksum[:]), snapshot.ChecksumSHA256) {
+		return fmt.Errorf("workspace snapshot checksum mismatch")
+	}
+	if err := runtime.RestoreWorkspaceSnapshot(ctx, archive); err != nil {
+		return fmt.Errorf("restore workspace snapshot: %w", err)
+	}
+	_ = config
+	return nil
+}
+
+func (e AgentRuntimeTurnExecutor) checkpointWorkspaceSnapshot(ctx context.Context, provider capability.Provider, config managedagents.AgentRuntimeConfig, request TurnRequest) error {
+	runtime, ok := provider.(capability.WorkspaceSnapshotProvider)
+	store, storeOK := e.Store.(managedagents.WorkspaceSnapshotStore)
+	if !ok || !storeOK || e.ObjectStore == nil {
+		return nil
+	}
+	archive, fileCount, err := runtime.CreateWorkspaceSnapshot(ctx)
+	if err != nil {
+		return err
+	}
+	checksumBytes := sha256.Sum256(archive)
+	checksum := hex.EncodeToString(checksumBytes[:])
+	bucket := strings.TrimSpace(e.ArtifactBucket)
+	if bucket == "" {
+		bucket = "tma-artifacts"
+	}
+	key := fmt.Sprintf("%s/%s/workspace-snapshots/%s.tar", config.WorkspaceID, request.SessionID, checksum)
+	put, err := e.ObjectStore.PutObject(ctx, objectstore.PutObjectInput{Bucket: bucket, Key: key, Body: bytes.NewReader(archive), ContentType: "application/x-tar", SizeBytes: int64(len(archive)), ChecksumSHA256: checksum})
+	if err != nil {
+		return err
+	}
+	objectRef, err := managedagents.CreateObjectRefWithContext(ctx, e.Store, managedagents.CreateObjectRefInput{
+		WorkspaceID: config.WorkspaceID, StorageProvider: managedagents.ObjectStorageProviderS3,
+		Bucket: defaultStringRunner(put.Bucket, bucket), ObjectKey: defaultStringRunner(put.Key, key), ObjectVersion: put.Version,
+		ContentType: "application/x-tar", SizeBytes: int64(len(archive)), ChecksumSHA256: checksum, ETag: put.ETag,
+		Visibility: managedagents.ObjectVisibilitySession, CreatedBy: config.OwnerID,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = store.CreateWorkspaceSnapshot(ctx, managedagents.CreateWorkspaceSnapshotInput{SessionID: request.SessionID, ObjectRefID: objectRef.ID, ChecksumSHA256: checksum, SizeBytes: int64(len(archive)), FileCount: fileCount, CreatedBy: config.OwnerID})
+	return err
+}
+
+func defaultStringRunner(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
 }
 
 type runtimeSkillMaterialization struct {
@@ -246,10 +336,28 @@ func (e AgentRuntimeTurnExecutor) materializeResolvedSkills(ctx context.Context,
 		return runtimeSkillMaterialization{}, nil
 	}
 	packages := make([]capability.RuntimeSkillPackage, 0, len(resolved.Skills))
+	materializedHits := make([]capability.MaterializedRuntimeSkill, 0, len(resolved.Skills))
 	compatibilityIdentifiers := make(map[string]bool)
 	for _, item := range resolved.Skills {
 		if item.Status != skills.UsageResolved && item.Status != skills.UsageDegraded {
 			continue
+		}
+		checksum := strings.TrimSpace(item.Version.PackageChecksum)
+		if checksum == "" {
+			checksum = strings.TrimSpace(item.Version.Checksum)
+		}
+		if cache, ok := provider.(capability.RuntimeSkillCache); ok {
+			cached, hit, err := cache.LookupMaterializedRuntimeSkill(ctx, item.Skill.ID, item.Skill.Identifier, item.Version.Version, checksum)
+			if err != nil {
+				return runtimeSkillMaterialization{}, fmt.Errorf("lookup runtime skill %s cache: %w", item.Skill.Identifier, err)
+			}
+			if hit {
+				materializedHits = append(materializedHits, cached)
+				if strings.Contains(item.Version.ContentText, "CLAUDE_SKILL_DIR") || strings.Contains(item.Version.ContentText, "TMA_SKILL_DIR") {
+					compatibilityIdentifiers[item.Skill.Identifier] = true
+				}
+				continue
+			}
 		}
 		bundle, err := skills.DecodeAssetBundle(item.Version.Assets)
 		if err != nil {
@@ -264,27 +372,30 @@ func (e AgentRuntimeTurnExecutor) materializeResolvedSkills(ctx context.Context,
 			}
 			files = append(files, capability.RuntimeSkillFile{Path: asset.Path, Content: content, Executable: asset.Executable})
 		}
-		checksum := strings.TrimSpace(item.Version.PackageChecksum)
-		if checksum == "" {
-			checksum = strings.TrimSpace(item.Version.Checksum)
-		}
 		packages = append(packages, capability.RuntimeSkillPackage{
-			Identifier: item.Skill.Identifier, Version: item.Version.Version, Checksum: checksum, Files: files,
+			SkillID: item.Skill.ID, Identifier: item.Skill.Identifier, Version: item.Version.Version, Checksum: checksum, Files: files,
 		})
 		if strings.Contains(item.Version.ContentText, "CLAUDE_SKILL_DIR") || strings.Contains(item.Version.ContentText, "TMA_SKILL_DIR") {
 			compatibilityIdentifiers[item.Skill.Identifier] = true
 		}
 	}
-	if len(packages) == 0 {
+	if len(packages) == 0 && len(materializedHits) == 0 {
 		return runtimeSkillMaterialization{}, nil
 	}
-	materialized, err := materializer.MaterializeRuntimeSkills(ctx, packages)
-	if err != nil {
-		return runtimeSkillMaterialization{}, fmt.Errorf("materialize runtime skills: %w", err)
+	materialized := materializedHits
+	if len(packages) > 0 {
+		cold, err := materializer.MaterializeRuntimeSkills(ctx, packages)
+		if err != nil {
+			return runtimeSkillMaterialization{}, fmt.Errorf("materialize runtime skills: %w", err)
+		}
+		materialized = append(materialized, cold...)
 	}
-	result := runtimeSkillMaterialization{directories: make(map[string]string, len(materialized))}
+	result := runtimeSkillMaterialization{directories: make(map[string]string, len(materialized)*2)}
 	for _, item := range materialized {
 		result.directories[item.Identifier] = item.Directory
+		if item.SkillID != "" {
+			result.directories[item.SkillID] = item.Directory
+		}
 		if compatibilityIdentifiers[item.Identifier] {
 			result.compatibilityDirs = append(result.compatibilityDirs, item.Directory)
 		}
@@ -339,7 +450,7 @@ func mergeRuntimeSkillEnvironment(environment map[string]string, materialized ru
 	for key, value := range environment {
 		result[key] = value
 	}
-	result["TMA_SKILLS_DIR"] = "/workspace/.tma/skills"
+	result["TMA_SKILLS_DIR"] = "/tma/skills"
 	encodedDirectories, _ := json.Marshal(materialized.directories)
 	result["TMA_SKILL_DIRS_JSON"] = string(encodedDirectories)
 	for identifier, directory := range materialized.directories {
@@ -386,6 +497,13 @@ func (e AgentRuntimeTurnExecutor) resolveTaskPlanContext(ctx context.Context, se
 		line := fmt.Sprintf("%d. [%s] %s (item_id=%s)", index+1, item.Status, item.Description, item.ID)
 		if evidence := strings.TrimSpace(item.Evidence); evidence != "" {
 			line += " Evidence: " + evidence
+		}
+		if len(item.EvidenceRefs) > 0 {
+			refs := make([]string, 0, len(item.EvidenceRefs))
+			for _, ref := range item.EvidenceRefs {
+				refs = append(refs, fmt.Sprintf("%s@%s/%s", ref.Tool, ref.TurnID, ref.ToolCallID))
+			}
+			line += " Verified refs: " + strings.Join(refs, ", ")
 		}
 		lines = append(lines, line)
 	}
@@ -705,6 +823,10 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 			Type:    eventType,
 			Payload: payload,
 		})
+		if err == nil {
+			validator, _ := step.Data["validator"].(string)
+			observability.RecordCompletionValidation(eventType, validator)
+		}
 		return err
 	}
 }

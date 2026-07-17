@@ -13,6 +13,8 @@ import (
 type recordingTaskToolService struct {
 	createdSessionID string
 	createdInput     managedagents.CreateSessionTaskPlanInput
+	updatedSessionID string
+	updatedInput     managedagents.UpdateSessionTaskItemsInput
 	plan             managedagents.SessionTaskPlan
 }
 
@@ -26,7 +28,9 @@ func (s *recordingTaskToolService) GetPlan(context.Context, string) (managedagen
 	return s.plan, nil
 }
 
-func (s *recordingTaskToolService) UpdateItems(context.Context, string, managedagents.UpdateSessionTaskItemsInput) (managedagents.SessionTaskPlanResult, error) {
+func (s *recordingTaskToolService) UpdateItems(_ context.Context, sessionID string, input managedagents.UpdateSessionTaskItemsInput) (managedagents.SessionTaskPlanResult, error) {
+	s.updatedSessionID = sessionID
+	s.updatedInput = input
 	return managedagents.SessionTaskPlanResult{Plan: s.plan}, nil
 }
 
@@ -47,6 +51,24 @@ func TestTaskRuntimeManifestDefinesComplexityAndEvidenceRules(t *testing.T) {
 	}
 	if len(manifest.API) != 5 {
 		t.Fatalf("expected five task APIs, got %+v", manifest.API)
+	}
+	var updateSchema map[string]any
+	if err := json.Unmarshal(manifest.API[1].Parameters, &updateSchema); err != nil || !strings.Contains(string(manifest.API[1].Parameters), "evidence_refs") || !strings.Contains(string(manifest.API[1].Parameters), "tool_call_id") {
+		t.Fatalf("update_items schema must expose structured evidence refs: schema=%s err=%v", manifest.API[1].Parameters, err)
+	}
+}
+
+func TestTaskRuntimeUpdateItemsBindsEvidenceToCurrentTurn(t *testing.T) {
+	service := &recordingTaskToolService{plan: managedagents.SessionTaskPlan{ID: "plan_1"}}
+	result, err := (TaskRuntime{}).Execute(context.Background(), Call{
+		ID: "call_update", Identifier: TaskIdentifier, APIName: TaskAPIUpdateItems,
+		Arguments: json.RawMessage(`{"items":[{"item_id":"item_1","status":"completed","evidence":"verification passed","evidence_refs":[{"tool_call_id":"call_verify"}]}]}`),
+	}, ExecutionContext{SessionID: "session_1", TurnID: "turn_1", TaskService: service})
+	if err != nil || result.Error != nil {
+		t.Fatalf("execute update_items: result=%+v err=%v", result, err)
+	}
+	if service.updatedSessionID != "session_1" || service.updatedInput.TurnID != "turn_1" || len(service.updatedInput.Items) != 1 || len(service.updatedInput.Items[0].EvidenceRefs) != 1 || service.updatedInput.Items[0].EvidenceRefs[0].ToolCallID != "call_verify" {
+		t.Fatalf("unexpected structured evidence input: %+v", service)
 	}
 }
 

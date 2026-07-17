@@ -16,7 +16,10 @@ func BindRuntimeDirectories(result ResolveResult, directories map[string]string)
 	rendered := make([]string, 0, len(result.Skills))
 	for index := range result.Skills {
 		resolved := &result.Skills[index]
-		directory := strings.TrimSpace(directories[resolved.Skill.Identifier])
+		directory := strings.TrimSpace(directories[resolved.Skill.ID])
+		if directory == "" {
+			directory = strings.TrimSpace(directories[resolved.Skill.Identifier])
+		}
 		if directory != "" && resolved.Rendered != "" {
 			replacer := strings.NewReplacer(
 				"${CLAUDE_SKILL_DIR}", directory,

@@ -142,6 +142,10 @@ var coreContracts = map[string]routeContract{
 	"post /v2/skills/{skill_id}/enable":                                        {RequestSchema: "MarketplaceEnableRequest", RequestRequired: true, ResponseSchema: "MarketplaceEnableResult", SuccessStatuses: []string{"200", "201"}},
 	"post /v2/skills/{skill_id}/disable":                                       {RequestSchema: "MarketplaceDisableRequest", RequestRequired: true, ResponseSchema: "MarketplaceDisableResult", SuccessStatuses: []string{"200", "201"}},
 	"post /v2/skills/{skill_id}/versions":                                      {RequestSchema: "CreateSkillVersionRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/{skill_id}/draft":                                          {ResponseSchema: "SkillDraft"},
+	"put /v2/skills/{skill_id}/draft":                                          {RequestSchema: "PutSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillDraft"},
+	"post /v2/skills/{skill_id}/draft/publish":                                 {RequestSchema: "PublishSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"post /v2/skills/{skill_id}/fork":                                          {RequestSchema: "ForkSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
 	"get /v2/skills/{skill_id}/versions":                                       {ResponseSchema: "SkillVersionList"},
 	"get /v2/skills/{skill_id}/versions/{version}":                             {ResponseSchema: "SkillVersion", IntegerPathParameters: map[string]bool{"version": true}},
 	"get /v2/skills/{skill_id}/versions/{version}/package":                     {ResponseSchema: "BinaryContent", ContentType: "application/zip", IntegerPathParameters: map[string]bool{"version": true}},
@@ -430,10 +434,14 @@ paths:
         created_at: {type: string, format: date-time}
     Agent:
       type: object
-      required: [id, workspace_id, name, current_config_version, config_version, created_at]
+      required: [id, workspace_id, owner_type, owner_id, visibility, agent_kind, name, current_config_version, config_version, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        owner_type: {type: string, enum: [user, workspace]}
+        owner_id: {type: string}
+        visibility: {type: string, enum: [private, workspace]}
+        agent_kind: {type: string, enum: [general, custom]}
         name: {type: string}
         current_config_version: {type: integer, format: int32}
         config_version: {$ref: "#/components/schemas/AgentConfigVersion"}
@@ -566,6 +574,10 @@ paths:
       required: [name, system]
       properties:
         workspace_id: {type: string}
+        owner_type: {type: string, enum: [user, workspace]}
+        owner_id: {type: string}
+        visibility: {type: string, enum: [private, workspace]}
+        agent_kind: {type: string, enum: [general, custom]}
         name: {type: string}
         llm_provider: {type: string}
         llm_model: {type: string}
@@ -814,6 +826,7 @@ paths:
         cloud_sandbox_root: {type: string}
         cloud_sandbox_image: {type: string}
         cloud_sandbox_allow_network: {type: boolean}
+        agent_config_update_policy: {type: string, enum: [follow_latest, pinned], description: Defaults to follow_latest.}
         human_interaction: {$ref: "#/components/schemas/HumanInteractionRuntimeSettings"}
         completion_gate: {$ref: "#/components/schemas/CompletionGateRuntimeSettings"}
     HumanInteractionRuntimeSettings:
@@ -906,10 +919,12 @@ paths:
         changed: {type: boolean}
     Run:
       type: object
-      required: [id, session_id, status, attempt, started_at]
+      required: [id, session_id, agent_id, agent_config_version, status, attempt, started_at]
       properties:
         id: {type: string}
         session_id: {type: string}
+        agent_id: {type: string}
+        agent_config_version: {type: integer, format: int32}
         status: {type: string, enum: [running, waiting_approval, waiting_human, completed, failed, interrupted]}
         user_event_id: {type: string}
         user_event_seq: {type: integer, format: int64, maximum: 9007199254740991}
@@ -1003,7 +1018,7 @@ paths:
         updated_at: {type: string, format: date-time}
     SessionTaskItem:
       type: object
-      required: [id, plan_id, index, description, status, created_at, updated_at]
+      required: [id, plan_id, index, description, status, evidence_refs, created_at, updated_at]
       properties:
         id: {type: string}
         plan_id: {type: string}
@@ -1011,9 +1026,19 @@ paths:
         description: {type: string}
         status: {type: string, enum: [pending, in_progress, completed, blocked]}
         evidence: {type: string}
+        evidence_refs: {type: array, items: {$ref: "#/components/schemas/TaskEvidenceRef"}}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         completed_at: {type: string, format: date-time, nullable: true}
+    TaskEvidenceRef:
+      type: object
+      required: [kind, turn_id, tool_call_id, tool]
+      properties:
+        kind: {type: string, enum: [tool_result]}
+        turn_id: {type: string}
+        tool_call_id: {type: string}
+        tool: {type: string}
+        artifact_ids: {type: array, items: {type: string}}
     SessionTaskPlan:
       type: object
       required: [id, workspace_id, owner_id, session_id, goal, handling_mode, status, items, created_at, updated_at]
@@ -1793,14 +1818,18 @@ paths:
         actions: {type: array, items: {type: string}}
     Skill:
       type: object
-      required: [id, workspace_id, identifier, title, owner_type, source_type, status, created_by, created_at]
+      required: [id, workspace_id, identifier, title, owner_type, owner_id, visibility, source_type, status, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
-        owner_type: {type: string, enum: [builtin, workspace, plugin]}
+        owner_type: {type: string, enum: [user, builtin, workspace, plugin]}
+        owner_id: {type: string}
+        visibility: {type: string, enum: [private, workspace]}
+        forked_from_skill_id: {type: string}
+        forked_from_version: {type: integer, format: int32}
         source_plugin_id: {type: string}
         source_type: {type: string, enum: [inline, github, artifact, catalog, plugin, builtin]}
         source_locator: {type: string}
@@ -1822,7 +1851,9 @@ paths:
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
-        owner_type: {type: string, enum: [builtin, workspace, plugin]}
+        owner_type: {type: string, enum: [user, builtin, workspace, plugin]}
+        owner_id: {type: string}
+        visibility: {type: string, enum: [private, workspace]}
         source_plugin_id: {type: string}
         source_type: {type: string, enum: [inline, github, artifact, catalog, plugin, builtin]}
         source_locator: {type: string}
@@ -1955,10 +1986,43 @@ paths:
         source_ref: {type: string}
         source_revision: {type: string}
         source_url: {type: string}
+    SkillDraft:
+      type: object
+      required: [skill_id, revision, content_format, manifest, content_text, assets, updated_by, updated_at]
+      properties:
+        skill_id: {type: string}
+        revision: {type: integer, format: int64, maximum: 9007199254740991}
+        content_format: {type: string}
+        manifest: {$ref: "#/components/schemas/SkillManifest"}
+        content_text: {type: string}
+        assets: {$ref: "#/components/schemas/SkillAssets"}
+        updated_by: {type: string}
+        updated_at: {type: string, format: date-time}
+    PutSkillDraftRequest:
+      type: object
+      properties:
+        expected_revision: {type: integer, format: int64, maximum: 9007199254740991}
+        content_format: {type: string}
+        manifest: {$ref: "#/components/schemas/SkillManifest"}
+        content_text: {type: string}
+        assets: {$ref: "#/components/schemas/SkillAssets"}
+    PublishSkillDraftRequest:
+      type: object
+      properties:
+        expected_revision: {type: integer, format: int64, maximum: 9007199254740991}
+    ForkSkillRequest:
+      type: object
+      required: [version, identifier, title]
+      properties:
+        version: {type: integer, format: int32, minimum: 1}
+        identifier: {type: string}
+        title: {type: string}
+        description: {type: string}
     EnabledSkill:
       type: object
       required: [skill]
       properties:
+        skill_id: {type: string}
         skill: {type: string}
         version: {type: integer, format: int32}
         mode: {type: string, enum: [full, summary, examples_only]}

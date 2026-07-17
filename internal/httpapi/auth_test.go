@@ -389,6 +389,9 @@ func TestUnifiedJWTAuthDerivesTenantAndOwner(t *testing.T) {
 	if agent.WorkspaceID != "wksp_alpha" {
 		t.Fatalf("expected server-derived workspace, got %#v", agent)
 	}
+	if agent.OwnerType != managedagents.AgentOwnerUser || agent.OwnerID != "owner-alice" || agent.Visibility != managedagents.AgentVisibilityPrivate || agent.AgentKind != managedagents.AgentKindCustom {
+		t.Fatalf("expected a private custom Agent owned by the current user, got %#v", agent)
+	}
 
 	environmentResponse := httptest.NewRecorder()
 	server.ServeHTTP(environmentResponse, authenticatedJSONRequest(t, http.MethodPost, "/v1/environments", `{
@@ -446,6 +449,81 @@ func TestUnifiedJWTAuthDerivesTenantAndOwner(t *testing.T) {
 	server.ServeHTTP(crossWorkspace, authenticatedRequest(t, http.MethodGet, "/v1/agents/"+agent.ID, otherWorkspaceToken))
 	if crossWorkspace.Code != http.StatusForbidden {
 		t.Fatalf("expected workspace isolation to return 403, got %d: %s", crossWorkspace.Code, crossWorkspace.Body.String())
+	}
+}
+
+func TestPersonalDefaultsAndWorkspaceSharedAgentAuthorization(t *testing.T) {
+	server, _ := newUnifiedAuthTestServer(t, AuthConfig{
+		Mode: AuthModeJWT, JWTSecret: testJWTSecret, JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
+	})
+	aliceToken := signedTestJWT(t, "alice", "wksp_alpha", "owner-alice", []string{RoleMember}, nil)
+	bobToken := signedTestJWT(t, "bob", "wksp_alpha", "owner-bob", []string{RoleMember}, nil)
+	operatorToken := signedTestJWT(t, "ops", "wksp_alpha", "owner-ops", []string{RoleOperator}, nil)
+
+	getDefault := func(token string) managedagents.Agent {
+		t.Helper()
+		response := httptest.NewRecorder()
+		server.ServeHTTP(response, authenticatedRequest(t, http.MethodGet, "/v1/agents/default", token))
+		if response.Code != http.StatusOK {
+			t.Fatalf("get default Agent: %d: %s", response.Code, response.Body.String())
+		}
+		var agent managedagents.Agent
+		decodeTestResponse(t, response, &agent)
+		return agent
+	}
+
+	aliceDefault := getDefault(aliceToken)
+	bobDefault := getDefault(bobToken)
+	if aliceDefault.ID == bobDefault.ID || aliceDefault.OwnerID != "owner-alice" || bobDefault.OwnerID != "owner-bob" {
+		t.Fatalf("expected distinct per-user default Agents, alice=%#v bob=%#v", aliceDefault, bobDefault)
+	}
+	for _, agent := range []managedagents.Agent{aliceDefault, bobDefault} {
+		if agent.OwnerType != managedagents.AgentOwnerUser || agent.Visibility != managedagents.AgentVisibilityPrivate || agent.AgentKind != managedagents.AgentKindGeneral {
+			t.Fatalf("unexpected personal default Agent ownership: %#v", agent)
+		}
+	}
+
+	aliceList := httptest.NewRecorder()
+	server.ServeHTTP(aliceList, authenticatedRequest(t, http.MethodGet, "/v1/agents", aliceToken))
+	if aliceList.Code != http.StatusOK || strings.Contains(aliceList.Body.String(), bobDefault.ID) {
+		t.Fatalf("alice must not see bob's private Agent: %d: %s", aliceList.Code, aliceList.Body.String())
+	}
+
+	memberSharedCreate := httptest.NewRecorder()
+	server.ServeHTTP(memberSharedCreate, authenticatedJSONRequest(t, http.MethodPost, "/v1/agents", `{
+		"owner_type":"workspace","name":"Shared Agent","model":"fake-demo","system":"shared"
+	}`, aliceToken))
+	if memberSharedCreate.Code != http.StatusForbidden {
+		t.Fatalf("member created shared Agent: %d: %s", memberSharedCreate.Code, memberSharedCreate.Body.String())
+	}
+
+	sharedCreate := httptest.NewRecorder()
+	server.ServeHTTP(sharedCreate, authenticatedJSONRequest(t, http.MethodPost, "/v1/agents", `{
+		"owner_type":"workspace","name":"Shared Agent","model":"fake-demo","system":"shared"
+	}`, operatorToken))
+	if sharedCreate.Code != http.StatusCreated {
+		t.Fatalf("operator create shared Agent: %d: %s", sharedCreate.Code, sharedCreate.Body.String())
+	}
+	var shared managedagents.Agent
+	decodeTestResponse(t, sharedCreate, &shared)
+	if shared.OwnerType != managedagents.AgentOwnerWorkspace || shared.OwnerID != "wksp_alpha" || shared.Visibility != managedagents.AgentVisibilityWorkspace {
+		t.Fatalf("unexpected shared Agent ownership: %#v", shared)
+	}
+
+	bobRead := httptest.NewRecorder()
+	server.ServeHTTP(bobRead, authenticatedRequest(t, http.MethodGet, "/v1/agents/"+shared.ID, bobToken))
+	if bobRead.Code != http.StatusOK {
+		t.Fatalf("member read shared Agent: %d: %s", bobRead.Code, bobRead.Body.String())
+	}
+	bobPatch := httptest.NewRecorder()
+	server.ServeHTTP(bobPatch, authenticatedJSONRequest(t, http.MethodPatch, "/v1/agents/"+shared.ID, `{"name":"not allowed"}`, bobToken))
+	if bobPatch.Code != http.StatusForbidden {
+		t.Fatalf("member modified shared Agent: %d: %s", bobPatch.Code, bobPatch.Body.String())
+	}
+	operatorPatch := httptest.NewRecorder()
+	server.ServeHTTP(operatorPatch, authenticatedJSONRequest(t, http.MethodPatch, "/v1/agents/"+shared.ID, `{"name":"Shared Agent v2"}`, operatorToken))
+	if operatorPatch.Code != http.StatusOK {
+		t.Fatalf("operator modify shared Agent: %d: %s", operatorPatch.Code, operatorPatch.Body.String())
 	}
 }
 

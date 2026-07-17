@@ -289,6 +289,15 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 	if request.AllowNetwork != nil {
 		settings["cloud_sandbox_allow_network"] = *request.AllowNetwork
 	}
+	if request.AgentConfigUpdatePolicy != nil {
+		policy := strings.TrimSpace(strings.ToLower(*request.AgentConfigUpdatePolicy))
+		switch policy {
+		case managedagents.AgentConfigUpdateFollowLatest, managedagents.AgentConfigUpdatePinned:
+			settings["agent_config_update_policy"] = policy
+		default:
+			return managedagents.Session{}, fmt.Errorf("%w: unsupported agent_config_update_policy %q", managedagents.ErrInvalid, *request.AgentConfigUpdatePolicy)
+		}
+	}
 	if request.HumanInteraction != nil {
 		humanInteraction := map[string]any{}
 		if existing, ok := settings["human_interaction"].(map[string]any); ok {

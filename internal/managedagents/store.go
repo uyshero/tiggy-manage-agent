@@ -292,6 +292,16 @@ func statusPayload(status string, turnID string) json.RawMessage {
 	return encoded
 }
 
+func runningStatusPayload(session Session, turnID string) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"status":               "running",
+		"turn_id":              turnID,
+		"agent_id":             session.AgentID,
+		"agent_config_version": session.AgentConfigVersion,
+	})
+	return payload
+}
+
 func failedTurnIdlePayload(turnID string, reason string) json.RawMessage {
 	payload := map[string]string{
 		"status":           "idle",

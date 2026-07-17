@@ -73,6 +73,23 @@ func TestReadFileExecutorEmitsPostgresSafeDOCXResult(t *testing.T) {
 	}
 }
 
+func TestReadFileExecutorRejectsDOCXPaginationWithCapabilityError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.docx")
+	if err := os.WriteFile(path, testDOCX(t, `<?xml version="1.0"?><w:document xmlns:w="urn:word"><w:body/></w:document>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	arguments, _ := json.Marshal(map[string]any{"path": path, "offset_bytes": 0, "max_bytes": 1024})
+	result, err := NewDefaultExecutor().Execute(t.Context(), Call{
+		ID: "call_docx_page", Identifier: DefaultIdentifier, APIName: "read_file", Arguments: arguments,
+	}, ExecutionContext{Provider: capability.LocalSystemProvider{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error == nil || result.Error.Type != "unsupported_read_pagination" || !strings.Contains(result.Content, "path only") {
+		t.Fatalf("unexpected DOCX pagination result: %#v", result)
+	}
+}
+
 func testDOCX(t *testing.T, documentXML string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer

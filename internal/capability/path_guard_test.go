@@ -2,6 +2,7 @@ package capability
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,63 @@ func TestWorkspacePathGuardProviderDeniesPathEscape(t *testing.T) {
 	}
 	if _, err := provider.WriteFile(context.Background(), WriteFileRequest{Path: filepath.Join(filepath.Dir(root), "outside.txt"), Content: []byte("nope")}); err == nil {
 		t.Fatal("expected absolute outside write to be denied")
+	}
+}
+
+func TestWorkspacePathGuardProviderSearchFileKeepsReadBoundary(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("first\nfind me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.log"), []byte("find me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "outside-link")); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "app.log", Query: "find me"})
+	if err != nil {
+		t.Fatalf("search workspace file: %v", err)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].LineNumber != 2 {
+		t.Fatalf("unexpected search result: %#v", result)
+	}
+	if _, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "../secret.log", Query: "find me"}); err == nil {
+		t.Fatal("expected parent path search to be denied")
+	}
+	if _, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "outside-link/secret.log", Query: "find me"}); err == nil {
+		t.Fatal("expected symlink escape search to be denied")
+	}
+}
+
+func TestWorkspacePathGuardProviderRemapsStructuredSearchErrorPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("value\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = provider.SearchFile(t.Context(), SearchFileRequest{
+		Path: "app.log", Query: "value", FileRevision: "stat-v1:stale",
+	})
+	var readErr *FileReadError
+	if !errors.As(err, &readErr) || readErr.Code != "stale_file_revision" {
+		t.Fatalf("expected stale_file_revision, got %v", err)
+	}
+	if got := readErr.Metadata["path"]; got != "app.log" {
+		t.Fatalf("expected display path in structured error, got %#v", got)
+	}
+	if strings.Contains(readErr.Error(), root) {
+		t.Fatalf("structured error leaked workspace root: %v", readErr)
 	}
 }
 

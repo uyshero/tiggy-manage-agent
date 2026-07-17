@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,11 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 		EnvironmentCipher: environmentCipher,
 	}
 
-	file, err := provider.ReadFile(t.Context(), capability.ReadFileRequest{Path: "README.md"})
+	offset := int64(4096)
+	maxBytes := 2048
+	file, err := provider.ReadFile(t.Context(), capability.ReadFileRequest{
+		Path: "README.md", OffsetBytes: &offset, MaxBytes: &maxBytes, FileRevision: "stat-v1:revision",
+	})
 	if err != nil {
 		t.Fatalf("read file through worker: %v", err)
 	}
@@ -95,14 +100,102 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 	if invocation.Risk != tools.ToolRiskRead || len(invocation.Capabilities) != 1 || invocation.Capabilities[0] != tools.CapabilityFilesystemRead {
 		t.Fatalf("expected invocation metadata from manifest, got %#v", invocation)
 	}
-	var input struct {
-		Path string `json:"path"`
-	}
+	var input capability.ReadFileRequest
 	if err := json.Unmarshal(invocation.Input, &input); err != nil {
 		t.Fatalf("decode invocation input: %v", err)
 	}
-	if input.Path != "README.md" {
+	if input.Path != "README.md" || input.OffsetBytes == nil || *input.OffsetBytes != offset || input.MaxBytes == nil || *input.MaxBytes != maxBytes || input.FileRevision != "stat-v1:revision" {
 		t.Fatalf("expected invocation input path, got %#v", input)
+	}
+}
+
+func TestWorkerBackedProviderSearchFileEnqueuesAndDecodesResult(t *testing.T) {
+	state, err := json.Marshal(capability.SearchFileResult{
+		Path: "app.log", SizeBytes: 100, FileRevision: "stat-v1:current", Query: "target",
+		Matches: []capability.SearchFileMatch{{LineNumber: 7, OffsetBytes: 42, Line: "target line"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(map[string]any{"tool_result": tools.ExecutionResult{
+		Identifier: tools.NamespaceDefault, APIName: "search_file", State: state,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID: "wrk_search", WorkspaceID: "wksp_search", Status: managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, map[string]any{
+				"namespaces": []string{"default"}, "apis": []string{"default.search_file"},
+				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
+			}),
+		}},
+		completedResult: result,
+	}
+	provider := WorkerBackedProvider{
+		Store: store, WorkspaceID: "wksp_search", SessionID: "sesn_search", TurnID: "turn_search",
+		PollInterval: time.Millisecond, WaitTimeout: time.Second,
+	}
+
+	searchResult, err := provider.SearchFile(t.Context(), capability.SearchFileRequest{
+		Path: "app.log", Query: "target", MaxResults: 12, FileRevision: "stat-v1:expected",
+	})
+	if err != nil {
+		t.Fatalf("search file through worker: %v", err)
+	}
+	if len(searchResult.Matches) != 1 || searchResult.Matches[0].OffsetBytes != 42 || searchResult.FileRevision != "stat-v1:current" {
+		t.Fatalf("unexpected search result: %#v", searchResult)
+	}
+	var invocation tools.WorkInvocation
+	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	if invocation.API != "search_file" || invocation.Risk != tools.ToolRiskRead {
+		t.Fatalf("unexpected search invocation: %#v", invocation)
+	}
+	var input capability.SearchFileRequest
+	if err := json.Unmarshal(invocation.Input, &input); err != nil {
+		t.Fatal(err)
+	}
+	if input.Path != "app.log" || input.Query != "target" || input.MaxResults != 12 || input.FileRevision != "stat-v1:expected" {
+		t.Fatalf("unexpected search input: %#v", input)
+	}
+}
+
+func TestWorkerBackedProviderPreservesStructuredFileReadError(t *testing.T) {
+	state, err := json.Marshal(map[string]any{"error": capability.FileReadError{
+		Code: "stale_file_revision", Message: "file changed", Metadata: map[string]any{"path": "app.log"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(map[string]any{"tool_result": tools.ExecutionResult{
+		Identifier: tools.NamespaceDefault, APIName: "read_file", State: state,
+		Error: &tools.ExecutionError{Type: "stale_file_revision", Message: "file changed"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID: "wrk_read_error", WorkspaceID: "wksp_read_error", Status: managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, map[string]any{
+				"namespaces": []string{"default"}, "apis": []string{"default.read_file"},
+				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
+			}),
+		}},
+		completedResult: result,
+	}
+	provider := WorkerBackedProvider{
+		Store: store, WorkspaceID: "wksp_read_error", SessionID: "sesn_read_error", TurnID: "turn_read_error",
+		PollInterval: time.Millisecond, WaitTimeout: time.Second,
+	}
+
+	_, err = provider.ReadFile(t.Context(), capability.ReadFileRequest{Path: "app.log"})
+	var readErr *capability.FileReadError
+	if !errors.As(err, &readErr) || readErr.Code != "stale_file_revision" || readErr.Metadata["path"] != "app.log" {
+		t.Fatalf("structured worker file error was lost: %v", err)
 	}
 }
 

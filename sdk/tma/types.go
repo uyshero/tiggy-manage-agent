@@ -38,6 +38,10 @@ type Session struct {
 type Agent struct {
 	ID                   string             `json:"id"`
 	WorkspaceID          string             `json:"workspace_id"`
+	OwnerType            string             `json:"owner_type"`
+	OwnerID              string             `json:"owner_id"`
+	Visibility           string             `json:"visibility"`
+	AgentKind            string             `json:"agent_kind"`
 	Name                 string             `json:"name"`
 	CurrentConfigVersion int                `json:"current_config_version"`
 	ConfigVersion        AgentConfigVersion `json:"config_version"`
@@ -58,6 +62,10 @@ type AgentConfigVersion struct {
 
 type CreateAgentRequest struct {
 	WorkspaceID string          `json:"workspace_id,omitempty"`
+	OwnerType   string          `json:"owner_type,omitempty"`
+	OwnerID     string          `json:"owner_id,omitempty"`
+	Visibility  string          `json:"visibility,omitempty"`
+	AgentKind   string          `json:"agent_kind,omitempty"`
 	Name        string          `json:"name"`
 	LLMProvider string          `json:"llm_provider,omitempty"`
 	LLMModel    string          `json:"llm_model,omitempty"`
@@ -225,15 +233,16 @@ type CreateSessionRequest struct {
 }
 
 type UpdateSessionRuntimeSettingsRequest struct {
-	LLMProvider       *string                          `json:"llm_provider,omitempty"`
-	LLMModel          *string                          `json:"llm_model,omitempty"`
-	InterventionMode  *string                          `json:"intervention_mode,omitempty"`
-	ToolRuntime       *string                          `json:"tool_runtime,omitempty"`
-	CloudSandboxRoot  *string                          `json:"cloud_sandbox_root,omitempty"`
-	CloudSandboxImage *string                          `json:"cloud_sandbox_image,omitempty"`
-	AllowNetwork      *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
-	HumanInteraction  *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
-	CompletionGate    *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+	LLMProvider             *string                          `json:"llm_provider,omitempty"`
+	LLMModel                *string                          `json:"llm_model,omitempty"`
+	InterventionMode        *string                          `json:"intervention_mode,omitempty"`
+	ToolRuntime             *string                          `json:"tool_runtime,omitempty"`
+	CloudSandboxRoot        *string                          `json:"cloud_sandbox_root,omitempty"`
+	CloudSandboxImage       *string                          `json:"cloud_sandbox_image,omitempty"`
+	AllowNetwork            *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
+	AgentConfigUpdatePolicy *string                          `json:"agent_config_update_policy,omitempty"`
+	HumanInteraction        *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
+	CompletionGate          *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
 }
 
 type HumanInteractionRuntimeSettings struct {
@@ -291,6 +300,8 @@ type AppendEventsResult struct {
 type Run struct {
 	ID                   string     `json:"id"`
 	SessionID            string     `json:"session_id"`
+	AgentID              string     `json:"agent_id"`
+	AgentConfigVersion   int32      `json:"agent_config_version"`
 	Status               string     `json:"status"`
 	UserEventID          string     `json:"user_event_id,omitempty"`
 	UserEventSeq         int64      `json:"user_event_seq,omitempty"`
@@ -353,15 +364,24 @@ type SessionSummary struct {
 }
 
 type SessionTaskItem struct {
-	ID          string     `json:"id"`
-	PlanID      string     `json:"plan_id"`
-	Index       int        `json:"index"`
-	Description string     `json:"description"`
-	Status      string     `json:"status"`
-	Evidence    string     `json:"evidence,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ID           string            `json:"id"`
+	PlanID       string            `json:"plan_id"`
+	Index        int               `json:"index"`
+	Description  string            `json:"description"`
+	Status       string            `json:"status"`
+	Evidence     string            `json:"evidence,omitempty"`
+	EvidenceRefs []TaskEvidenceRef `json:"evidence_refs"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"`
+}
+
+type TaskEvidenceRef struct {
+	Kind        string   `json:"kind"`
+	TurnID      string   `json:"turn_id"`
+	ToolCallID  string   `json:"tool_call_id"`
+	Tool        string   `json:"tool"`
+	ArtifactIDs []string `json:"artifact_ids,omitempty"`
 }
 
 type SessionTaskPlan struct {

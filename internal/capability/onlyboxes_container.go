@@ -56,6 +56,7 @@ type onlyboxesContainerCommand struct {
 	IsolationKey     string
 	Scope            string
 	WorkspaceRoot    string
+	SkillsRoot       string
 	ContainerWorkDir string
 	DataDir          string
 	Request          RunCommandRequest
@@ -206,6 +207,9 @@ func (m *OnlyboxesContainerManager) ensureContainer(ctx context.Context, state *
 		"--workdir", "/workspace",
 		"--volume", command.WorkspaceRoot + ":/workspace:rw",
 	}
+	if command.SkillsRoot != "" {
+		args = append(args, "--volume", command.SkillsRoot+":/tma/skills:ro")
+	}
 	if command.Provider.DisableNetwork {
 		args = append(args, "--network", "none")
 	}
@@ -341,6 +345,7 @@ func onlyboxesContainerFingerprint(command onlyboxesContainerCommand) string {
 		command.Provider.image(),
 		"memory=" + command.Provider.memoryLimit(),
 		command.WorkspaceRoot,
+		command.SkillsRoot,
 		command.DataDir,
 		fmt.Sprintf("network_disabled=%t", command.Provider.DisableNetwork),
 	}, "\x00")

@@ -67,16 +67,17 @@ type Call struct {
 }
 
 type ExecutionContext struct {
-	WorkspaceID      string
-	SessionID        string
-	EnvironmentID    string
-	TurnID           string
-	Environment      map[string]string
-	Deadline         *time.Time
-	Provider         capability.Provider
-	ArtifactRecorder ArtifactRecorder
-	DeferArtifacts   bool
-	TaskService      TaskToolService
+	WorkspaceID         string
+	SessionID           string
+	EnvironmentID       string
+	TurnID              string
+	Environment         map[string]string
+	Deadline            *time.Time
+	Provider            capability.Provider
+	ArtifactRecorder    ArtifactRecorder
+	DeferArtifacts      bool
+	TaskService         TaskToolService
+	CapabilityTransport bool
 }
 
 func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {
@@ -562,6 +563,9 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 	if !ok {
 		return failedResult(call, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Identifier)), nil
 	}
+	if validationError := registry.ValidateCallArguments(call); validationError != nil {
+		return failedResult(call, validationError.Type, validationError.Message), nil
+	}
 
 	result, err := runtime.Execute(ctx, call, executionContext)
 	if err != nil {
@@ -721,6 +725,13 @@ func ObservableResultData(result ExecutionResult, options ResultContextOptions) 
 			"truncated":      true,
 			"original_bytes": len(result.State),
 			"message":        "Tool state omitted from model context; inspect the persisted tool artifact for full state.",
+		}
+	}
+	if !stateTruncated && result.Identifier == NamespaceDefault && result.APIName == "read_file" {
+		if metadata, ok := state.(map[string]any); ok {
+			metadata["model_context_truncated"] = contentTruncated
+			metadata["model_context_original_chars"] = textRuneCount(result.Content)
+			metadata["model_context_visible_chars"] = textRuneCount(content)
 		}
 	}
 	return map[string]any{

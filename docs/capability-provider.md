@@ -83,6 +83,8 @@ type Provider interface {
 }
 ```
 
+`ReadFileRequest` 支持互斥的 raw byte `offset_bytes/max_bytes` 和 1-based `start_line/max_lines`。`FileResult` 返回 size、实际 offset、returned bytes、next offset、EOF、revision 和行范围；大文件始终在 Provider 层有界读取，而不是到模型上下文阶段才裁剪。内置 Provider 还实现可选的 `FileSearchProvider`，供 `default.search_file` 流式返回命中行号和 raw byte offset。完整协议见 [大文件分页读取设计](./large-file-reading.md)。
+
 当前协议版本：
 
 ```text

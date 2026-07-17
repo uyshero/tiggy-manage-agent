@@ -1,4 +1,4 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-browser-takeover-local verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-sandbox fmt db-up db-down db-logs migrate-up
+.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test eval-agent-quality test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-browser-takeover-local verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-sandbox fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
@@ -34,6 +34,9 @@ worker-status:
 
 test:
 	GOCACHE="$(GOCACHE_DIR)" go test ./...
+
+eval-agent-quality:
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/tma-agent-quality-eval -fixtures testdata/agent-quality/completion-gate.json
 
 test-sdk-e2e:
 	GOCACHE="$(GOCACHE_DIR)" go test ./internal/httpapi -run '^Test(GoCoreSDKRealServerE2E|TypedAdministrationSDKRealServerE2E|TypedSkillsSDKRealServerE2E|TypedMarketplaceSDKRealServerE2E)$$' -count=1
@@ -215,3 +218,9 @@ db-logs:
 
 migrate-up:
 	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
+
+generate-sql-baseline:
+	sh scripts/generate_sql_baseline.sh 000080
+
+verify-sql-baseline: generate-sql-baseline
+	sh scripts/verify_sql_baseline.sh sql/baselines/000080_baseline.sql

@@ -333,6 +333,35 @@ func TestAgentToolServiceCreateTaskGroupRejectsUnknownTemplate(t *testing.T) {
 	}
 }
 
+func TestAgentToolServiceCreateTaskGroupRejectsInvalidResultSchemaBeforeFanOut(t *testing.T) {
+	store := newTestStore()
+	parentAgent := mustCreateAgentForSubagentTest(t, store, "Parent Agent")
+	childAgent := mustCreateAgentForSubagentTest(t, store, "Child Agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	parentSession := mustCreateSessionForSubagentTest(t, store, parentAgent.ID, environment.ID, "parent-session")
+	runner := &recordingRunner{}
+	service := newAgentToolService(store, runner, nil, defaultSubagentPolicy())
+
+	_, err := service.CreateTaskGroup(t.Context(), tools.AgentTaskGroupCreateRequest{
+		ParentSessionID: parentSession.ID,
+		ParentTurnID:    "turn_group_invalid_schema",
+		Items: []tools.AgentTaskGroupItemRequest{{
+			AgentID: childAgent.ID, EnvironmentID: environment.ID, Message: "inspect auth",
+			ExpectedResultSchema: json.RawMessage(`{"type":"object","properties":{"risk":{"$ref":"https://example.com/risk.json"}}}`),
+		}},
+	})
+	if err == nil || !errors.Is(err, managedagents.ErrInvalid) || !strings.Contains(err.Error(), "expected_result_schema is invalid") {
+		t.Fatalf("expected invalid result schema error, got %v", err)
+	}
+	groups, listErr := store.ListSubagentTaskGroupsByParentSession(parentSession.ID)
+	if listErr != nil {
+		t.Fatalf("list parent task groups: %v", listErr)
+	}
+	if len(groups) != 0 || len(runner.starts) != 0 {
+		t.Fatalf("invalid schema created fan-out side effects: groups=%#v starts=%#v", groups, runner.starts)
+	}
+}
+
 func TestAgentToolServiceCollectTaskGroupSchemaValidationFailure(t *testing.T) {
 	store := newTestStore()
 	parentAgent := mustCreateAgentForSubagentTest(t, store, "Parent Agent")
@@ -377,8 +406,66 @@ func TestAgentToolServiceCollectTaskGroupSchemaValidationFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("collect task group: %v", err)
 	}
-	if collected.Items[0].ResultValid || collected.Items[0].Status != managedagents.TurnStatusFailed || !strings.Contains(collected.Items[0].ResultValidationError, ".module is required") {
+	if collected.Items[0].ResultValid || collected.Items[0].Status != managedagents.TurnStatusFailed || !strings.Contains(collected.Items[0].ResultValidationError, "constraint /required") {
 		t.Fatalf("expected schema validation failure on item, got %#v", collected.Items[0])
+	}
+}
+
+func TestValidateTaskGroupItemResultEnforcesDraft2020Constraints(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"additionalProperties":false,
+		"properties":{
+			"risk":{"type":"string","enum":["low","high"]},
+			"score":{"type":"integer","minimum":0,"maximum":10}
+		},
+		"required":["risk","score"]
+	}`)
+	tests := []struct {
+		name      string
+		result    string
+		wantValid bool
+		wantPath  string
+	}{
+		{name: "valid", result: `{"risk":"high","score":7}`, wantValid: true},
+		{name: "enum", result: `{"risk":"critical","score":7}`, wantPath: "/properties/risk/enum"},
+		{name: "range", result: `{"risk":"high","score":11}`, wantPath: "/properties/score/maximum"},
+		{name: "additional property", result: `{"risk":"high","score":7,"secret":"must-not-leak"}`, wantPath: "/additionalProperties"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			valid, validationError := validateTaskGroupItemResult(schema, json.RawMessage(test.result))
+			if valid != test.wantValid {
+				t.Fatalf("valid=%t, want %t; error=%q", valid, test.wantValid, validationError)
+			}
+			if test.wantPath != "" && !strings.Contains(validationError, test.wantPath) {
+				t.Fatalf("validation error %q missing %q", validationError, test.wantPath)
+			}
+			if strings.Contains(validationError, "critical") || strings.Contains(validationError, "must-not-leak") {
+				t.Fatalf("validation error leaked result value: %q", validationError)
+			}
+		})
+	}
+}
+
+func TestReplayTaskGroupUsesProductionSchemaStrategyAndReducer(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}`)
+	items := []tools.AgentTaskGroupItemState{
+		{Item: managedagents.SubagentTaskGroupItem{ItemIndex: 0, ExpectedResultSchema: schema}, Status: managedagents.TurnStatusCompleted, ResultJSON: json.RawMessage(`{"module":"auth","risk":"high"}`)},
+		{Item: managedagents.SubagentTaskGroupItem{ItemIndex: 1, ExpectedResultSchema: schema}, Status: managedagents.TurnStatusCompleted, ResultJSON: json.RawMessage(`{"module":"billing","risk":"critical"}`)},
+	}
+	replayed := ReplayTaskGroup(managedagents.SubagentTaskGroup{
+		Strategy: managedagents.SubagentTaskGroupStrategyAllCompleted, ResultReducer: managedagents.SubagentTaskGroupReducerJSONValues, PlannedCount: 2,
+	}, items)
+	if !replayed.Completed || replayed.Status != "failed" || replayed.Summary.Completed != 1 || replayed.Summary.Failed != 1 {
+		t.Fatalf("unexpected replay state: %#v", replayed)
+	}
+	if replayed.Items[1].ResultValid || !strings.Contains(replayed.Items[1].ResultValidationError, "/properties/risk/enum") {
+		t.Fatalf("schema-invalid item was not failed: %#v", replayed.Items[1])
+	}
+	var aggregate []map[string]any
+	if err := json.Unmarshal(replayed.Aggregate.JSON, &aggregate); err != nil || len(aggregate) != 1 || aggregate[0]["module"] != "auth" {
+		t.Fatalf("invalid item entered aggregate: aggregate=%s err=%v", replayed.Aggregate.JSON, err)
 	}
 }
 

@@ -25,6 +25,7 @@ const (
 
 // CompletionGate validates a candidate response before it becomes the turn's final message.
 // Returning retry feeds the verdict back into the same model loop; fail terminates the turn.
+// On error, validators may still return Validator so failure events retain attribution.
 type CompletionGate interface {
 	Validate(context.Context, CompletionCandidate) (CompletionVerdict, error)
 }

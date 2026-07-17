@@ -1,8 +1,11 @@
 package capability
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,21 +13,28 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
 )
+
+const maxWorkspaceSnapshotBytes = 512 << 20
+const workspaceSnapshotRestoreMarker = ".tma-workspace-restored"
 
 const DefaultOnlyboxesImage = "coolfan1024/onlyboxes-runtime:default"
 const DefaultOnlyboxesDataDirTTL = time.Hour
 const DefaultOnlyboxesMemoryLimit = "512m"
 
-const runtimeSkillsSandboxRoot = "/workspace/.tma/skills"
+const runtimeSkillsSandboxRoot = "/tma/skills"
 
 var runtimeSkillIdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+var runtimeSkillHexPattern = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 type OnlyboxesProvider struct {
 	Image            string
@@ -43,6 +53,8 @@ type OnlyboxesProvider struct {
 	ObjectStore      objectstore.Client
 	Runner           Provider
 	ContainerManager *OnlyboxesContainerManager
+	SkillCacheRoot   string
+	ReadFileLimits   ReadFileLimits
 }
 
 type SessionDataStore interface {
@@ -72,22 +84,15 @@ func (OnlyboxesProvider) ToolCapabilities() []string {
 	}
 }
 
-func (p OnlyboxesProvider) MaterializeRuntimeSkills(_ context.Context, packages []RuntimeSkillPackage) ([]MaterializedRuntimeSkill, error) {
-	root, err := p.workspaceDir()
+func (p OnlyboxesProvider) MaterializeRuntimeSkills(ctx context.Context, packages []RuntimeSkillPackage) ([]MaterializedRuntimeSkill, error) {
+	hostSkillsRoot, err := p.runtimeSkillCacheDir()
 	if err != nil {
 		return nil, err
-	}
-	hostSkillsRoot, err := resolveContainerPathInside(root, strings.TrimPrefix(runtimeSkillsSandboxRoot, "/workspace"))
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(hostSkillsRoot, 0o755); err != nil {
-		return nil, fmt.Errorf("create runtime skills root: %w", err)
 	}
 
 	result := make([]MaterializedRuntimeSkill, 0, len(packages))
 	for _, pkg := range packages {
-		materialized, err := materializeRuntimeSkillPackage(hostSkillsRoot, pkg)
+		materialized, err := materializeRuntimeSkillPackage(ctx, hostSkillsRoot, pkg)
 		if err != nil {
 			return nil, err
 		}
@@ -96,32 +101,229 @@ func (p OnlyboxesProvider) MaterializeRuntimeSkills(_ context.Context, packages 
 	return result, nil
 }
 
-func materializeRuntimeSkillPackage(hostSkillsRoot string, pkg RuntimeSkillPackage) (result MaterializedRuntimeSkill, err error) {
+func (p OnlyboxesProvider) CreateWorkspaceSnapshot(_ context.Context) ([]byte, int, error) {
+	root, err := p.workspaceDir()
+	if err != nil {
+		return nil, 0, err
+	}
+	paths := make([]string, 0)
+	err = filepath.Walk(root, func(name string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("workspace snapshot does not support symbolic link %q", name)
+		}
+		if name == root {
+			return nil
+		}
+		relative, err := filepath.Rel(root, name)
+		if err != nil {
+			return err
+		}
+		if filepath.ToSlash(relative) == workspaceSnapshotRestoreMarker {
+			return nil
+		}
+		paths = append(paths, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	sort.Strings(paths)
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	fileCount := 0
+	for _, relative := range paths {
+		name := filepath.Join(root, filepath.FromSlash(relative))
+		info, err := os.Stat(name)
+		if err != nil {
+			return nil, 0, err
+		}
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return nil, 0, err
+		}
+		header.Name = relative
+		header.ModTime = time.Unix(0, 0)
+		header.AccessTime = time.Time{}
+		header.ChangeTime = time.Time{}
+		header.Uid = 0
+		header.Gid = 0
+		header.Uname = ""
+		header.Gname = ""
+		if err := writer.WriteHeader(header); err != nil {
+			return nil, 0, err
+		}
+		if info.Mode().IsRegular() {
+			file, err := os.Open(name)
+			if err != nil {
+				return nil, 0, err
+			}
+			_, copyErr := io.Copy(writer, io.LimitReader(file, maxWorkspaceSnapshotBytes-int64(buffer.Len())+1))
+			closeErr := file.Close()
+			if copyErr != nil {
+				return nil, 0, copyErr
+			}
+			if closeErr != nil {
+				return nil, 0, closeErr
+			}
+			fileCount++
+		}
+		if buffer.Len() > maxWorkspaceSnapshotBytes {
+			return nil, 0, fmt.Errorf("workspace snapshot exceeds %d bytes", maxWorkspaceSnapshotBytes)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, 0, err
+	}
+	return buffer.Bytes(), fileCount, nil
+}
+
+func (p OnlyboxesProvider) RestoreWorkspaceSnapshot(_ context.Context, archive []byte) error {
+	root, err := p.workspaceDir()
+	if err != nil {
+		return err
+	}
+	marker := filepath.Join(root, workspaceSnapshotRestoreMarker)
+	if _, err := os.Stat(marker); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		return nil
+	}
+	reader := tar.NewReader(bytes.NewReader(archive))
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		clean, err := cleanRuntimeSkillFilePath(header.Name)
+		if err != nil {
+			return fmt.Errorf("restore workspace snapshot: %w", err)
+		}
+		target := filepath.Join(root, filepath.FromSlash(clean))
+		if !pathInsideRoot(target, root) {
+			return fmt.Errorf("workspace snapshot path escapes root")
+		}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)&0o777); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(header.Mode)&0o777)
+			if err != nil {
+				return err
+			}
+			_, copyErr := io.Copy(file, io.LimitReader(reader, maxWorkspaceSnapshotBytes+1))
+			closeErr := file.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		default:
+			return fmt.Errorf("workspace snapshot contains unsupported entry %q", header.Name)
+		}
+	}
+	return os.WriteFile(marker, []byte("restored\n"), 0o600)
+}
+
+func (p OnlyboxesProvider) LookupMaterializedRuntimeSkill(_ context.Context, skillID string, identifier string, version int, checksum string) (MaterializedRuntimeSkill, bool, error) {
+	skillID = strings.TrimSpace(skillID)
+	identifier = strings.TrimSpace(identifier)
+	checksum = strings.ToLower(strings.TrimSpace(checksum))
+	if skillID == "" {
+		skillID = identifier
+	}
+	if !runtimeSkillIdentifierPattern.MatchString(skillID) || !runtimeSkillIdentifierPattern.MatchString(identifier) || version <= 0 || !runtimeSkillHexPattern.MatchString(checksum) {
+		return MaterializedRuntimeSkill{}, false, nil
+	}
+	root, err := p.runtimeSkillCacheDir()
+	if err != nil {
+		return MaterializedRuntimeSkill{}, false, err
+	}
+	target := filepath.Join(root, "sha256", checksum, skillID, strconv.Itoa(version))
+	marker, err := os.ReadFile(filepath.Join(target, ".tma-runtime-checksum"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return MaterializedRuntimeSkill{}, false, nil
+		}
+		return MaterializedRuntimeSkill{}, false, err
+	}
+	if strings.TrimSpace(string(marker)) != checksum {
+		return MaterializedRuntimeSkill{}, false, fmt.Errorf("runtime skill cache marker checksum mismatch for %s version %d", skillID, version)
+	}
+	alias := filepath.Join(root, skillID, strconv.Itoa(version))
+	if err := ensureRuntimeSkillAlias(alias, target); err != nil {
+		return MaterializedRuntimeSkill{}, false, err
+	}
+	return MaterializedRuntimeSkill{
+		SkillID: skillID, Identifier: identifier, Version: version,
+		Directory: path.Join(runtimeSkillsSandboxRoot, skillID, strconv.Itoa(version)),
+	}, true, nil
+}
+
+func materializeRuntimeSkillPackage(ctx context.Context, hostSkillsRoot string, pkg RuntimeSkillPackage) (result MaterializedRuntimeSkill, err error) {
 	identifier := strings.TrimSpace(pkg.Identifier)
-	if !runtimeSkillIdentifierPattern.MatchString(identifier) || pkg.Version <= 0 {
+	skillID := strings.TrimSpace(pkg.SkillID)
+	if skillID == "" {
+		skillID = identifier
+	}
+	if !runtimeSkillIdentifierPattern.MatchString(identifier) || !runtimeSkillIdentifierPattern.MatchString(skillID) || pkg.Version <= 0 {
 		return MaterializedRuntimeSkill{}, fmt.Errorf("invalid runtime skill package %q version %d", identifier, pkg.Version)
 	}
 	versionName := strconv.Itoa(pkg.Version)
-	parent := filepath.Join(hostSkillsRoot, identifier)
-	target := filepath.Join(parent, versionName)
-	if !pathInsideRoot(target, hostSkillsRoot) {
-		return MaterializedRuntimeSkill{}, fmt.Errorf("runtime skill target %q is outside skills root", target)
+	checksum := runtimeSkillPackageChecksum(pkg)
+	cacheRoot := filepath.Join(hostSkillsRoot, "sha256")
+	contentRoot := filepath.Join(cacheRoot, checksum)
+	target := filepath.Join(contentRoot, skillID, versionName)
+	aliasParent := filepath.Join(hostSkillsRoot, skillID)
+	alias := filepath.Join(aliasParent, versionName)
+	if !pathInsideRoot(target, hostSkillsRoot) || !pathInsideRoot(alias, hostSkillsRoot) {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("runtime skill target is outside skills root")
 	}
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill parent: %w", err)
+	if err := os.MkdirAll(aliasParent, 0o755); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill alias parent: %w", err)
 	}
-	directory := path.Join(runtimeSkillsSandboxRoot, identifier, versionName)
+	directory := path.Join(runtimeSkillsSandboxRoot, skillID, versionName)
 	marker := filepath.Join(target, ".tma-runtime-checksum")
-	if stored, readErr := os.ReadFile(marker); readErr == nil && strings.TrimSpace(string(stored)) == strings.TrimSpace(pkg.Checksum) {
-		return MaterializedRuntimeSkill{Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
+	if release, lockErr := acquireRuntimeSkillLock(ctx, filepath.Join(hostSkillsRoot, ".locks", checksum+".lock")); lockErr != nil {
+		return MaterializedRuntimeSkill{}, lockErr
+	} else {
+		defer release()
+	}
+	if stored, readErr := os.ReadFile(marker); readErr == nil && strings.TrimSpace(string(stored)) == checksum {
+		if err := ensureRuntimeSkillAlias(alias, target); err != nil {
+			return MaterializedRuntimeSkill{}, err
+		}
+		return MaterializedRuntimeSkill{SkillID: skillID, Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
 	}
 
-	staging, err := os.MkdirTemp(parent, ".tmp-"+versionName+"-")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill cache parent: %w", err)
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(target), ".tmp-")
 	if err != nil {
 		return MaterializedRuntimeSkill{}, fmt.Errorf("create runtime skill staging directory: %w", err)
 	}
 	defer func() {
 		if err != nil {
+			_ = makeRuntimeSkillWritable(staging)
 			_ = os.RemoveAll(staging)
 		}
 	}()
@@ -145,16 +347,133 @@ func materializeRuntimeSkillPackage(hostSkillsRoot string, pkg RuntimeSkillPacka
 			return MaterializedRuntimeSkill{}, fmt.Errorf("write runtime skill file %q: %w", cleanPath, err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(staging, ".tma-runtime-checksum"), []byte(strings.TrimSpace(pkg.Checksum)+"\n"), 0o444); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, ".tma-runtime-checksum"), []byte(checksum+"\n"), 0o444); err != nil {
 		return MaterializedRuntimeSkill{}, fmt.Errorf("write runtime skill checksum: %w", err)
 	}
-	if err := os.RemoveAll(target); err != nil {
-		return MaterializedRuntimeSkill{}, fmt.Errorf("replace runtime skill target: %w", err)
-	}
 	if err := os.Rename(staging, target); err != nil {
-		return MaterializedRuntimeSkill{}, fmt.Errorf("commit runtime skill package: %w", err)
+		if stored, readErr := os.ReadFile(marker); readErr != nil || strings.TrimSpace(string(stored)) != checksum {
+			return MaterializedRuntimeSkill{}, fmt.Errorf("commit runtime skill package: %w", err)
+		}
+		_ = os.RemoveAll(staging)
 	}
-	return MaterializedRuntimeSkill{Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
+	if err := makeRuntimeSkillReadOnly(target); err != nil {
+		return MaterializedRuntimeSkill{}, err
+	}
+	if err := ensureRuntimeSkillAlias(alias, target); err != nil {
+		return MaterializedRuntimeSkill{}, err
+	}
+	return MaterializedRuntimeSkill{SkillID: skillID, Identifier: identifier, Version: pkg.Version, Directory: directory}, nil
+}
+
+func acquireRuntimeSkillLock(ctx context.Context, lockPath string) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create runtime skill lock directory: %w", err)
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open runtime skill lock: %w", err)
+	}
+	for {
+		if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err == nil {
+			return func() {
+				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+				_ = file.Close()
+			}, nil
+		} else if err != unix.EWOULDBLOCK {
+			_ = file.Close()
+			return nil, fmt.Errorf("lock runtime skill cache: %w", err)
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			_ = file.Close()
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func ensureRuntimeSkillAlias(alias string, target string) error {
+	if existing, err := os.Readlink(alias); err == nil {
+		resolved := filepath.Join(filepath.Dir(alias), existing)
+		if resolved == target {
+			return nil
+		}
+		return fmt.Errorf("runtime skill version integrity conflict: alias %q already references a different package checksum", alias)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect runtime skill alias: %w", err)
+	} else if info, statErr := os.Stat(alias); statErr == nil {
+		if info.IsDir() {
+			return fmt.Errorf("runtime skill alias %q is a writable directory", alias)
+		}
+		if removeErr := os.Remove(alias); removeErr != nil {
+			return fmt.Errorf("remove runtime skill alias: %w", removeErr)
+		}
+	}
+	relative, err := filepath.Rel(filepath.Dir(alias), target)
+	if err != nil {
+		return fmt.Errorf("resolve runtime skill alias: %w", err)
+	}
+	if err := os.Symlink(relative, alias); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("create runtime skill alias: %w", err)
+	}
+	return nil
+}
+
+func makeRuntimeSkillReadOnly(root string) error {
+	return filepath.Walk(root, func(name string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o444)
+		if info.IsDir() {
+			mode = 0o555
+		} else if info.Mode()&0o111 != 0 {
+			mode = 0o555
+		}
+		if err := os.Chmod(name, mode); err != nil {
+			return fmt.Errorf("make runtime skill path read-only %q: %w", name, err)
+		}
+		return nil
+	})
+}
+
+func makeRuntimeSkillWritable(root string) error {
+	return filepath.Walk(root, func(name string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if info.IsDir() {
+			mode = 0o755
+		} else if info.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		return os.Chmod(name, mode)
+	})
+}
+
+func runtimeSkillPackageChecksum(pkg RuntimeSkillPackage) string {
+	if checksum := strings.TrimSpace(pkg.Checksum); len(checksum) == 64 && runtimeSkillHexPattern.MatchString(checksum) {
+		return strings.ToLower(checksum)
+	}
+	hash := sha256.New()
+	files := append([]RuntimeSkillFile(nil), pkg.Files...)
+	slices.SortFunc(files, func(a, b RuntimeSkillFile) int { return strings.Compare(a.Path, b.Path) })
+	for _, file := range files {
+		fmt.Fprintf(hash, "%s\x00%d\x00", file.Path, boolInt(file.Executable))
+		hash.Write(file.Content)
+		hash.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func cleanRuntimeSkillFilePath(value string) (string, error) {
@@ -208,6 +527,7 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 			IsolationKey:     p.sandboxIsolationKey(),
 			Scope:            p.ContainerScope,
 			WorkspaceRoot:    root,
+			SkillsRoot:       func() string { value, _ := p.runtimeSkillCacheDir(); return value }(),
 			ContainerWorkDir: containerWorkDir,
 			DataDir:          dataDir,
 			Request:          request,
@@ -232,6 +552,11 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	}
 	if dataDir != "" {
 		args = append(args, "--volume", dataDir+":/mnt/data:rw")
+	}
+	if skillCache, cacheErr := p.runtimeSkillCacheDir(); cacheErr != nil {
+		return CommandResult{}, cacheErr
+	} else {
+		args = append(args, "--volume", skillCache+":/tma/skills:ro")
 	}
 	for key, value := range request.Env {
 		if !validEnvKey(key) {
@@ -281,6 +606,7 @@ func (p OnlyboxesProvider) ExecuteCode(ctx context.Context, request ExecuteCodeR
 }
 
 func (p OnlyboxesProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
+	displayPath := request.Path
 	workspaceDir, err := p.workspaceDir()
 	if err != nil {
 		return FileResult{}, err
@@ -293,11 +619,35 @@ func (p OnlyboxesProvider) ReadFile(ctx context.Context, request ReadFileRequest
 		return FileResult{}, err
 	}
 	request.Path = path
-	result, err := LocalSystemProvider{}.ReadFile(ctx, request)
+	result, err := (LocalSystemProvider{ReadFileLimits: p.ReadFileLimits}).ReadFile(ctx, request)
 	if err != nil {
-		return FileResult{}, err
+		return FileResult{}, remapFileReadErrorPath(err, displayPath)
 	}
 	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
+		result.Path = displayPath
+	}
+	return result, nil
+}
+
+func (p OnlyboxesProvider) SearchFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error) {
+	displayPath := request.Path
+	workspaceDir, err := p.workspaceDir()
+	if err != nil {
+		return SearchFileResult{}, err
+	}
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return SearchFileResult{}, err
+	}
+	hostPath, err := p.resolveSandboxFilePath(request.Path, "")
+	if err != nil {
+		return SearchFileResult{}, err
+	}
+	request.Path = hostPath
+	result, err := (LocalSystemProvider{ReadFileLimits: p.ReadFileLimits}).SearchFile(ctx, request)
+	if err != nil {
+		return SearchFileResult{}, remapFileReadErrorPath(err, displayPath)
+	}
+	if displayPath, displayErr := p.hostPathToSandboxPath(hostPath); displayErr == nil {
 		result.Path = displayPath
 	}
 	return result, nil
@@ -446,6 +796,31 @@ func (p OnlyboxesProvider) workspaceDir() (string, error) {
 		return "", fmt.Errorf("create isolated sandbox workspace: %w", err)
 	}
 	return path, nil
+}
+
+func (p OnlyboxesProvider) runtimeSkillCacheDir() (string, error) {
+	root := strings.TrimSpace(p.SkillCacheRoot)
+	if root == "" {
+		workspace, err := p.workspaceDir()
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(filepath.Dir(workspace), ".tma-skill-cache")
+	}
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve runtime skill cache root: %w", err)
+	}
+	workspaceKey := strings.TrimSpace(p.WorkspaceID)
+	if workspaceKey == "" {
+		workspaceKey = "default"
+	}
+	digest := sha256.Sum256([]byte(workspaceKey))
+	root = filepath.Join(root, hex.EncodeToString(digest[:8]))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", fmt.Errorf("create runtime skill cache root: %w", err)
+	}
+	return root, nil
 }
 
 func (p OnlyboxesProvider) sandboxIsolationKey() string {

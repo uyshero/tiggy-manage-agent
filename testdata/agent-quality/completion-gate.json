@@ -1,0 +1,244 @@
+{
+  "version": "tma.agent_quality_eval.v1",
+  "thresholds": {
+    "case_pass_rate_min": 1,
+    "false_success_rate_max": 0,
+    "retry_correction_rate_min": 1,
+    "evidence_compliance_rate_min": 1,
+    "hard_fail_rate_min": 1,
+    "schema_compliance_rate_min": 1,
+    "schema_retry_correction_rate_min": 1,
+    "invalid_tool_execution_rate_max": 0,
+    "task_group_compliance_rate_min": 1,
+    "task_group_retry_correction_rate_min": 1,
+    "invalid_result_aggregation_rate_max": 0
+  },
+  "cases": [
+    {
+      "id": "no_active_plan_first_attempt",
+      "category": "first_attempt",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "blocked_retries": 0, "validator": "builtin.task_plan"},
+      "candidates": [
+        {"text": "Task completed.", "plan": {"availability": "none"}}
+      ]
+    },
+    {
+      "id": "completed_plan_first_attempt",
+      "category": "first_attempt",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "blocked_retries": 0, "validator": "builtin.task_plan"},
+      "candidates": [
+        {"text": "Verified task completed.", "plan": {"availability": "available", "id": "plan_done", "status": "completed"}}
+      ]
+    },
+    {
+      "id": "premature_answer_corrected_after_retry",
+      "category": "plan_enforcement",
+      "max_retries": 2,
+      "expected": {"outcome": "pass", "blocked_retries": 1, "validator": "builtin.task_plan"},
+      "candidates": [
+        {"text": "Done too early.", "plan": {"availability": "available", "id": "plan_work", "status": "active", "items": [{"id": "item_work", "description": "Run verification", "status": "in_progress"}]}},
+        {"text": "The verified work is complete.", "plan": {"availability": "available", "id": "plan_work", "status": "completed"}}
+      ]
+    },
+    {
+      "id": "missing_evidence_corrected_after_retry",
+      "category": "evidence_missing",
+      "max_retries": 2,
+      "expected": {"outcome": "pass", "blocked_retries": 1, "validator": "builtin.task_plan"},
+      "candidates": [
+        {"text": "Done without evidence.", "plan": {"availability": "available", "id": "plan_evidence", "status": "active", "items": [{"id": "item_evidence", "description": "Verify output", "status": "completed", "evidence": "claimed success"}]}},
+        {"text": "Verification is recorded and the plan is complete.", "plan": {"availability": "available", "id": "plan_evidence", "status": "completed"}}
+      ]
+    },
+    {
+      "id": "verified_items_require_explicit_plan_completion",
+      "category": "evidence_verified",
+      "max_retries": 2,
+      "expected": {"outcome": "pass", "blocked_retries": 1, "validator": "builtin.task_plan"},
+      "candidates": [
+        {"text": "Items are verified but the plan is active.", "plan": {"availability": "available", "id": "plan_ready", "status": "active", "items": [{"id": "item_ready", "description": "Run tests", "status": "completed", "evidence": "tests passed", "tool_call_ids": ["call_test"]}]}},
+        {"text": "The verified plan is now explicitly complete.", "plan": {"availability": "available", "id": "plan_ready", "status": "completed"}}
+      ]
+    },
+    {
+      "id": "fabricated_evidence_cannot_complete",
+      "category": "evidence_fabricated_rejected",
+      "max_retries": 1,
+      "expected": {"outcome": "fail", "blocked_retries": 1, "validator": "builtin.task_plan", "error_contains": "retry limit reached"},
+      "candidates": [
+        {"text": "Claiming an unverified tool call.", "plan": {"availability": "available", "id": "plan_fake", "status": "active", "items": [{"id": "item_fake", "description": "Verify result", "status": "completed", "evidence": "fabricated call claimed"}]}},
+        {"text": "Repeating the unsupported claim.", "plan": {"availability": "available", "id": "plan_fake", "status": "active", "items": [{"id": "item_fake", "description": "Verify result", "status": "completed", "evidence": "fabricated call claimed"}]}}
+      ]
+    },
+    {
+      "id": "failed_tool_evidence_cannot_complete",
+      "category": "evidence_failed_rejected",
+      "max_retries": 1,
+      "expected": {"outcome": "fail", "blocked_retries": 1, "validator": "builtin.task_plan", "error_contains": "retry limit reached"},
+      "candidates": [
+        {"text": "Claiming a failed verification as evidence.", "plan": {"availability": "available", "id": "plan_failed_tool", "status": "active", "items": [{"id": "item_failed_tool", "description": "Pass verification", "status": "completed", "evidence": "verification command failed"}]}},
+        {"text": "Repeating the failed verification claim.", "plan": {"availability": "available", "id": "plan_failed_tool", "status": "active", "items": [{"id": "item_failed_tool", "description": "Pass verification", "status": "completed", "evidence": "verification command failed"}]}}
+      ]
+    },
+    {
+      "id": "incomplete_plan_exhausts_retry_budget",
+      "category": "retry_exhaustion",
+      "max_retries": 1,
+      "expected": {"outcome": "fail", "blocked_retries": 1, "validator": "builtin.task_plan", "error_contains": "retry limit reached"},
+      "candidates": [
+        {"text": "Premature answer one.", "plan": {"availability": "available", "id": "plan_stuck", "status": "active", "items": [{"id": "item_stuck", "description": "Unfinished work", "status": "in_progress"}]}},
+        {"text": "Premature answer two.", "plan": {"availability": "available", "id": "plan_stuck", "status": "active", "items": [{"id": "item_stuck", "description": "Unfinished work", "status": "in_progress"}]}}
+      ]
+    },
+    {
+      "id": "plan_store_failure_fails_closed",
+      "category": "validator_failure",
+      "max_retries": 1,
+      "expected": {"outcome": "fail", "blocked_retries": 0, "validator": "builtin.task_plan", "error_contains": "database unavailable"},
+      "candidates": [
+        {"text": "Cannot safely determine completion.", "plan": {"availability": "error", "error": "database unavailable"}}
+      ]
+    },
+    {
+      "id": "schema_valid_first_attempt",
+      "category": "schema_valid",
+      "flow": "tool_schema",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "blocked_retries": 0, "schema_rejections": 0, "tool_executions": 1},
+      "candidates": [
+        {"tool_call": {"id": "call_schema_valid", "arguments": {"value": "verified", "mode": "strict"}}},
+        {"text": "Schema-valid tool execution completed."}
+      ]
+    },
+    {
+      "id": "schema_missing_required_corrected",
+      "category": "schema_retry",
+      "flow": "tool_schema",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "blocked_retries": 0, "schema_rejections": 1, "tool_executions": 1},
+      "candidates": [
+        {"tool_call": {"id": "call_schema_missing", "arguments": {"value": "candidate"}}},
+        {"tool_call": {"id": "call_schema_corrected", "arguments": {"value": "candidate", "mode": "strict"}}},
+        {"text": "Schema feedback corrected the call."}
+      ]
+    },
+    {
+      "id": "schema_additional_property_corrected",
+      "category": "schema_retry",
+      "flow": "tool_schema",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "blocked_retries": 0, "schema_rejections": 1, "tool_executions": 1},
+      "candidates": [
+        {"tool_call": {"id": "call_schema_extra", "arguments": {"value": "candidate", "mode": "strict", "unexpected": true}}},
+        {"tool_call": {"id": "call_schema_extra_corrected", "arguments": {"value": "candidate", "mode": "strict"}}},
+        {"text": "Unsupported fields were removed."}
+      ]
+    },
+    {
+      "id": "schema_invalid_retries_exhausted",
+      "category": "schema_retry_exhaustion",
+      "flow": "tool_schema",
+      "max_retries": 1,
+      "expected": {"outcome": "fail", "blocked_retries": 0, "schema_rejections": 2, "tool_executions": 0, "error_contains": "repeatedly returned invalid"},
+      "candidates": [
+        {"tool_call": {"id": "call_schema_bad_1", "arguments": {"value": "candidate", "mode": "unsupported"}}},
+        {"tool_call": {"id": "call_schema_bad_2", "arguments": {"value": "candidate", "mode": "unsupported"}}}
+      ]
+    },
+    {
+      "id": "task_group_all_completed_valid",
+      "category": "task_group_valid",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "completed", "group_completed": true, "result_rejections": 0, "aggregate_json": [{"module":"auth","risk":"high"},{"module":"billing","risk":"low"}]},
+      "task_group": {
+        "strategy": "all_completed",
+        "result_reducer": "json_values",
+        "rounds": [{"items": [
+          {"index": 0, "status": "completed", "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"auth","risk":"high"}},
+          {"index": 1, "status": "completed", "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"billing","risk":"low"}}
+        ]}]
+      }
+    },
+    {
+      "id": "task_group_schema_invalid_excluded",
+      "category": "task_group_schema_rejection",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "failed", "group_completed": true, "result_rejections": 1, "aggregate_json": [{"module":"auth","risk":"high"}]},
+      "task_group": {
+        "strategy": "all_completed",
+        "result_reducer": "json_values",
+        "rounds": [{"items": [
+          {"index": 0, "status": "completed", "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"auth","risk":"high"}},
+          {"index": 1, "status": "completed", "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"billing","risk":"critical"}}
+        ]}]
+      }
+    },
+    {
+      "id": "task_group_schema_retry_recovers",
+      "category": "task_group_retry",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "completed", "group_completed": true, "result_rejections": 1, "aggregate_json": [{"module":"auth","risk":"high"}]},
+      "task_group": {
+        "strategy": "all_completed",
+        "result_reducer": "json_values",
+        "rounds": [
+          {"items": [{"index": 0, "status": "completed", "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"auth","risk":"critical"}}]},
+          {"items": [{"index": 0, "status": "completed", "retry_count": 1, "schema": {"type":"object","additionalProperties":false,"properties":{"module":{"type":"string"},"risk":{"type":"string","enum":["low","high"]}},"required":["module","risk"]}, "result_json": {"module":"auth","risk":"high"}}]}
+        ]
+      }
+    },
+    {
+      "id": "task_group_fail_fast",
+      "category": "task_group_fail_fast",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "failed", "group_completed": true, "result_rejections": 0},
+      "task_group": {
+        "strategy": "all_completed",
+        "result_reducer": "concat_text",
+        "fail_fast": true,
+        "rounds": [{"items": [
+          {"index": 0, "status": "failed", "text": "verification failed"},
+          {"index": 1, "status": "running"}
+        ]}]
+      }
+    },
+    {
+      "id": "task_group_quorum_completes",
+      "category": "task_group_quorum",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "completed", "group_completed": true, "result_rejections": 0, "aggregate_json": ["approved","approved"]},
+      "task_group": {
+        "strategy": "quorum",
+        "quorum": 2,
+        "result_reducer": "json_values",
+        "rounds": [{"items": [
+          {"index": 0, "status": "completed", "schema": {"type":"string","enum":["approved","rejected"]}, "result_json": "approved"},
+          {"index": 1, "status": "completed", "schema": {"type":"string","enum":["approved","rejected"]}, "result_json": "approved"},
+          {"index": 2, "status": "running"}
+        ]}]
+      }
+    },
+    {
+      "id": "task_group_merge_conflict_policy",
+      "category": "task_group_merge",
+      "flow": "task_group",
+      "max_retries": 1,
+      "expected": {"outcome": "pass", "group_status": "completed", "group_completed": true, "result_rejections": 0, "aggregate_json": {"files":["a.go","b.go","c.go"],"risk":"high"}},
+      "task_group": {
+        "strategy": "all_completed",
+        "result_reducer": "merge_objects",
+        "rounds": [{"items": [
+          {"index": 0, "status": "completed", "schema": {"type":"object","properties":{"files":{"type":"array","items":{"type":"string"},"x-array-merge":"dedupe"},"risk":{"type":"string","x-conflict-mode":"first_wins"}},"required":["files","risk"]}, "result_json": {"files":["a.go","b.go"],"risk":"high"}},
+          {"index": 1, "status": "completed", "schema": {"type":"object","properties":{"files":{"type":"array","items":{"type":"string"},"x-array-merge":"dedupe"},"risk":{"type":"string","x-conflict-mode":"first_wins"}},"required":["files","risk"]}, "result_json": {"files":["b.go","c.go"],"risk":"low"}}
+        ]}]
+      }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func (DefaultRuntime) Manifest() Manifest {
 			Title:       "Default Tools",
 			Description: "Run commands, execute code, and read or write files through the configured capability provider.",
 		},
-		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use read_file to confirm no __TMA_PLACEHOLDER_...__ markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
+		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files can be read with path only. A large file returns one bounded page plus pagination metadata: continue only with next_offset_bytes and the same file_revision, never repeat an unchanged page, and do not blindly traverse hundreds of pages. When a keyword is known, use search_file first and read a focused line or byte window around a match. For very large JSON, CSV, logs, generated data, or exceptionally long lines, prefer format-aware parsers or bounded analysis commands over sequential page walking. When reporting conclusions from a partial read, state the inspected byte or line ranges and never describe a sample as a complete review. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use search_file for __TMA_PLACEHOLDER_ to confirm no markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
@@ -57,8 +58,19 @@ func (DefaultRuntime) Manifest() Manifest {
 				Name:           "read_file",
 				Namespace:      NamespaceDefault,
 				APIName:        "read_file",
-				Description:    "Read a UTF-8 text file or extract text from a .docx file in the execution environment. Other binary formats return a safe explanatory result.",
-				Parameters:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to read. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."}},"required":["path"]}`),
+				Description:    "Read one bounded UTF-8 page. Path-only reads small files completely and returns the first bounded page for large files. Byte mode uses raw file byte offsets; line mode is mutually exclusive. Continue with next_offset_bytes and file_revision. DOCX supports path-only text extraction; other binary formats return a safe explanation.",
+				Parameters:     json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Path to read. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"offset_bytes":{"type":"integer","minimum":0,"description":"Raw file byte offset for byte mode. Never use a rune or character index."},"max_bytes":{"type":"integer","minimum":4,"maximum":1048576,"description":"Maximum raw bytes for byte mode. The provider may enforce a lower deployment hard limit."},"start_line":{"type":"integer","minimum":1,"description":"1-based first line for line mode."},"max_lines":{"type":"integer","minimum":1,"maximum":5000,"description":"Maximum lines for line mode. The page remains byte-bounded and may stop inside an exceptionally long line."},"file_revision":{"type":"string","description":"Revision returned by a previous page. Required when continuing a multi-page read so file changes produce stale_file_revision instead of mixed content."}},"required":["path"]}`),
+				Capabilities:   []string{CapabilityFilesystemRead},
+				Risk:           ToolRiskRead,
+				Runtime:        &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
+				Implementation: ToolImplementationWorkerCapability,
+			},
+			{
+				Name:           "search_file",
+				Namespace:      NamespaceDefault,
+				APIName:        "search_file",
+				Description:    "Search one UTF-8 text file for a literal string using bounded memory. Returns matching line numbers and raw byte offsets so read_file can fetch a focused window. This is read-only and does not require command execution approval.",
+				Parameters:     json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Text file to search. Cloud sandbox path rules are identical to read_file."},"query":{"type":"string","minLength":1,"maxLength":1024,"description":"Single-line literal UTF-8 string, not a regular expression."},"max_results":{"type":"integer","minimum":1,"maximum":100,"description":"Maximum matching lines to return; defaults to 50."},"file_revision":{"type":"string","description":"Optional revision from read_file. A mismatch returns stale_file_revision."}},"required":["path","query"]}`),
 				Capabilities:   []string{CapabilityFilesystemRead},
 				Risk:           ToolRiskRead,
 				Runtime:        &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
@@ -152,9 +164,23 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.ReadFile(ctx, request)
 		if err != nil {
+			if failure, ok := structuredFileReadFailure(call, err); ok {
+				return failure, nil
+			}
 			return ExecutionResult{}, err
 		}
-		state, err := json.Marshal(result)
+		if result.SizeBytes == 0 && len(result.Content) > 0 {
+			result.SizeBytes = int64(len(result.Content))
+			result.ReturnedBytes = len(result.Content)
+			result.NextOffsetBytes = int64(len(result.Content))
+			result.EOF = true
+		}
+		var state json.RawMessage
+		if executionContext.CapabilityTransport {
+			state, err = json.Marshal(result)
+		} else {
+			state, err = marshalFileResultMetadata(result)
+		}
 		if err != nil {
 			return ExecutionResult{}, err
 		}
@@ -162,16 +188,8 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		if err != nil {
 			return ExecutionResult{}, err
 		}
-		if !readable {
+		if result.Binary || !readable {
 			content = fmt.Sprintf("File %q contains binary data that read_file cannot decode as text. Use execute_code with a format-specific parser.", result.Path)
-			state, err = json.Marshal(map[string]any{
-				"path":       result.Path,
-				"binary":     true,
-				"size_bytes": len(result.Content),
-			})
-			if err != nil {
-				return ExecutionResult{}, err
-			}
 		}
 		return ExecutionResult{
 			ID:         call.ID,
@@ -179,6 +197,31 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 			APIName:    call.APIName,
 			Content:    contentWithPlaceholderWarning(content),
 			State:      state,
+		}, nil
+	case "search_file":
+		var request capability.SearchFileRequest
+		if err := json.Unmarshal(call.Arguments, &request); err != nil {
+			return ExecutionResult{}, fmt.Errorf("decode search_file arguments: %w", err)
+		}
+		searcher, ok := provider.(capability.FileSearchProvider)
+		if !ok {
+			return failedResult(call, "search_file_unavailable", "the selected capability provider does not support safe file search"), nil
+		}
+		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
+		result, err := searcher.SearchFile(ctx, request)
+		if err != nil {
+			if failure, ok := structuredFileReadFailure(call, err); ok {
+				return failure, nil
+			}
+			return ExecutionResult{}, err
+		}
+		state, err := json.Marshal(result)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
+		return ExecutionResult{
+			ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
+			Content: formatSearchFileResult(result), State: state,
 		}, nil
 	case "write_file":
 		var request capability.WriteFileRequest
@@ -271,6 +314,48 @@ func editFileResult(call Call, result capability.EditFileResult) (ExecutionResul
 		}}
 	}
 	return executionResult, nil
+}
+
+func marshalFileResultMetadata(result capability.FileResult) (json.RawMessage, error) {
+	result.Content = nil
+	return json.Marshal(result)
+}
+
+func structuredFileReadFailure(call Call, err error) (ExecutionResult, bool) {
+	var readErr *capability.FileReadError
+	if !errors.As(err, &readErr) {
+		return ExecutionResult{}, false
+	}
+	state, marshalErr := json.Marshal(map[string]any{"error": readErr})
+	if marshalErr != nil {
+		state = json.RawMessage(`{"error":{"code":"file_read_failed","message":"failed to encode structured file error"}}`)
+	}
+	result := failedResult(call, readErr.Code, readErr.Message)
+	result.Content = readErr.Message
+	result.State = state
+	return result, true
+}
+
+func formatSearchFileResult(result capability.SearchFileResult) string {
+	if result.Binary {
+		return fmt.Sprintf("File %q contains binary data that search_file cannot search as UTF-8 text.", result.Path)
+	}
+	var content strings.Builder
+	fmt.Fprintf(&content, "Search results for %q in %s (revision %s):", result.Query, result.Path, result.FileRevision)
+	if len(result.Matches) == 0 {
+		content.WriteString(" no matches")
+		return content.String()
+	}
+	for _, match := range result.Matches {
+		fmt.Fprintf(&content, "\n%d [byte %d]: %s", match.LineNumber, match.OffsetBytes, match.Line)
+		if match.LineTruncated {
+			content.WriteString(" [line preview truncated]")
+		}
+	}
+	if result.Truncated {
+		content.WriteString("\n[Search results truncated; narrow the query before requesting more matches.]")
+	}
+	return content.String()
 }
 
 // commandResult 将命令/代码执行的 stdout/stderr 压缩为面向模型的文本内容，

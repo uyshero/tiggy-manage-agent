@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  completionQualitySummary,
   collectMCPProtocolOperations,
   collectToolSourceStats,
   filterTaskPlans,
@@ -11,6 +12,25 @@ import {
   mergeEventResponses,
   taskPlanStatusCounts
 } from "./utils.js";
+
+test("completionQualitySummary parses only completion validation metrics", () => {
+  const summary = completionQualitySummary(`# HELP tma_completion_validation_total Completion validation outcomes.
+tma_completion_validation_total{outcome="retry",session_id="session_1",turn_id="turn_1",validator="builtin.task_plan"} 2
+tma_completion_validation_total{outcome="pass",session_id="session_1",turn_id="turn_1",validator="builtin.task_plan"} 1
+tma_completion_validation_total{outcome="fail",session_id="session_1",turn_id="turn_1",validator="other"} 1
+tma_tool_calls_total{outcome="success"} 99`);
+  assert.deepEqual(summary, {
+    pass: 1,
+    retry: 2,
+    fail: 1,
+    attempts: 4,
+    retryRate: 0.5,
+    validators: ["builtin.task_plan", "other"]
+  });
+  assert.deepEqual(completionQualitySummary("No metrics loaded."), {
+    pass: 0, retry: 0, fail: 0, attempts: 0, retryRate: 0, validators: []
+  });
+});
 
 test("isTerminalTurnStatus recognizes terminal turns", () => {
   for (const status of ["completed", "failed", "canceled", "terminated", "COMPLETED"]) {

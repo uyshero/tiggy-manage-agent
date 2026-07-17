@@ -43,7 +43,7 @@ func (TaskRuntime) Manifest() Manifest {
 			Title:       "Task Planning",
 			Description: "Persist and update the current Session's execution plan and todo state.",
 		},
-		SystemRole: `Use task.* to track genuinely multi-step work; there is no separate complexity classifier. Work directly when one or two tool calls are likely enough. Create a tracked plan for roughly 3-4 related steps and a planned plan for 5 or more dependent steps, cross-turn work, multiple deliverables, or when the user asks for a plan. Keep 3-10 outcome-oriented items and at most one in_progress item. Update status as work changes; completed items require concise execution or verification evidence. Read the current plan after context changes. Complete the plan only when every item is completed with evidence. Cancel it when the user changes or abandons the goal. Do not use task tools for subagent fan-out, clarification, tool approval, or plan approval.`,
+		SystemRole: `Use task.* to track genuinely multi-step work; there is no separate complexity classifier. Work directly when one or two tool calls are likely enough. Create a tracked plan for roughly 3-4 related steps and a planned plan for 5 or more dependent steps, cross-turn work, multiple deliverables, or when the user asks for a plan. Keep 3-10 outcome-oriented items and at most one in_progress item. Update status as work changes; completed items require concise evidence text plus evidence_refs naming one or more successful non-task tool_call_id values from the current turn; task tools cannot prove their own work. Read the current plan after context changes. Complete the plan only when every item is completed with verified evidence refs. Cancel it when the user changes or abandons the goal. Do not use task tools for subagent fan-out, clarification, tool approval, or plan approval.`,
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
@@ -54,8 +54,8 @@ func (TaskRuntime) Manifest() Manifest {
 			},
 			{
 				Name: TaskAPIUpdateItems, Namespace: NamespaceTask, APIName: TaskAPIUpdateItems,
-				Description: "Update one or more current plan items. A completed item must include concise evidence; only one item may be in_progress.",
-				Parameters:  json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"plan_id":{"type":"string"},"items":{"type":"array","minItems":1,"maxItems":10,"items":{"type":"object","additionalProperties":false,"properties":{"item_id":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","blocked"]},"evidence":{"type":"string","maxLength":2000}},"required":["item_id","status"]}}},"required":["items"]}`),
+				Description: "Update one or more current plan items. A completed item needs evidence text and evidence_refs containing successful non-task tool call IDs from this turn; only one item may be in_progress.",
+				Parameters:  json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"plan_id":{"type":"string"},"items":{"type":"array","minItems":1,"maxItems":10,"items":{"type":"object","additionalProperties":false,"properties":{"item_id":{"type":"string"},"status":{"type":"string","enum":["pending","in_progress","completed","blocked"]},"evidence":{"type":"string","maxLength":2000},"evidence_refs":{"type":"array","maxItems":10,"items":{"type":"object","additionalProperties":false,"properties":{"tool_call_id":{"type":"string","minLength":1}},"required":["tool_call_id"]}}},"required":["item_id","status"]}}},"required":["items"]}`),
 				Risk:        ToolRiskWrite, Runtime: taskRuntimePolicy(), Implementation: ToolImplementationServerBuiltin,
 			},
 			{
@@ -66,7 +66,7 @@ func (TaskRuntime) Manifest() Manifest {
 			},
 			{
 				Name: TaskAPICompletePlan, Namespace: NamespaceTask, APIName: TaskAPICompletePlan,
-				Description: "Complete the current plan after every item is completed with evidence.",
+				Description: "Complete the current plan after every item is completed with evidence text and verified tool result references.",
 				Parameters:  json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"plan_id":{"type":"string"},"reason":{"type":"string","maxLength":1000}}}`),
 				Risk:        ToolRiskWrite, Runtime: taskRuntimePolicy(), Implementation: ToolImplementationServerBuiltin,
 			},

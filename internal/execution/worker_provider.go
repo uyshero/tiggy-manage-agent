@@ -76,6 +76,14 @@ func (p WorkerBackedProvider) ReadFile(ctx context.Context, request capability.R
 	return result, nil
 }
 
+func (p WorkerBackedProvider) SearchFile(ctx context.Context, request capability.SearchFileRequest) (capability.SearchFileResult, error) {
+	var result capability.SearchFileResult
+	if err := p.executeDefaultTool(ctx, "search_file", request, &result); err != nil {
+		return capability.SearchFileResult{}, err
+	}
+	return result, nil
+}
+
 func (p WorkerBackedProvider) WriteFile(ctx context.Context, request capability.WriteFileRequest) (capability.FileResult, error) {
 	var result capability.FileResult
 	if err := p.executeDefaultTool(ctx, "write_file", request, &result); err != nil {
@@ -172,10 +180,10 @@ func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string,
 	if err != nil {
 		return err
 	}
+	if result.Error != nil {
+		return workerToolExecutionError(result)
+	}
 	if len(result.State) == 0 {
-		if result.Error != nil {
-			return fmt.Errorf("worker tool execution failed: %s", result.Error.Message)
-		}
 		return fmt.Errorf("worker tool execution returned empty state")
 	}
 	if err := json.Unmarshal(result.State, state); err != nil {
@@ -189,6 +197,16 @@ func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string,
 		}
 	}
 	return nil
+}
+
+func workerToolExecutionError(result tools.ExecutionResult) error {
+	var failure struct {
+		Error *capability.FileReadError `json:"error"`
+	}
+	if len(result.State) > 0 && json.Unmarshal(result.State, &failure) == nil && failure.Error != nil && failure.Error.Code != "" {
+		return failure.Error
+	}
+	return fmt.Errorf("worker tool execution failed: %s", result.Error.Message)
 }
 
 func (p WorkerBackedProvider) ExecuteWorkerTool(ctx context.Context, manifest tools.Manifest, api tools.API, call tools.Call, _ tools.ExecutionContext) (tools.ExecutionResult, error) {

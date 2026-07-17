@@ -18,6 +18,8 @@ type createSkillRequest struct {
 	Title          string `json:"title"`
 	Description    string `json:"description,omitempty"`
 	OwnerType      string `json:"owner_type,omitempty"`
+	OwnerID        string `json:"owner_id,omitempty"`
+	Visibility     string `json:"visibility,omitempty"`
 	SourcePluginID string `json:"source_plugin_id,omitempty"`
 	SourceType     string `json:"source_type,omitempty"`
 	SourceLocator  string `json:"source_locator,omitempty"`
@@ -32,6 +34,25 @@ type createSkillVersionRequest struct {
 	SourceRef      string          `json:"source_ref,omitempty"`
 	SourceRevision string          `json:"source_revision,omitempty"`
 	SourceURL      string          `json:"source_url,omitempty"`
+}
+
+type putSkillDraftRequest struct {
+	ExpectedRevision int64           `json:"expected_revision,omitempty"`
+	ContentFormat    string          `json:"content_format,omitempty"`
+	Manifest         json.RawMessage `json:"manifest"`
+	ContentText      string          `json:"content_text"`
+	Assets           json.RawMessage `json:"assets,omitempty"`
+}
+
+type publishSkillDraftRequest struct {
+	ExpectedRevision int64 `json:"expected_revision,omitempty"`
+}
+
+type forkSkillRequest struct {
+	Version     int    `json:"version"`
+	Identifier  string `json:"identifier"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
 }
 
 type resolveSkillsPreviewRequest struct {
@@ -60,9 +81,24 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	principal := controlPrincipalFromRequest(r)
+	ownerType := request.OwnerType
+	ownerID := request.OwnerID
+	visibility := request.Visibility
+	if authenticated, ok := PrincipalFromRequest(r); ok {
+		if ownerType == "" {
+			ownerType = skills.OwnerTypeUser
+		}
+		if ownerType == skills.OwnerTypeUser {
+			ownerID = authenticated.OwnerID
+			visibility = skills.VisibilityPrivate
+		} else if !authenticated.HasRole(RoleOperator) {
+			writeError(w, fmt.Errorf("%w: operator role required to create Workspace Skills", managedagents.ErrForbidden))
+			return
+		}
+	}
 	created, err := registry.CreateSkill(r.Context(), skills.CreateSkillInput{
 		WorkspaceID: requestWorkspaceID(r, request.WorkspaceID), Identifier: request.Identifier, Title: request.Title,
-		Description: request.Description, OwnerType: request.OwnerType, SourcePluginID: request.SourcePluginID,
+		Description: request.Description, OwnerType: ownerType, OwnerID: ownerID, Visibility: visibility, SourcePluginID: request.SourcePluginID,
 		SourceType: request.SourceType, SourceLocator: request.SourceLocator, SourcePath: request.SourcePath,
 		CreatedBy: principal.ID,
 	})
@@ -84,7 +120,13 @@ func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: invalid include_archived: %v", managedagents.ErrInvalid, err))
 		return
 	}
-	items, err := registry.ListSkills(r.Context(), skills.ListSkillsInput{
+	ctx := r.Context()
+	if principal, ok := PrincipalFromRequest(r); ok {
+		if scoped, scopeErr := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: principal.WorkspaceID, OwnerID: principal.OwnerID}); scopeErr == nil {
+			ctx = scoped
+		}
+	}
+	items, err := registry.ListSkills(ctx, skills.ListSkillsInput{
 		WorkspaceID: requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), IncludeArchived: includeArchived != nil && *includeArchived,
 	})
 	if err != nil {
@@ -143,6 +185,89 @@ func (s *Server) createSkillVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, version)
+}
+
+func (s *Server) getSkillDraft(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(skills.DraftStore)
+	if !ok {
+		writeError(w, fmt.Errorf("skill draft store is unavailable"))
+		return
+	}
+	draft, err := store.GetSkillDraft(r.Context(), r.PathValue("skill_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, draft)
+}
+
+func (s *Server) putSkillDraft(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(skills.DraftStore)
+	if !ok {
+		writeError(w, fmt.Errorf("skill draft store is unavailable"))
+		return
+	}
+	var request putSkillDraftRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	draft, err := store.PutSkillDraft(r.Context(), skills.PutDraftInput{
+		SkillID: r.PathValue("skill_id"), ExpectedRevision: request.ExpectedRevision,
+		ContentFormat: request.ContentFormat, Manifest: request.Manifest, ContentText: request.ContentText,
+		Assets: request.Assets, UpdatedBy: controlPrincipalFromRequest(r).ID,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, draft)
+}
+
+func (s *Server) publishSkillDraft(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(skills.DraftStore)
+	if !ok {
+		writeError(w, fmt.Errorf("skill draft store is unavailable"))
+		return
+	}
+	var request publishSkillDraftRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	version, err := store.PublishSkillDraft(r.Context(), r.PathValue("skill_id"), request.ExpectedRevision, controlPrincipalFromRequest(r).ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, version)
+}
+
+func (s *Server) forkSkill(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(skills.ForkStore)
+	if !ok {
+		writeError(w, fmt.Errorf("skill fork store is unavailable"))
+		return
+	}
+	principal, ok := PrincipalFromRequest(r)
+	if !ok {
+		writeError(w, managedagents.ErrForbidden)
+		return
+	}
+	var request forkSkillRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	forked, err := store.ForkSkill(r.Context(), r.PathValue("skill_id"), request.Version, skills.CreateSkillInput{
+		Identifier: request.Identifier, Title: request.Title, Description: request.Description,
+		OwnerID: principal.OwnerID, CreatedBy: principal.Subject,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, forked)
 }
 
 func (s *Server) listSkillVersions(w http.ResponseWriter, r *http.Request) {

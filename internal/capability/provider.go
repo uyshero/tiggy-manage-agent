@@ -55,7 +55,17 @@ type RuntimeSkillMaterializer interface {
 	MaterializeRuntimeSkills(ctx context.Context, packages []RuntimeSkillPackage) ([]MaterializedRuntimeSkill, error)
 }
 
+type RuntimeSkillCache interface {
+	LookupMaterializedRuntimeSkill(ctx context.Context, skillID string, identifier string, version int, checksum string) (MaterializedRuntimeSkill, bool, error)
+}
+
+type WorkspaceSnapshotProvider interface {
+	CreateWorkspaceSnapshot(ctx context.Context) ([]byte, int, error)
+	RestoreWorkspaceSnapshot(ctx context.Context, archive []byte) error
+}
+
 type RuntimeSkillPackage struct {
+	SkillID    string
 	Identifier string
 	Version    int
 	Checksum   string
@@ -69,6 +79,7 @@ type RuntimeSkillFile struct {
 }
 
 type MaterializedRuntimeSkill struct {
+	SkillID    string
 	Identifier string
 	Version    int
 	Directory  string
@@ -206,8 +217,13 @@ type ExecuteCodeRequest struct {
 }
 
 type ReadFileRequest struct {
-	Meta RequestMeta `json:"meta"`
-	Path string      `json:"path"`
+	Meta         RequestMeta `json:"meta"`
+	Path         string      `json:"path"`
+	OffsetBytes  *int64      `json:"offset_bytes,omitempty"`
+	MaxBytes     *int        `json:"max_bytes,omitempty"`
+	StartLine    *int        `json:"start_line,omitempty"`
+	MaxLines     *int        `json:"max_lines,omitempty"`
+	FileRevision string      `json:"file_revision,omitempty"`
 }
 
 type WriteFileRequest struct {
@@ -262,8 +278,53 @@ type CommandResult struct {
 }
 
 type FileResult struct {
-	Path    string `json:"path"`
-	Content []byte `json:"content,omitempty"`
+	Path                 string `json:"path"`
+	Content              []byte `json:"content,omitempty"`
+	SizeBytes            int64  `json:"size_bytes"`
+	OffsetBytes          int64  `json:"offset_bytes"`
+	RequestedOffsetBytes *int64 `json:"requested_offset_bytes,omitempty"`
+	ReturnedBytes        int    `json:"returned_bytes"`
+	StartLine            int    `json:"start_line"`
+	EndLine              int    `json:"end_line"`
+	NextOffsetBytes      int64  `json:"next_offset_bytes"`
+	EOF                  bool   `json:"eof"`
+	Truncated            bool   `json:"truncated"`
+	FileRevision         string `json:"file_revision,omitempty"`
+	Mode                 string `json:"mode,omitempty"`
+	Binary               bool   `json:"binary,omitempty"`
+	LineTruncated        bool   `json:"line_truncated,omitempty"`
+}
+
+type SearchFileRequest struct {
+	Meta         RequestMeta `json:"meta"`
+	Path         string      `json:"path"`
+	Query        string      `json:"query"`
+	MaxResults   int         `json:"max_results,omitempty"`
+	FileRevision string      `json:"file_revision,omitempty"`
+}
+
+type SearchFileMatch struct {
+	LineNumber    int    `json:"line_number"`
+	OffsetBytes   int64  `json:"offset_bytes"`
+	Line          string `json:"line"`
+	LineTruncated bool   `json:"line_truncated,omitempty"`
+}
+
+type SearchFileResult struct {
+	Path         string            `json:"path"`
+	SizeBytes    int64             `json:"size_bytes"`
+	FileRevision string            `json:"file_revision"`
+	Query        string            `json:"query"`
+	Matches      []SearchFileMatch `json:"matches"`
+	Truncated    bool              `json:"truncated"`
+	Binary       bool              `json:"binary,omitempty"`
+}
+
+// FileSearchProvider is optional so third-party capability providers remain
+// source-compatible. Built-in local, guarded, sandbox, and worker providers
+// implement it with the same read-only semantics.
+type FileSearchProvider interface {
+	SearchFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error)
 }
 
 func assignBytePayload(text *string, encoded *string, value []byte) {

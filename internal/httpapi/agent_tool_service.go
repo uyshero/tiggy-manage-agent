@@ -452,6 +452,14 @@ func (s agentToolService) CreateTaskGroup(ctx context.Context, request tools.Age
 	if len(request.Items) == 0 {
 		return tools.AgentTaskGroupCreateResponse{}, fmt.Errorf("%w: at least one group item is required", managedagents.ErrInvalid)
 	}
+	for index, item := range request.Items {
+		if len(item.ExpectedResultSchema) == 0 || string(item.ExpectedResultSchema) == "null" {
+			continue
+		}
+		if _, err := tools.CompileJSONSchema(item.ExpectedResultSchema); err != nil {
+			return tools.AgentTaskGroupCreateResponse{}, fmt.Errorf("%w: item %d expected_result_schema is invalid: %v", managedagents.ErrInvalid, index, err)
+		}
+	}
 	strategy, reducer, quorum, err := normalizeTaskGroupRequest(request.Strategy, request.ResultReducer, request.Quorum, len(request.Items))
 	if err != nil {
 		return tools.AgentTaskGroupCreateResponse{}, err
@@ -1465,98 +1473,38 @@ func validateTaskGroupItemResult(schema json.RawMessage, result json.RawMessage)
 	if len(result) == 0 || string(result) == "null" {
 		return false, "missing result_json for validated task group item"
 	}
-	var schemaObject map[string]any
-	if err := json.Unmarshal(schema, &schemaObject); err != nil {
-		return false, "invalid expected_result_schema"
-	}
-	var value any
-	if err := json.Unmarshal(result, &value); err != nil {
-		return false, "invalid result_json payload"
-	}
-	if err := validateSchemaNode(schemaObject, value, "$"); err != nil {
-		return false, err.Error()
+	if validationError := tools.ValidateJSONSchemaInstance(schema, result); validationError != nil {
+		switch validationError.Type {
+		case "invalid_json_schema":
+			return false, "invalid expected_result_schema"
+		case "invalid_json_instance":
+			return false, "invalid result_json payload"
+		default:
+			return false, validationError.Message
+		}
 	}
 	return true, ""
 }
 
-func validateSchemaNode(schema map[string]any, value any, path string) error {
-	expectedType, _ := schema["type"].(string)
-	switch expectedType {
-	case "", "any":
-		return nil
-	case "object":
-		object, ok := value.(map[string]any)
-		if !ok {
-			return fmt.Errorf("%s must be object", path)
+// ReplayTaskGroup evaluates persisted-like item states through the production
+// result-schema, strategy, and reducer logic without requiring a Store. It is
+// used by deterministic quality evaluation and remains outside the HTTP API.
+func ReplayTaskGroup(group managedagents.SubagentTaskGroup, items []tools.AgentTaskGroupItemState) tools.AgentTaskGroupResponse {
+	replayed := make([]tools.AgentTaskGroupItemState, len(items))
+	copy(replayed, items)
+	for index := range replayed {
+		item := &replayed[index]
+		item.ResultSchema = cloneJSON(effectiveResultSchema(*item))
+		item.ResultValid, item.ResultValidationError = validateTaskGroupItemResult(item.ResultSchema, item.ResultJSON)
+		if item.Status == managedagents.TurnStatusCompleted && !item.ResultValid {
+			item.Status = managedagents.TurnStatusFailed
+			item.Reason = item.ResultValidationError
 		}
-		required, _ := schema["required"].([]any)
-		for _, entry := range required {
-			key, _ := entry.(string)
-			if key == "" {
-				continue
-			}
-			if _, exists := object[key]; !exists {
-				return fmt.Errorf("%s.%s is required", path, key)
-			}
-		}
-		properties, _ := schema["properties"].(map[string]any)
-		for key, propertySchema := range properties {
-			childValue, exists := object[key]
-			if !exists {
-				continue
-			}
-			propertyObject, ok := propertySchema.(map[string]any)
-			if !ok {
-				continue
-			}
-			if err := validateSchemaNode(propertyObject, childValue, path+"."+key); err != nil {
-				return err
-			}
-		}
-		return nil
-	case "array":
-		items, ok := value.([]any)
-		if !ok {
-			return fmt.Errorf("%s must be array", path)
-		}
-		itemSchema, _ := schema["items"].(map[string]any)
-		for index, item := range items {
-			if len(itemSchema) == 0 {
-				continue
-			}
-			if err := validateSchemaNode(itemSchema, item, fmt.Sprintf("%s[%d]", path, index)); err != nil {
-				return err
-			}
-		}
-		return nil
-	case "string":
-		if _, ok := value.(string); !ok {
-			return fmt.Errorf("%s must be string", path)
-		}
-		return nil
-	case "number":
-		if _, ok := value.(float64); !ok {
-			return fmt.Errorf("%s must be number", path)
-		}
-		return nil
-	case "integer":
-		number, ok := value.(float64)
-		if !ok || number != float64(int64(number)) {
-			return fmt.Errorf("%s must be integer", path)
-		}
-		return nil
-	case "boolean":
-		if _, ok := value.(bool); !ok {
-			return fmt.Errorf("%s must be boolean", path)
-		}
-		return nil
-	case "null":
-		if value != nil {
-			return fmt.Errorf("%s must be null", path)
-		}
-		return nil
-	default:
-		return fmt.Errorf("%s has unsupported schema type %q", path, expectedType)
+	}
+	status, completed, summary := evaluateTaskGroup(group, replayed)
+	return tools.AgentTaskGroupResponse{
+		Group: group, Status: status, Completed: completed, Summary: summary,
+		Aggregate: buildTaskGroupAggregate(group, replayed), Items: replayed,
 	}
 }
 

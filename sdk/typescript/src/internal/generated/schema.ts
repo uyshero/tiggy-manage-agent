@@ -1876,6 +1876,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/skills/{skill_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_skills_by_skill_id_draft"];
+        put: operations["put_v2_skills_by_skill_id_draft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/skills/{skill_id}/draft/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_skills_by_skill_id_draft_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/skills/{skill_id}/enable": {
         parameters: {
             query?: never;
@@ -1886,6 +1918,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["post_v2_skills_by_skill_id_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/skills/{skill_id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_skills_by_skill_id_fork"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2293,6 +2341,13 @@ export interface components {
         Agent: {
             id: string;
             workspace_id: string;
+            /** @enum {string} */
+            owner_type: "user" | "workspace";
+            owner_id: string;
+            /** @enum {string} */
+            visibility: "private" | "workspace";
+            /** @enum {string} */
+            agent_kind: "general" | "custom";
             name: string;
             /** Format: int32 */
             current_config_version: number;
@@ -2460,6 +2515,13 @@ export interface components {
         };
         CreateAgentRequest: {
             workspace_id?: string;
+            /** @enum {string} */
+            owner_type?: "user" | "workspace";
+            owner_id?: string;
+            /** @enum {string} */
+            visibility?: "private" | "workspace";
+            /** @enum {string} */
+            agent_kind?: "general" | "custom";
             name: string;
             llm_provider?: string;
             llm_model?: string;
@@ -2724,6 +2786,11 @@ export interface components {
             cloud_sandbox_root?: string;
             cloud_sandbox_image?: string;
             cloud_sandbox_allow_network?: boolean;
+            /**
+             * @description Defaults to follow_latest.
+             * @enum {string}
+             */
+            agent_config_update_policy?: "follow_latest" | "pinned";
             human_interaction?: components["schemas"]["HumanInteractionRuntimeSettings"];
             completion_gate?: components["schemas"]["CompletionGateRuntimeSettings"];
         };
@@ -2822,6 +2889,9 @@ export interface components {
         Run: {
             id: string;
             session_id: string;
+            agent_id: string;
+            /** Format: int32 */
+            agent_config_version: number;
             /** @enum {string} */
             status: "running" | "waiting_approval" | "waiting_human" | "completed" | "failed" | "interrupted";
             user_event_id?: string;
@@ -2924,12 +2994,21 @@ export interface components {
             /** @enum {string} */
             status: "pending" | "in_progress" | "completed" | "blocked";
             evidence?: string;
+            evidence_refs: components["schemas"]["TaskEvidenceRef"][];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             updated_at: string;
             /** Format: date-time */
             completed_at?: string | null;
+        };
+        TaskEvidenceRef: {
+            /** @enum {string} */
+            kind: "tool_result";
+            turn_id: string;
+            tool_call_id: string;
+            tool: string;
+            artifact_ids?: string[];
         };
         SessionTaskPlan: {
             id: string;
@@ -3747,7 +3826,13 @@ export interface components {
             title: string;
             description?: string;
             /** @enum {string} */
-            owner_type: "builtin" | "workspace" | "plugin";
+            owner_type: "user" | "builtin" | "workspace" | "plugin";
+            owner_id: string;
+            /** @enum {string} */
+            visibility: "private" | "workspace";
+            forked_from_skill_id?: string;
+            /** Format: int32 */
+            forked_from_version?: number;
             source_plugin_id?: string;
             /** @enum {string} */
             source_type: "inline" | "github" | "artifact" | "catalog" | "plugin" | "builtin";
@@ -3770,7 +3855,10 @@ export interface components {
             title: string;
             description?: string;
             /** @enum {string} */
-            owner_type?: "builtin" | "workspace" | "plugin";
+            owner_type?: "user" | "builtin" | "workspace" | "plugin";
+            owner_id?: string;
+            /** @enum {string} */
+            visibility?: "private" | "workspace";
             source_plugin_id?: string;
             /** @enum {string} */
             source_type?: "inline" | "github" | "artifact" | "catalog" | "plugin" | "builtin";
@@ -3890,7 +3978,39 @@ export interface components {
             source_revision?: string;
             source_url?: string;
         };
+        SkillDraft: {
+            skill_id: string;
+            /** Format: int64 */
+            revision: number;
+            content_format: string;
+            manifest: components["schemas"]["SkillManifest"];
+            content_text: string;
+            assets: components["schemas"]["SkillAssets"];
+            updated_by: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PutSkillDraftRequest: {
+            /** Format: int64 */
+            expected_revision?: number;
+            content_format?: string;
+            manifest?: components["schemas"]["SkillManifest"];
+            content_text?: string;
+            assets?: components["schemas"]["SkillAssets"];
+        };
+        PublishSkillDraftRequest: {
+            /** Format: int64 */
+            expected_revision?: number;
+        };
+        ForkSkillRequest: {
+            /** Format: int32 */
+            version: number;
+            identifier: string;
+            title: string;
+            description?: string;
+        };
         EnabledSkill: {
+            skill_id?: string;
             skill: string;
             /** Format: int32 */
             version?: number;
@@ -9555,6 +9675,107 @@ export interface operations {
             };
         };
     };
+    get_v2_skills_by_skill_id_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraft"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    put_v2_skills_by_skill_id_draft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutSkillDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillDraft"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_skills_by_skill_id_draft_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishSkillDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SkillVersion"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     post_v2_skills_by_skill_id_enable: {
         parameters: {
             query?: never;
@@ -9586,6 +9807,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarketplaceEnableResult"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_skills_by_skill_id_fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkSkillRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Skill"];
                 };
             };
             /** @description API error */

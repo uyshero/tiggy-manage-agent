@@ -24,11 +24,40 @@ func BuiltinGeneralAgentInputForWorkspace(workspaceID string, llmProvider string
 	return EnsureAgentInput{
 		ID:          BuiltinGeneralAgentIDForWorkspace(workspaceID),
 		WorkspaceID: workspaceID,
+		OwnerType:   AgentOwnerWorkspace,
+		OwnerID:     workspaceID,
+		Visibility:  AgentVisibilityWorkspace,
+		AgentKind:   AgentKindGeneral,
 		Name:        BuiltinGeneralAgentName,
 		LLMProvider: llmProvider,
 		LLMModel:    llmModel,
 		System:      BuiltinGeneralAgentSystem,
 	}
+}
+
+func PersonalGeneralAgentInput(workspaceID string, ownerID string, llmProvider string, llmModel string) EnsureAgentInput {
+	workspaceID = strings.TrimSpace(workspaceID)
+	if workspaceID == "" {
+		workspaceID = DefaultWorkspaceID
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	return EnsureAgentInput{
+		ID:          PersonalGeneralAgentID(workspaceID, ownerID),
+		WorkspaceID: workspaceID,
+		OwnerType:   AgentOwnerUser,
+		OwnerID:     ownerID,
+		Visibility:  AgentVisibilityPrivate,
+		AgentKind:   AgentKindGeneral,
+		Name:        BuiltinGeneralAgentName,
+		LLMProvider: llmProvider,
+		LLMModel:    llmModel,
+		System:      BuiltinGeneralAgentSystem,
+	}
+}
+
+func PersonalGeneralAgentID(workspaceID string, ownerID string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(workspaceID) + "\x00" + strings.TrimSpace(ownerID)))
+	return BuiltinGeneralAgentID + "_user_" + hex.EncodeToString(digest[:8])
 }
 
 func BuiltinGeneralAgentIDForWorkspace(workspaceID string) string {

@@ -104,16 +104,17 @@ func TestCompletionGateStopsAtConfiguredRetryLimit(t *testing.T) {
 
 func TestCompletionGateHardFailAndErrorFailClosed(t *testing.T) {
 	tests := []struct {
-		name string
-		gate CompletionGate
-		want string
+		name          string
+		gate          CompletionGate
+		want          string
+		wantValidator string
 	}{
 		{name: "hard fail", gate: completionGateFunc(func(context.Context, CompletionCandidate) (CompletionVerdict, error) {
 			return CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "test.policy", Reason: "policy rejected completion"}, nil
-		}), want: "policy rejected completion"},
+		}), want: "policy rejected completion", wantValidator: "test.policy"},
 		{name: "validator error", gate: completionGateFunc(func(context.Context, CompletionCandidate) (CompletionVerdict, error) {
-			return CompletionVerdict{}, errors.New("validator unavailable: original detail")
-		}), want: "validator unavailable: original detail"},
+			return CompletionVerdict{Validator: "test.availability"}, errors.New("validator unavailable: original detail")
+		}), want: "validator unavailable: original detail", wantValidator: "test.availability"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -126,6 +127,9 @@ func TestCompletionGateHardFailAndErrorFailClosed(t *testing.T) {
 			}
 			if countCompletionSteps(steps, managedagents.EventRuntimeCompletionFailed) != 1 {
 				t.Fatalf("missing validation failure event: %#v", steps)
+			}
+			if validator, _ := firstStepType(steps, managedagents.EventRuntimeCompletionFailed).Data["validator"].(string); validator != test.wantValidator {
+				t.Fatalf("failure validator=%q, want %q", validator, test.wantValidator)
 			}
 		})
 	}

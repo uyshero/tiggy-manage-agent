@@ -41,6 +41,9 @@ func TestPostgresSessionRunIdempotencyAndIndexedEvents(t *testing.T) {
 	if !created.Created || created.Run.ID == "" || created.Run.UserEventSeq == 0 {
 		t.Fatalf("unexpected created run: %+v", created)
 	}
+	if created.Run.AgentID != session.AgentID || created.Run.AgentConfigVersion != session.AgentConfigVersion {
+		t.Fatalf("run did not freeze session agent config: %+v", created.Run)
+	}
 
 	replayed, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{
 		Payload: payload, IdempotencyKey: "postgres-run-1", RequestHash: requestHash,
@@ -73,6 +76,68 @@ func TestPostgresSessionRunIdempotencyAndIndexedEvents(t *testing.T) {
 			t.Fatalf("event was not indexed by run: %+v", event)
 		}
 	}
+}
+
+func TestPostgresNewRunFollowsLatestAgentConfigUnlessPinned(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+
+	t.Run("follow latest", func(t *testing.T) {
+		session := createPostgresIntegrationSession(t, store)
+		agent, err := store.GetAgent(session.AgentID)
+		if err != nil {
+			t.Fatalf("get agent: %v", err)
+		}
+		updated, err := store.CreateAgentConfigVersion(CreateAgentConfigVersionInput{
+			AgentID: agent.ID, ExpectedCurrentVersion: agent.CurrentConfigVersion,
+			LLMProvider: agent.ConfigVersion.LLMProvider, LLMModel: agent.ConfigVersion.LLMModel,
+			System: "follow latest v2", Tools: agent.ConfigVersion.Tools, MCP: agent.ConfigVersion.MCP, Skills: agent.ConfigVersion.Skills,
+		})
+		if err != nil {
+			t.Fatalf("create config version: %v", err)
+		}
+		started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{
+			Payload: json.RawMessage(`{"content":[{"type":"text","text":"follow"}]}`),
+		})
+		if err != nil {
+			t.Fatalf("start run: %v", err)
+		}
+		if started.Run.AgentConfigVersion != updated.CurrentConfigVersion || len(started.Events) != 3 || started.Events[0].Type != EventSessionConfigUpdated {
+			t.Fatalf("unexpected auto-follow run: %+v events=%+v", started.Run, started.Events)
+		}
+		loaded, err := store.GetSessionRunContext(t.Context(), session.ID, started.Run.ID)
+		if err != nil || loaded.AgentConfigVersion != updated.CurrentConfigVersion || loaded.AgentID != agent.ID {
+			t.Fatalf("loaded run lost agent config: %+v err=%v", loaded, err)
+		}
+	})
+
+	t.Run("pinned", func(t *testing.T) {
+		session := createPostgresIntegrationSession(t, store)
+		if _, err := store.UpdateSessionRuntimeSettings(session.ID, UpdateSessionRuntimeSettingsInput{
+			RuntimeSettings: json.RawMessage(`{"agent_config_update_policy":"pinned"}`),
+		}); err != nil {
+			t.Fatalf("pin session: %v", err)
+		}
+		agent, err := store.GetAgent(session.AgentID)
+		if err != nil {
+			t.Fatalf("get agent: %v", err)
+		}
+		if _, err := store.CreateAgentConfigVersion(CreateAgentConfigVersionInput{
+			AgentID: agent.ID, ExpectedCurrentVersion: agent.CurrentConfigVersion,
+			LLMProvider: agent.ConfigVersion.LLMProvider, LLMModel: agent.ConfigVersion.LLMModel,
+			System: "pinned v2", Tools: agent.ConfigVersion.Tools, MCP: agent.ConfigVersion.MCP, Skills: agent.ConfigVersion.Skills,
+		}); err != nil {
+			t.Fatalf("create config version: %v", err)
+		}
+		started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{
+			Payload: json.RawMessage(`{"content":[{"type":"text","text":"pinned"}]}`),
+		})
+		if err != nil {
+			t.Fatalf("start run: %v", err)
+		}
+		if started.Run.AgentConfigVersion != session.AgentConfigVersion || len(started.Events) != 2 {
+			t.Fatalf("unexpected pinned run: %+v events=%+v", started.Run, started.Events)
+		}
+	})
 }
 
 func TestPostgresSkillRegistryVersionsAndUsage(t *testing.T) {
@@ -1334,9 +1399,15 @@ func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
 	if first.Plan.HandlingMode != TaskPlanModeTracked || len(first.Plan.Items) != 3 || len(first.Events) != 1 || first.Events[0].Type != EventRuntimeTaskPlanCreated {
 		t.Fatalf("unexpected first task plan result: %+v", first)
 	}
+	turnPayload := json.RawMessage(`{"content":[{"type":"text","text":"execute task plan"}]}`)
+	started, err := store.StartSessionRunContext(ctx, session.ID, StartSessionRunInput{Payload: turnPayload})
+	if err != nil || !started.Created {
+		t.Fatalf("start task plan turn: result=%+v err=%v", started, err)
+	}
+	turnID := started.Run.ID
 
 	created, err := store.CreateSessionTaskPlanContext(ctx, session.ID, CreateSessionTaskPlanInput{
-		TurnID: "turn_plan_2", Goal: "Ship the revised task planning workflow", HandlingMode: TaskPlanModePlanned,
+		TurnID: turnID, Goal: "Ship the revised task planning workflow", HandlingMode: TaskPlanModePlanned,
 		Items: []string{"Define the schema", "Implement storage", "Expose tools", "Inject context", "Run verification"},
 	})
 	if err != nil {
@@ -1357,20 +1428,83 @@ func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
 	if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{PlanID: created.Plan.ID, Items: invalidUpdates}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("expected multiple in_progress items to be rejected, got %v", err)
 	}
+	toolResultPayload, err := json.Marshal(map[string]any{"data": map[string]any{
+		"id": "call_verify_plan", "identifier": "default", "api_name": "run_command", "success": true,
+		"artifacts": []map[string]any{{"artifact_id": "art_plan_verification"}},
+	}})
+	if err != nil {
+		t.Fatalf("encode task evidence tool result: %v", err)
+	}
+	if _, err := store.AppendRuntimeEventContext(ctx, session.ID, turnID, AppendEventInput{Type: EventRuntimeToolResult, Payload: toolResultPayload}); err != nil {
+		t.Fatalf("append task evidence tool result: %v", err)
+	}
+	for _, eventData := range []map[string]any{
+		{"id": "call_failed", "identifier": "default", "api_name": "run_command", "success": false},
+		{"id": "call_task_self", "identifier": "task", "api_name": "update_items", "success": true},
+	} {
+		payload, marshalErr := json.Marshal(map[string]any{"data": eventData})
+		if marshalErr != nil {
+			t.Fatalf("encode rejected task evidence: %v", marshalErr)
+		}
+		if _, appendErr := store.AppendRuntimeEventContext(ctx, session.ID, turnID, AppendEventInput{Type: EventRuntimeToolResult, Payload: payload}); appendErr != nil {
+			t.Fatalf("append rejected task evidence: %v", appendErr)
+		}
+	}
+	missingEvidenceRef := []UpdateSessionTaskItemInput{{
+		ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusCompleted, Evidence: "claimed without a real result",
+		EvidenceRefs: []TaskEvidenceRefInput{{ToolCallID: "call_missing"}},
+	}}
+	if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{TurnID: turnID, PlanID: created.Plan.ID, Items: missingEvidenceRef}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected nonexistent evidence ref to be rejected, got %v", err)
+	}
+	for _, callID := range []string{"call_failed", "call_task_self"} {
+		invalidEvidence := []UpdateSessionTaskItemInput{{
+			ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusCompleted, Evidence: "invalid evidence",
+			EvidenceRefs: []TaskEvidenceRefInput{{ToolCallID: callID}},
+		}}
+		if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{TurnID: turnID, PlanID: created.Plan.ID, Items: invalidEvidence}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("expected evidence ref %s to be rejected, got %v", callID, err)
+		}
+	}
 
 	updates := make([]UpdateSessionTaskItemInput, 0, len(created.Plan.Items))
 	for _, item := range created.Plan.Items {
-		updates = append(updates, UpdateSessionTaskItemInput{ItemID: item.ID, Status: TaskItemStatusCompleted, Evidence: "verified " + item.Description})
+		updates = append(updates, UpdateSessionTaskItemInput{
+			ItemID: item.ID, Status: TaskItemStatusCompleted, Evidence: "verified " + item.Description,
+			EvidenceRefs: []TaskEvidenceRefInput{{ToolCallID: "call_verify_plan"}},
+		})
 	}
-	updated, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{TurnID: "turn_plan_2", PlanID: created.Plan.ID, Items: updates})
+	updated, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{TurnID: turnID, PlanID: created.Plan.ID, Items: updates})
 	if err != nil {
 		t.Fatalf("complete task items: %v", err)
 	}
 	if len(updated.Events) != 1 || updated.Events[0].Type != EventRuntimeTaskItemsUpdated {
 		t.Fatalf("unexpected task update events: %+v", updated.Events)
 	}
+	regressed, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{
+		TurnID: turnID, PlanID: created.Plan.ID,
+		Items: []UpdateSessionTaskItemInput{{ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusInProgress}},
+	})
+	if err != nil || len(regressed.Plan.Items[0].EvidenceRefs) != 0 {
+		t.Fatalf("expected reopening a completed item to clear verified refs: plan=%+v err=%v", regressed.Plan, err)
+	}
+	if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{
+		TurnID: turnID, PlanID: created.Plan.ID,
+		Items: []UpdateSessionTaskItemInput{{ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusCompleted, Evidence: "stale evidence"}},
+	}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected stale evidence without a fresh ref to be rejected, got %v", err)
+	}
+	if _, err := store.UpdateSessionTaskItemsContext(ctx, session.ID, UpdateSessionTaskItemsInput{
+		TurnID: turnID, PlanID: created.Plan.ID,
+		Items: []UpdateSessionTaskItemInput{{
+			ItemID: created.Plan.Items[0].ID, Status: TaskItemStatusCompleted, Evidence: "reverified after reopening",
+			EvidenceRefs: []TaskEvidenceRefInput{{ToolCallID: "call_verify_plan"}},
+		}},
+	}); err != nil {
+		t.Fatalf("reverify reopened task item: %v", err)
+	}
 
-	completed, err := store.CompleteSessionTaskPlanContext(ctx, session.ID, FinishSessionTaskPlanInput{TurnID: "turn_plan_2", PlanID: created.Plan.ID})
+	completed, err := store.CompleteSessionTaskPlanContext(ctx, session.ID, FinishSessionTaskPlanInput{TurnID: turnID, PlanID: created.Plan.ID})
 	if err != nil {
 		t.Fatalf("complete task plan: %v", err)
 	}
@@ -1387,8 +1521,12 @@ func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
 	if len(history) != 2 || history[0].ID != created.Plan.ID || history[0].Status != TaskPlanStatusCompleted || history[1].ID != first.Plan.ID || history[1].Status != TaskPlanStatusSuperseded {
 		t.Fatalf("unexpected task plan history: %+v", history)
 	}
-	if len(history[0].Items) != 5 || history[0].Items[0].Evidence == "" || len(history[1].Items) != 3 {
+	if len(history[0].Items) != 5 || history[0].Items[0].Evidence == "" || len(history[0].Items[0].EvidenceRefs) != 1 || len(history[1].Items) != 3 {
 		t.Fatalf("expected complete items in task plan history: %+v", history)
+	}
+	ref := history[0].Items[0].EvidenceRefs[0]
+	if ref.Kind != TaskEvidenceKindToolResult || ref.TurnID != turnID || ref.ToolCallID != "call_verify_plan" || ref.Tool != "default.run_command" || len(ref.ArtifactIDs) != 1 || ref.ArtifactIDs[0] != "art_plan_verification" {
+		t.Fatalf("unexpected canonical task evidence ref: %+v", ref)
 	}
 }
 

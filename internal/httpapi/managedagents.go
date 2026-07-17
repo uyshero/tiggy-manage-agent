@@ -106,15 +106,16 @@ type traceSpanDetailResponse struct {
 }
 
 type sessionRuntimeSettingsRequest struct {
-	LLMProvider       *string `json:"llm_provider"`
-	LLMModel          *string `json:"llm_model"`
-	Model             *string `json:"model"`
-	InterventionMode  *string `json:"intervention_mode"`
-	ToolRuntime       *string `json:"tool_runtime"`
-	CloudSandboxRoot  *string `json:"cloud_sandbox_root"`
-	CloudSandboxImage *string `json:"cloud_sandbox_image"`
-	AllowNetwork      *bool   `json:"cloud_sandbox_allow_network"`
-	HumanInteraction  *struct {
+	LLMProvider             *string `json:"llm_provider"`
+	LLMModel                *string `json:"llm_model"`
+	Model                   *string `json:"model"`
+	InterventionMode        *string `json:"intervention_mode"`
+	ToolRuntime             *string `json:"tool_runtime"`
+	CloudSandboxRoot        *string `json:"cloud_sandbox_root"`
+	CloudSandboxImage       *string `json:"cloud_sandbox_image"`
+	AllowNetwork            *bool   `json:"cloud_sandbox_allow_network"`
+	AgentConfigUpdatePolicy *string `json:"agent_config_update_policy"`
+	HumanInteraction        *struct {
 		Enabled        *bool    `json:"enabled"`
 		Modes          []string `json:"modes,omitempty"`
 		SupportsUpload *bool    `json:"supports_upload,omitempty"`
@@ -1411,13 +1412,14 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot := observability.MetricsSnapshot{
-		Usage:         usage,
-		Workers:       workers,
-		Subagents:     subagents,
-		TaskGroups:    taskGroups,
-		Observability: s.observabilityStatus(r.Context()),
-		BinaryScans:   skillmarketplace.BinaryScanMetricsSnapshot(),
-		SkillAssetGC:  skillretention.SnapshotMetrics(),
+		Usage:                 usage,
+		Workers:               workers,
+		Subagents:             subagents,
+		TaskGroups:            taskGroups,
+		Observability:         s.observabilityStatus(r.Context()),
+		BinaryScans:           skillmarketplace.BinaryScanMetricsSnapshot(),
+		SkillAssetGC:          skillretention.SnapshotMetrics(),
+		CompletionValidations: observability.CompletionValidationMetricsSnapshot(),
 	}
 	if s.authorizationAudit != nil {
 		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()
@@ -2272,6 +2274,34 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	if principal, ok := PrincipalFromRequest(r); ok {
+		if strings.TrimSpace(input.OwnerType) == "" {
+			input.OwnerType = managedagents.AgentOwnerUser
+		}
+		switch strings.ToLower(strings.TrimSpace(input.OwnerType)) {
+		case managedagents.AgentOwnerUser:
+			input.OwnerType = managedagents.AgentOwnerUser
+			if input.OwnerID == "" {
+				input.OwnerID = principal.OwnerID
+			}
+			if input.OwnerID != principal.OwnerID {
+				writeError(w, fmt.Errorf("%w: personal Agent must belong to the current user", managedagents.ErrForbidden))
+				return
+			}
+			if input.Visibility == "" {
+				input.Visibility = managedagents.AgentVisibilityPrivate
+			}
+		case managedagents.AgentOwnerWorkspace:
+			if !principal.HasRole(RoleOperator) {
+				writeError(w, fmt.Errorf("%w: operator role required to create Workspace-shared Agents", managedagents.ErrForbidden))
+				return
+			}
+			input.OwnerID = input.WorkspaceID
+			if input.Visibility == "" {
+				input.Visibility = managedagents.AgentVisibilityWorkspace
+			}
+		}
+	}
 	if input.LLMProvider == "" {
 		input.LLMProvider = s.defaultLLMProvider
 	}
@@ -2279,7 +2309,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		input.LLMModel = s.defaultLLMModel
 	}
 	if input.Skills != nil {
-		normalized, err := s.validateAgentSkills(r.Context(), input.WorkspaceID, input.Skills)
+		normalized, err := s.validateAgentSkills(agentSkillValidationContext(r.Context(), input.WorkspaceID, input.OwnerType, input.OwnerID), input.WorkspaceID, input.Skills)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -2306,7 +2336,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	workspaceID := requestWorkspaceID(r, managedagents.DefaultWorkspaceID)
-	if _, err := s.ensureDefaultAgentForWorkspace(r.Context(), workspaceID); err != nil {
+	if _, err := s.ensureDefaultAgentForRequest(r, workspaceID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -2363,7 +2393,7 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		input.MCP = normalized
 	}
 	if request.Skills != nil {
-		normalized, validateErr := s.validateAgentSkills(r.Context(), current.WorkspaceID, *request.Skills)
+		normalized, validateErr := s.validateAgentSkills(agentSkillValidationContext(r.Context(), current.WorkspaceID, current.OwnerType, current.OwnerID), current.WorkspaceID, *request.Skills)
 		if validateErr != nil {
 			writeError(w, validateErr)
 			return
@@ -2389,12 +2419,27 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getDefaultAgent(w http.ResponseWriter, r *http.Request) {
-	agent, err := s.ensureDefaultAgentForWorkspace(r.Context(), requestWorkspaceID(r, managedagents.DefaultWorkspaceID))
+	agent, err := s.ensureDefaultAgentForRequest(r, requestWorkspaceID(r, managedagents.DefaultWorkspaceID))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
+}
+
+func (s *Server) ensureDefaultAgentForRequest(r *http.Request, workspaceID string) (managedagents.Agent, error) {
+	if principal, ok := PrincipalFromRequest(r); ok {
+		input := managedagents.PersonalGeneralAgentInput(workspaceID, principal.OwnerID, s.defaultLLMProvider, s.defaultLLMModel)
+		agent, err := managedagents.GetAgentWithContext(r.Context(), s.store, input.ID)
+		if err == nil {
+			return agent, nil
+		}
+		if !errors.Is(err, managedagents.ErrNotFound) && !errors.Is(err, managedagents.ErrForbidden) {
+			return managedagents.Agent{}, err
+		}
+		return managedagents.EnsureAgentWithContext(r.Context(), s.store, input)
+	}
+	return s.ensureDefaultAgentForWorkspace(r.Context(), workspaceID)
 }
 
 func (s *Server) ensureDefaultAgentForWorkspace(ctx context.Context, workspaceID string) (managedagents.Agent, error) {
@@ -2456,7 +2501,7 @@ func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request
 		next.MCP = cloneJSONRaw(normalized)
 	}
 	if request.Skills != nil {
-		normalizedSkills, validateErr := s.validateAgentSkills(r.Context(), current.WorkspaceID, *request.Skills)
+		normalizedSkills, validateErr := s.validateAgentSkills(agentSkillValidationContext(r.Context(), current.WorkspaceID, current.OwnerType, current.OwnerID), current.WorkspaceID, *request.Skills)
 		if validateErr != nil {
 			writeError(w, validateErr)
 			return
@@ -2582,6 +2627,17 @@ func (s *Server) validateAgentSkills(ctx context.Context, workspaceID string, ra
 	return normalized, nil
 }
 
+func agentSkillValidationContext(ctx context.Context, workspaceID string, ownerType string, ownerID string) context.Context {
+	if ownerType != managedagents.AgentOwnerUser {
+		ownerID = "__workspace_shared_agent__"
+	}
+	scoped, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: workspaceID, OwnerID: ownerID})
+	if err != nil {
+		return ctx
+	}
+	return scoped
+}
+
 func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request) {
 	var input managedagents.CreateEnvironmentInput
 	if err := decodeJSON(r, &input); err != nil {
@@ -2615,7 +2671,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if input.AgentID == "" && input.Agent == "" {
-		agent, err := s.ensureDefaultAgentForWorkspace(r.Context(), input.WorkspaceID)
+		agent, err := s.ensureDefaultAgentForRequest(r, input.WorkspaceID)
 		if err != nil {
 			writeError(w, err)
 			return

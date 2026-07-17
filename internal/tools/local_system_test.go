@@ -19,7 +19,7 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 		t.Fatalf("expected %s runtime", DefaultIdentifier)
 	}
 	manifest := runtime.Manifest()
-	if manifest.Identifier != DefaultIdentifier || len(manifest.API) != 5 {
+	if manifest.Identifier != DefaultIdentifier || len(manifest.API) != 6 {
 		t.Fatalf("unexpected default manifest: %#v", manifest)
 	}
 
@@ -86,6 +86,109 @@ func TestDefaultManifestRoutesFinalDeliverablesToWorkspace(t *testing.T) {
 	}
 }
 
+func TestDefaultManifestDescribesBoundedReadWorkflow(t *testing.T) {
+	manifest := (DefaultRuntime{}).Manifest()
+	for _, expected := range []string{"next_offset_bytes", "file_revision", "search_file first", "partial read"} {
+		if !strings.Contains(manifest.SystemRole, expected) {
+			t.Fatalf("default system role is missing %q", expected)
+		}
+	}
+	_, readAPI, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "read_file")
+	if !ok {
+		t.Fatal("expected read_file API")
+	}
+	for _, field := range []string{"offset_bytes", "max_bytes", "start_line", "max_lines", "file_revision"} {
+		if !strings.Contains(string(readAPI.Parameters), `"`+field+`"`) {
+			t.Fatalf("read_file schema is missing %s: %s", field, readAPI.Parameters)
+		}
+	}
+	_, searchAPI, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "search_file")
+	if !ok || searchAPI.Risk != ToolRiskRead || searchAPI.Implementation != ToolImplementationWorkerCapability {
+		t.Fatalf("unexpected search_file API: %#v", searchAPI)
+	}
+}
+
+func TestReadFileExecutionKeepsOnlyPageMetadataInState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.txt")
+	if err := os.WriteFile(path, []byte(strings.Repeat("a", capability.DefaultReadFileDefaultMaxBytes*3)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": path})
+	result, err := NewDefaultExecutor().Execute(t.Context(), Call{
+		ID: "call_read_page", Identifier: DefaultIdentifier, APIName: "read_file", Arguments: args,
+	}, ExecutionContext{Provider: capability.LocalSystemProvider{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Content) != capability.DefaultReadFileDefaultMaxBytes || result.Error != nil {
+		t.Fatalf("unexpected page result: %#v", result)
+	}
+	var state map[string]any
+	if err := json.Unmarshal(result.State, &state); err != nil {
+		t.Fatal(err)
+	}
+	if _, duplicated := state["content"]; duplicated {
+		t.Fatalf("read page content was duplicated in state: %s", result.State)
+	}
+	if state["truncated"] != true || int(state["returned_bytes"].(float64)) != capability.DefaultReadFileDefaultMaxBytes {
+		t.Fatalf("missing pagination metadata: %#v", state)
+	}
+
+	visible := ObservableResultData(result, ResultContextOptions{MaxContentChars: 100})
+	visibleState := visible["state"].(map[string]any)
+	if visibleState["truncated"] != true || visibleState["model_context_truncated"] != true {
+		t.Fatalf("file truncation and context truncation were not distinguished: %#v", visibleState)
+	}
+	contextState := visible["context"].(map[string]any)
+	if contextState["content_truncated"] != true || contextState["state_truncated"] != false {
+		t.Fatalf("unexpected context metadata: %#v", contextState)
+	}
+}
+
+func TestReadFileExecutionReturnsStructuredRecoverableError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "range.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": path, "offset_bytes": 0, "start_line": 1})
+	result, err := NewDefaultExecutor().Execute(t.Context(), Call{
+		ID: "call_bad_range", Identifier: DefaultIdentifier, APIName: "read_file", Arguments: args,
+	}, ExecutionContext{Provider: capability.LocalSystemProvider{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error == nil || result.Error.Type != "invalid_read_range" {
+		t.Fatalf("expected structured invalid_read_range: %#v", result)
+	}
+	var state struct {
+		Error capability.FileReadError `json:"error"`
+	}
+	if err := json.Unmarshal(result.State, &state); err != nil || state.Error.Code != "invalid_read_range" {
+		t.Fatalf("unexpected structured state %s: %v", result.State, err)
+	}
+}
+
+func TestSearchFileExecutionReturnsFocusedLocations(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "search.txt")
+	if err := os.WriteFile(path, []byte("alpha\nneedle here\nomega\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": path, "query": "needle"})
+	result, err := NewDefaultExecutor().Execute(t.Context(), Call{
+		ID: "call_search", Identifier: DefaultIdentifier, APIName: "search_file", Arguments: args,
+	}, ExecutionContext{Provider: capability.LocalSystemProvider{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != nil || !strings.Contains(result.Content, "2 [byte 6]") {
+		t.Fatalf("unexpected search result: %#v", result)
+	}
+	var state capability.SearchFileResult
+	if err := json.Unmarshal(result.State, &state); err != nil || len(state.Matches) != 1 || state.Matches[0].OffsetBytes != 6 {
+		t.Fatalf("unexpected search state %s: %v", result.State, err)
+	}
+}
+
 func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	context := DefaultRegistry().ModelContext()
 	if len(context) == 0 {
@@ -119,7 +222,7 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 57 {
+	if len(modelTools) != 58 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -133,7 +236,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".search_file"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }
@@ -275,7 +378,7 @@ func TestRegistryAvailableFiltersByCapabilities(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 19 || !names[DefaultIdentifier+".read_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[TaskIdentifier+".create_plan"] || !names[TaskIdentifier+".update_items"] || !names[TaskIdentifier+".get_plan"] || !names[TaskIdentifier+".complete_plan"] || !names[TaskIdentifier+".cancel_plan"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if len(modelTools) != 20 || !names[DefaultIdentifier+".read_file"] || !names[DefaultIdentifier+".search_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[TaskIdentifier+".create_plan"] || !names[TaskIdentifier+".update_items"] || !names[TaskIdentifier+".get_plan"] || !names[TaskIdentifier+".complete_plan"] || !names[TaskIdentifier+".cancel_plan"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
 		t.Fatalf("expected read_file plus server builtin interaction, task, web, and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := registry.GetAPI(DefaultIdentifier, "run_command"); ok {
@@ -295,7 +398,7 @@ func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
 	})
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 23 {
+	if len(modelTools) != 24 {
 		t.Fatalf("expected all default tools to be available for local_system provider, got %#v", modelTools)
 	}
 	names := map[string]bool{}
@@ -372,14 +475,14 @@ func TestRegistryExecutorKeepsRuntimeSkillPathsVisible(t *testing.T) {
 	}, ExecutionContext{
 		SessionID: "sesn_000001", TurnID: "turn_000001", Provider: capability.LocalSystemProvider{},
 		Environment: map[string]string{
-			"CLAUDE_SKILL_DIR": "/workspace/.tma/skills/web-access/2",
+			"CLAUDE_SKILL_DIR": "/tma/skills/skl_web_access/2",
 			"SERVICE_API_KEY":  "managed-secret-value",
 		},
 	})
 	if err != nil {
 		t.Fatalf("execute tool: %v", err)
 	}
-	if result.Content != "/workspace/.tma/skills/web-access/2|[REDACTED_ENV:SERVICE_API_KEY]" {
+	if result.Content != "/tma/skills/skl_web_access/2|[REDACTED_ENV:SERVICE_API_KEY]" {
 		t.Fatalf("expected public skill path and redacted secret, got %q", result.Content)
 	}
 }

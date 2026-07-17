@@ -145,18 +145,18 @@ func TestAgentRuntimeTurnExecutorMaterializesExecutableSkillPackages(t *testing.
 	}); err != nil {
 		t.Fatalf("run materialized skill turn: %v", err)
 	}
-	if len(provider.packages) != 1 || provider.packages[0].Identifier != "web-access" || len(provider.packages[0].Files) != 2 {
+	if len(provider.packages) != 1 || provider.packages[0].SkillID != "skl_web" || provider.packages[0].Identifier != "web-access" || len(provider.packages[0].Files) != 2 {
 		t.Fatalf("unexpected materialized packages: %#v", provider.packages)
 	}
 	if provider.packages[0].Files[1].Path != "scripts/check-deps.mjs" || !provider.packages[0].Files[1].Executable {
 		t.Fatalf("expected executable package script, got %#v", provider.packages[0].Files)
 	}
 	skillContext := string(runtime.request.Config.Skills)
-	if strings.Contains(skillContext, "CLAUDE_SKILL_DIR") || !strings.Contains(skillContext, "/workspace/.tma/skills/web-access/2/scripts/check-deps.mjs") {
+	if strings.Contains(skillContext, "CLAUDE_SKILL_DIR") || !strings.Contains(skillContext, "/tma/skills/skl_web/2/scripts/check-deps.mjs") {
 		t.Fatalf("expected bound runtime skill path, got %s", skillContext)
 	}
 	environment := runtime.request.Config.ToolExecutionContext.Environment
-	if environment["CLAUDE_SKILL_DIR"] != "/workspace/.tma/skills/web-access/2" || environment["TMA_SKILL_DIR_WEB_ACCESS"] != "/workspace/.tma/skills/web-access/2" {
+	if environment["CLAUDE_SKILL_DIR"] != "/tma/skills/skl_web/2" || environment["TMA_SKILL_DIR_WEB_ACCESS"] != "/tma/skills/skl_web/2" {
 		t.Fatalf("unexpected runtime skill environment: %#v", environment)
 	}
 }
@@ -434,14 +434,17 @@ func TestAgentRuntimeTurnExecutorFiltersToolsByProviderCapabilities(t *testing.T
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 14 || !names["default.read_file"] || !names["web.search"] || !names["web.crawl"] || !names["interaction.ask_user"] || !names["interaction.request_upload"] || !names["interaction.request_plan_approval"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
-		t.Fatalf("expected provider capability filter to keep read_file plus server builtin interaction, web, and skills tools, got %#v", modelTools)
+	if len(modelTools) != 15 || !names["default.read_file"] || !names["default.search_file"] || !names["web.search"] || !names["web.crawl"] || !names["interaction.ask_user"] || !names["interaction.request_upload"] || !names["interaction.request_plan_approval"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
+		t.Fatalf("expected provider capability filter to keep read_file, search_file, and server builtin tools, got %#v", modelTools)
 	}
 	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "run_command"); ok {
 		t.Fatal("expected run_command to be unavailable without exec capability")
 	}
 	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "read_file"); !ok {
 		t.Fatal("expected read_file to remain available")
+	}
+	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "search_file"); !ok {
+		t.Fatal("expected search_file to remain available")
 	}
 }
 
@@ -954,8 +957,8 @@ func (p *materializingProvider) MaterializeRuntimeSkills(_ context.Context, pack
 	result := make([]capability.MaterializedRuntimeSkill, 0, len(packages))
 	for _, pkg := range packages {
 		result = append(result, capability.MaterializedRuntimeSkill{
-			Identifier: pkg.Identifier, Version: pkg.Version,
-			Directory: fmt.Sprintf("/workspace/.tma/skills/%s/%d", pkg.Identifier, pkg.Version),
+			SkillID: pkg.SkillID, Identifier: pkg.Identifier, Version: pkg.Version,
+			Directory: fmt.Sprintf("/tma/skills/%s/%d", pkg.SkillID, pkg.Version),
 		})
 	}
 	return result, nil

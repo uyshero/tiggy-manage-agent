@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tiggy-manage-agent/internal/capability"
 )
 
 var configEnvKeys = []string{
@@ -81,6 +83,10 @@ var configEnvKeys = []string{
 	"TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS",
 	"TMA_CLOUD_SANDBOX_ALLOW_NETWORK",
 	"TMA_ALLOW_SERVER_LOCAL_SYSTEM",
+	"TMA_READ_FILE_DEFAULT_MAX_BYTES",
+	"TMA_READ_FILE_HARD_MAX_BYTES",
+	"TMA_READ_FILE_SMALL_FILE_BYTES",
+	"TMA_READ_FILE_MAX_LINES",
 	"TMA_MCP_STDIO_HOST_IDLE_TIMEOUT_SECONDS",
 	"TMA_MCP_STDIO_HOST_SWEEP_INTERVAL_SECONDS",
 	"TMA_MCP_STDIO_HOST_MAX_SESSIONS",
@@ -134,6 +140,37 @@ var configEnvKeys = []string{
 	"TMA_TRACE_INDEX_RETENTION_DAYS",
 	"TMA_TRACE_INDEX_RETENTION_INTERVAL_MS",
 	"TMA_TRACE_INDEX_RETENTION_LIMIT",
+}
+
+func TestReadFileLimitsLoadAndValidate(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://read-file-config")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ToolRuntime.ReadFileLimits != capability.DefaultReadFileLimits() {
+		t.Fatalf("unexpected read_file defaults: %#v", config.ToolRuntime.ReadFileLimits)
+	}
+
+	t.Setenv("TMA_READ_FILE_DEFAULT_MAX_BYTES", "16384")
+	t.Setenv("TMA_READ_FILE_HARD_MAX_BYTES", "131072")
+	t.Setenv("TMA_READ_FILE_SMALL_FILE_BYTES", "4096")
+	t.Setenv("TMA_READ_FILE_MAX_LINES", "800")
+	config, err = FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := (capability.ReadFileLimits{DefaultMaxBytes: 16384, HardMaxBytes: 131072, SmallFileBytes: 4096, MaxLines: 800})
+	if config.ToolRuntime.ReadFileLimits != want {
+		t.Fatalf("unexpected configured limits: got %#v want %#v", config.ToolRuntime.ReadFileLimits, want)
+	}
+
+	t.Setenv("TMA_READ_FILE_DEFAULT_MAX_BYTES", "200000")
+	t.Setenv("TMA_READ_FILE_HARD_MAX_BYTES", "100000")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "read_file_default_max_bytes") {
+		t.Fatalf("expected invalid limit relationship, got %v", err)
+	}
 }
 
 func TestProductionRejectsDisabledOrIncompleteAuth(t *testing.T) {

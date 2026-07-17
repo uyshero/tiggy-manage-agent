@@ -1,7 +1,10 @@
 package capability
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -57,7 +60,7 @@ func TestOnlyboxesProviderMaterializesRuntimeSkills(t *testing.T) {
 	root := t.TempDir()
 	provider := OnlyboxesProvider{WorkspaceRoot: root}
 	packages := []RuntimeSkillPackage{{
-		Identifier: "web-access", Version: 2, Checksum: "checksum-v2",
+		SkillID: "skl_web_access", Identifier: "web-access", Version: 2, Checksum: "checksum-v2",
 		Files: []RuntimeSkillFile{
 			{Path: "SKILL.md", Content: []byte("# Web Access\n")},
 			{Path: "scripts/check-deps.mjs", Content: []byte("console.log('ok')\n"), Executable: true},
@@ -68,10 +71,18 @@ func TestOnlyboxesProviderMaterializesRuntimeSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materialize runtime skills: %v", err)
 	}
-	if len(materialized) != 1 || materialized[0].Directory != "/workspace/.tma/skills/web-access/2" {
+	if len(materialized) != 1 || materialized[0].Directory != "/tma/skills/skl_web_access/2" {
 		t.Fatalf("unexpected materialization result: %#v", materialized)
 	}
-	hostRoot := filepath.Join(resolvedRoot(t, root), ".tma", "skills", "web-access", "2")
+	cacheRoot, err := provider.runtimeSkillCacheDir()
+	if err != nil {
+		t.Fatalf("resolve skill cache root: %v", err)
+	}
+	t.Cleanup(func() { _ = makeRuntimeSkillWritable(cacheRoot) })
+	hostRoot := filepath.Join(cacheRoot, "skl_web_access", "2")
+	if link, err := os.Readlink(hostRoot); err != nil || link == "" {
+		t.Fatalf("expected content-addressed skill alias, link=%q err=%v", link, err)
+	}
 	content, err := os.ReadFile(filepath.Join(hostRoot, "scripts", "check-deps.mjs"))
 	if err != nil || string(content) != "console.log('ok')\n" {
 		t.Fatalf("unexpected materialized script content=%q err=%v", content, err)
@@ -80,15 +91,19 @@ func TestOnlyboxesProviderMaterializesRuntimeSkills(t *testing.T) {
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("expected executable script, info=%#v err=%v", info, err)
 	}
+	cached, hit, err := provider.LookupMaterializedRuntimeSkill(t.Context(), "skl_web_access", "web-access", 2, runtimeSkillPackageChecksum(packages[0]))
+	if err != nil || !hit || cached.Directory != "/tma/skills/skl_web_access/2" {
+		t.Fatalf("expected runtime skill cache hit, cached=%#v hit=%t err=%v", cached, hit, err)
+	}
 
 	packages[0].Checksum = "checksum-v2-rebuilt"
 	packages[0].Files[1].Content = []byte("console.log('updated')\n")
-	if _, err := provider.MaterializeRuntimeSkills(t.Context(), packages); err != nil {
-		t.Fatalf("replace runtime skill: %v", err)
+	if _, err := provider.MaterializeRuntimeSkills(t.Context(), packages); err == nil || !strings.Contains(err.Error(), "integrity conflict") {
+		t.Fatalf("expected immutable version conflict, got %v", err)
 	}
 	content, err = os.ReadFile(filepath.Join(hostRoot, "scripts", "check-deps.mjs"))
-	if err != nil || string(content) != "console.log('updated')\n" {
-		t.Fatalf("expected updated materialized script, content=%q err=%v", content, err)
+	if err != nil || string(content) != "console.log('ok')\n" {
+		t.Fatalf("expected original materialized script to remain unchanged, content=%q err=%v", content, err)
 	}
 }
 
@@ -100,6 +115,95 @@ func TestOnlyboxesProviderRejectsUnsafeRuntimeSkillPaths(t *testing.T) {
 	}})
 	if err == nil || !strings.Contains(err.Error(), "escapes package root") {
 		t.Fatalf("expected unsafe package path rejection, got %v", err)
+	}
+}
+
+func TestOnlyboxesProviderMaterializesSameSkillConcurrently(t *testing.T) {
+	cacheRoot := t.TempDir()
+	provider := OnlyboxesProvider{WorkspaceRoot: t.TempDir(), SkillCacheRoot: cacheRoot, WorkspaceID: "wksp_concurrent"}
+	pkg := RuntimeSkillPackage{
+		SkillID: "skl_web_access", Identifier: "web-access", Version: 2,
+		Files: []RuntimeSkillFile{{Path: "SKILL.md", Content: []byte("# Web Access\n")}},
+	}
+	const workers = 12
+	results := make(chan []MaterializedRuntimeSkill, workers)
+	errors := make(chan error, workers)
+	for range workers {
+		go func() {
+			materialized, err := provider.MaterializeRuntimeSkills(t.Context(), []RuntimeSkillPackage{pkg})
+			results <- materialized
+			errors <- err
+		}()
+	}
+	for range workers {
+		if err := <-errors; err != nil {
+			t.Fatalf("concurrent materialization: %v", err)
+		}
+		if result := <-results; len(result) != 1 || result[0].Directory != "/tma/skills/skl_web_access/2" {
+			t.Fatalf("unexpected concurrent materialization result: %#v", result)
+		}
+	}
+	hostRoot, err := provider.runtimeSkillCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(hostRoot, "sha256"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected one content-addressed cache entry, entries=%v err=%v", entries, err)
+	}
+	t.Cleanup(func() { _ = makeRuntimeSkillWritable(hostRoot) })
+}
+
+func TestOnlyboxesWorkspaceSnapshotRoundTripAndDeterminism(t *testing.T) {
+	source := OnlyboxesProvider{WorkspaceRoot: t.TempDir()}
+	root, err := source.workspaceDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "note.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, count, err := source.CreateWorkspaceSnapshot(t.Context())
+	if err != nil || count != 1 {
+		t.Fatalf("create snapshot count=%d err=%v", count, err)
+	}
+	second, _, err := source.CreateWorkspaceSnapshot(t.Context())
+	if err != nil || !bytes.Equal(first, second) {
+		t.Fatalf("snapshot is not deterministic: err=%v", err)
+	}
+
+	target := OnlyboxesProvider{WorkspaceRoot: t.TempDir()}
+	if err := target.RestoreWorkspaceSnapshot(t.Context(), first); err != nil {
+		t.Fatalf("restore snapshot: %v", err)
+	}
+	targetRoot, _ := target.workspaceDir()
+	content, err := os.ReadFile(filepath.Join(targetRoot, "docs", "note.txt"))
+	if err != nil || string(content) != "hello\n" {
+		t.Fatalf("restored content=%q err=%v", content, err)
+	}
+	if err := target.RestoreWorkspaceSnapshot(t.Context(), first); err != nil {
+		t.Fatalf("idempotent restore: %v", err)
+	}
+}
+
+func TestOnlyboxesWorkspaceSnapshotRejectsTraversal(t *testing.T) {
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	if err := writer.WriteHeader(&tar.Header{Name: "../escape", Mode: 0o644, Size: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte("bad")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	provider := OnlyboxesProvider{WorkspaceRoot: t.TempDir()}
+	if err := provider.RestoreWorkspaceSnapshot(t.Context(), buffer.Bytes()); err == nil || !strings.Contains(err.Error(), "escapes") {
+		t.Fatalf("expected traversal rejection, got %v", err)
 	}
 }
 
@@ -416,6 +520,40 @@ func TestOnlyboxesProviderSyncsSessionFilesIntoWorkspace(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesProviderSearchFileSyncsSessionFilesBeforeFirstSearch(t *testing.T) {
+	root := t.TempDir()
+	session := managedagents.Session{ID: "sesn_search_sync", WorkspaceID: managedagents.DefaultWorkspaceID}
+	store := &sessionDataStoreFake{
+		session: session,
+		artifacts: []managedagents.SessionArtifact{{
+			ID: "art_search", WorkspaceID: session.WorkspaceID, SessionID: session.ID,
+			ObjectRefID: "obj_search", Name: "uploaded.log", ArtifactType: managedagents.ArtifactTypeFile,
+		}},
+		objectRefs: map[string]managedagents.ObjectRef{
+			"obj_search": {
+				ID: "obj_search", WorkspaceID: session.WorkspaceID, Bucket: "tma-artifacts",
+				ObjectKey: "wksp_default/sesn_search_sync/uploads/uploaded.log", StorageProvider: managedagents.ObjectStorageProviderS3,
+			},
+		},
+	}
+	objectStore := &fakeSessionObjectStore{objects: map[string]string{
+		"tma-artifacts|wksp_default/sesn_search_sync/uploads/uploaded.log|": "first\nsynced target\n",
+	}}
+	provider := OnlyboxesProvider{
+		WorkspaceRoot: root, SessionID: session.ID, Store: store, ObjectStore: objectStore,
+	}
+
+	result, err := provider.SearchFile(t.Context(), SearchFileRequest{
+		Path: "/workspace/uploads/art_search/uploaded.log", Query: "synced target",
+	})
+	if err != nil {
+		t.Fatalf("search synchronized session file: %v", err)
+	}
+	if result.Path != "/workspace/uploads/art_search/uploaded.log" || len(result.Matches) != 1 || result.Matches[0].LineNumber != 2 {
+		t.Fatalf("unexpected synchronized search result: %#v", result)
+	}
+}
+
 func TestOnlyboxesProviderExportsSandboxDataFile(t *testing.T) {
 	root := t.TempDir()
 	dataRoot := t.TempDir()
@@ -495,6 +633,73 @@ func TestOnlyboxesProviderUsesWorkspaceFiles(t *testing.T) {
 	}
 	if string(result.Content) != "hello" {
 		t.Fatalf("unexpected file content: %q", string(result.Content))
+	}
+}
+
+func TestOnlyboxesProviderSearchFileMapsSandboxPathsAndDeniesEscape(t *testing.T) {
+	root := t.TempDir()
+	dataRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("first\ntarget\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := OnlyboxesProvider{WorkspaceRoot: root, DataRoot: dataRoot, SessionID: "sesn_search"}
+	dataDir, err := provider.sessionDataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "events.log"), []byte("target event\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	workspaceResult, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "/workspace/app.log", Query: "target"})
+	if err != nil {
+		t.Fatalf("search workspace file: %v", err)
+	}
+	if workspaceResult.Path != "/workspace/app.log" || len(workspaceResult.Matches) != 1 || workspaceResult.Matches[0].LineNumber != 2 {
+		t.Fatalf("unexpected workspace search result: %#v", workspaceResult)
+	}
+	dataResult, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "/mnt/data/events.log", Query: "target"})
+	if err != nil {
+		t.Fatalf("search data file: %v", err)
+	}
+	if dataResult.Path != "/mnt/data/events.log" || len(dataResult.Matches) != 1 {
+		t.Fatalf("unexpected data search result: %#v", dataResult)
+	}
+	if _, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "../outside.log", Query: "target"}); err == nil {
+		t.Fatal("expected escaped search to be denied")
+	}
+
+	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(out, "secret.log"), []byte("target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(out, filepath.Join(root, "outside-link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.SearchFile(t.Context(), SearchFileRequest{Path: "/workspace/outside-link/secret.log", Query: "target"}); err == nil {
+		t.Fatal("expected symlink escape search to be denied")
+	}
+}
+
+func TestOnlyboxesProviderSearchFileRemapsStructuredErrorPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("target\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := OnlyboxesProvider{WorkspaceRoot: root}
+
+	_, err := provider.SearchFile(t.Context(), SearchFileRequest{
+		Path: "/workspace/app.log", Query: "target", FileRevision: "stat-v1:stale",
+	})
+	var readErr *FileReadError
+	if !errors.As(err, &readErr) || readErr.Code != "stale_file_revision" {
+		t.Fatalf("expected stale_file_revision, got %v", err)
+	}
+	if got := readErr.Metadata["path"]; got != "/workspace/app.log" {
+		t.Fatalf("expected sandbox path in structured error, got %#v", got)
+	}
+	if strings.Contains(readErr.Error(), root) {
+		t.Fatalf("structured error leaked host root: %v", readErr)
 	}
 }
 

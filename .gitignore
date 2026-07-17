@@ -8,6 +8,11 @@ tmp/
 .gocache/
 .env
 .env.local
+deploy/docker/.env.production
+deploy/kubernetes/config.production.env
+deploy/kubernetes/runtime-secrets.env
+deploy/kubernetes/migration-secrets.env
+deploy/kubernetes/release.production.env
 .tma-worker.pid
 .tma-worker.log
 .verify-agent-runtime-server.log

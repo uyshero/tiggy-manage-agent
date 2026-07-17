@@ -731,8 +731,14 @@ func (s *Server) authorizeResourceRequest(r *http.Request, principal Principal) 
 		return err
 	}
 	if len(segments) >= 3 && isUserAPIVersion(segments[0]) && segments[1] == "agents" && segments[2] != "default" && segments[2] != "import" {
-		_, err := s.store.GetAgentScoped(segments[2], scope)
-		return err
+		agent, err := s.store.GetAgentScoped(segments[2], agentAccessScopeForPrincipal(principal))
+		if err != nil {
+			return err
+		}
+		if !isSafeRequestMethod(r.Method) && agent.OwnerType == managedagents.AgentOwnerWorkspace && !principal.HasRole(RoleOperator) {
+			return fmt.Errorf("%w: operator role required to modify Workspace-shared Agents", managedagents.ErrForbidden)
+		}
+		return nil
 	}
 	if len(segments) >= 3 && isUserAPIVersion(segments[0]) && segments[1] == "object-refs" {
 		_, err := s.store.GetObjectRefScoped(segments[2], scope)
@@ -744,7 +750,16 @@ func (s *Server) authorizeResourceRequest(r *http.Request, principal Principal) 
 			if err != nil {
 				return err
 			}
-			return authorizeWorkspacePrincipal(principal, skill.WorkspaceID)
+			if err := authorizeWorkspacePrincipal(principal, skill.WorkspaceID); err != nil {
+				return err
+			}
+			if skill.OwnerType == skillspkg.OwnerTypeUser && skill.OwnerID != principal.OwnerID {
+				return managedagents.ErrForbidden
+			}
+			if !isSafeRequestMethod(r.Method) && skill.OwnerType != skillspkg.OwnerTypeUser && !principal.HasRole(RoleOperator) {
+				return fmt.Errorf("%w: operator role required to modify Workspace Skills", managedagents.ErrForbidden)
+			}
+			return nil
 		}
 	}
 	if len(segments) >= 3 && isUserAPIVersion(segments[0]) && segments[1] == "skill-marketplace-policies" {
@@ -807,6 +822,10 @@ func accessScopeForPrincipal(principal Principal) managedagents.AccessScope {
 	return scope
 }
 
+func agentAccessScopeForPrincipal(principal Principal) managedagents.AccessScope {
+	return managedagents.AccessScope{WorkspaceID: principal.WorkspaceID, OwnerID: principal.OwnerID}
+}
+
 func requestAccessScope(r *http.Request) (managedagents.AccessScope, bool) {
 	principal, ok := PrincipalFromRequest(r)
 	if !ok {
@@ -816,21 +835,21 @@ func requestAccessScope(r *http.Request) (managedagents.AccessScope, bool) {
 }
 
 func (s *Server) getAgentForRequest(r *http.Request, id string) (managedagents.Agent, error) {
+	if principal, ok := PrincipalFromRequest(r); ok {
+		return s.store.GetAgentScoped(id, agentAccessScopeForPrincipal(principal))
+	}
 	if _, ok := s.store.(managedagents.AgentContextStore); ok {
 		return managedagents.GetAgentWithContext(r.Context(), s.store, id)
-	}
-	if scope, ok := requestAccessScope(r); ok {
-		return s.store.GetAgentScoped(id, scope)
 	}
 	return s.store.GetAgent(id)
 }
 
 func (s *Server) listAgentsForRequest(r *http.Request) ([]managedagents.Agent, error) {
+	if principal, ok := PrincipalFromRequest(r); ok {
+		return s.store.ListAgentsScoped(agentAccessScopeForPrincipal(principal))
+	}
 	if _, ok := s.store.(managedagents.AgentContextStore); ok {
 		return managedagents.ListAgentsWithContext(r.Context(), s.store)
-	}
-	if scope, ok := requestAccessScope(r); ok {
-		return s.store.ListAgentsScoped(scope)
 	}
 	return s.store.ListAgents()
 }

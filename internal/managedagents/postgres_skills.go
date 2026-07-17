@@ -56,6 +56,22 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 	input.Identifier = strings.TrimSpace(input.Identifier)
 	input.Title = strings.TrimSpace(input.Title)
 	input.OwnerType = defaultString(strings.TrimSpace(input.OwnerType), skills.OwnerTypeWorkspace)
+	input.OwnerID = strings.TrimSpace(input.OwnerID)
+	input.Visibility = strings.TrimSpace(input.Visibility)
+	if input.OwnerType == skills.OwnerTypeUser {
+		if scope, ok := DatabaseAccessScopeFromContext(ctx); ok {
+			if input.OwnerID == "" {
+				input.OwnerID = scope.OwnerID
+			}
+			if scope.OwnerID == "" || input.OwnerID != scope.OwnerID {
+				return skills.Skill{}, fmt.Errorf("%w: personal Skill must belong to the current user", ErrForbidden)
+			}
+		}
+		input.Visibility = defaultString(input.Visibility, skills.VisibilityPrivate)
+	} else {
+		input.OwnerID = input.WorkspaceID
+		input.Visibility = defaultString(input.Visibility, skills.VisibilityWorkspace)
+	}
 	input.SourceType = defaultString(strings.TrimSpace(input.SourceType), defaultSkillSourceType(input.OwnerType))
 	input.SourceLocator = strings.TrimSpace(input.SourceLocator)
 	input.SourcePath = strings.TrimSpace(input.SourcePath)
@@ -68,6 +84,10 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 	}
 	if !validSkillOwnerType(input.OwnerType) {
 		return skills.Skill{}, fmt.Errorf("%w: unsupported skill owner_type", ErrInvalid)
+	}
+	if (input.OwnerType == skills.OwnerTypeUser && input.Visibility != skills.VisibilityPrivate) ||
+		(input.OwnerType != skills.OwnerTypeUser && input.Visibility != skills.VisibilityWorkspace) {
+		return skills.Skill{}, fmt.Errorf("%w: invalid Skill owner visibility", ErrInvalid)
 	}
 	if input.OwnerType == skills.OwnerTypePlugin && strings.TrimSpace(input.SourcePluginID) == "" {
 		return skills.Skill{}, fmt.Errorf("%w: plugin skill requires source_plugin_id", ErrInvalid)
@@ -91,16 +111,20 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 	var skill skills.Skill
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO skills (
-			id, workspace_id, identifier, title, description, owner_type, source_plugin_id,
+			id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			forked_from_skill_id, forked_from_version, source_plugin_id,
 			source_type, source_locator, source_path, status, created_by, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $12)
-		ON CONFLICT (workspace_id, identifier) DO NOTHING
-		RETURNING id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, 0), $11, $12, $13, $14, 'active', $15, $16)
+		ON CONFLICT DO NOTHING
+		RETURNING id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at
-	`, id, input.WorkspaceID, input.Identifier, input.Title, input.Description, input.OwnerType, nullableString(input.SourcePluginID),
-		input.SourceType, input.SourceLocator, input.SourcePath, input.CreatedBy, now).Scan(
+	`, id, input.WorkspaceID, input.Identifier, input.Title, input.Description, input.OwnerType, input.OwnerID, input.Visibility,
+		input.ForkedFromSkillID, input.ForkedFromVersion, nullableString(input.SourcePluginID), input.SourceType,
+		input.SourceLocator, input.SourcePath, input.CreatedBy, now).Scan(
 		&skill.ID, &skill.WorkspaceID, &skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
+		&skill.OwnerID, &skill.Visibility, &skill.ForkedFromSkillID, &skill.ForkedFromVersion,
 		&skill.SourcePluginID, &skill.SourceType, &skill.SourceLocator, &skill.SourcePath,
 		&skill.Status, &skill.CreatedBy, &skill.CreatedAt,
 	)
@@ -126,7 +150,8 @@ func (s *PostgresStore) GetSkill(ctx context.Context, id string) (skills.Skill, 
 	}
 	defer tx.Rollback()
 	return scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE id = $1
 	`, id))
@@ -143,9 +168,12 @@ func (s *PostgresStore) GetSkillByIdentifier(ctx context.Context, workspaceID st
 	}
 	defer tx.Rollback()
 	return scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE workspace_id = $1 AND identifier = $2
+		ORDER BY CASE WHEN owner_type = 'user' THEN 0 ELSE 1 END
+		LIMIT 1
 	`, workspaceID, identifier))
 }
 
@@ -157,7 +185,8 @@ func (s *PostgresStore) ListSkills(ctx context.Context, input skills.ListSkillsI
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills
 		WHERE workspace_id = $1 AND ($2 OR status = 'active')
@@ -189,7 +218,8 @@ func (s *PostgresStore) ArchiveSkill(ctx context.Context, id string) (skills.Ski
 	defer tx.Rollback()
 
 	current, err := scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE id = $1
 		FOR UPDATE
@@ -225,7 +255,7 @@ func (s *PostgresStore) ArchiveSkill(ctx context.Context, id string) (skills.Ski
 			return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s has an unreadable current skills config", ErrConflict, current.Identifier, agentID)
 		}
 		for _, binding := range config.Enabled {
-			if binding.Skill == current.Identifier {
+			if binding.SkillID == current.ID || (binding.SkillID == "" && binding.Skill == current.Identifier) {
 				rows.Close()
 				return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s currently enables it; disable it first", ErrConflict, current.Identifier, agentID)
 			}
@@ -253,7 +283,8 @@ func (s *PostgresStore) ArchiveSkill(ctx context.Context, id string) (skills.Ski
 	archived, err := scanSkill(tx.QueryRowContext(ctx, `
 		UPDATE skills SET status = 'archived', archived_at = COALESCE(archived_at, $2)
 		WHERE id = $1
-		RETURNING id, workspace_id, identifier, title, description, owner_type, COALESCE(source_plugin_id, ''),
+		RETURNING id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 	`, id, time.Now().UTC()))
 	if err != nil {
@@ -618,6 +649,18 @@ func (s *PostgresStore) normalizeAgentSkills(ctx context.Context, workspaceID st
 	return normalized, nil
 }
 
+func agentSkillContext(ctx context.Context, agent Agent) context.Context {
+	ownerID := agent.OwnerID
+	if agent.OwnerType != AgentOwnerUser {
+		ownerID = "__workspace_shared_agent__"
+	}
+	scoped, err := ContextWithDatabaseAccessScope(ctx, AccessScope{WorkspaceID: agent.WorkspaceID, OwnerID: ownerID})
+	if err != nil {
+		return ctx
+	}
+	return scoped
+}
+
 type skillScanner interface {
 	Scan(dest ...any) error
 }
@@ -626,6 +669,7 @@ func scanSkill(scanner skillScanner) (skills.Skill, error) {
 	var skill skills.Skill
 	var archivedAt sql.NullTime
 	err := scanner.Scan(&skill.ID, &skill.WorkspaceID, &skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
+		&skill.OwnerID, &skill.Visibility, &skill.ForkedFromSkillID, &skill.ForkedFromVersion,
 		&skill.SourcePluginID, &skill.SourceType, &skill.SourceLocator, &skill.SourcePath,
 		&skill.Status, &skill.CreatedBy, &skill.CreatedAt, &archivedAt)
 	if err == sql.ErrNoRows {
@@ -704,7 +748,7 @@ func insertSkillPackageObjectRef(ctx context.Context, tx *sql.Tx, input CreateOb
 }
 
 func validSkillOwnerType(value string) bool {
-	return value == skills.OwnerTypeBuiltin || value == skills.OwnerTypeWorkspace || value == skills.OwnerTypePlugin
+	return value == skills.OwnerTypeUser || value == skills.OwnerTypeBuiltin || value == skills.OwnerTypeWorkspace || value == skills.OwnerTypePlugin
 }
 
 func validSkillSourceType(value string) bool {

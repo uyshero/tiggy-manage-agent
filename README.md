@@ -128,6 +128,8 @@ make run
 
 The server also loads `.env` from the project root on startup. Values already exported in your shell take precedence over `.env`.
 Configuration reference is in [docs/configuration.md](./docs/configuration.md).
+Production Docker Compose and Kubernetes procedures are in [docs/deployment.md](./docs/deployment.md).
+The guarded quick-deploy entry point is `scripts/deploy.sh docker|k8s`.
 
 `make run` uses this local default unless you override it:
 

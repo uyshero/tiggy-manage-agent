@@ -892,6 +892,10 @@ func buildExecutionResolver(config serverconfig.Config, store managedagents.Stor
 		"cloud_sandbox_container_cleanup_interval_seconds", config.ToolRuntime.ContainerCleanupIntervalSeconds,
 		"cloud_sandbox_allow_network", config.ToolRuntime.AllowNetwork,
 		"allow_server_local_system", config.ToolRuntime.AllowLocalSystem,
+		"read_file_default_max_bytes", config.ToolRuntime.ReadFileLimits.DefaultMaxBytes,
+		"read_file_hard_max_bytes", config.ToolRuntime.ReadFileLimits.HardMaxBytes,
+		"read_file_small_file_bytes", config.ToolRuntime.ReadFileLimits.SmallFileBytes,
+		"read_file_max_lines", config.ToolRuntime.ReadFileLimits.MaxLines,
 	)
 	containerManager := capability.NewOnlyboxesContainerManager(capability.OnlyboxesContainerManagerConfig{
 		IdleTTL:         config.ToolRuntime.ContainerIdleTTL,
@@ -910,6 +914,7 @@ func buildExecutionResolver(config serverconfig.Config, store managedagents.Stor
 		CloudSandboxDisableNetwork: !config.ToolRuntime.AllowNetwork,
 		CloudSandboxContainers:     containerManager,
 		AllowLocalSystem:           config.ToolRuntime.AllowLocalSystem,
+		ReadFileLimits:             config.ToolRuntime.ReadFileLimits,
 	}, containerManager.Close
 }
 
@@ -935,6 +940,10 @@ func buildMCPHTTPBaseClient(caBundlePath string) (*http.Client, error) {
 }
 
 func buildRunner(config serverconfig.Config, store managedagents.Store, objectStore objectstore.Client, executionResolver execution.ProviderResolver, logger *slog.Logger) (runner.Runner, func(), error) {
+	taskPlanReader, ok := store.(managedagents.SessionTaskPlanReader)
+	if !ok {
+		return nil, nil, errors.New("agent runtime requires a session task plan reader for completion validation")
+	}
 	llmManager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
 		Provider:       config.LLM.Provider,
 		ProviderType:   config.LLM.ProviderType,
@@ -982,8 +991,9 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 
 	turnExecutor := runner.AgentRuntimeTurnExecutor{
 		Runtime: agentruntime.DemoRuntime{
-			Client:        llmManager,
-			MaxToolRounds: config.Turn.MaxToolRounds,
+			Client:         llmManager,
+			CompletionGate: agentruntime.TaskPlanCompletionGate{Reader: taskPlanReader},
+			MaxToolRounds:  config.Turn.MaxToolRounds,
 		},
 		Store:            store,
 		ObjectStore:      objectStore,

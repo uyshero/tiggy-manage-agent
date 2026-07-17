@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/internal/workruntime"
@@ -86,6 +87,10 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 	global.DurationVar(&cfg.WorkHeartbeatInterval, "work-heartbeat-interval", getenvDefaultDuration("TMA_WORKER_WORK_HEARTBEAT_INTERVAL", 15*time.Second), "running work heartbeat interval")
 	global.DurationVar(&cfg.ShutdownTimeout, "shutdown-timeout", getenvDefaultDuration("TMA_WORKER_SHUTDOWN_TIMEOUT", 30*time.Second), "time to drain running work on shutdown")
 	global.IntVar(&cfg.Concurrency, "concurrency", getenvDefaultInt("TMA_WORKER_CONCURRENCY", 1), "maximum concurrent work executions")
+	global.IntVar(&cfg.ReadFileLimits.DefaultMaxBytes, "read-file-default-max-bytes", getenvDefaultInt("TMA_READ_FILE_DEFAULT_MAX_BYTES", capability.DefaultReadFileDefaultMaxBytes), "default read_file page bytes")
+	global.IntVar(&cfg.ReadFileLimits.HardMaxBytes, "read-file-hard-max-bytes", getenvDefaultInt("TMA_READ_FILE_HARD_MAX_BYTES", capability.DefaultReadFileHardMaxBytes), "hard read_file page byte limit")
+	global.IntVar(&cfg.ReadFileLimits.SmallFileBytes, "read-file-small-file-bytes", getenvDefaultInt("TMA_READ_FILE_SMALL_FILE_BYTES", capability.DefaultReadFileSmallFileBytes), "path-only full-file threshold")
+	global.IntVar(&cfg.ReadFileLimits.MaxLines, "read-file-max-lines", getenvDefaultInt("TMA_READ_FILE_MAX_LINES", capability.DefaultReadFileMaxLines), "hard read_file line limit")
 	pluginFlag := stringListFlag(splitCSV(os.Getenv("TMA_WORKER_PLUGINS")))
 	global.Var(&pluginFlag, "plugin", "path to a process tool plugin executable; repeatable or comma-separated via TMA_WORKER_PLUGINS")
 	if err := global.Parse(args); err != nil {
@@ -96,6 +101,9 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 		return workerConfig{}, fmt.Errorf("worker name is required")
 	}
 	cfg.Concurrency = workerConcurrency(cfg.Concurrency)
+	if err := cfg.ReadFileLimits.Validate(); err != nil {
+		return workerConfig{}, err
+	}
 	cfg.Plugins = pluginFlag.values()
 	return cfg, nil
 }
@@ -114,6 +122,7 @@ type workerConfig struct {
 	ShutdownTimeout       time.Duration
 	Concurrency           int
 	Plugins               []string
+	ReadFileLimits        capability.ReadFileLimits
 }
 
 type stringListFlag []string
@@ -163,6 +172,7 @@ func splitCSV(value string) []string {
 
 func workerExecutor(ctx context.Context, cfg workerConfig) (workruntime.Executor, error) {
 	executor := workruntime.DefaultExecutor(cfg.Name)
+	executor.Provider = capability.LocalSystemProvider{ReadFileLimits: cfg.ReadFileLimits}
 	if len(cfg.Plugins) == 0 {
 		return executor, nil
 	}

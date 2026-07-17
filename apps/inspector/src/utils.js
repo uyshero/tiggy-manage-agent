@@ -15,6 +15,26 @@ export function formatDuration(ms) {
   return `${(value / 1000).toFixed(value < 10000 ? 2 : 1)} s`;
 }
 
+export function completionQualitySummary(metricsText) {
+  const summary = { pass: 0, retry: 0, fail: 0, attempts: 0, retryRate: 0, validators: [] };
+  const validators = new Set();
+  for (const line of String(metricsText || "").split(/\r?\n/)) {
+    if (!line.startsWith("tma_completion_validation_total{")) continue;
+    const match = line.match(/^tma_completion_validation_total\{([^}]*)\}\s+(-?\d+(?:\.\d+)?)$/);
+    if (!match) continue;
+    const labels = parsePrometheusLabels(match[1]);
+    const outcome = labels.outcome;
+    const value = Number(match[2]);
+    if (!Number.isFinite(value) || !["pass", "retry", "fail"].includes(outcome)) continue;
+    summary[outcome] += value;
+    summary.attempts += value;
+    if (labels.validator) validators.add(labels.validator);
+  }
+  summary.retryRate = summary.attempts > 0 ? summary.retry / summary.attempts : 0;
+  summary.validators = Array.from(validators).sort();
+  return summary;
+}
+
 export function taskPlanStatusCounts(plans) {
   const counts = { total: 0, active: 0, completed: 0, canceled: 0, superseded: 0 };
   for (const plan of Array.isArray(plans) ? plans : []) {
@@ -200,6 +220,16 @@ function summarizeMCPToolState(state) {
     isPlainObject(state.meta) ? `${Object.keys(state.meta).length} meta key(s)` : ""
   ].filter(Boolean);
   return { title: "MCP tool result", facts };
+}
+
+function parsePrometheusLabels(value) {
+  const labels = {};
+  const pattern = /([a-zA-Z_][a-zA-Z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let match;
+  while ((match = pattern.exec(value)) !== null) {
+    labels[match[1]] = match[2].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return labels;
 }
 
 function summarizeMCPContextState(state) {

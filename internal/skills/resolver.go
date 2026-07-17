@@ -25,6 +25,7 @@ func Resolve(raw json.RawMessage) (ResolveResult, error) {
 }
 
 func ResolveRegistry(ctx context.Context, registry Registry, workspaceID string, raw json.RawMessage, maxTokens int) (ResolveResult, error) {
+	workspaceID = strings.TrimSpace(workspaceID)
 	config, err := ValidateConfig(raw)
 	if err != nil {
 		return ResolveResult{}, err
@@ -34,11 +35,25 @@ func ResolveRegistry(ctx context.Context, registry Registry, workspaceID string,
 	}
 	sortEnabled(config.Enabled)
 	result := ResolveResult{Config: config}
-	for _, enabled := range config.Enabled {
-		skill, getErr := registry.GetSkillByIdentifier(ctx, workspaceID, enabled.Skill)
+	for index, enabled := range config.Enabled {
+		var skill Skill
+		var getErr error
+		if enabled.SkillID != "" {
+			skill, getErr = registry.GetSkill(ctx, enabled.SkillID)
+		} else {
+			skill, getErr = registry.GetSkillByIdentifier(ctx, workspaceID, enabled.Skill)
+		}
 		if getErr != nil {
 			return ResolveResult{}, fmt.Errorf("resolve skill %s: %w", enabled.Skill, getErr)
 		}
+		if workspaceID == "" {
+			workspaceID = skill.WorkspaceID
+		}
+		if skill.WorkspaceID != workspaceID || skill.Identifier != enabled.Skill {
+			return ResolveResult{}, fmt.Errorf("resolve skill %s: pinned skill_id does not match workspace or identifier", enabled.Skill)
+		}
+		enabled.SkillID = skill.ID
+		result.Config.Enabled[index].SkillID = skill.ID
 		version, getErr := registry.GetSkillVersion(ctx, skill.ID, enabled.Version)
 		if getErr != nil {
 			return ResolveResult{}, fmt.Errorf("resolve skill %s version %d: %w", enabled.Skill, enabled.Version, getErr)

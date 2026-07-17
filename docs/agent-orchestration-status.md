@@ -106,7 +106,7 @@ parent agent
 ### P2：调度与质量
 
 - 基于 capability、负载、成本和历史成功率的 agent selection。
-- task-group replay、离线 eval、schema 合规率和 retry 收益评测。
+- task-group replay、离线 eval、result-schema 合规率和 retry 收益评测已建立确定性基线；后续接入真实模型样本与历史回放。
 - 结构化 context / artifact handoff，减少父子 Agent 重复传输。
 - task-group template 的数据库 registry、版本和 workspace override。
 

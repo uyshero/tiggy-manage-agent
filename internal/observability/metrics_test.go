@@ -74,6 +74,43 @@ func TestPrometheusTextIncludesUsageAndWorkers(t *testing.T) {
 	}
 }
 
+func TestPrometheusTextIncludesCompletionValidationMetrics(t *testing.T) {
+	events := []managedagents.Event{
+		{SessionID: "session_1", TurnID: "turn_1", Type: managedagents.EventRuntimeCompletionBlocked, Payload: json.RawMessage(`{"data":{"validator":"builtin.task_plan","outcome":"retry"}}`)},
+		{SessionID: "session_1", TurnID: "turn_1", Type: managedagents.EventRuntimeCompletionValidated, Payload: json.RawMessage(`{"data":{"validator":"builtin.task_plan","outcome":"pass"}}`)},
+		{SessionID: "session_1", TurnID: "turn_1", Type: managedagents.EventRuntimeCompletionFailed, Payload: json.RawMessage(`{"data":{"validator":"a-secret-high-cardinality-validator-name-that-should-not-be-exported"}}`)},
+		{SessionID: "session_1", TurnID: "turn_other", Type: managedagents.EventRuntimeCompletionValidated, Payload: json.RawMessage(`{"data":{"validator":"builtin.task_plan"}}`)},
+	}
+	text := PrometheusText(MetricsSnapshot{Trace: &TurnTrace{SessionID: "session_1", TurnID: "turn_1", Status: "completed"}, Events: events})
+	for _, expected := range []string{
+		`tma_completion_validation_total{outcome="fail",session_id="session_1",turn_id="turn_1",validator="other"} 1`,
+		`tma_completion_validation_total{outcome="retry",session_id="session_1",turn_id="turn_1",validator="builtin.task_plan"} 1`,
+		`tma_completion_validation_total{outcome="pass",session_id="session_1",turn_id="turn_1",validator="builtin.task_plan"} 1`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected completion metric %q, got:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "a-secret-high-cardinality") {
+		t.Fatalf("completion validator leaked high-cardinality value: %s", text)
+	}
+}
+
+func TestPrometheusTextIncludesGlobalCompletionValidationCounters(t *testing.T) {
+	text := PrometheusText(MetricsSnapshot{CompletionValidations: []CompletionValidationMetric{
+		{Outcome: "retry", Validator: "builtin.task_plan", Count: 7},
+		{Outcome: "fail", Validator: "unbounded-validator-name", Count: 2},
+	}})
+	for _, expected := range []string{
+		`tma_completion_validation_events_total{outcome="retry",validator="builtin.task_plan"} 7`,
+		`tma_completion_validation_events_total{outcome="fail",validator="other"} 2`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected global completion metric %q, got:\n%s", expected, text)
+		}
+	}
+}
+
 func TestPrometheusTextIncludesSkillBinaryScanMetrics(t *testing.T) {
 	text := PrometheusText(MetricsSnapshot{BinaryScans: []skillmarketplace.BinaryScanMetric{
 		{Provider: "clamav_http", Outcome: "passed", Count: 3, DurationMillis: 125},

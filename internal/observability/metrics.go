@@ -28,6 +28,7 @@ type MetricsSnapshot struct {
 	MCPRuntimeGuard        mcp.RuntimeGuardStats
 	AuthorizationDecisions []AuthorizationDecisionMetric
 	SecurityAuditExporter  SecurityAuditExporterMetrics
+	CompletionValidations  []CompletionValidationMetric
 }
 
 type AuthorizationDecisionMetric struct {
@@ -51,8 +52,19 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeMCPRuntimeGuardMetrics(&builder, snapshot.MCPRuntimeGuard)
 	writeAuthorizationDecisionMetrics(&builder, snapshot.AuthorizationDecisions)
 	writeSecurityAuditExporterMetrics(&builder, snapshot.SecurityAuditExporter)
+	writeCompletionValidationCounterMetrics(&builder, snapshot.CompletionValidations)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeCompletionValidationCounterMetrics(builder *strings.Builder, metrics []CompletionValidationMetric) {
+	writeMetricHelp(builder, "tma_completion_validation_events_total", "Process-local completion validation events by bounded validator and outcome.")
+	writeMetricType(builder, "tma_completion_validation_events_total", "counter")
+	for _, metric := range metrics {
+		writeMetric(builder, "tma_completion_validation_events_total", map[string]string{
+			"outcome": metric.Outcome, "validator": completionMetricValidator(metric.Validator),
+		}, metric.Count)
+	}
 }
 
 func writeSecurityAuditExporterMetrics(builder *strings.Builder, metrics SecurityAuditExporterMetrics) {
@@ -477,6 +489,7 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 	for _, eventType := range eventTypes {
 		writeMetric(builder, "tma_session_events_total", withLabel(sessionLabels, "event_type", eventType), eventCounts[eventType])
 	}
+	writeCompletionValidationMetrics(builder, sessionLabels, trace.TurnID, events)
 
 	writeMetricHelp(builder, "tma_pending_interventions_total", "Pending intervention count for the selected session.")
 	writeMetricType(builder, "tma_pending_interventions_total", "gauge")
@@ -632,6 +645,58 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 			"decision":        parts[3],
 		}), decisionCounts[key])
 	}
+}
+
+func writeCompletionValidationMetrics(builder *strings.Builder, sessionLabels map[string]string, turnID string, events []managedagents.Event) {
+	if strings.TrimSpace(turnID) == "" {
+		return
+	}
+	counts := map[string]int64{}
+	for _, event := range events {
+		if event.TurnID != turnID {
+			continue
+		}
+		outcome := completionMetricOutcome(event.Type)
+		if outcome == "" {
+			continue
+		}
+		validator := "unknown"
+		var payload struct {
+			Data struct {
+				Validator string `json:"validator"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(event.Payload, &payload) == nil {
+			validator = completionMetricValidator(payload.Data.Validator)
+		}
+		counts[outcome+"\x00"+validator]++
+	}
+
+	writeMetricHelp(builder, "tma_completion_validation_total", "Completion validation outcomes by bounded validator and outcome for the selected turn.")
+	writeMetricType(builder, "tma_completion_validation_total", "gauge")
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parts := strings.SplitN(key, "\x00", 2)
+		writeMetric(builder, "tma_completion_validation_total", mergeLabels(sessionLabels, map[string]string{
+			"turn_id":   turnID,
+			"outcome":   parts[0],
+			"validator": parts[1],
+		}), counts[key])
+	}
+}
+
+func completionMetricValidator(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "custom" || strings.HasPrefix(value, "builtin.") {
+		if len(value) <= 64 {
+			return value
+		}
+	}
+	return "other"
 }
 
 type fileGenerationMetricSnapshot struct {

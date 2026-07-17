@@ -63,6 +63,7 @@ type SessionProviderResolver struct {
 	CloudSandboxDisableNetwork bool
 	CloudSandboxContainers     *capability.OnlyboxesContainerManager
 	AllowLocalSystem           bool
+	ReadFileLimits             capability.ReadFileLimits
 }
 
 func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capability.Provider {
@@ -91,7 +92,7 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 				Reason:  "no matching local_system worker and server-local fallback is disabled",
 			}
 		}
-		return capability.LocalSystemProvider{}
+		return capability.LocalSystemProvider{ReadFileLimits: r.ReadFileLimits}
 	}
 	root := settings.Root
 	if root == "" {
@@ -110,6 +111,7 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 		Store:            r.sessionDataStore(),
 		ObjectStore:      r.ObjectStore,
 		ContainerManager: r.CloudSandboxContainers,
+		ReadFileLimits:   r.ReadFileLimits,
 	}
 }
 

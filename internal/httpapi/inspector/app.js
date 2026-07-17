@@ -15575,6 +15575,25 @@ function formatDuration$1(ms) {
   if (value < 1e3) return `${value} ms`;
   return `${(value / 1e3).toFixed(value < 1e4 ? 2 : 1)} s`;
 }
+function completionQualitySummary$1(metricsText) {
+  const summary2 = { pass: 0, retry: 0, fail: 0, attempts: 0, retryRate: 0, validators: [] };
+  const validators = /* @__PURE__ */ new Set();
+  for (const line of String(metricsText || "").split(/\r?\n/)) {
+    if (!line.startsWith("tma_completion_validation_total{")) continue;
+    const match = line.match(/^tma_completion_validation_total\{([^}]*)\}\s+(-?\d+(?:\.\d+)?)$/);
+    if (!match) continue;
+    const labels = parsePrometheusLabels(match[1]);
+    const outcome = labels.outcome;
+    const value = Number(match[2]);
+    if (!Number.isFinite(value) || !["pass", "retry", "fail"].includes(outcome)) continue;
+    summary2[outcome] += value;
+    summary2.attempts += value;
+    if (labels.validator) validators.add(labels.validator);
+  }
+  summary2.retryRate = summary2.attempts > 0 ? summary2.retry / summary2.attempts : 0;
+  summary2.validators = Array.from(validators).sort();
+  return summary2;
+}
 function taskPlanStatusCounts$1(plans) {
   const counts = { total: 0, active: 0, completed: 0, canceled: 0, superseded: 0 };
   for (const plan of Array.isArray(plans) ? plans : []) {
@@ -15744,6 +15763,15 @@ function summarizeMCPToolState(state) {
   ].filter(Boolean);
   return { title: "MCP tool result", facts };
 }
+function parsePrometheusLabels(value) {
+  const labels = {};
+  const pattern = /([a-zA-Z_][a-zA-Z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let match;
+  while ((match = pattern.exec(value)) !== null) {
+    labels[match[1]] = match[2].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  return labels;
+}
 function summarizeMCPContextState(state) {
   const facts = [state.tool_name ? `tool ${state.tool_name}` : ""];
   if (Array.isArray(state.resources)) {
@@ -15861,6 +15889,7 @@ const utils = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePropert
   __proto__: null,
   collectMCPProtocolOperations: collectMCPProtocolOperations$1,
   collectToolSourceStats: collectToolSourceStats$1,
+  completionQualitySummary: completionQualitySummary$1,
   filterTaskPlans: filterTaskPlans$1,
   formatDuration: formatDuration$1,
   formatTime: formatTime$1,
@@ -15881,6 +15910,7 @@ const utils = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.definePropert
 window.TMAInspectorAPI = inspectorAPI;
 window.TMAInspectorUtils = utils;
 const {
+  completionQualitySummary,
   formatDuration,
   formatTime,
   filterTaskPlans,
@@ -16142,6 +16172,7 @@ function App() {
   const availableSpanKinds = reactExports.useMemo(() => {
     return Array.from(new Set(spans.map((span) => span.kind).filter(Boolean))).sort();
   }, [spans]);
+  const completionQuality = reactExports.useMemo(() => completionQualitySummary(metrics$1), [metrics$1]);
   const syncInspectorHash = reactExports.useCallback((overrides = {}) => {
     setInspectorHash({
       session: overrides.session ?? sessionID,
@@ -16614,11 +16645,51 @@ function App() {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Artifact Preview", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreview, { preview: artifactPreview }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "triple", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Metrics", children: /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { id: "metrics", className: "code", children: metrics$1 }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Completion Quality", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CompletionQuality, { summary: completionQuality }) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Exporters", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Exporters, { response: exporters, onRetry: () => retryExporters().catch((error) => setStatus(error.message)) }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Raw Export", children: /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { id: "raw", className: "code", children: raw }) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Metrics", children: /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { id: "metrics", className: "code", children: metrics$1 }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Raw Export", children: /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { id: "raw", className: "code", children: raw }) })
+      ] })
+    ] })
+  ] });
+}
+function CompletionQuality({ summary: summary2 }) {
+  if (!(summary2 == null ? void 0 : summary2.attempts)) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty", children: "No completion validation attempts for this turn." });
+  const retryPercent = Math.round(summary2.retryRate * 100);
+  const status = summary2.fail > 0 ? "failed" : summary2.retry > 0 ? "blocked" : "completed";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "completion-quality", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "completion-quality-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: status }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        summary2.attempts,
+        " validation attempt(s)"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("dl", { className: "completion-quality-grid", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "Passed" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: summary2.pass })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "Retried" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: summary2.retry })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "Failed" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: summary2.fail })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "Retry rate" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("dd", { children: [
+          retryPercent,
+          "%"
         ] })
       ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+      "Validators: ",
+      summary2.validators.join(", ") || "unknown"
     ] })
   ] });
 }

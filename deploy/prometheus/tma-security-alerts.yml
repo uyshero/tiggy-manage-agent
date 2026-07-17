@@ -130,3 +130,23 @@ groups:
         annotations:
           summary: TMA integrity key rotation remains blocked
           description: One or more configured inactive integrity keys have been unsafe to remove for at least one hour.
+
+      - alert: TMACompletionValidationFailures
+        expr: sum(increase(tma_completion_validation_events_total{outcome="fail"}[10m])) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA completion validation is failing
+          description: One or more Agent turns failed the completion gate in the last ten minutes. Inspect the selected turn's validator and evidence state before treating the task as complete.
+
+      - alert: TMACompletionRetryRateHigh
+        expr: (sum(increase(tma_completion_validation_events_total{outcome="retry"}[10m])) >= 5) and ((sum(increase(tma_completion_validation_events_total{outcome="retry"}[10m])) / clamp_min(sum(increase(tma_completion_validation_events_total[10m])), 1)) > 0.5)
+        for: 10m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA completion validation retry rate is high
+          description: More than half of at least five completion validation attempts required correction for ten minutes, indicating weak task planning, missing evidence, or an underperforming provider.

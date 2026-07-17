@@ -142,6 +142,8 @@ Larger files use the existing `write_file` + `edit_file` protocol; no append API
 
 Malformed or oversized file mutations are rejected before intervention policy evaluation. The model receives a structured recoverable error with this protocol and must not retry the unchanged payload. Two consecutive invalid or oversized argument rounds retain the existing circuit breaker and fail the turn.
 
+All registered tool calls also pass a common Draft 2020-12 manifest-schema check before intervention policy evaluation and again at the `RegistryExecutor` boundary. Schema failures return `invalid_tool_arguments` with value-free instance and constraint paths; external `$ref` is disabled. Two consecutive schema-invalid rounds use the same circuit breaker. An invalid registered schema is a server configuration failure and fails closed.
+
 Segmented generation state is serialized in the intervention continuation envelope, so approval and service-resume paths retain hashes, remaining placeholders, validation state, and the approved target path. In `request_approval` mode, approving the skeleton approves subsequent registered placeholder edits for that file; an arbitrary command still requires its normal approval. Intermediate skeleton/edit artifacts are deferred, and the validated file is published once at completion. Persisted events redact `content` and `new_string`, retaining only character count, estimated tokens, and SHA-256.
 
 Prometheus session metrics expose `tma_file_generation_oversized_calls_total`, `tma_file_generation_segments_total`, `tma_file_generation_idempotent_replays_total`, `tma_file_generation_remaining_placeholders`, and `tma_file_generation_duration_milliseconds`.
@@ -215,6 +217,8 @@ agent.spawn
 这条链路对应第一版 subagent 编排语义：父 agent 不直接共享上下文给子 agent，而是显式创建子 session、等待子 session 完成，再回收结果。这样能复用现有 Session / Event / Approval / Artifact / Audit 机制，也更容易做后续的 depth limit、quota 和多 agent 编排治理。
 
 需要多角色讨论时，父 Agent 先按 `list_discussion_strategies` 返回的 `team_plan_schema` 生成目标、策略、预算和动态角色，然后调用 `start_discussion`。服务端把讨论实现为持久化有界状态机：第一轮独立观点、主持人争议归纳与问题分配、第二轮回应、最终主持人共识；`get_discussion` / `wait_discussion` 会幂等推进状态，服务重启不要求父 Agent 重新创建团队。
+
+Task-group `expected_result_schema` 使用离线 Draft 2020-12 校验。所有 item schema 在 group 创建和 fan-out 前编译，外部 `$ref` 被禁用；子任务 completed 后，`result_json` 不合规会把 item 转为 failed，并从 reducer aggregate 中排除。错误只暴露 instance/constraint path。`x-array-merge` 与 `x-conflict-mode` 作为本地 reducer 注解保留，不改变标准 schema validation。
 
 如果子 session 进入 `waiting_approval`，推荐闭环是：
 

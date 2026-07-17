@@ -14,7 +14,9 @@ import (
 
 // LocalSystemProvider 使用当前机器的进程和文件系统实现能力面。
 // 它适合本地开发和受信任环境；需要隔离时应换成 OnlyboxesProvider / RemoteProvider。
-type LocalSystemProvider struct{}
+type LocalSystemProvider struct {
+	ReadFileLimits ReadFileLimits
+}
 
 func (LocalSystemProvider) ToolRuntime() string {
 	return "local_system"
@@ -111,12 +113,8 @@ func (provider LocalSystemProvider) ExecuteCode(ctx context.Context, request Exe
 	}
 }
 
-func (LocalSystemProvider) ReadFile(_ context.Context, request ReadFileRequest) (FileResult, error) {
-	content, err := os.ReadFile(request.Path)
-	if err != nil {
-		return FileResult{}, err
-	}
-	return FileResult{Path: request.Path, Content: content}, nil
+func (provider LocalSystemProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
+	return readLocalFile(ctx, request, provider.ReadFileLimits)
 }
 
 func (LocalSystemProvider) WriteFile(_ context.Context, request WriteFileRequest) (FileResult, error) {

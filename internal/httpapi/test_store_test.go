@@ -71,6 +71,7 @@ type testStore struct {
 	deliberationContributions map[string]map[int]map[int]managedagents.AgentDeliberationContribution
 	skillRecords              map[string]skills.Skill
 	skillVersions             map[string][]skills.Version
+	skillDrafts               map[string]skills.Draft
 	skillUsages               []skills.Usage
 	marketplacePolicies       map[string]skillmarketplace.PolicyRecord
 	marketplacePolicyVersions map[string][]skillmarketplace.PolicyVersion
@@ -113,6 +114,7 @@ func newTestStore() *testStore {
 		deliberationContributions: make(map[string]map[int]map[int]managedagents.AgentDeliberationContribution),
 		skillRecords:              make(map[string]skills.Skill),
 		skillVersions:             make(map[string][]skills.Version),
+		skillDrafts:               make(map[string]skills.Draft),
 		marketplacePolicies:       make(map[string]skillmarketplace.PolicyRecord),
 		marketplacePolicyVersions: make(map[string][]skillmarketplace.PolicyVersion),
 		environmentVariables:      make(map[string]map[string]envvars.EncryptedVariable),
@@ -603,7 +605,7 @@ func llmModelKey(providerID string, model string) string {
 	return providerID + "\x00" + model
 }
 
-func (s *testStore) CreateSkill(_ context.Context, input skills.CreateSkillInput) (skills.Skill, error) {
+func (s *testStore) CreateSkill(ctx context.Context, input skills.CreateSkillInput) (skills.Skill, error) {
 	if err := skills.ValidateIdentifier(input.Identifier); err != nil {
 		return skills.Skill{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
 	}
@@ -613,15 +615,35 @@ func (s *testStore) CreateSkill(_ context.Context, input skills.CreateSkillInput
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	ownerType := defaultString(input.OwnerType, skills.OwnerTypeWorkspace)
+	ownerID := input.OwnerID
+	visibility := input.Visibility
+	if ownerType == skills.OwnerTypeUser {
+		if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+			if ownerID == "" {
+				ownerID = scope.OwnerID
+			}
+			if scope.OwnerID == "" || ownerID != scope.OwnerID {
+				return skills.Skill{}, managedagents.ErrForbidden
+			}
+		}
+		visibility = defaultString(visibility, skills.VisibilityPrivate)
+	} else {
+		ownerID = workspaceID
+		visibility = defaultString(visibility, skills.VisibilityWorkspace)
+	}
 	for _, existing := range s.skillRecords {
-		if existing.WorkspaceID == workspaceID && existing.Identifier == input.Identifier {
+		if existing.WorkspaceID == workspaceID && existing.Identifier == input.Identifier &&
+			((existing.OwnerType == skills.OwnerTypeUser && ownerType == skills.OwnerTypeUser && existing.OwnerID == ownerID) ||
+				(existing.OwnerType != skills.OwnerTypeUser && ownerType != skills.OwnerTypeUser)) {
 			return skills.Skill{}, fmt.Errorf("%w: skill already exists", managedagents.ErrConflict)
 		}
 	}
 	s.nextSkillID++
 	item := skills.Skill{
 		ID: fmt.Sprintf("skl_%d", s.nextSkillID), WorkspaceID: workspaceID, Identifier: input.Identifier,
-		Title: input.Title, Description: input.Description, OwnerType: defaultString(input.OwnerType, skills.OwnerTypeWorkspace),
+		Title: input.Title, Description: input.Description, OwnerType: ownerType, OwnerID: ownerID, Visibility: visibility,
+		ForkedFromSkillID: input.ForkedFromSkillID, ForkedFromVersion: input.ForkedFromVersion,
 		SourcePluginID: input.SourcePluginID, SourceType: defaultString(input.SourceType, skills.SourceTypeInline),
 		SourceLocator: input.SourceLocator, SourcePath: input.SourcePath,
 		Status: skills.StatusActive, CreatedBy: defaultString(input.CreatedBy, "system"), CreatedAt: time.Now().UTC(),
@@ -640,25 +662,40 @@ func (s *testStore) GetSkill(_ context.Context, id string) (skills.Skill, error)
 	return item, nil
 }
 
-func (s *testStore) GetSkillByIdentifier(_ context.Context, workspaceID string, identifier string) (skills.Skill, error) {
+func (s *testStore) GetSkillByIdentifier(ctx context.Context, workspaceID string, identifier string) (skills.Skill, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	workspaceID = defaultString(workspaceID, managedagents.DefaultWorkspaceID)
+	var shared *skills.Skill
 	for _, item := range s.skillRecords {
 		if item.WorkspaceID == workspaceID && item.Identifier == identifier {
-			return item, nil
+			if item.OwnerType == skills.OwnerTypeUser {
+				if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && item.OwnerID == scope.OwnerID {
+					return item, nil
+				}
+				continue
+			}
+			copy := item
+			shared = &copy
 		}
+	}
+	if shared != nil {
+		return *shared, nil
 	}
 	return skills.Skill{}, managedagents.ErrNotFound
 }
 
-func (s *testStore) ListSkills(_ context.Context, input skills.ListSkillsInput) ([]skills.Skill, error) {
+func (s *testStore) ListSkills(ctx context.Context, input skills.ListSkillsInput) ([]skills.Skill, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
 	items := make([]skills.Skill, 0)
 	for _, item := range s.skillRecords {
-		if item.WorkspaceID == workspaceID && (input.IncludeArchived || item.Status == skills.StatusActive) {
+		visible := true
+		if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && item.OwnerType == skills.OwnerTypeUser && scope.OwnerID != "" && item.OwnerID != scope.OwnerID {
+			visible = false
+		}
+		if item.WorkspaceID == workspaceID && visible && (input.IncludeArchived || item.Status == skills.StatusActive) {
 			items = append(items, item)
 		}
 	}
@@ -685,7 +722,7 @@ func (s *testStore) ArchiveSkill(_ context.Context, id string) (skills.Skill, er
 			return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s has an unreadable current skills config", managedagents.ErrConflict, item.Identifier, agent.ID)
 		}
 		for _, binding := range config.Enabled {
-			if binding.Skill == item.Identifier {
+			if binding.SkillID == item.ID || (binding.SkillID == "" && binding.Skill == item.Identifier) {
 				return skills.Skill{}, fmt.Errorf("%w: cannot archive skill %q while Agent %s currently enables it; disable it first", managedagents.ErrConflict, item.Identifier, agent.ID)
 			}
 		}
@@ -728,6 +765,65 @@ func (s *testStore) CreateSkillVersion(_ context.Context, input skills.CreateVer
 		SourceURL: input.SourceURL, CreatedBy: defaultString(input.CreatedBy, "system"), CreatedAt: time.Now().UTC(),
 	}
 	s.skillVersions[input.SkillID] = append(s.skillVersions[input.SkillID], version)
+	return version, nil
+}
+
+func (s *testStore) GetSkillDraft(_ context.Context, skillID string) (skills.Draft, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	draft, ok := s.skillDrafts[skillID]
+	if !ok {
+		return skills.Draft{}, managedagents.ErrNotFound
+	}
+	return draft, nil
+}
+
+func (s *testStore) PutSkillDraft(_ context.Context, input skills.PutDraftInput) (skills.Draft, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	skill, ok := s.skillRecords[input.SkillID]
+	if !ok {
+		return skills.Draft{}, managedagents.ErrNotFound
+	}
+	if skill.OwnerType != skills.OwnerTypeUser {
+		return skills.Draft{}, managedagents.ErrForbidden
+	}
+	current := s.skillDrafts[input.SkillID]
+	if input.ExpectedRevision > 0 && current.Revision != input.ExpectedRevision {
+		return skills.Draft{}, managedagents.ErrRevisionConflict
+	}
+	revision := current.Revision + 1
+	if revision == 0 {
+		revision = 1
+	}
+	draft := skills.Draft{SkillID: input.SkillID, Revision: revision, ContentFormat: defaultString(input.ContentFormat, "hybrid"),
+		Manifest: cloneRaw(input.Manifest), ContentText: input.ContentText, Assets: cloneRaw(input.Assets),
+		UpdatedBy: defaultString(input.UpdatedBy, "system"), UpdatedAt: time.Now().UTC()}
+	if len(draft.Manifest) == 0 {
+		draft.Manifest = json.RawMessage(`{}`)
+	}
+	if len(draft.Assets) == 0 {
+		draft.Assets = json.RawMessage(`[]`)
+	}
+	s.skillDrafts[input.SkillID] = draft
+	return draft, nil
+}
+
+func (s *testStore) PublishSkillDraft(ctx context.Context, skillID string, expectedRevision int64, createdBy string) (skills.Version, error) {
+	draft, err := s.GetSkillDraft(ctx, skillID)
+	if err != nil {
+		return skills.Version{}, err
+	}
+	if expectedRevision > 0 && draft.Revision != expectedRevision {
+		return skills.Version{}, managedagents.ErrRevisionConflict
+	}
+	version, err := s.CreateSkillVersion(ctx, skills.CreateVersionInput{SkillID: skillID, ContentFormat: draft.ContentFormat, Manifest: draft.Manifest, ContentText: draft.ContentText, Assets: draft.Assets, CreatedBy: createdBy})
+	if err != nil {
+		return skills.Version{}, err
+	}
+	s.mu.Lock()
+	delete(s.skillDrafts, skillID)
+	s.mu.Unlock()
 	return version, nil
 }
 
@@ -956,9 +1052,20 @@ func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedag
 	}
 
 	now := time.Now().UTC()
+	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	ownership, err := managedagents.NormalizeAgentOwnership(workspaceID, managedagents.AgentOwnership{
+		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
+	})
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
 	agent := managedagents.Agent{
 		ID:                   input.ID,
-		WorkspaceID:          defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		WorkspaceID:          workspaceID,
+		OwnerType:            ownership.OwnerType,
+		OwnerID:              ownership.OwnerID,
+		Visibility:           ownership.Visibility,
+		AgentKind:            ownership.AgentKind,
 		Name:                 input.Name,
 		CurrentConfigVersion: 1,
 		ConfigVersion: managedagents.AgentConfigVersion{
@@ -1010,9 +1117,19 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 	now := time.Now().UTC()
 	id := s.nextID("agt", &s.nextAgentID)
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	ownership, err := managedagents.NormalizeAgentOwnership(workspaceID, managedagents.AgentOwnership{
+		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
+	})
+	if err != nil {
+		return managedagents.Agent{}, err
+	}
 	agent := managedagents.Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		OwnerType:            ownership.OwnerType,
+		OwnerID:              ownership.OwnerID,
+		Visibility:           ownership.Visibility,
+		AgentKind:            ownership.AgentKind,
 		Name:                 input.Name,
 		CurrentConfigVersion: 1,
 		ConfigVersion: managedagents.AgentConfigVersion{
@@ -1055,6 +1172,9 @@ func (s *testStore) GetAgentScoped(id string, scope managedagents.AccessScope) (
 	if agent.WorkspaceID != scope.WorkspaceID {
 		return managedagents.Agent{}, managedagents.ErrForbidden
 	}
+	if scope.OwnerID != "" && agent.OwnerType == managedagents.AgentOwnerUser && agent.OwnerID != scope.OwnerID {
+		return managedagents.Agent{}, managedagents.ErrForbidden
+	}
 	return agent, nil
 }
 
@@ -1089,7 +1209,8 @@ func (s *testStore) ListAgentsScoped(scope managedagents.AccessScope) ([]managed
 	}
 	filtered := agents[:0]
 	for _, agent := range agents {
-		if agent.WorkspaceID == scope.WorkspaceID {
+		if agent.WorkspaceID == scope.WorkspaceID &&
+			(agent.OwnerType != managedagents.AgentOwnerUser || scope.OwnerID == "" || agent.OwnerID == scope.OwnerID) {
 			filtered = append(filtered, agent)
 		}
 	}
@@ -2176,6 +2297,9 @@ func (s *testStore) ListAgentDeliberationContributions(deliberationID string, ro
 }
 
 func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.UpdateSessionRuntimeSettingsInput) (managedagents.Session, error) {
+	if _, err := managedagents.AgentConfigUpdatePolicy(input.RuntimeSettings); err != nil {
+		return managedagents.Session{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -4075,6 +4199,10 @@ func (s *testStore) sessionRunLocked(sessionID string, runID string) (managedage
 			run.StartedAt = event.CreatedAt
 			found = true
 		}
+		if event.Type == managedagents.EventSessionStatusRunning {
+			run.AgentID = payloadString(event.Payload, "agent_id")
+			run.AgentConfigVersion = payloadInt(event.Payload, "agent_config_version")
+		}
 		switch event.Type {
 		case managedagents.EventUserMessage:
 			run.UserEventID = event.ID
@@ -4334,13 +4462,20 @@ func (s *testStore) applyEventLocked(session *managedagents.Session, input manag
 		if session.Status != managedagents.SessionStatusIdle {
 			return nil, fmt.Errorf("%w: user.message requires idle session", managedagents.ErrInvalid)
 		}
+		configEvents, err := s.followLatestSessionAgentConfigLocked(session, now)
+		if err != nil {
+			return nil, err
+		}
 		turnID := s.nextTurnIDLocked(session.ID)
 		session.Status = managedagents.SessionStatusRunning
-		statusEvent := s.appendEventLocked(session.ID, managedagents.EventSessionStatusRunning, statusPayload("running", turnID), now)
+		statusEvent := s.appendEventLocked(session.ID, managedagents.EventSessionStatusRunning, runningStatusPayload(*session, turnID), now)
 		userEvent := s.appendEventLocked(session.ID, input.Type, payloadWithTurnID(input.Payload, turnID), now)
+		for _, event := range configEvents {
+			s.publishLocked(event)
+		}
 		s.publishLocked(statusEvent)
 		s.publishLocked(userEvent)
-		return []managedagents.Event{statusEvent, userEvent}, nil
+		return append(configEvents, statusEvent, userEvent), nil
 
 	case managedagents.EventUserInterrupt:
 		if session.Status != managedagents.SessionStatusRunning {
@@ -4395,6 +4530,39 @@ func (s *testStore) applyEventLocked(session *managedagents.Session, input manag
 		s.publishLocked(event)
 		return []managedagents.Event{event}, nil
 	}
+}
+
+func (s *testStore) followLatestSessionAgentConfigLocked(session *managedagents.Session, now time.Time) ([]managedagents.Event, error) {
+	policy, err := managedagents.AgentConfigUpdatePolicy(session.RuntimeSettings)
+	if err != nil {
+		return nil, err
+	}
+	if policy == managedagents.AgentConfigUpdatePinned {
+		return nil, nil
+	}
+	agent, ok := s.agents[session.AgentID]
+	if !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	if agent.CurrentConfigVersion <= session.AgentConfigVersion {
+		return nil, nil
+	}
+	oldVersion := session.AgentConfigVersion
+	session.AgentConfigVersion = agent.CurrentConfigVersion
+	payload, _ := json.Marshal(map[string]any{
+		"old_agent_config_version": oldVersion, "new_agent_config_version": session.AgentConfigVersion,
+		"latest_agent_config_version": agent.CurrentConfigVersion, "updated_by": "system:auto-follow",
+		"automatic": true, "policy": policy, "trigger": "new_turn",
+	})
+	return []managedagents.Event{s.appendEventLocked(session.ID, managedagents.EventSessionConfigUpdated, payload, now)}, nil
+}
+
+func runningStatusPayload(session managedagents.Session, turnID string) json.RawMessage {
+	payload, _ := json.Marshal(map[string]any{
+		"status": "running", "turn_id": turnID, "agent_id": session.AgentID,
+		"agent_config_version": session.AgentConfigVersion,
+	})
+	return payload
 }
 
 func (s *testStore) appendEventLocked(sessionID, eventType string, payload json.RawMessage, now time.Time) managedagents.Event {
@@ -4684,6 +4852,15 @@ func metadataJSON(value json.RawMessage) json.RawMessage {
 		return json.RawMessage(`{}`)
 	}
 	return cloneRaw(value)
+}
+
+func payloadInt(payload json.RawMessage, key string) int {
+	var value map[string]any
+	if json.Unmarshal(payload, &value) != nil {
+		return 0
+	}
+	number, _ := value[key].(float64)
+	return int(number)
 }
 
 func workerLeaseDuration(seconds int) time.Duration {

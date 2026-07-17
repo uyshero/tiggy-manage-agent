@@ -57,12 +57,35 @@ func (p WorkspacePathGuardProvider) ExecuteCode(ctx context.Context, request Exe
 }
 
 func (p WorkspacePathGuardProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
+	displayPath := request.Path
 	path, err := p.resolveReadPath(request.Path)
 	if err != nil {
 		return FileResult{}, fmt.Errorf("workspace path guard read denied: %w", err)
 	}
 	request.Path = path
-	return p.inner().ReadFile(ctx, request)
+	result, err := p.inner().ReadFile(ctx, request)
+	if err != nil {
+		return FileResult{}, remapFileReadErrorPath(err, displayPath)
+	}
+	return result, nil
+}
+
+func (p WorkspacePathGuardProvider) SearchFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error) {
+	displayPath := request.Path
+	path, err := p.resolveReadPath(request.Path)
+	if err != nil {
+		return SearchFileResult{}, fmt.Errorf("workspace path guard search denied: %w", err)
+	}
+	provider, ok := p.inner().(FileSearchProvider)
+	if !ok {
+		return SearchFileResult{}, fmt.Errorf("workspace file search is unavailable")
+	}
+	request.Path = path
+	result, err := provider.SearchFile(ctx, request)
+	if err != nil {
+		return SearchFileResult{}, remapFileReadErrorPath(err, displayPath)
+	}
+	return result, nil
 }
 
 func (p WorkspacePathGuardProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {

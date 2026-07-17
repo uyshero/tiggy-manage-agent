@@ -549,7 +549,13 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 		}
 		workspaceID = scope.WorkspaceID
 	}
-	normalizedSkills, err := s.normalizeAgentSkills(ctx, workspaceID, input.Skills)
+	ownership, err := NormalizeAgentOwnership(workspaceID, AgentOwnership{
+		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
+	})
+	if err != nil {
+		return Agent{}, err
+	}
+	normalizedSkills, err := s.normalizeAgentSkills(agentSkillContext(ctx, Agent{WorkspaceID: workspaceID, OwnerType: ownership.OwnerType, OwnerID: ownership.OwnerID}), workspaceID, input.Skills)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -570,10 +576,14 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO agents (id, workspace_id, name, current_config_version, created_at)
-		VALUES ($1, $2, $3, 1, $4)
-		ON CONFLICT (id) DO NOTHING
-	`, input.ID, workspaceID, input.Name, now)
+			INSERT INTO agents (
+				id, workspace_id, owner_type, owner_id, visibility, agent_kind,
+				name, current_config_version, created_at
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
+			ON CONFLICT (id) DO NOTHING
+		`, input.ID, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
+		input.Name, now)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -632,7 +642,13 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 		}
 		workspaceID = scope.WorkspaceID
 	}
-	normalizedSkills, err := s.normalizeAgentSkills(ctx, workspaceID, input.Skills)
+	ownership, err := NormalizeAgentOwnership(workspaceID, AgentOwnership{
+		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
+	})
+	if err != nil {
+		return Agent{}, err
+	}
+	normalizedSkills, err := s.normalizeAgentSkills(agentSkillContext(ctx, Agent{WorkspaceID: workspaceID, OwnerType: ownership.OwnerType, OwnerID: ownership.OwnerID}), workspaceID, input.Skills)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -659,9 +675,13 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	now := time.Now().UTC()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO agents (id, workspace_id, name, current_config_version, created_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, id, workspaceID, input.Name, 1, now)
+		INSERT INTO agents (
+			id, workspace_id, owner_type, owner_id, visibility, agent_kind,
+			name, current_config_version, created_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, id, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
+		input.Name, 1, now)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -681,6 +701,10 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	return Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		OwnerType:            ownership.OwnerType,
+		OwnerID:              ownership.OwnerID,
+		Visibility:           ownership.Visibility,
+		AgentKind:            ownership.AgentKind,
 		Name:                 input.Name,
 		CurrentConfigVersion: 1,
 		ConfigVersion: AgentConfigVersion{
@@ -722,6 +746,9 @@ func (s *PostgresStore) GetAgentScoped(id string, scope AccessScope) (Agent, err
 	if err != nil {
 		return Agent{}, err
 	}
+	if scope.OwnerID != "" && agent.OwnerType == AgentOwnerUser && agent.OwnerID != scope.OwnerID {
+		return Agent{}, ErrForbidden
+	}
 	if err := tx.Commit(); err != nil {
 		return Agent{}, err
 	}
@@ -743,10 +770,14 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 	var skills []byte
 	var archivedAt sql.NullTime
 	err := q.QueryRowContext(ctx, `
-		SELECT
-			a.id,
-			a.workspace_id,
-			a.name,
+			SELECT
+				a.id,
+				a.workspace_id,
+				a.owner_type,
+				a.owner_id,
+				a.visibility,
+				a.agent_kind,
+				a.name,
 			a.current_config_version,
 			a.archived_at,
 			a.created_at,
@@ -767,6 +798,10 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 	`, id, workspaceID).Scan(
 		&agent.ID,
 		&agent.WorkspaceID,
+		&agent.OwnerType,
+		&agent.OwnerID,
+		&agent.Visibility,
+		&agent.AgentKind,
 		&agent.Name,
 		&agent.CurrentConfigVersion,
 		&archivedAt,
@@ -817,6 +852,15 @@ func (s *PostgresStore) ListAgentsScoped(scope AccessScope) ([]Agent, error) {
 	if err != nil {
 		return nil, err
 	}
+	if scope.OwnerID != "" {
+		visible := agents[:0]
+		for _, agent := range agents {
+			if agent.OwnerType != AgentOwnerUser || agent.OwnerID == scope.OwnerID {
+				visible = append(visible, agent)
+			}
+		}
+		agents = visible
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -829,10 +873,14 @@ type rowsQueryer interface {
 
 func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]Agent, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT
-			a.id,
-			a.workspace_id,
-			a.name,
+			SELECT
+				a.id,
+				a.workspace_id,
+				a.owner_type,
+				a.owner_id,
+				a.visibility,
+				a.agent_kind,
+				a.name,
 			a.current_config_version,
 			a.created_at,
 			av.version,
@@ -865,6 +913,10 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 		if err := rows.Scan(
 			&agent.ID,
 			&agent.WorkspaceID,
+			&agent.OwnerType,
+			&agent.OwnerID,
+			&agent.Visibility,
+			&agent.AgentKind,
 			&agent.Name,
 			&agent.CurrentConfigVersion,
 			&agent.CreatedAt,
@@ -936,7 +988,7 @@ func (s *PostgresStore) updateAgentContext(ctx context.Context, input UpdateAgen
 		configChanged = true
 	}
 	if input.Skills != nil {
-		normalizedSkills, normalizeErr := s.normalizeAgentSkills(ctx, current.WorkspaceID, input.Skills)
+		normalizedSkills, normalizeErr := s.normalizeAgentSkills(agentSkillContext(ctx, current), current.WorkspaceID, input.Skills)
 		if normalizeErr != nil {
 			return Agent{}, normalizeErr
 		}
@@ -1096,7 +1148,8 @@ func (s *PostgresStore) createAgentConfigVersionContext(ctx context.Context, inp
 	var currentSkills []byte
 	var archivedAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
-		SELECT a.id, a.workspace_id, a.name, a.current_config_version, a.archived_at, a.created_at, av.skills_json
+			SELECT a.id, a.workspace_id, a.owner_type, a.owner_id, a.visibility, a.agent_kind,
+				a.name, a.current_config_version, a.archived_at, a.created_at, av.skills_json
 		FROM agents a
 		JOIN agent_config_versions av ON av.agent_id = a.id AND av.version = a.current_config_version
 		WHERE a.id = $1
@@ -1104,6 +1157,10 @@ func (s *PostgresStore) createAgentConfigVersionContext(ctx context.Context, inp
 	`, input.AgentID).Scan(
 		&agent.ID,
 		&agent.WorkspaceID,
+		&agent.OwnerType,
+		&agent.OwnerID,
+		&agent.Visibility,
+		&agent.AgentKind,
 		&agent.Name,
 		&currentVersion,
 		&archivedAt,
@@ -1123,7 +1180,7 @@ func (s *PostgresStore) createAgentConfigVersionContext(ctx context.Context, inp
 		return Agent{}, fmt.Errorf("%w: Agent config changed from expected version %d to %d; retry against the latest config", ErrRevisionConflict, input.ExpectedCurrentVersion, currentVersion)
 	}
 	if !bytes.Equal(input.Skills, currentSkills) {
-		normalizedSkills, normalizeErr := s.normalizeAgentSkills(ctx, agent.WorkspaceID, input.Skills)
+		normalizedSkills, normalizeErr := s.normalizeAgentSkills(agentSkillContext(ctx, agent), agent.WorkspaceID, input.Skills)
 		if normalizeErr != nil {
 			return Agent{}, normalizeErr
 		}
@@ -3857,6 +3914,9 @@ func (s *PostgresStore) updateSessionRuntimeSettingsContext(ctx context.Context,
 	if !json.Valid(input.RuntimeSettings) {
 		return Session{}, fmt.Errorf("%w: runtime_settings must be valid JSON", ErrInvalid)
 	}
+	if _, err := AgentConfigUpdatePolicy(input.RuntimeSettings); err != nil {
+		return Session{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Session{}, err
@@ -3888,6 +3948,57 @@ func (s *PostgresStore) updateSessionRuntimeSettingsContext(ctx context.Context,
 		return Session{}, err
 	}
 	return updated, nil
+}
+
+func (s *PostgresStore) followLatestSessionAgentConfigTx(ctx context.Context, tx *sql.Tx, session *Session, now time.Time) (*Event, error) {
+	policy, err := AgentConfigUpdatePolicy(session.RuntimeSettings)
+	if err != nil {
+		return nil, err
+	}
+	if policy == AgentConfigUpdatePinned {
+		return nil, nil
+	}
+
+	var latestVersion int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT current_config_version
+		FROM agents
+		WHERE id = $1 AND archived_at IS NULL
+	`, session.AgentID).Scan(&latestVersion); err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if latestVersion <= session.AgentConfigVersion {
+		return nil, nil
+	}
+
+	oldVersion := session.AgentConfigVersion
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sessions
+		SET agent_config_version = $2
+		WHERE id = $1
+	`, session.ID, latestVersion); err != nil {
+		return nil, err
+	}
+	session.AgentConfigVersion = latestVersion
+	payload, err := json.Marshal(map[string]any{
+		"old_agent_config_version":    oldVersion,
+		"new_agent_config_version":    latestVersion,
+		"latest_agent_config_version": latestVersion,
+		"updated_by":                  "system:auto-follow",
+		"automatic":                   true,
+		"policy":                      policy,
+		"trigger":                     "new_turn",
+	})
+	if err != nil {
+		return nil, err
+	}
+	event, err := s.appendEventTx(ctx, tx, session.ID, EventSessionConfigUpdated, payload, now)
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
 }
 
 func (s *PostgresStore) UpdateSessionMetadata(id string, input UpdateSessionMetadataInput) (Session, error) {
@@ -4725,6 +4836,10 @@ func (s *PostgresStore) StartSessionRunContext(ctx context.Context, sessionID st
 	}
 
 	now := time.Now().UTC()
+	configEvent, err := s.followLatestSessionAgentConfigTx(ctx, tx, &session, now)
+	if err != nil {
+		return StartSessionRunResult{}, err
+	}
 	turnID, err := nextTurnID(ctx, tx, session.ID)
 	if err != nil {
 		return StartSessionRunResult{}, err
@@ -4733,7 +4848,7 @@ func (s *PostgresStore) StartSessionRunContext(ctx context.Context, sessionID st
 		return StartSessionRunResult{}, err
 	}
 	session.Status = SessionStatusRunning
-	statusEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusRunning, statusPayload("running", turnID), now)
+	statusEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusRunning, runningStatusPayload(session, turnID), now)
 	if err != nil {
 		return StartSessionRunResult{}, err
 	}
@@ -4750,13 +4865,18 @@ func (s *PostgresStore) StartSessionRunContext(ctx context.Context, sessionID st
 	if err := tx.Commit(); err != nil {
 		return StartSessionRunResult{}, err
 	}
-	events := []Event{statusEvent, userEvent}
+	events := make([]Event, 0, 3)
+	if configEvent != nil {
+		events = append(events, *configEvent)
+	}
+	events = append(events, statusEvent, userEvent)
 	for _, event := range events {
 		s.hub.publish(event)
 	}
 	return StartSessionRunResult{
 		Run: SessionRun{
-			ID: turnID, SessionID: session.ID, Status: TurnStatusRunning,
+			ID: turnID, SessionID: session.ID, AgentID: session.AgentID,
+			AgentConfigVersion: session.AgentConfigVersion, Status: TurnStatusRunning,
 			UserEventID: userEvent.ID, UserEventSeq: userEvent.Seq, StartedAt: now,
 			IdempotencyKey: input.IdempotencyKey, RequestHash: input.RequestHash,
 		},
@@ -4879,7 +4999,7 @@ func (s *PostgresStore) ListSessionRunEventsContext(ctx context.Context, session
 }
 
 const sessionRunSelect = `
-	SELECT turn.id, turn.session_id, turn.status,
+	SELECT turn.id, turn.session_id, turn.agent_id, turn.agent_config_version, turn.status,
 		COALESCE(turn.user_event_id, ''), COALESCE(user_event.seq, 0),
 		turn.attempt_count, turn.started_at, turn.ended_at, turn.interrupt_requested_at,
 		COALESCE(turn.error_message, ''), COALESCE(turn.idempotency_key, ''), turn.request_hash
@@ -4894,7 +5014,7 @@ type sessionRunScanner interface {
 func scanSessionRun(scanner sessionRunScanner) (SessionRun, error) {
 	var run SessionRun
 	if err := scanner.Scan(
-		&run.ID, &run.SessionID, &run.Status, &run.UserEventID, &run.UserEventSeq,
+		&run.ID, &run.SessionID, &run.AgentID, &run.AgentConfigVersion, &run.Status, &run.UserEventID, &run.UserEventSeq,
 		&run.Attempt, &run.StartedAt, &run.EndedAt, &run.InterruptRequestedAt,
 		&run.ErrorMessage, &run.IdempotencyKey, &run.RequestHash,
 	); err != nil {
@@ -7730,6 +7850,11 @@ func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *S
 			return nil, fmt.Errorf("%w: user.message requires idle session", ErrInvalid)
 		}
 
+		configEvent, err := s.followLatestSessionAgentConfigTx(ctx, tx, session, now)
+		if err != nil {
+			return nil, err
+		}
+
 		// user.message 开启一个新的 turn，并立刻把 Session 切到 running。
 		turnID, err := nextTurnID(ctx, tx, session.ID)
 		if err != nil {
@@ -7739,7 +7864,7 @@ func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *S
 			return nil, err
 		}
 		session.Status = SessionStatusRunning
-		statusEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusRunning, statusPayload("running", turnID), now)
+		statusEvent, err := s.appendEventTx(ctx, tx, session.ID, EventSessionStatusRunning, runningStatusPayload(*session, turnID), now)
 		if err != nil {
 			return nil, err
 		}
@@ -7751,7 +7876,11 @@ func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *S
 			return nil, err
 		}
 
-		return []Event{statusEvent, userEvent}, nil
+		events := make([]Event, 0, 3)
+		if configEvent != nil {
+			events = append(events, *configEvent)
+		}
+		return append(events, statusEvent, userEvent), nil
 
 	case EventUserInterrupt:
 		if session.Status != SessionStatusRunning {
@@ -7904,10 +8033,12 @@ func createTurnTx(ctx context.Context, tx *sql.Tx, session Session, turnID strin
 	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO session_turns (
-			session_id, id, workspace_id, owner_id, status, started_at, idempotency_key, request_hash
+			session_id, id, workspace_id, owner_id, agent_id, agent_config_version,
+			status, started_at, idempotency_key, request_hash
 		)
-		VALUES ($1, $2, $3, $4, 'running', $5, NULLIF($6, ''), $7)
-	`, session.ID, turnID, session.WorkspaceID, session.OwnerID, now, idempotencyKey, requestHash)
+		VALUES ($1, $2, $3, $4, $5, $6, 'running', $7, NULLIF($8, ''), $9)
+	`, session.ID, turnID, session.WorkspaceID, session.OwnerID, session.AgentID,
+		session.AgentConfigVersion, now, idempotencyKey, requestHash)
 	return err
 }
 

@@ -780,9 +780,9 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 					if ctx.Err() != nil {
 						return llm.Response{}, ctx.Err()
 					}
-					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "custom", Reason: gateErr.Error()}
+					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: defaultString(strings.TrimSpace(customVerdict.Validator), "custom"), Reason: gateErr.Error()}
 				} else if normalized, normalizeErr := normalizeCompletionVerdict(customVerdict, "custom"); normalizeErr != nil {
-					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: "custom", Reason: normalizeErr.Error()}
+					verdict = CompletionVerdict{Outcome: CompletionOutcomeFail, Validator: defaultString(strings.TrimSpace(customVerdict.Validator), "custom"), Reason: normalizeErr.Error()}
 				} else {
 					verdict = normalized
 				}
@@ -971,12 +971,28 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 		var preflightError *tools.ExecutionError
 		if argumentsErr != nil {
 			preflightError = &tools.ExecutionError{Type: "invalid_tool_arguments", Message: invalidToolArgumentsMessage(call)}
-		} else if batchPreflightError != nil && isFileMutationCall(call) {
-			preflightError = batchPreflightError
 		} else {
-			preflightError = tools.ValidateFileMutationCallWithLimits(call, mutationLimits)
+			if batchPreflightError != nil && isFileMutationCall(call) {
+				preflightError = batchPreflightError
+			} else {
+				preflightError = tools.ValidateFileMutationCallWithLimits(call, mutationLimits)
+			}
+			if preflightError == nil {
+				_, _, registered := registry.GetAPI(call.Identifier, call.APIName)
+				if registered {
+					if schemaError := registry.ValidateCallArguments(call); schemaError != nil {
+						preflightError = schemaError
+						if schemaError.Type == "invalid_tool_arguments" {
+							preflightError = &tools.ExecutionError{Type: schemaError.Type, Message: invalidToolSchemaRecoveryMessage(schemaError.Message)}
+						}
+					}
+				}
+			}
 		}
 		if preflightError != nil {
+			if preflightError.Type == "invalid_tool_schema" {
+				return nil, fmt.Errorf("registered tool schema validation failed for %s.%s: %s", call.Identifier, call.APIName, preflightError.Message)
+			}
 			if preflightError.Type == "file_content_too_large" || preflightError.Type == "edit_replacement_too_large" {
 				fileGenerationState.OversizedCalls++
 			}
@@ -1250,6 +1266,10 @@ func invalidToolArgumentsMessage(call tools.Call) string {
 	default:
 		return "Tool arguments were incomplete or invalid JSON. Regenerate a complete, smaller JSON object and retry the tool call."
 	}
+}
+
+func invalidToolSchemaRecoveryMessage(validationMessage string) string {
+	return "Tool arguments failed the registered JSON Schema validation: " + validationMessage + ". Regenerate the arguments to match the tool schema. Do not retry the unchanged payload."
 }
 
 func normalizeToolAPIName(apiName string) string {

@@ -64,6 +64,21 @@ type TurnResult struct {
 }
 ```
 
+### 完成质量门禁
+
+Runtime 在模型准备返回最终文本时先写入 `runtime.turn_completing`，并执行完成门禁；只有校验通过后才发布 `agent.message`。校验返回可修正失败时，Runtime 会把反馈追加到同一 Tool Loop，要求模型继续执行，默认最多重试 3 次，可通过 Session `runtime_settings.completion_gate.max_retries` 在 1–10 之间调整。校验器异常、非法结果或重试耗尽会失败关闭，不能把候选文本当作成功结果。
+
+服务端默认启用持久化 Task Plan 完成校验：
+
+- 没有活动计划时正常放行。
+- 活动计划存在 pending、in_progress、blocked 或缺少 evidence 的 completed item 时阻止完成，并向模型返回精确的 item ID、状态和修正动作。
+- completed item 除 evidence 文本外，还必须通过 `evidence_refs` 引用当前 turn 中真实成功的非 `task.*` 工具结果；Store 会从持久化 `runtime.tool_result` 校验并回填工具名和 Artifact ID，模型不能自行声明引用有效。
+- 不存在的调用、失败调用、计划创建前的调用以及 `task.update_items` 等 Task 工具自证都会被拒绝。
+- 所有 item 都 completed 且包含已核验 evidence refs、但计划仍为 active 时，要求模型先成功调用 `task.complete_plan`。
+- Task Plan Store 读取失败时不放行，避免运行时在无法确认执行状态时错误报告成功。
+
+门禁事件只保存 validator、reason、有限的结构化 evidence 和反馈字符数，不保存候选回复或完整反馈文本。
+
 同时它会写入三类 runtime step 事件：
 
 ```text
@@ -80,7 +95,7 @@ runtime.completed
 
 `runtime.llm_chunk` 是统一流事件，支持 `data.type=text|reasoning|tool_call|usage|stop|error`。`text` / `reasoning` 使用 `data.text`；`tool_call` 使用 `data.tool_call={index,id,type,name,arguments}` 保存参数分片；`usage` 使用 `data.usage`；`stop` 使用 `data.finish_reason`；`error` 使用 `data.error={class,status_code,retryable,message}`。`openai-compatible` 会把 `delta.content` 映射为 `text`，优先把 `delta.reasoning_content`、缺失时的 `reasoning_details[].summary|text|content` 映射为 `reasoning`，并映射原生 tool-call fragments、最终 usage、finish reason / `[DONE]` 与流内 error。连续 reasoning 分片会先在 Provider 层聚合，再进入 Runtime。`runtime.llm_delta` 暂时只与 text chunk 同时写出，用于兼容旧客户端；默认 `fake` Provider 不会写流事件。
 
-当前 `DemoRuntime` 已有最小 tool loop：Runtime 会把 `internal/tools.Registry.ModelTools()` 生成的函数 schema 放进 `llm.Request.Tools`。`openai-compatible` 会把它转换成 Chat Completions `tools`，并把响应里的原生 `tool_calls` 解析回 `llm.Message.ToolCalls`。Runtime 会先记录 `runtime.tool_call` 表示模型请求了工具调用；通过审批或直通策略后，才调用 `internal/tools.Executor`，并用 `runtime.tool_result` 记录真实执行结果，再把工具结果作为带 `tool_call_id` 的 `tool` role message 送回模型继续本轮回复。
+当前 `DemoRuntime` 已有最小 tool loop：Runtime 会把 `internal/tools.Registry.ModelTools()` 生成的函数 schema 放进 `llm.Request.Tools`。`openai-compatible` 会把它转换成 Chat Completions `tools`，并把响应里的原生 `tool_calls` 解析回 `llm.Message.ToolCalls`。Runtime 会先记录 `runtime.tool_call` 表示模型请求了工具调用，再按注册 API 的 Draft 2020-12 JSON Schema 校验参数；非法参数在审批和执行前以可恢复的 `invalid_tool_arguments` 返回模型，连续两轮非法会终止 Turn，schema 本身无效则失败关闭。只有参数合法且通过审批或直通策略后，才调用 `internal/tools.Executor`；`RegistryExecutor` 会重复执行同一 schema 校验作为最终边界。Runtime 用 `runtime.tool_result` 记录真实执行或拒绝结果，再把工具结果作为带 `tool_call_id` 的 `tool` role message 送回模型继续本轮回复。校验反馈只包含 instance/constraint path，不回显实际参数值。
 
 Session 级工具开启等级通过 `runtime_settings.intervention_mode` 热更新，当前支持：
 
@@ -185,6 +200,7 @@ type ContextBuilder interface {
 - token 数仍是 Provider 无关的近似估算：每条 message 有固定开销，连续 ASCII 按约 4 字符/token，CJK 与其他非 ASCII 字符按约 1 字符/token，tool schema 按 JSON 序列化后的文本估算。第一轮收到 Provider 的真实 `input_tokens` 后，同一 Tool Loop 后续轮次只向上校准估算倍率，不会因一次低用量而放宽预算。
 - `runtime.llm_request` step 会记录 `history_count`、`omitted_history_count`、`estimated_token_count`、`budgeted_token_count`、`token_estimate_multiplier`、`estimated_message_tokens`、`estimated_tool_schema_tokens`、`tool_schema_count`、`available_output_tokens`、`context_truncated`、`current_date_context_included`、`pinned_context_included` 和 `summary_included`，并在 `context_budget` 中给出 `context_window_tokens`、`input_budget_ratio_percent`、`max_input_tokens`、`reserved_output_tokens`、`message_tokens`、`current_date_context_tokens`、`pinned_context_tokens` 和 `tool_schema_tokens` 等分账。
 - 同一 Turn 的工具循环会对 tool result 执行两级预算：先按 `tool_result_context_max_chars` 裁剪单条结果，再按 `tool_result_context_total_max_chars` micro-compact 较旧结果。assistant tool call 与对应 tool message 不删除，最新结果保持完整；`runtime.llm_request` 会记录累计字符、预算、压缩数量和节省字符。
+- `default.read_file` 在 Provider 层先执行有界分页，普通大文本不会先完整载入内存。当前页文本只放在 `ExecutionResult.Content`，分页 metadata 放在 `State`。`State.truncated/eof` 表示文件读取范围；`State.model_context_truncated` 和 tool result 的 `context.content_truncated` 表示当前页又被模型上下文预算裁剪。`default.search_file` 提供无需 exec 审批的流式单文件定位。详见 [大文件分页读取设计](./large-file-reading.md)。
 - 每轮请求会按 `context_window_tokens - budgeted_token_count` 动态收缩 `max_output_tokens`。如果输入估算本身已经耗尽窗口，Runtime 会在调用 Provider 前返回非重试 `context_length`，避免无效网络请求和重复计费。
 
 Summary 当前有两种入口。

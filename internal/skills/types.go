@@ -15,8 +15,12 @@ const (
 	ModeExamplesOnly = "examples_only"
 
 	OwnerTypeBuiltin   = "builtin"
+	OwnerTypeUser      = "user"
 	OwnerTypeWorkspace = "workspace"
 	OwnerTypePlugin    = "plugin"
+
+	VisibilityPrivate   = "private"
+	VisibilityWorkspace = "workspace"
 
 	SourceTypeInline   = "inline"
 	SourceTypeGitHub   = "github"
@@ -39,6 +43,7 @@ type Config struct {
 }
 
 type EnabledSkill struct {
+	SkillID  string          `json:"skill_id,omitempty"`
 	Skill    string          `json:"skill"`
 	Version  int             `json:"version,omitempty"`
 	Mode     string          `json:"mode,omitempty"`
@@ -47,20 +52,24 @@ type EnabledSkill struct {
 }
 
 type Skill struct {
-	ID             string     `json:"id"`
-	WorkspaceID    string     `json:"workspace_id"`
-	Identifier     string     `json:"identifier"`
-	Title          string     `json:"title"`
-	Description    string     `json:"description,omitempty"`
-	OwnerType      string     `json:"owner_type"`
-	SourcePluginID string     `json:"source_plugin_id,omitempty"`
-	SourceType     string     `json:"source_type"`
-	SourceLocator  string     `json:"source_locator,omitempty"`
-	SourcePath     string     `json:"source_path,omitempty"`
-	Status         string     `json:"status"`
-	CreatedBy      string     `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
-	ArchivedAt     *time.Time `json:"archived_at,omitempty"`
+	ID                string     `json:"id"`
+	WorkspaceID       string     `json:"workspace_id"`
+	Identifier        string     `json:"identifier"`
+	Title             string     `json:"title"`
+	Description       string     `json:"description,omitempty"`
+	OwnerType         string     `json:"owner_type"`
+	OwnerID           string     `json:"owner_id"`
+	Visibility        string     `json:"visibility"`
+	ForkedFromSkillID string     `json:"forked_from_skill_id,omitempty"`
+	ForkedFromVersion int        `json:"forked_from_version,omitempty"`
+	SourcePluginID    string     `json:"source_plugin_id,omitempty"`
+	SourceType        string     `json:"source_type"`
+	SourceLocator     string     `json:"source_locator,omitempty"`
+	SourcePath        string     `json:"source_path,omitempty"`
+	Status            string     `json:"status"`
+	CreatedBy         string     `json:"created_by"`
+	CreatedAt         time.Time  `json:"created_at"`
+	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
 }
 
 type Version struct {
@@ -99,16 +108,20 @@ type ManifestBlock struct {
 }
 
 type CreateSkillInput struct {
-	WorkspaceID    string
-	Identifier     string
-	Title          string
-	Description    string
-	OwnerType      string
-	SourcePluginID string
-	SourceType     string
-	SourceLocator  string
-	SourcePath     string
-	CreatedBy      string
+	WorkspaceID       string
+	Identifier        string
+	Title             string
+	Description       string
+	OwnerType         string
+	OwnerID           string
+	Visibility        string
+	ForkedFromSkillID string
+	ForkedFromVersion int
+	SourcePluginID    string
+	SourceType        string
+	SourceLocator     string
+	SourcePath        string
+	CreatedBy         string
 }
 
 type ListSkillsInput struct {
@@ -126,6 +139,37 @@ type CreateVersionInput struct {
 	SourceRevision string
 	SourceURL      string
 	CreatedBy      string
+}
+
+type Draft struct {
+	SkillID       string          `json:"skill_id"`
+	Revision      int64           `json:"revision"`
+	ContentFormat string          `json:"content_format"`
+	Manifest      json.RawMessage `json:"manifest"`
+	ContentText   string          `json:"content_text"`
+	Assets        json.RawMessage `json:"assets"`
+	UpdatedBy     string          `json:"updated_by"`
+	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+type PutDraftInput struct {
+	SkillID          string
+	ExpectedRevision int64
+	ContentFormat    string
+	Manifest         json.RawMessage
+	ContentText      string
+	Assets           json.RawMessage
+	UpdatedBy        string
+}
+
+type DraftStore interface {
+	GetSkillDraft(ctx context.Context, skillID string) (Draft, error)
+	PutSkillDraft(ctx context.Context, input PutDraftInput) (Draft, error)
+	PublishSkillDraft(ctx context.Context, skillID string, expectedRevision int64, createdBy string) (Version, error)
+}
+
+type ForkStore interface {
+	ForkSkill(ctx context.Context, sourceSkillID string, sourceVersion int, input CreateSkillInput) (Skill, error)
 }
 
 type Registry interface {

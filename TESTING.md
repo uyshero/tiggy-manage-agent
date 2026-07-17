@@ -19,9 +19,12 @@ cd "/Users/viito/Desktop/Harness 企业级定制化实现/tiggy-manage-agent"
 ```bash
 make fmt
 make test
+make eval-agent-quality
 make build
 make build-cli
 ```
+
+`make eval-agent-quality` 是无需 Docker、网络、数据库或真实模型的确定性 Agent 完成质量回归。它直接运行生产 Tool Loop 与 Task Plan completion gate，并对 false success、重试修正、verified evidence 合规和失败关闭执行 CI 阈值；指标定义见 [docs/agent-quality-evaluation.md](./docs/agent-quality-evaluation.md)。
 
 Postgres 集成测试默认跳过。可以显式运行：
 

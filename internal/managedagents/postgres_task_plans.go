@@ -228,12 +228,26 @@ func (s *PostgresStore) UpdateSessionTaskItemsContext(ctx context.Context, sessi
 		if !ok {
 			return SessionTaskPlanResult{}, fmt.Errorf("%w: task item %s does not belong to plan %s", ErrInvalid, update.ItemID, plan.ID)
 		}
+		previousStatus := item.Status
 		item.Status = update.Status
 		if update.Evidence != "" {
 			item.Evidence = update.Evidence
 		}
-		if item.Status == TaskItemStatusCompleted && strings.TrimSpace(item.Evidence) == "" {
-			return SessionTaskPlanResult{}, fmt.Errorf("%w: completed task item %s requires evidence", ErrInvalid, item.ID)
+		if len(update.EvidenceRefs) > 0 {
+			refs, err := resolveTaskEvidenceRefsTx(ctx, tx, sessionID, input.TurnID, plan.CreatedAt, update.EvidenceRefs)
+			if err != nil {
+				return SessionTaskPlanResult{}, fmt.Errorf("%w: task item %s evidence: %v", ErrInvalid, item.ID, err)
+			}
+			item.EvidenceRefs = refs
+		}
+		if item.Status != TaskItemStatusCompleted {
+			item.EvidenceRefs = []TaskEvidenceRef{}
+		}
+		if item.Status == TaskItemStatusCompleted && previousStatus == TaskItemStatusCompleted && len(update.EvidenceRefs) == 0 {
+			return SessionTaskPlanResult{}, fmt.Errorf("%w: completed task item %s updates require fresh evidence_refs", ErrInvalid, item.ID)
+		}
+		if item.Status == TaskItemStatusCompleted && (strings.TrimSpace(item.Evidence) == "" || len(item.EvidenceRefs) == 0) {
+			return SessionTaskPlanResult{}, fmt.Errorf("%w: completed task item %s requires evidence text and a verified tool result reference", ErrInvalid, item.ID)
 		}
 		byID[item.ID] = item
 	}
@@ -250,12 +264,19 @@ func (s *PostgresStore) UpdateSessionTaskItemsContext(ctx context.Context, sessi
 	now := time.Now().UTC()
 	for _, update := range input.Items {
 		item := byID[update.ItemID]
+		if item.EvidenceRefs == nil {
+			item.EvidenceRefs = []TaskEvidenceRef{}
+		}
+		evidenceRefs, err := json.Marshal(item.EvidenceRefs)
+		if err != nil {
+			return SessionTaskPlanResult{}, fmt.Errorf("encode task item evidence refs: %w", err)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE session_task_items
-			SET status = $2, evidence = $3, updated_at = $4,
-				completed_at = CASE WHEN $2 = 'completed' THEN COALESCE(completed_at, $4) ELSE NULL END
-			WHERE id = $1 AND plan_id = $5
-		`, item.ID, item.Status, item.Evidence, now, plan.ID); err != nil {
+			SET status = $2, evidence = $3, evidence_refs = $4, updated_at = $5,
+				completed_at = CASE WHEN $2 = 'completed' THEN COALESCE(completed_at, $5) ELSE NULL END
+			WHERE id = $1 AND plan_id = $6
+		`, item.ID, item.Status, item.Evidence, evidenceRefs, now, plan.ID); err != nil {
 			return SessionTaskPlanResult{}, err
 		}
 	}
@@ -320,8 +341,8 @@ func (s *PostgresStore) finishSessionTaskPlanContext(ctx context.Context, sessio
 	}
 	if status == TaskPlanStatusCompleted {
 		for _, item := range plan.Items {
-			if item.Status != TaskItemStatusCompleted || strings.TrimSpace(item.Evidence) == "" {
-				return SessionTaskPlanResult{}, fmt.Errorf("%w: all task items require completed status and evidence", ErrInvalid)
+			if item.Status != TaskItemStatusCompleted || strings.TrimSpace(item.Evidence) == "" || len(item.EvidenceRefs) == 0 {
+				return SessionTaskPlanResult{}, fmt.Errorf("%w: all task items require completed status, evidence text, and a verified tool result reference", ErrInvalid)
 			}
 		}
 	}
@@ -395,6 +416,18 @@ func validateUpdateTaskItemsInput(sessionID string, input UpdateSessionTaskItems
 		if input.Items[index].ItemID == "" || input.Items[index].Status == "" {
 			return input, fmt.Errorf("%w: task item update requires item_id and valid status", ErrInvalid)
 		}
+		if len(input.Items[index].EvidenceRefs) > 10 {
+			return input, fmt.Errorf("%w: task item evidence_refs supports at most 10 tool results", ErrInvalid)
+		}
+		seenRefs := map[string]bool{}
+		for refIndex := range input.Items[index].EvidenceRefs {
+			ref := &input.Items[index].EvidenceRefs[refIndex]
+			ref.ToolCallID = strings.TrimSpace(ref.ToolCallID)
+			if ref.ToolCallID == "" || seenRefs[ref.ToolCallID] {
+				return input, fmt.Errorf("%w: task item evidence_refs require unique non-empty tool_call_id values", ErrInvalid)
+			}
+			seenRefs[ref.ToolCallID] = true
+		}
 	}
 	return input, nil
 }
@@ -467,7 +500,7 @@ func scanSessionTaskPlan(scanner taskPlanScanner) (SessionTaskPlan, error) {
 
 func loadSessionTaskItemsTx(ctx context.Context, tx *sql.Tx, plan *SessionTaskPlan) error {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, plan_id, item_index, description, status, evidence, created_at, updated_at, completed_at
+		SELECT id, plan_id, item_index, description, status, evidence, evidence_refs, created_at, updated_at, completed_at
 		FROM session_task_items WHERE plan_id = $1 ORDER BY item_index ASC
 	`, plan.ID)
 	if err != nil {
@@ -478,8 +511,17 @@ func loadSessionTaskItemsTx(ctx context.Context, tx *sql.Tx, plan *SessionTaskPl
 	for rows.Next() {
 		var item SessionTaskItem
 		var itemCompletedAt sql.NullTime
-		if err := rows.Scan(&item.ID, &item.PlanID, &item.Index, &item.Description, &item.Status, &item.Evidence, &item.CreatedAt, &item.UpdatedAt, &itemCompletedAt); err != nil {
+		var evidenceRefs json.RawMessage
+		if err := rows.Scan(&item.ID, &item.PlanID, &item.Index, &item.Description, &item.Status, &item.Evidence, &evidenceRefs, &item.CreatedAt, &item.UpdatedAt, &itemCompletedAt); err != nil {
 			return err
+		}
+		if len(evidenceRefs) > 0 && string(evidenceRefs) != "null" {
+			if err := json.Unmarshal(evidenceRefs, &item.EvidenceRefs); err != nil {
+				return fmt.Errorf("decode task item %s evidence refs: %w", item.ID, err)
+			}
+		}
+		if item.EvidenceRefs == nil {
+			item.EvidenceRefs = []TaskEvidenceRef{}
 		}
 		if itemCompletedAt.Valid {
 			item.CompletedAt = &itemCompletedAt.Time
@@ -490,6 +532,57 @@ func loadSessionTaskItemsTx(ctx context.Context, tx *sql.Tx, plan *SessionTaskPl
 		return err
 	}
 	return nil
+}
+
+func resolveTaskEvidenceRefsTx(ctx context.Context, tx *sql.Tx, sessionID string, turnID string, planCreatedAt time.Time, inputs []TaskEvidenceRefInput) ([]TaskEvidenceRef, error) {
+	if strings.TrimSpace(turnID) == "" {
+		return nil, fmt.Errorf("turn_id is required")
+	}
+	refs := make([]TaskEvidenceRef, 0, len(inputs))
+	for _, input := range inputs {
+		var identifier string
+		var apiName string
+		var artifactsJSON json.RawMessage
+		err := tx.QueryRowContext(ctx, `
+			SELECT payload_json->'data'->>'identifier', payload_json->'data'->>'api_name',
+				COALESCE(payload_json->'data'->'artifacts', '[]'::jsonb)
+			FROM session_events
+			WHERE session_id = $1 AND turn_id = $2 AND type = $3
+				AND payload_json->'data'->>'id' = $4
+				AND payload_json->'data'->>'success' = 'true'
+				AND created_at >= $5
+			ORDER BY seq DESC
+			LIMIT 1
+		`, sessionID, turnID, EventRuntimeToolResult, input.ToolCallID, planCreatedAt).Scan(&identifier, &apiName, &artifactsJSON)
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("successful tool result %q was not found in turn %s after plan creation", input.ToolCallID, turnID)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if identifier == "task" {
+			return nil, fmt.Errorf("task tool result %q cannot be used as execution evidence", input.ToolCallID)
+		}
+		var artifacts []struct {
+			ArtifactID string `json:"artifact_id"`
+		}
+		if len(artifactsJSON) > 0 {
+			if err := json.Unmarshal(artifactsJSON, &artifacts); err != nil {
+				return nil, fmt.Errorf("decode tool result %q artifacts: %w", input.ToolCallID, err)
+			}
+		}
+		artifactIDs := make([]string, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if id := strings.TrimSpace(artifact.ArtifactID); id != "" {
+				artifactIDs = append(artifactIDs, id)
+			}
+		}
+		refs = append(refs, TaskEvidenceRef{
+			Kind: TaskEvidenceKindToolResult, TurnID: turnID, ToolCallID: input.ToolCallID,
+			Tool: strings.Trim(strings.TrimSpace(identifier)+"."+strings.TrimSpace(apiName), "."), ArtifactIDs: artifactIDs,
+		})
+	}
+	return refs, nil
 }
 
 func taskPlanEventPayload(plan SessionTaskPlan, turnID string, reason string) (json.RawMessage, error) {

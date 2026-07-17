@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
@@ -21,7 +22,7 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	if !contains(capabilities.Namespaces, tools.NamespaceDefault) {
 		t.Fatalf("expected default namespace, got %#v", capabilities.Namespaces)
 	}
-	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.read_file") {
+	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.search_file") {
 		t.Fatalf("expected default APIs, got %#v", capabilities.APIs)
 	}
 	if !contains(capabilities.Capabilities, tools.CapabilityExec) || !contains(capabilities.Capabilities, tools.CapabilityFilesystemRead) {
@@ -29,6 +30,69 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	}
 	if len(capabilities.Runtimes) != 1 || capabilities.Runtimes[0] != tools.ToolRuntimeLocalSystem {
 		t.Fatalf("expected local_system runtime, got %#v", capabilities.Runtimes)
+	}
+}
+
+func TestExecutorTransportsBoundedReadStateAndSearchMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "worker.log")
+	content := strings.Repeat("prefix\n", 1500) + "target line\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readInput, _ := json.Marshal(map[string]any{"path": path, "offset_bytes": 0, "max_bytes": 1024})
+	readPayload, _ := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion: tools.WorkProtocolVersion, Namespace: tools.NamespaceDefault, API: "read_file",
+		Capabilities: []string{tools.CapabilityFilesystemRead}, Risk: tools.ToolRiskRead,
+		Runtime: tools.ToolRuntimeLocalSystem, Input: readInput,
+	})
+	readWork := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_read", WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: readPayload,
+	})
+	if !readWork.Success {
+		t.Fatalf("worker read failed: %s", readWork.ErrorMessage)
+	}
+	var readBody struct {
+		ToolResult struct {
+			State json.RawMessage `json:"state"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(readWork.Result, &readBody); err != nil {
+		t.Fatal(err)
+	}
+	var fileResult capability.FileResult
+	if err := json.Unmarshal(readBody.ToolResult.State, &fileResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(fileResult.Content) == 0 || len(fileResult.Content) > 1024 || !fileResult.Truncated {
+		t.Fatalf("worker transport lost bounded page state: %#v", fileResult)
+	}
+
+	searchInput, _ := json.Marshal(map[string]any{"path": path, "query": "target"})
+	searchPayload, _ := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion: tools.WorkProtocolVersion, Namespace: tools.NamespaceDefault, API: "search_file",
+		Capabilities: []string{tools.CapabilityFilesystemRead}, Risk: tools.ToolRiskRead,
+		Runtime: tools.ToolRuntimeLocalSystem, Input: searchInput,
+	})
+	searchWork := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_search", WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: searchPayload,
+	})
+	if !searchWork.Success {
+		t.Fatalf("worker search failed: %s", searchWork.ErrorMessage)
+	}
+	var searchBody struct {
+		ToolResult struct {
+			State json.RawMessage `json:"state"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(searchWork.Result, &searchBody); err != nil {
+		t.Fatal(err)
+	}
+	var searchResult capability.SearchFileResult
+	if err := json.Unmarshal(searchBody.ToolResult.State, &searchResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(searchResult.Matches) != 1 || searchResult.Matches[0].OffsetBytes <= 0 || searchResult.FileRevision == "" {
+		t.Fatalf("worker search metadata was not preserved: %#v", searchResult)
 	}
 }
 

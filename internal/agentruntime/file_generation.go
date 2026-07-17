@@ -287,15 +287,11 @@ func (state *segmentedFileGenerationState) completionBlock(ctx context.Context, 
 	var blockers []string
 	for _, path := range paths {
 		task := state.Tasks[path]
-		result, err := provider.ReadFile(ctx, capability.ReadFileRequest{
-			Meta: capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline),
-			Path: path,
-		})
+		remaining, err := remainingSegmentPlaceholders(ctx, provider, executionContext, path)
 		if err != nil {
-			blockers = append(blockers, fmt.Sprintf("%s could not be read for final verification: %v", path, err))
+			blockers = append(blockers, fmt.Sprintf("%s could not be searched for final verification: %v", path, err))
 			continue
 		}
-		remaining := tools.SegmentedFilePlaceholders(string(result.Content))
 		task.Remaining = remaining
 		if len(remaining) > 0 {
 			task.ValidationSucceeded = false
@@ -310,6 +306,39 @@ func (state *segmentedFileGenerationState) completionBlock(ctx context.Context, 
 		return "", nil
 	}
 	return "Runtime completion gate blocked the final response:\n- " + strings.Join(blockers, "\n- ") + "\nContinue with exactly one file mutation per response, then run the appropriate validation command. Do not claim completion yet.", nil
+}
+
+func remainingSegmentPlaceholders(ctx context.Context, provider capability.Provider, executionContext tools.ExecutionContext, path string) ([]string, error) {
+	meta := capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
+	if searcher, ok := provider.(capability.FileSearchProvider); ok {
+		result, err := searcher.SearchFile(ctx, capability.SearchFileRequest{
+			Meta: meta, Path: path, Query: "__TMA_PLACEHOLDER_", MaxResults: 100,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if result.Binary {
+			return nil, fmt.Errorf("generated file is binary")
+		}
+		var matchedLines strings.Builder
+		for _, match := range result.Matches {
+			matchedLines.WriteString(match.Line)
+			matchedLines.WriteByte('\n')
+		}
+		remaining := tools.SegmentedFilePlaceholders(matchedLines.String())
+		if len(remaining) == 0 && len(result.Matches) > 0 {
+			remaining = []string{"__TMA_PLACEHOLDER_..."}
+		}
+		return remaining, nil
+	}
+	result, err := provider.ReadFile(ctx, capability.ReadFileRequest{Meta: meta, Path: path})
+	if err != nil {
+		return nil, err
+	}
+	if result.Truncated || (!result.EOF && result.SizeBytes > int64(len(result.Content))) {
+		return nil, fmt.Errorf("provider lacks search_file and the file does not fit in one bounded read")
+	}
+	return tools.SegmentedFilePlaceholders(string(result.Content)), nil
 }
 
 func (state *segmentedFileGenerationState) publishFinalArtifacts(ctx context.Context, executionContext tools.ExecutionContext) error {

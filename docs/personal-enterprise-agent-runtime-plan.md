@@ -1,87 +1,83 @@
-# Personal and Enterprise Agent Runtime Plan
+# Personal and Workspace Agent Runtime Plan
 
-Status: active implementation plan
-
-Date: 2026-07-16
+Status: implementation plan, updated 2026-07-16
 
 ## 1. Decisions
 
-This plan records the product decisions that are treated as invariants for the
-implementation.
-
-1. A general-purpose Agent is personal. Every user receives a distinct Agent
-   identity, Memory, Session set, credentials, and configuration history.
-2. An Agent template is a factory input only. Publishing a new template version
-   never updates an existing Agent. A user may create another Agent from the new
-   template.
-3. An enterprise Agent shares immutable configuration, not user state. Every
-   invocation still uses a user-scoped Session, workspace, Memory projection,
-   and credential set.
-4. A Skill package belongs to a registry scope. An exact Skill version is bound
-   to an immutable Agent config version. A Session follows the Agent's current
-   config by default at the boundary of a new Turn.
-5. Skill drafts are mutable. Published Skill versions are immutable. Customizing
-   an organization Skill without publisher permission creates a personal fork.
-6. PostgreSQL is authoritative for identity, metadata, permissions, versions,
-   leases, and Memory records. Object storage is authoritative for immutable
-   packages, artifacts, and workspace snapshots. Execution-node disks contain
-   rebuildable caches and active workspace copies.
-7. The model and Skill scripts never access object-storage URLs directly.
-   Packages are verified and materialized as ordinary read-only files before use.
-8. The enterprise catalog exposes Skills, MCP definitions, Agent templates,
-   enterprise Agents, and Plugins through one governance and discovery surface.
-
-## 2. Runtime Terms
-
-The implementation must not use the single word `worker` for all execution
-roles.
-
-- **Turn Runner**: the server-side background runner that leases and executes a
-  Turn and its LLM loop.
-- **Local Worker**: the outbound `tma-worker` process that provides
-  `local_system` and plugin capabilities on its host.
-- **Sandbox Execution Node**: the node that hosts `cloud_sandbox` containers and
-  their active workspaces. It is currently the TMA server host and may become a
-  separate service later.
-- **Execution Node**: either of the latter two when a rule applies to both.
-
-## 3. Target Domain Model
-
-### 3.1 Identity and ownership
-
-Introduce stable internal principals. External OIDC subjects are identity links,
-not business-table primary keys.
+TMA has one Agent entity and one runtime implementation. Personal and
+Workspace-shared Agents differ only in ownership, visibility, and authorization.
 
 ```text
-users                  internal user record
-principal_identities   issuer + subject -> principal
-principal_groups       organization/workspace groups
-principal_group_members
-resource_grants        resource + principal + permission
+agents
+  workspace_id
+  owner_type       user | workspace
+  owner_id
+  visibility       private | workspace
+  agent_kind       general | custom
 ```
 
-Agent scopes are `personal`, `team`, `workspace`, `organization`, and `builtin`.
-An Agent records `scope_type`, `scope_id`, and `owner_principal_id`. Each config
-version records its real author and publisher. Invocation permission is separate
-from configuration, Skill, MCP, publication, ACL, and archive permissions.
-
-### 3.2 Templates and Agents
+Valid combinations are:
 
 ```text
-agent_templates
-agent_template_versions       immutable factory inputs
-agents                        independent runtime identities
-agent_config_versions          immutable effective configurations
+Personal Agent
+  owner_type = user
+  owner_id = current user
+  visibility = private
+
+Workspace-shared Agent
+  owner_type = workspace
+  owner_id = workspace_id
+  visibility = workspace
 ```
 
-`created_from_template_version_id` is provenance only. Runtime resolution never
-reads a template after Agent creation.
+Both kinds have immutable `AgentConfigVersion` history, bind exact Skill and MCP
+versions, create Sessions, and use the same Turn Runner, execution nodes, and
+filesystem materialization.
 
-Personal general Agents are created lazily and idempotently on first use with a
-uniqueness constraint on organization, user, and Agent kind. Creating from a
-newer template creates a new Agent; it does not upgrade an existing one.
+There are no separate team, organization, builtin, or template-backed Agent
+runtime types. Templates or system defaults may create a new independent Agent,
+but they are not inherited and never upgrade an existing Agent.
 
-### 3.3 Session config following
+## 2. Product Behavior
+
+### 2.1 Personal general Agent
+
+Every authenticated user lazily receives one personal general Agent per
+Workspace. Creation is idempotent and enforced by:
+
+```text
+UNIQUE (workspace_id, owner_id, agent_kind)
+WHERE owner_type = 'user' AND agent_kind = 'general'
+```
+
+All users start from the same default configuration, but receive different
+Agent IDs and independent configuration histories. Later changes to system
+defaults affect newly created Agents only.
+
+Users may create additional personal custom Agents. Operator or Admin users may
+also create Workspace-shared custom Agents. Authentication-disabled legacy mode
+retains one Workspace general Agent for compatibility.
+
+### 2.2 Authorization
+
+| Operation | Personal Agent | Workspace-shared Agent |
+|---|---|---|
+| View and invoke | owner | Workspace member |
+| Change config | owner | Operator or Admin |
+| Bind Skills and MCP | owner | Operator or Admin |
+| Session files | current Session user | current Session user |
+| User Memory and credentials | owner | current Session user |
+
+Workspace operators do not gain visibility into another user's private Agent.
+A shared Agent never implies shared Session state:
+
+```text
+Shared Agent
+  User A Session -> A files, Memory, credentials
+  User B Session -> B files, Memory, credentials
+```
+
+### 2.3 Session configuration
 
 Session runtime settings support:
 
@@ -89,213 +85,205 @@ Session runtime settings support:
 agent_config_update_policy = follow_latest | pinned
 ```
 
-`follow_latest` is the default. Before a new Turn is created, the server locks
-the Session, validates the Agent's latest published config, moves the Session
-forward when necessary, records an upgrade event, and stores the selected config
-version on the Turn. A continuation of an existing waiting Turn never changes
-config mid-Turn.
+`follow_latest` is the default. Before creating a new Turn, the server locks the
+Session and moves it to the Agent's latest config version. The Turn records the
+selected `agent_id` and `agent_config_version`. Continuation of an already
+waiting Turn never changes its config mid-Turn. `pinned` remains available for
+replay, audit, or controlled rollout.
 
-### 3.4 Skills
+## 3. Storage Contract
 
-Skill scopes are `user`, `team`, `workspace`, `organization`, `builtin`, and
-`plugin`.
-
-```text
-skills
-skill_drafts                    mutable working state
-skill_versions                  immutable releases
-skill_version_package_files     immutable file index
-agent_config_skill_bindings     exact release references and unique aliases
-```
-
-Within one Agent config version:
-
-- a `skill_id` may be bound at only one version;
-- a binding alias is unique;
-- a personal fork replaces its upstream binding instead of loading both by
-  default.
-
-Different Agents and Sessions may use same-named Skills or different versions
-concurrently on the same execution node. That is a cache and mount requirement,
-not permission to create ambiguous bindings inside one Agent config.
-
-## 4. Storage and Filesystem Contract
-
-### 4.1 Authoritative storage
+Object storage is authoritative for immutable and portable bytes. PostgreSQL is
+authoritative for metadata and transactional state. Local execution-node disk
+is a cache and active working copy, never the only durable copy.
 
 ```text
 PostgreSQL
-  identity, ACL, Agent and Skill metadata, versions, Memory, leases
+  Agents and config versions
+  Skill metadata and immutable versions
+  Sessions, Turns, Memory, leases, snapshot manifests
 
 Object storage
-  Skill package files and ZIP archives, artifacts, workspace snapshots
+  immutable Skill packages
+  artifacts
+  Session workspace blobs and snapshots
 
 Execution-node local disk
-  content-addressed Skill cache, active Session workspace, temporary files
+  content-addressed Skill cache
+  active Session workspace
+  Turn temporary files
 ```
 
-NFS is not a target backend for this plan.
+NFS and a custom distributed POSIX filesystem are not target backends.
 
-### 4.2 Container paths
+## 4. Runtime Filesystem
+
+Each running Session receives an isolated writable workspace. Agent and Skill
+configuration is projected read-only outside that workspace.
 
 ```text
-/workspace                  Session-scoped writable workspace
-/tma/agent                  immutable Agent runtime projection, read-only
-/tma/skills/<skill-id>/<version>
-                            immutable Skill package, read-only
-/tma/context                user and Memory projection, read-only
-/run/secrets                tmpfs or brokered secret projection
-/tmp                        ephemeral Turn files
+/workspace                              Session writable files
+/tma/agent                              read-only Agent projection
+/tma/skills/<skill-id>/<version>        read-only Skill package
+/tma/context                            read-only Memory/context projection
+/run/secrets                            tmpfs or brokered secrets
+/tmp                                    ephemeral Turn files
 ```
 
-Published Skill files must never live below an otherwise writable `/workspace`
-mount. Scripts write output to `/workspace` or `/tmp`, not next to themselves.
+There is no persistent per-Agent writable home directory. Shared Agent users
+must never share writable files, Memory, or credentials.
 
-### 4.3 Skill object keys and cache keys
+## 5. Skill Package Model
 
-New package object keys use stable identities rather than a display identifier:
+A Skill release is an immutable package containing `SKILL.md`, scripts, and
+resource files. Metadata identifies the logical Skill and release; object
+storage contains package bytes.
 
 ```text
-skills/<workspace>/<scope-type>/<scope-id>/<skill-id>/versions/<version>/...
+skills
+skill_versions
+  skill_id
+  version
+  manifest
+  package_object_ref
+  package_checksum_sha256
+skill_version_package_files
+  path
+  size
+  checksum_sha256
+  executable
 ```
 
-The execution-node cache is tenant-partitioned and content-addressed:
+Mutable editing happens in a draft or a new personal Skill. Publishing always
+creates a new immutable version. An Agent config binds an exact `skill_id` and
+version. One Agent config cannot bind the same logical Skill more than once;
+different Agents may bind different versions concurrently.
+
+Object keys use stable IDs, not display names:
+
+```text
+skills/<workspace>/<skill-id>/versions/<version>/<package-checksum>.zip
+```
+
+## 6. Conflict-free Materialization
+
+Execution nodes cache packages by tenant and checksum:
 
 ```text
 <cache-root>/<workspace>/sha256/<package-checksum>/
 ```
 
-Materialization is lock-protected, downloads into a random staging directory,
-validates the archive and every indexed file, changes the tree to read-only,
-atomically renames it into the cache, and writes a ready marker last. A different
-checksum for the same `skill_version_id` is an integrity failure, never an
-overwrite.
+Cold materialization must:
 
-Active mounts hold cache leases so garbage collection cannot delete an in-use
-package. Cache hits do not read package bytes from object storage.
+1. Acquire a per-cache-key lock.
+2. Recheck the ready marker after acquiring the lock.
+3. Download into a random staging directory.
+4. Reject path traversal, unsafe links, unexpected files, and checksum mismatch.
+5. Verify every indexed file and its executable bit.
+6. Change the tree to read-only.
+7. Atomically rename staging to the checksum directory.
+8. Write the ready marker last.
 
-### 4.4 Workspace persistence
+Warm materialization reads no package bytes from object storage. Active mounts
+hold cache leases so garbage collection cannot remove in-use entries. A package
+checksum mismatch is an integrity error, never an overwrite.
 
-An active Session has one writer lease and a local workspace copy. At defined
-checkpoints the execution node creates a deterministic workspace manifest and
-uploads changed blobs plus a snapshot record. A new node restores the latest
-committed snapshot before running the next Turn. Artifact export remains an
-explicit operation independent of snapshot retention.
+Runtime paths use Skill ID and version. Display identifiers are aliases only and
+must not determine cache identity. This allows same-named personal and Workspace
+Skills, and different versions used by different Sessions, to coexist safely.
 
-## 5. Enterprise Catalog
+## 7. Workspace Portability
 
-The catalog resource types are:
+Only `/workspace` is mutable across Turns. An execution node obtains a
+single-writer Session lease, restores the latest committed snapshot, executes a
+Turn, then checkpoints a deterministic manifest and changed blobs to object
+storage. The database snapshot record is committed only after all referenced
+objects exist.
 
-```text
-skill | mcp | agent_template | enterprise_agent | plugin
-```
+A failed upload cannot replace the previous committed snapshot. Moving a Session
+to another node restores the same workspace bytes using PostgreSQL and object
+storage only. Artifact export is independent from automatic workspace snapshots.
 
-Entries have organization/workspace visibility, immutable release references,
-owner principals, risk and classification metadata, and lifecycle states
-`draft`, `review`, `published`, `deprecated`, and `withdrawn`.
+## 8. Runtime Roles
 
-Resource actions remain distinct:
+- **Turn Runner** coordinates Agent config, context, tools, and Turn lifecycle.
+- **tma-worker** is the externally registered local/desktop execution process.
+- **Sandbox Execution Node** runs isolated cloud workspaces and materializes
+  immutable packages.
+- **Execution Node** means either worker type when cache and filesystem rules
+  apply to both.
 
-- Skill: inspect, install into an allowed registry scope, then bind to an Agent.
-- MCP: create a user or enterprise connection; secrets are never catalog data.
-- Agent template: create a new independent Agent.
-- Enterprise Agent: start a user-scoped Session.
-- Plugin: install governed tool and Skill capabilities.
+Workers are replaceable compute. They do not own Agent identity, durable Skill
+packages, Session Memory, or the authoritative workspace.
 
-## 6. Delivery Order
+## 9. Delivery Order
 
-### Milestone A: contracts and compatibility
+### A. Agent ownership and config following
 
-- Add this plan and architecture decision records.
-- Add canonical validation for config update policy and Skill bindings.
-- Make new Turn creation follow the latest Agent config by default.
-- Preserve the explicit upgrade endpoint and add `pinned` behavior.
-- Keep existing API payloads working through default values and migrations.
+- Add minimal Agent ownership columns and RLS.
+- Default authenticated creation to personal/private.
+- Lazily provision one personal general Agent per user.
+- Restrict shared Agent changes to Operator/Admin.
+- Default new Turns to the latest Agent config and attribute config per Turn.
 
-Exit gate: unit and PostgreSQL tests prove next-Turn auto-follow, pinned Sessions,
-continuation stability, and per-Turn config attribution.
+Exit gate: two users get different personal Agents; both can invoke one shared
+Agent without sharing Session state; operators cannot see another private Agent.
 
-### Milestone B: identity, ownership, and templates
+### B. Immutable Skill packages and node cache
 
-- Add principal identity, group, grant, Agent ownership, and template tables.
-- Extend Agent API/SDK/UI with scope and provenance.
-- Lazily provision a personal general Agent per user.
-- Enforce personal, shared invocation, editor, publisher, and ACL permissions.
+- Persist exact package object and file manifests.
+- Add the content-addressed cache manager, locking, verification, atomic publish,
+  read-only projection, leases, metrics, and garbage collection.
+- Remove identifier-only materialization maps and writable Skill paths.
 
-Exit gate: two users receive different personal Agents; a shared enterprise Agent
-can be invoked by both without sharing Session state; template publication never
-changes an existing Agent.
+Exit gate: concurrent cold starts produce one valid cache entry; warm starts do
+no object GET; corruption fails closed; different versions coexist.
 
-### Milestone C: Skill scopes, drafts, and forks
+### C. Personal Skill lifecycle
 
-- Replace `owner_type` with compatible scope semantics.
-- Add personal Skill creation, mutable drafts, immutable publication, fork
-  lineage, and promotion review.
-- Persist exact normalized Agent Skill bindings and reject ambiguity.
-- Preserve legacy workspace Skill identifiers during migration.
+- Allow a user-owned private Skill and mutable draft.
+- Publish immutable versions and retain exact Agent bindings.
+- Support explicit fork into a new personal Skill identity.
+- Keep Workspace publication governed by Operator/Admin approval.
 
-Exit gate: a user can publish and bind a private Skill, fork an organization
-Skill, replace the upstream binding, publish a new personal version, and retain
-replayable old Agent configs.
+Exit gate: a user can edit and publish a private Skill without mutating an old
+Agent config or colliding with a same-named Workspace Skill.
 
-### Milestone D: conflict-safe materialization
+### D. Session workspace snapshots
 
-- Introduce the execution-node package cache manager.
-- Move package lookup to manifest and archive references before byte loading.
-- Replace identifier-only directory maps with binding and Skill IDs.
-- Mount packages read-only outside `/workspace`.
-- Add cache leases, metrics, and GC.
+- Add snapshot manifests, object references, single-writer fencing, restore, and
+  retention.
+- Checkpoint successful Turns and explicit saves.
+- Verify cross-node continuation and interrupted upload behavior.
 
-Exit gate: concurrent cold materialization produces one valid cache entry; warm
-materialization performs no object GET; corruption fails closed; different
-Agent/Session versions coexist; scripts resolve all package files through the
-runtime manifest.
+Exit gate: a Session continues on another node with byte-identical workspace
+state and no NFS dependency.
 
-### Milestone E: enterprise catalog
+### E. Enterprise catalog
 
-- Generalize the current internal Skill marketplace into catalog entries and
-  immutable resource releases.
-- Add type-specific browse, inspect, use, review, publish, deprecate, withdraw,
-  and access-request flows.
-- Add resource-level grants and real publisher audit identities.
+Build on the existing marketplace after ownership and package contracts are
+stable. Catalog entries may expose Skill, MCP, Agent configuration starter, or a
+Workspace-shared Agent. Catalog visibility does not change runtime ownership;
+credentials remain per user and a starter always creates a new Agent.
 
-Exit gate: organization members can discover all visible resource types and only
-perform actions granted for that resource and version.
+## 10. Completion Evidence
 
-### Milestone F: workspace snapshots
+- Legacy migration and PostgreSQL RLS tests.
+- API v2, Go SDK, TypeScript SDK, and Workbench contract tests.
+- Multi-user personal/shared Agent authorization tests.
+- Session config follow/pin/continuation tests.
+- Package traversal, checksum, concurrent writer, read-only, lease, and GC tests.
+- Real localfs and S3-compatible object-store tests.
+- Cross-node workspace snapshot and restore tests.
+- Audit records for actor, Agent config, Skill versions, runtime paths, and
+  committed workspace snapshot.
 
-- Add workspace snapshot metadata, manifests, object refs, restore, retention,
-  and single-writer fencing.
-- Integrate checkpointing with successful Turn completion and explicit saves.
-- Restore on execution-node movement and prove interrupted uploads do not replace
-  the last committed snapshot.
+## 11. Non-goals
 
-Exit gate: a Session completes a Turn on one node and continues with identical
-workspace bytes on another node using only PostgreSQL and object storage.
-
-## 7. Required Verification
-
-Completion requires all of the following evidence, not only green narrow unit
-tests:
-
-1. Migration tests from the current schema and representative legacy data.
-2. Store parity between PostgreSQL and in-memory HTTP test stores.
-3. API v2 schema, Go SDK, TypeScript SDK, and Workbench integration tests.
-4. Authorization tests for user, group, workspace operator, organization admin,
-   and service principal publication.
-5. Package-path traversal, symlink, checksum, concurrent writer, read-only mount,
-   cache lease, and GC tests.
-6. Real localfs and S3-compatible package verification.
-7. Multi-user personal Agent and enterprise Agent end-to-end tests.
-8. Cross-node workspace snapshot and restore verification.
-9. Audit evidence identifying the actor, selected Agent config, Skill versions,
-   policy revision, runtime paths, and committed workspace snapshot.
-
-## 8. Explicit Non-goals
-
-- No template-to-Agent live inheritance or automatic template upgrade.
+- No second Agent implementation for personal or shared use.
+- No team or organization Agent product type.
+- No template inheritance or template-driven upgrade of existing Agents.
 - No mutable published Skill version.
-- No shared writable Agent home directory.
-- No direct object-storage filesystem exposed to the model.
-- No NFS backend in this delivery plan.
-- No custom distributed POSIX filesystem.
+- No shared writable Agent directory.
+- No object-storage filesystem exposed directly to the model.
+- No NFS backend.

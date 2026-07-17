@@ -156,12 +156,13 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 		APIName:    invocation.API,
 		Arguments:  invocation.Input,
 	}, tools.ExecutionContext{
-		WorkspaceID:   work.WorkspaceID,
-		SessionID:     work.SessionID,
-		EnvironmentID: work.EnvironmentID,
-		TurnID:        work.TurnID,
-		Environment:   environment,
-		Provider:      e.provider(),
+		WorkspaceID:         work.WorkspaceID,
+		SessionID:           work.SessionID,
+		EnvironmentID:       work.EnvironmentID,
+		TurnID:              work.TurnID,
+		Environment:         environment,
+		Provider:            e.provider(),
+		CapabilityTransport: true,
 	})
 	exportedFiles, artifactRefs, exportErr := e.collectExportedFiles(ctx, work, tools.Call{
 		ID:         work.ID,

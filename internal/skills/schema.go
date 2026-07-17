@@ -62,6 +62,7 @@ func ValidateConfig(raw json.RawMessage) (Config, error) {
 	seen := make(map[string]struct{}, len(config.Enabled))
 	for index := range config.Enabled {
 		enabled := &config.Enabled[index]
+		enabled.SkillID = strings.TrimSpace(enabled.SkillID)
 		enabled.Skill = strings.TrimSpace(enabled.Skill)
 		if !identifierPattern.MatchString(enabled.Skill) {
 			return Config{}, fmt.Errorf("invalid skills config: enabled[%d].skill must be a lowercase identifier", index)
@@ -69,10 +70,14 @@ func ValidateConfig(raw json.RawMessage) (Config, error) {
 		if enabled.Version <= 0 {
 			return Config{}, fmt.Errorf("invalid skills config: enabled[%d].version must be greater than zero", index)
 		}
-		if _, ok := seen[enabled.Skill]; ok {
+		identity := enabled.SkillID
+		if identity == "" {
+			identity = enabled.Skill
+		}
+		if _, ok := seen[identity]; ok {
 			return Config{}, fmt.Errorf("invalid skills config: duplicate skill %q", enabled.Skill)
 		}
-		seen[enabled.Skill] = struct{}{}
+		seen[identity] = struct{}{}
 		if enabled.Mode == "" {
 			enabled.Mode = DefaultMode
 		}

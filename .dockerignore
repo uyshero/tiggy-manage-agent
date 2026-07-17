@@ -1,0 +1,15 @@
+.git
+.gocache
+.env
+.env.*
+!.env.example
+bin
+node_modules
+**/node_modules
+**/dist
+*.log
+*.pid
+.tma-*
+.tma-browser-node
+.verify-*
+sdk/typescript/.schema.check.*

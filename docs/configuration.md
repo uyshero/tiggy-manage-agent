@@ -774,6 +774,15 @@ Session `runtime_settings` 可设置上下文预算：
 - `pinned_context`：不可压缩上下文，可为字符串或字符串数组；Runtime 会作为 `Pinned context` system message 注入，并在历史截断和 summary 重建时保留。
 - `protected_context`：`pinned_context` 的别名。
 - `tool_result_context_max_chars`：单个工具结果进入模型上下文时的最大字符数；事件保留结构化可观测结果，完整输出优先通过 artifact 保存。
+
+`default.read_file` 使用部署级有界配置（Server 和 `tma-worker` 使用相同环境变量）：
+
+- `TMA_READ_FILE_DEFAULT_MAX_BYTES`：大文件 path-only 调用和 line mode 的默认单页 byte 预算，默认 `8192`。
+- `TMA_READ_FILE_HARD_MAX_BYTES`：模型显式 `max_bytes` 的单次硬上限，默认 `65536`。
+- `TMA_READ_FILE_SMALL_FILE_BYTES`：path-only 调用可完整返回的小文件阈值，默认 `8192`，不得高于默认页大小。
+- `TMA_READ_FILE_MAX_LINES`：line mode 单次最大行数，默认 `400`。
+
+Byte 配置必须处于 `256..1048576` 且满足 `small <= default <= hard`；行数必须处于 `1..5000`。无效值会阻止 Server/Worker 启动。它们是执行面的资源安全边界，Session `runtime_settings` 不允许覆盖。协议、revision、UTF-8 边界和搜索工作流见 [大文件分页读取设计](./large-file-reading.md)。
 - `tool_result_context_total_max_chars`：同一 Turn 内多个工具结果进入后续模型请求时的累计字符预算。默认保留最近两个单条上限（最多 24000 字符），且不会低于单条上限；超出后较旧结果会 micro-compact，只保留调用身份、成功/错误和 artifact 引用，最新结果保持完整。
 - `compaction_prompt_max_chars`：自动 summary 的压缩 prompt 上限，默认 60000 字符。
 - `compaction_summary_max_chars`：自动 summary 写回 session summary 前的上限，默认 12000 字符。
