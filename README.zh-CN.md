@@ -366,7 +366,7 @@ Marketplace 写操作由 Server 控制，不会创建或直接执行工具。完
 - [生产部署](./docs/deployment.md)
 - [Inspector 使用说明](./docs/inspector.md)
 - [API Reference](./docs/api-reference.md)
-- [Onlyboxes 沙箱部署与 LobeHub 集成](./docs/产品设计架构图梳理.md)
+- [Onlyboxes 沙箱部署](./docs/产品设计架构图梳理.md)
 - [产品缺口与建议开发顺序](./docs/product-gap-roadmap.md)
 - [多 Agent 能力边界与上线清单](./docs/agent-orchestration-status.md)
 - [架构决策与开发历史](./DEVELOPMENT_LOG.md)

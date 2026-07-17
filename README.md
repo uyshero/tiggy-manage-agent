@@ -450,7 +450,7 @@ Run `bin/tma help` for Skill version/package/retention/GC and Marketplace instal
 
 Troubleshooting notes are in [docs/troubleshooting.md](./docs/troubleshooting.md).
 
-Onlyboxes sandbox deployment and LobeHub integration are documented in [docs/产品设计架构图梳理.md](./docs/产品设计架构图梳理.md).
+Onlyboxes sandbox deployment is documented in [docs/产品设计架构图梳理.md](./docs/产品设计架构图梳理.md).
 
 The current HTTP API contract is documented in [docs/api-reference.md](./docs/api-reference.md).
 

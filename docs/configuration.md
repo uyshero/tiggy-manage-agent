@@ -1263,7 +1263,7 @@ TMA_ALLOW_SERVER_LOCAL_SYSTEM=false
 
 这个开关只给受信任的本地开发调试使用。真实部署里保持关闭：如果 session 或 agent config 请求 `local_system`，但没有匹配在线 worker，AgentRuntime 会把相关工具从模型可见工具集中隐藏，而不是退回到 server 主机执行。
 
-Onlyboxes 平台本身的安装、Console 配置，以及 LobeHub 对接步骤见 [产品设计架构图梳理.md](./产品设计架构图梳理.md)。
+Onlyboxes 平台本身的安装与 Console 配置见 [产品设计架构图梳理.md](./产品设计架构图梳理.md)。
 
 ## MCP Server Host
 
