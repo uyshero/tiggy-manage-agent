@@ -1,20 +1,35 @@
 # Tiggy Manage Agent (TMA)
 
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 Tiggy Manage Agent is the Go implementation of the Agent Cloud Runtime project. It is not a chat UI; it is the cloud-side Harness runtime that lets enterprise Agents run as stable, auditable business-process nodes.
 
 The long-term product direction is to make runtime evidence useful for Agent evolution. Events, traces, tool results, summaries, artifacts, and user feedback should eventually drive monitored, tested, versioned upgrades to `system`, memory, tools, skills, multi-agent routing, and runtime policies.
 
-Current scope:
+Current capabilities:
 
-- HTTP server entrypoint
-- `/health` endpoint
-- Agent / Environment / Session / Event APIs
-- Postgres-backed Store with `TMA_DATABASE_URL`
-- Postgres docker-compose and initial schema migration
-- internal API package
-- unit test baseline
+- Versioned Agent, Environment, Session, Run, Event, Artifact, Skill, MCP, observability, and orchestration APIs
+- Postgres-backed durable state, turn leases, recovery, workspace isolation, and schema migrations
+- Go and TypeScript `/v2` Core SDKs plus the `tma` operational CLI
+- React Workbench (`/app`) and trace/operations Inspector (`/inspector`)
+- Local/cloud sandbox capabilities, worker-backed `local_system` tools, and process tool plugins
+- Agent-bound stdio and Streamable HTTP MCP servers, web search/crawl, and approval flows
+- OIDC/JWKS, JWT, or trusted-gateway authentication with workspace-scoped RBAC and audit export
+- Subagents, persistent task groups, fan-out/fan-in reducers, and bounded multi-agent deliberation
 
 ## Quick Start
+
+Prerequisites:
+
+- Go 1.25+
+- Docker with Docker Compose
+- Node.js 20+ and npm only when rebuilding the Web apps or TypeScript SDK
+
+Create a local configuration file on first use:
+
+```bash
+cp .env.example .env
+```
 
 ```bash
 make db-up
@@ -26,6 +41,8 @@ make run
 
 The server listens on `:8080` by default.
 The Makefile stores Go build cache in the project-local `.gocache/` directory so it works in restricted workspaces.
+
+Open the Workbench at [http://localhost:8080/app](http://localhost:8080/app) or the Inspector at [http://localhost:8080/inspector](http://localhost:8080/inspector). The repository includes prebuilt embedded assets; run `make build-web-ui` after changing either React app.
 
 User and control-plane APIs support OIDC/JWKS, legacy HS256 JWT, or trusted-gateway authentication with workspace-scoped RBAC. Protected requests emit structured authorization decision audit logs and low-cardinality Prometheus counters, with optional asynchronous OTLP/HTTP Logs export to an enterprise SIEM. Local development defaults to `TMA_AUTH_MODE=disabled`; `TMA_ENV=production` refuses to start without a complete identity configuration and worker service token. See [docs/configuration.md](./docs/configuration.md#unified-identity-and-rbac) and [docs/security-operations.md](./docs/security-operations.md).
 
@@ -169,7 +186,9 @@ SSE live delivery in `PostgresStore` is currently process-local. Historical repl
 
 Server logs are JSON structured logs via Go `slog`. Event and turn logs include fields such as `session_id`, `turn_id`, `event_seq`, `event_type`, and `event_id`.
 
-## P1 Skeleton APIs
+## API Compatibility
+
+New integrations should use the typed `/v2` contract through the Go or TypeScript Core SDK. The following `/v1` routes remain available for compatibility and low-level operational flows:
 
 ```text
 POST /v1/agents
@@ -442,7 +461,8 @@ Architecture decisions and development history are recorded in [DEVELOPMENT_LOG.
 ## Next Steps
 
 1. Complete the production closeout checklist in `docs/agent-orchestration-status.md`.
-2. Add trusted multi-principal RBAC and workspace-scoped control permissions.
-3. Add execution budgets, stuck detection, and operational runbooks.
-4. Establish task-group capacity baselines, replay fixtures, and offline evals.
-5. Keep durable workflow / DAG deferred until product requirements require multi-stage long-running orchestration.
+2. Extend multi-principal RBAC to the remaining control actions and audit queries.
+3. Add token, cost, wall-clock, and fan-out budgets plus stuck detection and operational runbooks.
+4. Establish task-group capacity baselines, replay fixtures, real-model samples, and offline evals.
+5. Add versioned, workspace-overridable task-group templates when tenant customization requires them.
+6. Keep durable workflow / DAG deferred until product requirements require multi-stage long-running orchestration.
