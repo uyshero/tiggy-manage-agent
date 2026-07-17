@@ -29,7 +29,7 @@ func TestOnlyboxesProviderRunsCommandThroughDocker(t *testing.T) {
 	result, err := provider.RunCommand(context.Background(), RunCommandRequest{
 		Command: "sh",
 		Args:    []string{"-c", "pwd"},
-		WorkDir: ".",
+		WorkDir: "/workspace",
 		Env:     map[string]string{"TMA_TEST": "1"},
 	})
 	if err != nil {
@@ -53,6 +53,45 @@ func TestOnlyboxesProviderRunsCommandThroughDocker(t *testing.T) {
 		if strings.Contains(arg, ":/mnt/data:rw") {
 			t.Fatalf("expected no session data volume without data root, got args %#v", runner.request.Args)
 		}
+	}
+}
+
+func TestOnlyboxesProviderMapsSandboxCommandWorkDir(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	dataRoot := t.TempDir()
+	for _, test := range []struct {
+		name     string
+		workDir  string
+		expected string
+	}{
+		{name: "workspace root", workDir: "/workspace", expected: "/workspace"},
+		{name: "workspace child", workDir: "/workspace/project", expected: "/workspace/project"},
+		{name: "session data", workDir: "/mnt/data/build", expected: "/mnt/data/build"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &captureProvider{}
+			provider := OnlyboxesProvider{
+				WorkspaceRoot:    workspaceRoot,
+				IsolateWorkspace: true,
+				DataRoot:         dataRoot,
+				WorkspaceID:      "wksp_workdir",
+				OwnerID:          "owner_workdir",
+				SessionID:        "sesn_workdir",
+				Runner:           runner,
+			}
+
+			if _, err := provider.RunCommand(t.Context(), RunCommandRequest{Command: "pwd", WorkDir: test.workDir}); err != nil {
+				t.Fatalf("run command from %s: %v", test.workDir, err)
+			}
+			workDirIndex := slices.Index(runner.request.Args, "--workdir")
+			if workDirIndex < 0 || workDirIndex+1 >= len(runner.request.Args) {
+				t.Fatalf("docker args do not include a workdir value: %#v", runner.request.Args)
+			}
+			workDir := runner.request.Args[workDirIndex+1]
+			if workDir != test.expected {
+				t.Fatalf("unexpected container workdir: got %q want %q; args=%#v", workDir, test.expected, runner.request.Args)
+			}
+		})
 	}
 }
 

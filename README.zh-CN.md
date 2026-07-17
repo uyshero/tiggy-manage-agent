@@ -2,6 +2,8 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+**在线演示：** [https://app.tiggy.cloud/](https://app.tiggy.cloud/)
+
 Tiggy Manage Agent 是 Agent Cloud Runtime 项目的 Go 实现。它不只是一个聊天界面，而是运行在云端的 Harness Runtime，用于让企业 Agent 成为稳定、可审计的业务流程节点。
 
 项目的长期方向是利用运行证据推动 Agent 演进。事件、Trace、工具结果、摘要、制品和用户反馈将用于对 `system`、记忆、工具、Skills、多 Agent 路由和运行策略进行可监控、可测试、可版本化的升级。

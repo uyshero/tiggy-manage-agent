@@ -505,13 +505,13 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if err != nil {
 		return CommandResult{}, err
 	}
-	workDir, err := resolvePathInside(root, defaultGuardString(request.WorkDir, "."))
+	hostWorkDir, err := p.resolveSandboxFilePath(defaultGuardString(request.WorkDir, "."), "")
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("onlyboxes work_dir denied: %w", err)
 	}
-	containerWorkDir, err := containerPathForHostPath(root, workDir)
+	containerWorkDir, err := p.hostPathToSandboxPath(hostWorkDir)
 	if err != nil {
-		return CommandResult{}, err
+		return CommandResult{}, fmt.Errorf("onlyboxes work_dir denied: %w", err)
 	}
 	dataDir, err := p.sessionDataDir()
 	if err != nil {
