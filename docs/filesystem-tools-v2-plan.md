@@ -45,7 +45,7 @@ write_binary_file
 - Glob 和 Grep 是实现能力，不是跨平台产品命名。
 - `find_files` 表达“有哪些文件”，`search_files` 表达“哪些文件包含内容”，模型意图清楚。
 - 文件类型、MIME、size 和 revision 属于每个文件工具的公共元数据，不需要单独的 `file_info`。
-- 模型通常不需要直接消费或生成原始二进制；图片、PDF、Office 和未知格式应分别路由到视觉、文档 Skill 或 `execute_code`。
+- 模型通常不需要直接消费或生成原始二进制；图片、PDF、Office 和未知格式应分别路由到视觉、文档 Skill、受限 `run_command` 或格式专用工具。
 - 大型二进制通过 Object Store / Artifact 流转，不使用 Tool Call Base64。
 
 ### 2.2 文本和二进制边界
@@ -71,10 +71,10 @@ write_binary_file
 |---|---|
 | PNG / JPEG / WebP | Vision capability |
 | PDF | PDF / document parser |
-| DOCX / XLSX / PPTX | Document Skill 或 `execute_code` |
-| ZIP / TAR | `execute_code` 或受限解包能力 |
-| SQLite / Parquet | `execute_code` + 格式库 |
-| 未知二进制 | `execute_code` 检查文件头或专业解析器 |
+| DOCX / XLSX / PPTX | Document Skill 或受限 `run_command` |
+| ZIP / TAR | 受限 `run_command` 或专用解包能力 |
+| SQLite / Parquet | `run_command` + 格式库 |
+| 未知二进制 | `run_command` 检查文件头或专业解析器 |
 
 现有 DOCX path-only 文本提取先保留为兼容路径，但在结果中明确 `mode=document`。新格式不继续堆进 `read_file`。
 
@@ -83,7 +83,7 @@ write_binary_file
 `write_file` 的模型 Schema 只接受文本。二进制输出使用：
 
 ```text
-run_command / execute_code / 专用工具
+run_command / 专用工具
   -> 写入 output_path
   -> Runtime 校验路径和文件
   -> 发布 Artifact / Object Ref

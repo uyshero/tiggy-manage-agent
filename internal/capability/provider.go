@@ -147,33 +147,39 @@ func (p UnavailableProvider) err() error {
 }
 
 type RunCommandRequest struct {
-	Meta        RequestMeta       `json:"meta"`
-	Command     string            `json:"command"`
-	Args        []string          `json:"args,omitempty"`
-	WorkDir     string            `json:"work_dir,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Stdin       []byte            `json:"stdin,omitempty"`
-	OutputPaths []string          `json:"output_paths,omitempty"`
+	Meta           RequestMeta       `json:"meta"`
+	Command        string            `json:"command"`
+	Args           []string          `json:"args,omitempty"`
+	WorkDir        string            `json:"work_dir,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Stdin          []byte            `json:"stdin,omitempty"`
+	TimeoutMS      int               `json:"timeout_ms,omitempty"`
+	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
+	OutputPaths    []string          `json:"output_paths,omitempty"`
 }
 
 func (r RunCommandRequest) MarshalJSON() ([]byte, error) {
 	type payload struct {
-		Meta        RequestMeta       `json:"meta"`
-		Command     string            `json:"command"`
-		Args        []string          `json:"args,omitempty"`
-		WorkDir     string            `json:"work_dir,omitempty"`
-		Env         map[string]string `json:"env,omitempty"`
-		Stdin       string            `json:"stdin,omitempty"`
-		StdinBase64 string            `json:"stdin_base64,omitempty"`
-		OutputPaths []string          `json:"output_paths,omitempty"`
+		Meta           RequestMeta       `json:"meta"`
+		Command        string            `json:"command"`
+		Args           []string          `json:"args,omitempty"`
+		WorkDir        string            `json:"work_dir,omitempty"`
+		Env            map[string]string `json:"env,omitempty"`
+		Stdin          string            `json:"stdin,omitempty"`
+		StdinBase64    string            `json:"stdin_base64,omitempty"`
+		TimeoutMS      int               `json:"timeout_ms,omitempty"`
+		MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
+		OutputPaths    []string          `json:"output_paths,omitempty"`
 	}
 	value := payload{
-		Meta:        r.Meta,
-		Command:     r.Command,
-		Args:        r.Args,
-		WorkDir:     r.WorkDir,
-		Env:         r.Env,
-		OutputPaths: r.OutputPaths,
+		Meta:           r.Meta,
+		Command:        r.Command,
+		Args:           r.Args,
+		WorkDir:        r.WorkDir,
+		Env:            r.Env,
+		TimeoutMS:      r.TimeoutMS,
+		MaxOutputBytes: r.MaxOutputBytes,
+		OutputPaths:    r.OutputPaths,
 	}
 	assignBytePayload(&value.Stdin, &value.StdinBase64, r.Stdin)
 	return json.Marshal(value)
@@ -181,14 +187,16 @@ func (r RunCommandRequest) MarshalJSON() ([]byte, error) {
 
 func (r *RunCommandRequest) UnmarshalJSON(data []byte) error {
 	type payload struct {
-		Meta        RequestMeta       `json:"meta"`
-		Command     string            `json:"command"`
-		Args        []string          `json:"args,omitempty"`
-		WorkDir     string            `json:"work_dir,omitempty"`
-		Env         map[string]string `json:"env,omitempty"`
-		Stdin       *string           `json:"stdin"`
-		StdinBase64 string            `json:"stdin_base64,omitempty"`
-		OutputPaths []string          `json:"output_paths,omitempty"`
+		Meta           RequestMeta       `json:"meta"`
+		Command        string            `json:"command"`
+		Args           []string          `json:"args,omitempty"`
+		WorkDir        string            `json:"work_dir,omitempty"`
+		Env            map[string]string `json:"env,omitempty"`
+		Stdin          *string           `json:"stdin"`
+		StdinBase64    string            `json:"stdin_base64,omitempty"`
+		TimeoutMS      int               `json:"timeout_ms,omitempty"`
+		MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
+		OutputPaths    []string          `json:"output_paths,omitempty"`
 	}
 	var decoded payload
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -204,17 +212,21 @@ func (r *RunCommandRequest) UnmarshalJSON(data []byte) error {
 	r.WorkDir = decoded.WorkDir
 	r.Env = decoded.Env
 	r.Stdin = stdin
+	r.TimeoutMS = decoded.TimeoutMS
+	r.MaxOutputBytes = decoded.MaxOutputBytes
 	r.OutputPaths = decoded.OutputPaths
 	return nil
 }
 
 type ExecuteCodeRequest struct {
-	Meta        RequestMeta       `json:"meta"`
-	Language    string            `json:"language"`
-	Code        string            `json:"code"`
-	WorkDir     string            `json:"work_dir,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	OutputPaths []string          `json:"output_paths,omitempty"`
+	Meta           RequestMeta       `json:"meta"`
+	Language       string            `json:"language"`
+	Code           string            `json:"code"`
+	WorkDir        string            `json:"work_dir,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	TimeoutMS      int               `json:"timeout_ms,omitempty"`
+	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
+	OutputPaths    []string          `json:"output_paths,omitempty"`
 }
 
 type ReadFileRequest struct {
@@ -295,12 +307,22 @@ func (r *WriteFileRequest) UnmarshalJSON(data []byte) error {
 }
 
 type CommandResult struct {
-	ExitCode          int                        `json:"exit_code"`
-	Stdout            string                     `json:"stdout,omitempty"`
-	Stderr            string                     `json:"stderr,omitempty"`
-	ExportedArtifacts []ExportArtifactFileResult `json:"-"`
-	Artifacts         []ArtifactRef              `json:"-"`
-	ArtifactError     string                     `json:"-"`
+	Status              string                     `json:"status,omitempty"`
+	ExitCode            int                        `json:"exit_code"`
+	Stdout              string                     `json:"stdout,omitempty"`
+	Stderr              string                     `json:"stderr,omitempty"`
+	StdoutBytes         int64                      `json:"stdout_bytes,omitempty"`
+	StderrBytes         int64                      `json:"stderr_bytes,omitempty"`
+	StdoutCapturedBytes int                        `json:"stdout_captured_bytes,omitempty"`
+	StderrCapturedBytes int                        `json:"stderr_captured_bytes,omitempty"`
+	StdoutTruncated     bool                       `json:"stdout_truncated,omitempty"`
+	StderrTruncated     bool                       `json:"stderr_truncated,omitempty"`
+	DurationMS          int64                      `json:"duration_ms,omitempty"`
+	TimedOut            bool                       `json:"timed_out,omitempty"`
+	Canceled            bool                       `json:"canceled,omitempty"`
+	ExportedArtifacts   []ExportArtifactFileResult `json:"-"`
+	Artifacts           []ArtifactRef              `json:"-"`
+	ArtifactError       string                     `json:"-"`
 }
 
 type FileResult struct {

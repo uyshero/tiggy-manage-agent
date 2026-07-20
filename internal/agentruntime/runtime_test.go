@@ -35,6 +35,45 @@ func TestDemoRuntimeReturnsAgentPayload(t *testing.T) {
 	}
 }
 
+func TestDemoRuntimeRedactsCustomManagedEnvironmentFromFinalResponse(t *testing.T) {
+	const secret = "custom-secret-value-123456"
+	client := &completionScriptClient{responses: []llm.Response{textResponse("configured value: " + secret)}}
+	result, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_secret", TurnID: "turn_secret",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"show it"}]}`),
+		Config:      Config{ToolExecutionContext: tools.ExecutionContext{Environment: map[string]string{"MY_CUSTOM_CREDENTIAL": secret}}},
+	})
+	if err != nil {
+		t.Fatalf("run turn: %v", err)
+	}
+	if got := payloadText(result.AgentPayload); got != "configured value: [REDACTED_ENV:MY_CUSTOM_CREDENTIAL]" {
+		t.Fatalf("custom managed secret was not redacted: %q", got)
+	}
+	if strings.Contains(string(result.AgentPayload), secret) {
+		t.Fatal("agent payload retained custom managed secret")
+	}
+}
+
+func TestDemoRuntimeBuffersAndRedactsSensitiveStreamingText(t *testing.T) {
+	const secret = "streamed-custom-secret-987654"
+	client := &managedSecretStreamingClient{secret: secret}
+	var streamed strings.Builder
+	result, err := (DemoRuntime{Client: client}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_stream_secret", TurnID: "turn_stream_secret",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"show it"}]}`),
+		Config:      Config{ToolExecutionContext: tools.ExecutionContext{Environment: map[string]string{"ARBITRARY_TOKEN_NAME": secret}}},
+		EmitStream:  func(event StreamEvent) { streamed.WriteString(event.Text) },
+	})
+	if err != nil {
+		t.Fatalf("run streamed turn: %v", err)
+	}
+	for label, value := range map[string]string{"stream": streamed.String(), "payload": string(result.AgentPayload)} {
+		if strings.Contains(value, secret) || !strings.Contains(value, "[REDACTED_ENV:ARBITRARY_TOKEN_NAME]") {
+			t.Fatalf("%s was not safely redacted: %q", label, value)
+		}
+	}
+}
+
 func TestDemoRuntimeSendsImagesDirectlyToVisionCapableCurrentModel(t *testing.T) {
 	client := &visionRoutingClient{}
 	runtime := DemoRuntime{Client: client}
@@ -2136,6 +2175,26 @@ func (c *nativeToolLoopLLMClient) Generate(ctx context.Context, request llm.Requ
 type sensitiveToolLoopLLMClient struct {
 	requests []llm.Request
 }
+
+type managedSecretStreamingClient struct {
+	secret string
+}
+
+func (client *managedSecretStreamingClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	return textResponse("streamed value: " + client.secret), nil
+}
+
+func (client *managedSecretStreamingClient) GenerateStream(_ context.Context, _ llm.Request, onDelta func(llm.Delta) error) (llm.Response, error) {
+	boundary := len(client.secret) / 2
+	for index, text := range []string{"streamed value: " + client.secret[:boundary], client.secret[boundary:]} {
+		if err := onDelta(llm.Delta{Index: index, Kind: llm.DeltaKindText, Text: text}); err != nil {
+			return llm.Response{}, err
+		}
+	}
+	return textResponse("streamed value: " + client.secret), nil
+}
+
+func (*managedSecretStreamingClient) Provider() string { return llm.ProviderFake }
 
 type askUserThenFinalClient struct {
 	calls       int

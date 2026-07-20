@@ -44,6 +44,13 @@ USER 10001:10001
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/tma-worker"]
 
+FROM worker AS browser-extension-worker
+USER root
+COPY extensions/browser-tool-plugin/browser-plugin.py /opt/tma/plugins/browser-plugin.py
+RUN chmod 0555 /opt/tma/plugins/browser-plugin.py
+ENV TMA_WORKER_PLUGINS=/opt/tma/plugins/browser-plugin.py
+USER 10001:10001
+
 FROM runtime-base AS cli
 COPY --from=build /out/tma /usr/local/bin/tma
 USER 10001:10001

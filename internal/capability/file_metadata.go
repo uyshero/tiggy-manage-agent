@@ -87,9 +87,9 @@ func classifyFile(path string, sample []byte, binary bool) fileClassification {
 		classification.SuggestedCapability = "document_skill"
 	case extension == ".zip" || extension == ".tar" || extension == ".gz" || extension == ".tgz" || contentType == "application/zip" || contentType == "application/x-gzip":
 		classification.Kind = "archive"
-		classification.SuggestedCapability = "execute_code"
+		classification.SuggestedCapability = "run_command"
 	default:
-		classification.SuggestedCapability = "execute_code"
+		classification.SuggestedCapability = "run_command"
 	}
 	return classification
 }

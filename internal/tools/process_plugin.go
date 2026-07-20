@@ -218,7 +218,7 @@ func validatePluginManifest(manifest Manifest) error {
 
 func isReservedPluginNamespace(namespace string) bool {
 	switch namespace {
-	case NamespaceDefault, NamespaceArtifact, NamespaceBrowser, NamespaceAgent, NamespaceInteraction, NamespaceSkills, NamespaceWeb:
+	case NamespaceDefault, NamespaceArtifact, NamespaceAgent, NamespaceInteraction, NamespaceSkills, NamespaceWeb:
 		return true
 	default:
 		return false

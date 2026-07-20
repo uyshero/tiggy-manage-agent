@@ -138,6 +138,10 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, fmt.Errorf("resolve managed environment: %w", err)
 	}
+	history = redactConversationHistoryEnvironment(history, managedEnvironment)
+	request.UserPayload = tools.RedactEnvironmentJSON(request.UserPayload, managedEnvironment)
+	resolvedSkills.Rendered = tools.RedactEnvironmentJSON(resolvedSkills.Rendered, managedEnvironment)
+	resume = redactInterventionResumeEnvironment(resume, managedEnvironment)
 	toolExecution := execution.ResolveToolExecution(execution.ToolExecutionRequest{
 		Context:           ctx,
 		Config:            config,
@@ -192,10 +196,10 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			VisionLLMBaseURL:      config.VisionLLMBaseURL,
 			VisionLLMAPIKey:       llmAPIKey(config.VisionLLMAPIKeyEnv),
 			ContextWindowTokens:   config.ContextWindowTokens,
-			SummaryText:           config.SummaryText,
+			SummaryText:           tools.RedactEnvironmentText(config.SummaryText, managedEnvironment),
 			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
-			TaskPlanContext:       taskPlanContext,
-			System:                config.System,
+			TaskPlanContext:       tools.RedactEnvironmentText(taskPlanContext, managedEnvironment),
+			System:                tools.RedactEnvironmentText(config.System, managedEnvironment),
 			RuntimeSettings:       config.RuntimeSettings,
 			Tools:                 toolExecution.Registry.ModelContext(),
 			ModelTools:            toolExecution.Registry.ModelTools(),
@@ -214,6 +218,8 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			})
 		},
 	})
+	result.AgentPayload = tools.RedactEnvironmentJSON(result.AgentPayload, managedEnvironment)
+	result.SummaryText = tools.RedactEnvironmentText(result.SummaryText, managedEnvironment)
 	if err != nil {
 		if errors.Is(err, agentruntime.ErrPendingIntervention) {
 			return TurnResult{}, ErrTurnWaitingApproval
@@ -529,6 +535,39 @@ func conversationHistoryAfterSeq(history []managedagents.ConversationMessage, se
 		}
 	}
 	return filtered
+}
+
+func redactConversationHistoryEnvironment(history []managedagents.ConversationMessage, environment map[string]string) []managedagents.ConversationMessage {
+	if !tools.HasSensitiveEnvironment(environment) {
+		return history
+	}
+	result := append([]managedagents.ConversationMessage(nil), history...)
+	for index := range result {
+		result[index].Payload = tools.RedactEnvironmentJSON(result[index].Payload, environment)
+	}
+	return result
+}
+
+func redactInterventionResumeEnvironment(resume *agentruntime.InterventionResume, environment map[string]string) *agentruntime.InterventionResume {
+	if resume == nil || !tools.HasSensitiveEnvironment(environment) {
+		return resume
+	}
+	redacted := *resume
+	redacted.Response = tools.RedactEnvironmentJSON(resume.Response, environment)
+	redacted.Continuation = append([]llm.Message(nil), resume.Continuation...)
+	for messageIndex := range redacted.Continuation {
+		message := &redacted.Continuation[messageIndex]
+		message.Content = append([]llm.ContentPart(nil), message.Content...)
+		for partIndex := range message.Content {
+			message.Content[partIndex].Text = tools.RedactEnvironmentText(message.Content[partIndex].Text, environment)
+			if message.Content[partIndex].ImageURL != nil {
+				imageURL := *message.Content[partIndex].ImageURL
+				imageURL.URL = tools.RedactEnvironmentText(imageURL.URL, environment)
+				message.Content[partIndex].ImageURL = &imageURL
+			}
+		}
+	}
+	return &redacted
 }
 
 func (e AgentRuntimeTurnExecutor) loadUserImageParts(ctx context.Context, payload json.RawMessage, workspaceID string) ([]llm.ContentPart, error) {

@@ -31,14 +31,6 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 		t.Fatalf("unexpected web manifest: %#v", manifest)
 	}
 
-	browserRuntime, ok := registry.Get(BrowserIdentifier)
-	if !ok {
-		t.Fatalf("expected %s runtime", BrowserIdentifier)
-	}
-	if manifest := browserRuntime.Manifest(); manifest.Identifier != BrowserIdentifier || len(manifest.API) != 7 {
-		t.Fatalf("unexpected browser manifest: %#v", manifest)
-	}
-
 	agentRuntime, ok := registry.Get(AgentIdentifier)
 	if !ok {
 		t.Fatalf("expected %s runtime", AgentIdentifier)
@@ -105,6 +97,73 @@ func TestDefaultManifestDescribesBoundedReadWorkflow(t *testing.T) {
 	_, searchAPI, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "search_file")
 	if !ok || searchAPI.Risk != ToolRiskRead || searchAPI.Implementation != ToolImplementationWorkerCapability {
 		t.Fatalf("unexpected search_file API: %#v", searchAPI)
+	}
+}
+
+func TestDefaultManifestKeepsExecuteCodeAsHiddenCompatibilityAPI(t *testing.T) {
+	_, api, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "execute_code")
+	if !ok {
+		t.Fatal("expected execute_code compatibility API")
+	}
+	if !api.HiddenFromModel || api.Implementation != ToolImplementationWorkerCapability {
+		t.Fatalf("expected execute_code to remain executable but hidden from the model: %#v", api)
+	}
+}
+
+func TestRunCommandSchemaDeclaresExecutionLimits(t *testing.T) {
+	_, api, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "run_command")
+	if !ok {
+		t.Fatal("expected run_command API")
+	}
+	var schema struct {
+		AdditionalProperties bool `json:"additionalProperties"`
+		Properties           map[string]struct {
+			Minimum int `json:"minimum"`
+			Maximum int `json:"maximum"`
+			Default int `json:"default"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(api.Parameters, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.AdditionalProperties {
+		t.Fatal("run_command must reject unknown fields")
+	}
+	timeout := schema.Properties["timeout_ms"]
+	output := schema.Properties["max_output_bytes"]
+	if timeout.Minimum != 100 || timeout.Maximum != 600000 || timeout.Default != 120000 {
+		t.Fatalf("unexpected timeout schema: %#v", timeout)
+	}
+	if output.Minimum != 1024 || output.Maximum != 1048576 || output.Default != 65536 {
+		t.Fatalf("unexpected output limit schema: %#v", output)
+	}
+}
+
+func TestCommandResultSurfacesTimeoutAndTruncationNotices(t *testing.T) {
+	result, err := commandResult(Call{ID: "call_limits", Identifier: DefaultIdentifier, APIName: "run_command"}, capability.CommandResult{
+		Status:              "timeout",
+		ExitCode:            -1,
+		Stdout:              "partial output",
+		StdoutBytes:         4096,
+		StdoutCapturedBytes: 1024,
+		StdoutTruncated:     true,
+		DurationMS:          250,
+		TimedOut:            true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"partial output", "timed out after 250 ms", "stdout truncated after capturing 1024 of 4096 bytes"} {
+		if !strings.Contains(result.Content, expected) {
+			t.Fatalf("command result did not surface %q: %s", expected, result.Content)
+		}
+	}
+	var state capability.CommandResult
+	if err := json.Unmarshal(result.State, &state); err != nil {
+		t.Fatal(err)
+	}
+	if !state.TimedOut || !state.StdoutTruncated || state.StdoutBytes != 4096 {
+		t.Fatalf("structured command metadata was lost: %#v", state)
 	}
 }
 
@@ -215,14 +274,14 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	for _, manifest := range decoded.Tools {
 		identifiers[manifest.Identifier] = true
 	}
-	if len(decoded.Tools) != 7 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[BrowserIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] {
+	if len(decoded.Tools) != 6 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
 }
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 59 {
+	if len(modelTools) != 51 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -236,7 +295,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] || names[DefaultIdentifier+".search_file"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[BrowserIdentifier+".open"] || !names[BrowserIdentifier+".takeover"] || !names[BrowserIdentifier+".close"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if !names[DefaultIdentifier+".run_command"] || names[DefaultIdentifier+".execute_code"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] || names[DefaultIdentifier+".search_file"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || names[NamespaceBrowser+".open"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }
@@ -367,18 +426,20 @@ func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
 	}
 }
 
-func TestRegistryLegacySearchFileIsHiddenUnlessExplicitlyConfigured(t *testing.T) {
+func TestRegistryCompatibilityAPIsAreHiddenUnlessExplicitlyConfigured(t *testing.T) {
 	names := map[string]bool{}
 	for _, modelTool := range DefaultRegistry().ModelTools() {
 		names[modelTool.Function.Name] = true
 	}
-	if names[DefaultIdentifier+".search_file"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] {
+	if names[DefaultIdentifier+".search_file"] || names[DefaultIdentifier+".execute_code"] || !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] {
 		t.Fatalf("unexpected default filesystem tools: %#v", names)
 	}
-	registry, _ := DefaultRegistry().Configured(json.RawMessage(`{"tools":["default.search_file"]}`))
-	modelTools := registry.ModelTools()
-	if len(modelTools) != 1 || modelTools[0].Function.Name != DefaultIdentifier+".search_file" {
-		t.Fatalf("legacy explicit configuration was not preserved: %#v", modelTools)
+	for _, apiName := range []string{"search_file", "execute_code"} {
+		registry, _ := DefaultRegistry().Configured(json.RawMessage(`{"tools":["default.` + apiName + `"]}`))
+		modelTools := registry.ModelTools()
+		if len(modelTools) != 1 || modelTools[0].Function.Name != DefaultIdentifier+"."+apiName {
+			t.Fatalf("explicit %s configuration was not preserved: %#v", apiName, modelTools)
+		}
 	}
 }
 
@@ -413,12 +474,15 @@ func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
 	})
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 25 {
+	if len(modelTools) != 24 {
 		t.Fatalf("expected all default tools to be available for local_system provider, got %#v", modelTools)
 	}
 	names := map[string]bool{}
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
+	}
+	if !names[DefaultIdentifier+".run_command"] || names[DefaultIdentifier+".execute_code"] {
+		t.Fatalf("expected run_command visible and execute_code hidden by default, got %#v", modelTools)
 	}
 	for _, name := range []string{"ask_user", "request_upload", "request_plan_approval"} {
 		if !names[InteractionIdentifier+"."+name] {

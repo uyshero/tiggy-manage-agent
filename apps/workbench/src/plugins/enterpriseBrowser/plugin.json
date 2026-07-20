@@ -1,0 +1,34 @@
+{
+  "protocol_version": "tma.workbench_plugin.v1",
+  "id": "com.tma.enterprise-browser",
+  "name": "浏览器",
+  "description": "查看并接管由 Browser Gateway 托管的隔离浏览器会话",
+  "version": "0.1.0",
+  "entry": "./index.jsx",
+  "surfaces": ["web_desktop", "desktop_shell", "web_tablet"],
+  "engines": {
+    "workbench_api": ">=1.0.0 <2.0.0",
+    "design_system": ">=1.0.0 <2.0.0"
+  },
+  "permissions": [],
+  "contributes": {
+    "navigation": [
+      {
+        "id": "browser",
+        "group": "workspace",
+        "title": "浏览器",
+        "route": "/plugins/com.tma.enterprise-browser/browser",
+        "order": 90
+      }
+    ],
+    "routes": [
+      {
+        "id": "browser",
+        "path": "/plugins/com.tma.enterprise-browser/browser",
+        "component": "EnterpriseBrowserPage",
+        "required_permissions": []
+      }
+    ],
+    "commands": []
+  }
+}

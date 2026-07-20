@@ -569,10 +569,12 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	args = append(args, request.Args...)
 
 	return p.runner().RunCommand(ctx, RunCommandRequest{
-		Meta:    request.Meta,
-		Command: p.dockerCommand(),
-		Args:    args,
-		Stdin:   request.Stdin,
+		Meta:           request.Meta,
+		Command:        p.dockerCommand(),
+		Args:           args,
+		Stdin:          request.Stdin,
+		TimeoutMS:      request.TimeoutMS,
+		MaxOutputBytes: request.MaxOutputBytes,
 	})
 }
 
@@ -587,19 +589,23 @@ func (p OnlyboxesProvider) ExecuteCode(ctx context.Context, request ExecuteCodeR
 	switch strings.ToLower(request.Language) {
 	case "sh", "shell":
 		return p.RunCommand(ctx, RunCommandRequest{
-			Meta:    request.Meta,
-			Command: "sh",
-			Args:    []string{"-c", request.Code},
-			WorkDir: request.WorkDir,
-			Env:     request.Env,
+			Meta:           request.Meta,
+			Command:        "sh",
+			Args:           []string{"-c", request.Code},
+			WorkDir:        request.WorkDir,
+			Env:            request.Env,
+			TimeoutMS:      request.TimeoutMS,
+			MaxOutputBytes: request.MaxOutputBytes,
 		})
 	case "python", "python3":
 		return p.RunCommand(ctx, RunCommandRequest{
-			Meta:    request.Meta,
-			Command: "python3",
-			Args:    []string{"-c", request.Code},
-			WorkDir: request.WorkDir,
-			Env:     request.Env,
+			Meta:           request.Meta,
+			Command:        "python3",
+			Args:           []string{"-c", request.Code},
+			WorkDir:        request.WorkDir,
+			Env:            request.Env,
+			TimeoutMS:      request.TimeoutMS,
+			MaxOutputBytes: request.MaxOutputBytes,
 		})
 	default:
 		return CommandResult{}, fmt.Errorf("unsupported onlyboxes code language %q", request.Language)

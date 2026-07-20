@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="$ROOT/deploy/docker/docker-compose.production.yml"
 ENV_FILE="$ROOT/deploy/docker/.env.production"
 WITH_WORKER=0
+WITH_BROWSER=0
 BUILD=1
 PREPARE_HOST=1
 DRY_RUN=0
@@ -17,6 +18,7 @@ Usage: deploy/docker/deploy.sh [options]
 Options:
   --env-file PATH       Production environment file.
   --with-worker         Start the optional local_system Worker.
+  --with-browser        Start Browser Gateway and browser extension Worker.
   --no-build            Use prebuilt images without building locally.
   --no-prepare-host     Do not create/chown cloud_sandbox host directories.
   --wait-seconds N      Server health timeout (default: 120).
@@ -29,6 +31,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --env-file) ENV_FILE="${2:?missing --env-file value}"; shift 2 ;;
     --with-worker) WITH_WORKER=1; shift ;;
+    --with-browser) WITH_BROWSER=1; shift ;;
     --no-build) BUILD=0; shift ;;
     --no-prepare-host) PREPARE_HOST=0; shift ;;
     --wait-seconds) WAIT_SECONDS="${2:?missing --wait-seconds value}"; shift 2 ;;
@@ -63,7 +66,6 @@ TMA_ENV_FILE="$ENV_FILE" "${compose[@]}" config --quiet
 configured_gid="$(env_value TMA_DOCKER_GID)"
 workspace_root="$(env_value TMA_CLOUD_SANDBOX_ROOT)"
 data_root="$(env_value TMA_CLOUD_SANDBOX_DATA_ROOT)"
-browser_image="$(env_value TMA_BROWSER_SANDBOX_IMAGE)"
 sandbox_image="$(env_value TMA_CLOUD_SANDBOX_IMAGE)"
 [[ "$configured_gid" =~ ^[0-9]+$ ]] || { echo 'TMA_DOCKER_GID must be numeric' >&2; exit 1; }
 [[ "$workspace_root" = /* && "$data_root" = /* ]] || { echo 'sandbox roots must be absolute paths' >&2; exit 1; }
@@ -71,8 +73,11 @@ sandbox_image="$(env_value TMA_CLOUD_SANDBOX_IMAGE)"
   echo 'Compose cloud_sandbox roots must be children of /var/lib/tma' >&2
   exit 1
 }
-[[ -n "$browser_image" ]] || { echo 'TMA_BROWSER_SANDBOX_IMAGE is required' >&2; exit 1; }
 [[ -n "$sandbox_image" ]] || { echo 'TMA_CLOUD_SANDBOX_IMAGE is required' >&2; exit 1; }
+if [[ "$WITH_BROWSER" -eq 1 && -z "$(env_value TMA_BROWSER_GATEWAY_SERVICE_SECRET)" ]]; then
+  echo 'TMA_BROWSER_GATEWAY_SERVICE_SECRET is required with --with-browser' >&2
+  exit 1
+fi
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo 'Docker deployment configuration is valid.'
@@ -104,18 +109,16 @@ fi
 profile_args=()
 services=(server)
 if [[ "$WITH_WORKER" -eq 1 ]]; then
-  profile_args=(--profile worker)
+	profile_args+=(--profile worker)
   services+=(worker)
+fi
+if [[ "$WITH_BROWSER" -eq 1 ]]; then
+  profile_args+=(--profile browser)
+  services+=(browser-gateway browser-worker)
 fi
 build_args=(--build)
 if [[ "$BUILD" -eq 0 ]]; then
   build_args=(--no-build)
-  docker image inspect "$browser_image" >/dev/null 2>&1 || {
-    printf 'browser sandbox image is unavailable: %s\n' "$browser_image" >&2
-    exit 1
-  }
-else
-  docker build -f "$ROOT/docker/browser-sandbox.Dockerfile" -t "$browser_image" "$ROOT"
 fi
 if ! docker image inspect "$sandbox_image" >/dev/null 2>&1; then
   docker pull "$sandbox_image"
@@ -132,6 +135,17 @@ until TMA_ENV_FILE="$ENV_FILE" "${compose[@]}" exec -T server wget -q -O - http:
   fi
   sleep 2
 done
+
+if [[ "$WITH_BROWSER" -eq 1 ]]; then
+  until TMA_ENV_FILE="$ENV_FILE" "${compose[@]}" exec -T browser-gateway wget -q -O - http://127.0.0.1:8090/v2/extensions/browser/health >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      echo 'tma-browser-gateway did not become healthy; recent logs:' >&2
+      TMA_ENV_FILE="$ENV_FILE" "${compose[@]}" logs --tail=120 browser-gateway >&2 || true
+      exit 1
+    fi
+    sleep 2
+  done
+fi
 
 bind_address="$(env_value TMA_HTTP_BIND)"
 http_port="$(env_value TMA_HTTP_PORT)"

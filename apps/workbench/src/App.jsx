@@ -4524,6 +4524,7 @@ function WorkbenchApp() {
   const [composerFiles, setComposerFiles] = useState([]);
   const [composerDragActive, setComposerDragActive] = useState(false);
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
+  const [mobileNavigationPanel, setMobileNavigationPanel] = useState("");
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
@@ -4630,6 +4631,15 @@ function WorkbenchApp() {
       window.removeEventListener("popstate", syncPluginPath);
     };
   }, []);
+
+  useEffect(() => {
+    if (!mobileNavigationPanel) return undefined;
+    function closeOnEscape(event) {
+      if (event.key === "Escape") setMobileNavigationPanel("");
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileNavigationPanel]);
 
   useEffect(() => {
     if (!taskMenuSessionID) return undefined;
@@ -6673,17 +6683,52 @@ function WorkbenchApp() {
           <div className="topbar-label">TMA 工作台</div>
           <div className="topbar-context">{activePluginRoute?.title || sessionMeta?.title || sessionID || "通用智能体工作区"}</div>
         </div>
+        <div className="mobile-navigation-actions" aria-label="移动端导航">
+          <button
+            className={`secondary ${mobileNavigationPanel === "workspace" ? "active" : ""}`}
+            type="button"
+            aria-expanded={mobileNavigationPanel === "workspace"}
+            aria-controls="mobile-navigation-sidebar"
+            onClick={() => setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace")}
+          >
+            工作区
+          </button>
+          <button
+            className={`secondary ${mobileNavigationPanel === "tasks" ? "active" : ""}`}
+            type="button"
+            aria-expanded={mobileNavigationPanel === "tasks"}
+            aria-controls="mobile-navigation-sidebar"
+            onClick={() => setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks")}
+          >
+            任务
+          </button>
+        </div>
         <div className="topbar-status">
-          {principal ? <span className="topbar-role">{principal.roles?.[principal.roles.length - 1] || "viewer"}</span> : null}
+          {principal ? <span className="topbar-user" title={principal.subject || principal.owner_id}>{principal.subject || principal.owner_id}</span> : null}
           <button className="secondary topbar-settings" type="button" onClick={openSettingsPage}>设置</button>
           <button className="secondary topbar-logout" type="button" onClick={() => logout().catch((error) => setStatus(error.message))}>退出</button>
         </div>
       </header>
+      {mobileNavigationPanel ? (
+        <button
+          className="mobile-navigation-backdrop"
+          type="button"
+          aria-label="关闭移动端导航"
+          onClick={() => setMobileNavigationPanel("")}
+        />
+      ) : null}
       <div
         className={`user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""}`.trim()}
         style={{ "--artifact-preview-width": `${artifactPreviewWidth}px` }}
       >
-        <aside className="user-sidebar">
+        <aside
+          id="mobile-navigation-sidebar"
+          className={`user-sidebar ${mobileNavigationPanel ? `mobile-open mobile-${mobileNavigationPanel}-open` : ""}`.trim()}
+        >
+          <div className="mobile-sidebar-header">
+            <strong>{mobileNavigationPanel === "tasks" ? "任务列表" : "工作区"}</strong>
+            <button className="icon-button" type="button" aria-label="关闭" onClick={() => setMobileNavigationPanel("")}><CloseIcon /></button>
+          </div>
           <Panel title="工作区" className="workspace-panel">
             <div className="workspace-controls">
               <label className="workspace-field">
@@ -6693,6 +6738,7 @@ function WorkbenchApp() {
                   onChange={(event) => {
                     const nextAgentID = event.target.value;
                     setAgentID(nextAgentID);
+                    setMobileNavigationPanel("");
                     const selectedAgent = availableAgents.find((agent) => agent.id === nextAgentID);
                     if (sessionMeta?.agent_id && sessionMeta.agent_id !== nextAgentID) {
                       resetSessionViewForAgent(selectedAgent);
@@ -6710,7 +6756,7 @@ function WorkbenchApp() {
                   ))}
                 </select>
               </label>
-              <button type="button" className="workspace-primary-action" onClick={() => { closePluginRoute(); startNewTask(); }}>新建任务</button>
+              <button type="button" className="workspace-primary-action" onClick={() => { setMobileNavigationPanel(""); closePluginRoute(); startNewTask(); }}>新建任务</button>
             </div>
           </Panel>
           <Panel title="任务" className="tasks-panel">
@@ -6736,7 +6782,7 @@ function WorkbenchApp() {
                           <button
                             className="task-nav-open"
                             type="button"
-                            onClick={() => { closePluginRoute(); openSession(session).catch((error) => setStatus(error.message)); }}
+                            onClick={() => { setMobileNavigationPanel(""); closePluginRoute(); openSession(session).catch((error) => setStatus(error.message)); }}
                           >
                               <div className="task-nav-row">
                                 <TaskStatusIcon

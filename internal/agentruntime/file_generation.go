@@ -18,11 +18,13 @@ import (
 const segmentedFileGenerationStateVersion = "tma.segmented_file_generation.v1"
 
 type segmentedFileGenerationState struct {
-	ProtocolVersion   string                             `json:"protocol_version"`
-	Tasks             map[string]*segmentedFileTaskState `json:"tasks,omitempty"`
-	OversizedCalls    int                                `json:"oversized_call_count,omitempty"`
-	SegmentCount      int                                `json:"segment_count,omitempty"`
-	IdempotentReplays int                                `json:"idempotent_replay_count,omitempty"`
+	ProtocolVersion          string                             `json:"protocol_version"`
+	Tasks                    map[string]*segmentedFileTaskState `json:"tasks,omitempty"`
+	VerifiedDeliverablePaths map[string]bool                    `json:"verified_deliverable_paths,omitempty"`
+	PublishedPaths           map[string]bool                    `json:"published_paths,omitempty"`
+	OversizedCalls           int                                `json:"oversized_call_count,omitempty"`
+	SegmentCount             int                                `json:"segment_count,omitempty"`
+	IdempotentReplays        int                                `json:"idempotent_replay_count,omitempty"`
 }
 
 type segmentedFileTaskState struct {
@@ -37,8 +39,10 @@ type segmentedFileTaskState struct {
 
 func newSegmentedFileGenerationState() *segmentedFileGenerationState {
 	return &segmentedFileGenerationState{
-		ProtocolVersion: segmentedFileGenerationStateVersion,
-		Tasks:           map[string]*segmentedFileTaskState{},
+		ProtocolVersion:          segmentedFileGenerationStateVersion,
+		Tasks:                    map[string]*segmentedFileTaskState{},
+		VerifiedDeliverablePaths: map[string]bool{},
+		PublishedPaths:           map[string]bool{},
 	}
 }
 
@@ -49,6 +53,12 @@ func segmentedFileGenerationStateFromRaw(raw json.RawMessage) *segmentedFileGene
 	}
 	if state.Tasks == nil {
 		state.Tasks = map[string]*segmentedFileTaskState{}
+	}
+	if state.VerifiedDeliverablePaths == nil {
+		state.VerifiedDeliverablePaths = map[string]bool{}
+	}
+	if state.PublishedPaths == nil {
+		state.PublishedPaths = map[string]bool{}
 	}
 	return state
 }
@@ -165,7 +175,19 @@ func (state *segmentedFileGenerationState) observe(call tools.Call, result tools
 	if state == nil || result.Error != nil {
 		return
 	}
+	if strings.TrimSpace(result.ArtifactError) == "" {
+		for _, export := range result.ExportedFiles {
+			if path := normalizedArtifactPath(export.Path, export.WorkDir); path != "" {
+				state.PublishedPaths[path] = true
+			}
+		}
+	}
 	switch normalizeToolAPIName(call.APIName) {
+	case "read_file":
+		var fileResult capability.FileResult
+		if json.Unmarshal(result.State, &fileResult) == nil && verifiedDeliverablePath(fileResult) {
+			state.VerifiedDeliverablePaths[filepath.ToSlash(filepath.Clean(fileResult.Path))] = true
+		}
 	case "write_file":
 		var request capability.WriteFileRequest
 		if json.Unmarshal(call.Arguments, &request) != nil {
@@ -223,6 +245,35 @@ func (state *segmentedFileGenerationState) observe(call tools.Call, result tools
 			}
 		}
 	}
+}
+
+func normalizedArtifactPath(path string, workDir string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) && filepath.IsAbs(strings.TrimSpace(workDir)) {
+		path = filepath.Join(workDir, path)
+	}
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func verifiedDeliverablePath(result capability.FileResult) bool {
+	path := filepath.ToSlash(filepath.Clean(strings.TrimSpace(result.Path)))
+	if path == "/workspace" || !strings.HasPrefix(path, "/workspace/") || strings.HasPrefix(path, "/workspace/uploads/") {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(result.Kind)) {
+	case "image", "document", "archive":
+		return true
+	default:
+		return result.Binary
+	}
+}
+
+func responseReferencesPath(response string, path string) bool {
+	normalizedResponse := strings.ReplaceAll(response, "\\", "/")
+	return strings.Contains(normalizedResponse, filepath.ToSlash(filepath.Clean(path)))
 }
 
 func validationCallCoversTask(call tools.Call, task *segmentedFileTaskState) bool {
@@ -358,6 +409,31 @@ func (state *segmentedFileGenerationState) publishFinalArtifacts(ctx context.Con
 			return err
 		}
 		task.FinalArtifactCreated = true
+	}
+	return nil
+}
+
+func (state *segmentedFileGenerationState) publishReferencedFinalArtifacts(ctx context.Context, executionContext tools.ExecutionContext, response string) error {
+	if state == nil || executionContext.ArtifactRecorder == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(state.VerifiedDeliverablePaths))
+	for path := range state.VerifiedDeliverablePaths {
+		if !state.PublishedPaths[path] && responseReferencesPath(response, path) {
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	for index, path := range paths {
+		call := tools.Call{ID: fmt.Sprintf("referenced-file-final-%d", index+1), Identifier: tools.DefaultIdentifier, APIName: "referenced_file_generation"}
+		result := tools.ExecutionResult{
+			ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
+			ExportedFiles: []tools.ArtifactExport{{Path: path, Name: filepath.Base(path), Description: "Verified file referenced by final response", ArtifactType: "file"}},
+		}
+		if _, err := executionContext.ArtifactRecorder.RecordToolArtifact(ctx, call, executionContext, result); err != nil {
+			return err
+		}
+		state.PublishedPaths[path] = true
 	}
 	return nil
 }

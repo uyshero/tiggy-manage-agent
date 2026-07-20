@@ -22,7 +22,7 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	if !contains(capabilities.Namespaces, tools.NamespaceDefault) {
 		t.Fatalf("expected default namespace, got %#v", capabilities.Namespaces)
 	}
-	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.find_files") || !contains(capabilities.APIs, "default.search_files") || !contains(capabilities.APIs, "default.search_file") {
+	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.execute_code") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.find_files") || !contains(capabilities.APIs, "default.search_files") || !contains(capabilities.APIs, "default.search_file") {
 		t.Fatalf("expected default APIs, got %#v", capabilities.APIs)
 	}
 	if !contains(capabilities.Capabilities, tools.CapabilityExec) || !contains(capabilities.Capabilities, tools.CapabilityFilesystemRead) {

@@ -100,6 +100,7 @@ scripts/deploy.sh k8s \
 | `server` | 无 Docker daemon 权限的 Server，适合 Kubernetes |
 | `server-docker` | 包含 Docker CLI，适合专用 Docker 主机的 `cloud_sandbox` |
 | `worker` | Worker，内置 Bash、curl、Git、jq、Python 3 |
+| `browser-extension-worker` | Worker + `browser.*` Process Plugin |
 | `migrate` | PostgreSQL 客户端、`000080` 基线和 runtime grants |
 | `cli` | TMA CLI |
 
@@ -112,14 +113,16 @@ export VERSION=0.1.0
 docker build --target server -t "$REGISTRY/tma-server:$VERSION" .
 docker build --target server-docker -t "$REGISTRY/tma-server-docker:$VERSION" .
 docker build --target worker -t "$REGISTRY/tma-worker:$VERSION" .
+docker build --target browser-extension-worker -t "$REGISTRY/tma-browser-worker:$VERSION" .
 docker build --target migrate -t "$REGISTRY/tma-migrate:$VERSION" .
-docker build -f docker/browser-sandbox.Dockerfile -t "$REGISTRY/tma-browser-sandbox:$VERSION" .
+docker build -f extensions/browser-gateway/Dockerfile -t "$REGISTRY/tma-browser-gateway:$VERSION" extensions/browser-gateway
 
 docker push "$REGISTRY/tma-server:$VERSION"
 docker push "$REGISTRY/tma-server-docker:$VERSION"
 docker push "$REGISTRY/tma-worker:$VERSION"
+docker push "$REGISTRY/tma-browser-worker:$VERSION"
 docker push "$REGISTRY/tma-migrate:$VERSION"
-docker push "$REGISTRY/tma-browser-sandbox:$VERSION"
+docker push "$REGISTRY/tma-browser-gateway:$VERSION"
 ```
 
 无法访问 `proxy.golang.org` 的企业网络通过 build arg 使用内部 Go module proxy：

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const apiTarget = process.env.TMA_DEV_API_BASE_URL || "http://127.0.0.1:8080";
+const browserGatewayTarget = process.env.TMA_DEV_BROWSER_GATEWAY_URL || "http://127.0.0.1:8090";
 
 export default defineConfig({
   base: "/app/assets/",
@@ -9,6 +10,10 @@ export default defineConfig({
   publicDir: false,
   server: {
     proxy: {
+      "/v2/extensions/browser": {
+        target: browserGatewayTarget,
+        changeOrigin: true
+      },
       "/auth": {
         target: apiTarget,
         changeOrigin: true

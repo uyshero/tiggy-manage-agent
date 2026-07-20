@@ -83,6 +83,20 @@ func TestReadFileClassifiesPDFWithoutReturningBytes(t *testing.T) {
 	}
 }
 
+func TestReadFileRoutesArchivesToRunCommandWithoutReturningBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bundle.zip")
+	if err := os.WriteFile(path, []byte{'P', 'K', 3, 4, 0, 0, 0, 0}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := (LocalSystemProvider{}).ReadFile(t.Context(), ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Binary || len(result.Content) != 0 || result.Kind != "archive" || result.SuggestedCapability != "run_command" {
+		t.Fatalf("unexpected archive classification: %#v", result)
+	}
+}
+
 func TestEditFileRejectsBinaryContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "image.png")
 	if err := os.WriteFile(path, []byte{'\x89', 'P', 'N', 'G', '\r', '\n', 0, 1}, 0o644); err != nil {

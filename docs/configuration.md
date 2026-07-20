@@ -924,7 +924,7 @@ local_system
 含义：
 
 - `auto`：第一版在 `default.*` tools 上等价选择 `cloud_sandbox`。
-- `cloud_sandbox`：使用 `OnlyboxesProvider` 执行。Session 第一次调用时通过 `docker run --pull missing -d` 创建容器，后续命令使用 `docker exec` 复用，并挂载 workspace 与 session 数据目录。默认使用 Docker 默认网络并具备外网访问能力；将 `cloud_sandbox_allow_network` 设为 `false` 后才会用 `--network none` 禁用网络。具备外网能力的 `default.run_command` / `default.execute_code` 会按当前 `intervention_mode` 进入 `network_access` 审批层；`request_approval` 会等待用户确认，`approve_for_me` 会自动批准并记录事件，`full_access` 直接执行。
+- `cloud_sandbox`：使用 `OnlyboxesProvider` 执行。Session 第一次调用时通过 `docker run --pull missing -d` 创建容器，后续命令使用 `docker exec` 复用，并挂载 workspace 与 session 数据目录。默认使用 Docker 默认网络并具备外网访问能力；将 `cloud_sandbox_allow_network` 设为 `false` 后才会用 `--network none` 禁用网络。具备外网能力的 `default.run_command` 会按当前 `intervention_mode` 进入 `network_access` 审批层；显式配置后使用的兼容 API `default.execute_code` 遵循同一策略。`request_approval` 会等待用户确认，`approve_for_me` 会自动批准并记录事件，`full_access` 直接执行。
 - `local_system`：表示需要本机执行能力。生产语义下它必须匹配同 workspace 的在线 `tma-worker`，由 worker 在运行它的机器上执行；server 进程不会默认假装本机能力存在。
 
 本地完整验收：
@@ -935,7 +935,7 @@ make verify-network-approval
 
 该命令会用 fake LLM 触发 Python 下载脚本，覆盖 `request_approval`、`approve_for_me`、`full_access` 和 `cloud_sandbox_allow_network=false` 四条路径。
 
-TMA 不会自动启动 Docker daemon 或 Onlyboxes Console。`cloud_sandbox` 只表示工具调用时选择沙箱执行面。一个 Session 第一次调用某类沙箱工具时创建容器，后续 Turn 通过 `docker exec` 复用；普通命令和浏览器工具使用不同 scope，避免浏览器镜像覆盖默认命令镜像。容器在空闲超时、达到最大寿命或 Server 正常退出时删除。
+TMA 不会自动启动 Docker daemon 或 Onlyboxes Console。`cloud_sandbox` 只表示工具调用时选择沙箱执行面。一个 Session 第一次调用沙箱工具时创建容器，后续 Turn 通过 `docker exec` 复用。容器在空闲超时、达到最大寿命或 Server 正常退出时删除。浏览器不再使用该内置沙箱链路，而是由下文的 Browser Extension 独立部署。
 
 Session 容器生命周期配置：
 
@@ -951,11 +951,9 @@ TMA_CLOUD_SANDBOX_CONTAINER_CLEANUP_INTERVAL_SECONDS=60
 
 容器销毁不会删除宿主机挂载的 `/workspace` 和 `/mnt/data`；容器内部未写入挂载目录的软件安装、进程和缓存会随容器一起消失。`TMA_CLOUD_SANDBOX_DATA_TTL_SECONDS` 仍只控制 Session 数据目录的保留时间，与容器 TTL 分开。
 
-`browser.*` 是独立能力域，不混入 `default.*` 命令工具。`local_system` 下优先由同 workspace 的本地 `tma-worker` 执行浏览器动作，适合后续扩展人工接管；`cloud_sandbox` 下会通过 Playwright headless runner 执行浏览器动作，建议使用单独的浏览器沙箱镜像。
+### Browser Extension
 
-### Browser Tools
-
-当前内置浏览器工具：
+`browser.*` 不再由 `tma-server` 内置注册，而是由 Browser Worker Process Plugin 提供：
 
 ```text
 browser.open
@@ -967,63 +965,41 @@ browser.takeover
 browser.close
 ```
 
-浏览器 runner 需要 Node.js、Playwright 和 Chromium。`cloud_sandbox` 的 `browser` scope 默认使用 `tma-browser-sandbox:playwright`，与普通命令的 `default` scope 分离。`TMA_BROWSER_SANDBOX_IMAGE` 可覆盖浏览器镜像，但不会影响普通 `default.*` 命令工具：
+Browser Extension 由三部分组成：
+
+- `extensions/browser-gateway`：独立 Node/Playwright 服务，持有长驻 Chromium Session。
+- `extensions/browser-tool-plugin/browser-plugin.py`：由 `tma-worker` 加载，向 Agent 暴露 `browser.*`。
+- `apps/workbench/src/plugins/enterpriseBrowser`：通过 `/v2/extensions/browser` 操作相同会话。
+
+关键配置：
 
 ```env
-TMA_BROWSER_SANDBOX_IMAGE=tma-browser-sandbox:playwright
-TMA_BROWSER_SANDBOX_MEMORY=1g
+TMA_BROWSER_GATEWAY_URL=http://browser-gateway:8090/v2/extensions/browser
+TMA_BROWSER_GATEWAY_SERVICE_SECRET=使用 openssl rand -hex 32 生成
+TMA_BROWSER_MAX_SESSIONS_PER_WORKSPACE=4
+TMA_BROWSER_IDLE_TTL_SECONDS=300
+TMA_WORKER_PLUGINS=/opt/tma/plugins/browser-plugin.py
+TMA_BROWSER_ALLOWED_WORKSPACE_ID=wksp_customer_a
 ```
 
-`TMA_BROWSER_SANDBOX_MEMORY` 只控制 `browser` scope 的容器内存；普通 `default` scope 仍使用 512 MB。修改该值后，现有 browser 容器会在下一次调用时按新 fingerprint 自动重建。
+生产入口必须把 `/v2/extensions/browser` 路由到 Browser Gateway，其他 `/v2` 请求继续交给 `tma-server`。Gateway 的 CDP 仅存在于 Gateway 内部；Workbench 只能访问经过认证的页面帧与输入 API。
 
-本仓库提供了第一版浏览器沙箱镜像：
+Docker 部署：
 
 ```bash
-make build-browser-sandbox
+deploy/docker/deploy.sh --with-browser
 ```
 
-默认会构建：
+Kubernetes 部署使用 `deploy/kubernetes/base/browser-extension.yaml`。当前 Gateway Session 保存在单实例内存中，基础清单固定为一个 Gateway 副本；扩容前必须增加 workspace/session 粘性路由，不能直接无状态扩副本。
 
-```text
-tma-browser-sandbox:playwright
-```
-
-需要改镜像名时：
+本地静态验收：
 
 ```bash
-TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright make build-browser-sandbox
-```
-
-镜像至少需要包含：
-
-```text
-node
-playwright 或 playwright-core
-chromium
-常用字体，建议包含中文字体
-```
-
-本地 worker 场景则在运行 `tma-worker` 的机器安装 Node.js 和 Playwright。`local_system` 会按 `browser_session_id` 启动或复用本地长驻 Chromium，并通过 CDP 操作同一个真实页面；浏览器 profile 和 CDP endpoint 保存在系统临时目录下的 `tma-browser`。同一 session 的后续 `browser.read/click/type/screenshot/takeover` 会接着当前页面状态执行，适合 agent 和人工交替控制。
-
-`cloud_sandbox` 的 Session 容器可以复用，但浏览器动作仍采用按调用启动的 headless 进程。页面状态保存在 `/mnt/data/browser`，通过 URL、storage state 和轻量动作记录在多次调用之间重建；它不持有长驻浏览器进程。
-
-`browser.takeover` 是本地人工接管入口，只在 `local_system` runtime 暴露。它会在本地 worker 机器打开同一个长驻 headed Chromium，等待用户操作完成后返回最终页面状态；用户可以关闭浏览器窗口提前结束，也可以通过 `wait_seconds` 控制最长等待时间，默认 300 秒，最大 3600 秒。使用它时 session 或 agent tools runtime 需要配置为 `local_system`，并且本地 worker 所在机器必须有可用桌面环境：
-
-```bash
-bin/tma session runtime update --session SESSION_ID --tool-runtime local_system --intervention-mode approve_for_me
-```
-
-`browser.close` 用于关闭本地长驻 browser session，避免本机 Chromium 进程长期残留。`cloud_sandbox` 不声明 `browser.takeover` / `browser.close` capability；沙箱浏览器继续使用 headless 模式，适合自动化和截图，不承担人工接管。
-
-本地验收：
-
-```bash
-make build-browser-sandbox
 make verify-browser-tools
-make verify-browser-takeover-local
+make build-browser-gateway
 ```
 
-`make verify-browser-tools` 会使用 `data:` URL 注入测试页面，在断网的 `cloud_sandbox` 中执行 `browser.open`、`browser.screenshot`、`browser.type`、`browser.click`，并校验工具事件、页面标记和截图 artifact。`make verify-browser-takeover-local` 会启动本地 worker 和 headed Chromium，需要人工关闭浏览器窗口后才会完成。
+`make verify-browser-tools` 验证默认 Registry 不再包含 BrowserRuntime、Process Plugin 可以声明 `browser` 命名空间、Gateway 鉴权/隔离键、插件 Manifest 和 Workbench API 路径。
 
 ## Web Search / Crawl
 
@@ -1504,7 +1480,7 @@ openai-compatible
 
 内置 Live Broker 使用进程内有界订阅队列，慢客户端可能丢失临时片段，页面最终以 `agent.message` 收敛。单进程 Server/Runner 可直接使用；多副本或独立 Worker 部署应通过 `runner.LiveEventSource` 接入共享 Pub/Sub，并将 Live SSE 路由到该共享源。任务完成、审批、工具结果和审计不依赖 Live Broker。
 
-Session 级工具权限和沙箱网络可通过 `PATCH /v1/sessions/{session_id}/runtime-settings` 热更新。`intervention_mode` 当前支持 `request_approval`、`approve_for_me`、`full_access`；`cloud_sandbox_allow_network` 可控制单个 session 的沙箱是否具备外网访问能力。具备外网能力时，`default.run_command` / `default.execute_code` 和 `web.search` / `web.crawl` 会使用同一套审批策略，reason 为 `network_access`。
+Session 级工具权限和沙箱网络可通过 `PATCH /v1/sessions/{session_id}/runtime-settings` 热更新。`intervention_mode` 当前支持 `request_approval`、`approve_for_me`、`full_access`；`cloud_sandbox_allow_network` 可控制单个 session 的沙箱是否具备外网访问能力。具备外网能力时，`default.run_command` 和 `web.search` / `web.crawl` 会使用同一套审批策略，reason 为 `network_access`；显式配置后使用的兼容 API `default.execute_code` 也遵循该策略。
 
 CLI：
 

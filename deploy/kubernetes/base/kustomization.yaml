@@ -5,5 +5,5 @@ resources:
   - configmap.yaml
   - server.yaml
   - worker.yaml
+  - browser-extension.yaml
   - ingress.yaml
-

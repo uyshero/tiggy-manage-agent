@@ -219,6 +219,51 @@ func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
 	}
 }
 
+func TestPublishesReferencedVerifiedWorkspaceArtifactWithoutOutputPaths(t *testing.T) {
+	state := newSegmentedFileGenerationState()
+	fileState := mustJSON(t, capability.FileResult{
+		Path: "/workspace/generated/result.png", Binary: true, Kind: "image", ContentType: "image/png",
+	})
+	state.observe(tools.Call{APIName: "read_file"}, tools.ExecutionResult{State: fileState}, false)
+
+	recorder := &recordingArtifactRecorder{}
+	executionContext := tools.ExecutionContext{ArtifactRecorder: recorder}
+	if err := state.publishReferencedFinalArtifacts(t.Context(), executionContext, "图片已保存到 `/workspace/generated/result.png`"); err != nil {
+		t.Fatalf("publish referenced artifact: %v", err)
+	}
+	if len(recorder.calls) != 1 || recorder.calls[0].APIName != "referenced_file_generation" {
+		t.Fatalf("expected referenced artifact publication, calls=%#v", recorder.calls)
+	}
+	if exports := recorder.results[0].ExportedFiles; len(exports) != 1 || exports[0].Path != "/workspace/generated/result.png" {
+		t.Fatalf("unexpected referenced artifact export: %#v", exports)
+	}
+
+	if err := state.publishReferencedFinalArtifacts(t.Context(), executionContext, "再次引用 /workspace/generated/result.png"); err != nil {
+		t.Fatalf("republish referenced artifact: %v", err)
+	}
+	if len(recorder.calls) != 1 {
+		t.Fatalf("referenced artifact should only be published once, calls=%#v", recorder.calls)
+	}
+}
+
+func TestReferencedArtifactPublicationIgnoresUploadsAndUnreferencedFiles(t *testing.T) {
+	state := newSegmentedFileGenerationState()
+	for _, result := range []capability.FileResult{
+		{Path: "/workspace/uploads/art_input/input.png", Binary: true, Kind: "image"},
+		{Path: "/workspace/generated/unreferenced.pdf", Binary: true, Kind: "document"},
+		{Path: "/workspace/src/main.go", Kind: "text"},
+	} {
+		state.observe(tools.Call{APIName: "read_file"}, tools.ExecutionResult{State: mustJSON(t, result)}, false)
+	}
+	recorder := &recordingArtifactRecorder{}
+	if err := state.publishReferencedFinalArtifacts(t.Context(), tools.ExecutionContext{ArtifactRecorder: recorder}, "分析了 `/workspace/uploads/art_input/input.png` 和 `/workspace/src/main.go`"); err != nil {
+		t.Fatalf("publish ignored artifacts: %v", err)
+	}
+	if len(recorder.calls) != 0 {
+		t.Fatalf("uploads, text files, and unreferenced files must not be published: %#v", recorder.calls)
+	}
+}
+
 // Keep the concrete local provider behind a helper so test setup stays compact.
 func capabilityLocalProvider() capability.LocalSystemProvider {
 	return capability.LocalSystemProvider{}

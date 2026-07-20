@@ -126,14 +126,24 @@ func (m *OnlyboxesContainerManager) RunCommand(ctx context.Context, command only
 	args = append(args, state.name, command.Request.Command)
 	args = append(args, command.Request.Args...)
 	result, err := state.runner.RunCommand(ctx, RunCommandRequest{
-		Meta:    command.Request.Meta,
-		Command: state.dockerCommand,
-		Args:    args,
-		Stdin:   command.Request.Stdin,
+		Meta:           command.Request.Meta,
+		Command:        state.dockerCommand,
+		Args:           args,
+		Stdin:          command.Request.Stdin,
+		TimeoutMS:      command.Request.TimeoutMS,
+		MaxOutputBytes: command.Request.MaxOutputBytes,
 	})
 	state.lastUsedAt = m.now()
+	if result.TimedOut || result.Canceled || (err != nil && ctx.Err() != nil) {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), onlyboxesContainerCleanupTimeout)
+		cleanupErr := m.removeContainer(cleanupCtx, state)
+		cleanupCancel()
+		if cleanupErr != nil {
+			return result, fmt.Errorf("sandbox command stopped but container cleanup failed: %w", cleanupErr)
+		}
+	}
 	if err != nil {
-		return CommandResult{}, err
+		return result, err
 	}
 	return result, nil
 }

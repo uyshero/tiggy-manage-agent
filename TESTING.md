@@ -1289,21 +1289,9 @@ make verify-onlyboxes-export-artifact
 
 通过表示上传文件 -> `/mnt/data` 加工 -> `output_paths` 导出 -> session artifact 下载 已经形成最小闭环。
 
-### 17.7 cloud_sandbox Browser Tools 验证
+### 17.7 Browser Extension 验证
 
-这一节验证 `browser.*` 能在带 Playwright 的 headless 沙箱镜像中执行，并把截图回收到 session artifact。
-
-先构建浏览器沙箱镜像：
-
-```bash
-make build-browser-sandbox
-```
-
-默认镜像名：
-
-```text
-tma-browser-sandbox:playwright
-```
+这一节验证内置 BrowserRuntime 已移除，`browser.*` 可以由 Worker Process Plugin 提供，并验证 Browser Gateway 与 Workbench 扩展的静态契约。
 
 运行验收：
 
@@ -1311,31 +1299,20 @@ tma-browser-sandbox:playwright
 make verify-browser-tools
 ```
 
-脚本会自动：
+该目标会执行：
 
-- build `bin/tma-server` 和 `bin/tma`。
-- 启动 Postgres 并执行迁移。
-- 用 `TMA_TOOL_RUNTIME=cloud_sandbox` 和 `TMA_CLOUD_SANDBOX_ALLOW_NETWORK=false` 启动临时 TMA server。
-- 用 `data:` URL 注入本地测试页面，不依赖外网。
-- 发送 `tma.verify_browser_flow`，让 fake LLM 触发 `browser.open`、`browser.screenshot`、`browser.type`、`browser.click`。
-- 校验事件历史中出现 browser tool call / result、页面标记 `tma-browser-flow-ok`，且截图结果包含 artifact ref。
+- Go Registry 与 Process Plugin 命名空间测试。
+- Browser Tool Plugin Manifest 测试。
+- Browser Gateway HMAC 与隔离键测试。
+- Workbench 插件 API 与完整前端测试。
 
-通过表示 `browser.*` 工具、Playwright runner、browser sandbox 镜像、`/mnt/data` 截图输出和 session artifact 回收链路已经形成最小闭环。
-
-需要改镜像名时：
+完整运行时验收需要启动 Browser Gateway 和带插件的 Worker，再通过 Ingress 访问 Workbench：
 
 ```bash
-TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright make build-browser-sandbox
-TMA_BROWSER_SANDBOX_IMAGE=your-registry/tma-browser-sandbox:playwright make verify-browser-tools
+deploy/docker/deploy.sh --with-browser
 ```
 
-人工接管浏览器需要本地桌面环境，不放进 cloud_sandbox smoke。手动点检可以运行：
-
-```bash
-make verify-browser-takeover-local
-```
-
-脚本会启动临时 server 和本地 `tma-worker`，把 agent/session tools runtime 配成 `local_system`，发送 `tma.verify_browser_takeover`，让 fake LLM 触发 `browser.takeover`。预期行为：本机弹出 headed Chromium；用户操作或关闭窗口后，工具返回最终页面标题、URL、正文片段和可交互元素。脚本会校验事件历史、agent message、worker work payload，以及结果中包含 `tma-browser-takeover-ok`。后续同一 `browser_session_id` 的 `browser.read/click/type/screenshot` 会通过 CDP 复用同一个本地长驻浏览器；脚本最后会发送 `tma.verify_browser_close` 并校验 `browser.close` 释放本地浏览器进程。
+Agent 配置使用 `{"tools":["browser"],"runtime":"local_system"}`。Workbench 的“浏览器”插件页面选择同一 TMA Session 后，应能看到并操作 Agent 打开的页面。
 
 ### 17.8 S3-compatible 对象存储验证
 

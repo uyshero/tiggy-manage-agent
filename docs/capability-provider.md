@@ -91,6 +91,8 @@ type Provider interface {
 tma.capability.v1
 ```
 
+`RunCommandRequest` 使用结构化 `command + args`，不会自动拼接 Shell 字符串。`timeout_ms` 默认 120000，允许 100～600000；`max_output_bytes` 分别约束 stdout 和 stderr，默认每路 65536、最大 1048576。Provider 会继续读取并计数超限输出，但只保留前缀，`CommandResult` 返回 total/captured bytes、truncated、duration、status 和 timed_out。Unix 本机执行使用独立进程组，超时后终止整组；Session 云沙箱在 timeout/cancel 后强制删除容器，清理失败则失败关闭，并另外施加 CPU、内存和 PID 容器限制。本机 Worker 不提供等价资源隔离。
+
 公共上下文：
 
 ```go

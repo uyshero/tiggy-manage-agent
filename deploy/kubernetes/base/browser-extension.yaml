@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tma-browser-gateway
+  namespace: tma
+spec:
+  # Browser sessions are process-local in v0.1. Scale through workspace-sharded
+  # releases until a sticky session router is introduced.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tma-browser-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tma-browser-gateway
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: registry.example.com/tma-browser-gateway:0.1.0
+          env:
+            - name: TMA_SERVER_BASE_URL
+              value: http://tma-server:8080
+            - name: TMA_BROWSER_AUTH_MODE
+              value: tma
+            - name: TMA_BROWSER_GATEWAY_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tma-runtime-secrets
+                  key: TMA_BROWSER_GATEWAY_SERVICE_SECRET
+            - name: TMA_BROWSER_MAX_SESSIONS_PER_WORKSPACE
+              value: "4"
+            - name: TMA_BROWSER_IDLE_TTL_SECONDS
+              value: "300"
+            - name: TMA_BROWSER_TRUSTED_ORIGINS
+              value: https://tma.example.com
+            - name: TMA_BROWSER_ALLOWED_WORKSPACE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: tma-config
+                  key: TMA_WORKER_AUTH_WORKSPACE_ID
+          ports:
+            - name: http
+              containerPort: 8090
+          readinessProbe:
+            httpGet:
+              path: /v2/extensions/browser/health
+              port: http
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: profiles
+              mountPath: /var/lib/tma-browser/profiles
+            - name: tmp
+              mountPath: /tmp
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: profiles
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tma-browser-gateway
+  namespace: tma
+spec:
+  selector:
+    app.kubernetes.io/name: tma-browser-gateway
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tma-browser-worker
+  namespace: tma
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tma-browser-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tma-browser-worker
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: registry.example.com/tma-browser-worker:0.1.0
+          env:
+            - name: TMA_BASE_URL
+              value: http://tma-server:8080
+            - name: TMA_WORKER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tma-runtime-secrets
+                  key: TMA_WORKER_AUTH_TOKEN
+            - name: TMA_WORKER_WORKSPACE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: tma-config
+                  key: TMA_WORKER_AUTH_WORKSPACE_ID
+            - name: TMA_WORKER_CONCURRENCY
+              value: "4"
+            - name: TMA_BROWSER_GATEWAY_URL
+              value: http://tma-browser-gateway:8090/v2/extensions/browser
+            - name: TMA_BROWSER_GATEWAY_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tma-runtime-secrets
+                  key: TMA_BROWSER_GATEWAY_SERVICE_SECRET
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 512Mi

@@ -44,7 +44,8 @@ linear-gradient(180deg,#eff5f5 0%,#ebf0f2 100%);color:var(--ink)}
 .topbar-label{font-size:17px;font-weight:700;letter-spacing:-.03em;color:var(--ink)}
 .topbar-context{max-width:560px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .topbar-status{display:flex;align-items:center;gap:10px;flex:0 0 auto}
-.topbar-role{color:var(--muted);font-size:12px;text-transform:capitalize}.topbar-settings,.topbar-logout{height:32px;padding:0 10px;font-size:12px}
+.mobile-navigation-actions,.mobile-sidebar-header,.mobile-navigation-backdrop{display:none}
+.topbar-user{max-width:180px;overflow:hidden;color:var(--muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.topbar-settings,.topbar-logout{height:32px;padding:0 10px;font-size:12px}
 .user-topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:18px;margin:0 0 14px;padding:14px 6px 12px;border-bottom:1px solid rgba(20,33,43,.08);background:transparent;box-shadow:none;border-radius:0}
 .user-layout{display:grid;grid-template-columns:308px minmax(0,1fr) 332px;gap:14px;height:100%;min-height:0;overflow:hidden}.user-layout.has-artifact-preview{grid-template-columns:308px minmax(360px,1fr) minmax(320px,var(--artifact-preview-width)) 332px}
 .user-sidebar{min-height:0;padding:0;display:grid;grid-template-rows:min-content minmax(0,1fr) auto auto;gap:14px;overflow:hidden;background:transparent;border-right:0;overscroll-behavior:contain}
@@ -442,3 +443,40 @@ body.workbench-dialog-open{overflow:hidden}
 @media(max-width:640px){.plugin-navigation button{min-height:44px}.plugin-route-header{align-items:stretch;display:grid;padding:14px}.plugin-route-header button{width:100%;min-height:44px}.plugin-diagnostics-page{padding:20px 16px}.plugin-page-heading{align-items:stretch;display:grid}.plugin-page-heading button{width:100%;min-height:44px}.plugin-page-heading h1{font-size:26px}.plugin-diagnostic-grid{grid-template-columns:1fr}.plugin-diagnostic-status dl>div{grid-template-columns:1fr;gap:4px}}
 @media(max-width:760px){.marketplace-upgrade-confirm{width:100%;align-items:stretch;display:grid;padding-left:10px}.marketplace-upgrade-confirm .skills-confirm-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.marketplace-upgrade-confirm .skills-confirm-actions button{width:100%}}
 @media(max-width:640px){.plan-approval-card{padding:14px;gap:12px}.plan-approval-header,.plan-approval-footer{display:grid;gap:10px}.plan-approval-meta{justify-content:flex-start}.plan-approval-items li{grid-template-columns:26px minmax(0,1fr)}.plan-approval-item-status{grid-column:2}.plan-approval-footer .approval-actions{display:grid;grid-template-columns:1fr 1fr}.plan-approval-footer .approval-actions button{width:100%;min-width:0}}
+@media(max-width:860px){
+  html,body,#root{height:100%;min-height:0}
+  body{overflow:hidden;overscroll-behavior:none}
+  .user-app{height:100dvh;min-height:0;overflow:hidden;grid-template-rows:auto minmax(0,1fr);padding:8px max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+  .user-topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 10px;margin-bottom:8px;padding:6px 2px 8px}
+  .topbar-brand{grid-column:1;grid-row:1}
+  .topbar-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar-context{max-width:100%}
+  .mobile-navigation-actions{grid-column:1/-1;grid-row:2;display:flex;align-items:center;gap:6px}
+  .mobile-navigation-actions button{height:40px;min-width:72px;padding:0 12px;border-radius:8px}
+  .mobile-navigation-actions button.active{border-color:rgba(15,118,110,.32);background:var(--accent-soft);color:var(--accent-strong)}
+  .topbar-status{grid-column:2;grid-row:1;width:auto;min-width:0;justify-content:flex-end;gap:6px;white-space:nowrap}
+  .topbar-user{max-width:min(25vw,100px)}
+  .topbar-settings,.topbar-logout{height:40px;border-radius:8px}
+  .user-layout,.user-layout.has-artifact-preview,.user-layout.plugin-route-active{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);height:100%;min-height:0;overflow:hidden}
+  .user-main,.plugin-route-main{height:100%;min-height:0}
+  .user-sidebar:not(.right){display:none}
+  .user-sidebar.right{display:none}
+  .user-sidebar.mobile-open:not(.right){position:fixed;z-index:52;inset:max(8px,env(safe-area-inset-top)) auto max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));width:min(360px,calc(100vw - 28px));min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px;padding:10px;overflow:hidden;border:1px solid rgba(20,33,43,.12);border-radius:8px;background:#f4f8f8;box-shadow:var(--shadow-lg)}
+  .mobile-sidebar-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;padding:0 4px 0 8px}
+  .mobile-sidebar-header strong{font-size:15px}
+  .mobile-sidebar-header .icon-button{width:44px;height:44px;border-radius:8px;background:#fff;border-color:var(--line)}
+  .mobile-sidebar-header .icon-button svg{width:18px;height:18px}
+  .mobile-navigation-backdrop{position:fixed;z-index:51;inset:0;width:100%;height:100%;display:block;padding:0;border:0;border-radius:0;background:rgba(15,23,42,.32);box-shadow:none;backdrop-filter:blur(3px)}
+  .mobile-navigation-backdrop:hover:not(:disabled){transform:none;box-shadow:none}
+  .user-sidebar.mobile-workspace-open{grid-template-rows:auto auto}
+  .user-sidebar.mobile-workspace-open .tasks-panel{display:none}
+  .user-sidebar.mobile-tasks-open .workspace-panel{display:none}
+  .user-sidebar.mobile-tasks-open .tasks-panel{display:flex;min-height:0}
+  .user-sidebar.mobile-open .panel{border-radius:8px;background:#fff;box-shadow:none}
+  .user-sidebar.mobile-open .panel h2{display:none}
+  .user-sidebar.mobile-open .panel .content{padding:12px}
+  .user-sidebar.mobile-open .workspace-field select,.user-sidebar.mobile-open .task-panel-content>input{height:44px;border-radius:8px;font-size:16px}
+  .user-sidebar.mobile-open .workspace-primary-action{height:44px;border-radius:8px}
+  .user-sidebar.mobile-open .task-nav-item{min-height:52px;border-radius:8px}
+  .artifact-preview-pane{position:fixed;z-index:50;inset:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));height:auto;min-height:0;border-radius:8px}
+}

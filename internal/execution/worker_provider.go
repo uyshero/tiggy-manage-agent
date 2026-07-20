@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
@@ -19,6 +18,7 @@ import (
 const (
 	defaultWorkerProviderPollInterval = 200 * time.Millisecond
 	defaultWorkerProviderWaitTimeout  = 30 * time.Second
+	workerCommandWaitGrace            = 30 * time.Second
 )
 
 type WorkerBackedStore interface {
@@ -47,14 +47,12 @@ func (p WorkerBackedProvider) ToolRuntime() string {
 }
 
 func (p WorkerBackedProvider) ToolCapabilities() []string {
-	capabilities := capability.LocalSystemProvider{}.ToolCapabilities()
-	capabilities = append(capabilities, browser.BrowserCapabilities()...)
-	return capabilities
+	return capability.LocalSystemProvider{}.ToolCapabilities()
 }
 
 func (p WorkerBackedProvider) RunCommand(ctx context.Context, request capability.RunCommandRequest) (capability.CommandResult, error) {
 	var result capability.CommandResult
-	if err := p.executeDefaultTool(ctx, "run_command", request, &result); err != nil {
+	if err := p.withCommandWaitTimeout(request.TimeoutMS).executeDefaultTool(ctx, "run_command", request, &result); err != nil {
 		return capability.CommandResult{}, err
 	}
 	return result, nil
@@ -62,10 +60,22 @@ func (p WorkerBackedProvider) RunCommand(ctx context.Context, request capability
 
 func (p WorkerBackedProvider) ExecuteCode(ctx context.Context, request capability.ExecuteCodeRequest) (capability.CommandResult, error) {
 	var result capability.CommandResult
-	if err := p.executeDefaultTool(ctx, "execute_code", request, &result); err != nil {
+	if err := p.withCommandWaitTimeout(request.TimeoutMS).executeDefaultTool(ctx, "execute_code", request, &result); err != nil {
 		return capability.CommandResult{}, err
 	}
 	return result, nil
+}
+
+func (p WorkerBackedProvider) withCommandWaitTimeout(timeoutMS int) WorkerBackedProvider {
+	if p.WaitTimeout > 0 {
+		return p
+	}
+	timeout := capability.DefaultRunCommandTimeout
+	if timeoutMS > 0 {
+		timeout = time.Duration(timeoutMS) * time.Millisecond
+	}
+	p.WaitTimeout = timeout + workerCommandWaitGrace
+	return p
 }
 
 func (p WorkerBackedProvider) ReadFile(ctx context.Context, request capability.ReadFileRequest) (capability.FileResult, error) {
@@ -116,68 +126,8 @@ func (p WorkerBackedProvider) EditFile(ctx context.Context, request capability.E
 	return result, nil
 }
 
-func (p WorkerBackedProvider) Open(ctx context.Context, request browser.OpenRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "open", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Read(ctx context.Context, request browser.ReadRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "read", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Click(ctx context.Context, request browser.ClickRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "click", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Type(ctx context.Context, request browser.TypeRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "type", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Screenshot(ctx context.Context, request browser.ScreenshotRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "screenshot", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Takeover(ctx context.Context, request browser.TakeoverRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "takeover", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
-func (p WorkerBackedProvider) Close(ctx context.Context, request browser.CloseRequest) (browser.PageState, error) {
-	var result browser.PageState
-	if err := p.executeBrowserTool(ctx, "close", request, &result); err != nil {
-		return browser.PageState{}, err
-	}
-	return result, nil
-}
-
 func (p WorkerBackedProvider) executeDefaultTool(ctx context.Context, api string, input any, state any) error {
 	return p.executeTool(ctx, tools.NamespaceDefault, api, input, state)
-}
-
-func (p WorkerBackedProvider) executeBrowserTool(ctx context.Context, api string, input any, state any) error {
-	return p.executeTool(ctx, tools.NamespaceBrowser, api, input, state)
 }
 
 func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string, api string, input any, state any) error {
@@ -425,20 +375,6 @@ func requestMeta(input any) capability.RequestMeta {
 	case capability.WriteFileRequest:
 		return request.Meta
 	case capability.EditFileRequest:
-		return request.Meta
-	case browser.OpenRequest:
-		return request.Meta
-	case browser.ReadRequest:
-		return request.Meta
-	case browser.ClickRequest:
-		return request.Meta
-	case browser.TypeRequest:
-		return request.Meta
-	case browser.ScreenshotRequest:
-		return request.Meta
-	case browser.TakeoverRequest:
-		return request.Meta
-	case browser.CloseRequest:
 		return request.Meta
 	default:
 		return capability.RequestMeta{}

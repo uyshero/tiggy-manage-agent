@@ -693,7 +693,7 @@ Worker 拉取一条待执行 work。
 | work_type | 当前 worker 行为 |
 |---|---|
 | `sandbox_command` | `tma-worker` 将 `payload` 解析为 `capability.RunCommandRequest`，并通过 `LocalSystemProvider.RunCommand` 在运行 worker 的机器上执行 |
-| `tool_execution` | `payload` 必须是 `tma.work.v1`；`tma-worker` 通过本地 tool registry 执行 `default.*` / `browser.*` / 插件声明的 `namespace.api` |
+| `tool_execution` | `payload` 必须是 `tma.work.v1`；`tma-worker` 通过本地 tool registry 执行 `default.*` 或 Process Plugin 声明的 `namespace.api`；`browser.*` 也由插件提供 |
 | `artifact_sync` | 当前返回 echo result |
 
 `tool_execution` payload 示例：
@@ -708,7 +708,9 @@ Worker 拉取一条待执行 work。
   "runtime": "local_system",
   "input": {
     "command": "sh",
-    "args": ["-c", "printf hello"]
+    "args": ["-c", "printf hello"],
+    "timeout_ms": 120000,
+    "max_output_bytes": 65536
   }
 }
 ```
@@ -720,7 +722,9 @@ Worker 拉取一条待执行 work。
   "command": "sh",
   "args": ["-c", "printf hello"],
   "work_dir": ".",
-  "env": {}
+  "env": {},
+  "timeout_ms": 120000,
+  "max_output_bytes": 65536
 }
 ```
 
@@ -733,12 +737,17 @@ Worker 拉取一条待执行 work。
   "work_type": "sandbox_command",
   "worker_name": "viito-mac",
   "command_result": {
+    "status": "completed",
     "exit_code": 0,
     "stdout": "hello",
-    "stderr": ""
+    "stdout_bytes": 5,
+    "stdout_captured_bytes": 5,
+    "duration_ms": 3
   }
 }
 ```
+
+`timeout_ms` 默认 120000，范围 100～600000。`max_output_bytes` 分别作用于 stdout 和 stderr，默认每路 65536，范围 1024～1048576；超限部分不保留，但结果继续返回流的总字节数和 `*_truncated`。Unix 本机执行超时会终止整个进程组。
 
 ### `POST /v1/workers/{worker_id}/work/{work_id}/ack`
 
@@ -1490,7 +1499,7 @@ Session 对象除基础字段外还会返回：
 
 响应 `200`：更新后的 `Session`。
 
-同时支持更新 `tool_runtime`、`cloud_sandbox_root`、`cloud_sandbox_image`、`cloud_sandbox_allow_network`。`cloud_sandbox_allow_network=true` 表示沙箱容器使用 Docker 默认网络并具备外网访问能力；设为 `false` 时容器会用 `--network none` 断网。具备外网能力的 `default.run_command` / `default.execute_code` 会进入 `network_access` 审批层，并按 `intervention_mode` 决定等待用户、自动批准或直接执行。如果请求体为空对象，会把 `runtime_settings` 写为 `{}`。
+同时支持更新 `tool_runtime`、`cloud_sandbox_root`、`cloud_sandbox_image`、`cloud_sandbox_allow_network`。`cloud_sandbox_allow_network=true` 表示沙箱容器使用 Docker 默认网络并具备外网访问能力；设为 `false` 时容器会用 `--network none` 断网。具备外网能力的 `default.run_command` 会进入 `network_access` 审批层；显式配置后使用的兼容 API `default.execute_code` 也遵循该策略。系统按 `intervention_mode` 决定等待用户、自动批准或直接执行。如果请求体为空对象，会把 `runtime_settings` 写为 `{}`。
 
 ### `POST /v1/sessions/{session_id}/archive`
 
@@ -2157,7 +2166,7 @@ Content-Type: multipart/form-data
 }
 ```
 
-`workspace_path` 是文件同步到当前云沙箱后的稳定路径。Workbench 会把该路径作为结构化附件随 `user.message` 提交，运行时只在模型上下文中注入路径，聊天正文保持为用户原始输入。模型可直接通过 `read_file`、`run_command` 或 `execute_code` 处理文件。
+`workspace_path` 是文件同步到当前云沙箱后的稳定路径。Workbench 会把该路径作为结构化附件随 `user.message` 提交，运行时只在模型上下文中注入路径，聊天正文保持为用户原始输入。模型默认通过 `read_file` 或 `run_command` 处理文件；兼容 API `execute_code` 仅在 Agent 显式配置 `default.execute_code` 后可见。
 
 ## Usage
 

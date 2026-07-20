@@ -639,6 +639,33 @@ func TestAgentRuntimeTurnExecutorExecutesLocalSystemToolThroughWorkerBackedProvi
 	}
 }
 
+func TestRuntimeModelInputsRedactCustomManagedEnvironment(t *testing.T) {
+	const secret = "custom-history-secret-246810"
+	environment := map[string]string{"USER_DEFINED_KEY": secret}
+	history := []managedagents.ConversationMessage{{
+		Seq: 1, Role: "assistant", Payload: json.RawMessage(`{"content":[{"type":"text","text":"value: ` + secret + `"}]}`),
+	}}
+	redactedHistory := redactConversationHistoryEnvironment(history, environment)
+	if strings.Contains(string(redactedHistory[0].Payload), secret) || !strings.Contains(string(redactedHistory[0].Payload), "[REDACTED_ENV:USER_DEFINED_KEY]") {
+		t.Fatalf("history was not redacted: %s", redactedHistory[0].Payload)
+	}
+	if !strings.Contains(string(history[0].Payload), secret) {
+		t.Fatal("history redaction mutated the source message")
+	}
+
+	resume := &agentruntime.InterventionResume{
+		Response:     json.RawMessage(`{"answer":"` + secret + `"}`),
+		Continuation: []llm.Message{{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "value: " + secret}}}},
+	}
+	redactedResume := redactInterventionResumeEnvironment(resume, environment)
+	if strings.Contains(string(redactedResume.Response), secret) || strings.Contains(redactedResume.Continuation[0].Content[0].Text, secret) {
+		t.Fatalf("intervention continuation was not redacted: %#v", redactedResume)
+	}
+	if !strings.Contains(resume.Continuation[0].Content[0].Text, secret) {
+		t.Fatal("intervention redaction mutated the source continuation")
+	}
+}
+
 func TestAgentRuntimeTurnExecutorPersistsWorkerExportedFilesAsSessionArtifacts(t *testing.T) {
 	store := &mockStore{
 		runtimeSettings: json.RawMessage(`{"intervention_mode":"approve_for_me"}`),

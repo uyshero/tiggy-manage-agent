@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"tiggy-manage-agent/internal/browser"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
@@ -332,6 +331,18 @@ func TestWorkerBackedProviderRunCommandDecodesExportedArtifacts(t *testing.T) {
 	}
 }
 
+func TestWorkerBackedProviderCommandWaitTimeoutTracksToolDeadline(t *testing.T) {
+	provider := WorkerBackedProvider{}
+	derived := provider.withCommandWaitTimeout(90_000)
+	if derived.WaitTimeout != 120*time.Second {
+		t.Fatalf("expected command timeout plus worker grace, got %s", derived.WaitTimeout)
+	}
+	explicit := (WorkerBackedProvider{WaitTimeout: time.Second}).withCommandWaitTimeout(90_000)
+	if explicit.WaitTimeout != time.Second {
+		t.Fatalf("explicit worker wait timeout must be preserved, got %s", explicit.WaitTimeout)
+	}
+}
+
 func TestWorkerBackedProviderRunCommandDecodesUploadedArtifactRefs(t *testing.T) {
 	state, err := json.Marshal(capability.CommandResult{ExitCode: 0, Stdout: "ok"})
 	if err != nil {
@@ -388,68 +399,6 @@ func TestWorkerBackedProviderRunCommandDecodesUploadedArtifactRefs(t *testing.T)
 	}
 	if len(command.Artifacts) != 1 || command.Artifacts[0].ArtifactID != "art_large" {
 		t.Fatalf("unexpected artifact refs: %#v", command.Artifacts)
-	}
-}
-
-func TestWorkerBackedProviderBrowserOpenEnqueuesAndDecodesResult(t *testing.T) {
-	state, err := json.Marshal(browser.PageState{
-		BrowserSessionID: "sesn_000001",
-		URL:              "https://example.com",
-		Title:            "Example",
-	})
-	if err != nil {
-		t.Fatalf("marshal state: %v", err)
-	}
-	result, err := json.Marshal(map[string]any{
-		"tool_result": tools.ExecutionResult{
-			Identifier: tools.NamespaceBrowser,
-			APIName:    "open",
-			Content:    "Title: Example",
-			State:      state,
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal result: %v", err)
-	}
-	store := &workerBackedTestStore{
-		workers: []managedagents.Worker{{
-			ID:          "wrk_000001",
-			WorkspaceID: "wksp_000001",
-			Status:      managedagents.WorkerStatusOnline,
-			Capabilities: rawWorkerCapabilities(t, map[string]any{
-				"namespaces":   []string{"browser"},
-				"apis":         []string{"browser.open"},
-				"runtimes":     []string{"local_system"},
-				"capabilities": []string{"browser.open", "browser.read"},
-			}),
-		}},
-		completedResult: result,
-	}
-	provider := WorkerBackedProvider{
-		Store:         store,
-		WorkspaceID:   "wksp_000001",
-		SessionID:     "sesn_000001",
-		EnvironmentID: "env_000001",
-		TurnID:        "turn_000001",
-		PollInterval:  time.Millisecond,
-		WaitTimeout:   time.Second,
-	}
-
-	page, err := provider.Open(t.Context(), browser.OpenRequest{
-		BaseRequest: browser.BaseRequest{URL: "https://example.com"},
-	})
-	if err != nil {
-		t.Fatalf("open browser through worker: %v", err)
-	}
-	if page.Title != "Example" || page.URL != "https://example.com" {
-		t.Fatalf("unexpected page state: %#v", page)
-	}
-	var invocation tools.WorkInvocation
-	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
-		t.Fatalf("decode enqueued invocation: %v", err)
-	}
-	if invocation.Namespace != tools.NamespaceBrowser || invocation.API != "open" || invocation.Runtime != tools.ToolRuntimeLocalSystem {
-		t.Fatalf("unexpected browser invocation: %#v", invocation)
 	}
 }
 

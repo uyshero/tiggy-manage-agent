@@ -12554,7 +12554,7 @@ function stringify$1(values, options) {
 const nameRe = /^[$_\p{ID_Start}][$_\u{200C}\u{200D}\p{ID_Continue}]*$/u;
 const nameReJsx = /^[$_\p{ID_Start}][-$_\u{200C}\u{200D}\p{ID_Continue}]*$/u;
 const emptyOptions$3 = {};
-function name$2(name2, options) {
+function name$3(name2, options) {
   const settings = emptyOptions$3;
   const re2 = settings.jsx ? nameReJsx : nameRe;
   return re2.test(name2);
@@ -14523,7 +14523,7 @@ function findComponentFromName(state, name2, allowExpression) {
     let index2 = -1;
     let node2;
     while (++index2 < identifiers.length) {
-      const prop = name$2(identifiers[index2]) ? { type: "Identifier", name: identifiers[index2] } : { type: "Literal", value: identifiers[index2] };
+      const prop = name$3(identifiers[index2]) ? { type: "Identifier", name: identifiers[index2] } : { type: "Literal", value: identifiers[index2] };
       node2 = node2 ? {
         type: "MemberExpression",
         object: node2,
@@ -14534,7 +14534,7 @@ function findComponentFromName(state, name2, allowExpression) {
     }
     result = node2;
   } else {
-    result = name$2(name2) && !/^[a-z]/.test(name2) ? { type: "Identifier", name: name2 } : { type: "Literal", value: name2 };
+    result = name$3(name2) && !/^[a-z]/.test(name2) ? { type: "Identifier", name: name2 } : { type: "Literal", value: name2 };
   }
   if (result.type === "Literal") {
     const name3 = (
@@ -31885,29 +31885,29 @@ function createStaticPluginRegistry(options) {
     commands
   });
 }
-const protocol_version$1 = "tma.workbench_plugin.v1";
-const id$1 = "com.tma.workbench-diagnostics";
-const name$1 = "扩展诊断";
-const description$1 = "查看静态插件运行时与多端声明状态";
-const version$1 = "1.0.0";
-const entry$1 = "./index.js";
-const surfaces$1 = ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"];
-const engines$1 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
-const permissions$1 = [];
-const contributes$1 = { "navigation": [{ "id": "diagnostics", "group": "workspace", "title": "扩展诊断", "route": "/plugins/com.tma.workbench-diagnostics/status", "order": 900 }], "routes": [{ "id": "status", "path": "/plugins/com.tma.workbench-diagnostics/status", "component": "DiagnosticsPage", "required_permissions": [] }], "commands": [{ "id": "com.tma.workbench-diagnostics.refresh", "title": "刷新诊断状态", "risk": "read", "required_permissions": [] }] };
-const manifest$1 = {
-  protocol_version: protocol_version$1,
-  id: id$1,
-  name: name$1,
-  description: description$1,
-  version: version$1,
-  entry: entry$1,
-  surfaces: surfaces$1,
-  engines: engines$1,
-  permissions: permissions$1,
-  contributes: contributes$1
+const protocol_version$2 = "tma.workbench_plugin.v1";
+const id$2 = "com.tma.workbench-diagnostics";
+const name$2 = "扩展诊断";
+const description$2 = "查看静态插件运行时与多端声明状态";
+const version$2 = "1.0.0";
+const entry$2 = "./index.js";
+const surfaces$2 = ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"];
+const engines$2 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
+const permissions$2 = [];
+const contributes$2 = { "navigation": [{ "id": "diagnostics", "group": "workspace", "title": "扩展诊断", "route": "/plugins/com.tma.workbench-diagnostics/status", "order": 900 }], "routes": [{ "id": "status", "path": "/plugins/com.tma.workbench-diagnostics/status", "component": "DiagnosticsPage", "required_permissions": [] }], "commands": [{ "id": "com.tma.workbench-diagnostics.refresh", "title": "刷新诊断状态", "risk": "read", "required_permissions": [] }] };
+const manifest$2 = {
+  protocol_version: protocol_version$2,
+  id: id$2,
+  name: name$2,
+  description: description$2,
+  version: version$2,
+  entry: entry$2,
+  surfaces: surfaces$2,
+  engines: engines$2,
+  permissions: permissions$2,
+  contributes: contributes$2
 };
-const plugin$1 = {
+const plugin$2 = {
   id: "com.tma.workbench-diagnostics",
   activate(context) {
     context.commands.register("com.tma.workbench-diagnostics.refresh", async () => ({
@@ -31979,13 +31979,244 @@ function DiagnosticsPage({ context }) {
     )
   );
 }
-const _package$1 = Object.freeze({
-  manifest: manifest$1,
-  plugin: plugin$1,
+const _package$2 = Object.freeze({
+  manifest: manifest$2,
+  plugin: plugin$2,
   components: Object.freeze({ DiagnosticsPage }),
   enablement: Object.freeze({ defaultEnabled: true })
 });
 const __vite_glob_0_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: _package$2
+}, Symbol.toStringTag, { value: "Module" }));
+const protocol_version$1 = "tma.workbench_plugin.v1";
+const id$1 = "com.tma.enterprise-browser";
+const name$1 = "浏览器";
+const description$1 = "查看并接管由 Browser Gateway 托管的隔离浏览器会话";
+const version$1 = "0.1.0";
+const entry$1 = "./index.jsx";
+const surfaces$1 = ["web_desktop", "desktop_shell", "web_tablet"];
+const engines$1 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
+const permissions$1 = [];
+const contributes$1 = { "navigation": [{ "id": "browser", "group": "workspace", "title": "浏览器", "route": "/plugins/com.tma.enterprise-browser/browser", "order": 90 }], "routes": [{ "id": "browser", "path": "/plugins/com.tma.enterprise-browser/browser", "component": "EnterpriseBrowserPage", "required_permissions": [] }], "commands": [] };
+const manifest$1 = {
+  protocol_version: protocol_version$1,
+  id: id$1,
+  name: name$1,
+  description: description$1,
+  version: version$1,
+  entry: entry$1,
+  surfaces: surfaces$1,
+  engines: engines$1,
+  permissions: permissions$1,
+  contributes: contributes$1
+};
+const basePath = "/v2/extensions/browser";
+function browserSessionPath(sessionID, action = "") {
+  const base = `${basePath}/sessions/${encodeURIComponent(String(sessionID || ""))}`;
+  return action ? `${base}/${action}` : base;
+}
+function createBrowserAPI(http) {
+  return Object.freeze({
+    create(input) {
+      return http.request(`${basePath}/sessions`, { method: "POST", body: input });
+    },
+    read(sessionID) {
+      return http.request(browserSessionPath(sessionID));
+    },
+    action(sessionID, action, input = {}) {
+      return http.request(browserSessionPath(sessionID, action), { method: "POST", body: input });
+    },
+    close(sessionID) {
+      return http.request(browserSessionPath(sessionID), { method: "DELETE" });
+    },
+    frameURL(sessionID, revision = Date.now()) {
+      return `${browserSessionPath(sessionID, "frame")}?v=${encodeURIComponent(revision)}`;
+    }
+  });
+}
+function requestedSessionID() {
+  const query = String(window.location.hash || "").split("?", 2)[1] || "";
+  return new URLSearchParams(query).get("session") || "";
+}
+function taskLabel(task) {
+  return task.title || task.name || task.id;
+}
+function IconButton({ label, children, ...props }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("button", { "aria-label": label, className: "enterprise-browser-icon", title: label, type: "button", ...props, children });
+}
+const plugin$1 = {
+  id: "com.tma.enterprise-browser",
+  activate() {
+  }
+};
+function EnterpriseBrowserPage({ context }) {
+  const api = reactExports.useMemo(() => createBrowserAPI(context.http), [context]);
+  const [tasks, setTasks] = reactExports.useState([]);
+  const [selectedTaskID, setSelectedTaskID] = reactExports.useState(requestedSessionID);
+  const [browserSessionID, setBrowserSessionID] = reactExports.useState("");
+  const [state, setState] = reactExports.useState(null);
+  const [address, setAddress] = reactExports.useState("https://example.com");
+  const [inputText, setInputText] = reactExports.useState("");
+  const [frameRevision, setFrameRevision] = reactExports.useState(0);
+  const [busy, setBusy] = reactExports.useState("");
+  const [error, setError] = reactExports.useState("");
+  const viewportRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    let active = true;
+    context.tasks.list({ limit: 100, includeArchived: false }).then((items) => {
+      if (!active) return;
+      setTasks(items);
+      setSelectedTaskID((current) => {
+        var _a2;
+        return current || ((_a2 = items[0]) == null ? void 0 : _a2.id) || "";
+      });
+    }).catch((reason) => active && setError(String((reason == null ? void 0 : reason.message) || reason)));
+    return () => {
+      active = false;
+    };
+  }, [context]);
+  reactExports.useEffect(() => {
+    if (!browserSessionID) return void 0;
+    let active = true;
+    const refresh = () => {
+      api.read(browserSessionID).then((next) => {
+        var _a2;
+        if (!active) return;
+        setState(next);
+        if (next.url && ((_a2 = document.activeElement) == null ? void 0 : _a2.name) !== "browser-address") setAddress(next.url);
+      }).catch((reason) => active && setError(String((reason == null ? void 0 : reason.message) || reason)));
+    };
+    refresh();
+    const stateTimer = window.setInterval(refresh, 1500);
+    const frameTimer = window.setInterval(() => setFrameRevision(Date.now()), 800);
+    return () => {
+      active = false;
+      window.clearInterval(stateTimer);
+      window.clearInterval(frameTimer);
+    };
+  }, [api, browserSessionID]);
+  async function run(name2, operation) {
+    setBusy(name2);
+    setError("");
+    try {
+      const next = await operation();
+      if (next == null ? void 0 : next.browser_session_id) setBrowserSessionID(next.browser_session_id);
+      if ((next == null ? void 0 : next.url) !== void 0) {
+        setState(next);
+        setAddress(next.url || address);
+      }
+      setFrameRevision(Date.now());
+      return next;
+    } catch (reason) {
+      setError(String((reason == null ? void 0 : reason.message) || reason));
+      return null;
+    } finally {
+      setBusy("");
+    }
+  }
+  async function connect() {
+    if (!selectedTaskID) return;
+    await run("connect", () => api.create({
+      browser_session_id: selectedTaskID,
+      tma_session_id: selectedTaskID,
+      url: address,
+      viewport: { width: 1280, height: 720 }
+    }));
+  }
+  async function navigate(event) {
+    event.preventDefault();
+    if (!browserSessionID || !address.trim()) return;
+    await run("open", () => api.action(browserSessionID, "open", { url: address.trim() }));
+  }
+  async function pageAction(action, input = {}) {
+    if (!browserSessionID) return;
+    await run(action, () => api.action(browserSessionID, action, input));
+  }
+  function clickPage(event) {
+    if (!(state == null ? void 0 : state.viewport) || !viewportRef.current) return;
+    const bounds = viewportRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(state.viewport.width, (event.clientX - bounds.left) / bounds.width * state.viewport.width));
+    const y = Math.max(0, Math.min(state.viewport.height, (event.clientY - bounds.top) / bounds.height * state.viewport.height));
+    viewportRef.current.focus();
+    pageAction("mouse", { x, y });
+  }
+  function keyPage(event) {
+    const supported = /* @__PURE__ */ new Set(["Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "PageUp", "PageDown"]);
+    if (!supported.has(event.key)) return;
+    event.preventDefault();
+    pageAction("key", { key: event.key });
+  }
+  async function sendText(event) {
+    var _a2;
+    event.preventDefault();
+    if (!inputText) return;
+    await pageAction("insert_text", { text: inputText });
+    setInputText("");
+    (_a2 = viewportRef.current) == null ? void 0 : _a2.focus();
+  }
+  async function closeBrowser() {
+    if (!browserSessionID) return;
+    await run("close", () => api.close(browserSessionID));
+    setBrowserSessionID("");
+    setState(null);
+  }
+  const connected = Boolean(browserSessionID);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "enterprise-browser-page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "enterprise-browser-header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "浏览器" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: connected ? `${(state == null ? void 0 : state.title) || "正在连接"} · ${browserSessionID}` : "选择任务并连接隔离浏览器会话" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `enterprise-browser-status ${connected ? "connected" : ""}`, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true" }),
+        connected ? "已连接" : "未连接"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "enterprise-browser-toolbar", "aria-label": "浏览器工具栏", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { "aria-label": "关联任务", disabled: connected || busy, onChange: (event) => setSelectedTaskID(event.target.value), value: selectedTaskID, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "选择任务" }),
+        tasks.map((task) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: task.id, children: taskLabel(task) }, task.id))
+      ] }),
+      !connected ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "enterprise-browser-connect", disabled: !selectedTaskID || busy, onClick: connect, type: "button", children: "连接" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconButton, { disabled: Boolean(busy), label: "后退", onClick: () => pageAction("back"), children: "←" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconButton, { disabled: Boolean(busy), label: "前进", onClick: () => pageAction("forward"), children: "→" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconButton, { disabled: Boolean(busy), label: "刷新", onClick: () => pageAction("reload"), children: "↻" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("form", { className: "enterprise-browser-address", onSubmit: navigate, children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { "aria-label": "网页地址", name: "browser-address", onChange: (event) => setAddress(event.target.value), spellCheck: "false", value: address }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconButton, { disabled: Boolean(busy), label: "关闭浏览器", onClick: closeBrowser, children: "×" })
+      ] })
+    ] }),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "enterprise-browser-error", role: "alert", children: error }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "enterprise-browser-surface", children: connected ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        "aria-label": "浏览器页面，点击以操作",
+        className: "enterprise-browser-viewport",
+        onClick: clickPage,
+        onKeyDown: keyPage,
+        onWheel: (event) => pageAction("wheel", { delta_x: event.deltaX, delta_y: event.deltaY }),
+        ref: viewportRef,
+        role: "application",
+        tabIndex: 0,
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("img", { alt: (state == null ? void 0 : state.title) || "浏览器页面", draggable: "false", src: api.frameURL(browserSessionID, frameRevision) }),
+          busy ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "enterprise-browser-busy", children: "正在处理..." }) : null
+        ]
+      }
+    ) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "enterprise-browser-empty", children: "没有活动浏览器会话" }) }),
+    connected ? /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "enterprise-browser-input", onSubmit: sendText, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { "aria-label": "向当前页面输入文本", onChange: (event) => setInputText(event.target.value), placeholder: "向当前焦点输入文本", value: inputText }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { disabled: !inputText || Boolean(busy), type: "submit", children: "输入" })
+    ] }) : null
+  ] });
+}
+const _package$1 = Object.freeze({
+  manifest: manifest$1,
+  plugin: plugin$1,
+  components: Object.freeze({ EnterpriseBrowserPage }),
+  enablement: Object.freeze({ defaultEnabled: true })
+});
+const __vite_glob_1_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: _package$1
 }, Symbol.toStringTag, { value: "Module" }));
@@ -32929,7 +33160,7 @@ const _package = Object.freeze({
   components: Object.freeze({ ResearchProjectsPage }),
   enablement: Object.freeze({ defaultEnabled: true })
 });
-const __vite_glob_1_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const __vite_glob_1_1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: _package
 }, Symbol.toStringTag, { value: "Module" }));
@@ -32984,7 +33215,7 @@ function loadPluginCatalog(runtime, catalog, options = {}) {
 }
 const packageModules = {
   .../* @__PURE__ */ Object.assign({ "./workbenchDiagnostics/package.js": __vite_glob_0_0 }),
-  .../* @__PURE__ */ Object.assign({ "./researchProjects/package.jsx": __vite_glob_1_0 })
+  .../* @__PURE__ */ Object.assign({ "./enterpriseBrowser/package.jsx": __vite_glob_1_0, "./researchProjects/package.jsx": __vite_glob_1_1 })
 };
 const staticPluginCatalog = buildStaticPluginCatalog(packageModules);
 function loadStaticPluginCatalog(runtime, options = {}) {
@@ -37221,7 +37452,7 @@ function forgetSession() {
   }
 }
 function WorkbenchApp() {
-  var _a2, _b, _c;
+  var _a2, _b;
   const [status, setStatus] = reactExports.useState("ready");
   const [principal, setPrincipal] = reactExports.useState(null);
   const [agentID, setAgentID] = reactExports.useState("");
@@ -37231,6 +37462,7 @@ function WorkbenchApp() {
   const [composerFiles, setComposerFiles] = reactExports.useState([]);
   const [composerDragActive, setComposerDragActive] = reactExports.useState(false);
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = reactExports.useState(false);
+  const [mobileNavigationPanel, setMobileNavigationPanel] = reactExports.useState("");
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
@@ -37334,6 +37566,14 @@ function WorkbenchApp() {
       window.removeEventListener("popstate", syncPluginPath);
     };
   }, []);
+  reactExports.useEffect(() => {
+    if (!mobileNavigationPanel) return void 0;
+    function closeOnEscape(event) {
+      if (event.key === "Escape") setMobileNavigationPanel("");
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [mobileNavigationPanel]);
   reactExports.useEffect(() => {
     if (!taskMenuSessionID) return void 0;
     const closeTaskMenu = (event) => {
@@ -38090,7 +38330,7 @@ function WorkbenchApp() {
     setComposerFiles((current) => current.filter((item) => item.id !== id2));
   }
   async function uploadComposerFiles(nextSessionID) {
-    var _a3, _b2, _c2, _d, _e;
+    var _a3, _b2, _c, _d, _e;
     if (!composerFiles.length) return [];
     setUploadingFiles(true);
     const completed = [];
@@ -38116,7 +38356,7 @@ function WorkbenchApp() {
         completed.push({
           artifact_id: ((_a3 = upload.artifact) == null ? void 0 : _a3.id) || "",
           object_ref_id: ((_b2 = upload.object_ref) == null ? void 0 : _b2.id) || "",
-          name: ((_c2 = upload.artifact) == null ? void 0 : _c2.name) || item.file.name,
+          name: ((_c = upload.artifact) == null ? void 0 : _c.name) || item.file.name,
           content_type: ((_d = upload.object_ref) == null ? void 0 : _d.content_type) || item.file.type || "application/octet-stream",
           size_bytes: ((_e = upload.object_ref) == null ? void 0 : _e.size_bytes) || item.file.size,
           workspace_path: upload.workspace_path || ""
@@ -38154,7 +38394,7 @@ function WorkbenchApp() {
     return "当前模型不支持图片解析，且尚未配置统一图片视觉模型。请前往设置 > 模型完成配置。";
   }
   async function startSession() {
-    var _a3, _b2, _c2, _d;
+    var _a3, _b2, _c, _d;
     const visionError = composerVisionError();
     if (visionError) {
       setStatus(visionError);
@@ -38185,7 +38425,7 @@ function WorkbenchApp() {
         human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
         llm_model: settingsDraft.llmModel || ((_b2 = agent2.config_version) == null ? void 0 : _b2.llm_model) || "",
-        llm_provider: settingsDraft.llmProvider || ((_c2 = agent2.config_version) == null ? void 0 : _c2.llm_provider) || "",
+        llm_provider: settingsDraft.llmProvider || ((_c = agent2.config_version) == null ? void 0 : _c.llm_provider) || "",
         tool_runtime: settingsDraft.toolRuntime || "cloud_sandbox"
       });
       setSessionMeta(updatedSession);
@@ -38202,7 +38442,7 @@ function WorkbenchApp() {
     }
   }
   async function sendTask(nextSessionID = sessionID, options = {}) {
-    var _a3, _b2, _c2;
+    var _a3, _b2, _c;
     const value = String(nextSessionID || "").trim();
     const text2 = String(options.text ?? task).trim();
     const guidanceItems = options.guidanceItems || selectedGuidanceItems;
@@ -38217,7 +38457,7 @@ function WorkbenchApp() {
       setStatus(visionError);
       return;
     }
-    if (!text2 && !composerFiles.length && !((_c2 = options.attachments) == null ? void 0 : _c2.length)) {
+    if (!text2 && !composerFiles.length && !((_c = options.attachments) == null ? void 0 : _c.length)) {
       setStatus("task required");
       return;
     }
@@ -39260,164 +39500,211 @@ function WorkbenchApp() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-context", children: (activePluginRoute == null ? void 0 : activePluginRoute.title) || (sessionMeta == null ? void 0 : sessionMeta.title) || sessionID || "通用智能体工作区" })
       ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-navigation-actions", "aria-label": "移动端导航", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `secondary ${mobileNavigationPanel === "workspace" ? "active" : ""}`,
+            type: "button",
+            "aria-expanded": mobileNavigationPanel === "workspace",
+            "aria-controls": "mobile-navigation-sidebar",
+            onClick: () => setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace"),
+            children: "工作区"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `secondary ${mobileNavigationPanel === "tasks" ? "active" : ""}`,
+            type: "button",
+            "aria-expanded": mobileNavigationPanel === "tasks",
+            "aria-controls": "mobile-navigation-sidebar",
+            onClick: () => setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks"),
+            children: "任务"
+          }
+        )
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-status", children: [
-        principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-role", children: ((_a2 = principal.roles) == null ? void 0 : _a2[principal.roles.length - 1]) || "viewer" }) : null,
+        principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-user", title: principal.subject || principal.owner_id, children: principal.subject || principal.owner_id }) : null,
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-settings", type: "button", onClick: openSettingsPage, children: "设置" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" })
       ] })
     ] }),
+    mobileNavigationPanel ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        className: "mobile-navigation-backdrop",
+        type: "button",
+        "aria-label": "关闭移动端导航",
+        onClick: () => setMobileNavigationPanel("")
+      }
+    ) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
         className: `user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""}`.trim(),
         style: { "--artifact-preview-width": `${artifactPreviewWidth}px` },
         children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "user-sidebar", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "工作区", className: "workspace-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "workspace-controls", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "workspace-field", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "智能体" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  "select",
-                  {
-                    value: selectedAgentValue,
-                    onChange: (event) => {
-                      const nextAgentID = event.target.value;
-                      setAgentID(nextAgentID);
-                      const selectedAgent2 = availableAgents.find((agent2) => agent2.id === nextAgentID);
-                      if ((sessionMeta == null ? void 0 : sessionMeta.agent_id) && sessionMeta.agent_id !== nextAgentID) {
-                        resetSessionViewForAgent(selectedAgent2);
-                      } else if (selectedAgent2 == null ? void 0 : selectedAgent2.config_version) {
-                        setSettingsDraft((current) => ({
-                          ...current,
-                          llmProvider: selectedAgent2.config_version.llm_provider || current.llmProvider || "",
-                          llmModel: selectedAgent2.config_version.llm_model || current.llmModel || ""
-                        }));
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "aside",
+            {
+              id: "mobile-navigation-sidebar",
+              className: `user-sidebar ${mobileNavigationPanel ? `mobile-open mobile-${mobileNavigationPanel}-open` : ""}`.trim(),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-sidebar-header", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: mobileNavigationPanel === "tasks" ? "任务列表" : "工作区" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", "aria-label": "关闭", onClick: () => setMobileNavigationPanel(""), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "工作区", className: "workspace-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "workspace-controls", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "workspace-field", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "智能体" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "select",
+                      {
+                        value: selectedAgentValue,
+                        onChange: (event) => {
+                          const nextAgentID = event.target.value;
+                          setAgentID(nextAgentID);
+                          setMobileNavigationPanel("");
+                          const selectedAgent2 = availableAgents.find((agent2) => agent2.id === nextAgentID);
+                          if ((sessionMeta == null ? void 0 : sessionMeta.agent_id) && sessionMeta.agent_id !== nextAgentID) {
+                            resetSessionViewForAgent(selectedAgent2);
+                          } else if (selectedAgent2 == null ? void 0 : selectedAgent2.config_version) {
+                            setSettingsDraft((current) => ({
+                              ...current,
+                              llmProvider: selectedAgent2.config_version.llm_provider || current.llmProvider || "",
+                              llmModel: selectedAgent2.config_version.llm_model || current.llmModel || ""
+                            }));
+                          }
+                        },
+                        children: availableAgents.map((agent2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: agent2.id, children: agent2.name || agent2.id }, agent2.id))
                       }
-                    },
-                    children: availableAgents.map((agent2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: agent2.id, children: agent2.name || agent2.id }, agent2.id))
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "workspace-primary-action", onClick: () => {
-                closePluginRoute();
-                startNewTask();
-              }, children: "新建任务" })
-            ] }) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "任务", className: "tasks-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack task-panel-content", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "input",
-                {
-                  value: taskSearch,
-                  onChange: (event) => setTaskSearch(event.target.value),
-                  placeholder: "搜索任务..."
-                }
-              ),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "task-section-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-section-list", children: [
-                filteredTaskSessions.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-section", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "task-section-title", children: "全部任务" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "turn-list", children: visibleTaskSessions.map((session2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "div",
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "workspace-primary-action", onClick: () => {
+                    setMobileNavigationPanel("");
+                    closePluginRoute();
+                    startNewTask();
+                  }, children: "新建任务" })
+                ] }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "任务", className: "tasks-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "stack task-panel-content", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
                     {
-                      className: `turn-item task-nav-item ${session2.id === sessionID ? "active" : ""}`,
-                      onMouseEnter: (event) => showTaskHoverPreview(session2, event),
-                      onMouseLeave: hideTaskHoverPreview,
-                      children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "button",
-                          {
-                            className: "task-nav-open",
-                            type: "button",
-                            onClick: () => {
-                              closePluginRoute();
-                              openSession(session2).catch((error) => setStatus(error.message));
-                            },
-                            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-nav-row", children: [
+                      value: taskSearch,
+                      onChange: (event) => setTaskSearch(event.target.value),
+                      placeholder: "搜索任务..."
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "task-section-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-section-list", children: [
+                    filteredTaskSessions.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-section", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "task-section-title", children: "全部任务" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "turn-list", children: visibleTaskSessions.map((session2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                        "div",
+                        {
+                          className: `turn-item task-nav-item ${session2.id === sessionID ? "active" : ""}`,
+                          onMouseEnter: (event) => showTaskHoverPreview(session2, event),
+                          onMouseLeave: hideTaskHoverPreview,
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(
+                              "button",
+                              {
+                                className: "task-nav-open",
+                                type: "button",
+                                onClick: () => {
+                                  setMobileNavigationPanel("");
+                                  closePluginRoute();
+                                  openSession(session2).catch((error) => setStatus(error.message));
+                                },
+                                children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-nav-row", children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                    TaskStatusIcon,
+                                    {
+                                      status: session2.id === sessionID && waitingForReply ? effectiveSessionStatus === "interrupting" ? "interrupting" : "running" : session2.status
+                                    }
+                                  ),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: session2.title || "Untitled task" })
+                                ] })
+                              }
+                            ),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-inline-actions", children: [
                               /* @__PURE__ */ jsxRuntimeExports.jsx(
-                                TaskStatusIcon,
+                                "button",
                                 {
-                                  status: session2.id === sessionID && waitingForReply ? effectiveSessionStatus === "interrupting" ? "interrupting" : "running" : session2.status
+                                  className: `icon-button task-pin-button ${session2.pinned_at ? "active" : ""}`,
+                                  type: "button",
+                                  "aria-label": session2.pinned_at ? "取消置顶" : "置顶任务",
+                                  disabled: sessionAction === `pin:${session2.id}`,
+                                  onClick: () => toggleTaskPin(session2).catch((error) => setStatus(error.message)),
+                                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(PinIcon, { filled: Boolean(session2.pinned_at) })
                                 }
                               ),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: session2.title || "Untitled task" })
-                            ] })
-                          }
-                        ),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-inline-actions", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: `icon-button task-pin-button ${session2.pinned_at ? "active" : ""}`,
-                              type: "button",
-                              "aria-label": session2.pinned_at ? "取消置顶" : "置顶任务",
-                              disabled: sessionAction === `pin:${session2.id}`,
-                              onClick: () => toggleTaskPin(session2).catch((error) => setStatus(error.message)),
-                              children: /* @__PURE__ */ jsxRuntimeExports.jsx(PinIcon, { filled: Boolean(session2.pinned_at) })
-                            }
-                          ),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "button",
-                            {
-                              className: `icon-button task-menu-button ${taskMenuSessionID === session2.id ? "active" : ""}`,
-                              ref: (element2) => {
-                                if (element2) taskMenuButtonRefs.current.set(session2.id, element2);
-                                else taskMenuButtonRefs.current.delete(session2.id);
-                              },
-                              type: "button",
-                              "aria-label": "更多操作",
-                              "aria-expanded": taskMenuSessionID === session2.id,
-                              onClick: (event) => {
-                                if (taskMenuSessionID === session2.id) {
-                                  setTaskMenuSessionID("");
-                                  setTaskMenuPosition(null);
-                                  return;
+                              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                                "button",
+                                {
+                                  className: `icon-button task-menu-button ${taskMenuSessionID === session2.id ? "active" : ""}`,
+                                  ref: (element2) => {
+                                    if (element2) taskMenuButtonRefs.current.set(session2.id, element2);
+                                    else taskMenuButtonRefs.current.delete(session2.id);
+                                  },
+                                  type: "button",
+                                  "aria-label": "更多操作",
+                                  "aria-expanded": taskMenuSessionID === session2.id,
+                                  onClick: (event) => {
+                                    if (taskMenuSessionID === session2.id) {
+                                      setTaskMenuSessionID("");
+                                      setTaskMenuPosition(null);
+                                      return;
+                                    }
+                                    const rect = event.currentTarget.getBoundingClientRect();
+                                    const menuWidth = 180;
+                                    const menuHeight = 192;
+                                    const gap = 8;
+                                    const opensUp = rect.bottom + gap + menuHeight > window.innerHeight;
+                                    setTaskMenuPosition({
+                                      left: Math.max(gap, Math.min(window.innerWidth - menuWidth - gap, rect.right - menuWidth)),
+                                      top: opensUp ? Math.max(gap, rect.top - menuHeight - gap) : rect.bottom + gap
+                                    });
+                                    setTaskMenuSessionID(session2.id);
+                                  },
+                                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(MoreIcon, {})
                                 }
-                                const rect = event.currentTarget.getBoundingClientRect();
-                                const menuWidth = 180;
-                                const menuHeight = 192;
-                                const gap = 8;
-                                const opensUp = rect.bottom + gap + menuHeight > window.innerHeight;
-                                setTaskMenuPosition({
-                                  left: Math.max(gap, Math.min(window.innerWidth - menuWidth - gap, rect.right - menuWidth)),
-                                  top: opensUp ? Math.max(gap, rect.top - menuHeight - gap) : rect.bottom + gap
-                                });
-                                setTaskMenuSessionID(session2.id);
-                              },
-                              children: /* @__PURE__ */ jsxRuntimeExports.jsx(MoreIcon, {})
-                            }
-                          ),
-                          taskMenuSessionID === session2.id && taskMenuPosition ? reactDomExports.createPortal(
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-action-menu task-action-menu-portal", role: "menu", style: taskMenuPosition, children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", onClick: () => openTaskMetadata(session2), children: "标签与摘要" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", onClick: () => {
-                                setTaskMenuSessionID("");
-                                openTaskComparison(session2);
-                              }, children: "任务对比" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", disabled: sessionAction === `rerun:${session2.id}`, onClick: () => {
-                                setTaskMenuSessionID("");
-                                rerunTask(session2).catch((error) => setStatus(error.message));
-                              }, children: "按原配置重跑" }),
-                              session2.status !== "terminated" ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", disabled: sessionAction === `archive:${session2.id}`, onClick: () => {
-                                setTaskMenuSessionID("");
-                                archiveTask(session2.id).catch((error) => setStatus(error.message));
-                              }, children: "归档任务" }) : null,
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "danger", type: "button", role: "menuitem", disabled: sessionAction === `delete:${session2.id}`, onClick: () => {
-                                setTaskMenuSessionID("");
-                                deleteTask(session2.id).catch((error) => setStatus(error.message));
-                              }, children: "删除任务" })
-                            ] }),
-                            document.body
-                          ) : null
-                        ] })
-                      ]
-                    },
-                    session2.id
-                  )) }),
-                  hasMoreTasks ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary task-more-button", type: "button", onClick: () => setVisibleTaskCount((current) => current + 10), children: "显示更多任务" }) : null
-                ] }) : null,
-                !filteredTaskSessions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: hasTaskSearch ? "没有匹配的任务。" : "暂无任务。" }) : null
-              ] }) })
-            ] }) })
-          ] }),
+                              ),
+                              taskMenuSessionID === session2.id && taskMenuPosition ? reactDomExports.createPortal(
+                                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "task-action-menu task-action-menu-portal", role: "menu", style: taskMenuPosition, children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", onClick: () => openTaskMetadata(session2), children: "标签与摘要" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", onClick: () => {
+                                    setTaskMenuSessionID("");
+                                    openTaskComparison(session2);
+                                  }, children: "任务对比" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", disabled: sessionAction === `rerun:${session2.id}`, onClick: () => {
+                                    setTaskMenuSessionID("");
+                                    rerunTask(session2).catch((error) => setStatus(error.message));
+                                  }, children: "按原配置重跑" }),
+                                  session2.status !== "terminated" ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", role: "menuitem", disabled: sessionAction === `archive:${session2.id}`, onClick: () => {
+                                    setTaskMenuSessionID("");
+                                    archiveTask(session2.id).catch((error) => setStatus(error.message));
+                                  }, children: "归档任务" }) : null,
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "danger", type: "button", role: "menuitem", disabled: sessionAction === `delete:${session2.id}`, onClick: () => {
+                                    setTaskMenuSessionID("");
+                                    deleteTask(session2.id).catch((error) => setStatus(error.message));
+                                  }, children: "删除任务" })
+                                ] }),
+                                document.body
+                              ) : null
+                            ] })
+                          ]
+                        },
+                        session2.id
+                      )) }),
+                      hasMoreTasks ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary task-more-button", type: "button", onClick: () => setVisibleTaskCount((current) => current + 10), children: "显示更多任务" }) : null
+                    ] }) : null,
+                    !filteredTaskSessions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: hasTaskSearch ? "没有匹配的任务。" : "暂无任务。" }) : null
+                  ] }) })
+                ] }) })
+              ]
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: `user-main ${pluginRoutePath ? "plugin-route-main" : ""}`, children: pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
             PluginRouteHost,
             {
@@ -39620,7 +39907,7 @@ function WorkbenchApp() {
                       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: workflowMode ? "工作流" : "任务模板" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selectedTaskTemplate.title }),
                       workflowMode ? /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
-                        ((_b = selectedTaskTemplate.workflow_steps) == null ? void 0 : _b.length) || 0,
+                        ((_a2 = selectedTaskTemplate.workflow_steps) == null ? void 0 : _a2.length) || 0,
                         " 步顺序执行"
                       ] }) : null
                     ] }),
@@ -39795,7 +40082,7 @@ function WorkbenchApp() {
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: rightPanelTab === "activity" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "activity", onClick: () => setRightPanelTab("activity"), children: "执行" })
               ] }),
-              children: rightPanelTab === "results" ? resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_c = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _c.id) || "", onPreview: (artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message)) }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list activity-list", role: "tabpanel", children: activityEvents.length ? activityEvents.map((item) => {
+              children: rightPanelTab === "results" ? resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message)) }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list activity-list", role: "tabpanel", children: activityEvents.length ? activityEvents.map((item) => {
                 const activity = item.activity;
                 const event = item.event;
                 return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `list-item activity-item ${activity.kind}`, children: [

@@ -64,6 +64,26 @@ func TestRunCommandRequestJSONAcceptsPlainTextStdin(t *testing.T) {
 	}
 }
 
+func TestRunCommandRequestJSONPreservesExecutionLimits(t *testing.T) {
+	original := RunCommandRequest{
+		Command:        "sh",
+		Args:           []string{"-c", "printf ok"},
+		TimeoutMS:      2500,
+		MaxOutputBytes: 32768,
+	}
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded RunCommandRequest
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.TimeoutMS != original.TimeoutMS || decoded.MaxOutputBytes != original.MaxOutputBytes {
+		t.Fatalf("execution limits were not preserved: %#v", decoded)
+	}
+}
+
 func TestWriteFileRequestJSONAcceptsPlainTextContent(t *testing.T) {
 	var request WriteFileRequest
 	if err := json.Unmarshal([]byte(`{"path":"script.sh","content":"#!/bin/sh\necho hello\n"}`), &request); err != nil {

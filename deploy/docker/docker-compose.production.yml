@@ -77,8 +77,62 @@ services:
       - no-new-privileges:true
     networks: [backend]
 
+  browser-gateway:
+    profiles: ["browser"]
+    image: ${TMA_BROWSER_GATEWAY_IMAGE:-tma-browser-gateway:local}
+    build:
+      context: ../../extensions/browser-gateway
+    restart: unless-stopped
+    environment:
+      TMA_SERVER_BASE_URL: http://server:8080
+      TMA_BROWSER_AUTH_MODE: ${TMA_BROWSER_AUTH_MODE:-tma}
+      TMA_BROWSER_GATEWAY_SERVICE_SECRET: ${TMA_BROWSER_GATEWAY_SERVICE_SECRET:-}
+      TMA_BROWSER_MAX_SESSIONS_PER_WORKSPACE: ${TMA_BROWSER_MAX_SESSIONS_PER_WORKSPACE:-4}
+      TMA_BROWSER_IDLE_TTL_SECONDS: ${TMA_BROWSER_IDLE_TTL_SECONDS:-300}
+      TMA_BROWSER_TRUSTED_ORIGINS: ${TMA_BROWSER_TRUSTED_ORIGINS:-}
+      TMA_BROWSER_ALLOWED_WORKSPACE_ID: ${TMA_WORKER_AUTH_WORKSPACE_ID:-wksp_default}
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - browser-profile-data:/var/lib/tma-browser/profiles
+    shm_size: 1gb
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
+  browser-worker:
+    profiles: ["browser"]
+    image: ${TMA_BROWSER_WORKER_IMAGE:-tma-browser-worker:local}
+    build:
+      context: ../..
+      target: browser-extension-worker
+    restart: unless-stopped
+    environment:
+      TMA_BASE_URL: http://server:8080
+      TMA_WORKER_TOKEN: ${TMA_WORKER_AUTH_TOKEN:?set TMA_WORKER_AUTH_TOKEN}
+      TMA_WORKER_WORKSPACE_ID: ${TMA_WORKER_AUTH_WORKSPACE_ID:-wksp_default}
+      TMA_WORKER_TYPE: local
+      TMA_WORKER_CONCURRENCY: ${TMA_BROWSER_WORKER_CONCURRENCY:-4}
+      TMA_BROWSER_GATEWAY_URL: http://browser-gateway:8090/v2/extensions/browser
+      TMA_BROWSER_GATEWAY_SERVICE_SECRET: ${TMA_BROWSER_GATEWAY_SERVICE_SECRET:-}
+    depends_on:
+      browser-gateway:
+        condition: service_started
+      server:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /workspace:size=1g,mode=0700,uid=10001,gid=10001
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
 volumes:
   postgres-data:
+  browser-profile-data:
 
 networks:
   backend:

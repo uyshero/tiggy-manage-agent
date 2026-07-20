@@ -17,6 +17,13 @@ spec:
     - host: tma.example.com
       http:
         paths:
+          - path: /v2/extensions/browser
+            pathType: Prefix
+            backend:
+              service:
+                name: tma-browser-gateway
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

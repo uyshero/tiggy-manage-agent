@@ -229,7 +229,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, BrowserRuntime{}, WebRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
+	return NewRegistry(DefaultRuntime{}, WebRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -655,6 +655,12 @@ func redactEnvironmentValue(value any, environment map[string]string) any {
 }
 
 func redactEnvironmentText(value string, environment map[string]string) string {
+	return RedactEnvironmentText(value, environment)
+}
+
+// RedactEnvironmentText removes every managed secret value without relying on
+// variable naming conventions. Public runtime path variables are excluded.
+func RedactEnvironmentText(value string, environment map[string]string) string {
 	type secret struct{ name, value string }
 	secrets := make([]secret, 0, len(environment))
 	for name, candidate := range environment {
@@ -667,6 +673,31 @@ func redactEnvironmentText(value string, environment map[string]string) string {
 		value = strings.ReplaceAll(value, item.value, "[REDACTED_ENV:"+item.name+"]")
 	}
 	return value
+}
+
+func HasSensitiveEnvironment(environment map[string]string) bool {
+	for name, value := range environment {
+		if value != "" && !isPublicRuntimeEnvironment(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func RedactEnvironmentJSON(raw json.RawMessage, environment map[string]string) json.RawMessage {
+	if len(raw) == 0 || !HasSensitiveEnvironment(environment) {
+		return append(json.RawMessage(nil), raw...)
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return json.RawMessage(RedactEnvironmentText(string(raw), environment))
+	}
+	value = redactEnvironmentValue(value, environment)
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return json.RawMessage(RedactEnvironmentText(string(raw), environment))
+	}
+	return encoded
 }
 
 func isPublicRuntimeEnvironment(name string) bool {

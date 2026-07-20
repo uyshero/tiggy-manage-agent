@@ -10,7 +10,57 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+const (
+	DefaultRunCommandTimeout  = 120 * time.Second
+	MinRunCommandTimeout      = 100 * time.Millisecond
+	MaxRunCommandTimeout      = 10 * time.Minute
+	DefaultCommandOutputBytes = 64 * 1024
+	MaxCommandOutputBytes     = 1024 * 1024
+)
+
+type boundedCommandOutput struct {
+	buffer    bytes.Buffer
+	total     int64
+	limit     int
+	truncated bool
+}
+
+func (w *boundedCommandOutput) Write(data []byte) (int, error) {
+	w.total += int64(len(data))
+	remaining := w.limit - w.buffer.Len()
+	if remaining > 0 {
+		writeCount := len(data)
+		if writeCount > remaining {
+			writeCount = remaining
+		}
+		_, _ = w.buffer.Write(data[:writeCount])
+	}
+	if w.total > int64(w.limit) {
+		w.truncated = true
+	}
+	return len(data), nil
+}
+
+func effectiveRunCommandLimits(request RunCommandRequest) (time.Duration, int, error) {
+	timeout := DefaultRunCommandTimeout
+	if request.TimeoutMS != 0 {
+		timeout = time.Duration(request.TimeoutMS) * time.Millisecond
+		if timeout < MinRunCommandTimeout || timeout > MaxRunCommandTimeout {
+			return 0, 0, fmt.Errorf("run command timeout_ms must be between %d and %d", MinRunCommandTimeout.Milliseconds(), MaxRunCommandTimeout.Milliseconds())
+		}
+	}
+	outputBytes := DefaultCommandOutputBytes
+	if request.MaxOutputBytes != 0 {
+		outputBytes = request.MaxOutputBytes
+		if outputBytes < 1024 || outputBytes > MaxCommandOutputBytes {
+			return 0, 0, fmt.Errorf("run command max_output_bytes must be between %d and %d", 1024, MaxCommandOutputBytes)
+		}
+	}
+	return timeout, outputBytes, nil
+}
 
 // LocalSystemProvider 使用当前机器的进程和文件系统实现能力面。
 // 它适合本地开发和受信任环境；需要隔离时应换成 OnlyboxesProvider / RemoteProvider。
@@ -41,8 +91,20 @@ func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if request.Command == "" {
 		return CommandResult{}, fmt.Errorf("local system command is required")
 	}
+	timeout, outputBytes, err := effectiveRunCommandLimits(request)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	baseCtx, cancelBase := contextWithRequestDeadline(ctx, request.Meta.Deadline)
+	defer cancelBase()
+	if err := baseCtx.Err(); err != nil {
+		return CommandResult{}, err
+	}
+	runCtx, cancelRun := context.WithTimeout(baseCtx, timeout)
+	defer cancelRun()
 
-	cmd := exec.CommandContext(ctx, request.Command, request.Args...)
+	cmd := exec.Command(request.Command, request.Args...)
+	configureCommandProcessGroup(cmd)
 	if request.WorkDir != "" {
 		cmd.Dir = request.WorkDir
 	}
@@ -65,48 +127,94 @@ func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandReq
 		cmd.Stdin = bytes.NewReader(request.Stdin)
 	}
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	stdout := boundedCommandOutput{limit: outputBytes}
+	stderr := boundedCommandOutput{limit: outputBytes}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	result := CommandResult{
-		ExitCode: 0,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
+	startedAt := time.Now()
+	if err := cmd.Start(); err != nil {
+		return CommandResult{}, err
 	}
-	if err == nil {
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	var waitErr error
+	status := "completed"
+	timedOut := false
+	canceled := false
+	select {
+	case waitErr = <-done:
+	case <-runCtx.Done():
+		select {
+		case waitErr = <-done:
+		default:
+			_ = terminateCommandProcessGroup(cmd)
+			waitErr = <-done
+		}
+		if baseCtx.Err() != nil {
+			canceled = errors.Is(baseCtx.Err(), context.Canceled)
+			status = "canceled"
+			if errors.Is(baseCtx.Err(), context.DeadlineExceeded) {
+				status = "timeout"
+				timedOut = true
+			}
+		} else {
+			status = "timeout"
+			timedOut = true
+		}
+	}
+	result := CommandResult{
+		Status:              status,
+		ExitCode:            0,
+		Stdout:              strings.ToValidUTF8(stdout.buffer.String(), "\uFFFD"),
+		Stderr:              strings.ToValidUTF8(stderr.buffer.String(), "\uFFFD"),
+		StdoutBytes:         stdout.total,
+		StderrBytes:         stderr.total,
+		StdoutCapturedBytes: stdout.buffer.Len(),
+		StderrCapturedBytes: stderr.buffer.Len(),
+		StdoutTruncated:     stdout.truncated,
+		StderrTruncated:     stderr.truncated,
+		DurationMS:          time.Since(startedAt).Milliseconds(),
+		TimedOut:            timedOut,
+		Canceled:            canceled,
+	}
+	if waitErr == nil {
 		return result, nil
 	}
-	if ctx.Err() != nil {
-		return CommandResult{}, ctx.Err()
+	if baseCtx.Err() != nil {
+		return result, baseCtx.Err()
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if errors.As(waitErr, &exitErr) {
 		result.ExitCode = exitErr.ExitCode()
 		return result, nil
 	}
-	return CommandResult{}, err
+	return result, waitErr
 }
 
 func (provider LocalSystemProvider) ExecuteCode(ctx context.Context, request ExecuteCodeRequest) (CommandResult, error) {
 	switch strings.ToLower(request.Language) {
 	case "sh", "shell":
 		return provider.RunCommand(ctx, RunCommandRequest{
-			Meta:    request.Meta,
-			Command: "sh",
-			Args:    []string{"-c", request.Code},
-			WorkDir: request.WorkDir,
-			Env:     request.Env,
+			Meta:           request.Meta,
+			Command:        "sh",
+			Args:           []string{"-c", request.Code},
+			WorkDir:        request.WorkDir,
+			Env:            request.Env,
+			TimeoutMS:      request.TimeoutMS,
+			MaxOutputBytes: request.MaxOutputBytes,
 		})
 	case "python", "python3":
 		return provider.RunCommand(ctx, RunCommandRequest{
-			Meta:    request.Meta,
-			Command: "python3",
-			Args:    []string{"-c", request.Code},
-			WorkDir: request.WorkDir,
-			Env:     request.Env,
+			Meta:           request.Meta,
+			Command:        "python3",
+			Args:           []string{"-c", request.Code},
+			WorkDir:        request.WorkDir,
+			Env:            request.Env,
+			TimeoutMS:      request.TimeoutMS,
+			MaxOutputBytes: request.MaxOutputBytes,
 		})
 	default:
 		return CommandResult{}, fmt.Errorf("unsupported local code language %q", request.Language)

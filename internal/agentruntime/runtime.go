@@ -723,6 +723,7 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 			}
 			return llm.Response{}, err
 		}
+		llmResponse = redactLLMResponseEnvironment(llmResponse, turnRequest.Config.ToolExecutionContext.Environment)
 		if err := emitStep(ctx, turnRequest, Step{
 			Type:    managedagents.EventRuntimeLLMResponse,
 			Message: "Received response from LLM client.",
@@ -830,6 +831,9 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 			}
 			if err := fileGenerationState.publishFinalArtifacts(ctx, fileExecutionContext); err != nil {
 				return llm.Response{}, fmt.Errorf("publish validated segmented file artifact: %w", err)
+			}
+			if err := fileGenerationState.publishReferencedFinalArtifacts(ctx, fileExecutionContext, contentPartsText(llmResponse.Message.Content)); err != nil {
+				return llm.Response{}, fmt.Errorf("publish referenced final file artifact: %w", err)
 			}
 			return llmResponse, nil
 		}
@@ -1918,6 +1922,26 @@ func contentPartsText(parts []llm.ContentPart) string {
 	return strings.Join(values, "\n")
 }
 
+func redactLLMResponseEnvironment(response llm.Response, environment map[string]string) llm.Response {
+	if !tools.HasSensitiveEnvironment(environment) {
+		return response
+	}
+	response.Message.Content = append([]llm.ContentPart(nil), response.Message.Content...)
+	for index := range response.Message.Content {
+		response.Message.Content[index].Text = tools.RedactEnvironmentText(response.Message.Content[index].Text, environment)
+		if response.Message.Content[index].ImageURL != nil {
+			imageURL := *response.Message.Content[index].ImageURL
+			imageURL.URL = tools.RedactEnvironmentText(imageURL.URL, environment)
+			response.Message.Content[index].ImageURL = &imageURL
+		}
+	}
+	response.Reasoning = append([]llm.ReasoningPart(nil), response.Reasoning...)
+	for index := range response.Reasoning {
+		response.Reasoning[index].Text = tools.RedactEnvironmentText(response.Reasoning[index].Text, environment)
+	}
+	return response
+}
+
 func defaultInt64(value int64, fallback int64) int64 {
 	if value == 0 {
 		return fallback
@@ -2176,6 +2200,8 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 		arguments strings.Builder
 	}
 	streamedToolCalls := map[int]*streamedToolCall{}
+	bufferSensitiveText := tools.HasSensitiveEnvironment(turnRequest.Config.ToolExecutionContext.Environment)
+	var sensitiveText strings.Builder
 	startedAt := time.Now()
 	stats := llmStreamStats{Streamed: true}
 
@@ -2206,10 +2232,20 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 			}
 		}
 		if kind == llm.DeltaKindText && turnRequest.EmitStream != nil {
-			turnRequest.EmitStream(StreamEvent{Index: delta.Index, ToolRound: toolRound, Text: delta.Text})
+			if bufferSensitiveText {
+				sensitiveText.WriteString(delta.Text)
+			} else {
+				turnRequest.EmitStream(StreamEvent{Index: delta.Index, ToolRound: toolRound, Text: delta.Text})
+			}
 		}
 		return nil
 	})
+	if err == nil && bufferSensitiveText && turnRequest.EmitStream != nil && sensitiveText.Len() > 0 {
+		turnRequest.EmitStream(StreamEvent{
+			Index: 0, ToolRound: toolRound,
+			Text: tools.RedactEnvironmentText(sensitiveText.String(), turnRequest.Config.ToolExecutionContext.Environment),
+		})
+	}
 	return response, stats, err
 }
 

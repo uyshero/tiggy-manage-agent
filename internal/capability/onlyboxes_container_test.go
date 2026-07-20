@@ -80,6 +80,44 @@ func TestOnlyboxesContainerManagerRecreatesContainerAtMaximumLifetime(t *testing
 	}
 }
 
+func TestOnlyboxesContainerManagerRemovesContainerAfterCommandTimeout(t *testing.T) {
+	runner := newFakeDockerProvider()
+	runner.timeoutExec = true
+	manager := newTestOnlyboxesContainerManager(t, OnlyboxesContainerManagerConfig{})
+	provider := testManagedOnlyboxesProvider(t, manager, runner, "sesn_timeout")
+
+	result, err := provider.RunCommand(t.Context(), RunCommandRequest{Command: "sh", TimeoutMS: 100})
+	if err != nil {
+		t.Fatalf("run timed out managed command: %v", err)
+	}
+	if !result.TimedOut || runner.removeCount() != 1 || runner.containerCount() != 0 {
+		t.Fatalf("expected timed out command to remove its container: result=%#v removes=%d containers=%d", result, runner.removeCount(), runner.containerCount())
+	}
+
+	runner.mu.Lock()
+	runner.timeoutExec = false
+	runner.mu.Unlock()
+	if _, err := provider.RunCommand(t.Context(), RunCommandRequest{Command: "sh"}); err != nil {
+		t.Fatalf("run command after timeout cleanup: %v", err)
+	}
+	if runner.runCount() != 2 {
+		t.Fatalf("expected container recreation after timeout, runs=%d calls=%#v", runner.runCount(), runner.callsSnapshot())
+	}
+}
+
+func TestOnlyboxesContainerManagerFailsClosedWhenTimeoutCleanupFails(t *testing.T) {
+	runner := newFakeDockerProvider()
+	runner.timeoutExec = true
+	runner.removeErr = fmt.Errorf("fixture removal failed")
+	manager := newTestOnlyboxesContainerManager(t, OnlyboxesContainerManagerConfig{})
+	provider := testManagedOnlyboxesProvider(t, manager, runner, "sesn_timeout_cleanup_error")
+
+	_, err := provider.RunCommand(t.Context(), RunCommandRequest{Command: "sh", TimeoutMS: 100})
+	if err == nil || !strings.Contains(err.Error(), "container cleanup failed") {
+		t.Fatalf("expected timeout cleanup to fail closed, got %v", err)
+	}
+}
+
 func TestOnlyboxesContainerManagerRecreatesContainerWhenConfigChanges(t *testing.T) {
 	runner := newFakeDockerProvider()
 	manager := newTestOnlyboxesContainerManager(t, OnlyboxesContainerManagerConfig{})
@@ -209,6 +247,8 @@ type fakeDockerProvider struct {
 	activeExecs        int
 	maximumActiveExecs int
 	execDelay          time.Duration
+	timeoutExec        bool
+	removeErr          error
 }
 
 func newFakeDockerProvider() *fakeDockerProvider {
@@ -245,6 +285,7 @@ func (p *fakeDockerProvider) RunCommand(_ context.Context, request RunCommandReq
 			p.maximumActiveExecs = p.activeExecs
 		}
 		delay := p.execDelay
+		timedOut := p.timeoutExec
 		p.mu.Unlock()
 		if delay > 0 {
 			time.Sleep(delay)
@@ -252,8 +293,16 @@ func (p *fakeDockerProvider) RunCommand(_ context.Context, request RunCommandReq
 		p.mu.Lock()
 		p.activeExecs--
 		p.mu.Unlock()
+		if timedOut {
+			return CommandResult{Status: "timeout", ExitCode: -1, TimedOut: true, DurationMS: 100}, nil
+		}
 		return CommandResult{Stdout: "exec ok"}, nil
 	case "rm":
+		if p.removeErr != nil {
+			err := p.removeErr
+			p.mu.Unlock()
+			return CommandResult{}, err
+		}
 		name := request.Args[len(request.Args)-1]
 		delete(p.containers, name)
 		p.removes++

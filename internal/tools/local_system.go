@@ -25,9 +25,9 @@ func (DefaultRuntime) Manifest() Manifest {
 		Type:       "builtin",
 		Meta: Meta{
 			Title:       "Default Tools",
-			Description: "Run commands, execute code, and read or write files through the configured capability provider.",
+			Description: "Run commands and read or write files through the configured capability provider.",
 		},
-		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files can be read with path only. A large file returns one bounded page plus pagination metadata: continue only with next_offset_bytes and the same file_revision, never repeat an unchanged page, and do not blindly traverse hundreds of pages. Use find_files to discover paths and search_files when a keyword or regex is known, then read a focused line or byte window around a match. For very large JSON, CSV, logs, generated data, or exceptionally long lines, prefer format-aware parsers or bounded analysis commands over sequential page walking. Binary files are classified but their bytes are never inserted into model context; follow suggested_capability and use vision, a document skill, or execute_code with a format-specific parser. When reporting conclusions from a partial read, state the inspected byte or line ranges and never describe a sample as a complete review. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use search_files for __TMA_PLACEHOLDER_ to confirm no markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
+		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files can be read with path only. A large file returns one bounded page plus pagination metadata: continue only with next_offset_bytes and the same file_revision, never repeat an unchanged page, and do not blindly traverse hundreds of pages. Use find_files to discover paths and search_files when a keyword or regex is known, then read a focused line or byte window around a match. For very large JSON, CSV, logs, generated data, or exceptionally long lines, prefer format-aware parsers or bounded analysis commands over sequential page walking. Binary files are classified but their bytes are never inserted into model context; follow suggested_capability and use vision, a document skill, run_command with a format-specific parser, or another dedicated capability. When reporting conclusions from a partial read, state the inspected byte or line ranges and never describe a sample as a complete review. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use search_files for __TMA_PLACEHOLDER_ to confirm no markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
@@ -35,7 +35,7 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "run_command",
 				Description:       "Run a command with optional args, working directory, environment variables, and stdin.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the command succeeds. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["command"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"command":{"type":"string","minLength":1},"args":{"type":"array","items":{"type":"string"}},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"stdin":{"type":"string"},"timeout_ms":{"type":"integer","minimum":100,"maximum":600000,"default":120000,"description":"Total command deadline in milliseconds."},"max_output_bytes":{"type":"integer","minimum":1024,"maximum":1048576,"default":65536,"description":"Maximum captured bytes for each of stdout and stderr. Additional bytes are counted and discarded."},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the command succeeds. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["command"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityExec},
 				Risk:              ToolRiskExec,
@@ -47,12 +47,13 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "execute_code",
 				Description:       "Execute a short code snippet in a supported language.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the code finishes. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["language","code"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"language":{"type":"string"},"code":{"type":"string"},"work_dir":{"type":"string"},"env":{"type":"object","additionalProperties":{"type":"string"}},"timeout_ms":{"type":"integer","minimum":100,"maximum":600000,"default":120000},"max_output_bytes":{"type":"integer","minimum":1024,"maximum":1048576,"default":65536},"output_paths":{"type":"array","items":{"type":"string"},"description":"Optional final file paths to persist as session artifacts after the code finishes. In cloud_sandbox, final deliverables must be under /workspace, for example /workspace/report.csv. Do not publish temporary or intermediate /mnt/data files."}},"required":["language","code"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityCodeExecute, CapabilityExec},
 				Risk:              ToolRiskExec,
 				Runtime:           &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeCloudSandbox},
 				Implementation:    ToolImplementationWorkerCapability,
+				HiddenFromModel:   true,
 			},
 			{
 				Name:           "read_file",
@@ -479,6 +480,21 @@ func commandResult(call Call, result capability.CommandResult, exportedFiles []A
 	}
 	if content == "" {
 		content = fmt.Sprintf("Command exited with code %d.", result.ExitCode)
+	}
+	var notices []string
+	if result.TimedOut {
+		notices = append(notices, fmt.Sprintf("command timed out after %d ms", result.DurationMS))
+	} else if result.Canceled {
+		notices = append(notices, "command was canceled")
+	}
+	if result.StdoutTruncated {
+		notices = append(notices, fmt.Sprintf("stdout truncated after capturing %d of %d bytes", result.StdoutCapturedBytes, result.StdoutBytes))
+	}
+	if result.StderrTruncated {
+		notices = append(notices, fmt.Sprintf("stderr truncated after capturing %d of %d bytes", result.StderrCapturedBytes, result.StderrBytes))
+	}
+	if len(notices) > 0 {
+		content += "\n[" + strings.Join(notices, "; ") + "]"
 	}
 	return ExecutionResult{
 		ID:            call.ID,
