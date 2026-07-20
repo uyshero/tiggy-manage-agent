@@ -22,7 +22,7 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	if !contains(capabilities.Namespaces, tools.NamespaceDefault) {
 		t.Fatalf("expected default namespace, got %#v", capabilities.Namespaces)
 	}
-	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.search_file") {
+	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.find_files") || !contains(capabilities.APIs, "default.search_files") || !contains(capabilities.APIs, "default.search_file") {
 		t.Fatalf("expected default APIs, got %#v", capabilities.APIs)
 	}
 	if !contains(capabilities.Capabilities, tools.CapabilityExec) || !contains(capabilities.Capabilities, tools.CapabilityFilesystemRead) {
@@ -94,6 +94,57 @@ func TestExecutorTransportsBoundedReadStateAndSearchMetadata(t *testing.T) {
 	if len(searchResult.Matches) != 1 || searchResult.Matches[0].OffsetBytes <= 0 || searchResult.FileRevision == "" {
 		t.Fatalf("worker search metadata was not preserved: %#v", searchResult)
 	}
+
+	findState := executeFilesystemWorkerTool(t, "find_files", map[string]any{"root": filepath.Dir(path), "pattern": "*.log"})
+	var findResult capability.FindFilesResult
+	if err := json.Unmarshal(findState, &findResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(findResult.Files) != 1 || findResult.Files[0].Path != "worker.log" || findResult.Files[0].FileRevision == "" {
+		t.Fatalf("worker find_files metadata was not preserved: %#v", findResult)
+	}
+
+	searchFilesState := executeFilesystemWorkerTool(t, "search_files", map[string]any{
+		"root": filepath.Dir(path), "query": "target", "paths": []string{"*.log"},
+	})
+	var searchFilesResult capability.SearchFilesResult
+	if err := json.Unmarshal(searchFilesState, &searchFilesResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(searchFilesResult.Matches) != 1 || searchFilesResult.Matches[0].Path != "worker.log" || searchFilesResult.ScannedFiles != 1 || searchFilesResult.ScannedBytes == 0 {
+		t.Fatalf("worker search_files metadata was not preserved: %#v", searchFilesResult)
+	}
+}
+
+func executeFilesystemWorkerTool(t *testing.T, api string, input any) json.RawMessage {
+	t.Helper()
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion: tools.WorkProtocolVersion, Namespace: tools.NamespaceDefault, API: api,
+		Capabilities: []string{tools.CapabilityFilesystemRead}, Risk: tools.ToolRiskRead,
+		Runtime: tools.ToolRuntimeLocalSystem, Input: inputJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_" + api, WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: payload,
+	})
+	if !work.Success {
+		t.Fatalf("worker %s failed: %s", api, work.ErrorMessage)
+	}
+	var body struct {
+		ToolResult struct {
+			State json.RawMessage `json:"state"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(work.Result, &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.ToolResult.State
 }
 
 func TestExecutorCanDeclareWorkerCapabilities(t *testing.T) {

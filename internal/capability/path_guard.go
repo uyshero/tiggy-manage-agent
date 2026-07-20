@@ -88,6 +88,43 @@ func (p WorkspacePathGuardProvider) SearchFile(ctx context.Context, request Sear
 	return result, nil
 }
 
+func (p WorkspacePathGuardProvider) FindFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error) {
+	displayRoot := defaultGuardString(request.Root, ".")
+	root, err := p.resolveReadPath(displayRoot)
+	if err != nil {
+		return FindFilesResult{}, fmt.Errorf("workspace path guard discovery denied: %w", err)
+	}
+	provider, ok := p.inner().(FileDiscoveryProvider)
+	if !ok {
+		return FindFilesResult{}, fmt.Errorf("workspace file discovery is unavailable")
+	}
+	request.Root = root
+	result, err := provider.FindFiles(ctx, request)
+	if err != nil {
+		return FindFilesResult{}, remapFileReadErrorPath(err, displayRoot)
+	}
+	result.Root = displayRoot
+	return result, nil
+}
+
+func (p WorkspacePathGuardProvider) SearchFiles(ctx context.Context, request SearchFilesRequest) (SearchFilesResult, error) {
+	displayRoot := defaultGuardString(request.Root, ".")
+	root, err := p.resolveReadPath(displayRoot)
+	if err != nil {
+		return SearchFilesResult{}, fmt.Errorf("workspace path guard search denied: %w", err)
+	}
+	provider, ok := p.inner().(FileTreeSearchProvider)
+	if !ok {
+		return SearchFilesResult{}, fmt.Errorf("workspace file tree search is unavailable")
+	}
+	request.Root = root
+	result, err := provider.SearchFiles(ctx, request)
+	if err != nil {
+		return SearchFilesResult{}, remapFileReadErrorPath(err, displayRoot)
+	}
+	return result, nil
+}
+
 func (p WorkspacePathGuardProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {
 	path, err := p.resolveWritePath(request.Path)
 	if err != nil {

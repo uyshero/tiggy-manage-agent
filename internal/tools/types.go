@@ -56,6 +56,7 @@ type API struct {
 	Risk              string          `json:"risk,omitempty"`
 	Runtime           *RuntimePolicy  `json:"runtime,omitempty"`
 	Implementation    string          `json:"implementation,omitempty"`
+	HiddenFromModel   bool            `json:"hidden_from_model,omitempty"`
 }
 
 type Call struct {
@@ -151,8 +152,9 @@ type Executor interface {
 }
 
 type filteredRuntime struct {
-	inner       Runtime
-	allowedAPIs map[string]bool
+	inner        Runtime
+	allowedAPIs  map[string]bool
+	exposeHidden bool
 }
 
 func (r filteredRuntime) Manifest() Manifest {
@@ -164,6 +166,9 @@ func (r filteredRuntime) Manifest() Manifest {
 	apis := make([]API, 0, len(manifest.API))
 	for _, api := range manifest.API {
 		if r.allowedAPIs[api.Name] {
+			if r.exposeHidden {
+				api.HiddenFromModel = false
+			}
 			apis = append(apis, api)
 		}
 	}
@@ -281,8 +286,9 @@ func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
 			continue
 		}
 		configured.Register(filteredRuntime{
-			inner:       runtime,
-			allowedAPIs: allowedAPIs,
+			inner:        runtime,
+			allowedAPIs:  allowedAPIs,
+			exposeHidden: true,
 		})
 	}
 	return configured, policy
@@ -477,7 +483,7 @@ func (r Registry) Manifests() []Manifest {
 }
 
 func (r Registry) ModelTools() []llm.Tool {
-	manifests := r.Manifests()
+	manifests := r.modelManifests()
 	if len(manifests) == 0 {
 		return nil
 	}
@@ -502,7 +508,7 @@ func (r Registry) ModelTools() []llm.Tool {
 }
 
 func (r Registry) ModelContext() json.RawMessage {
-	manifests := r.Manifests()
+	manifests := r.modelManifests()
 	if len(manifests) == 0 {
 		return nil
 	}
@@ -528,6 +534,20 @@ func (r Registry) ModelContext() json.RawMessage {
 		return nil
 	}
 	return json.RawMessage(encoded)
+}
+
+func (r Registry) modelManifests() []Manifest {
+	manifests := r.Manifests()
+	for manifestIndex := range manifests {
+		visible := make([]API, 0, len(manifests[manifestIndex].API))
+		for _, api := range manifests[manifestIndex].API {
+			if !api.HiddenFromModel {
+				visible = append(visible, api)
+			}
+		}
+		manifests[manifestIndex].API = visible
+	}
+	return manifests
 }
 
 func PrettyJSON(raw json.RawMessage) string {

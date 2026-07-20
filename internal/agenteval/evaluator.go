@@ -3,14 +3,17 @@ package agenteval
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"tiggy-manage-agent/internal/agentruntime"
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/httpapi"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
@@ -26,27 +29,31 @@ type Suite struct {
 }
 
 type Thresholds struct {
-	CasePassRateMin        float64 `json:"case_pass_rate_min"`
-	FalseSuccessRateMax    float64 `json:"false_success_rate_max"`
-	RetryCorrectionRateMin float64 `json:"retry_correction_rate_min"`
-	EvidenceComplianceMin  float64 `json:"evidence_compliance_rate_min"`
-	HardFailRateMin        float64 `json:"hard_fail_rate_min"`
-	SchemaComplianceMin    float64 `json:"schema_compliance_rate_min"`
-	SchemaRetryBenefitMin  float64 `json:"schema_retry_correction_rate_min"`
-	InvalidExecutionMax    float64 `json:"invalid_tool_execution_rate_max"`
-	TaskGroupComplianceMin float64 `json:"task_group_compliance_rate_min"`
-	TaskGroupRetryMin      float64 `json:"task_group_retry_correction_rate_min"`
-	InvalidAggregateMax    float64 `json:"invalid_result_aggregation_rate_max"`
+	CasePassRateMin         float64 `json:"case_pass_rate_min"`
+	FalseSuccessRateMax     float64 `json:"false_success_rate_max"`
+	RetryCorrectionRateMin  float64 `json:"retry_correction_rate_min"`
+	EvidenceComplianceMin   float64 `json:"evidence_compliance_rate_min"`
+	HardFailRateMin         float64 `json:"hard_fail_rate_min"`
+	SchemaComplianceMin     float64 `json:"schema_compliance_rate_min"`
+	SchemaRetryBenefitMin   float64 `json:"schema_retry_correction_rate_min"`
+	InvalidExecutionMax     float64 `json:"invalid_tool_execution_rate_max"`
+	TaskGroupComplianceMin  float64 `json:"task_group_compliance_rate_min"`
+	TaskGroupRetryMin       float64 `json:"task_group_retry_correction_rate_min"`
+	InvalidAggregateMax     float64 `json:"invalid_result_aggregation_rate_max"`
+	FilesystemComplianceMin float64 `json:"filesystem_tool_compliance_rate_min"`
+	FilesystemSelectionMin  float64 `json:"filesystem_tool_selection_rate_min"`
+	FilesystemRecoveryMin   float64 `json:"filesystem_tool_recovery_rate_min"`
 }
 
 type Case struct {
-	ID         string            `json:"id"`
-	Category   string            `json:"category"`
-	Flow       string            `json:"flow,omitempty"`
-	MaxRetries int               `json:"max_retries"`
-	Expected   Expectation       `json:"expected"`
-	Candidates []Candidate       `json:"candidates"`
-	TaskGroup  *TaskGroupFixture `json:"task_group,omitempty"`
+	ID         string             `json:"id"`
+	Category   string             `json:"category"`
+	Flow       string             `json:"flow,omitempty"`
+	MaxRetries int                `json:"max_retries"`
+	Expected   Expectation        `json:"expected"`
+	Candidates []Candidate        `json:"candidates"`
+	TaskGroup  *TaskGroupFixture  `json:"task_group,omitempty"`
+	Filesystem *FilesystemFixture `json:"filesystem,omitempty"`
 }
 
 type Expectation struct {
@@ -60,6 +67,15 @@ type Expectation struct {
 	GroupCompleted   bool            `json:"group_completed,omitempty"`
 	ResultRejections int             `json:"result_rejections,omitempty"`
 	AggregateJSON    json.RawMessage `json:"aggregate_json,omitempty"`
+	ToolSequence     []string        `json:"tool_sequence,omitempty"`
+	ToolErrors       []string        `json:"tool_errors,omitempty"`
+	BinaryRoutes     int             `json:"binary_routes,omitempty"`
+}
+
+type FilesystemFixture struct {
+	Prompt      string            `json:"prompt"`
+	Files       map[string]string `json:"files,omitempty"`
+	BinaryFiles map[string]string `json:"binary_files_base64,omitempty"`
 }
 
 type TaskGroupFixture struct {
@@ -91,6 +107,7 @@ type Candidate struct {
 
 type ToolCallCandidate struct {
 	ID        string          `json:"id"`
+	Name      string          `json:"name,omitempty"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
@@ -151,6 +168,15 @@ type Report struct {
 	TaskGroupRejectedResults   int          `json:"task_group_rejected_results"`
 	InvalidAggregatedResults   int          `json:"invalid_aggregated_results"`
 	InvalidAggregationRate     float64      `json:"invalid_result_aggregation_rate"`
+	FilesystemCases            int          `json:"filesystem_cases"`
+	FilesystemCompliantCases   int          `json:"filesystem_compliant_cases"`
+	FilesystemComplianceRate   float64      `json:"filesystem_compliance_rate"`
+	FilesystemSelectionChecks  int          `json:"filesystem_selection_checks"`
+	FilesystemSelections       int          `json:"filesystem_correct_selections"`
+	FilesystemSelectionRate    float64      `json:"filesystem_selection_rate"`
+	FilesystemRecoveryCases    int          `json:"filesystem_recovery_cases"`
+	FilesystemRecoveries       int          `json:"filesystem_recoveries"`
+	FilesystemRecoveryRate     float64      `json:"filesystem_recovery_rate"`
 	ThresholdFailures          []string     `json:"threshold_failures,omitempty"`
 	Cases                      []CaseResult `json:"cases"`
 }
@@ -173,6 +199,9 @@ type CaseResult struct {
 	ResultRejections   int             `json:"result_rejections,omitempty"`
 	InvalidAggregates  int             `json:"invalid_aggregates,omitempty"`
 	AggregateJSON      json.RawMessage `json:"aggregate_json,omitempty"`
+	ToolSequence       []string        `json:"tool_sequence,omitempty"`
+	ToolErrors         []string        `json:"tool_errors,omitempty"`
+	BinaryRoutes       int             `json:"binary_routes,omitempty"`
 	Error              string          `json:"error,omitempty"`
 	Failure            string          `json:"failure,omitempty"`
 }
@@ -278,6 +307,24 @@ func Evaluate(ctx context.Context, suite Suite) (Report, error) {
 			report.TaskGroupRejectedResults += result.ResultRejections
 			report.InvalidAggregatedResults += result.InvalidAggregates
 		}
+		if fixture.Flow == "filesystem_tools" {
+			report.FilesystemCases++
+			if result.Passed {
+				report.FilesystemCompliantCases++
+			}
+			for index, expected := range fixture.Expected.ToolSequence {
+				report.FilesystemSelectionChecks++
+				if index < len(result.ToolSequence) && result.ToolSequence[index] == expected {
+					report.FilesystemSelections++
+				}
+			}
+			if strings.HasPrefix(fixture.Category, "filesystem_recovery") {
+				report.FilesystemRecoveryCases++
+				if result.Passed {
+					report.FilesystemRecoveries++
+				}
+			}
+		}
 	}
 
 	report.CasePassRate = rate(report.PassedCases, report.TotalCases)
@@ -293,6 +340,9 @@ func Evaluate(ctx context.Context, suite Suite) (Report, error) {
 	report.TaskGroupComplianceRate = rate(report.TaskGroupCompliantCases, report.TaskGroupCases)
 	report.TaskGroupRetryRate = rate(report.TaskGroupRetryCorrections, report.TaskGroupRetryCases)
 	report.InvalidAggregationRate = rate(report.InvalidAggregatedResults, report.TaskGroupRejectedResults)
+	report.FilesystemComplianceRate = rate(report.FilesystemCompliantCases, report.FilesystemCases)
+	report.FilesystemSelectionRate = rate(report.FilesystemSelections, report.FilesystemSelectionChecks)
+	report.FilesystemRecoveryRate = rate(report.FilesystemRecoveries, report.FilesystemRecoveryCases)
 	report.ThresholdFailures = thresholdFailures(report, suite.Thresholds)
 	report.Passed = len(report.ThresholdFailures) == 0
 	return report, nil
@@ -304,6 +354,9 @@ func evaluateCase(ctx context.Context, fixture Case) CaseResult {
 	}
 	if fixture.Flow == "task_group" {
 		return evaluateTaskGroupCase(fixture)
+	}
+	if fixture.Flow == "filesystem_tools" {
+		return evaluateFilesystemToolCase(ctx, fixture)
 	}
 	reader := &replayPlanReader{}
 	client := &replayClient{candidates: fixture.Candidates, reader: reader}
@@ -486,6 +539,170 @@ func evaluateToolSchemaCase(ctx context.Context, fixture Case) CaseResult {
 	return result
 }
 
+func evaluateFilesystemToolCase(ctx context.Context, fixture Case) CaseResult {
+	root, err := os.MkdirTemp("", "tma-filesystem-eval-*")
+	if err != nil {
+		return filesystemCaseSetupFailure(fixture, err)
+	}
+	defer os.RemoveAll(root)
+	for name, content := range fixture.Filesystem.Files {
+		if err := writeFilesystemFixture(root, name, []byte(content)); err != nil {
+			return filesystemCaseSetupFailure(fixture, err)
+		}
+	}
+	for name, encoded := range fixture.Filesystem.BinaryFiles {
+		content, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return filesystemCaseSetupFailure(fixture, fmt.Errorf("decode binary fixture %q: %w", name, err))
+		}
+		if err := writeFilesystemFixture(root, name, content); err != nil {
+			return filesystemCaseSetupFailure(fixture, err)
+		}
+	}
+	provider, err := capability.NewWorkspacePathGuardProvider(capability.LocalSystemProvider{}, root)
+	if err != nil {
+		return filesystemCaseSetupFailure(fixture, err)
+	}
+	registry := tools.DefaultRegistry().FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
+		return manifest.Identifier == tools.NamespaceDefault && isVisibleFilesystemEvalTool(api.Name)
+	})
+	client := &filesystemReplayClient{candidates: append([]Candidate(nil), fixture.Candidates...)}
+	steps := make([]agentruntime.Step, 0, len(fixture.Candidates)*3)
+	userPayload, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": fixture.Filesystem.Prompt}}})
+	_, runErr := (agentruntime.DemoRuntime{Client: client, MaxToolRounds: 12}).RunTurn(ctx, agentruntime.TurnRequest{
+		SessionID: "eval_" + fixture.ID, TurnID: "turn_1", UserPayload: userPayload,
+		Config: agentruntime.Config{
+			ModelTools: registry.ModelTools(), ToolRegistry: registry,
+			ToolExecutor: tools.RegistryExecutor{Registry: registry}, InterventionMode: tools.InterventionModeFullAccess,
+			ToolExecutionContext: tools.ExecutionContext{Provider: provider},
+		},
+		EmitStep: func(_ context.Context, step agentruntime.Step) error {
+			steps = append(steps, step)
+			return nil
+		},
+	})
+
+	result := CaseResult{
+		ID: fixture.ID, Category: fixture.Category, ExpectedOutcome: fixture.Expected.Outcome,
+		ActualOutcome: "pass", ToolSequence: filesystemToolSequence(steps), ToolErrors: filesystemToolErrors(steps),
+		BinaryRoutes: filesystemBinaryRoutes(steps),
+	}
+	result.ToolExecutions = len(result.ToolSequence)
+	if runErr != nil {
+		result.ActualOutcome = "fail"
+		result.Error = runErr.Error()
+	}
+	failures := make([]string, 0, 5)
+	if result.ActualOutcome != fixture.Expected.Outcome {
+		failures = append(failures, fmt.Sprintf("outcome=%s, want %s", result.ActualOutcome, fixture.Expected.Outcome))
+	}
+	if !equalStrings(result.ToolSequence, fixture.Expected.ToolSequence) {
+		failures = append(failures, fmt.Sprintf("tool_sequence=%v, want %v", result.ToolSequence, fixture.Expected.ToolSequence))
+	}
+	if !equalStrings(result.ToolErrors, fixture.Expected.ToolErrors) {
+		failures = append(failures, fmt.Sprintf("tool_errors=%v, want %v", result.ToolErrors, fixture.Expected.ToolErrors))
+	}
+	if result.BinaryRoutes != fixture.Expected.BinaryRoutes {
+		failures = append(failures, fmt.Sprintf("binary_routes=%d, want %d", result.BinaryRoutes, fixture.Expected.BinaryRoutes))
+	}
+	if fixture.Expected.ToolExecutions > 0 && result.ToolExecutions != fixture.Expected.ToolExecutions {
+		failures = append(failures, fmt.Sprintf("tool_executions=%d, want %d", result.ToolExecutions, fixture.Expected.ToolExecutions))
+	}
+	result.Failure = strings.Join(failures, "; ")
+	result.Passed = result.Failure == ""
+	result.FalseSuccess = fixture.Expected.Outcome == "fail" && result.ActualOutcome == "pass"
+	return result
+}
+
+func filesystemCaseSetupFailure(fixture Case, err error) CaseResult {
+	return CaseResult{
+		ID: fixture.ID, Category: fixture.Category, ExpectedOutcome: fixture.Expected.Outcome,
+		ActualOutcome: "fail", Error: err.Error(), Failure: err.Error(),
+	}
+}
+
+func writeFilesystemFixture(root, name string, content []byte) error {
+	clean := filepath.Clean(name)
+	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("filesystem fixture path %q escapes its root", name)
+	}
+	target := filepath.Join(root, clean)
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, content, 0o644)
+}
+
+func filesystemToolSequence(steps []agentruntime.Step) []string {
+	result := make([]string, 0)
+	for _, step := range steps {
+		if step.Type != managedagents.EventRuntimeToolCall {
+			continue
+		}
+		identifier, _ := step.Data["identifier"].(string)
+		api, _ := step.Data["api_name"].(string)
+		result = append(result, defaultEvalString(identifier, tools.NamespaceDefault)+"."+api)
+	}
+	return result
+}
+
+func filesystemToolErrors(steps []agentruntime.Step) []string {
+	result := make([]string, 0)
+	for _, step := range steps {
+		if step.Type != managedagents.EventRuntimeToolResult {
+			continue
+		}
+		if executionError, ok := step.Data["error"].(*tools.ExecutionError); ok && executionError != nil {
+			result = append(result, executionError.Type)
+		}
+	}
+	return result
+}
+
+func filesystemBinaryRoutes(steps []agentruntime.Step) int {
+	count := 0
+	for _, step := range steps {
+		if step.Type != managedagents.EventRuntimeToolResult {
+			continue
+		}
+		state, _ := step.Data["state"].(map[string]any)
+		binary, _ := state["binary"].(bool)
+		suggested, _ := state["suggested_capability"].(string)
+		if binary && suggested != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func defaultEvalString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func isVisibleFilesystemEvalTool(name string) bool {
+	switch name {
+	case "read_file", "find_files", "search_files", "write_file", "edit_file":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateSuite(suite Suite) error {
 	if suite.Version != SuiteVersion {
 		return fmt.Errorf("agent quality suite version %q is unsupported", suite.Version)
@@ -514,7 +731,7 @@ func validateSuite(suite Suite) error {
 		if fixture.Flow != "task_group" && len(fixture.Candidates) == 0 {
 			return fmt.Errorf("agent quality case %q requires candidates", fixture.ID)
 		}
-		if fixture.Flow != "" && fixture.Flow != "completion" && fixture.Flow != "tool_schema" && fixture.Flow != "task_group" {
+		if fixture.Flow != "" && fixture.Flow != "completion" && fixture.Flow != "tool_schema" && fixture.Flow != "task_group" && fixture.Flow != "filesystem_tools" {
 			return fmt.Errorf("agent quality case %q has invalid flow %q", fixture.ID, fixture.Flow)
 		}
 		if fixture.Expected.BlockedRetries < 0 || fixture.Expected.BlockedRetries > fixture.MaxRetries {
@@ -522,6 +739,12 @@ func validateSuite(suite Suite) error {
 		}
 		if fixture.Flow != "task_group" && len(fixture.Candidates) < fixture.Expected.BlockedRetries+1 {
 			return fmt.Errorf("agent quality case %q requires at least %d candidates", fixture.ID, fixture.Expected.BlockedRetries+1)
+		}
+		if fixture.Flow == "filesystem_tools" {
+			if err := validateFilesystemFixture(fixture); err != nil {
+				return fmt.Errorf("agent quality case %q: %w", fixture.ID, err)
+			}
+			continue
 		}
 		for candidateIndex, candidate := range fixture.Candidates {
 			if fixture.Flow == "task_group" {
@@ -568,6 +791,9 @@ func validateSuite(suite Suite) error {
 		"task_group_compliance_rate_min":       suite.Thresholds.TaskGroupComplianceMin,
 		"task_group_retry_correction_rate_min": suite.Thresholds.TaskGroupRetryMin,
 		"invalid_result_aggregation_rate_max":  suite.Thresholds.InvalidAggregateMax,
+		"filesystem_tool_compliance_rate_min":  suite.Thresholds.FilesystemComplianceMin,
+		"filesystem_tool_selection_rate_min":   suite.Thresholds.FilesystemSelectionMin,
+		"filesystem_tool_recovery_rate_min":    suite.Thresholds.FilesystemRecoveryMin,
 	} {
 		if value < 0 || value > 1 {
 			return fmt.Errorf("agent quality threshold %s must be between 0 and 1", name)
@@ -639,6 +865,49 @@ func validateToolSchemaCandidate(candidate Candidate) error {
 		return errors.New("tool schema candidate tool_call arguments must be valid JSON")
 	}
 	return nil
+}
+
+func validateFilesystemFixture(fixture Case) error {
+	if fixture.Filesystem == nil {
+		return errors.New("filesystem_tools flow requires filesystem")
+	}
+	if strings.TrimSpace(fixture.Filesystem.Prompt) == "" {
+		return errors.New("filesystem_tools prompt is required")
+	}
+	if len(fixture.Expected.ToolSequence) == 0 {
+		return errors.New("filesystem_tools expected tool_sequence is required")
+	}
+	for name, encoded := range fixture.Filesystem.BinaryFiles {
+		if _, err := base64.StdEncoding.DecodeString(encoded); err != nil {
+			return fmt.Errorf("binary fixture %q is not valid base64", name)
+		}
+	}
+	for index, candidate := range fixture.Candidates {
+		if candidate.ToolCall == nil {
+			if strings.TrimSpace(candidate.Text) == "" {
+				return fmt.Errorf("candidate %d requires text or tool_call", index)
+			}
+			continue
+		}
+		if strings.TrimSpace(candidate.Text) != "" {
+			return fmt.Errorf("candidate %d cannot contain both text and tool_call", index)
+		}
+		if strings.TrimSpace(candidate.ToolCall.ID) == "" || !isQualifiedFilesystemEvalTool(candidate.ToolCall.Name) {
+			return fmt.Errorf("candidate %d requires a visible default filesystem tool name and id", index)
+		}
+		if len(bytes.TrimSpace(candidate.ToolCall.Arguments)) == 0 || !json.Valid(candidate.ToolCall.Arguments) {
+			return fmt.Errorf("candidate %d tool arguments must be valid JSON", index)
+		}
+	}
+	if last := fixture.Candidates[len(fixture.Candidates)-1]; strings.TrimSpace(last.Text) == "" {
+		return errors.New("filesystem_tools final candidate must be assistant text")
+	}
+	return nil
+}
+
+func isQualifiedFilesystemEvalTool(name string) bool {
+	identifier, api, ok := strings.Cut(strings.TrimSpace(name), ".")
+	return ok && identifier == tools.NamespaceDefault && isVisibleFilesystemEvalTool(api)
 }
 
 func validatePlanSnapshot(plan PlanSnapshot) error {
@@ -713,6 +982,15 @@ func thresholdFailures(report Report, thresholds Thresholds) []string {
 	if report.InvalidAggregationRate > thresholds.InvalidAggregateMax {
 		failures = append(failures, fmt.Sprintf("invalid_result_aggregation_rate %.4f exceeds %.4f", report.InvalidAggregationRate, thresholds.InvalidAggregateMax))
 	}
+	if report.FilesystemComplianceRate < thresholds.FilesystemComplianceMin {
+		failures = append(failures, fmt.Sprintf("filesystem_tool_compliance_rate %.4f is below %.4f", report.FilesystemComplianceRate, thresholds.FilesystemComplianceMin))
+	}
+	if report.FilesystemSelectionRate < thresholds.FilesystemSelectionMin {
+		failures = append(failures, fmt.Sprintf("filesystem_tool_selection_rate %.4f is below %.4f", report.FilesystemSelectionRate, thresholds.FilesystemSelectionMin))
+	}
+	if report.FilesystemRecoveryRate < thresholds.FilesystemRecoveryMin {
+		failures = append(failures, fmt.Sprintf("filesystem_tool_recovery_rate %.4f is below %.4f", report.FilesystemRecoveryRate, thresholds.FilesystemRecoveryMin))
+	}
 	return failures
 }
 
@@ -776,6 +1054,25 @@ func countToolErrors(steps []agentruntime.Step, errorType string) int {
 type schemaReplayClient struct {
 	candidates []Candidate
 	calls      int
+}
+
+type filesystemReplayClient struct {
+	candidates []Candidate
+}
+
+func (client *filesystemReplayClient) Generate(context.Context, llm.Request) (llm.Response, error) {
+	if len(client.candidates) == 0 {
+		return llm.Response{}, errors.New("agent quality filesystem replay exhausted candidates")
+	}
+	candidate := client.candidates[0]
+	client.candidates = client.candidates[1:]
+	if candidate.ToolCall == nil {
+		return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: candidate.Text}}}}, nil
+	}
+	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+		ID: candidate.ToolCall.ID, Type: "function",
+		Function: llm.ToolCallFunction{Name: candidate.ToolCall.Name, Arguments: candidate.ToolCall.Arguments},
+	}}}}, nil
 }
 
 func (client *schemaReplayClient) Generate(context.Context, llm.Request) (llm.Response, error) {

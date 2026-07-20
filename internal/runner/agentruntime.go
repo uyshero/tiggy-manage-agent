@@ -837,8 +837,47 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 		if err == nil {
 			validator, _ := step.Data["validator"].(string)
 			observability.RecordCompletionValidation(eventType, validator)
+			if eventType == managedagents.EventRuntimeToolResult {
+				recordFilesystemToolMetric(step.Data)
+			}
 		}
 		return err
+	}
+}
+
+func recordFilesystemToolMetric(data map[string]any) {
+	api, _ := data["api_name"].(string)
+	identifier, _ := data["identifier"].(string)
+	if identifier != "" && identifier != tools.NamespaceDefault {
+		return
+	}
+	outcome := "error"
+	if success, _ := data["success"].(bool); success {
+		outcome = "success"
+	} else if pending, _ := data["pending_intervention"].(bool); pending {
+		outcome = "pending_intervention"
+	}
+	errorCode := ""
+	if executionError, ok := data["error"].(*tools.ExecutionError); ok && executionError != nil {
+		errorCode = executionError.Type
+	}
+	state, _ := data["state"].(map[string]any)
+	observability.RecordFilesystemToolMetric(observability.FilesystemToolMetricInput{
+		API: api, Outcome: outcome, ErrorCode: errorCode,
+		DurationMillis: runtimeMetricInt64(data["duration_ms"]), State: state,
+	})
+}
+
+func runtimeMetricInt64(value any) int64 {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	default:
+		return 0
 	}
 }
 

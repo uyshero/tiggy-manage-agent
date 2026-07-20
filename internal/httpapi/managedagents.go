@@ -1420,6 +1420,7 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		BinaryScans:           skillmarketplace.BinaryScanMetricsSnapshot(),
 		SkillAssetGC:          skillretention.SnapshotMetrics(),
 		CompletionValidations: observability.CompletionValidationMetricsSnapshot(),
+		FilesystemTools:       observability.FilesystemToolMetricsSnapshot(),
 	}
 	if s.authorizationAudit != nil {
 		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()

@@ -104,6 +104,16 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 	if err := json.Unmarshal(invocation.Input, &input); err != nil {
 		t.Fatalf("decode invocation input: %v", err)
 	}
+	if strings.Contains(string(invocation.Input), `"meta"`) {
+		t.Fatalf("capability metadata must not leak into tool arguments: %s", invocation.Input)
+	}
+	if validationError := tools.DefaultRegistry().ValidateCallArguments(tools.Call{
+		Identifier: tools.NamespaceDefault,
+		APIName:    "read_file",
+		Arguments:  invocation.Input,
+	}); validationError != nil {
+		t.Fatalf("worker invocation must satisfy the model-visible schema: %v", validationError)
+	}
 	if input.Path != "README.md" || input.OffsetBytes == nil || *input.OffsetBytes != offset || input.MaxBytes == nil || *input.MaxBytes != maxBytes || input.FileRevision != "stat-v1:revision" {
 		t.Fatalf("expected invocation input path, got %#v", input)
 	}
@@ -160,6 +170,68 @@ func TestWorkerBackedProviderSearchFileEnqueuesAndDecodesResult(t *testing.T) {
 	}
 	if input.Path != "app.log" || input.Query != "target" || input.MaxResults != 12 || input.FileRevision != "stat-v1:expected" {
 		t.Fatalf("unexpected search input: %#v", input)
+	}
+}
+
+func TestWorkerBackedProviderFindAndSearchFilesUseStandardWorkProtocol(t *testing.T) {
+	t.Run("find_files", func(t *testing.T) {
+		state, err := json.Marshal(capability.FindFilesResult{Root: ".", Pattern: "**/*.go", Files: []capability.FoundFile{{Path: "main.go", SizeBytes: 10}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider, store := workerProviderForFilesystemResult(t, "find_files", state)
+		result, err := provider.FindFiles(t.Context(), capability.FindFilesRequest{Pattern: "**/*.go"})
+		if err != nil || len(result.Files) != 1 || result.Files[0].Path != "main.go" {
+			t.Fatalf("unexpected worker discovery: %#v err=%v", result, err)
+		}
+		assertWorkerFilesystemInvocation(t, store, "find_files")
+	})
+	t.Run("search_files", func(t *testing.T) {
+		state, err := json.Marshal(capability.SearchFilesResult{Query: "needle", Mode: "literal", Matches: []capability.SearchFilesMatch{{Path: "main.go", LineNumber: 2}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider, store := workerProviderForFilesystemResult(t, "search_files", state)
+		result, err := provider.SearchFiles(t.Context(), capability.SearchFilesRequest{Query: "needle", Paths: []string{"**/*.go"}})
+		if err != nil || len(result.Matches) != 1 || result.Matches[0].Path != "main.go" {
+			t.Fatalf("unexpected worker search: %#v err=%v", result, err)
+		}
+		assertWorkerFilesystemInvocation(t, store, "search_files")
+	})
+}
+
+func workerProviderForFilesystemResult(t *testing.T, api string, state json.RawMessage) (WorkerBackedProvider, *workerBackedTestStore) {
+	t.Helper()
+	completed, err := json.Marshal(map[string]any{"tool_result": tools.ExecutionResult{
+		Identifier: tools.NamespaceDefault, APIName: api, State: state,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID: "wrk_files", WorkspaceID: "wksp_files", Status: managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, map[string]any{
+				"namespaces": []string{"default"}, "apis": []string{"default." + api},
+				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
+			}),
+		}},
+		completedResult: completed,
+	}
+	return WorkerBackedProvider{
+		Store: store, WorkspaceID: "wksp_files", SessionID: "sesn_files", TurnID: "turn_files",
+		PollInterval: time.Millisecond, WaitTimeout: time.Second,
+	}, store
+}
+
+func assertWorkerFilesystemInvocation(t *testing.T, store *workerBackedTestStore, api string) {
+	t.Helper()
+	var invocation tools.WorkInvocation
+	if err := json.Unmarshal(store.enqueued.Payload, &invocation); err != nil {
+		t.Fatal(err)
+	}
+	if invocation.ProtocolVersion != tools.WorkProtocolVersion || invocation.API != api || invocation.Risk != tools.ToolRiskRead {
+		t.Fatalf("unexpected worker invocation: %#v", invocation)
 	}
 }
 

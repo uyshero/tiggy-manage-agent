@@ -49,6 +49,26 @@ func TestBaselineSuiteMeetsQualityThresholds(t *testing.T) {
 	}
 }
 
+func TestFilesystemToolSuiteMeetsQualityThresholds(t *testing.T) {
+	suite, err := LoadSuite(filepath.Join("..", "..", "testdata", "agent-quality", "filesystem-tools.json"))
+	if err != nil {
+		t.Fatalf("load filesystem suite: %v", err)
+	}
+	report, err := Evaluate(t.Context(), suite)
+	if err != nil {
+		t.Fatalf("evaluate filesystem suite: %v", err)
+	}
+	if !report.Passed || report.TotalCases != 5 || report.PassedCases != 5 {
+		t.Fatalf("filesystem quality thresholds failed: %+v", report)
+	}
+	if report.FilesystemCases != 5 || report.FilesystemComplianceRate != 1 || report.FilesystemSelectionRate != 1 {
+		t.Fatalf("unexpected filesystem compliance metrics: %+v", report)
+	}
+	if report.FilesystemRecoveryCases != 1 || report.FilesystemRecoveryRate != 1 {
+		t.Fatalf("unexpected filesystem recovery metrics: %+v", report)
+	}
+}
+
 func TestEvaluateReportsFalseSuccessAndThresholdFailure(t *testing.T) {
 	suite := Suite{
 		Version:    SuiteVersion,

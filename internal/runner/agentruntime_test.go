@@ -434,7 +434,7 @@ func TestAgentRuntimeTurnExecutorFiltersToolsByProviderCapabilities(t *testing.T
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 15 || !names["default.read_file"] || !names["default.search_file"] || !names["web.search"] || !names["web.crawl"] || !names["interaction.ask_user"] || !names["interaction.request_upload"] || !names["interaction.request_plan_approval"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
+	if len(modelTools) != 16 || !names["default.read_file"] || !names["default.find_files"] || !names["default.search_files"] || names["default.search_file"] || !names["web.search"] || !names["web.crawl"] || !names["interaction.ask_user"] || !names["interaction.request_upload"] || !names["interaction.request_plan_approval"] || !names["skills.search"] || !names["skills.inspect"] || !names["skills.discover"] || !names["skills.preview"] || !names["skills.read_asset"] || !names["skills.install"] || !names["skills.enable"] || !names["skills.disable"] {
 		t.Fatalf("expected provider capability filter to keep read_file, search_file, and server builtin tools, got %#v", modelTools)
 	}
 	if _, _, ok := runtime.request.Config.ToolRegistry.GetAPI("default", "run_command"); ok {

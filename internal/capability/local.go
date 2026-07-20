@@ -117,18 +117,12 @@ func (provider LocalSystemProvider) ReadFile(ctx context.Context, request ReadFi
 	return readLocalFile(ctx, request, provider.ReadFileLimits)
 }
 
-func (LocalSystemProvider) WriteFile(_ context.Context, request WriteFileRequest) (FileResult, error) {
-	if err := os.MkdirAll(filepath.Dir(request.Path), 0o755); err != nil {
-		return FileResult{}, err
-	}
-	if err := os.WriteFile(request.Path, request.Content, 0o644); err != nil {
-		return FileResult{}, err
-	}
-	return FileResult{Path: request.Path}, nil
+func (LocalSystemProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {
+	return writeLocalFileAtomic(ctx, request)
 }
 
-func (LocalSystemProvider) EditFile(_ context.Context, request EditFileRequest) (EditFileResult, error) {
-	return editLocalFile(request), nil
+func (LocalSystemProvider) EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error) {
+	return editLocalFileContext(ctx, request), nil
 }
 
 func (LocalSystemProvider) ExportArtifactFile(_ context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {

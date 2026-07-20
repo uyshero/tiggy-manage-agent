@@ -85,6 +85,47 @@ func TestWorkspacePathGuardProviderSearchFileKeepsReadBoundary(t *testing.T) {
 	}
 }
 
+func TestWorkspacePathGuardProviderFindAndSearchFilesStayInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n// needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "secret.go"), []byte("// needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "outside-link")); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := provider.FindFiles(t.Context(), FindFilesRequest{Pattern: "**/*.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found.Files) != 1 || found.Files[0].Path != "src/main.go" {
+		t.Fatalf("unexpected guarded discovery: %#v", found)
+	}
+	searched, err := provider.SearchFiles(t.Context(), SearchFilesRequest{Query: "needle", Paths: []string{"**/*.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searched.Matches) != 1 || searched.Matches[0].Path != "src/main.go" {
+		t.Fatalf("unexpected guarded search: %#v", searched)
+	}
+	if _, err := provider.FindFiles(t.Context(), FindFilesRequest{Root: "../", Pattern: "**/*"}); err == nil {
+		t.Fatal("expected escaped discovery root to be denied")
+	}
+	if _, err := provider.SearchFiles(t.Context(), SearchFilesRequest{Root: "outside-link", Query: "needle", Paths: []string{"**/*"}}); err == nil {
+		t.Fatal("expected symlink search root to be denied")
+	}
+}
+
 func TestWorkspacePathGuardProviderRemapsStructuredSearchErrorPath(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "app.log"), []byte("value\n"), 0o644); err != nil {

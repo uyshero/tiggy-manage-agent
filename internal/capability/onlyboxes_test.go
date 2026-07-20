@@ -157,6 +157,32 @@ func TestOnlyboxesProviderRejectsUnsafeRuntimeSkillPaths(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesProviderMaterializesDottedRuntimeSkillIdentifier(t *testing.T) {
+	provider := OnlyboxesProvider{WorkspaceRoot: t.TempDir()}
+	cacheRoot, err := provider.runtimeSkillCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = makeRuntimeSkillWritable(cacheRoot) })
+	pkg := RuntimeSkillPackage{
+		SkillID: "skl_shuyou_gpt_image_2", Identifier: "shuyou.gpt.image.2", Version: 3,
+		Files: []RuntimeSkillFile{{Path: "SKILL.md", Content: []byte("# Image\n")}},
+	}
+
+	materialized, err := provider.MaterializeRuntimeSkills(t.Context(), []RuntimeSkillPackage{pkg})
+	if err != nil {
+		t.Fatalf("materialize dotted runtime skill identifier: %v", err)
+	}
+	if len(materialized) != 1 || materialized[0].Identifier != pkg.Identifier || materialized[0].Version != pkg.Version {
+		t.Fatalf("unexpected materialization result: %#v", materialized)
+	}
+
+	cached, hit, err := provider.LookupMaterializedRuntimeSkill(t.Context(), pkg.SkillID, pkg.Identifier, pkg.Version, runtimeSkillPackageChecksum(pkg))
+	if err != nil || !hit || cached.Identifier != pkg.Identifier {
+		t.Fatalf("expected dotted runtime skill cache hit, cached=%#v hit=%t err=%v", cached, hit, err)
+	}
+}
+
 func TestOnlyboxesProviderMaterializesSameSkillConcurrently(t *testing.T) {
 	cacheRoot := t.TempDir()
 	provider := OnlyboxesProvider{WorkspaceRoot: t.TempDir(), SkillCacheRoot: cacheRoot, WorkspaceID: "wksp_concurrent"}
@@ -739,6 +765,31 @@ func TestOnlyboxesProviderSearchFileRemapsStructuredErrorPath(t *testing.T) {
 	}
 	if strings.Contains(readErr.Error(), root) {
 		t.Fatalf("structured error leaked host root: %v", readErr)
+	}
+}
+
+func TestOnlyboxesProviderFindAndSearchFilesUseSandboxPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n// needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := OnlyboxesProvider{WorkspaceRoot: root}
+	found, err := provider.FindFiles(t.Context(), FindFilesRequest{Root: "/workspace", Pattern: "**/*.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Root != "/workspace" || len(found.Files) != 1 || found.Files[0].Path != "src/main.go" {
+		t.Fatalf("unexpected sandbox discovery: %#v", found)
+	}
+	searched, err := provider.SearchFiles(t.Context(), SearchFilesRequest{Root: "/workspace", Query: "needle", Paths: []string{"**/*.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(searched.Matches) != 1 || searched.Matches[0].Path != "src/main.go" {
+		t.Fatalf("unexpected sandbox search: %#v", searched)
 	}
 }
 

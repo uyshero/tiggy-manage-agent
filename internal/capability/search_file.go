@@ -78,7 +78,7 @@ func searchLocalFile(ctx context.Context, request SearchFileRequest) (SearchFile
 	if request.FileRevision != "" && request.FileRevision != revision {
 		return SearchFileResult{}, staleFileRevisionError(request.Path, request.FileRevision, revision)
 	}
-	binary, err := openedFileIsBinary(ctx, file, info.Size())
+	binary, err := openedFileRequiresBinaryRouting(ctx, file, request.Path, info.Size())
 	if err != nil {
 		return SearchFileResult{}, err
 	}

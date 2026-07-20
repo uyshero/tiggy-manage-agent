@@ -28,6 +28,7 @@ type MetricsSnapshot struct {
 	MCPRuntimeGuard        mcp.RuntimeGuardStats
 	AuthorizationDecisions []AuthorizationDecisionMetric
 	SecurityAuditExporter  SecurityAuditExporterMetrics
+	FilesystemTools        []FilesystemToolRuntimeMetric
 	CompletionValidations  []CompletionValidationMetric
 }
 
@@ -53,8 +54,67 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeAuthorizationDecisionMetrics(&builder, snapshot.AuthorizationDecisions)
 	writeSecurityAuditExporterMetrics(&builder, snapshot.SecurityAuditExporter)
 	writeCompletionValidationCounterMetrics(&builder, snapshot.CompletionValidations)
+	writeFilesystemRuntimeMetrics(&builder, snapshot.FilesystemTools)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeFilesystemRuntimeMetrics(builder *strings.Builder, metrics []FilesystemToolRuntimeMetric) {
+	if len(metrics) == 0 {
+		return
+	}
+	writeMetricHelp(builder, "tma_filesystem_runtime_calls_total", "Process-local filesystem tool calls by API and outcome.")
+	writeMetricType(builder, "tma_filesystem_runtime_calls_total", "counter")
+	writeMetricHelp(builder, "tma_filesystem_runtime_duration_milliseconds", "Process-local filesystem tool latency histogram.")
+	writeMetricType(builder, "tma_filesystem_runtime_duration_milliseconds", "histogram")
+	for _, name := range []string{"scanned_files", "scanned_bytes", "results", "returned_bytes", "truncated", "binary_files", "revision_conflicts"} {
+		metricName := "tma_filesystem_runtime_" + name + "_total"
+		writeMetricHelp(builder, metricName, "Process-local cumulative filesystem tool "+strings.ReplaceAll(name, "_", " ")+".")
+		writeMetricType(builder, metricName, "counter")
+	}
+	writeMetricHelp(builder, "tma_filesystem_runtime_errors_total", "Process-local filesystem tool failures by bounded error code.")
+	writeMetricType(builder, "tma_filesystem_runtime_errors_total", "counter")
+	for _, metric := range metrics {
+		labels := map[string]string{"api_name": metric.API}
+		outcomes := make([]string, 0, len(metric.CallsByOutcome))
+		var calls int64
+		for outcome, count := range metric.CallsByOutcome {
+			outcomes = append(outcomes, outcome)
+			calls += count
+		}
+		sort.Strings(outcomes)
+		for _, outcome := range outcomes {
+			writeMetric(builder, "tma_filesystem_runtime_calls_total", withLabel(labels, "outcome", outcome), metric.CallsByOutcome[outcome])
+		}
+		for index, upperBound := range filesystemToolDurationBuckets {
+			writeMetric(builder, "tma_filesystem_runtime_duration_milliseconds_bucket", withLabel(labels, "le", fmt.Sprintf("%d", upperBound)), metricBucketCount(metric.DurationBucketCounts, index))
+		}
+		writeMetric(builder, "tma_filesystem_runtime_duration_milliseconds_bucket", withLabel(labels, "le", "+Inf"), metricBucketCount(metric.DurationBucketCounts, len(filesystemToolDurationBuckets)))
+		writeMetric(builder, "tma_filesystem_runtime_duration_milliseconds_sum", labels, metric.DurationSumMillis)
+		writeMetric(builder, "tma_filesystem_runtime_duration_milliseconds_count", labels, calls)
+		writeMetric(builder, "tma_filesystem_runtime_scanned_files_total", labels, metric.ScannedFiles)
+		writeMetric(builder, "tma_filesystem_runtime_scanned_bytes_total", labels, metric.ScannedBytes)
+		writeMetric(builder, "tma_filesystem_runtime_results_total", labels, metric.Results)
+		writeMetric(builder, "tma_filesystem_runtime_returned_bytes_total", labels, metric.ReturnedBytes)
+		writeMetric(builder, "tma_filesystem_runtime_truncated_total", labels, metric.Truncated)
+		writeMetric(builder, "tma_filesystem_runtime_binary_files_total", labels, metric.BinaryFiles)
+		writeMetric(builder, "tma_filesystem_runtime_revision_conflicts_total", labels, metric.RevisionConflicts)
+		errorCodes := make([]string, 0, len(metric.Errors))
+		for code := range metric.Errors {
+			errorCodes = append(errorCodes, code)
+		}
+		sort.Strings(errorCodes)
+		for _, code := range errorCodes {
+			writeMetric(builder, "tma_filesystem_runtime_errors_total", withLabel(labels, "error_code", code), metric.Errors[code])
+		}
+	}
+}
+
+func metricBucketCount(counts []int64, index int) int64 {
+	if index < 0 || index >= len(counts) {
+		return 0
+	}
+	return counts[index]
 }
 
 func writeCompletionValidationCounterMetrics(builder *strings.Builder, metrics []CompletionValidationMetric) {
@@ -619,6 +679,7 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 	writeMetricHelp(builder, "tma_file_generation_duration_milliseconds", "Elapsed segmented file generation time observed in the selected turn.")
 	writeMetricType(builder, "tma_file_generation_duration_milliseconds", "gauge")
 	writeMetric(builder, "tma_file_generation_duration_milliseconds", fileGenerationLabels, fileGeneration.DurationMillis)
+	writeFilesystemToolMetrics(builder, sessionLabels, trace.TurnID, events)
 
 	writeMetricHelp(builder, "tma_tool_approvals_total", "Approval decisions by tool for the selected session.")
 	writeMetricType(builder, "tma_tool_approvals_total", "gauge")
@@ -645,6 +706,172 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 			"api_name":        parts[2],
 			"decision":        parts[3],
 		}), decisionCounts[key])
+	}
+}
+
+var filesystemToolDurationBuckets = []int64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 5000}
+
+type filesystemToolMetric struct {
+	Calls             int64
+	DurationSumMillis int64
+	DurationsMillis   []int64
+	ScannedFiles      int64
+	ScannedBytes      int64
+	Results           int64
+	ReturnedBytes     int64
+	Truncated         int64
+	BinaryFiles       int64
+	RevisionConflicts int64
+	Errors            map[string]int64
+}
+
+func writeFilesystemToolMetrics(builder *strings.Builder, sessionLabels map[string]string, turnID string, events []managedagents.Event) {
+	metrics := projectFilesystemToolMetrics(events, turnID)
+	if len(metrics) == 0 {
+		return
+	}
+	writeMetricHelp(builder, "tma_filesystem_tool_duration_milliseconds", "Filesystem tool latency histogram for the selected session turn.")
+	writeMetricType(builder, "tma_filesystem_tool_duration_milliseconds", "histogram")
+	writeMetricHelp(builder, "tma_filesystem_tool_scanned_files", "Files scanned by filesystem tools in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_scanned_files", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_scanned_bytes", "Bytes scanned by filesystem tools in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_scanned_bytes", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_results", "Bounded paths or content matches returned by filesystem tools in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_results", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_returned_bytes", "Text bytes returned by read_file in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_returned_bytes", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_truncated_total", "Truncated filesystem tool results in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_truncated_total", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_binary_files_total", "Binary files detected or skipped by filesystem tools in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_binary_files_total", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_revision_conflicts_total", "Stale file revision failures in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_revision_conflicts_total", "gauge")
+	writeMetricHelp(builder, "tma_filesystem_tool_errors_total", "Filesystem tool failures by bounded error code in the selected turn.")
+	writeMetricType(builder, "tma_filesystem_tool_errors_total", "gauge")
+
+	apis := make([]string, 0, len(metrics))
+	for api := range metrics {
+		apis = append(apis, api)
+	}
+	sort.Strings(apis)
+	for _, api := range apis {
+		metric := metrics[api]
+		labels := mergeLabels(sessionLabels, map[string]string{"turn_id": turnID, "api_name": api})
+		for _, upperBound := range filesystemToolDurationBuckets {
+			count := int64(0)
+			for _, duration := range metric.DurationsMillis {
+				if duration <= upperBound {
+					count++
+				}
+			}
+			writeMetric(builder, "tma_filesystem_tool_duration_milliseconds_bucket", withLabel(labels, "le", fmt.Sprintf("%d", upperBound)), count)
+		}
+		writeMetric(builder, "tma_filesystem_tool_duration_milliseconds_bucket", withLabel(labels, "le", "+Inf"), metric.Calls)
+		writeMetric(builder, "tma_filesystem_tool_duration_milliseconds_sum", labels, metric.DurationSumMillis)
+		writeMetric(builder, "tma_filesystem_tool_duration_milliseconds_count", labels, metric.Calls)
+		writeMetric(builder, "tma_filesystem_tool_scanned_files", labels, metric.ScannedFiles)
+		writeMetric(builder, "tma_filesystem_tool_scanned_bytes", labels, metric.ScannedBytes)
+		writeMetric(builder, "tma_filesystem_tool_results", labels, metric.Results)
+		writeMetric(builder, "tma_filesystem_tool_returned_bytes", labels, metric.ReturnedBytes)
+		writeMetric(builder, "tma_filesystem_tool_truncated_total", labels, metric.Truncated)
+		writeMetric(builder, "tma_filesystem_tool_binary_files_total", labels, metric.BinaryFiles)
+		writeMetric(builder, "tma_filesystem_tool_revision_conflicts_total", labels, metric.RevisionConflicts)
+		errorCodes := make([]string, 0, len(metric.Errors))
+		for code := range metric.Errors {
+			errorCodes = append(errorCodes, code)
+		}
+		sort.Strings(errorCodes)
+		for _, code := range errorCodes {
+			writeMetric(builder, "tma_filesystem_tool_errors_total", withLabel(labels, "error_code", code), metric.Errors[code])
+		}
+	}
+}
+
+func projectFilesystemToolMetrics(events []managedagents.Event, turnID string) map[string]*filesystemToolMetric {
+	result := map[string]*filesystemToolMetric{}
+	for _, event := range events {
+		eventTurnID := event.TurnID
+		if eventTurnID == "" {
+			eventTurnID = payloadString(event.Payload, "turn_id")
+		}
+		if event.Type != managedagents.EventRuntimeToolResult || eventTurnID != "" && turnID != "" && eventTurnID != turnID {
+			continue
+		}
+		data := payloadData(event.Payload)
+		api, _ := data["api_name"].(string)
+		identifier, _ := data["identifier"].(string)
+		if defaultTraceLabel(identifier, "default") != "default" || !isFilesystemToolAPI(api) {
+			continue
+		}
+		metric := result[api]
+		if metric == nil {
+			metric = &filesystemToolMetric{Errors: map[string]int64{}}
+			result[api] = metric
+		}
+		metric.Calls++
+		duration := mapInt64(data, "duration_ms")
+		metric.DurationSumMillis += duration
+		metric.DurationsMillis = append(metric.DurationsMillis, duration)
+		state, _ := data["state"].(map[string]any)
+		metric.ScannedFiles += mapInt64(state, "scanned_files")
+		metric.ScannedBytes += mapInt64(state, "scanned_bytes")
+		metric.ReturnedBytes += mapInt64(state, "returned_bytes")
+		if files, ok := state["files"].([]any); ok {
+			metric.Results += int64(len(files))
+		}
+		if matches, ok := state["matches"].([]any); ok {
+			metric.Results += int64(len(matches))
+		}
+		if mapBool(state, "truncated") {
+			metric.Truncated++
+		}
+		metric.BinaryFiles += mapInt64(state, "skipped_binary_files")
+		if mapBool(state, "binary") {
+			metric.BinaryFiles++
+		}
+		code := filesystemToolErrorCode(data, state)
+		if code != "" {
+			metric.Errors[code]++
+			if code == "stale_file_revision" {
+				metric.RevisionConflicts++
+			}
+		}
+	}
+	return result
+}
+
+func isFilesystemToolAPI(api string) bool {
+	switch api {
+	case "read_file", "find_files", "search_files", "search_file", "write_file", "edit_file":
+		return true
+	default:
+		return false
+	}
+}
+
+func filesystemToolErrorCode(data map[string]any, state map[string]any) string {
+	if executionError, ok := data["error"].(map[string]any); ok {
+		if code, _ := executionError["type"].(string); code != "" {
+			return boundedFilesystemErrorCode(code)
+		}
+	}
+	if stateError, ok := state["error"].(map[string]any); ok {
+		if code, _ := stateError["code"].(string); code != "" {
+			return boundedFilesystemErrorCode(code)
+		}
+	}
+	return ""
+}
+
+func boundedFilesystemErrorCode(code string) string {
+	switch code {
+	case "file_already_exists", "file_not_found", "stale_file_revision", "match_not_found", "match_not_unique",
+		"unsupported_binary_edit", "unsupported_file_type", "invalid_glob_pattern", "invalid_search_query",
+		"invalid_search_regex", "search_limit_exceeded", "read_limit_exceeded", "invalid_read_range",
+		"content_checksum_mismatch", "tool_execution_failed", "invalid_tool_arguments":
+		return code
+	default:
+		return "other"
 	}
 }
 

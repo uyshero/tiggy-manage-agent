@@ -84,6 +84,22 @@ func (p WorkerBackedProvider) SearchFile(ctx context.Context, request capability
 	return result, nil
 }
 
+func (p WorkerBackedProvider) FindFiles(ctx context.Context, request capability.FindFilesRequest) (capability.FindFilesResult, error) {
+	var result capability.FindFilesResult
+	if err := p.executeDefaultTool(ctx, "find_files", request, &result); err != nil {
+		return capability.FindFilesResult{}, err
+	}
+	return result, nil
+}
+
+func (p WorkerBackedProvider) SearchFiles(ctx context.Context, request capability.SearchFilesRequest) (capability.SearchFilesResult, error) {
+	var result capability.SearchFilesResult
+	if err := p.executeDefaultTool(ctx, "search_files", request, &result); err != nil {
+		return capability.SearchFilesResult{}, err
+	}
+	return result, nil
+}
+
 func (p WorkerBackedProvider) WriteFile(ctx context.Context, request capability.WriteFileRequest) (capability.FileResult, error) {
 	var result capability.FileResult
 	if err := p.executeDefaultTool(ctx, "write_file", request, &result); err != nil {
@@ -168,7 +184,7 @@ func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string,
 	if p.Store == nil {
 		return fmt.Errorf("worker-backed provider store is required")
 	}
-	inputJSON, err := json.Marshal(input)
+	inputJSON, err := marshalWorkerCapabilityInput(input)
 	if err != nil {
 		return fmt.Errorf("encode worker tool input: %w", err)
 	}
@@ -197,6 +213,21 @@ func (p WorkerBackedProvider) executeTool(ctx context.Context, namespace string,
 		}
 	}
 	return nil
+}
+
+func marshalWorkerCapabilityInput(input any) (json.RawMessage, error) {
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var arguments map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &arguments); err != nil {
+		return nil, err
+	}
+	// Capability request metadata belongs to the work envelope, not to the
+	// model-visible tool arguments validated against the manifest schema.
+	delete(arguments, "meta")
+	return json.Marshal(arguments)
 }
 
 func workerToolExecutionError(result tools.ExecutionResult) error {

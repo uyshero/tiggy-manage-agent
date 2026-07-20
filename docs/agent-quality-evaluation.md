@@ -1,9 +1,15 @@
 # Agent 完成质量离线评测
 
-`make eval-agent-quality` 运行一套确定性、无网络、无数据库、无真实模型依赖的 Agent 完成质量回归。评测直接执行生产 `DemoRuntime` Tool Loop、工具 JSON Schema 预检、`TaskPlanCompletionGate` 以及 task-group 的 result-schema / strategy / reducer 逻辑，JSON 夹具只回放候选回答、工具调用、可信任务计划和 fan-in 状态快照。
+`make eval-agent-quality` 运行两套确定性、无网络、无数据库、无真实模型依赖的 Agent 质量回归。评测直接执行生产 `DemoRuntime` Tool Loop、工具 JSON Schema 预检、`TaskPlanCompletionGate`、文件工具与 path guard，以及 task-group 的 result-schema / strategy / reducer 逻辑。JSON 夹具只回放候选回答、黄金工具调用轨迹、可信任务计划和 fan-in 状态快照。
 
 ```bash
 make eval-agent-quality
+```
+
+只运行文件工具回归：
+
+```bash
+make eval-filesystem-tools
 ```
 
 报告为 JSON，命令退出码可直接用于 CI：全部阈值满足时为 `0`，质量阈值未满足时为 `1`，夹具或执行错误时为 `2`。
@@ -23,8 +29,13 @@ make eval-agent-quality
 - `task_group_compliance_rate`：fan-in 用例的最终状态、schema rejection、聚合结果和 invalid-result exclusion 均符合预期的比例。
 - `task_group_retry_correction_rate`：首轮结构化结果不合规、重试后产生有效结果并正确聚合的比例。
 - `invalid_result_aggregation_rate`：被 result schema 拒绝的子任务结果仍进入 aggregate 的比例。
+- `filesystem_compliance_rate`：文件工具选择、执行结果、错误恢复和二进制路由全部符合黄金轨迹的用例比例。
+- `filesystem_selection_rate`：黄金轨迹中逐个工具位置选择正确的比例。
+- `filesystem_recovery_rate`：stale revision 等可恢复错误发生后按预期重新读取或收窄操作的比例。
 
-当前基线要求全部用例通过，false success、非法工具执行和无效结果聚合均为零；完成重试修正率、证据合规率、失败关闭率、工具 schema 合规率、工具 schema 修正率、task-group 合规率与 task-group 重试修正率均为 100%。阈值与用例共同保存在 `testdata/agent-quality/completion-gate.json`，修改生产门禁、工具参数或 fan-in 行为时必须同步提交有明确意图的夹具变化。
+当前基线要求全部用例通过，false success、非法工具执行和无效结果聚合均为零；完成重试修正率、证据合规率、失败关闭率、工具 schema、task-group 与 filesystem 指标均为 100%。阈值与用例分别保存在 `testdata/agent-quality/completion-gate.json` 和 `testdata/agent-quality/filesystem-tools.json`，修改生产门禁、工具参数、文件路由或 fan-in 行为时必须同步提交有明确意图的夹具变化。
+
+文件工具套件是确定性的生产链路回放，用于防止契约和 Tool Loop 行为回归；它不替代灰度环境中的真实模型选择率评测。
 
 ## 工具参数边界
 

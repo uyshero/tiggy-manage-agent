@@ -1,0 +1,74 @@
+{
+  "version": "tma.agent_quality_eval.v1",
+  "thresholds": {
+    "case_pass_rate_min": 1,
+    "false_success_rate_max": 0,
+    "filesystem_tool_compliance_rate_min": 1,
+    "filesystem_tool_selection_rate_min": 1,
+    "filesystem_tool_recovery_rate_min": 1
+  },
+  "cases": [
+    {
+      "id": "find_paths_without_shell",
+      "category": "filesystem_selection_find",
+      "flow": "filesystem_tools",
+      "max_retries": 1,
+      "filesystem": {"prompt": "Find all Go source files without reading their contents.", "files": {"src/main.go": "package main\n", "README.md": "docs\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default.find_files"]},
+      "candidates": [
+        {"tool_call": {"id": "call_find", "name": "default.find_files", "arguments": {"pattern": "**/*.go"}}},
+        {"text": "Found the Go source paths."}
+      ]
+    },
+    {
+      "id": "search_content_without_shell",
+      "category": "filesystem_selection_search",
+      "flow": "filesystem_tools",
+      "max_retries": 1,
+      "filesystem": {"prompt": "Search Go files for DefaultRegistry and return matching locations.", "files": {"internal/a.go": "func DefaultRegistry() {}\n", "internal/b.go": "package b\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default.search_files"]},
+      "candidates": [
+        {"tool_call": {"id": "call_search", "name": "default.search_files", "arguments": {"query": "DefaultRegistry", "paths": ["internal/**/*.go"]}}},
+        {"text": "Found the matching source location."}
+      ]
+    },
+    {
+      "id": "read_before_edit",
+      "category": "filesystem_selection_edit",
+      "flow": "filesystem_tools",
+      "max_retries": 1,
+      "filesystem": {"prompt": "Change old-value to new-value in notes.txt after inspecting the file.", "files": {"notes.txt": "key=old-value\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 2, "tool_sequence": ["default.read_file", "default.edit_file"]},
+      "candidates": [
+        {"tool_call": {"id": "call_read", "name": "default.read_file", "arguments": {"path": "notes.txt"}}},
+        {"tool_call": {"id": "call_edit", "name": "default.edit_file", "arguments": {"path": "notes.txt", "old_string": "old-value", "new_string": "new-value"}}},
+        {"text": "Updated the inspected text file."}
+      ]
+    },
+    {
+      "id": "binary_document_routes_without_body",
+      "category": "filesystem_selection_binary",
+      "flow": "filesystem_tools",
+      "max_retries": 1,
+      "filesystem": {"prompt": "Inspect manual.pdf and choose the appropriate next capability.", "files": {"manual.pdf": "%PDF-1.7\nfixture body that must not enter model context\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "binary_routes": 1, "tool_sequence": ["default.read_file"]},
+      "candidates": [
+        {"tool_call": {"id": "call_pdf", "name": "default.read_file", "arguments": {"path": "manual.pdf"}}},
+        {"text": "The PDF should be routed to the document skill."}
+      ]
+    },
+    {
+      "id": "stale_revision_restarts_with_read",
+      "category": "filesystem_recovery_revision",
+      "flow": "filesystem_tools",
+      "max_retries": 1,
+      "filesystem": {"prompt": "Update config.txt, but recover safely if the revision is stale.", "files": {"config.txt": "mode=old\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 2, "tool_errors": ["stale_file_revision"], "tool_sequence": ["default.edit_file", "default.read_file"]},
+      "candidates": [
+        {"tool_call": {"id": "call_stale_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "expected_revision": "stat-v1:stale"}}},
+        {"tool_call": {"id": "call_restart_read", "name": "default.read_file", "arguments": {"path": "config.txt"}}},
+        {"text": "The stale write was not applied; the file was read again before retrying."}
+      ]
+    }
+  ]
+}

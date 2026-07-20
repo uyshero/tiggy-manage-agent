@@ -160,10 +160,12 @@ func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFile
 		return FileResult{
 			Path: request.Path, Content: content, SizeBytes: info.Size(), ReturnedBytes: len(content),
 			NextOffsetBytes: info.Size(), EOF: true, FileRevision: revision, Mode: "document",
+			Kind: "document", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			Encoding: "utf-8", SuggestedCapability: "document_skill",
 		}, nil
 	}
 
-	binary, err := openedFileIsBinary(ctx, file, info.Size())
+	binary, err := openedFileRequiresBinaryRouting(ctx, file, request.Path, info.Size())
 	if err != nil {
 		return FileResult{}, err
 	}
@@ -171,7 +173,9 @@ func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFile
 		if err := ensureFileRevision(file, request.Path, revision); err != nil {
 			return FileResult{}, err
 		}
-		return binaryFileResult(request.Path, info.Size(), revision), nil
+		result := binaryFileResult(request.Path, info.Size(), revision)
+		applyFileClassification(&result, classifyOpenedFile(file, request.Path, info.Size(), true))
+		return result, nil
 	}
 
 	var result FileResult
@@ -187,6 +191,7 @@ func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFile
 	if err := ensureFileRevision(file, request.Path, revision); err != nil {
 		return FileResult{}, err
 	}
+	applyFileClassification(&result, classifyOpenedFile(file, request.Path, info.Size(), false))
 	return result, nil
 }
 
@@ -541,10 +546,12 @@ func pageEndLine(startLine int, content []byte) int {
 }
 
 func binaryFileResult(path string, size int64, revision string) FileResult {
-	return FileResult{
+	result := FileResult{
 		Path: path, SizeBytes: size, NextOffsetBytes: size, EOF: true,
 		FileRevision: revision, Mode: "binary", Binary: true,
 	}
+	applyFileClassification(&result, classifyFile(path, nil, true))
+	return result
 }
 
 func ensureFileRevision(file *os.File, path string, expected string) error {

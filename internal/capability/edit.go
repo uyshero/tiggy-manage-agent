@@ -1,9 +1,12 @@
 package capability
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,14 +17,16 @@ var segmentedEditHashes sync.Map
 
 // EditFileRequest 描述一次精确字符串替换编辑。
 type EditFileRequest struct {
-	Meta       RequestMeta `json:"meta"`
-	Path       string      `json:"path,omitempty"`
-	FilePath   string      `json:"file_path,omitempty"`
-	OldString  string      `json:"old_string"`
-	NewString  string      `json:"new_string"`
-	ReplaceAll bool        `json:"replace_all,omitempty"`
-	WorkDir    string      `json:"work_dir,omitempty"`
-	Idempotent bool        `json:"idempotent,omitempty"`
+	Meta               RequestMeta `json:"meta"`
+	Path               string      `json:"path,omitempty"`
+	FilePath           string      `json:"file_path,omitempty"`
+	OldString          string      `json:"old_string"`
+	NewString          string      `json:"new_string"`
+	ReplaceAll         bool        `json:"replace_all,omitempty"`
+	WorkDir            string      `json:"work_dir,omitempty"`
+	Idempotent         bool        `json:"idempotent,omitempty"`
+	ExpectedRevision   string      `json:"expected_revision,omitempty"`
+	ExpectedMatchCount *int        `json:"expected_match_count,omitempty"`
 }
 
 // EditFileResult 对齐 local-file-shell editLocalFile 的返回结构。
@@ -33,7 +38,10 @@ type EditFileResult struct {
 	Replacements   int    `json:"replacements"`
 	AlreadyApplied bool   `json:"already_applied,omitempty"`
 	Success        bool   `json:"success"`
+	Code           string `json:"code,omitempty"`
 	Error          string `json:"error,omitempty"`
+	FileRevision   string `json:"file_revision,omitempty"`
+	ContentSHA256  string `json:"content_sha256,omitempty"`
 }
 
 func (r EditFileRequest) resolvedPath() string {
@@ -56,15 +64,58 @@ func resolveAgainstWorkDir(path, workDir string) string {
 
 // editLocalFile 读取文件、做字面量替换并写回，逻辑对齐 packages/local-file-shell/src/file/edit.ts。
 func editLocalFile(request EditFileRequest) EditFileResult {
+	return editLocalFileContext(context.Background(), request)
+}
+
+func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFileResult {
 	filePath := request.resolvedPath()
 	if filePath == "" {
-		return EditFileResult{Replacements: 0, Success: false, Error: "file path is required"}
+		return editFailure(filePath, "invalid_edit_path", "file path is required")
+	}
+	if request.OldString == "" {
+		return editFailure(filePath, "invalid_edit_match", "old_string is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return editFailure(filePath, "edit_canceled", err.Error())
 	}
 
-	contentBytes, err := os.ReadFile(filePath)
+	file, err := os.Open(filePath)
 	if err != nil {
-		return EditFileResult{Path: filePath, Replacements: 0, Success: false, Error: err.Error()}
+		return editFailure(filePath, "file_not_found", err.Error())
 	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return editFailure(filePath, "edit_read_failed", err.Error())
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return editFailure(filePath, "unsupported_file_type", "edit_file only supports regular files")
+	}
+	revision := fileRevision(info)
+	if request.ExpectedRevision != "" && request.ExpectedRevision != revision {
+		_ = file.Close()
+		return editFailure(filePath, "stale_file_revision", "file changed since it was read")
+	}
+	binary, err := openedFileRequiresBinaryRouting(ctx, file, filePath, info.Size())
+	if err != nil {
+		_ = file.Close()
+		return editFailure(filePath, "edit_read_failed", err.Error())
+	}
+	if binary {
+		_ = file.Close()
+		return editFailure(filePath, "unsupported_binary_edit", "edit_file only supports UTF-8 text; use a format-specific tool to create a new binary artifact")
+	}
+	contentBytes, err := io.ReadAll(file)
+	if err != nil {
+		_ = file.Close()
+		return editFailure(filePath, "edit_read_failed", err.Error())
+	}
+	if err := ensureFileRevision(file, filePath, revision); err != nil {
+		_ = file.Close()
+		return editFailure(filePath, "stale_file_revision", err.Error())
+	}
+	_ = file.Close()
 	content := string(contentBytes)
 
 	search := request.OldString
@@ -78,7 +129,8 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 	}
 
 	segmentHash := editSegmentHash(request.NewString)
-	if !strings.Contains(content, search) {
+	matchCount := strings.Count(content, search)
+	if matchCount == 0 {
 		if request.Idempotent && recordedSegmentEdit(filePath, request.OldString, segmentHash) {
 			return EditFileResult{
 				Path:           filePath,
@@ -87,36 +139,46 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 				Success:        true,
 			}
 		}
-		return EditFileResult{
-			Path:         filePath,
-			Replacements: 0,
-			Success:      false,
-			Error:        "The specified old_string was not found in the file",
-		}
+		return editFailure(filePath, "match_not_found", "The specified old_string was not found in the file")
+	}
+	expectedMatches := 1
+	validateMatchCount := !request.ReplaceAll
+	if request.ExpectedMatchCount != nil {
+		expectedMatches = *request.ExpectedMatchCount
+		validateMatchCount = true
+	}
+	if expectedMatches < 1 {
+		return editFailure(filePath, "invalid_edit_match", "expected_match_count must be at least 1")
+	}
+	if validateMatchCount && matchCount != expectedMatches {
+		return editFailure(filePath, "match_not_unique", fmt.Sprintf("old_string matched %d times; expected %d", matchCount, expectedMatches))
 	}
 
 	var newContent string
 	var replacements int
 
 	if request.ReplaceAll {
-		replacements = strings.Count(content, search)
+		replacements = matchCount
 		newContent = strings.ReplaceAll(content, search, replace)
 	} else {
 		index := strings.Index(content, search)
 		if index == -1 {
-			return EditFileResult{
-				Path:         filePath,
-				Replacements: 0,
-				Success:      false,
-				Error:        "Old string not found",
-			}
+			return editFailure(filePath, "match_not_found", "Old string not found")
 		}
 		newContent = content[:index] + replace + content[index+len(search):]
 		replacements = 1
 	}
 
-	if err := os.WriteFile(filePath, []byte(newContent), 0o644); err != nil {
-		return EditFileResult{Path: filePath, Replacements: 0, Success: false, Error: err.Error()}
+	written, err := writeLocalFileAtomic(ctx, WriteFileRequest{
+		Meta: request.Meta, Path: filePath, Content: []byte(newContent), Mode: WriteModeOverwrite,
+		ExpectedRevision: revision,
+	})
+	if err != nil {
+		var fileErr *FileReadError
+		if errors.As(err, &fileErr) {
+			return editFailure(filePath, fileErr.Code, fileErr.Message)
+		}
+		return editFailure(filePath, "edit_write_failed", err.Error())
 	}
 	if request.Idempotent {
 		recordSegmentEdit(filePath, request.OldString, segmentHash)
@@ -127,13 +189,19 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 	linesAdded, linesDeleted := countPatchLineChanges(patch)
 
 	return EditFileResult{
-		Path:         filePath,
-		DiffText:     diffText,
-		LinesAdded:   linesAdded,
-		LinesDeleted: linesDeleted,
-		Replacements: replacements,
-		Success:      true,
+		Path:          filePath,
+		DiffText:      diffText,
+		LinesAdded:    linesAdded,
+		LinesDeleted:  linesDeleted,
+		Replacements:  replacements,
+		Success:       true,
+		FileRevision:  written.FileRevision,
+		ContentSHA256: written.ContentSHA256,
 	}
+}
+
+func editFailure(path, code, message string) EditFileResult {
+	return EditFileResult{Path: path, Replacements: 0, Success: false, Code: code, Error: message}
 }
 
 func editSegmentHash(value string) string {

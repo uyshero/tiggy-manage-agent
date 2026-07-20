@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -227,32 +228,52 @@ type ReadFileRequest struct {
 }
 
 type WriteFileRequest struct {
-	Meta    RequestMeta `json:"meta"`
-	Path    string      `json:"path"`
-	Content []byte      `json:"content"`
+	Meta             RequestMeta `json:"meta"`
+	Path             string      `json:"path"`
+	Content          []byte      `json:"content"`
+	Mode             string      `json:"mode,omitempty"`
+	ExpectedAbsent   bool        `json:"expected_absent,omitempty"`
+	ExpectedRevision string      `json:"expected_revision,omitempty"`
+	ContentSHA256    string      `json:"content_sha256,omitempty"`
+	CreateParents    *bool       `json:"create_parents,omitempty"`
 }
 
 func (r WriteFileRequest) MarshalJSON() ([]byte, error) {
 	type payload struct {
-		Meta          RequestMeta `json:"meta"`
-		Path          string      `json:"path"`
-		Content       string      `json:"content,omitempty"`
-		ContentBase64 string      `json:"content_base64,omitempty"`
+		Meta             RequestMeta `json:"meta"`
+		Path             string      `json:"path"`
+		Content          *string     `json:"content,omitempty"`
+		ContentBase64    string      `json:"content_base64,omitempty"`
+		Mode             string      `json:"mode,omitempty"`
+		ExpectedAbsent   bool        `json:"expected_absent,omitempty"`
+		ExpectedRevision string      `json:"expected_revision,omitempty"`
+		ContentSHA256    string      `json:"content_sha256,omitempty"`
+		CreateParents    *bool       `json:"create_parents,omitempty"`
 	}
 	value := payload{
-		Meta: r.Meta,
-		Path: r.Path,
+		Meta: r.Meta, Path: r.Path, Mode: r.Mode, ExpectedAbsent: r.ExpectedAbsent,
+		ExpectedRevision: r.ExpectedRevision, ContentSHA256: r.ContentSHA256, CreateParents: r.CreateParents,
 	}
-	assignBytePayload(&value.Content, &value.ContentBase64, r.Content)
+	if utf8.Valid(r.Content) {
+		content := string(r.Content)
+		value.Content = &content
+	} else {
+		value.ContentBase64 = base64.StdEncoding.EncodeToString(r.Content)
+	}
 	return json.Marshal(value)
 }
 
 func (r *WriteFileRequest) UnmarshalJSON(data []byte) error {
 	type payload struct {
-		Meta          RequestMeta `json:"meta"`
-		Path          string      `json:"path"`
-		Content       *string     `json:"content"`
-		ContentBase64 string      `json:"content_base64,omitempty"`
+		Meta             RequestMeta `json:"meta"`
+		Path             string      `json:"path"`
+		Content          *string     `json:"content"`
+		ContentBase64    string      `json:"content_base64,omitempty"`
+		Mode             string      `json:"mode,omitempty"`
+		ExpectedAbsent   bool        `json:"expected_absent,omitempty"`
+		ExpectedRevision string      `json:"expected_revision,omitempty"`
+		ContentSHA256    string      `json:"content_sha256,omitempty"`
+		CreateParents    *bool       `json:"create_parents,omitempty"`
 	}
 	var decoded payload
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -265,6 +286,11 @@ func (r *WriteFileRequest) UnmarshalJSON(data []byte) error {
 	r.Meta = decoded.Meta
 	r.Path = decoded.Path
 	r.Content = content
+	r.Mode = decoded.Mode
+	r.ExpectedAbsent = decoded.ExpectedAbsent
+	r.ExpectedRevision = decoded.ExpectedRevision
+	r.ContentSHA256 = decoded.ContentSHA256
+	r.CreateParents = decoded.CreateParents
 	return nil
 }
 
@@ -293,6 +319,11 @@ type FileResult struct {
 	Mode                 string `json:"mode,omitempty"`
 	Binary               bool   `json:"binary,omitempty"`
 	LineTruncated        bool   `json:"line_truncated,omitempty"`
+	Kind                 string `json:"kind,omitempty"`
+	ContentType          string `json:"content_type,omitempty"`
+	Encoding             string `json:"encoding,omitempty"`
+	SuggestedCapability  string `json:"suggested_capability,omitempty"`
+	ContentSHA256        string `json:"content_sha256,omitempty"`
 }
 
 type SearchFileRequest struct {
@@ -325,6 +356,85 @@ type SearchFileResult struct {
 // implement it with the same read-only semantics.
 type FileSearchProvider interface {
 	SearchFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error)
+}
+
+type FindFilesRequest struct {
+	Meta          RequestMeta `json:"meta"`
+	Root          string      `json:"root,omitempty"`
+	Pattern       string      `json:"pattern"`
+	Exclude       []string    `json:"exclude,omitempty"`
+	IncludeHidden bool        `json:"include_hidden,omitempty"`
+	MaxResults    int         `json:"max_results,omitempty"`
+	AfterPath     string      `json:"after_path,omitempty"`
+}
+
+type FoundFile struct {
+	Path         string `json:"path"`
+	SizeBytes    int64  `json:"size_bytes"`
+	FileRevision string `json:"file_revision"`
+	Kind         string `json:"kind,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+}
+
+type FindFilesResult struct {
+	Root      string      `json:"root"`
+	Pattern   string      `json:"pattern"`
+	Files     []FoundFile `json:"files"`
+	Scanned   int         `json:"scanned_files"`
+	Truncated bool        `json:"truncated"`
+	NextPath  string      `json:"next_path,omitempty"`
+}
+
+type FileDiscoveryProvider interface {
+	FindFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error)
+}
+
+type SearchFilesRequest struct {
+	Meta          RequestMeta `json:"meta"`
+	Root          string      `json:"root,omitempty"`
+	Query         string      `json:"query"`
+	Paths         []string    `json:"paths"`
+	Exclude       []string    `json:"exclude,omitempty"`
+	Mode          string      `json:"mode,omitempty"`
+	CaseSensitive *bool       `json:"case_sensitive,omitempty"`
+	IncludeHidden bool        `json:"include_hidden,omitempty"`
+	MaxFiles      int         `json:"max_files,omitempty"`
+	MaxResults    int         `json:"max_results,omitempty"`
+}
+
+type SearchFilesMatch struct {
+	Path          string `json:"path"`
+	LineNumber    int    `json:"line_number"`
+	OffsetBytes   int64  `json:"offset_bytes"`
+	Line          string `json:"line"`
+	LineTruncated bool   `json:"line_truncated,omitempty"`
+	FileRevision  string `json:"file_revision"`
+}
+
+type SearchFilesResult struct {
+	Query              string             `json:"query"`
+	Mode               string             `json:"mode"`
+	Matches            []SearchFilesMatch `json:"matches"`
+	ScannedFiles       int                `json:"scanned_files"`
+	ScannedBytes       int64              `json:"scanned_bytes"`
+	SkippedBinaryFiles int                `json:"skipped_binary_files"`
+	Truncated          bool               `json:"truncated"`
+}
+
+type FileTreeSearchProvider interface {
+	SearchFiles(ctx context.Context, request SearchFilesRequest) (SearchFilesResult, error)
+}
+
+func (r SearchFilesRequest) CaseSensitiveValue() bool {
+	return r.CaseSensitive == nil || *r.CaseSensitive
+}
+
+func NormalizeSearchMode(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "literal"
+	}
+	return value
 }
 
 func assignBytePayload(text *string, encoded *string, value []byte) {

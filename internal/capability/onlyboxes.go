@@ -33,7 +33,8 @@ const DefaultOnlyboxesMemoryLimit = "512m"
 
 const runtimeSkillsSandboxRoot = "/tma/skills"
 
-var runtimeSkillIdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+var runtimeSkillIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`)
+var runtimeSkillIdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 var runtimeSkillHexPattern = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 type OnlyboxesProvider struct {
@@ -250,7 +251,7 @@ func (p OnlyboxesProvider) LookupMaterializedRuntimeSkill(_ context.Context, ski
 	if skillID == "" {
 		skillID = identifier
 	}
-	if !runtimeSkillIdentifierPattern.MatchString(skillID) || !runtimeSkillIdentifierPattern.MatchString(identifier) || version <= 0 || !runtimeSkillHexPattern.MatchString(checksum) {
+	if !runtimeSkillIDPattern.MatchString(skillID) || !runtimeSkillIdentifierPattern.MatchString(identifier) || version <= 0 || !runtimeSkillHexPattern.MatchString(checksum) {
 		return MaterializedRuntimeSkill{}, false, nil
 	}
 	root, err := p.runtimeSkillCacheDir()
@@ -284,7 +285,7 @@ func materializeRuntimeSkillPackage(ctx context.Context, hostSkillsRoot string, 
 	if skillID == "" {
 		skillID = identifier
 	}
-	if !runtimeSkillIdentifierPattern.MatchString(identifier) || !runtimeSkillIdentifierPattern.MatchString(skillID) || pkg.Version <= 0 {
+	if !runtimeSkillIdentifierPattern.MatchString(identifier) || !runtimeSkillIDPattern.MatchString(skillID) || pkg.Version <= 0 {
 		return MaterializedRuntimeSkill{}, fmt.Errorf("invalid runtime skill package %q version %d", identifier, pkg.Version)
 	}
 	versionName := strconv.Itoa(pkg.Version)
@@ -649,6 +650,55 @@ func (p OnlyboxesProvider) SearchFile(ctx context.Context, request SearchFileReq
 	}
 	if displayPath, displayErr := p.hostPathToSandboxPath(hostPath); displayErr == nil {
 		result.Path = displayPath
+	}
+	return result, nil
+}
+
+func (p OnlyboxesProvider) FindFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error) {
+	displayRoot := request.Root
+	if strings.TrimSpace(displayRoot) == "" {
+		displayRoot = "/workspace"
+	}
+	workspaceDir, err := p.workspaceDir()
+	if err != nil {
+		return FindFilesResult{}, err
+	}
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return FindFilesResult{}, err
+	}
+	hostRoot, err := p.resolveSandboxFilePath(displayRoot, "")
+	if err != nil {
+		return FindFilesResult{}, err
+	}
+	request.Root = hostRoot
+	result, err := (LocalSystemProvider{ReadFileLimits: p.ReadFileLimits}).FindFiles(ctx, request)
+	if err != nil {
+		return FindFilesResult{}, remapFileReadErrorPath(err, displayRoot)
+	}
+	result.Root = displayRoot
+	return result, nil
+}
+
+func (p OnlyboxesProvider) SearchFiles(ctx context.Context, request SearchFilesRequest) (SearchFilesResult, error) {
+	displayRoot := request.Root
+	if strings.TrimSpace(displayRoot) == "" {
+		displayRoot = "/workspace"
+	}
+	workspaceDir, err := p.workspaceDir()
+	if err != nil {
+		return SearchFilesResult{}, err
+	}
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return SearchFilesResult{}, err
+	}
+	hostRoot, err := p.resolveSandboxFilePath(displayRoot, "")
+	if err != nil {
+		return SearchFilesResult{}, err
+	}
+	request.Root = hostRoot
+	result, err := (LocalSystemProvider{ReadFileLimits: p.ReadFileLimits}).SearchFiles(ctx, request)
+	if err != nil {
+		return SearchFilesResult{}, remapFileReadErrorPath(err, displayRoot)
 	}
 	return result, nil
 }

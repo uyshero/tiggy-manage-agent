@@ -27,7 +27,7 @@ func (DefaultRuntime) Manifest() Manifest {
 			Title:       "Default Tools",
 			Description: "Run commands, execute code, and read or write files through the configured capability provider.",
 		},
-		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files can be read with path only. A large file returns one bounded page plus pagination metadata: continue only with next_offset_bytes and the same file_revision, never repeat an unchanged page, and do not blindly traverse hundreds of pages. When a keyword is known, use search_file first and read a focused line or byte window around a match. For very large JSON, CSV, logs, generated data, or exceptionally long lines, prefer format-aware parsers or bounded analysis commands over sequential page walking. When reporting conclusions from a partial read, state the inspected byte or line ranges and never describe a sample as a complete review. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use search_file for __TMA_PLACEHOLDER_ to confirm no markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
+		SystemRole: "Use default.* tools only when a user asks you to inspect or change the execution environment. Prefer read-only operations before writes, and explain risky actions before taking them. Use read_file before edit_file. Small files can be read with path only. A large file returns one bounded page plus pagination metadata: continue only with next_offset_bytes and the same file_revision, never repeat an unchanged page, and do not blindly traverse hundreds of pages. Use find_files to discover paths and search_files when a keyword or regex is known, then read a focused line or byte window around a match. For very large JSON, CSV, logs, generated data, or exceptionally long lines, prefer format-aware parsers or bounded analysis commands over sequential page walking. Binary files are classified but their bytes are never inserted into model context; follow suggested_capability and use vision, a document skill, or execute_code with a format-specific parser. When reporting conclusions from a partial read, state the inspected byte or line ranges and never describe a sample as a complete review. Small files may be created with one write_file call. For a file likely to exceed 6000 output tokens, never put the full file in one tool call: first use write_file to create a small skeleton containing unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder at a time with edit_file. During segmented generation, issue only one write_file or edit_file call per model response and wait for its result before generating the next segment. Keep each content/new_string at or below 6000 tokens when possible and always below 8000. Split only at complete semantic boundaries such as functions, classes, modules, chapters, or complete data structures. Placeholder edits must use exact old_string and replace_all=false; this makes retries idempotent because a consumed placeholder cannot be applied twice. After all segments, use search_files for __TMA_PLACEHOLDER_ to confirm no markers remain and run the appropriate syntax check or test before reporting completion. Never retry an unchanged oversized or malformed payload. Any file intended as a user deliverable must be persisted as a session artifact: use write_file/edit_file, or include every deliverable path in output_paths when using run_command or execute_code. In cloud_sandbox, uploaded inputs are synchronized under /workspace/uploads and final user deliverables such as reports, HTML pages, images, spreadsheets, exports, or completed source files must also be stored under /workspace so the same session can reopen them later. Use /mnt/data only for caches, temporary files, and intermediate generation results. If a final result was built under /mnt/data, copy or move it into /workspace and publish only the /workspace path before completion. Preserve the existing path when editing a user-provided file unless the user asks for a separate final copy. Absolute file paths must stay under /workspace or /mnt/data; do not use /root, /tmp, or other absolute roots.",
 		Executors:  []string{ExecutorServer},
 		API: []API{
 			{
@@ -66,22 +66,45 @@ func (DefaultRuntime) Manifest() Manifest {
 				Implementation: ToolImplementationWorkerCapability,
 			},
 			{
-				Name:           "search_file",
+				Name:           "find_files",
 				Namespace:      NamespaceDefault,
-				APIName:        "search_file",
-				Description:    "Search one UTF-8 text file for a literal string using bounded memory. Returns matching line numbers and raw byte offsets so read_file can fetch a focused window. This is read-only and does not require command execution approval.",
-				Parameters:     json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Text file to search. Cloud sandbox path rules are identical to read_file."},"query":{"type":"string","minLength":1,"maxLength":1024,"description":"Single-line literal UTF-8 string, not a regular expression."},"max_results":{"type":"integer","minimum":1,"maximum":100,"description":"Maximum matching lines to return; defaults to 50."},"file_revision":{"type":"string","description":"Optional revision from read_file. A mismatch returns stale_file_revision."}},"required":["path","query"]}`),
+				APIName:        "find_files",
+				Description:    "Find regular files by path pattern without invoking a shell. Results are metadata-only, lexically ordered, bounded, and do not follow symbolic links.",
+				Parameters:     json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"root":{"type":"string","description":"Directory to search; defaults to the workspace root."},"pattern":{"type":"string","description":"Path pattern relative to root. Supports *, ?, and **."},"exclude":{"type":"array","items":{"type":"string"},"maxItems":32,"description":"Patterns to exclude, such as .git/** or vendor/**."},"include_hidden":{"type":"boolean","description":"Include dot-prefixed path components; defaults to false."},"max_results":{"type":"integer","minimum":1,"maximum":1000,"description":"Maximum results; defaults to 200."},"after_path":{"type":"string","description":"Continue after this lexical path from a previous next_path value."}},"required":["pattern"]}`),
 				Capabilities:   []string{CapabilityFilesystemRead},
 				Risk:           ToolRiskRead,
 				Runtime:        &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
 				Implementation: ToolImplementationWorkerCapability,
 			},
 			{
+				Name:           "search_files",
+				Namespace:      NamespaceDefault,
+				APIName:        "search_files",
+				Description:    "Search bounded sets of UTF-8 text files selected by path patterns. Supports literal and Go RE2 regular-expression modes, returns stable line and byte locations, and safely skips binary files.",
+				Parameters:     json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"root":{"type":"string","description":"Directory used as the path-pattern root; defaults to the workspace root."},"query":{"type":"string","minLength":1,"maxLength":1024,"description":"Single-line text or Go RE2 expression to search for."},"paths":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":32,"description":"Relative path patterns, for example internal/**/*.go or README.md."},"exclude":{"type":"array","items":{"type":"string"},"maxItems":32},"mode":{"type":"string","enum":["literal","regex"],"default":"literal"},"case_sensitive":{"type":"boolean","default":true},"include_hidden":{"type":"boolean","default":false},"max_files":{"type":"integer","minimum":1,"maximum":5000,"default":1000},"max_results":{"type":"integer","minimum":1,"maximum":500,"default":100}},"required":["query","paths"]}`),
+				Capabilities:   []string{CapabilityFilesystemRead},
+				Risk:           ToolRiskRead,
+				Runtime:        &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
+				Implementation: ToolImplementationWorkerCapability,
+			},
+			{
+				Name:            "search_file",
+				Namespace:       NamespaceDefault,
+				APIName:         "search_file",
+				Description:     "Search one UTF-8 text file for a literal string using bounded memory. Returns matching line numbers and raw byte offsets so read_file can fetch a focused window. This is read-only and does not require command execution approval.",
+				Parameters:      json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Text file to search. Cloud sandbox path rules are identical to read_file."},"query":{"type":"string","minLength":1,"maxLength":1024,"description":"Single-line literal UTF-8 string, not a regular expression."},"max_results":{"type":"integer","minimum":1,"maximum":100,"description":"Maximum matching lines to return; defaults to 50."},"file_revision":{"type":"string","description":"Optional revision from read_file. A mismatch returns stale_file_revision."}},"required":["path","query"]}`),
+				Capabilities:    []string{CapabilityFilesystemRead},
+				Risk:            ToolRiskRead,
+				Runtime:         &RuntimePolicy{Allowed: []string{ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem}, Preferred: ToolRuntimeAuto},
+				Implementation:  ToolImplementationWorkerCapability,
+				HiddenFromModel: true,
+			},
+			{
 				Name:              "write_file",
 				Namespace:         NamespaceDefault,
 				APIName:           "write_file",
 				Description:       "Write a small complete file or a skeleton for segmented generation. If the complete file may exceed 6000 tokens, write only a skeleton with unique numbered __TMA_PLACEHOLDER_<scope>_<number>__ markers, then replace them with edit_file. content has a hard limit of 8000 estimated tokens.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to write. In cloud_sandbox, uploaded inputs are under /workspace/uploads and final user deliverables must be written under /workspace; use /mnt/data only for caches, temporary files, and intermediate results. Absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"content":{"type":"string","maxLength":8000,"description":"Complete small-file content, or a compact large-file skeleton with unique numbered placeholders. The schema limits this field to 8000 Unicode characters so large deliverables are planned as segments before generation. Recommended <=6000 estimated tokens; server hard limit 8000 estimated tokens."}},"required":["path","content"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Path to write. In cloud_sandbox, uploaded inputs are under /workspace/uploads and final user deliverables must be written under /workspace; use /mnt/data only for caches, temporary files, and intermediate results. Absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"content":{"type":"string","maxLength":8000,"description":"Complete UTF-8 small-file content, or a compact large-file skeleton with unique numbered placeholders. Binary deliverables must use artifact or format-specific workflows."},"mode":{"type":"string","enum":["create","overwrite","create_or_overwrite"],"default":"create_or_overwrite"},"expected_absent":{"type":"boolean","description":"Fail if the target already exists."},"expected_revision":{"type":"string","description":"Only commit when the current file_revision matches."},"content_sha256":{"type":"string","pattern":"^[0-9a-fA-F]{64}$","description":"Optional SHA-256 integrity check for content."},"create_parents":{"type":"boolean","default":true}},"required":["path","content"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityFilesystemWrite},
 				Risk:              ToolRiskWrite,
@@ -93,7 +116,7 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "edit_file",
 				Description:       "Perform an exact string replacement. For segmented generation, replace exactly one unique numbered skeleton placeholder with one complete semantic segment; consumed placeholders make retries idempotent. Must read the file first before ordinary edits, and must verify no placeholders remain before completion. new_string has a hard limit of 8000 estimated tokens.",
-				Parameters:        json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Path to edit. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"file_path":{"type":"string","description":"Legacy alias for path. In cloud_sandbox, absolute file_path values must begin with /workspace or /mnt/data; otherwise use a relative path."},"old_string":{"type":"string","description":"Exact existing text. For segmented generation use one unique __TMA_PLACEHOLDER_<scope>_<number>__ marker."},"new_string":{"type":"string","maxLength":8000,"description":"One complete semantic segment. The schema limits this field to 8000 Unicode characters so additional segments are planned before generation. Recommended <=6000 estimated tokens; server hard limit 8000 estimated tokens."},"replace_all":{"type":"boolean","description":"Keep false for unique placeholder replacement."},"work_dir":{"type":"string","description":"Base directory for relative paths. In cloud_sandbox, absolute work_dir values must begin with /workspace or /mnt/data."}},"required":["old_string","new_string"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Path to edit. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"file_path":{"type":"string","description":"Legacy alias for path."},"old_string":{"type":"string","minLength":1,"description":"Exact existing UTF-8 text."},"new_string":{"type":"string","maxLength":8000,"description":"Replacement UTF-8 text; hard limit 8000 estimated tokens."},"replace_all":{"type":"boolean","description":"Replace every match. Without this option, old_string must match exactly once by default."},"work_dir":{"type":"string","description":"Base directory for relative paths."},"expected_revision":{"type":"string","description":"Only commit when the file still has this revision."},"expected_match_count":{"type":"integer","minimum":1,"description":"Required exact match count; defaults to 1 for a single replacement."}},"required":["old_string","new_string"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityFilesystemRead, CapabilityFilesystemWrite},
 				Risk:              ToolRiskWrite,
@@ -189,7 +212,7 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 			return ExecutionResult{}, err
 		}
 		if result.Binary || !readable {
-			content = fmt.Sprintf("File %q contains binary data that read_file cannot decode as text. Use execute_code with a format-specific parser.", result.Path)
+			content = fmt.Sprintf("File %q is %s binary data (%s); bytes were not added to model context. Suggested capability: %s.", result.Path, result.Kind, result.ContentType, result.SuggestedCapability)
 		}
 		return ExecutionResult{
 			ID:         call.ID,
@@ -198,6 +221,50 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 			Content:    contentWithPlaceholderWarning(content),
 			State:      state,
 		}, nil
+	case "find_files":
+		var request capability.FindFilesRequest
+		if err := json.Unmarshal(call.Arguments, &request); err != nil {
+			return ExecutionResult{}, fmt.Errorf("decode find_files arguments: %w", err)
+		}
+		finder, ok := provider.(capability.FileDiscoveryProvider)
+		if !ok {
+			return failedResult(call, "find_files_unavailable", "the selected capability provider does not support safe file discovery"), nil
+		}
+		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
+		result, err := finder.FindFiles(ctx, request)
+		if err != nil {
+			if failure, ok := structuredFileReadFailure(call, err); ok {
+				return failure, nil
+			}
+			return ExecutionResult{}, err
+		}
+		state, err := json.Marshal(result)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
+		return ExecutionResult{ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: formatFindFilesResult(result), State: state}, nil
+	case "search_files":
+		var request capability.SearchFilesRequest
+		if err := json.Unmarshal(call.Arguments, &request); err != nil {
+			return ExecutionResult{}, fmt.Errorf("decode search_files arguments: %w", err)
+		}
+		searcher, ok := provider.(capability.FileTreeSearchProvider)
+		if !ok {
+			return failedResult(call, "search_files_unavailable", "the selected capability provider does not support safe cross-file search"), nil
+		}
+		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
+		result, err := searcher.SearchFiles(ctx, request)
+		if err != nil {
+			if failure, ok := structuredFileReadFailure(call, err); ok {
+				return failure, nil
+			}
+			return ExecutionResult{}, err
+		}
+		state, err := json.Marshal(result)
+		if err != nil {
+			return ExecutionResult{}, err
+		}
+		return ExecutionResult{ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: formatSearchFilesResult(result), State: state}, nil
 	case "search_file":
 		var request capability.SearchFileRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
@@ -231,6 +298,9 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.WriteFile(ctx, request)
 		if err != nil {
+			if failure, ok := structuredFileReadFailure(call, err); ok {
+				return failure, nil
+			}
 			return ExecutionResult{}, err
 		}
 		capability.ResetSegmentEditState(result.Path)
@@ -302,7 +372,7 @@ func editFileResult(call Call, result capability.EditFileResult) (ExecutionResul
 	}
 	if !result.Success {
 		executionResult.Error = &ExecutionError{
-			Type:    "edit_failed",
+			Type:    fallbackString(result.Code, "edit_failed"),
 			Message: result.Error,
 		}
 	} else {
@@ -354,6 +424,42 @@ func formatSearchFileResult(result capability.SearchFileResult) string {
 	}
 	if result.Truncated {
 		content.WriteString("\n[Search results truncated; narrow the query before requesting more matches.]")
+	}
+	return content.String()
+}
+
+func formatFindFilesResult(result capability.FindFilesResult) string {
+	var content strings.Builder
+	fmt.Fprintf(&content, "Files matching %q under %s:", result.Pattern, result.Root)
+	if len(result.Files) == 0 {
+		content.WriteString(" no matches")
+		return content.String()
+	}
+	for _, file := range result.Files {
+		fmt.Fprintf(&content, "\n%s [%s, %d bytes, revision %s]", file.Path, file.Kind, file.SizeBytes, file.FileRevision)
+	}
+	if result.Truncated {
+		fmt.Fprintf(&content, "\n[Results truncated; continue with after_path=%q.]", result.NextPath)
+	}
+	return content.String()
+}
+
+func formatSearchFilesResult(result capability.SearchFilesResult) string {
+	var content strings.Builder
+	fmt.Fprintf(&content, "Search results for %q (%s):", result.Query, result.Mode)
+	if len(result.Matches) == 0 {
+		content.WriteString(" no matches")
+	} else {
+		for _, match := range result.Matches {
+			fmt.Fprintf(&content, "\n%s:%d [byte %d, revision %s]: %s", match.Path, match.LineNumber, match.OffsetBytes, match.FileRevision, match.Line)
+			if match.LineTruncated {
+				content.WriteString(" [line preview truncated]")
+			}
+		}
+	}
+	fmt.Fprintf(&content, "\n[Scanned %d files/%d bytes; skipped %d binary files.]", result.ScannedFiles, result.ScannedBytes, result.SkippedBinaryFiles)
+	if result.Truncated {
+		content.WriteString("\n[Search truncated; narrow paths or query before retrying.]")
 	}
 	return content.String()
 }

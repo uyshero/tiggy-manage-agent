@@ -409,3 +409,59 @@ func TestPrometheusTextIncludesSessionTraceMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestPrometheusTextIncludesFilesystemToolOperationalMetrics(t *testing.T) {
+	events := []managedagents.Event{
+		{TurnID: "turn_fs", Type: managedagents.EventRuntimeToolResult, Payload: json.RawMessage(`{"turn_id":"turn_fs","data":{"identifier":"default","api_name":"find_files","duration_ms":7,"success":true,"state":{"files":[{"path":"a.go"},{"path":"b.go"}],"scanned_files":12,"truncated":true}}}`)},
+		{TurnID: "turn_fs", Type: managedagents.EventRuntimeToolResult, Payload: json.RawMessage(`{"turn_id":"turn_fs","data":{"identifier":"default","api_name":"search_files","duration_ms":42,"success":true,"state":{"matches":[{"path":"a.go"}],"scanned_files":3,"scanned_bytes":4096,"skipped_binary_files":2}}}`)},
+		{TurnID: "turn_fs", Type: managedagents.EventRuntimeToolResult, Payload: json.RawMessage(`{"turn_id":"turn_fs","data":{"identifier":"default","api_name":"read_file","duration_ms":2,"success":true,"state":{"returned_bytes":128,"binary":true}}}`)},
+		{TurnID: "turn_fs", Type: managedagents.EventRuntimeToolResult, Payload: json.RawMessage(`{"turn_id":"turn_fs","data":{"identifier":"default","api_name":"edit_file","duration_ms":3,"success":false,"error":{"type":"stale_file_revision","message":"changed"},"state":{"error":{"code":"stale_file_revision"}}}}`)},
+	}
+	trace := TurnTrace{SessionID: "sesn_fs", TurnID: "turn_fs", Status: "completed"}
+	text := PrometheusText(MetricsSnapshot{Trace: &trace, Events: events})
+	for _, expected := range []string{
+		`tma_filesystem_tool_duration_milliseconds_bucket{api_name="find_files",le="10",session_id="sesn_fs",turn_id="turn_fs"} 1`,
+		`tma_filesystem_tool_duration_milliseconds_sum{api_name="search_files",session_id="sesn_fs",turn_id="turn_fs"} 42`,
+		`tma_filesystem_tool_scanned_files{api_name="find_files",session_id="sesn_fs",turn_id="turn_fs"} 12`,
+		`tma_filesystem_tool_scanned_bytes{api_name="search_files",session_id="sesn_fs",turn_id="turn_fs"} 4096`,
+		`tma_filesystem_tool_results{api_name="find_files",session_id="sesn_fs",turn_id="turn_fs"} 2`,
+		`tma_filesystem_tool_returned_bytes{api_name="read_file",session_id="sesn_fs",turn_id="turn_fs"} 128`,
+		`tma_filesystem_tool_truncated_total{api_name="find_files",session_id="sesn_fs",turn_id="turn_fs"} 1`,
+		`tma_filesystem_tool_binary_files_total{api_name="search_files",session_id="sesn_fs",turn_id="turn_fs"} 2`,
+		`tma_filesystem_tool_binary_files_total{api_name="read_file",session_id="sesn_fs",turn_id="turn_fs"} 1`,
+		`tma_filesystem_tool_revision_conflicts_total{api_name="edit_file",session_id="sesn_fs",turn_id="turn_fs"} 1`,
+		`tma_filesystem_tool_errors_total{api_name="edit_file",error_code="stale_file_revision",session_id="sesn_fs",turn_id="turn_fs"} 1`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected metrics to contain %q, got:\n%s", expected, text)
+		}
+	}
+}
+
+func TestPrometheusTextIncludesGlobalFilesystemRuntimeMetrics(t *testing.T) {
+	resetFilesystemToolMetricsForTest()
+	t.Cleanup(resetFilesystemToolMetricsForTest)
+	RecordFilesystemToolMetric(FilesystemToolMetricInput{
+		API: "search_files", Outcome: "success", DurationMillis: 42,
+		State: map[string]any{"scanned_files": 3, "scanned_bytes": 4096, "matches": []any{map[string]any{"path": "a.go"}}, "skipped_binary_files": 2},
+	})
+	RecordFilesystemToolMetric(FilesystemToolMetricInput{
+		API: "edit_file", Outcome: "error", ErrorCode: "stale_file_revision", DurationMillis: 3,
+	})
+	text := PrometheusText(MetricsSnapshot{FilesystemTools: FilesystemToolMetricsSnapshot()})
+	for _, expected := range []string{
+		`tma_filesystem_runtime_calls_total{api_name="search_files",outcome="success"} 1`,
+		`tma_filesystem_runtime_duration_milliseconds_bucket{api_name="search_files",le="50"} 1`,
+		`tma_filesystem_runtime_duration_milliseconds_sum{api_name="search_files"} 42`,
+		`tma_filesystem_runtime_scanned_files_total{api_name="search_files"} 3`,
+		`tma_filesystem_runtime_scanned_bytes_total{api_name="search_files"} 4096`,
+		`tma_filesystem_runtime_results_total{api_name="search_files"} 1`,
+		`tma_filesystem_runtime_binary_files_total{api_name="search_files"} 2`,
+		`tma_filesystem_runtime_revision_conflicts_total{api_name="edit_file"} 1`,
+		`tma_filesystem_runtime_errors_total{api_name="edit_file",error_code="stale_file_revision"} 1`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected global metrics to contain %q, got:\n%s", expected, text)
+		}
+	}
+}
