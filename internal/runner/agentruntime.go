@@ -44,6 +44,7 @@ type AgentRuntimeTurnExecutor struct {
 	MCPHost          *mcp.StdioHost
 	MCPHTTPHost      *mcp.StreamableHTTPHost
 	MCPRuntimeGuard  *mcp.RuntimeGuard
+	LiveEvents       *LiveEventBroker
 }
 
 func (e AgentRuntimeTurnExecutor) MCPHostStats() mcp.StdioHostStats {
@@ -206,6 +207,12 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			ToolExecutionContext:  toolExecution.Context,
 		},
 		EmitStep: emit,
+		EmitStream: func(event agentruntime.StreamEvent) {
+			e.LiveEvents.Publish(LiveEvent{
+				SessionID: request.SessionID, TurnID: request.TurnID, Type: LiveEventLLMText,
+				Index: event.Index, ToolRound: event.ToolRound, Operation: "append", ContentFormat: "markdown", Text: event.Text,
+			})
+		},
 	})
 	if err != nil {
 		if errors.Is(err, agentruntime.ErrPendingIntervention) {
@@ -242,6 +249,10 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
 		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
 	}, nil
+}
+
+func (e AgentRuntimeTurnExecutor) SubscribeLiveEvents(sessionID string) (<-chan LiveEvent, func(), error) {
+	return e.LiveEvents.SubscribeLiveEvents(sessionID)
 }
 
 func (e AgentRuntimeTurnExecutor) restoreWorkspaceSnapshot(ctx context.Context, provider capability.Provider, config managedagents.AgentRuntimeConfig, sessionID string) error {

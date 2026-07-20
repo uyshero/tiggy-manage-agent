@@ -1,10 +1,11 @@
-import { streamEvents, type EventStreamOptions } from "../sse.js";
+import { streamEvents, streamLiveEvents, type EventStreamOptions, type LiveEventStreamOptions } from "../sse.js";
 import type {
   AgentRuntimeConfig,
   AppendEventsRequest,
   AppendEventsResult,
   CreateSessionRequest,
   Event,
+  LiveEvent,
   RerunSessionRequest,
   RerunSessionResponse,
   Session,
@@ -116,6 +117,10 @@ export class SessionsService extends ServiceBase {
 
   events(sessionId: string, options: EventStreamOptions = {}): AsyncGenerator<Event> {
     return streamEvents(this.transport, `${sessionPath(sessionId)}/events/stream`, options);
+  }
+
+  liveEvents(sessionId: string, options: LiveEventStreamOptions = {}): AsyncGenerator<LiveEvent> {
+    return streamLiveEvents(this.transport, `${sessionPath(sessionId)}/live/stream`, options);
   }
 }
 

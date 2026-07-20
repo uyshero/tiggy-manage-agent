@@ -989,6 +989,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		Logger:        logger,
 	})
 
+	liveEvents := runner.NewLiveEventBroker(256)
 	turnExecutor := runner.AgentRuntimeTurnExecutor{
 		Runtime: agentruntime.DemoRuntime{
 			Client:         llmManager,
@@ -1003,6 +1004,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		MCPHost:          mcpHost,
 		MCPHTTPHost:      mcpHTTPHost,
 		MCPRuntimeGuard:  mcpRuntimeGuard,
+		LiveEvents:       liveEvents,
 	}
 	worker := runner.NewWorkerRunnerWithConfig(store, turnExecutor, runner.WorkerRunnerConfig{
 		WorkerCount:       config.Turn.WorkerCount,

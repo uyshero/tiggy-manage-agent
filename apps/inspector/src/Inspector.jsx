@@ -1342,7 +1342,7 @@ function Timeline({ trace, onPreview, onCopy }) {
         const truncated = step.content_truncated || step.state_truncated;
         return (
           <div className={stepClass(step)} key={step.seq}>
-            <Meta><span>seq {step.seq}</span><span>{step.type}</span><span>{step.identifier ? `${step.identifier}${step.api_name ? `.${step.api_name}` : ""}` : ""}</span><ToolSourceChip source={step?.data?.tool_source} /><span>{step.outcome || ""}</span><span>{formatTime(step.created_at)}</span></Meta>
+            <Meta><span>seq {step.end_seq && step.end_seq !== step.seq ? `${step.seq}-${step.end_seq}` : step.seq}</span><span>{step.type}</span><span>{step.identifier ? `${step.identifier}${step.api_name ? `.${step.api_name}` : ""}` : ""}</span><ToolSourceChip source={step?.data?.tool_source} /><span>{step.outcome || ""}</span><span>{formatTime(step.created_at)}</span></Meta>
             <div style={{ marginTop: 6 }}>{step.message || step.summary || ""}</div>
             <MCPDetails data={step?.data} />
             {truncated ? <div className="subtle" style={{ marginTop: 6 }}>tool result preview truncated{step.content_truncated ? `: ${step.visible_content_chars || 0}/${step.original_content_chars || 0} chars` : ""}{step.state_truncated ? `; state ${step.original_state_bytes || 0} bytes omitted` : ""}</div> : null}

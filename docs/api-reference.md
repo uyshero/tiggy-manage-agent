@@ -1698,8 +1698,6 @@ Runtime：
 runtime.started
 runtime.thinking
 runtime.llm_request
-runtime.llm_chunk
-runtime.llm_delta
 runtime.llm_response
 runtime.tool_call
 runtime.tool_intervention_required
@@ -1722,7 +1720,9 @@ runtime.completed
 runtime.failed
 ```
 
-`runtime.llm_chunk.payload.data.type` 支持 `text`、`reasoning`、`tool_call`、`usage`、`stop`、`error`。对应结构化字段分别是 `text`、`tool_call`、`usage`、`finish_reason`、`error`；`runtime.llm_delta` 仅对 `text` 兼容双写。
+`runtime.llm_response.payload.data.stream` 保存聚合后的流指标：`streamed`、`chunk_count`、各类型 chunk 数、`output_chars`、`reasoning_chars`、`ttft_ms` 和 `finish_reason`。原始文本、reasoning 和工具参数分片不写入 Session Event。
+
+实时文本使用 `GET /v2/sessions/{session_id}/live/stream`。该 SSE 的 `llm.text` 数据包含独立 `stream_seq`、Turn、追加文本和格式；不提供历史补发或持久化游标，断线后以最终 `agent.message` 为准。
 
 内置 interaction、LLM、tool、approval、context Span 由对应语义事件成对闭合，并复用相同 `span_id`；`runtime.span_started/event/ended` 仅供没有内置语义事件的扩展 Span 使用。
 

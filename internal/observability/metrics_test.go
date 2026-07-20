@@ -96,6 +96,27 @@ func TestPrometheusTextIncludesCompletionValidationMetrics(t *testing.T) {
 	}
 }
 
+func TestPrometheusTextIncludesAggregatedLLMStreamMetricsWithoutContent(t *testing.T) {
+	events := []managedagents.Event{{
+		SessionID: "session_1", TurnID: "turn_1", Type: managedagents.EventRuntimeLLMResponse,
+		Payload: json.RawMessage(`{"data":{"tool_round":2,"stream":{"streamed":true,"chunk_count":31,"output_chars":480,"reasoning_chars":120,"ttft_ms":87,"private_text":"must-not-leak"}}}`),
+	}}
+	text := PrometheusText(MetricsSnapshot{Trace: &TurnTrace{SessionID: "session_1", TurnID: "turn_1"}, Events: events})
+	for _, expected := range []string{
+		`tma_llm_stream_chunks{session_id="session_1",tool_round="2",turn_id="turn_1"} 31`,
+		`tma_llm_stream_output_characters{session_id="session_1",tool_round="2",turn_id="turn_1"} 480`,
+		`tma_llm_stream_reasoning_characters{session_id="session_1",tool_round="2",turn_id="turn_1"} 120`,
+		`tma_llm_stream_ttft_milliseconds{session_id="session_1",tool_round="2",turn_id="turn_1"} 87`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected LLM stream metric %q, got:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "must-not-leak") {
+		t.Fatalf("stream content leaked into metrics: %s", text)
+	}
+}
+
 func TestPrometheusTextIncludesGlobalCompletionValidationCounters(t *testing.T) {
 	text := PrometheusText(MetricsSnapshot{CompletionValidations: []CompletionValidationMetric{
 		{Outcome: "retry", Validator: "builtin.task_plan", Count: 7},

@@ -167,7 +167,7 @@ Ask approval
 
 ### P0.2 合并 Activity 噪音
 
-Activity 面板不要逐条显示所有 `llm_delta`。前端应做事件聚合：
+Activity 面板不消费原始 Provider chunk。实时文本来自不落库的 `llm.text` Live SSE，最终以持久化 `agent.message` 收敛：
 
 ```text
 连续 Writing reply -> 显示一条“正在写回复”

@@ -2,15 +2,63 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
 )
+
+type liveStreamTestRunner struct {
+	runner.Runner
+	broker *runner.LiveEventBroker
+}
+
+func (test liveStreamTestRunner) SubscribeLiveEvents(sessionID string) (<-chan runner.LiveEvent, func(), error) {
+	return test.broker.SubscribeLiveEvents(sessionID)
+}
+
+func TestV2SessionLiveStreamIsTransientAndSessionScoped(t *testing.T) {
+	store := newTestStore()
+	broker := runner.NewLiveEventBroker(8)
+	turnRunner := liveStreamTestRunner{Runner: runner.NewMockRunner(store, time.Millisecond, nil), broker: broker}
+	server := NewServerWithStoreAndRunner(store, turnRunner, nil)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"Live Environment","config":{"type":"cloud"}}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"environment_id":"`+environment.ID+`"}`)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	response := newSynchronizedResponseRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v2/sessions/"+session.ID+"/live/stream", nil).WithContext(ctx))
+		close(done)
+	}()
+	waitFor(t, func() bool { return strings.Contains(response.BodyString(), ": live stream ready") })
+
+	broker.Publish(runner.LiveEvent{
+		SessionID: session.ID, TurnID: "turn-live", Type: runner.LiveEventLLMText,
+		Operation: "append", ContentFormat: "markdown", Text: "streamed text",
+	})
+	waitFor(t, func() bool { return strings.Contains(response.BodyString(), "streamed text") })
+	cancel()
+	<-done
+
+	body := response.BodyString()
+	if response.Code != http.StatusOK || !strings.Contains(body, "event: llm.text") || !strings.Contains(body, `"stream_seq":1`) {
+		t.Fatalf("unexpected live SSE response: status=%d body=%s", response.Code, body)
+	}
+	if strings.Contains(body, `"seq":`) || strings.Contains(body, `"id":"evt_`) {
+		t.Fatalf("live stream must not expose durable event identity: %s", body)
+	}
+	if cache := response.Header().Get("Cache-Control"); cache != "no-cache, no-store" {
+		t.Fatalf("unexpected live stream cache policy %q", cache)
+	}
+}
 
 func TestV2AliasPreservesSuccessAndNormalizesErrors(t *testing.T) {
 	server := newTestServer()

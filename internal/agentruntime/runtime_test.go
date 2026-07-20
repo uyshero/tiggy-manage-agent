@@ -94,9 +94,10 @@ func TestDemoRuntimeRejectsImagesWithoutVisionModel(t *testing.T) {
 	}
 }
 
-func TestDemoRuntimeEmitsLLMDeltaForStreamingClient(t *testing.T) {
+func TestDemoRuntimePublishesTextTransientlyAndPersistsStreamSummary(t *testing.T) {
 	runtime := DemoRuntime{Client: streamingTestClient{}}
 	var steps []Step
+	var streamEvents []StreamEvent
 
 	result, err := runtime.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -105,6 +106,9 @@ func TestDemoRuntimeEmitsLLMDeltaForStreamingClient(t *testing.T) {
 		EmitStep: func(ctx context.Context, step Step) error {
 			steps = append(steps, step)
 			return nil
+		},
+		EmitStream: func(event StreamEvent) {
+			streamEvents = append(streamEvents, event)
 		},
 	})
 	if err != nil {
@@ -120,64 +124,40 @@ func TestDemoRuntimeEmitsLLMDeltaForStreamingClient(t *testing.T) {
 	if err := json.Unmarshal(result.AgentPayload, &payloadEnvelope); err != nil || payloadEnvelope.ContentFormat != "markdown" {
 		t.Fatalf("expected markdown final payload, envelope=%#v err=%v", payloadEnvelope, err)
 	}
-	if !hasStepType(steps, managedagents.EventRuntimeLLMDelta) {
-		t.Fatalf("expected runtime.llm_delta in steps: %#v", steps)
+	if len(streamEvents) != 2 || streamEvents[0].Text+streamEvents[1].Text != "streamed response" {
+		t.Fatalf("unexpected transient text stream: %#v", streamEvents)
 	}
-	if !hasStepType(steps, managedagents.EventRuntimeLLMChunk) {
-		t.Fatalf("expected runtime.llm_chunk in steps: %#v", steps)
-	}
-	reasoningChunks := 0
-	chunkKinds := map[string]int{}
-	for _, step := range steps {
-		if step.Type == managedagents.EventRuntimeLLMChunk {
-			kind, _ := step.Data["type"].(string)
-			chunkKinds[kind]++
-			if step.Data["type"] == llm.DeltaKindReasoning {
-				reasoningChunks++
-				if step.Data["text"] != "checking context" {
-					t.Fatalf("unexpected reasoning chunk: %#v", step.Data)
-				}
-			}
-		}
-		if step.Type != managedagents.EventRuntimeLLMDelta {
-			continue
-		}
-		if step.Data["content_format"] != "markdown" || step.Data["operation"] != "append" {
-			t.Fatalf("expected append-only markdown delta, got %#v", step.Data)
-		}
-	}
-	if reasoningChunks != 1 {
-		t.Fatalf("expected one reasoning chunk, got %d", reasoningChunks)
-	}
-	for _, kind := range []string{llm.DeltaKindText, llm.DeltaKindReasoning, llm.DeltaKindToolCall, llm.DeltaKindUsage, llm.DeltaKindStop} {
-		if chunkKinds[kind] == 0 {
-			t.Fatalf("expected %s chunk, got %#v", kind, chunkKinds)
-		}
-	}
-}
-
-func TestEmitLLMChunkPreservesStructuredStreamError(t *testing.T) {
-	var emitted Step
-	err := emitLLMChunk(t.Context(), TurnRequest{EmitStep: func(_ context.Context, step Step) error {
-		emitted = step
-		return nil
-	}}, llm.Delta{
-		Index: 7,
-		Kind:  llm.DeltaKindError,
-		Error: &llm.StreamError{Class: llm.ErrorClassServer, Retryable: true, Message: "stream failed"},
-	}, 2)
+	encodedSteps, err := json.Marshal(steps)
 	if err != nil {
-		t.Fatalf("emit stream error chunk: %v", err)
+		t.Fatalf("encode persisted steps: %v", err)
 	}
-	streamError, ok := emitted.Data["error"].(*llm.StreamError)
-	if emitted.Type != managedagents.EventRuntimeLLMChunk || emitted.Data["type"] != llm.DeltaKindError || emitted.Data["tool_round"] != 2 || !ok || streamError.Message != "stream failed" {
-		t.Fatalf("unexpected emitted stream error: %#v", emitted)
+	if strings.Contains(string(encodedSteps), "checking context") || strings.Contains(string(encodedSteps), "streamed response") {
+		t.Fatalf("raw stream content leaked into persisted steps: %s", encodedSteps)
+	}
+	var responseStep Step
+	for _, step := range steps {
+		if step.Type == managedagents.EventRuntimeLLMResponse {
+			responseStep = step
+		}
+	}
+	stream, ok := responseStep.Data["stream"].(map[string]any)
+	if !ok {
+		t.Fatalf("response step missing stream summary: %#v", responseStep)
+	}
+	for key, expected := range map[string]any{
+		"streamed": true, "chunk_count": 6, "text_chunk_count": 2, "reasoning_chunk_count": 1,
+		"tool_call_chunk_count": 1, "usage_chunk_count": 1, "stop_chunk_count": 1,
+		"error_chunk_count": 0, "output_chars": 17, "reasoning_chars": 16, "finish_reason": "stop",
+	} {
+		if stream[key] != expected {
+			t.Fatalf("unexpected stream summary %s=%#v, want %#v: %#v", key, stream[key], expected, stream)
+		}
 	}
 }
 
 func TestGenerateLLMStreamsRequestsWithTools(t *testing.T) {
 	client := &toolStreamingSelectionClient{}
-	response, err := generateLLM(t.Context(), client, llm.Request{
+	response, stats, err := generateLLM(t.Context(), client, llm.Request{
 		Tools: []llm.Tool{{
 			Type:     "function",
 			Function: llm.ToolFunction{Name: "default.read_file"},
@@ -192,20 +172,14 @@ func TestGenerateLLMStreamsRequestsWithTools(t *testing.T) {
 	if got := contentPartsText(response.Message.Content); got != "streamed with tools" {
 		t.Fatalf("unexpected streamed response %q", got)
 	}
+	if !stats.Streamed {
+		t.Fatalf("expected streaming stats, got %#v", stats)
+	}
 }
 
 func TestGenerateLLMStopsLargeFileMutationAtRecommendedStreamLimit(t *testing.T) {
 	client := &oversizedFileMutationStreamingClient{}
-	emittedToolChunks := 0
-	_, err := generateLLM(t.Context(), client, llm.Request{}, TurnRequest{EmitStep: func(_ context.Context, step Step) error {
-		if step.Type == managedagents.EventRuntimeLLMChunk && step.Data["type"] == llm.DeltaKindToolCall {
-			emittedToolChunks++
-		}
-		if step.Type == managedagents.EventRuntimeToolResult {
-			t.Fatal("proactive stream limit must not emit a tool failure result")
-		}
-		return nil
-	}}, 0, tools.FileMutationLimits{RecommendedTokens: 50, MaxTokens: 100})
+	_, stats, err := generateLLM(t.Context(), client, llm.Request{}, TurnRequest{}, 0, tools.FileMutationLimits{RecommendedTokens: 50, MaxTokens: 100})
 	var limitError *fileMutationStreamLimitError
 	if !errors.As(err, &limitError) {
 		t.Fatalf("expected proactive file mutation stream limit, got %v", err)
@@ -213,8 +187,8 @@ func TestGenerateLLMStopsLargeFileMutationAtRecommendedStreamLimit(t *testing.T)
 	if limitError.APIName != "write_file" || limitError.EstimatedTokens <= 50 {
 		t.Fatalf("unexpected stream limit details: %#v", limitError)
 	}
-	if emittedToolChunks != 1 {
-		t.Fatalf("expected only the initial safe tool chunk to be emitted, got %d", emittedToolChunks)
+	if stats.ToolCallChunkCount == 0 {
+		t.Fatalf("expected stream stats before the proactive limit, got %#v", stats)
 	}
 }
 

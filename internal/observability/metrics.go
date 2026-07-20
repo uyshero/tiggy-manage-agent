@@ -490,6 +490,7 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 		writeMetric(builder, "tma_session_events_total", withLabel(sessionLabels, "event_type", eventType), eventCounts[eventType])
 	}
 	writeCompletionValidationMetrics(builder, sessionLabels, trace.TurnID, events)
+	writeLLMStreamMetrics(builder, sessionLabels, trace.TurnID, events)
 
 	writeMetricHelp(builder, "tma_pending_interventions_total", "Pending intervention count for the selected session.")
 	writeMetricType(builder, "tma_pending_interventions_total", "gauge")
@@ -644,6 +645,36 @@ func writeTraceMetrics(builder *strings.Builder, trace *TurnTrace, events []mana
 			"api_name":        parts[2],
 			"decision":        parts[3],
 		}), decisionCounts[key])
+	}
+}
+
+func writeLLMStreamMetrics(builder *strings.Builder, sessionLabels map[string]string, turnID string, events []managedagents.Event) {
+	writeMetricHelp(builder, "tma_llm_stream_chunks", "Aggregated provider stream chunk count for a selected LLM request.")
+	writeMetricType(builder, "tma_llm_stream_chunks", "gauge")
+	writeMetricHelp(builder, "tma_llm_stream_output_characters", "Aggregated user-visible output characters for a selected LLM request.")
+	writeMetricType(builder, "tma_llm_stream_output_characters", "gauge")
+	writeMetricHelp(builder, "tma_llm_stream_reasoning_characters", "Aggregated reasoning characters without retaining reasoning content.")
+	writeMetricType(builder, "tma_llm_stream_reasoning_characters", "gauge")
+	writeMetricHelp(builder, "tma_llm_stream_ttft_milliseconds", "Time to first user-visible text chunk in milliseconds for a selected LLM request.")
+	writeMetricType(builder, "tma_llm_stream_ttft_milliseconds", "gauge")
+
+	for _, event := range events {
+		if event.Type != managedagents.EventRuntimeLLMResponse || event.TurnID != turnID {
+			continue
+		}
+		data := payloadData(event.Payload)
+		stream, _ := data["stream"].(map[string]any)
+		if !mapBool(stream, "streamed") {
+			continue
+		}
+		labels := mergeLabels(sessionLabels, map[string]string{
+			"turn_id":    turnID,
+			"tool_round": fmt.Sprintf("%d", mapInt64(data, "tool_round")),
+		})
+		writeMetric(builder, "tma_llm_stream_chunks", labels, mapInt64(stream, "chunk_count"))
+		writeMetric(builder, "tma_llm_stream_output_characters", labels, mapInt64(stream, "output_chars"))
+		writeMetric(builder, "tma_llm_stream_reasoning_characters", labels, mapInt64(stream, "reasoning_chars"))
+		writeMetric(builder, "tma_llm_stream_ttft_milliseconds", labels, mapInt64(stream, "ttft_ms"))
 	}
 }
 

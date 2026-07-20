@@ -105,7 +105,7 @@ TMA 已有有序事件日志，是可观测性的天然底座：
 ```text
 user.message / agent.message
 session.status_*
-runtime.started / thinking / llm_request / llm_response / llm_delta
+runtime.started / thinking / llm_request / llm_response
 runtime.tool_call / tool_result
 runtime.tool_intervention_required / approved / rejected
 runtime.subagent_spawn_rejected / runtime.subagent_start_rejected
@@ -257,8 +257,7 @@ tma.interaction                    # runtime.started → completed/failed/idle
 | `user.message` | interaction 开始 | 新 turn root |
 | `runtime.llm_request` | llm_request 开始 | 含 `tool_round` |
 | `runtime.llm_response` | llm_request 结束 | 写 usage |
-| `runtime.llm_chunk` | llm_request 子切片 | `data.type=text|reasoning|tool_call|usage|stop|error` |
-| `runtime.llm_delta` | llm_request 子切片 | 主要给 Perfetto |
+`runtime.llm_response.data.stream` 汇总 chunk 数、分类计数、输出/推理字符数、TTFT 和 finish reason。原始 chunk 属于传输数据，不进入 Trace、Perfetto、OTel 或长期事件存储。
 | `runtime.tool_call` | tool 开始 | |
 | `runtime.tool_result` | tool 结束 | `duration_ms`, `outcome` |
 | `runtime.tool_intervention_*` | intervention | 审批子 span |

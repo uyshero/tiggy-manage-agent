@@ -34,6 +34,7 @@ export type GeneratedRun = Schema["Run"];
 export type Run = Omit<GeneratedRun, "status"> & { status: string };
 export type StartRunRequest = Schema["StartRunRequest"];
 export type Event = Schema["Event"];
+export type LiveEvent = Schema["LiveEvent"];
 export type AppendEvent = Schema["AppendEvent"];
 export type AppendEventsRequest = Schema["AppendEventsRequest"];
 export type AppendEventsResult = Schema["AppendEventsResult"];

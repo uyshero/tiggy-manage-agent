@@ -11248,13 +11248,13 @@ function requireReactDomClient_production() {
     hydrationInstance = hydrationInstance.nextSibling;
     for (var depth = 0; hydrationInstance; ) {
       if (8 === hydrationInstance.nodeType) {
-        var data2 = hydrationInstance.data;
-        if ("/$" === data2 || "/&" === data2) {
+        var data = hydrationInstance.data;
+        if ("/$" === data || "/&" === data) {
           if (0 === depth)
             return getNextHydratable(hydrationInstance.nextSibling);
           depth--;
         } else
-          "$" !== data2 && "$!" !== data2 && "$?" !== data2 && "$~" !== data2 && "&" !== data2 || depth++;
+          "$" !== data && "$!" !== data && "$?" !== data && "$~" !== data && "&" !== data || depth++;
       }
       hydrationInstance = hydrationInstance.nextSibling;
     }
@@ -11264,11 +11264,11 @@ function requireReactDomClient_production() {
     targetInstance = targetInstance.previousSibling;
     for (var depth = 0; targetInstance; ) {
       if (8 === targetInstance.nodeType) {
-        var data2 = targetInstance.data;
-        if ("$" === data2 || "$!" === data2 || "$?" === data2 || "$~" === data2 || "&" === data2) {
+        var data = targetInstance.data;
+        if ("$" === data || "$!" === data || "$?" === data || "$~" === data || "&" === data) {
           if (0 === depth) return targetInstance;
           depth--;
-        } else "/$" !== data2 && "/&" !== data2 || depth++;
+        } else "/$" !== data && "/&" !== data || depth++;
       }
       targetInstance = targetInstance.previousSibling;
     }
@@ -14853,9 +14853,9 @@ function initializeContent(effects) {
       previous2.next = token;
     }
     previous2 = token;
-    return data2(code2);
+    return data(code2);
   }
-  function data2(code2) {
+  function data(code2) {
     if (code2 === null) {
       effects.exit("chunkText");
       effects.exit("paragraph");
@@ -14868,7 +14868,7 @@ function initializeContent(effects) {
       return lineStart;
     }
     effects.consume(code2);
-    return data2;
+    return data;
   }
 }
 const document$2 = {
@@ -15785,15 +15785,15 @@ function tokenizeCodeText(effects, ok2, nok) {
       return between;
     }
     effects.enter("codeTextData");
-    return data2(code2);
+    return data(code2);
   }
-  function data2(code2) {
+  function data(code2) {
     if (code2 === null || code2 === 32 || code2 === 96 || markdownLineEnding(code2)) {
       effects.exit("codeTextData");
       return between(code2);
     }
     effects.consume(code2);
-    return data2;
+    return data;
   }
   function sequenceClose(code2) {
     if (code2 === 96) {
@@ -15807,7 +15807,7 @@ function tokenizeCodeText(effects, ok2, nok) {
       return ok2(code2);
     }
     token.type = "codeTextData";
-    return data2(code2);
+    return data(code2);
   }
 }
 class SpliceBuffer {
@@ -16620,7 +16620,7 @@ function tokenizeHeadingAtx(effects, ok2, nok) {
       return factorySpace(effects, atBreak, "whitespace")(code2);
     }
     effects.enter("atxHeadingText");
-    return data2(code2);
+    return data(code2);
   }
   function sequenceFurther(code2) {
     if (code2 === 35) {
@@ -16630,13 +16630,13 @@ function tokenizeHeadingAtx(effects, ok2, nok) {
     effects.exit("atxHeadingSequence");
     return atBreak(code2);
   }
-  function data2(code2) {
+  function data(code2) {
     if (code2 === null || code2 === 35 || markdownLineEndingOrSpace(code2)) {
       effects.exit("atxHeadingText");
       return atBreak(code2);
     }
     effects.consume(code2);
-    return data2;
+    return data;
   }
 }
 const htmlBlockNames = [
@@ -17987,15 +17987,15 @@ function initializeFactory(field) {
       }
       effects.enter("data");
       effects.consume(code2);
-      return data2;
+      return data;
     }
-    function data2(code2) {
+    function data(code2) {
       if (atBreak(code2)) {
         effects.exit("data");
         return text2(code2);
       }
       effects.consume(code2);
-      return data2;
+      return data;
     }
     function atBreak(code2) {
       if (code2 === null) {
@@ -18042,8 +18042,8 @@ function resolveAllLineSuffixes(events2, context) {
   let eventIndex = 0;
   while (++eventIndex <= events2.length) {
     if ((eventIndex === events2.length || events2[eventIndex][1].type === "lineEnding") && events2[eventIndex - 1][1].type === "data") {
-      const data2 = events2[eventIndex - 1][1];
-      const chunks = context.sliceStream(data2);
+      const data = events2[eventIndex - 1][1];
+      const chunks = context.sliceStream(data);
       let index2 = chunks.length;
       let bufferIndex = -1;
       let size = 0;
@@ -18074,21 +18074,21 @@ function resolveAllLineSuffixes(events2, context) {
         const token = {
           type: eventIndex === events2.length || tabs || size < 2 ? "lineSuffix" : "hardBreakTrailing",
           start: {
-            _bufferIndex: index2 ? bufferIndex : data2.start._bufferIndex + bufferIndex,
-            _index: data2.start._index + index2,
-            line: data2.end.line,
-            column: data2.end.column - size,
-            offset: data2.end.offset - size
+            _bufferIndex: index2 ? bufferIndex : data.start._bufferIndex + bufferIndex,
+            _index: data.start._index + index2,
+            line: data.end.line,
+            column: data.end.column - size,
+            offset: data.end.offset - size
           },
           end: {
-            ...data2.end
+            ...data.end
           }
         };
-        data2.end = {
+        data.end = {
           ...token.start
         };
-        if (data2.start.offset === data2.end.offset) {
-          Object.assign(data2, token);
+        if (data.start.offset === data.end.offset) {
+          Object.assign(data, token);
         } else {
           events2.splice(eventIndex, 0, ["enter", token, context], ["exit", token, context]);
           eventIndex += 2;
@@ -18716,7 +18716,7 @@ function compiler(options) {
     }
   };
   configure(config, (options || {}).mdastExtensions || []);
-  const data2 = {};
+  const data = {};
   return compile;
   function compile(events2) {
     let tree = {
@@ -18731,7 +18731,7 @@ function compiler(options) {
       exit: exit2,
       buffer,
       resume,
-      data: data2
+      data
     };
     const listStack = [];
     let index2 = -1;
@@ -18930,14 +18930,14 @@ function compiler(options) {
     }
   }
   function onexitcodefencedfenceinfo() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.lang = data3;
+    node2.lang = data2;
   }
   function onexitcodefencedfencemeta() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.meta = data3;
+    node2.meta = data2;
   }
   function onexitcodefencedfence() {
     if (this.data.flowCodeInside) return;
@@ -18945,15 +18945,15 @@ function compiler(options) {
     this.data.flowCodeInside = true;
   }
   function onexitcodefenced() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.value = data3.replace(/^(\r?\n|\r)|(\r?\n|\r)$/g, "");
+    node2.value = data2.replace(/^(\r?\n|\r)|(\r?\n|\r)$/g, "");
     this.data.flowCodeInside = void 0;
   }
   function onexitcodeindented() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.value = data3.replace(/(\r?\n|\r)$/g, "");
+    node2.value = data2.replace(/(\r?\n|\r)$/g, "");
   }
   function onexitdefinitionlabelstring(token) {
     const label = this.resume();
@@ -18962,14 +18962,14 @@ function compiler(options) {
     node2.identifier = normalizeIdentifier(this.sliceSerialize(token)).toLowerCase();
   }
   function onexitdefinitiontitlestring() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.title = data3;
+    node2.title = data2;
   }
   function onexitdefinitiondestinationstring() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.url = data3;
+    node2.url = data2;
   }
   function onexitatxheadingsequence(token) {
     const node2 = this.stack[this.stack.length - 1];
@@ -19025,19 +19025,19 @@ function compiler(options) {
     this.data.atHardBreak = true;
   }
   function onexithtmlflow() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.value = data3;
+    node2.value = data2;
   }
   function onexithtmltext() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.value = data3;
+    node2.value = data2;
   }
   function onexitcodetext() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.value = data3;
+    node2.value = data2;
   }
   function onexitlink() {
     const node2 = this.stack[this.stack.length - 1];
@@ -19086,14 +19086,14 @@ function compiler(options) {
     }
   }
   function onexitresourcedestinationstring() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.url = data3;
+    node2.url = data2;
   }
   function onexitresourcetitlestring() {
-    const data3 = this.resume();
+    const data2 = this.resume();
     const node2 = this.stack[this.stack.length - 1];
-    node2.title = data3;
+    node2.title = data2;
   }
   function onexitresource() {
     this.data.inReference = void 0;
@@ -19112,14 +19112,14 @@ function compiler(options) {
     this.data.characterReferenceType = token.type;
   }
   function onexitcharacterreferencevalue(token) {
-    const data3 = this.sliceSerialize(token);
+    const data2 = this.sliceSerialize(token);
     const type = this.data.characterReferenceType;
     let value;
     if (type) {
-      value = decodeNumericCharacterReference(data3, type === "characterReferenceMarkerNumeric" ? 10 : 16);
+      value = decodeNumericCharacterReference(data2, type === "characterReferenceMarkerNumeric" ? 10 : 16);
       this.data.characterReferenceType = void 0;
     } else {
-      const result = decodeNamedCharacterReference(data3);
+      const result = decodeNamedCharacterReference(data2);
       value = result;
     }
     const tail = this.stack[this.stack.length - 1];
@@ -20445,8 +20445,8 @@ function applyData(from, to) {
   return result;
 }
 function defaultUnknownHandler(state, node2) {
-  const data2 = node2.data || {};
-  const result = "value" in node2 && !(own$1.call(data2, "hProperties") || own$1.call(data2, "hChildren")) ? { type: "text", value: node2.value } : {
+  const data = node2.data || {};
+  const result = "value" in node2 && !(own$1.call(data, "hProperties") || own$1.call(data, "hChildren")) ? { type: "text", value: node2.value } : {
     type: "element",
     tagName: "div",
     properties: {},
@@ -23904,7 +23904,7 @@ text[119] = [emailAutolink, wwwAutolink];
 function tokenizeEmailAutolink(effects, ok2, nok) {
   const self2 = this;
   let dot;
-  let data2;
+  let data;
   return start;
   function start(code2) {
     if (!gfmAtext(code2) || !previousEmail.call(self2, self2.previous) || previousUnbalanced(self2.events)) {
@@ -23930,7 +23930,7 @@ function tokenizeEmailAutolink(effects, ok2, nok) {
       return effects.check(emailDomainDotTrail, emailDomainAfter, emailDomainDot)(code2);
     }
     if (code2 === 45 || code2 === 95 || asciiAlphanumeric(code2)) {
-      data2 = true;
+      data = true;
       effects.consume(code2);
       return emailDomain;
     }
@@ -23942,7 +23942,7 @@ function tokenizeEmailAutolink(effects, ok2, nok) {
     return emailDomain;
   }
   function emailDomainAfter(code2) {
-    if (data2 && dot && asciiAlpha(self2.previous)) {
+    if (data && dot && asciiAlpha(self2.previous)) {
       effects.exit("literalAutolinkEmail");
       effects.exit("literalAutolink");
       return ok2(code2);
@@ -24310,7 +24310,7 @@ function tokenizeGfmFootnoteCall(effects, ok2, nok) {
   const self2 = this;
   const defined = self2.parser.gfmFootnotes || (self2.parser.gfmFootnotes = []);
   let size = 0;
-  let data2;
+  let data;
   return start;
   function start(code2) {
     effects.enter("gfmFootnoteCall");
@@ -24332,7 +24332,7 @@ function tokenizeGfmFootnoteCall(effects, ok2, nok) {
     if (
       // Too long.
       size > 999 || // Closing brace with nothing.
-      code2 === 93 && !data2 || // Space or tab is not supported by GFM for some reason.
+      code2 === 93 && !data || // Space or tab is not supported by GFM for some reason.
       // `\n` and `[` not being supported makes sense.
       code2 === null || code2 === 91 || markdownLineEndingOrSpace(code2)
     ) {
@@ -24351,7 +24351,7 @@ function tokenizeGfmFootnoteCall(effects, ok2, nok) {
       return ok2;
     }
     if (!markdownLineEndingOrSpace(code2)) {
-      data2 = true;
+      data = true;
     }
     size++;
     effects.consume(code2);
@@ -24371,7 +24371,7 @@ function tokenizeDefinitionStart(effects, ok2, nok) {
   const defined = self2.parser.gfmFootnotes || (self2.parser.gfmFootnotes = []);
   let identifier;
   let size = 0;
-  let data2;
+  let data;
   return start;
   function start(code2) {
     effects.enter("gfmFootnoteDefinition")._container = true;
@@ -24396,7 +24396,7 @@ function tokenizeDefinitionStart(effects, ok2, nok) {
     if (
       // Too long.
       size > 999 || // Closing brace with nothing.
-      code2 === 93 && !data2 || // Space or tab is not supported by GFM for some reason.
+      code2 === 93 && !data || // Space or tab is not supported by GFM for some reason.
       // `\n` and `[` not being supported makes sense.
       code2 === null || code2 === 91 || markdownLineEndingOrSpace(code2)
     ) {
@@ -24413,7 +24413,7 @@ function tokenizeDefinitionStart(effects, ok2, nok) {
       return labelAfter;
     }
     if (!markdownLineEndingOrSpace(code2)) {
-      data2 = true;
+      data = true;
     }
     size++;
     effects.consume(code2);
@@ -25123,10 +25123,10 @@ function remarkGfm(options) {
     this
   );
   const settings = options || emptyOptions;
-  const data2 = self2.data();
-  const micromarkExtensions = data2.micromarkExtensions || (data2.micromarkExtensions = []);
-  const fromMarkdownExtensions = data2.fromMarkdownExtensions || (data2.fromMarkdownExtensions = []);
-  const toMarkdownExtensions = data2.toMarkdownExtensions || (data2.toMarkdownExtensions = []);
+  const data = self2.data();
+  const micromarkExtensions = data.micromarkExtensions || (data.micromarkExtensions = []);
+  const fromMarkdownExtensions = data.fromMarkdownExtensions || (data.fromMarkdownExtensions = []);
+  const toMarkdownExtensions = data.toMarkdownExtensions || (data.toMarkdownExtensions = []);
   micromarkExtensions.push(gfm(settings));
   fromMarkdownExtensions.push(gfmFromMarkdown());
   toMarkdownExtensions.push(gfmToMarkdown(settings));
@@ -25848,7 +25848,7 @@ function createParser(config) {
       "`config` must be an object, got a function instead. Did you mean `createParser({onEvent: fn})`?"
     );
   const { onEvent = noop, onError = noop, onRetry = noop, onComment, maxBufferSize } = config, pendingFragments = [];
-  let pendingFragmentsLength = 0, isFirstChunk = true, id2, data2 = "", dataLines = 0, eventType, terminated = false;
+  let pendingFragmentsLength = 0, isFirstChunk = true, id2, data = "", dataLines = 0, eventType, terminated = false;
   function feed(chunk) {
     if (terminated)
       throw new Error(
@@ -25871,7 +25871,7 @@ function createParser(config) {
     trailing !== "" && (pendingFragments.push(trailing), pendingFragmentsLength = trailing.length), checkBufferSize();
   }
   function checkBufferSize() {
-    maxBufferSize !== void 0 && (pendingFragmentsLength + data2.length <= maxBufferSize || (terminated = true, pendingFragments.length = 0, pendingFragmentsLength = 0, id2 = void 0, data2 = "", dataLines = 0, eventType = void 0, onError(
+    maxBufferSize !== void 0 && (pendingFragmentsLength + data.length <= maxBufferSize || (terminated = true, pendingFragments.length = 0, pendingFragmentsLength = 0, id2 = void 0, data = "", dataLines = 0, eventType = void 0, onError(
       new ParseError(`Buffered data exceeded max buffer size of ${maxBufferSize} characters`, {
         type: "max-buffer-size-exceeded"
       })
@@ -25884,7 +25884,7 @@ function createParser(config) {
 `, searchIndex);
       for (; lfIndex !== -1; ) {
         if (searchIndex === lfIndex) {
-          dataLines > 0 && onEvent({ id: id2, event: eventType, data: data2 }), id2 = void 0, data2 = "", dataLines = 0, eventType = void 0, searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
+          dataLines > 0 && onEvent({ id: id2, event: eventType, data }), id2 = void 0, data = "", dataLines = 0, eventType = void 0, searchIndex = lfIndex + 1, lfIndex = chunk.indexOf(`
 `, searchIndex);
           continue;
         }
@@ -25892,11 +25892,11 @@ function createParser(config) {
         if (isDataPrefix(chunk, searchIndex, firstCharCode)) {
           const valueStart = chunk.charCodeAt(searchIndex + 5) === SPACE ? searchIndex + 6 : searchIndex + 5, value = chunk.slice(valueStart, lfIndex);
           if (dataLines === 0 && chunk.charCodeAt(lfIndex + 1) === LF) {
-            onEvent({ id: id2, event: eventType, data: value }), id2 = void 0, data2 = "", eventType = void 0, searchIndex = lfIndex + 2, lfIndex = chunk.indexOf(`
+            onEvent({ id: id2, event: eventType, data: value }), id2 = void 0, data = "", eventType = void 0, searchIndex = lfIndex + 2, lfIndex = chunk.indexOf(`
 `, searchIndex);
             continue;
           }
-          data2 = dataLines === 0 ? value : `${data2}
+          data = dataLines === 0 ? value : `${data}
 ${value}`, dataLines++;
         } else isEventPrefix(chunk, searchIndex, firstCharCode) ? eventType = chunk.slice(
           chunk.charCodeAt(searchIndex + 6) === SPACE ? searchIndex + 7 : searchIndex + 6,
@@ -25925,7 +25925,7 @@ ${value}`, dataLines++;
     const firstCharCode = chunk.charCodeAt(start);
     if (isDataPrefix(chunk, start, firstCharCode)) {
       const valueStart = chunk.charCodeAt(start + 5) === SPACE ? start + 6 : start + 5, value2 = chunk.slice(valueStart, end);
-      data2 = dataLines === 0 ? value2 : `${data2}
+      data = dataLines === 0 ? value2 : `${data}
 ${value2}`, dataLines++;
       return;
     }
@@ -25959,7 +25959,7 @@ ${value2}`, dataLines++;
         eventType = value || void 0;
         break;
       case "data":
-        data2 = dataLines === 0 ? value : `${data2}
+        data = dataLines === 0 ? value : `${data}
 ${value}`, dataLines++;
         break;
       case "id":
@@ -25988,15 +25988,15 @@ ${value}`, dataLines++;
     dataLines > 0 && onEvent({
       id: id2,
       event: eventType,
-      data: data2
-    }), id2 = void 0, data2 = "", dataLines = 0, eventType = void 0;
+      data
+    }), id2 = void 0, data = "", dataLines = 0, eventType = void 0;
   }
   function reset(options = {}) {
     if (options.consume && pendingFragments.length > 0) {
       const incompleteLine = pendingFragments.join("");
       parseLine(incompleteLine, 0, incompleteLine.length);
     }
-    isFirstChunk = true, id2 = void 0, data2 = "", dataLines = 0, eventType = void 0, pendingFragments.length = 0, pendingFragmentsLength = 0, terminated = false;
+    isFirstChunk = true, id2 = void 0, data = "", dataLines = 0, eventType = void 0, pendingFragments.length = 0, pendingFragmentsLength = 0, terminated = false;
   }
   return { feed, reset };
 }
@@ -26005,6 +26005,71 @@ function isDataPrefix(chunk, i, firstCharCode) {
 }
 function isEventPrefix(chunk, i, firstCharCode) {
   return firstCharCode === 101 && chunk.charCodeAt(i + 1) === 118 && chunk.charCodeAt(i + 2) === 101 && chunk.charCodeAt(i + 3) === 110 && chunk.charCodeAt(i + 4) === 116 && chunk.charCodeAt(i + 5) === 58;
+}
+async function* streamLiveEvents(transport, path2, options = {}) {
+  var _a2, _b, _c;
+  let retryDelay = options.retryInitialMs ?? 250;
+  const retryMax = options.retryMaxMs ?? 1e4;
+  while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
+    try {
+      const response = await transport.fetch(new URL(transport.url(path2)), {
+        method: "GET",
+        headers: { Accept: "text/event-stream" },
+        ...options.signal === void 0 ? {} : { signal: options.signal }
+      });
+      if (!response.ok) {
+        if (response.status < 500 || response.status > 599)
+          throw await APIError.fromResponse(response);
+        await ((_b = response.body) == null ? void 0 : _b.cancel());
+        throw new RetryableSSEError(`SSE endpoint returned HTTP ${response.status}`);
+      }
+      if (!response.body)
+        throw new SSESchemaError("SSE response has no body");
+      retryDelay = options.retryInitialMs ?? 250;
+      const messages = [];
+      let parserError;
+      const parser = createParser({
+        onEvent: (message) => messages.push(message),
+        onError: (error) => {
+          parserError = new SSESchemaError(error.message);
+        }
+      });
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done)
+            break;
+          parser.feed(decoder.decode(value, { stream: true }));
+          if (parserError)
+            throw parserError;
+          while (messages.length > 0) {
+            const message = messages.shift();
+            if (message)
+              yield decodeLiveEvent(message.data);
+          }
+        }
+      } finally {
+        await reader.cancel().catch(() => void 0);
+        reader.releaseLock();
+      }
+      parser.feed(decoder.decode());
+      if (parserError)
+        throw parserError;
+      throw new RetryableSSEError("live SSE connection closed");
+    } catch (error) {
+      if ((_c = options.signal) == null ? void 0 : _c.aborted)
+        throw abortError();
+      if (error instanceof SSESchemaError)
+        throw error;
+      if (error instanceof APIError && (error.status < 500 || error.status > 599))
+        throw error;
+      await abortableDelay(retryDelay, options.signal);
+      retryDelay = Math.min(retryDelay * 2, retryMax);
+    }
+  }
+  throw abortError();
 }
 async function* streamEvents(transport, path2, options = {}) {
   var _a2, _b, _c;
@@ -26080,10 +26145,10 @@ async function* streamEvents(transport, path2, options = {}) {
   }
   throw abortError();
 }
-function decodeEvent(data2) {
+function decodeEvent(data) {
   let decoded;
   try {
-    decoded = JSON.parse(data2);
+    decoded = JSON.parse(data);
   } catch (error) {
     throw new SSESchemaError(`SSE event is not valid JSON: ${String(error)}`);
   }
@@ -26092,6 +26157,21 @@ function decodeEvent(data2) {
   const event = decoded;
   if (!Number.isSafeInteger(event.seq) || typeof event.type !== "string" || typeof event.created_at !== "string") {
     throw new SSESchemaError("SSE event is missing seq, type, or created_at");
+  }
+  return event;
+}
+function decodeLiveEvent(data) {
+  let decoded;
+  try {
+    decoded = JSON.parse(data);
+  } catch (error) {
+    throw new SSESchemaError(`Live SSE event is not valid JSON: ${String(error)}`);
+  }
+  if (!decoded || typeof decoded !== "object")
+    throw new SSESchemaError("Live SSE event must be an object");
+  const event = decoded;
+  if (!Number.isSafeInteger(event.stream_seq) || typeof event.session_id !== "string" || typeof event.turn_id !== "string" || event.type !== "llm.text" || event.operation !== "append" || event.content_format !== "markdown" || typeof event.text !== "string" || typeof event.created_at !== "string") {
+    throw new SSESchemaError("Live SSE event is missing required transient stream fields");
   }
   return event;
 }
@@ -26184,6 +26264,9 @@ class SessionsService extends ServiceBase {
   }
   events(sessionId, options = {}) {
     return streamEvents(this.transport, `${sessionPath(sessionId)}/events/stream`, options);
+  }
+  liveEvents(sessionId, options = {}) {
+    return streamLiveEvents(this.transport, `${sessionPath(sessionId)}/live/stream`, options);
   }
 }
 function sessionPath(sessionId) {
@@ -27282,6 +27365,9 @@ async function events(sessionId) {
 }
 function streamSessionEvents(sessionId, options = {}) {
   return coreSDK.sessions.events(sessionId, options);
+}
+function streamSessionLiveEvents(sessionId, options = {}) {
+  return coreSDK.sessions.liveEvents(sessionId, options);
 }
 async function interventions(sessionId, status) {
   return { interventions: await coreSDK.interventions.list(sessionId, status) };
@@ -29454,9 +29540,9 @@ function pillClass(statusValue) {
 }
 function toolCallID(event) {
   var _a2;
-  const data2 = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data;
-  if (!data2 || typeof data2 !== "object" || Array.isArray(data2)) return "";
-  return String(data2.id || data2.call_id || "").trim();
+  const data = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+  return String(data.id || data.call_id || "").trim();
 }
 function buildToolCallLifecycles(events2) {
   const lifecycles = /* @__PURE__ */ new Map();
@@ -29616,46 +29702,6 @@ function canSubmitHumanInput(mode, choices, fields, answer) {
     return (Array.isArray(fields) ? fields : []).every((field) => !field.required || fieldHasValue(field, answer));
   }
   return String(response.answer || "").trim() !== "";
-}
-function payload$1(event) {
-  return (event == null ? void 0 : event.payload) && typeof event.payload === "object" ? event.payload : {};
-}
-function data(event) {
-  const value = payload$1(event).data;
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function isReasoningChunk(event) {
-  return (event == null ? void 0 : event.type) === "runtime.llm_chunk" && data(event).type === "reasoning";
-}
-function reasoningGroupKey(event) {
-  const eventPayload = payload$1(event);
-  const eventData2 = data(event);
-  return `${String(eventPayload.turn_id || event.turn_id || "")}:${Number(eventData2.tool_round || 0)}`;
-}
-function mergeReasoningChunks(events2) {
-  const merged = [];
-  for (const event of events2 || []) {
-    const previous2 = merged[merged.length - 1];
-    if (!isReasoningChunk(event) || !isReasoningChunk(previous2) || reasoningGroupKey(event) !== reasoningGroupKey(previous2)) {
-      merged.push(event);
-      continue;
-    }
-    const previousPayload = payload$1(previous2);
-    const previousData = data(previous2);
-    const currentData = data(event);
-    merged[merged.length - 1] = {
-      ...previous2,
-      payload: {
-        ...previousPayload,
-        data: {
-          ...previousData,
-          text: `${String(previousData.text || "")}${String(currentData.text || "")}`,
-          end_index: currentData.index ?? previousData.end_index ?? previousData.index
-        }
-      }
-    };
-  }
-  return merged;
 }
 const taskPlanEventTypes = /* @__PURE__ */ new Set([
   "runtime.task_plan_created",
@@ -33056,6 +33102,15 @@ const sessionSyncEventTypes = /* @__PURE__ */ new Set([
   "session.status_terminated",
   "session.config_updated"
 ]);
+const liveReplyTerminalEventTypes = /* @__PURE__ */ new Set([
+  "agent.message",
+  "runtime.progress_message",
+  "runtime.tool_call",
+  "runtime.tool_intervention_required",
+  "runtime.human_input_required",
+  "runtime.plan_approval_required",
+  "runtime.failed"
+]);
 function Empty({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "empty", children });
 }
@@ -33193,8 +33248,8 @@ function payload(event) {
   return (event == null ? void 0 : event.payload) || {};
 }
 function eventData(event) {
-  const data2 = payload(event).data;
-  return data2 && typeof data2 === "object" && !Array.isArray(data2) ? data2 : {};
+  const data = payload(event).data;
+  return data && typeof data === "object" && !Array.isArray(data) ? data : {};
 }
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -36145,13 +36200,13 @@ function SettingsPage({
   ] });
 }
 function eventText(event) {
-  const data2 = payload(event);
-  const content2 = data2.content;
+  const data = payload(event);
+  const content2 = data.content;
   if (Array.isArray(content2)) {
     return content2.map((item) => item.text || item.content || "").filter(Boolean).join("\n");
   }
   if (typeof content2 === "string") return content2;
-  return data2.message || data2.summary || data2.text || "";
+  return data.message || data.summary || data.text || "";
 }
 function sessionSummaryPreview(value) {
   let text2 = String(value || "").trim();
@@ -36231,8 +36286,7 @@ function compactActivityEvents(sourceEvents) {
     const activity = activityView(event);
     const previous2 = compacted[compacted.length - 1];
     const signature = [activity.title, activity.detail, activity.kind].join("|");
-    const isStreamingNoise = event.type === "runtime.llm_delta" || event.type === "runtime.llm_chunk";
-    if (previous2 && previous2.signature === signature && (isStreamingNoise || event.type === previous2.type)) {
+    if (previous2 && previous2.signature === signature && event.type === previous2.type) {
       previous2.count += 1;
       previous2.event = event;
       previous2.activity = activity;
@@ -36248,28 +36302,9 @@ function compactActivityEvents(sourceEvents) {
   });
   return compacted.slice(-10).reverse();
 }
-function llmChunkActivity(data2) {
-  var _a2;
-  switch (data2.type) {
-    case "reasoning":
-      return { title: "模型推理", detail: shortText(data2.text || "模型正在返回推理内容。", 180), kind: "running" };
-    case "tool_call":
-      return { title: "模型准备工具", detail: "正在组装工具调用参数。", kind: "running" };
-    case "usage":
-      return { title: "模型用量已返回", detail: `${Number(((_a2 = data2.usage) == null ? void 0 : _a2.total_tokens) || 0)} tokens`, kind: "ok" };
-    case "stop":
-      return { title: "模型流已结束", detail: data2.finish_reason || "已完成流式响应。", kind: "ok" };
-    case "error": {
-      const presentation = providerErrorPresentation(data2.error, "流式响应失败。");
-      return { title: "模型流错误", detail: shortText(presentation.detail, 260), kind: "failed" };
-    }
-    default:
-      return { title: "生成回复", detail: "正在流式返回内容。", kind: "running" };
-  }
-}
 function activityView(event) {
   var _a2, _b;
-  const data2 = eventData(event);
+  const data = eventData(event);
   switch (event == null ? void 0 : event.type) {
     case "agent.message":
       return { title: "智能体已回复", detail: shortText(cleanMessageText(eventText(event)) || "已准备工具动作。", 180), kind: "ok" };
@@ -36279,62 +36314,58 @@ function activityView(event) {
       return { title: "正在处理", detail: "正在准备下一步。", kind: "running" };
     case "runtime.llm_request":
       return { title: "请求模型", detail: "正在生成下一步动作或回复。", kind: "running" };
-    case "runtime.llm_delta":
-      return { title: "生成回复", detail: "正在流式返回内容。", kind: "running" };
-    case "runtime.llm_chunk":
-      return llmChunkActivity(data2);
     case "runtime.llm_response":
       return { title: "模型已返回", detail: "正在判断是否需要工具。", kind: "running" };
     case "runtime.progress_message":
-      return { title: "过程更新", detail: shortText(data2.text || "智能体正在继续处理。", 180), kind: "running" };
+      return { title: "过程更新", detail: shortText(data.text || "智能体正在继续处理。", 180), kind: "running" };
     case "runtime.tool_call": {
       const summary = toolSummary({
-        identifier: data2.identifier,
-        apiName: data2.api_name,
-        args: objectValue(data2.arguments),
-        reason: data2.reason
+        identifier: data.identifier,
+        apiName: data.api_name,
+        args: objectValue(data.arguments),
+        reason: data.reason
       });
       return { title: summary.title, detail: summary.detail || summary.label, kind: summary.risk === "high" ? "warn" : "tool" };
     }
     case "runtime.tool_result": {
       const summary = toolSummary({
-        identifier: data2.identifier,
-        apiName: data2.api_name,
-        args: objectValue(data2.arguments),
-        reason: data2.reason,
-        success: data2.success
+        identifier: data.identifier,
+        apiName: data.api_name,
+        args: objectValue(data.arguments),
+        reason: data.reason,
+        success: data.success
       });
-      const artifactCount = Array.isArray(data2.artifacts) ? data2.artifacts.length : 0;
-      const detail = data2.success === false ? data2.error || data2.message || "工具返回了错误。" : artifactCount ? `生成了 ${artifactCount} 个结果文件。` : summary.detail;
-      return { title: data2.success === false ? `${summary.title} failed` : `${summary.title} finished`, detail: shortText(detail, 180), kind: data2.success === false ? "error" : "ok" };
+      const artifactCount = Array.isArray(data.artifacts) ? data.artifacts.length : 0;
+      const detail = data.success === false ? data.error || data.message || "工具返回了错误。" : artifactCount ? `生成了 ${artifactCount} 个结果文件。` : summary.detail;
+      return { title: data.success === false ? `${summary.title} failed` : `${summary.title} finished`, detail: shortText(detail, 180), kind: data.success === false ? "error" : "ok" };
     }
     case "runtime.tool_intervention_required": {
       const summary = toolSummary({
-        identifier: data2.identifier,
-        apiName: data2.api_name,
-        args: objectValue(data2.arguments),
-        reason: data2.reason
+        identifier: data.identifier,
+        apiName: data.api_name,
+        args: objectValue(data.arguments),
+        reason: data.reason
       });
-      return { title: `需要审批：${summary.title}`, detail: summary.detail || data2.reason || "请先审批再继续。", kind: "warn" };
+      return { title: `需要审批：${summary.title}`, detail: summary.detail || data.reason || "请先审批再继续。", kind: "warn" };
     }
     case "runtime.tool_intervention_approved":
-      return { title: "审批已通过", detail: data2.decision_reason || "正在继续任务。", kind: "ok" };
+      return { title: "审批已通过", detail: data.decision_reason || "正在继续任务。", kind: "ok" };
     case "runtime.tool_intervention_rejected":
-      return { title: "审批被拒绝", detail: data2.decision_reason || "该工具调用未被允许。", kind: "error" };
+      return { title: "审批被拒绝", detail: data.decision_reason || "该工具调用未被允许。", kind: "error" };
     case "runtime.human_input_required":
-      return { title: "需要补充信息", detail: objectValue(data2.request).question || objectValue(data2.arguments).question || "等待用户输入。", kind: "warn" };
+      return { title: "需要补充信息", detail: objectValue(data.request).question || objectValue(data.arguments).question || "等待用户输入。", kind: "warn" };
     case "runtime.human_input_submitted":
       return { title: "信息已提交", detail: "正在继续任务。", kind: "ok" };
     case "runtime.human_input_skipped":
-      return { title: "已跳过问题", detail: data2.decision_reason || "智能体将根据现有信息继续。", kind: "warn" };
+      return { title: "已跳过问题", detail: data.decision_reason || "智能体将根据现有信息继续。", kind: "warn" };
     case "runtime.human_input_canceled":
-      return { title: "问题已取消", detail: data2.decision_reason || "用户输入请求已取消。", kind: "error" };
+      return { title: "问题已取消", detail: data.decision_reason || "用户输入请求已取消。", kind: "error" };
     case "runtime.plan_approval_required":
-      return { title: "计划等待审阅", detail: objectValue(data2.request).summary || objectValue(data2.arguments).summary || "请确认计划方向后继续。", kind: "warn" };
+      return { title: "计划等待审阅", detail: objectValue(data.request).summary || objectValue(data.arguments).summary || "请确认计划方向后继续。", kind: "warn" };
     case "runtime.plan_approval_approved":
-      return { title: "计划已批准", detail: data2.decision_reason || "智能体将按计划继续，后续工具仍单独审批。", kind: "ok" };
+      return { title: "计划已批准", detail: data.decision_reason || "智能体将按计划继续，后续工具仍单独审批。", kind: "ok" };
     case "runtime.plan_approval_rejected":
-      return { title: "计划需要修改", detail: data2.decision_reason || "智能体将根据意见修订计划。", kind: "warn" };
+      return { title: "计划需要修改", detail: data.decision_reason || "智能体将根据意见修订计划。", kind: "warn" };
     case "runtime.task_plan_created":
       return { title: "执行计划已创建", detail: shortText(((_a2 = payload(event).plan) == null ? void 0 : _a2.goal) || "智能体开始按步骤推进任务。", 180), kind: "ok" };
     case "runtime.task_items_updated": {
@@ -36350,20 +36381,20 @@ function activityView(event) {
     case "runtime.task_plan_superseded":
       return { title: "执行计划已替换", detail: "智能体已根据最新目标创建新计划。", kind: "warn" };
     case "runtime.turn_completing":
-      return { title: "正在验证完成状态", detail: `正在检查第 ${Number(data2.attempt || 1)} 个候选回复。`, kind: "running" };
+      return { title: "正在验证完成状态", detail: `正在检查第 ${Number(data.attempt || 1)} 个候选回复。`, kind: "running" };
     case "runtime.completion_validated":
-      return { title: "完成验证已通过", detail: data2.validator ? `验证器：${data2.validator}` : "候选回复可以交付。", kind: "ok" };
+      return { title: "完成验证已通过", detail: data.validator ? `验证器：${data.validator}` : "候选回复可以交付。", kind: "ok" };
     case "runtime.completion_blocked":
-      return { title: "继续执行任务", detail: shortText(data2.reason || "候选回复尚未通过完成验证。", 180), kind: "warn" };
+      return { title: "继续执行任务", detail: shortText(data.reason || "候选回复尚未通过完成验证。", 180), kind: "warn" };
     case "runtime.completion_validation_failed":
-      return { title: "完成验证失败", detail: shortText(data2.reason || "任务未能通过完成验证。", 220), kind: "error" };
+      return { title: "完成验证失败", detail: shortText(data.reason || "任务未能通过完成验证。", 220), kind: "error" };
     case "runtime.completed":
     case "session.status_idle":
       return { title: "任务空闲", detail: payload(event).last_turn_status === "failed" ? payload(event).reason || "上一轮执行失败。" : "等待下一条消息。", kind: payload(event).last_turn_status === "failed" ? "error" : "ok" };
     case "runtime.failed":
     case "session.status_failed": {
       const original = payload(event).reason || payload(event).message || "执行过程中出现失败。";
-      const providerError = objectValue(data2.provider_error);
+      const providerError = objectValue(data.provider_error);
       const detail = Object.keys(providerError).length ? providerErrorPresentation(providerError, original).detail : original;
       return { title: "任务失败", detail: shortText(detail, 260), kind: "error" };
     }
@@ -36563,17 +36594,6 @@ function turnActivityLabel(event) {
       return "正在处理当前请求...";
     case "runtime.llm_request":
       return "正在和模型对话...";
-    case "runtime.llm_delta":
-      return "正在生成回复...";
-    case "runtime.llm_chunk": {
-      const type = eventData(event).type;
-      if (type === "reasoning") return "模型正在推理...";
-      if (type === "tool_call") return "模型正在准备工具调用...";
-      if (type === "usage") return "模型已返回用量...";
-      if (type === "stop") return "模型流已结束，正在整理...";
-      if (type === "error") return "模型流式响应失败。";
-      return "正在生成回复...";
-    }
     case "runtime.llm_response":
       return "模型已返回结果，正在整理...";
     case "runtime.progress_message":
@@ -36625,8 +36645,6 @@ function turnSignal(events2, options = {}) {
       "runtime.started",
       "runtime.thinking",
       "runtime.llm_request",
-      "runtime.llm_chunk",
-      "runtime.llm_delta",
       "runtime.llm_response",
       "runtime.tool_call",
       "runtime.tool_result",
@@ -36755,11 +36773,11 @@ function ProcessEventCard({
   skillEnableDisabled = false
 }) {
   var _a2, _b;
-  const data2 = eventData(event);
-  const error = objectValue(data2.error);
-  const args = objectValue(data2.arguments);
-  const state = objectValue(data2.state);
-  const artifacts2 = Array.isArray(data2.artifacts) ? data2.artifacts : [];
+  const data = eventData(event);
+  const error = objectValue(data.error);
+  const args = objectValue(data.arguments);
+  const state = objectValue(data.state);
+  const artifacts2 = Array.isArray(data.artifacts) ? data.artifacts : [];
   let title = event.type;
   let metaLabel = event.type;
   let preview = "";
@@ -36780,26 +36798,18 @@ function ProcessEventCard({
     status = active ? "running" : "completed";
     statusLabel = active ? "进行中" : "完成";
     defaultExpanded = true;
-  } else if (isReasoningChunk(event)) {
-    title = "推理过程";
-    metaLabel = "模型返回";
-    preview = String(data2.text || "");
-    tone = "tool";
-    status = active ? "running" : "completed";
-    statusLabel = active ? "生成中" : "完成";
-    defaultExpanded = false;
   } else if (event.type === "runtime.tool_call") {
     const summary = toolSummary({
-      identifier: data2.identifier,
-      apiName: data2.api_name,
+      identifier: data.identifier,
+      apiName: data.api_name,
       args,
-      reason: data2.reason,
-      source: data2.tool_source,
-      manifestType: data2.manifest_type
+      reason: data.reason,
+      source: data.tool_source,
+      manifestType: data.manifest_type
     });
     title = summary.title;
     metaLabel = `调用 · ${summary.label}`;
-    preview = processPreview(data2.identifier, data2.api_name, args, {}, summary.source);
+    preview = processPreview(data.identifier, data.api_name, args, {}, summary.source);
     detailObject = {
       source: summary.sourceLabel,
       arguments: Object.keys(args).length ? args : void 0
@@ -36828,46 +36838,46 @@ function ProcessEventCard({
     }
   } else if (event.type === "runtime.tool_result") {
     const summary = toolSummary({
-      identifier: data2.identifier,
-      apiName: data2.api_name,
+      identifier: data.identifier,
+      apiName: data.api_name,
       args,
-      reason: data2.reason,
-      success: data2.success,
-      source: data2.tool_source,
-      manifestType: data2.manifest_type
+      reason: data.reason,
+      success: data.success,
+      source: data.tool_source,
+      manifestType: data.manifest_type
     });
     title = summary.title;
     metaLabel = `结果 · ${summary.label}`;
-    preview = processPreview(data2.identifier, data2.api_name, args, {
-      content: data2.content,
+    preview = processPreview(data.identifier, data.api_name, args, {
+      content: data.content,
       error,
       state,
-      success: data2.success
+      success: data.success
     }, summary.source) || (artifacts2.length ? `${artifacts2.length} artifact${artifacts2.length === 1 ? "" : "s"} generated.` : "Tool finished successfully.");
     detailObject = {
       source: summary.sourceLabel,
       arguments: Object.keys(args).length ? args : void 0,
-      content: data2.content || void 0,
-      state: data2.state && Object.keys(objectValue(data2.state)).length ? data2.state : void 0,
+      content: data.content || void 0,
+      state: data.state && Object.keys(objectValue(data.state)).length ? data.state : void 0,
       artifacts: artifacts2.length ? artifacts2 : void 0,
       error: Object.keys(error).length ? error : void 0
     };
-    tone = data2.success === false ? "error" : "ok";
-    status = data2.success === false ? "error" : "completed";
-    statusLabel = data2.success === false ? "失败" : "完成";
-    defaultExpanded = data2.success !== false && data2.identifier === "skills" && ["preview", "install", "enable", "disable"].includes(data2.api_name);
+    tone = data.success === false ? "error" : "ok";
+    status = data.success === false ? "error" : "completed";
+    statusLabel = data.success === false ? "失败" : "完成";
+    defaultExpanded = data.success !== false && data.identifier === "skills" && ["preview", "install", "enable", "disable"].includes(data.api_name);
   } else if (event.type === "runtime.tool_intervention_required") {
     const summary = toolSummary({
-      identifier: data2.identifier,
-      apiName: data2.api_name,
+      identifier: data.identifier,
+      apiName: data.api_name,
       args,
-      reason: data2.reason,
-      source: data2.tool_source,
-      manifestType: data2.manifest_type
+      reason: data.reason,
+      source: data.tool_source,
+      manifestType: data.manifest_type
     });
     title = `需要审批：${summary.title}`;
     metaLabel = `审批 · ${summary.label}`;
-    preview = summary.detail || data2.reason || "请先审批再继续。";
+    preview = summary.detail || data.reason || "请先审批再继续。";
     detailObject = {
       source: summary.sourceLabel,
       arguments: Object.keys(args).length ? args : void 0
@@ -36895,13 +36905,13 @@ function ProcessEventCard({
   } else if (event.type === "runtime.tool_intervention_approved") {
     title = "审批已通过";
     metaLabel = "审批";
-    preview = data2.decision_reason || "该工具调用可以继续执行。";
+    preview = data.decision_reason || "该工具调用可以继续执行。";
     tone = "ok";
     statusLabel = "已通过";
   } else if (event.type === "runtime.tool_intervention_rejected") {
     title = "审批被拒绝";
     metaLabel = "审批";
-    preview = data2.decision_reason || "该工具调用已停止。";
+    preview = data.decision_reason || "该工具调用已停止。";
     tone = "error";
     status = "error";
     statusLabel = "已拒绝";
@@ -36918,7 +36928,7 @@ function ProcessEventCard({
   } else if (event.type === "runtime.plan_approval_rejected") {
     title = "计划需要修改";
     metaLabel = "计划审批";
-    preview = data2.decision_reason || "智能体将根据意见修订计划。";
+    preview = data.decision_reason || "智能体将根据意见修订计划。";
     tone = "warn";
     status = "warning";
     statusLabel = "需修改";
@@ -36927,7 +36937,7 @@ function ProcessEventCard({
     title = "任务失败";
     metaLabel = "执行错误";
     const original = payload(event).reason || payload(event).message || eventText(event) || "执行过程中出现错误。";
-    const providerError = objectValue(data2.provider_error);
+    const providerError = objectValue(data.provider_error);
     const presentation = Object.keys(providerError).length ? providerErrorPresentation(providerError, original) : null;
     preview = (presentation == null ? void 0 : presentation.detail) || original;
     detailObject = presentation ? { description: presentation.description, original_error: presentation.original, provider_error: providerError } : Object.keys(error).length ? { error } : null;
@@ -36939,12 +36949,12 @@ function ProcessEventCard({
   const startedAtMS = new Date(event.created_at || "").getTime();
   const completedAtMS = new Date(completedAt || "").getTime();
   const inferredDurationMS = Number.isFinite(startedAtMS) && Number.isFinite(completedAtMS) && completedAtMS > startedAtMS ? completedAtMS - startedAtMS : 0;
-  const durationMS = Number(firstValue(data2, ["duration_ms"]) || firstValue(payload(event), ["duration_ms"]) || inferredDurationMS);
+  const durationMS = Number(firstValue(data, ["duration_ms"]) || firstValue(payload(event), ["duration_ms"]) || inferredDurationMS);
   const eventTime = formatClockTime(event.created_at);
   const installedSkill = objectValue(state.skill);
   const installedVersion = objectValue(state.version);
   const installedSkillKey = `${installedSkill.identifier}:${Number(installedVersion.version || 1)}`;
-  const skillInstallAction = event.type === "runtime.tool_result" && data2.success !== false && data2.identifier === "skills" && data2.api_name === "install" && installedSkill.identifier && !enabledSkillKeys.has(installedSkillKey) ? {
+  const skillInstallAction = event.type === "runtime.tool_result" && data.success !== false && data.identifier === "skills" && data.api_name === "install" && installedSkill.identifier && !enabledSkillKeys.has(installedSkillKey) ? {
     identifier: String(installedSkill.identifier),
     title: String(installedSkill.title || installedSkill.identifier),
     version: Number(installedVersion.version || 1),
@@ -36956,7 +36966,7 @@ function ProcessEventCard({
   const currentSessionConfigVersion = Number(sessionConfigVersion || 0);
   const enabledLifecycle = latestSkillLifecycle.get(String(enabledBinding.skill || ""));
   const enableIsLatest = !enabledLifecycle || Number(enabledLifecycle.seq || 0) === Number(event.seq || 0);
-  const skillEnableAction = event.type === "runtime.tool_result" && data2.success !== false && data2.identifier === "skills" && data2.api_name === "enable" && enabledBinding.skill && enabledConfigVersion > 0 ? {
+  const skillEnableAction = event.type === "runtime.tool_result" && data.success !== false && data.identifier === "skills" && data.api_name === "enable" && enabledBinding.skill && enabledConfigVersion > 0 ? {
     identifier: String(enabledBinding.skill),
     version: Number(enabledBinding.version || 1),
     targetConfigVersion: enabledConfigVersion,
@@ -36969,7 +36979,7 @@ function ProcessEventCard({
   const disabledLifecycle = latestSkillLifecycle.get(String(disabledBinding.skill || ""));
   const disableIsLatest = !disabledLifecycle || Number(disabledLifecycle.seq || 0) === Number(event.seq || 0);
   const disabledStillActive = [...activeSkillKeys].some((key) => key.startsWith(`${disabledBinding.skill}:`));
-  const skillDisableAction = event.type === "runtime.tool_result" && data2.success !== false && data2.identifier === "skills" && data2.api_name === "disable" && disabledBinding.skill && disabledConfigVersion > 0 ? {
+  const skillDisableAction = event.type === "runtime.tool_result" && data.success !== false && data.identifier === "skills" && data.api_name === "disable" && disabledBinding.skill && disabledConfigVersion > 0 ? {
     identifier: String(disabledBinding.skill),
     version: Number(disabledBinding.version || 0),
     targetConfigVersion: disabledConfigVersion,
@@ -37000,9 +37010,9 @@ function ProcessEventCard({
     expanded ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-summary", children: [
         preview ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "process-card-preview", children: preview }) : null,
-        data2.tool_source ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-source", children: [
+        data.tool_source ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-source", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "来源" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `source-chip ${toolSource(data2.identifier, data2.tool_source, data2.manifest_type)}`, children: toolSourceLabel(toolSource(data2.identifier, data2.tool_source, data2.manifest_type)) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `source-chip ${toolSource(data.identifier, data.tool_source, data.manifest_type)}`, children: toolSourceLabel(toolSource(data.identifier, data.tool_source, data.manifest_type)) })
         ] }) : null
       ] }),
       skillInstallAction ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "skill-install-action", children: [
@@ -37123,25 +37133,6 @@ function MarkdownMessage({ text: text2, streaming = false }) {
 function hasVisibleAgentText(event) {
   return Boolean(cleanMessageText(eventText(event)));
 }
-function streamedAgentReply(events2) {
-  var _a2;
-  const ordered = [...events2 || []].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
-  const lastFinalMessageSeq = ordered.reduce((maximum, event) => event.type === "agent.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
-  const requestEvent = [...ordered].reverse().find((event) => event.type === "runtime.llm_request" && Number(event.seq || 0) > lastFinalMessageSeq);
-  if (!requestEvent) return null;
-  const requestSeq = Number(requestEvent.seq || 0);
-  const stopped = ordered.some((event) => Number(event.seq || 0) > requestSeq && ["agent.message", "runtime.progress_message", "runtime.tool_call", "runtime.tool_intervention_required", "runtime.plan_approval_required", "runtime.failed"].includes(event.type));
-  if (stopped) return null;
-  const chunkEvents = ordered.filter((event) => event.type === "runtime.llm_chunk" && eventData(event).type === "text" && Number(event.seq || 0) > requestSeq);
-  const deltaEvents = chunkEvents.length ? chunkEvents : ordered.filter((event) => event.type === "runtime.llm_delta" && Number(event.seq || 0) > requestSeq);
-  const text2 = deltaEvents.map((event) => String(eventData(event).text || "")).join("");
-  if (!text2) return null;
-  return {
-    createdAt: ((_a2 = deltaEvents[0]) == null ? void 0 : _a2.created_at) || requestEvent.created_at,
-    turnID: String(payload(requestEvent).turn_id || payload(deltaEvents[0]).turn_id || ""),
-    text: text2
-  };
-}
 function mergeEvents(currentEvents, nextEvents) {
   const merged = /* @__PURE__ */ new Map();
   [...currentEvents || [], ...nextEvents || []].forEach((event) => {
@@ -37243,6 +37234,7 @@ function WorkbenchApp() {
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
+  const [liveReply, setLiveReply] = reactExports.useState(null);
   const [taskPlanResponse, setTaskPlanResponse] = reactExports.useState({ plan: null });
   const [interventionResponse, setInterventionResponse] = reactExports.useState({ interventions: [] });
   const [artifactResponse, setArtifactResponse] = reactExports.useState({ artifacts: [] });
@@ -37455,12 +37447,11 @@ function WorkbenchApp() {
   const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(events$1), [events$1]);
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
   const chatTimelineEvents = reactExports.useMemo(
-    () => mergeReasoningChunks([...events$1].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0))).filter((event) => {
+    () => [...events$1].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)).filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       return [
         "runtime.thinking",
-        "runtime.llm_chunk",
         "runtime.progress_message",
         "runtime.tool_call",
         "runtime.tool_result",
@@ -37470,40 +37461,40 @@ function WorkbenchApp() {
         "runtime.plan_approval_required",
         "runtime.plan_approval_rejected",
         "runtime.failed"
-      ].includes(event.type) && (event.type !== "runtime.llm_chunk" || isReasoningChunk(event));
+      ].includes(event.type);
     }),
     [events$1]
   );
   const latestSuccessfulSkillInstallSeq = reactExports.useMemo(() => {
     const event = [...events$1].reverse().find((item) => {
-      const data2 = eventData(item);
-      return item.type === "runtime.tool_result" && data2.success !== false && data2.identifier === "skills" && data2.api_name === "install";
+      const data = eventData(item);
+      return item.type === "runtime.tool_result" && data.success !== false && data.identifier === "skills" && data.api_name === "install";
     });
     return Number((event == null ? void 0 : event.seq) || 0);
   }, [events$1]);
   const enabledSkillKeys = reactExports.useMemo(() => new Set(events$1.flatMap((event) => {
-    const data2 = eventData(event);
-    const state = objectValue(data2.state);
+    const data = eventData(event);
+    const state = objectValue(data.state);
     const binding = objectValue(state.binding);
-    if (event.type !== "runtime.tool_result" || data2.success === false || data2.identifier !== "skills" || data2.api_name !== "enable" || !binding.skill) return [];
+    if (event.type !== "runtime.tool_result" || data.success === false || data.identifier !== "skills" || data.api_name !== "enable" || !binding.skill) return [];
     return [`${binding.skill}:${Number(binding.version || 1)}`];
   })), [events$1]);
   const latestSkillLifecycle = reactExports.useMemo(() => {
     const lifecycle = /* @__PURE__ */ new Map();
     for (const event of events$1) {
-      const data2 = eventData(event);
-      const state = objectValue(data2.state);
+      const data = eventData(event);
+      const state = objectValue(data.state);
       const binding = objectValue(state.binding);
-      if (event.type !== "runtime.tool_result" || data2.success === false || data2.identifier !== "skills" || !["enable", "disable"].includes(data2.api_name) || !binding.skill) continue;
+      if (event.type !== "runtime.tool_result" || data.success === false || data.identifier !== "skills" || !["enable", "disable"].includes(data.api_name) || !binding.skill) continue;
       const current = lifecycle.get(String(binding.skill));
       if (!current || Number(event.seq || 0) >= Number(current.seq || 0)) {
-        lifecycle.set(String(binding.skill), { apiName: data2.api_name, seq: Number(event.seq || 0) });
+        lifecycle.set(String(binding.skill), { apiName: data.api_name, seq: Number(event.seq || 0) });
       }
     }
     return lifecycle;
   }, [events$1]);
   const activeSkillKeys = reactExports.useMemo(() => new Set(parseSkillsConfig(runtimeConfig == null ? void 0 : runtimeConfig.skills).enabled.map((binding) => `${binding.skill}:${Number(binding.version || 1)}`)), [runtimeConfig == null ? void 0 : runtimeConfig.skills]);
-  const streamingReply = reactExports.useMemo(() => streamedAgentReply(events$1), [events$1]);
+  const streamingReply = (liveReply == null ? void 0 : liveReply.sessionID) === sessionID ? liveReply : null;
   const renderedChatTimelineEvents = reactExports.useMemo(() => {
     if (!streamingReply) return chatTimelineEvents;
     return [...chatTimelineEvents, {
@@ -37804,6 +37795,10 @@ function WorkbenchApp() {
         ...current,
         events: mergeEvents(current.events, [event])
       }));
+      if (liveReplyTerminalEventTypes.has(event.type)) {
+        const turnID = String(event.turn_id || payload(event).turn_id || "");
+        setLiveReply((current) => !current || turnID && current.turnID !== turnID ? current : null);
+      }
       const streamedStatus = sessionStatusFromEvent(event);
       if (streamedStatus) {
         mergeSessionStatus(currentSessionID, streamedStatus);
@@ -37832,6 +37827,39 @@ function WorkbenchApp() {
         window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = null;
       }
+    };
+  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id]);
+  reactExports.useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
+    if (!currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.id) !== currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.error)) return void 0;
+    const controller = new AbortController();
+    let active = true;
+    async function consumeLiveEvents() {
+      try {
+        for await (const event of streamSessionLiveEvents(currentSessionID, { signal: controller.signal })) {
+          if (!active || event.type !== "llm.text" || !event.text) continue;
+          setLiveReply((current) => {
+            const sameStream = (current == null ? void 0 : current.turnID) === event.turn_id && (current == null ? void 0 : current.toolRound) === Number(event.tool_round || 0);
+            if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) return current;
+            return {
+              sessionID: currentSessionID,
+              turnID: event.turn_id,
+              toolRound: Number(event.tool_round || 0),
+              streamSeq: Number(event.stream_seq || 0),
+              createdAt: sameStream ? current.createdAt : event.created_at,
+              text: sameStream ? `${current.text}${event.text}` : event.text
+            };
+          });
+        }
+      } catch (error) {
+        if (active && (error == null ? void 0 : error.name) === "AbortError") return;
+      }
+    }
+    consumeLiveEvents();
+    return () => {
+      active = false;
+      controller.abort();
+      setLiveReply((current) => (current == null ? void 0 : current.sessionID) === currentSessionID ? null : current);
     };
   }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id]);
   reactExports.useEffect(() => {

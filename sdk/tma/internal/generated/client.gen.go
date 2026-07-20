@@ -1420,6 +1420,9 @@ type LLMUsageSummary struct {
 	TotalTokens       *int64 `json:"total_tokens,omitempty"`
 }
 
+// LiveEventStream Best-effort server-sent event stream whose data fields contain transient LiveEvent JSON. It has no history or replay guarantee.
+type LiveEventStream = string
+
 // MCPConfigValue defines model for MCPConfigValue.
 type MCPConfigValue struct {
 	union json.RawMessage
@@ -4519,6 +4522,9 @@ type ClientInterface interface {
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2SessionsBySessionIdLiveStream request
+	GetV2SessionsBySessionIdLiveStream(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2SessionsBySessionIdOperatorAudit request
 	GetV2SessionsBySessionIdOperatorAudit(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -6082,6 +6088,18 @@ func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithB
 
 func (c *Client) PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkip(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequest(c.Server, sessionId, turnId, callId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdLiveStream(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdLiveStreamRequest(c.Server, sessionId)
 	if err != nil {
 		return nil, err
 	}
@@ -10959,6 +10977,40 @@ func NewPostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipRequestWithBod
 	return req, nil
 }
 
+// NewGetV2SessionsBySessionIdLiveStreamRequest generates requests for GetV2SessionsBySessionIdLiveStream
+func NewGetV2SessionsBySessionIdLiveStreamRequest(server string, sessionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/live/stream", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetV2SessionsBySessionIdOperatorAuditRequest generates requests for GetV2SessionsBySessionIdOperatorAudit
 func NewGetV2SessionsBySessionIdOperatorAuditRequest(server string, sessionId string) (*http.Request, error) {
 	var err error
@@ -15659,6 +15711,9 @@ type ClientWithResponsesInterface interface {
 
 	PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipWithResponse(ctx context.Context, sessionId string, turnId string, callId string, body PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse, error)
 
+	// GetV2SessionsBySessionIdLiveStreamWithResponse request
+	GetV2SessionsBySessionIdLiveStreamWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdLiveStreamResponse, error)
+
 	// GetV2SessionsBySessionIdOperatorAuditWithResponse request
 	GetV2SessionsBySessionIdOperatorAuditWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdOperatorAuditResponse, error)
 
@@ -17777,6 +17832,28 @@ func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse) Stat
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2SessionsBySessionIdLiveStreamResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdLiveStreamResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdLiveStreamResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -20708,6 +20785,15 @@ func (c *ClientWithResponses) PostV2SessionsBySessionIdInterventionsByTurnIdByCa
 		return nil, err
 	}
 	return ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdLiveStreamWithResponse request returning *GetV2SessionsBySessionIdLiveStreamResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdLiveStreamWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdLiveStreamResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdLiveStream(ctx, sessionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdLiveStreamResponse(rsp)
 }
 
 // GetV2SessionsBySessionIdOperatorAuditWithResponse request returning *GetV2SessionsBySessionIdOperatorAuditResponse
@@ -24303,6 +24389,32 @@ func ParsePostV2SessionsBySessionIdInterventionsByTurnIdByCallIdSkipResponse(rsp
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2SessionsBySessionIdLiveStreamResponse parses an HTTP response from a GetV2SessionsBySessionIdLiveStreamWithResponse call
+func ParseGetV2SessionsBySessionIdLiveStreamResponse(rsp *http.Response) (*GetV2SessionsBySessionIdLiveStreamResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdLiveStreamResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

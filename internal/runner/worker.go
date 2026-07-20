@@ -199,6 +199,14 @@ func (r *WorkerRunner) PostProcessTurn(sessionID string, turnID string) {
 	r.schedulePostProcess(TurnRequest{SessionID: sessionID, TurnID: turnID})
 }
 
+func (r *WorkerRunner) SubscribeLiveEvents(sessionID string) (<-chan LiveEvent, func(), error) {
+	source, ok := r.turnExecutor.(LiveEventSource)
+	if !ok {
+		return nil, nil, ErrLiveEventsUnavailable
+	}
+	return source.SubscribeLiveEvents(sessionID)
+}
+
 func (r *WorkerRunner) schedulePostProcess(request TurnRequest) {
 	select {
 	case <-r.stopped:

@@ -1469,8 +1469,11 @@ func projectStep(event managedagents.Event) TraceStep {
 	case managedagents.EventUserMessage, managedagents.EventAgentMessage:
 		step.Message = firstTextContent(event.Payload)
 		step.Summary = step.Message
-	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse, managedagents.EventRuntimeStarted, managedagents.EventRuntimeThinking, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
+	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeStarted, managedagents.EventRuntimeThinking, managedagents.EventRuntimeCompleted, managedagents.EventRuntimeFailed:
 		step.Message = payloadMessage(event.Payload)
+		step.Summary = step.Message
+	case managedagents.EventRuntimeLLMResponse:
+		step.Message = llmResponseStepSummary(event.Payload)
 		step.Summary = step.Message
 	case managedagents.EventRuntimeSpanStarted, managedagents.EventRuntimeSpanEvent, managedagents.EventRuntimeSpanEnded:
 		step.Message = payloadMessage(event.Payload)
@@ -1526,6 +1529,29 @@ func projectStep(event managedagents.Event) TraceStep {
 		step.Summary = payloadString(event.Payload, "last_turn_status")
 	}
 	return step
+}
+
+func llmResponseStepSummary(raw json.RawMessage) string {
+	data := payloadData(raw)
+	stream, _ := data["stream"].(map[string]any)
+	usage, _ := data["usage"].(map[string]any)
+	facts := []string{"LLM response"}
+	if mapBool(stream, "streamed") {
+		facts = append(facts, fmt.Sprintf("%d chunks", mapInt64(stream, "chunk_count")))
+		facts = append(facts, fmt.Sprintf("%d output chars", mapInt64(stream, "output_chars")))
+		if mapInt64(stream, "text_chunk_count") > 0 {
+			facts = append(facts, fmt.Sprintf("TTFT %d ms", mapInt64(stream, "ttft_ms")))
+		}
+		if finishReason, _ := stream["finish_reason"].(string); finishReason != "" {
+			facts = append(facts, "finish "+finishReason)
+		}
+	} else {
+		facts = append(facts, "non-streamed")
+	}
+	if totalTokens := mapInt64(usage, "total_tokens"); totalTokens > 0 {
+		facts = append(facts, fmt.Sprintf("%d tokens", totalTokens))
+	}
+	return strings.Join(facts, ", ")
 }
 
 func appendTurnSummary(existing string, turnID string, summary string) string {
@@ -1816,7 +1842,7 @@ func spanName(step TraceStep) string {
 
 func spanKind(eventType string) string {
 	switch eventType {
-	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse, managedagents.EventRuntimeLLMChunk, managedagents.EventRuntimeLLMDelta:
+	case managedagents.EventRuntimeLLMRequest, managedagents.EventRuntimeLLMResponse:
 		return "llm"
 	case managedagents.EventRuntimeToolCall, managedagents.EventRuntimeToolResult:
 		return "tool"

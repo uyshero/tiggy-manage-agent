@@ -582,6 +582,10 @@ export function streamSessionEvents(sessionId, options = {}) {
   return coreSDK.sessions.events(sessionId, options);
 }
 
+export function streamSessionLiveEvents(sessionId, options = {}) {
+  return coreSDK.sessions.liveEvents(sessionId, options);
+}
+
 export async function interventions(sessionId, status) {
   return { interventions: await coreSDK.interventions.list(sessionId, status) };
 }

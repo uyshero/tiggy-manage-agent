@@ -114,21 +114,6 @@ func formatSSEChunk(lines []string) string {
 			return chunk
 		}
 		return formatted + "\n"
-	case "runtime.llm_delta":
-		formatted, ok := formatLLMDeltaEvent(eventData)
-		if !ok {
-			return chunk
-		}
-		return formatted + "\n"
-	case "runtime.llm_chunk":
-		formatted, ok := formatLLMChunkEvent(eventData)
-		if !ok {
-			return chunk
-		}
-		if formatted == "" {
-			return ""
-		}
-		return formatted + "\n"
 	case "runtime.tool_intervention_required", "runtime.tool_intervention_approved", "runtime.tool_intervention_rejected":
 		formatted, ok := formatToolInterventionEvent(eventType, eventData)
 		if !ok {
@@ -259,67 +244,6 @@ func formatSessionConfigUpdatedEvent(raw string) (string, bool) {
 		builder.WriteString("\n")
 	}
 	return builder.String(), true
-}
-
-func formatLLMDeltaEvent(raw string) (string, bool) {
-	var event struct {
-		Payload json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal([]byte(raw), &event); err != nil {
-		return "", false
-	}
-	var payload struct {
-		Data struct {
-			Text string `json:"text"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return "", false
-	}
-	if payload.Data.Text == "" {
-		return "", false
-	}
-	return formatSpeakerText("delta", payload.Data.Text), true
-}
-
-func formatLLMChunkEvent(raw string) (string, bool) {
-	var event struct {
-		Payload json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal([]byte(raw), &event); err != nil {
-		return "", false
-	}
-	var payload struct {
-		Data struct {
-			Type  string `json:"type"`
-			Text  string `json:"text"`
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return "", false
-	}
-	switch payload.Data.Type {
-	case "text":
-		// The compatibility runtime.llm_delta immediately following this chunk owns CLI text output.
-		return "", true
-	case "reasoning":
-		if payload.Data.Text == "" {
-			return "", true
-		}
-		return formatSpeakerText("reasoning", payload.Data.Text), true
-	case "tool_call", "usage", "stop":
-		return "", true
-	case "error":
-		if payload.Data.Error.Message == "" {
-			return "", true
-		}
-		return formatSpeakerText("llm-error", payload.Data.Error.Message), true
-	default:
-		return "", false
-	}
 }
 
 func payloadText(raw json.RawMessage) (string, bool) {

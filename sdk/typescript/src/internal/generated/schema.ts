@@ -980,6 +980,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/sessions/{session_id}/live/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_sessions_by_session_id_live_stream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/sessions/{session_id}/operator-audit": {
         parameters: {
             query?: never;
@@ -2274,6 +2290,25 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        LiveEvent: {
+            /** Format: int64 */
+            stream_seq: number;
+            session_id: string;
+            turn_id: string;
+            /** @enum {string} */
+            type: "llm.text";
+            /** Format: int32 */
+            index?: number;
+            /** Format: int32 */
+            tool_round?: number;
+            /** @enum {string} */
+            operation: "append";
+            /** @enum {string} */
+            content_format: "markdown";
+            text: string;
+            /** Format: date-time */
+            created_at: string;
+        };
         AgentTaskGroupItemTemplate: {
             agent_id?: string;
             agent?: string;
@@ -2320,6 +2355,8 @@ export interface components {
         };
         /** @description Server-sent event stream whose data fields contain Event JSON. */
         EventStream: string;
+        /** @description Best-effort server-sent event stream whose data fields contain transient LiveEvent JSON. It has no history or replay guarantee. */
+        LiveEventStream: string;
         AgentConfigVersion: {
             /** Format: int32 */
             version: number;
@@ -7580,6 +7617,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InterventionDecision"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_sessions_by_session_id_live_stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["LiveEventStream"];
                 };
             };
             /** @description API error */

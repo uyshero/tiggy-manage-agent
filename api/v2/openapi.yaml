@@ -1831,6 +1831,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/live/stream:
+    get:
+      operationId: get_v2_sessions_by_session_id_live_stream
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/LiveEventStream"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/sessions/{session_id}/operator-audit:
     get:
       operationId: get_v2_sessions_by_session_id_operator_audit
@@ -4097,6 +4118,20 @@ components:
         type: {type: string}
         payload: {$ref: "#/components/schemas/DynamicJSONValue"}
         created_at: {type: string, format: date-time}
+    LiveEvent:
+      type: object
+      required: [stream_seq, session_id, turn_id, type, operation, content_format, text, created_at]
+      properties:
+        stream_seq: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        session_id: {type: string}
+        turn_id: {type: string}
+        type: {type: string, enum: [llm.text]}
+        index: {type: integer, format: int32}
+        tool_round: {type: integer, format: int32}
+        operation: {type: string, enum: [append]}
+        content_format: {type: string, enum: [markdown]}
+        text: {type: string}
+        created_at: {type: string, format: date-time}
     AgentTaskGroupItemTemplate:
       type: object
       required: [message]
@@ -4150,6 +4185,9 @@ components:
     EventStream:
       type: string
       description: Server-sent event stream whose data fields contain Event JSON.
+    LiveEventStream:
+      type: string
+      description: Best-effort server-sent event stream whose data fields contain transient LiveEvent JSON. It has no history or replay guarantee.
     AgentConfigVersion:
       type: object
       required: [version, llm_provider, llm_model, system, created_at]

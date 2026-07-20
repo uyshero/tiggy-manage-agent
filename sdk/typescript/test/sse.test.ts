@@ -39,6 +39,29 @@ describe("SSE", () => {
     expect(calls).toBe(1);
   });
 
+  it("streams transient live text without a durable cursor", async () => {
+    server = await startServer((request, response) => {
+      expect(request.url).toBe("/v2/sessions/sesn_1/live/stream");
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: {"stream_seq":7,"session_id":"sesn_1","turn_id":"turn_1","type":"llm.text","operation":"append","content_format":"markdown","text":"hello","created_at":"2026-07-15T00:00:00Z"}\n\n`);
+    });
+    const client = new TMAClient(server.baseURL);
+    const stream = client.sessions.liveEvents("sesn_1", { retryInitialMs: 1 });
+    const event = await stream.next();
+    await stream.return(undefined);
+    expect(event.value).toMatchObject({ stream_seq: 7, type: "llm.text", text: "hello" });
+  });
+
+  it("rejects durable events on the transient live stream", async () => {
+    server = await startServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: {"id":"evt_1","session_id":"sesn_1","seq":1,"type":"runtime.llm_response","created_at":"2026-07-15T00:00:00Z"}\n\n`);
+    });
+    const client = new TMAClient(server.baseURL);
+    const stream = client.sessions.liveEvents("sesn_1", { retryInitialMs: 1 });
+    await expect(stream.next()).rejects.toBeInstanceOf(SSESchemaError);
+  });
+
   it("stops locally when AbortSignal is canceled", async () => {
     server = await startServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });

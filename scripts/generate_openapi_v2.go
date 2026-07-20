@@ -205,6 +205,7 @@ var coreContracts = map[string]routeContract{
 	"post /v2/sessions/{session_id}/events":                                    {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
 	"get /v2/sessions/{session_id}/events":                                     {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
 	"get /v2/sessions/{session_id}/events/stream":                              {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
+	"get /v2/sessions/{session_id}/live/stream":                                {ResponseSchema: "LiveEventStream", ContentType: "text/event-stream"},
 	"post /v2/sessions/{session_id}/artifacts":                                 {RequestSchema: "CreateArtifactRequest", RequestRequired: true, ResponseSchema: "Artifact", SuccessStatuses: []string{"201"}},
 	"get /v2/sessions/{session_id}/artifacts":                                  {ResponseSchema: "ArtifactList"},
 	"post /v2/sessions/{session_id}/artifacts/upload":                          {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
@@ -264,6 +265,7 @@ func main() {
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs/{run_id}/cancel"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/events"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/events/stream"},
+		route{Method: "get", Path: "/v2/sessions/{session_id}/live/stream"},
 	)
 	sort.Slice(routes, func(i, j int) bool {
 		if routes[i].Path == routes[j].Path {
@@ -367,6 +369,20 @@ paths:
         type: {type: string}
         payload: {$ref: "#/components/schemas/DynamicJSONValue"}
         created_at: {type: string, format: date-time}
+    LiveEvent:
+      type: object
+      required: [stream_seq, session_id, turn_id, type, operation, content_format, text, created_at]
+      properties:
+        stream_seq: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        session_id: {type: string}
+        turn_id: {type: string}
+        type: {type: string, enum: [llm.text]}
+        index: {type: integer, format: int32}
+        tool_round: {type: integer, format: int32}
+        operation: {type: string, enum: [append]}
+        content_format: {type: string, enum: [markdown]}
+        text: {type: string}
+        created_at: {type: string, format: date-time}
     AgentTaskGroupItemTemplate:
       type: object
       required: [message]
@@ -420,6 +436,9 @@ paths:
     EventStream:
       type: string
       description: Server-sent event stream whose data fields contain Event JSON.
+    LiveEventStream:
+      type: string
+      description: Best-effort server-sent event stream whose data fields contain transient LiveEvent JSON. It has no history or replay guarantee.
     AgentConfigVersion:
       type: object
       required: [version, llm_provider, llm_model, system, created_at]

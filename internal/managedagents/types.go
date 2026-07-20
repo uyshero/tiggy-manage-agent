@@ -41,8 +41,6 @@ const (
 	EventRuntimeStarted                   = "runtime.started"
 	EventRuntimeThinking                  = "runtime.thinking"
 	EventRuntimeLLMRequest                = "runtime.llm_request"
-	EventRuntimeLLMChunk                  = "runtime.llm_chunk"
-	EventRuntimeLLMDelta                  = "runtime.llm_delta"
 	EventRuntimeLLMResponse               = "runtime.llm_response"
 	EventRuntimeProgressMessage           = "runtime.progress_message"
 	EventRuntimeToolCall                  = "runtime.tool_call"

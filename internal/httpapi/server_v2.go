@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/runner"
 )
 
 const requestIDHeader = "X-Request-ID"
@@ -38,9 +40,71 @@ func (s *Server) registerV2Routes() {
 	s.mux.HandleFunc("POST /v2/sessions/{session_id}/runs/{run_id}/cancel", s.withV2Request(s.cancelSessionRunV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/events", s.withV2Request(s.listSessionRunEventsV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/events/stream", s.withV2Request(s.streamSessionRunEventsV2))
+	s.mux.HandleFunc("GET /v2/sessions/{session_id}/live/stream", s.withV2Request(s.streamSessionLiveEventsV2))
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		s.mux.HandleFunc(method+" /v2/{path...}", s.serveV2Alias)
 	}
+}
+
+func (s *Server) streamSessionLiveEventsV2(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusInternalServerError, "streaming_unsupported", "streaming unsupported", false, nil)
+		return
+	}
+	if _, err := s.getSessionForRequest(r, r.PathValue("session_id")); err != nil {
+		writeV2ManagedError(w, r, err)
+		return
+	}
+	source, ok := s.runner.(runner.LiveEventSource)
+	if !ok {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusNotImplemented, "live_stream_unavailable", "live stream is unavailable", false, nil)
+		return
+	}
+	events, cancel, err := source.SubscribeLiveEvents(r.PathValue("session_id"))
+	if err != nil {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusNotImplemented, "live_stream_unavailable", err.Error(), false, nil)
+		return
+	}
+	defer cancel()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	fmt.Fprint(w, ": live stream ready\nretry: 1000\n\n")
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			if err := writeLiveSSE(w, event); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+func writeLiveSSE(w http.ResponseWriter, event runner.LiveEvent) error {
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", event.StreamSeq, event.Type, encoded)
+	return err
 }
 
 func (s *Server) serveV2Alias(w http.ResponseWriter, r *http.Request) {

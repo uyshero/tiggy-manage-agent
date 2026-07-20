@@ -125,6 +125,7 @@ func TestCoreOperationsUseExplicitSchemas(t *testing.T) {
 		{"post", "/v2/sessions/{session_id}/runs", "#/components/schemas/StartRunRequest", "201", "#/components/schemas/StartRunResponse", "application/json"},
 		{"get", "/v2/sessions/{session_id}/runs/{run_id}/events", "", "200", "#/components/schemas/EventList", "application/json"},
 		{"get", "/v2/sessions/{session_id}/runs/{run_id}/events/stream", "", "200", "#/components/schemas/EventStream", "text/event-stream"},
+		{"get", "/v2/sessions/{session_id}/live/stream", "", "200", "#/components/schemas/LiveEventStream", "text/event-stream"},
 		{"post", "/v2/object-refs", "#/components/schemas/CreateObjectRefRequest", "201", "#/components/schemas/ObjectRef", "application/json"},
 		{"get", "/v2/mcp-servers", "", "200", "#/components/schemas/MCPServerList", "application/json"},
 		{"post", "/v2/mcp-servers", "#/components/schemas/CreateMCPServerRequest", "201", "#/components/schemas/MCPServer", "application/json"},

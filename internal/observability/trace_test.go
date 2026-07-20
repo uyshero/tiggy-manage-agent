@@ -9,6 +9,20 @@ import (
 	"tiggy-manage-agent/internal/managedagents"
 )
 
+func TestProjectStepSummarizesPersistedLLMResponseMetrics(t *testing.T) {
+	step := projectStep(managedagents.Event{
+		Seq:  9,
+		Type: managedagents.EventRuntimeLLMResponse,
+		Payload: json.RawMessage(`{
+			"message":"Received response from LLM client.",
+			"data":{"usage":{"total_tokens":42},"stream":{"streamed":true,"chunk_count":18,"text_chunk_count":12,"output_chars":320,"ttft_ms":145,"finish_reason":"stop"}}
+		}`),
+	})
+	if step.Message != "LLM response, 18 chunks, 320 output chars, TTFT 145 ms, finish stop, 42 tokens" {
+		t.Fatalf("unexpected LLM response summary %q", step.Message)
+	}
+}
+
 func TestProjectTurnTraceBuildsToolSummary(t *testing.T) {
 	now := time.Now().UTC()
 	events := []managedagents.Event{

@@ -324,7 +324,7 @@ TMA_LLM_MAX_ATTEMPTS
 TMA_LLM_RETRY_BASE_DELAY_MS
 ```
 
-启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_delta` 数量。
+启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_response` 聚合的 chunk 数量和 TTFT。
 
 如果要验证当前 `.env` 中配置的真实 LLM Provider 的 tool approval 流程，先启动服务，再运行：
 
@@ -657,10 +657,10 @@ status: running (turn turn_000003)
 
 user> edit README
 
-delta> working
-
 agent> done
 ```
+
+持久化 Event Stream 不输出模型文本分片；实时打字效果由 Workbench 单独消费 `/v2/sessions/{session_id}/live/stream`。
 
 当模型命中敏感工具时，审批事件会显示为：
 

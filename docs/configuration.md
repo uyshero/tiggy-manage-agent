@@ -1500,7 +1500,9 @@ openai-compatible
 
 `openai-compatible` 调用 OpenAI Chat Completions 兼容接口，适用于 OpenAI 或企业内部兼容网关。
 
-当前 `openai-compatible` 使用 `stream: true` 读取普通文本 SSE 增量，服务端会把增量写成 `runtime.llm_delta` 事件；最终仍会写一条完整 `agent.message`。带工具 schema 的请求第一版走非流式 Chat Completions，并支持原生 `tools` / `tool_calls` 适配。
+当前 `openai-compatible` 使用 `stream: true` 读取 SSE 增量。文本通过临时 Live SSE 广播，推理和工具参数分片不对外广播，所有分片都不写入 `session_events`；服务端只持久化带聚合流指标的 `runtime.llm_response` 和最终完整 `agent.message`。带工具 schema 的请求支持原生 `tools` / `tool_calls` 适配。
+
+内置 Live Broker 使用进程内有界订阅队列，慢客户端可能丢失临时片段，页面最终以 `agent.message` 收敛。单进程 Server/Runner 可直接使用；多副本或独立 Worker 部署应通过 `runner.LiveEventSource` 接入共享 Pub/Sub，并将 Live SSE 路由到该共享源。任务完成、审批、工具结果和审计不依赖 Live Broker。
 
 Session 级工具权限和沙箱网络可通过 `PATCH /v1/sessions/{session_id}/runtime-settings` 热更新。`intervention_mode` 当前支持 `request_approval`、`approve_for_me`、`full_access`；`cloud_sandbox_allow_network` 可控制单个 session 的沙箱是否具备外网访问能力。具备外网能力时，`default.run_command` / `default.execute_code` 和 `web.search` / `web.crawl` 会使用同一套审批策略，reason 为 `network_access`。
 
@@ -1707,7 +1709,7 @@ runtime.llm_response
 agent.message
 ```
 
-如果 Provider 返回流式增量，会同时统计 `runtime.llm_delta` 数量。该命令不会打印 API Key。
+如果 Provider 返回流式增量，会显示 `runtime.llm_response` 中聚合的 chunk 数量和 TTFT。该命令不会打印 API Key。
 
 ### `TMA_CLI`
 

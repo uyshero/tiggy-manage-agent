@@ -11,7 +11,6 @@ import { buildToolCallLifecycles, terminalToolLifecycleEvent, toolCallID } from 
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { providerErrorPresentation } from "./providerErrors.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
-import { isReasoningChunk, mergeReasoningChunks } from "./reasoningEvents.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
 import DialogHost from "./workbench/DialogHost.jsx";
 import { createDialogService } from "./workbench/dialogService.js";
@@ -148,6 +147,15 @@ const sessionSyncEventTypes = new Set([
   "session.status_failed",
   "session.status_terminated",
   "session.config_updated"
+]);
+const liveReplyTerminalEventTypes = new Set([
+  "agent.message",
+  "runtime.progress_message",
+  "runtime.tool_call",
+  "runtime.tool_intervention_required",
+  "runtime.human_input_required",
+  "runtime.plan_approval_required",
+  "runtime.failed"
 ]);
 
 function Empty({ children }) {
@@ -3420,8 +3428,7 @@ function compactActivityEvents(sourceEvents) {
     const activity = activityView(event);
     const previous = compacted[compacted.length - 1];
     const signature = [activity.title, activity.detail, activity.kind].join("|");
-    const isStreamingNoise = event.type === "runtime.llm_delta" || event.type === "runtime.llm_chunk";
-    if (previous && previous.signature === signature && (isStreamingNoise || event.type === previous.type)) {
+    if (previous && previous.signature === signature && event.type === previous.type) {
       previous.count += 1;
       previous.event = event;
       previous.activity = activity;
@@ -3438,25 +3445,6 @@ function compactActivityEvents(sourceEvents) {
   return compacted.slice(-10).reverse();
 }
 
-function llmChunkActivity(data) {
-  switch (data.type) {
-    case "reasoning":
-      return { title: "模型推理", detail: shortText(data.text || "模型正在返回推理内容。", 180), kind: "running" };
-    case "tool_call":
-      return { title: "模型准备工具", detail: "正在组装工具调用参数。", kind: "running" };
-    case "usage":
-      return { title: "模型用量已返回", detail: `${Number(data.usage?.total_tokens || 0)} tokens`, kind: "ok" };
-    case "stop":
-      return { title: "模型流已结束", detail: data.finish_reason || "已完成流式响应。", kind: "ok" };
-    case "error": {
-      const presentation = providerErrorPresentation(data.error, "流式响应失败。");
-      return { title: "模型流错误", detail: shortText(presentation.detail, 260), kind: "failed" };
-    }
-    default:
-      return { title: "生成回复", detail: "正在流式返回内容。", kind: "running" };
-  }
-}
-
 function activityView(event) {
   const data = eventData(event);
   switch (event?.type) {
@@ -3468,10 +3456,6 @@ function activityView(event) {
       return { title: "正在处理", detail: "正在准备下一步。", kind: "running" };
     case "runtime.llm_request":
       return { title: "请求模型", detail: "正在生成下一步动作或回复。", kind: "running" };
-    case "runtime.llm_delta":
-      return { title: "生成回复", detail: "正在流式返回内容。", kind: "running" };
-    case "runtime.llm_chunk":
-      return llmChunkActivity(data);
     case "runtime.llm_response":
       return { title: "模型已返回", detail: "正在判断是否需要工具。", kind: "running" };
     case "runtime.progress_message":
@@ -3786,17 +3770,6 @@ function turnActivityLabel(event) {
       return "正在处理当前请求...";
     case "runtime.llm_request":
       return "正在和模型对话...";
-    case "runtime.llm_delta":
-      return "正在生成回复...";
-    case "runtime.llm_chunk": {
-      const type = eventData(event).type;
-      if (type === "reasoning") return "模型正在推理...";
-      if (type === "tool_call") return "模型正在准备工具调用...";
-      if (type === "usage") return "模型已返回用量...";
-      if (type === "stop") return "模型流已结束，正在整理...";
-      if (type === "error") return "模型流式响应失败。";
-      return "正在生成回复...";
-    }
     case "runtime.llm_response":
       return "模型已返回结果，正在整理...";
     case "runtime.progress_message":
@@ -3851,8 +3824,6 @@ function turnSignal(events, options = {}) {
       "runtime.started",
       "runtime.thinking",
       "runtime.llm_request",
-      "runtime.llm_chunk",
-      "runtime.llm_delta",
       "runtime.llm_response",
       "runtime.tool_call",
       "runtime.tool_result",
@@ -4049,14 +4020,6 @@ function ProcessEventCard({
     status = active ? "running" : "completed";
     statusLabel = active ? "进行中" : "完成";
     defaultExpanded = true;
-  } else if (isReasoningChunk(event)) {
-    title = "推理过程";
-    metaLabel = "模型返回";
-    preview = String(data.text || "");
-    tone = "tool";
-    status = active ? "running" : "completed";
-    statusLabel = active ? "生成中" : "完成";
-    defaultExpanded = false;
   } else if (event.type === "runtime.tool_call") {
     const summary = toolSummary({
       identifier: data.identifier,
@@ -4450,36 +4413,6 @@ function hasVisibleAgentText(event) {
   return Boolean(cleanMessageText(eventText(event)));
 }
 
-function streamedAgentReply(events) {
-  const ordered = [...(events || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
-  const lastFinalMessageSeq = ordered.reduce((maximum, event) => (
-    event.type === "agent.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum
-  ), 0);
-  const requestEvent = [...ordered].reverse().find((event) => (
-    event.type === "runtime.llm_request" && Number(event.seq || 0) > lastFinalMessageSeq
-  ));
-  if (!requestEvent) return null;
-  const requestSeq = Number(requestEvent.seq || 0);
-  const stopped = ordered.some((event) => (
-    Number(event.seq || 0) > requestSeq &&
-    ["agent.message", "runtime.progress_message", "runtime.tool_call", "runtime.tool_intervention_required", "runtime.plan_approval_required", "runtime.failed"].includes(event.type)
-  ));
-  if (stopped) return null;
-  const chunkEvents = ordered.filter((event) => (
-    event.type === "runtime.llm_chunk" && eventData(event).type === "text" && Number(event.seq || 0) > requestSeq
-  ));
-  const deltaEvents = chunkEvents.length ? chunkEvents : ordered.filter((event) => (
-    event.type === "runtime.llm_delta" && Number(event.seq || 0) > requestSeq
-  ));
-  const text = deltaEvents.map((event) => String(eventData(event).text || "")).join("");
-  if (!text) return null;
-  return {
-    createdAt: deltaEvents[0]?.created_at || requestEvent.created_at,
-    turnID: String(payload(requestEvent).turn_id || payload(deltaEvents[0]).turn_id || ""),
-    text
-  };
-}
-
 function mergeEvents(currentEvents, nextEvents) {
   const merged = new Map();
   [...(currentEvents || []), ...(nextEvents || [])].forEach((event) => {
@@ -4594,6 +4527,7 @@ function WorkbenchApp() {
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
+  const [liveReply, setLiveReply] = useState(null);
   const [taskPlanResponse, setTaskPlanResponse] = useState({ plan: null });
   const [interventionResponse, setInterventionResponse] = useState({ interventions: [] });
   const [artifactResponse, setArtifactResponse] = useState({ artifacts: [] });
@@ -4815,14 +4749,13 @@ function WorkbenchApp() {
   const conversationEvents = useMemo(() => events
     .filter((event) => event.type === "user.message" || event.type === "agent.message")
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
-  const chatTimelineEvents = useMemo(() => mergeReasoningChunks([...events]
-    .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)))
+  const chatTimelineEvents = useMemo(() => [...events]
+    .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0))
     .filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       return [
         "runtime.thinking",
-        "runtime.llm_chunk",
         "runtime.progress_message",
         "runtime.tool_call",
         "runtime.tool_result",
@@ -4832,7 +4765,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_required",
         "runtime.plan_approval_rejected",
         "runtime.failed"
-      ].includes(event.type) && (event.type !== "runtime.llm_chunk" || isReasoningChunk(event));
+      ].includes(event.type);
     })
     , [events]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
@@ -4866,7 +4799,7 @@ function WorkbenchApp() {
   const activeSkillKeys = useMemo(() => new Set(parseSkillsConfig(runtimeConfig?.skills).enabled.map((binding) => (
     `${binding.skill}:${Number(binding.version || 1)}`
   ))), [runtimeConfig?.skills]);
-  const streamingReply = useMemo(() => streamedAgentReply(events), [events]);
+	const streamingReply = liveReply?.sessionID === sessionID ? liveReply : null;
 	const renderedChatTimelineEvents = useMemo(() => {
 		if (!streamingReply) return chatTimelineEvents;
 		return [...chatTimelineEvents, {
@@ -5183,6 +5116,10 @@ function WorkbenchApp() {
         ...current,
         events: mergeEvents(current.events, [event])
       }));
+      if (liveReplyTerminalEventTypes.has(event.type)) {
+        const turnID = String(event.turn_id || payload(event).turn_id || "");
+        setLiveReply((current) => !current || (turnID && current.turnID !== turnID) ? current : null);
+      }
       const streamedStatus = sessionStatusFromEvent(event);
       if (streamedStatus) {
         mergeSessionStatus(currentSessionID, streamedStatus);
@@ -5214,6 +5151,43 @@ function WorkbenchApp() {
         window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = null;
       }
+    };
+  }, [sessionID, sessionMeta?.id]);
+
+  useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
+    if (!currentSessionID || sessionMeta?.id !== currentSessionID || sessionMeta?.error) return undefined;
+    const controller = new AbortController();
+    let active = true;
+
+    async function consumeLiveEvents() {
+      try {
+        for await (const event of api.streamSessionLiveEvents(currentSessionID, { signal: controller.signal })) {
+          if (!active || event.type !== "llm.text" || !event.text) continue;
+          setLiveReply((current) => {
+            const sameStream = current?.turnID === event.turn_id && current?.toolRound === Number(event.tool_round || 0);
+            if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) return current;
+            return {
+              sessionID: currentSessionID,
+              turnID: event.turn_id,
+              toolRound: Number(event.tool_round || 0),
+              streamSeq: Number(event.stream_seq || 0),
+              createdAt: sameStream ? current.createdAt : event.created_at,
+              text: sameStream ? `${current.text}${event.text}` : event.text
+            };
+          });
+        }
+      } catch (error) {
+        // Live text is best effort; the durable event stream still delivers the final agent.message.
+        if (active && error?.name === "AbortError") return;
+      }
+    }
+
+    consumeLiveEvents();
+    return () => {
+      active = false;
+      controller.abort();
+      setLiveReply((current) => current?.sessionID === currentSessionID ? null : current);
     };
   }, [sessionID, sessionMeta?.id]);
 

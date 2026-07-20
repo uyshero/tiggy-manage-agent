@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
@@ -42,6 +43,13 @@ type Step struct {
 	Private map[string]any `json:"-"`
 }
 
+// StreamEvent is transient presentation data. It must never be persisted as a runtime step.
+type StreamEvent struct {
+	Index     int
+	ToolRound int
+	Text      string
+}
+
 // TurnRequest 是 AgentRuntime 执行一轮对话所需的最小输入。
 type TurnRequest struct {
 	SessionID          string
@@ -52,6 +60,7 @@ type TurnRequest struct {
 	ResumeIntervention *InterventionResume
 	Config             Config
 	EmitStep           func(context.Context, Step) error
+	EmitStream         func(StreamEvent)
 }
 
 type InterventionResume struct {
@@ -698,7 +707,7 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 		}
 
 		mutationLimits := fileMutationLimits(turnRequest.Config.RuntimeSettings, provider, model)
-		llmResponse, err := generateLLM(ctx, client, requestForLLM, turnRequest, round, mutationLimits)
+		llmResponse, streamStats, err := generateLLM(ctx, client, requestForLLM, turnRequest, round, mutationLimits)
 		if err != nil {
 			var streamLimitError *fileMutationStreamLimitError
 			if errors.As(err, &streamLimitError) {
@@ -722,6 +731,7 @@ func (runtime DemoRuntime) generateWithToolLoop(ctx context.Context, client llm.
 				"content_count": len(llmResponse.Message.Content),
 				"usage":         llmResponse.Usage,
 				"tool_round":    round,
+				"stream":        streamStats.data(),
 			},
 		}); err != nil {
 			return llm.Response{}, err
@@ -2089,22 +2099,75 @@ func (err *fileMutationStreamLimitError) recoveryMessage() string {
 	return fmt.Sprintf("Stop generating the large %s payload. Its streamed arguments already reached the recommended limit of %d estimated tokens. Regenerate this step as exactly one small write_file skeleton with unique numbered placeholders such as __TMA_PLACEHOLDER_REPORT_001__, then replace one placeholder per later edit_file call. Keep every segment below %d estimated tokens.", err.APIName, err.RecommendedTokens, err.MaxTokens)
 }
 
-func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest, toolRound int, mutationLimits tools.FileMutationLimits) (llm.Response, error) {
+type llmStreamStats struct {
+	Streamed            bool
+	ChunkCount          int
+	TextChunkCount      int
+	ReasoningChunkCount int
+	ToolCallChunkCount  int
+	UsageChunkCount     int
+	StopChunkCount      int
+	ErrorChunkCount     int
+	OutputChars         int
+	ReasoningChars      int
+	TTFTMillis          int64
+	FinishReason        string
+	firstTextSeen       bool
+}
+
+func (stats *llmStreamStats) observe(delta llm.Delta, kind string, elapsed time.Duration) {
+	stats.ChunkCount++
+	switch kind {
+	case llm.DeltaKindText:
+		stats.TextChunkCount++
+		stats.OutputChars += utf8.RuneCountInString(delta.Text)
+		if !stats.firstTextSeen {
+			stats.firstTextSeen = true
+			stats.TTFTMillis = elapsed.Milliseconds()
+		}
+	case llm.DeltaKindReasoning:
+		stats.ReasoningChunkCount++
+		stats.ReasoningChars += utf8.RuneCountInString(delta.Text)
+	case llm.DeltaKindToolCall:
+		stats.ToolCallChunkCount++
+	case llm.DeltaKindUsage:
+		stats.UsageChunkCount++
+	case llm.DeltaKindStop:
+		stats.StopChunkCount++
+		stats.FinishReason = delta.FinishReason
+	case llm.DeltaKindError:
+		stats.ErrorChunkCount++
+	}
+}
+
+func (stats llmStreamStats) data() map[string]any {
+	if !stats.Streamed {
+		return map[string]any{"streamed": false}
+	}
+	return map[string]any{
+		"streamed":              true,
+		"chunk_count":           stats.ChunkCount,
+		"text_chunk_count":      stats.TextChunkCount,
+		"reasoning_chunk_count": stats.ReasoningChunkCount,
+		"tool_call_chunk_count": stats.ToolCallChunkCount,
+		"usage_chunk_count":     stats.UsageChunkCount,
+		"stop_chunk_count":      stats.StopChunkCount,
+		"error_chunk_count":     stats.ErrorChunkCount,
+		"output_chars":          stats.OutputChars,
+		"reasoning_chars":       stats.ReasoningChars,
+		"ttft_ms":               stats.TTFTMillis,
+		"finish_reason":         stats.FinishReason,
+	}
+}
+
+func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request, turnRequest TurnRequest, toolRound int, mutationLimits tools.FileMutationLimits) (llm.Response, llmStreamStats, error) {
 	streamingClient, ok := client.(llm.StreamingClient)
 	if !ok {
 		response, err := client.Generate(ctx, llmRequest)
 		if err != nil {
-			return llm.Response{}, err
+			return llm.Response{}, llmStreamStats{}, err
 		}
-		for index, part := range response.Reasoning {
-			if strings.TrimSpace(part.Text) == "" {
-				continue
-			}
-			if err := emitLLMChunk(ctx, turnRequest, llm.Delta{Index: index + 1, Kind: llm.DeltaKindReasoning, Text: part.Text}, toolRound); err != nil {
-				return llm.Response{}, err
-			}
-		}
-		return response, nil
+		return response, llmStreamStats{}, nil
 	}
 
 	streamLimits := normalizedStreamMutationLimits(mutationLimits)
@@ -2113,12 +2176,15 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 		arguments strings.Builder
 	}
 	streamedToolCalls := map[int]*streamedToolCall{}
+	startedAt := time.Now()
+	stats := llmStreamStats{Streamed: true}
 
-	return streamingClient.GenerateStream(ctx, llmRequest, func(delta llm.Delta) error {
+	response, err := streamingClient.GenerateStream(ctx, llmRequest, func(delta llm.Delta) error {
 		kind := defaultString(delta.Kind, llm.DeltaKindText)
 		if !llmDeltaHasPayload(delta, kind) {
 			return nil
 		}
+		stats.observe(delta, kind, time.Since(startedAt))
 		if kind == llm.DeltaKindToolCall && delta.ToolCall != nil {
 			partial := delta.ToolCall
 			call := streamedToolCalls[partial.Index]
@@ -2139,24 +2205,12 @@ func generateLLM(ctx context.Context, client llm.Client, llmRequest llm.Request,
 				}
 			}
 		}
-		if err := emitLLMChunk(ctx, turnRequest, delta, toolRound); err != nil {
-			return err
+		if kind == llm.DeltaKindText && turnRequest.EmitStream != nil {
+			turnRequest.EmitStream(StreamEvent{Index: delta.Index, ToolRound: toolRound, Text: delta.Text})
 		}
-		if kind != llm.DeltaKindText {
-			return nil
-		}
-		return emitStep(ctx, turnRequest, Step{
-			Type:    managedagents.EventRuntimeLLMDelta,
-			Message: "Received streamed LLM text.",
-			Data: map[string]any{
-				"index":          delta.Index,
-				"tool_round":     toolRound,
-				"operation":      "append",
-				"content_format": "markdown",
-				"text":           delta.Text,
-			},
-		})
+		return nil
 	})
+	return response, stats, err
 }
 
 func normalizedStreamMutationLimits(limits tools.FileMutationLimits) tools.FileMutationLimits {
@@ -2167,34 +2221,6 @@ func normalizedStreamMutationLimits(limits tools.FileMutationLimits) tools.FileM
 		limits.RecommendedTokens = minInt(tools.RecommendedFileMutationTokens, limits.MaxTokens)
 	}
 	return limits
-}
-
-func emitLLMChunk(ctx context.Context, turnRequest TurnRequest, delta llm.Delta, toolRound int) error {
-	kind := defaultString(delta.Kind, llm.DeltaKindText)
-	data := map[string]any{
-		"index":      delta.Index,
-		"type":       kind,
-		"tool_round": toolRound,
-	}
-	switch kind {
-	case llm.DeltaKindText, llm.DeltaKindReasoning:
-		data["operation"] = "append"
-		data["content_format"] = "markdown"
-		data["text"] = delta.Text
-	case llm.DeltaKindToolCall:
-		data["tool_call"] = delta.ToolCall
-	case llm.DeltaKindUsage:
-		data["usage"] = delta.Usage
-	case llm.DeltaKindStop:
-		data["finish_reason"] = delta.FinishReason
-	case llm.DeltaKindError:
-		data["error"] = delta.Error
-	}
-	return emitStep(ctx, turnRequest, Step{
-		Type:    managedagents.EventRuntimeLLMChunk,
-		Message: "Received streamed LLM chunk.",
-		Data:    data,
-	})
 }
 
 func llmDeltaHasPayload(delta llm.Delta, kind string) bool {

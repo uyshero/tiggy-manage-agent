@@ -79,6 +79,7 @@ import {
   skillPackageDownloadPath,
   summary,
   streamSessionEvents,
+  streamSessionLiveEvents,
   taskPlan,
   taskGroupTemplates,
   taskTemplates,
@@ -469,6 +470,29 @@ test("Session event stream uses the v2 SDK with after_seq and AbortSignal", asyn
   assert.equal(request.path, "http://localhost/v2/sessions/session%2F1/events/stream?after_seq=4");
   assert.equal(request.options.signal, controller.signal);
   assert.equal(new Headers(request.options.headers).get("Accept"), "text/event-stream");
+});
+
+test("Session live stream uses the transient v2 SDK endpoint without after_seq", async () => {
+  let request;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    request = { path: String(path), options };
+    return new Response(
+      'data: {"stream_seq":1,"session_id":"session/1","turn_id":"turn/1","type":"llm.text","operation":"append","content_format":"markdown","text":"hello","created_at":"2026-07-15T00:00:00Z"}\n\n',
+      { status: 200, headers: { "Content-Type": "text/event-stream" } }
+    );
+  };
+  const controller = new AbortController();
+  try {
+    const stream = streamSessionLiveEvents("session/1", { signal: controller.signal });
+    const result = await stream.next();
+    assert.equal(result.value.text, "hello");
+    await stream.return();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(request.path, "http://localhost/v2/sessions/session%2F1/live/stream");
+  assert.equal(request.options.signal, controller.signal);
 });
 
 test("current Session task Plan treats 404 as an empty snapshot", async () => {

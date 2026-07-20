@@ -115,10 +115,13 @@ for event_type in required:
         print(f"turn {turn_id} missing {event_type}", file=sys.stderr)
         sys.exit(6)
 
-delta_count = same_turn_types.count("runtime.llm_delta")
+response_events = [event for event in same_turn_events if event.get("type") == "runtime.llm_response"]
+stream_summary = response_events[-1].get("payload", {}).get("data", {}).get("stream", {}) if response_events else {}
 print(json.dumps({
     "turn_id": turn_id,
-    "delta_count": delta_count,
+    "streamed": bool(stream_summary.get("streamed")),
+    "chunk_count": int(stream_summary.get("chunk_count", 0)),
+    "ttft_ms": int(stream_summary.get("ttft_ms", 0)),
     "text_preview": texts[0][:120],
 }, ensure_ascii=False))
 '
