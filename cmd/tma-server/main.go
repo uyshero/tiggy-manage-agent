@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/agentruntime"
+	"tiggy-manage-agent/internal/agentschedule"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/httpapi"
@@ -235,6 +236,13 @@ func main() {
 	defer pidFileCleanup()
 	stopWorkerReaper := startWorkerReaper(config.Worker.Reaper, store, logger)
 	stopWorkerWorkReaper := startWorkerWorkReaper(config.Worker.WorkReaper, store, logger)
+	stopAgentScheduler := func() {}
+	if scheduleStore, ok := store.(managedagents.AgentScheduleStore); ok {
+		stopAgentScheduler = agentschedule.Start(serverContext, agentschedule.Service{
+			Store: scheduleStore, State: store, Runner: turnRunner, Logger: logger, Limit: 20,
+		}, 15*time.Second)
+		logger.Info("agent scheduler enabled", "interval", 15*time.Second, "batch_size", 20)
+	}
 	stopObservabilityRetry := startObservabilityExporterRetry(config.Observability.ExporterRetry, store, logger)
 	stopSecurityAuditWorker := startSecurityAuditWorker(securityAuditPipeline)
 	stopSkillAssetGC := func() {}
@@ -261,6 +269,7 @@ func main() {
 	<-shutdownSignal()
 	// Shutdown waits for active SSE requests, so cancel their shared base context first.
 	cancelServerContext()
+	stopAgentScheduler()
 	stopTraceIndexRetention()
 	stopSkillAssetGC()
 	stopObservabilityRetry()

@@ -27003,6 +27003,24 @@ async function getJSON(path2) {
 function currentPrincipal() {
   return coreSDK.auth.me();
 }
+async function postJSON(path2, body) {
+  const response = await fetch(path2, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
+  return response.json();
+}
+async function patchJSON(path2, body) {
+  const response = await fetch(path2, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
+  return response.json();
+}
 async function responseErrorMessage(response) {
   const text2 = await response.text();
   try {
@@ -27011,6 +27029,11 @@ async function responseErrorMessage(response) {
   } catch {
     return text2 || `HTTP ${response.status}`;
   }
+}
+async function deleteRequest(path2) {
+  const response = await fetch(path2, { method: "DELETE" });
+  if (!response.ok) throw new Error(await responseErrorMessage(response));
+  return true;
 }
 function createAgent(body, options = {}) {
   return coreSDK.agents.create(body, options.signal);
@@ -27047,6 +27070,21 @@ function rollbackAgentConfigVersion(agentId, version2, options = {}) {
 }
 function agentToolingHealth(agentId, body = {}, options = {}) {
   return coreSDK.agents.toolingHealth(agentId, body, options.signal);
+}
+function agentSchedules(agentId) {
+  return getJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`);
+}
+function createAgentSchedule(agentId, body) {
+  return postJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`, body);
+}
+function updateAgentSchedule(agentId, scheduleId, body) {
+  return patchJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`, body);
+}
+function deleteAgentSchedule(agentId, scheduleId) {
+  return deleteRequest(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`);
+}
+function runAgentSchedule(agentId, scheduleId) {
+  return postJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}/run`, {});
 }
 async function mcpServers(workspaceId = "") {
   return { servers: await coreSDK.mcp.list(workspaceId ? { workspaceId } : {}) };
@@ -34697,7 +34735,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
     ] })
   ] });
 }
-function EnvironmentVariablesSettings({ workspaceID }) {
+function EnvironmentVariablesSettings({ canManageWorkspaceVariables, workspaceID }) {
   const [variables, setVariables] = reactExports.useState([]);
   const [name2, setName] = reactExports.useState("");
   const [value, setValue] = reactExports.useState("");
@@ -34764,7 +34802,11 @@ function EnvironmentVariablesSettings({ workspaceID }) {
       /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "environment-count", children: variables.length })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "settings-card environment-variable-form", onSubmit: save, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "添加或轮换变量" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card-title", children: [
+        "添加或轮换",
+        canManageWorkspaceVariables ? "工作区共享" : "个人",
+        "变量"
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "environment-form-grid", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Key" }),
@@ -34785,15 +34827,16 @@ function EnvironmentVariablesSettings({ workspaceID }) {
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "environment-variable-name", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: variable.name }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `environment-variable-scope ${variable.scope || "workspace"}`, children: variable.scope === "personal" ? "个人" : "工作区共享" }),
             "更新于 ",
             formatTime(variable.updated_at)
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-row-actions", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "environment-configured", children: "已配置" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary danger", type: "button", disabled: Boolean(busy), onClick: () => remove(variable.name), children: busy === `delete:${variable.name}` ? "删除中..." : "删除" })
+          variable.editable ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary danger", type: "button", disabled: Boolean(busy), onClick: () => remove(variable.name), children: busy === `delete:${variable.name}` ? "删除中..." : "删除" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "environment-readonly", children: "只读" })
         ] })
-      ] }, variable.name)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "当前工作区没有环境变量。" })
+      ] }, `${variable.scope || "workspace"}:${variable.name}`)) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "当前工作区没有环境变量。" })
     ] })
   ] });
 }
@@ -35724,6 +35767,222 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
     ] }) : null
   ] });
 }
+const schedulePresets = [
+  { value: "0 9 * * 1-5", label: "工作日 09:00" },
+  { value: "0 9 * * *", label: "每天 09:00" },
+  { value: "0 */6 * * *", label: "每 6 小时" },
+  { value: "0 9 * * 1", label: "每周一 09:00" }
+];
+function newScheduleDraft() {
+  return {
+    name: "",
+    prompt: "",
+    cron_expression: schedulePresets[0].value,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+    enabled: true
+  };
+}
+function AgentScheduleManager({ agent: agent2, onOpenSession }) {
+  const [schedules, setSchedules] = reactExports.useState([]);
+  const [draft, setDraft] = reactExports.useState(newScheduleDraft);
+  const [editingID, setEditingID] = reactExports.useState("");
+  const [deleteID, setDeleteID] = reactExports.useState("");
+  const [busy, setBusy] = reactExports.useState("");
+  const [loading, setLoading] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState("");
+  async function loadSchedules() {
+    if (!(agent2 == null ? void 0 : agent2.id)) {
+      setSchedules([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const response = await agentSchedules(agent2.id);
+      setSchedules(response.schedules || []);
+    } catch (loadError) {
+      setError(loadError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  reactExports.useEffect(() => {
+    setDraft(newScheduleDraft());
+    setEditingID("");
+    setDeleteID("");
+    loadSchedules();
+  }, [agent2 == null ? void 0 : agent2.id]);
+  function editSchedule(schedule) {
+    setEditingID(schedule.id);
+    setDeleteID("");
+    setDraft({
+      name: schedule.name,
+      prompt: schedule.prompt,
+      cron_expression: schedule.cron_expression,
+      timezone: schedule.timezone || "UTC",
+      enabled: schedule.enabled !== false
+    });
+  }
+  async function submitSchedule(event) {
+    event.preventDefault();
+    if (!(agent2 == null ? void 0 : agent2.id) || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim()) return;
+    setBusy(editingID || "create");
+    setError("");
+    try {
+      if (editingID) {
+        await updateAgentSchedule(agent2.id, editingID, draft);
+      } else {
+        await createAgentSchedule(agent2.id, draft);
+      }
+      setDraft(newScheduleDraft());
+      setEditingID("");
+      await loadSchedules();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+  async function toggleSchedule(schedule) {
+    setBusy(schedule.id);
+    setError("");
+    try {
+      const updated = await updateAgentSchedule(agent2.id, schedule.id, { enabled: !schedule.enabled });
+      setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (toggleError) {
+      setError(toggleError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+  async function runSchedule(schedule) {
+    setBusy(`run:${schedule.id}`);
+    setError("");
+    try {
+      const result = await runAgentSchedule(agent2.id, schedule.id);
+      await loadSchedules();
+      if (result.session) onOpenSession(result.session);
+    } catch (runError) {
+      setError(runError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+  async function removeSchedule(schedule) {
+    setBusy(`delete:${schedule.id}`);
+    setError("");
+    try {
+      await deleteAgentSchedule(agent2.id, schedule.id);
+      setSchedules((current) => current.filter((item) => item.id !== schedule.id));
+      setDeleteID("");
+      if (editingID === schedule.id) {
+        setEditingID("");
+        setDraft(newScheduleDraft());
+      }
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+  if (!agent2) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "请先选择一个智能体。" }) });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-layout", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "settings-card agent-schedule-form", onSubmit: submitSchedule, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: editingID ? "编辑定时任务" : "新建定时任务" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "任务名称" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft.name, onChange: (event) => setDraft((current) => ({ ...current, name: event.target.value })), placeholder: "日报汇总" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field agent-schedule-wide", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "任务提示词" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { rows: "6", value: draft.prompt, onChange: (event) => setDraft((current) => ({ ...current, prompt: event.target.value })), placeholder: "整理今天的数据并生成摘要" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "执行周期" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: schedulePresets.some((item) => item.value === draft.cron_expression) ? draft.cron_expression : "custom", onChange: (event) => {
+          if (event.target.value !== "custom") setDraft((current) => ({ ...current, cron_expression: event.target.value }));
+        }, children: [
+          schedulePresets.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "custom", children: "自定义 Cron" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Cron 表达式" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft.cron_expression, onChange: (event) => setDraft((current) => ({ ...current, cron_expression: event.target.value })) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "时区" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft.timezone, onChange: (event) => setDraft((current) => ({ ...current, timezone: event.target.value })), placeholder: "Asia/Shanghai" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-schedule-enabled", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: draft.enabled, onChange: (event) => setDraft((current) => ({ ...current, enabled: event.target.checked })) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "创建后启用" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-form-actions", children: [
+        editingID ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => {
+          setEditingID("");
+          setDraft(newScheduleDraft());
+        }, children: "取消" }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: Boolean(busy) || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim(), children: busy === (editingID || "create") ? "保存中..." : editingID ? "保存修改" : "创建任务" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card agent-schedule-list", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-list-head", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card-title", children: [
+          agent2.name || agent2.id,
+          " · ",
+          schedules.length,
+          " 个任务"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button secondary", type: "button", title: "刷新", "aria-label": "刷新定时任务", disabled: loading, onClick: loadSchedules, children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshIcon, {}) })
+      ] }),
+      error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: error }) : null,
+      loading && !schedules.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "正在加载定时任务..." }) : null,
+      !loading && !schedules.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "当前 Agent 还没有定时任务。" }) : null,
+      schedules.map((schedule) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "agent-schedule-row", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-main", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-title", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: schedule.name }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: schedule.enabled ? "enabled" : "disabled" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-cron", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: schedule.cron_expression }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: schedule.timezone })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: schedule.prompt }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-meta", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+              "下次 ",
+              schedule.next_run_at ? formatTime(schedule.next_run_at) : "未安排"
+            ] }),
+            schedule.last_run_at ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+              "上次 ",
+              formatTime(schedule.last_run_at),
+              " · ",
+              schedule.last_run_status || "unknown"
+            ] }) : null,
+            schedule.last_session_id ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "link-button", type: "button", onClick: () => onOpenSession({ id: schedule.last_session_id }), children: "查看结果" }) : null
+          ] }),
+          schedule.last_error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: schedule.last_error }) : null
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-schedule-switch", title: schedule.enabled ? "停用" : "启用", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: schedule.enabled, disabled: Boolean(busy), onChange: () => toggleSchedule(schedule) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: schedule.enabled ? "已启用" : "已停用" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: Boolean(busy), onClick: () => runSchedule(schedule), children: busy === `run:${schedule.id}` ? "启动中..." : "立即运行" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: Boolean(busy), onClick: () => editSchedule(schedule), children: "编辑" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button danger", type: "button", title: "删除", "aria-label": `删除 ${schedule.name}`, disabled: Boolean(busy), onClick: () => setDeleteID(schedule.id), children: /* @__PURE__ */ jsxRuntimeExports.jsx(DeleteIcon, {}) })
+        ] }),
+        deleteID === schedule.id ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-delete-confirm", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "删除后不会再自动执行。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => setDeleteID(""), children: "取消" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "danger", type: "button", disabled: Boolean(busy), onClick: () => removeSchedule(schedule), children: busy === `delete:${schedule.id}` ? "删除中..." : "确认删除" })
+        ] }) : null
+      ] }, schedule.id))
+    ] })
+  ] });
+}
 function SettingsPage({
   activeSection,
   agents: agents2,
@@ -35756,6 +36015,7 @@ function SettingsPage({
   toolingCatalog,
   onSkillsChanged,
   onModelCatalogChanged,
+  principal,
   workspaceID
 }) {
   var _a2, _b, _c, _d;
@@ -35795,6 +36055,7 @@ function SettingsPage({
   const unhealthyCount = healthItems.filter((item) => item.status !== "online").length;
   const healthByKey = new Map(healthItems.map((item) => [`${item.kind}:${item.identifier}`, item]));
   const mcpWorkspaceID = workspaceID || (currentSession == null ? void 0 : currentSession.workspace_id) || (selectedAgent == null ? void 0 : selectedAgent.workspace_id) || "";
+  const canManageWorkspaceVariables = ((principal == null ? void 0 : principal.roles) || []).some((role) => role === "operator" || role === "admin");
   async function refreshMCPRegistry() {
     const response = await mcpServers(mcpWorkspaceID);
     setMCPRegistryServers(response.servers || []);
@@ -35883,7 +36144,7 @@ function SettingsPage({
     var _a3, _b2;
     switch (activeSection) {
       case "environment":
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(EnvironmentVariablesSettings, { workspaceID });
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(EnvironmentVariablesSettings, { canManageWorkspaceVariables, workspaceID });
       case "models":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(ModelManagementSettings, { onCatalogChanged: onModelCatalogChanged, onOpenEnvironment: () => setActiveSection("environment") });
       case "skills":
@@ -36214,7 +36475,8 @@ function SettingsPage({
           ] }) : null,
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-management-tabs", role: "tablist", "aria-label": "Agent 管理视图", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: agentManagementView === "config" ? "active" : "", type: "button", role: "tab", "aria-selected": agentManagementView === "config", onClick: () => setAgentManagementView("config"), children: "配置编辑" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: agentManagementView === "permissions" ? "active" : "", type: "button", role: "tab", "aria-selected": agentManagementView === "permissions", onClick: () => setAgentManagementView("permissions"), children: "权限矩阵" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: agentManagementView === "permissions" ? "active" : "", type: "button", role: "tab", "aria-selected": agentManagementView === "permissions", onClick: () => setAgentManagementView("permissions"), children: "权限矩阵" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: agentManagementView === "schedules" ? "active" : "", type: "button", role: "tab", "aria-selected": agentManagementView === "schedules", onClick: () => setAgentManagementView("schedules"), children: "定时任务" })
           ] }),
           agentManagementView === "config" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-management-layout", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-management-list", children: [
@@ -36246,7 +36508,8 @@ function SettingsPage({
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "当前 Agent 配置" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(AgentConfigEditor, { agent: selectedAgent, mcpRegistryServers, modelOptions, onRollback: onRollbackAgent, onSave: onSaveAgent, rollingBackVersion, saving: savingAgent, skills: skills2 })
             ] })
-          ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-permissions-card", children: [
+          ] }) : null,
+          agentManagementView === "permissions" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-permissions-card", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card-title", children: [
               "默认工具权限 · ",
               agents2.length,
@@ -36289,7 +36552,8 @@ function SettingsPage({
                 ] }, agent2.id);
               }) })
             ] }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "工作区里还没有智能体。" })
-          ] })
+          ] }) : null,
+          agentManagementView === "schedules" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AgentScheduleManager, { agent: selectedAgent, onOpenSession }) : null
         ] });
       case "work":
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-content-stack", children: [
@@ -37463,6 +37727,7 @@ function WorkbenchApp() {
   const [composerDragActive, setComposerDragActive] = reactExports.useState(false);
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = reactExports.useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = reactExports.useState("");
+  const [mobileResultsOpen, setMobileResultsOpen] = reactExports.useState(false);
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
@@ -37567,13 +37832,16 @@ function WorkbenchApp() {
     };
   }, []);
   reactExports.useEffect(() => {
-    if (!mobileNavigationPanel) return void 0;
+    if (!mobileNavigationPanel && !mobileResultsOpen) return void 0;
     function closeOnEscape(event) {
-      if (event.key === "Escape") setMobileNavigationPanel("");
+      if (event.key === "Escape") {
+        setMobileNavigationPanel("");
+        setMobileResultsOpen(false);
+      }
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [mobileNavigationPanel]);
+  }, [mobileNavigationPanel, mobileResultsOpen]);
   reactExports.useEffect(() => {
     if (!taskMenuSessionID) return void 0;
     const closeTaskMenu = (event) => {
@@ -39464,6 +39732,7 @@ function WorkbenchApp() {
         onSelectAgent: selectAgentFromSettings,
         onUpdateAgentPermissions: updateAgentPermissionsFromSettings,
         onModelCatalogChanged: refreshModelOptions,
+        principal,
         recentSessions,
         runtimeConfig,
         search: settingsSearch,
@@ -39508,7 +39777,10 @@ function WorkbenchApp() {
             type: "button",
             "aria-expanded": mobileNavigationPanel === "workspace",
             "aria-controls": "mobile-navigation-sidebar",
-            onClick: () => setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace"),
+            onClick: () => {
+              setMobileResultsOpen(false);
+              setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace");
+            },
             children: "工作区"
           }
         ),
@@ -39519,24 +39791,48 @@ function WorkbenchApp() {
             type: "button",
             "aria-expanded": mobileNavigationPanel === "tasks",
             "aria-controls": "mobile-navigation-sidebar",
-            onClick: () => setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks"),
+            onClick: () => {
+              setMobileResultsOpen(false);
+              setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks");
+            },
             children: "任务"
           }
-        )
+        ),
+        !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: `secondary mobile-results-button ${mobileResultsOpen ? "active" : ""}`,
+            type: "button",
+            "aria-expanded": mobileResultsOpen,
+            "aria-controls": "mobile-results-sidebar",
+            onClick: () => {
+              setMobileNavigationPanel("");
+              setRightPanelTab("results");
+              setMobileResultsOpen((current) => !current);
+            },
+            children: [
+              "成果",
+              resultFiles.length ? ` ${resultFiles.length}` : ""
+            ]
+          }
+        ) : null
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-status", children: [
-        principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-user", title: principal.subject || principal.owner_id, children: principal.subject || principal.owner_id }) : null,
+        principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-user", title: principal.username || principal.subject || principal.owner_id, children: principal.username || principal.subject || principal.owner_id }) : null,
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-settings", type: "button", onClick: openSettingsPage, children: "设置" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" })
       ] })
     ] }),
-    mobileNavigationPanel ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+    mobileNavigationPanel || mobileResultsOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
         className: "mobile-navigation-backdrop",
         type: "button",
         "aria-label": "关闭移动端导航",
-        onClick: () => setMobileNavigationPanel("")
+        onClick: () => {
+          setMobileNavigationPanel("");
+          setMobileResultsOpen(false);
+        }
       }
     ) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -39918,78 +40214,84 @@ function WorkbenchApp() {
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "×" })
                   ] }, item.key)) }) : null,
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-settings-inline", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                          "button",
-                          {
-                            className: "secondary composer-settings-toggle",
-                            type: "button",
-                            "aria-expanded": mobileRuntimeSettingsOpen,
-                            "aria-controls": "composer-runtime-settings",
-                            onClick: () => setMobileRuntimeSettingsOpen((current) => !current),
-                            children: [
-                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批与运行环境" }),
-                              /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded: mobileRuntimeSettingsOpen })
-                            ]
-                          }
-                        ),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-collapsible-settings", id: "composer-runtime-settings", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                              "select",
-                              {
-                                disabled: savingSettings,
-                                value: settingsDraft.interventionMode,
-                                onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
-                                children: [
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
-                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
-                                ]
-                              }
-                            )
-                          ] }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              "select",
-                              {
-                                disabled: savingSettings,
-                                value: settingsDraft.toolRuntime,
-                                onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
-                                children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
-                              }
-                            )
-                          ] })
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-settings-inline", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                        "button",
+                        {
+                          className: "secondary composer-settings-toggle",
+                          type: "button",
+                          "aria-expanded": mobileRuntimeSettingsOpen,
+                          "aria-controls": "composer-runtime-settings",
+                          onClick: () => setMobileRuntimeSettingsOpen((current) => !current),
+                          children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "配置" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded: mobileRuntimeSettingsOpen })
+                          ]
+                        }
+                      ),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-collapsible-settings", id: "composer-runtime-settings", children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "select",
+                            {
+                              disabled: savingSettings,
+                              value: settingsDraft.interventionMode,
+                              onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
+                              children: [
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
+                              ]
+                            }
+                          )
+                        ] }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(
+                            "select",
+                            {
+                              disabled: savingSettings,
+                              value: settingsDraft.toolRuntime,
+                              onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
+                              children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
+                            }
+                          )
+                        ] }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting composer-setting-model", children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "模型" }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                            "select",
+                            {
+                              disabled: !modelOptions.length || savingSettings,
+                              value: selectedModelValue,
+                              onChange: (event) => {
+                                const [llmProvider, llmModel] = String(event.target.value || "").split("::");
+                                applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
+                              },
+                              children: [
+                                !modelOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "No models" }) : null,
+                                modelOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: `${option.llmProvider}::${option.llmModel}`, children: [
+                                  option.label,
+                                  " · ",
+                                  modelCapabilityLabel(option.capabilityType)
+                                ] }, `${option.llmProvider}:${option.llmModel}`))
+                              ]
+                            }
+                          )
+                        ] }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-settings", type: "button", onClick: () => setToolPickerOpen(true), children: [
+                          "工具",
+                          selectableToolingItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                            selectedGuidanceItems.length,
+                            "/",
+                            selectableToolingItems.length
+                          ] }) : null
                         ] })
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting composer-setting-model", children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "模型" }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                          "select",
-                          {
-                            disabled: !modelOptions.length || savingSettings,
-                            value: selectedModelValue,
-                            onChange: (event) => {
-                              const [llmProvider, llmModel] = String(event.target.value || "").split("::");
-                              applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
-                            },
-                            children: [
-                              !modelOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "No models" }) : null,
-                              modelOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: `${option.llmProvider}::${option.llmModel}`, children: [
-                                option.label,
-                                " · ",
-                                modelCapabilityLabel(option.capabilityType)
-                              ] }, `${option.llmProvider}:${option.llmModel}`))
-                            ]
-                          }
-                        )
                       ] })
-                    ] }),
+                    ] }) }),
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar-end", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button", type: "button", onClick: () => setToolPickerOpen(true), children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-primary", type: "button", onClick: () => setToolPickerOpen(true), children: [
                         "工具",
                         selectableToolingItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
                           selectedGuidanceItems.length,
@@ -40071,37 +40373,46 @@ function WorkbenchApp() {
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-pane-body", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreviewContent, { preview: artifactPreview, mode: artifactPreviewMode }) })
           ] }) : null,
-          !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx("aside", { className: "user-sidebar right", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Panel,
-            {
-              className: "right-tab-panel",
-              title: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "right-panel-tabs", role: "tablist", "aria-label": "右侧面板", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: rightPanelTab === "results" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "results", onClick: () => setRightPanelTab("results"), children: [
-                  "结果",
-                  resultFiles.length ? ` (${resultFiles.length})` : ""
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: rightPanelTab === "activity" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "activity", onClick: () => setRightPanelTab("activity"), children: "执行" })
-              ] }),
-              children: rightPanelTab === "results" ? resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message)) }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list activity-list", role: "tabpanel", children: activityEvents.length ? activityEvents.map((item) => {
-                const activity = item.activity;
-                const event = item.event;
-                return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `list-item activity-item ${activity.kind}`, children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "activity-head", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: activity.title }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) })
+          !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { id: "mobile-results-sidebar", className: `user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-sidebar-header", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "成果" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", "aria-label": "关闭成果", onClick: () => setMobileResultsOpen(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Panel,
+              {
+                className: "right-tab-panel",
+                title: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "right-panel-tabs", role: "tablist", "aria-label": "右侧面板", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: rightPanelTab === "results" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "results", onClick: () => setRightPanelTab("results"), children: [
+                    "结果",
+                    resultFiles.length ? ` (${resultFiles.length})` : ""
                   ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
-                    activity.detail || activitySummary(event) || "暂无详情。",
-                    item.count > 1 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                      " · ",
-                      item.count,
-                      " 次更新"
-                    ] }) : null
-                  ] })
-                ] }, `${event.seq}-${event.type}-${item.count}`);
-              }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有执行记录。" }) })
-            }
-          ) }) : null
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: rightPanelTab === "activity" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "activity", onClick: () => setRightPanelTab("activity"), children: "执行" })
+                ] }),
+                children: rightPanelTab === "results" ? resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => {
+                  setMobileResultsOpen(false);
+                  previewArtifact(artifact).catch((error) => setStatus(error.message));
+                } }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list activity-list", role: "tabpanel", children: activityEvents.length ? activityEvents.map((item) => {
+                  const activity = item.activity;
+                  const event = item.event;
+                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `list-item activity-item ${activity.kind}`, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "activity-head", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: activity.title }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+                      activity.detail || activitySummary(event) || "暂无详情。",
+                      item.count > 1 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                        " · ",
+                        item.count,
+                        " 次更新"
+                      ] }) : null
+                    ] })
+                  ] }, `${event.seq}-${event.type}-${item.count}`);
+                }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有执行记录。" }) })
+              }
+            )
+          ] }) : null
         ]
       }
     ),

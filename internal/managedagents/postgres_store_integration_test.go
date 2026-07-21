@@ -2590,6 +2590,98 @@ func TestPostgresStoreScopedTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestPostgresEnvironmentVariablesOwnerIsolation(t *testing.T) {
+	adminStore := newPostgresIntegrationStore(t)
+	workspaceID := createPostgresIntegrationWorkspace(t, adminStore, "environment-owner-rls")
+	suffix := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	role := "tma_env_rls_" + suffix
+	password := "tma_env_rls_password_32_bytes"
+	if _, err := adminStore.db.ExecContext(context.Background(), `CREATE ROLE `+role+` LOGIN PASSWORD '`+password+`'`); err != nil {
+		t.Fatalf("create environment RLS test role: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = adminStore.db.ExecContext(context.Background(), `DROP OWNED BY `+role)
+		if _, err := adminStore.db.ExecContext(context.Background(), `DROP ROLE `+role); err != nil {
+			t.Errorf("drop environment RLS test role: %v", err)
+		}
+	})
+	if _, err := adminStore.db.ExecContext(context.Background(), `GRANT USAGE ON SCHEMA public TO `+role); err != nil {
+		t.Fatalf("grant environment RLS schema access: %v", err)
+	}
+	if _, err := adminStore.db.ExecContext(context.Background(), `
+		GRANT SELECT, INSERT, UPDATE, DELETE ON managed_environment_variables TO `+role); err != nil {
+		t.Fatalf("grant environment RLS table access: %v", err)
+	}
+
+	databaseURL, err := url.Parse(os.Getenv("TMA_DATABASE_URL"))
+	if err != nil {
+		t.Fatalf("parse environment RLS database URL: %v", err)
+	}
+	databaseURL.User = url.UserPassword(role, password)
+	restrictedDB, err := sql.Open("pgx", databaseURL.String())
+	if err != nil {
+		t.Fatalf("open environment RLS database: %v", err)
+	}
+	t.Cleanup(func() { _ = restrictedDB.Close() })
+	if err := restrictedDB.PingContext(t.Context()); err != nil {
+		t.Fatalf("ping environment RLS database: %v", err)
+	}
+	restrictedStore := &PostgresStore{db: restrictedDB}
+
+	workspaceContext, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceContext, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: workspaceID, OwnerID: "owner-alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobContext, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: workspaceID, OwnerID: "owner-bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ctx, input := range map[context.Context]envvars.EncryptedVariable{
+		workspaceContext: {WorkspaceID: workspaceID, Name: "SHARED_KEY", Ciphertext: []byte("shared")},
+		aliceContext:     {WorkspaceID: workspaceID, Name: "ALICE_KEY", Ciphertext: []byte("alice")},
+		bobContext:       {WorkspaceID: workspaceID, Name: "BOB_KEY", Ciphertext: []byte("bob")},
+	} {
+		if _, err := restrictedStore.UpsertEncryptedEnvironmentVariable(ctx, input); err != nil {
+			t.Fatalf("create environment variable %s: %v", input.Name, err)
+		}
+	}
+
+	aliceRecords, err := restrictedStore.ListEncryptedEnvironmentVariables(aliceContext, workspaceID)
+	if err != nil {
+		t.Fatalf("list Alice environment variables: %v", err)
+	}
+	aliceNames := make(map[string]string, len(aliceRecords))
+	for _, record := range aliceRecords {
+		aliceNames[record.Name] = record.OwnerID
+	}
+	if len(aliceNames) != 2 || aliceNames["SHARED_KEY"] != "" || aliceNames["ALICE_KEY"] != "owner-alice" {
+		t.Fatalf("Alice environment scope was not shared plus personal: %+v", aliceNames)
+	}
+	if _, visible := aliceNames["BOB_KEY"]; visible {
+		t.Fatalf("Alice could see Bob's personal environment variable: %+v", aliceNames)
+	}
+
+	workspaceRecords, err := restrictedStore.ListEncryptedEnvironmentVariables(workspaceContext, workspaceID)
+	if err != nil || len(workspaceRecords) != 1 || workspaceRecords[0].Name != "SHARED_KEY" || workspaceRecords[0].OwnerID != "" {
+		t.Fatalf("workspace environment scope exposed personal variables: records=%+v err=%v", workspaceRecords, err)
+	}
+	if err := restrictedStore.DeleteEncryptedEnvironmentVariable(aliceContext, workspaceID, "SHARED_KEY"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Alice could delete a shared environment variable: %v", err)
+	}
+	if _, err := restrictedStore.UpsertEncryptedEnvironmentVariable(aliceContext, envvars.EncryptedVariable{
+		WorkspaceID: workspaceID, OwnerID: "owner-bob", Name: "BOB_KEY", Ciphertext: []byte("blocked"),
+	}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("Alice could update Bob's environment variable: %v", err)
+	}
+	if err := restrictedStore.DeleteEncryptedEnvironmentVariable(aliceContext, workspaceID, "ALICE_KEY"); err != nil {
+		t.Fatalf("Alice could not delete her personal environment variable: %v", err)
+	}
+}
+
 func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	adminStore := newPostgresIntegrationStore(t)
 	if err := adminStore.ValidateDatabaseTenantIsolation(context.Background()); err == nil || !strings.Contains(err.Error(), "superuser") {
@@ -2798,7 +2890,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
-		agents, agent_config_versions, environments, managed_environment_variables,
+		agents, agent_config_versions, agent_schedule_runs, agent_schedules, environments, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
 		session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
@@ -2821,7 +2913,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		t.Fatalf("grant Session turn access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
-		GRANT USAGE ON SEQUENCE tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_environment_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
+		GRANT USAGE ON SEQUENCE tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
 		tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
 			tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,
@@ -4199,9 +4291,15 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := tx.Exec(`SELECT set_config('tma.workspace_id', $1, true)`, alphaWorkspace); err != nil {
 		t.Fatalf("set raw alpha RLS scope: %v", err)
 	}
+	if _, err := tx.Exec(`SELECT set_config('tma.owner_id', 'owner-alpha', true)`); err != nil {
+		t.Fatalf("set raw alpha owner RLS scope: %v", err)
+	}
 	var scopedCount int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM managed_environment_variables`).Scan(&scopedCount); err != nil || scopedCount != 1 {
 		t.Fatalf("expected one alpha row through RLS: count=%d err=%v", scopedCount, err)
+	}
+	if _, err := tx.Exec(`SELECT set_config('tma.owner_id', '', true)`); err != nil {
+		t.Fatalf("clear raw alpha owner RLS scope: %v", err)
 	}
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM environments WHERE id IN ($1, $2)`, restrictedAlphaEnvironment.ID, restrictedBetaEnvironment.ID).Scan(&scopedCount); err != nil || scopedCount != 1 {
 		t.Fatalf("expected only the alpha Environment through RLS: count=%d err=%v", scopedCount, err)

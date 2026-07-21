@@ -669,7 +669,7 @@ func TestRegistryExecutorRunsDefaultEditFile(t *testing.T) {
 	}
 
 	arguments, err := json.Marshal(map[string]any{
-		"file_path":  path,
+		"path":       path,
 		"old_string": "world",
 		"new_string": "gopher",
 	})

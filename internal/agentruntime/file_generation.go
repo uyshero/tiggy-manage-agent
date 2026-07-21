@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,9 +18,13 @@ import (
 
 const segmentedFileGenerationStateVersion = "tma.segmented_file_generation.v1"
 
+var workspacePathPattern = regexp.MustCompile(`/workspace/[^\s\x60<>"'|，。；：！？、)\]}）】]+`)
+var workspaceCodePathPattern = regexp.MustCompile("`(/workspace/[^`\\r\\n]+)`")
+
 type segmentedFileGenerationState struct {
 	ProtocolVersion          string                             `json:"protocol_version"`
 	Tasks                    map[string]*segmentedFileTaskState `json:"tasks,omitempty"`
+	FileRevisionReceipts     map[string]string                  `json:"file_revision_receipts,omitempty"`
 	VerifiedDeliverablePaths map[string]bool                    `json:"verified_deliverable_paths,omitempty"`
 	PublishedPaths           map[string]bool                    `json:"published_paths,omitempty"`
 	OversizedCalls           int                                `json:"oversized_call_count,omitempty"`
@@ -41,6 +46,7 @@ func newSegmentedFileGenerationState() *segmentedFileGenerationState {
 	return &segmentedFileGenerationState{
 		ProtocolVersion:          segmentedFileGenerationStateVersion,
 		Tasks:                    map[string]*segmentedFileTaskState{},
+		FileRevisionReceipts:     map[string]string{},
 		VerifiedDeliverablePaths: map[string]bool{},
 		PublishedPaths:           map[string]bool{},
 	}
@@ -53,6 +59,9 @@ func segmentedFileGenerationStateFromRaw(raw json.RawMessage) *segmentedFileGene
 	}
 	if state.Tasks == nil {
 		state.Tasks = map[string]*segmentedFileTaskState{}
+	}
+	if state.FileRevisionReceipts == nil {
+		state.FileRevisionReceipts = map[string]string{}
 	}
 	if state.VerifiedDeliverablePaths == nil {
 		state.VerifiedDeliverablePaths = map[string]bool{}
@@ -86,9 +95,6 @@ func fileMutationPath(call tools.Call) string {
 		var request capability.EditFileRequest
 		if json.Unmarshal(call.Arguments, &request) == nil {
 			path := request.Path
-			if path == "" {
-				path = request.FilePath
-			}
 			if request.WorkDir != "" && !filepath.IsAbs(path) {
 				path = filepath.Join(request.WorkDir, path)
 			}
@@ -112,6 +118,34 @@ func (state *segmentedFileGenerationState) trackedMutation(call tools.Call) bool
 	}
 	_, ok := state.Tasks[fileMutationPath(call)]
 	return ok
+}
+
+func normalizedFileReceiptPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func (state *segmentedFileGenerationState) recordFileReceipt(path string, revision string) {
+	path = normalizedFileReceiptPath(path)
+	revision = strings.TrimSpace(revision)
+	if state == nil || path == "" || revision == "" {
+		return
+	}
+	if state.FileRevisionReceipts == nil {
+		state.FileRevisionReceipts = map[string]string{}
+	}
+	state.FileRevisionReceipts[path] = revision
+}
+
+func (state *segmentedFileGenerationState) fileRevisionForEdit(call tools.Call) (string, bool) {
+	if state == nil || normalizeToolAPIName(call.APIName) != "edit_file" {
+		return "", false
+	}
+	revision := strings.TrimSpace(state.FileRevisionReceipts[normalizedFileReceiptPath(fileMutationPath(call))])
+	return revision, revision != ""
 }
 
 func (state *segmentedFileGenerationState) shouldDeferArtifacts(call tools.Call) bool {
@@ -138,10 +172,14 @@ func (state *segmentedFileGenerationState) planApproves(call tools.Call) bool {
 		return false
 	}
 	var request capability.EditFileRequest
-	if json.Unmarshal(call.Arguments, &request) != nil || !tools.IsSegmentedFilePlaceholder(request.OldString) {
+	if json.Unmarshal(call.Arguments, &request) != nil {
 		return false
 	}
-	return containsString(task.Remaining, request.OldString) || task.SegmentHashes[request.OldString] != ""
+	placeholder, ok := tools.SegmentedFilePlaceholderToken(request.OldString)
+	if !ok {
+		return false
+	}
+	return containsString(task.Remaining, placeholder) || task.SegmentHashes[placeholder] != ""
 }
 
 func (state *segmentedFileGenerationState) idempotentReplay(call tools.Call) (tools.ExecutionResult, bool) {
@@ -149,16 +187,20 @@ func (state *segmentedFileGenerationState) idempotentReplay(call tools.Call) (to
 		return tools.ExecutionResult{}, false
 	}
 	var request capability.EditFileRequest
-	if json.Unmarshal(call.Arguments, &request) != nil || !tools.IsSegmentedFilePlaceholder(request.OldString) {
+	if json.Unmarshal(call.Arguments, &request) != nil {
+		return tools.ExecutionResult{}, false
+	}
+	placeholder, ok := tools.SegmentedFilePlaceholderToken(request.OldString)
+	if !ok {
 		return tools.ExecutionResult{}, false
 	}
 	task := state.Tasks[fileMutationPath(call)]
-	if task == nil || containsString(task.Remaining, request.OldString) {
+	if task == nil || containsString(task.Remaining, placeholder) {
 		return tools.ExecutionResult{}, false
 	}
 	hash := sha256.Sum256([]byte(request.NewString))
 	hashText := hex.EncodeToString(hash[:])
-	if task.SegmentHashes[request.OldString] != hashText {
+	if task.SegmentHashes[placeholder] != hashText {
 		return tools.ExecutionResult{}, false
 	}
 	editResult := capability.EditFileResult{
@@ -185,13 +227,27 @@ func (state *segmentedFileGenerationState) observe(call tools.Call, result tools
 	switch normalizeToolAPIName(call.APIName) {
 	case "read_file":
 		var fileResult capability.FileResult
-		if json.Unmarshal(result.State, &fileResult) == nil && verifiedDeliverablePath(fileResult) {
-			state.VerifiedDeliverablePaths[filepath.ToSlash(filepath.Clean(fileResult.Path))] = true
+		if json.Unmarshal(result.State, &fileResult) == nil {
+			if !fileResult.Binary {
+				state.recordFileReceipt(fileResult.Path, fileResult.FileRevision)
+				var request capability.ReadFileRequest
+				if json.Unmarshal(call.Arguments, &request) == nil {
+					state.recordFileReceipt(request.Path, fileResult.FileRevision)
+				}
+			}
+			if verifiedDeliverablePath(fileResult) {
+				state.VerifiedDeliverablePaths[filepath.ToSlash(filepath.Clean(fileResult.Path))] = true
+			}
 		}
 	case "write_file":
 		var request capability.WriteFileRequest
 		if json.Unmarshal(call.Arguments, &request) != nil {
 			return
+		}
+		var fileResult capability.FileResult
+		if json.Unmarshal(result.State, &fileResult) == nil {
+			state.recordFileReceipt(request.Path, fileResult.FileRevision)
+			state.recordFileReceipt(fileResult.Path, fileResult.FileRevision)
 		}
 		placeholders := tools.SegmentedFilePlaceholders(string(request.Content))
 		if len(placeholders) == 0 {
@@ -208,19 +264,22 @@ func (state *segmentedFileGenerationState) observe(call tools.Call, result tools
 			return
 		}
 		task := state.Tasks[fileMutationPath(call)]
-		if task == nil || !tools.IsSegmentedFilePlaceholder(request.OldString) {
+		placeholder, ok := tools.SegmentedFilePlaceholderToken(request.OldString)
+		if task == nil || !ok {
 			return
 		}
 		var editResult capability.EditFileResult
 		if json.Unmarshal(result.State, &editResult) != nil || !editResult.Success {
 			return
 		}
+		state.recordFileReceipt(fileMutationPath(call), editResult.FileRevision)
+		state.recordFileReceipt(editResult.Path, editResult.FileRevision)
 		if task.SegmentHashes == nil {
 			task.SegmentHashes = map[string]string{}
 		}
 		hash := sha256.Sum256([]byte(request.NewString))
-		task.SegmentHashes[request.OldString] = hex.EncodeToString(hash[:])
-		task.Remaining = removeString(task.Remaining, request.OldString)
+		task.SegmentHashes[placeholder] = hex.EncodeToString(hash[:])
+		task.Remaining = removeString(task.Remaining, placeholder)
 		for _, placeholder := range tools.SegmentedFilePlaceholders(request.NewString) {
 			if !containsString(task.Remaining, placeholder) && task.SegmentHashes[placeholder] == "" {
 				task.Remaining = append(task.Remaining, placeholder)
@@ -274,6 +333,38 @@ func verifiedDeliverablePath(result capability.FileResult) bool {
 func responseReferencesPath(response string, path string) bool {
 	normalizedResponse := strings.ReplaceAll(response, "\\", "/")
 	return strings.Contains(normalizedResponse, filepath.ToSlash(filepath.Clean(path)))
+}
+
+func referencedWorkspaceDeliverablePaths(response string) []string {
+	candidates := make([]string, 0)
+	for _, match := range workspaceCodePathPattern.FindAllStringSubmatch(response, -1) {
+		if len(match) > 1 {
+			candidates = append(candidates, match[1])
+		}
+	}
+	candidates = append(candidates, workspacePathPattern.FindAllString(response, -1)...)
+	seen := map[string]bool{}
+	paths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidate = strings.TrimRight(strings.TrimSpace(candidate), ",.;:!?，。；：！？)]}）】")
+		candidate = filepath.ToSlash(filepath.Clean(candidate))
+		if seen[candidate] || !workspaceDeliverableExtension(candidate) || strings.HasPrefix(candidate, "/workspace/uploads/") {
+			continue
+		}
+		seen[candidate] = true
+		paths = append(paths, candidate)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func workspaceDeliverableExtension(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".docx", ".xlsx", ".pptx", ".zip", ".tar", ".gz", ".tgz":
+		return true
+	default:
+		return false
+	}
 }
 
 func validationCallCoversTask(call tools.Call, task *segmentedFileTaskState) bool {
@@ -422,6 +513,23 @@ func (state *segmentedFileGenerationState) publishReferencedFinalArtifacts(ctx c
 		if !state.PublishedPaths[path] && responseReferencesPath(response, path) {
 			paths = append(paths, path)
 		}
+	}
+	for _, path := range referencedWorkspaceDeliverablePaths(response) {
+		if state.PublishedPaths[path] || state.VerifiedDeliverablePaths[path] {
+			continue
+		}
+		if executionContext.Provider == nil {
+			continue
+		}
+		fileResult, err := executionContext.Provider.ReadFile(ctx, capability.ReadFileRequest{
+			Meta: capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline),
+			Path: path,
+		})
+		if err != nil || !verifiedDeliverablePath(fileResult) {
+			continue
+		}
+		state.VerifiedDeliverablePaths[path] = true
+		paths = append(paths, path)
 	}
 	sort.Strings(paths)
 	for index, path := range paths {

@@ -18,10 +18,10 @@ func (s *PostgresStore) ListEncryptedEnvironmentVariables(ctx context.Context, w
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT workspace_id, name, ciphertext, created_at, updated_at
+		SELECT workspace_id, owner_id, name, ciphertext, created_at, updated_at
 		FROM managed_environment_variables
 		WHERE workspace_id = $1
-		ORDER BY name
+		ORDER BY name, owner_id
 	`, scope.WorkspaceID)
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func (s *PostgresStore) ListEncryptedEnvironmentVariables(ctx context.Context, w
 	var records []envvars.EncryptedVariable
 	for rows.Next() {
 		var record envvars.EncryptedVariable
-		if err := rows.Scan(&record.WorkspaceID, &record.Name, &record.Ciphertext, &record.CreatedAt, &record.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.WorkspaceID, &record.OwnerID, &record.Name, &record.Ciphertext, &record.CreatedAt, &record.UpdatedAt); err != nil {
 			return nil, err
 		}
 		records = append(records, record)
@@ -52,15 +52,22 @@ func (s *PostgresStore) UpsertEncryptedEnvironmentVariable(ctx context.Context, 
 		return envvars.EncryptedVariable{}, err
 	}
 	defer tx.Rollback()
+	ownerID := strings.TrimSpace(input.OwnerID)
+	if ownerID == "" {
+		ownerID = scope.OwnerID
+	}
+	if ownerID != scope.OwnerID {
+		return envvars.EncryptedVariable{}, fmt.Errorf("%w: environment variable owner scope mismatch", ErrForbidden)
+	}
 	now := time.Now().UTC()
 	var record envvars.EncryptedVariable
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO managed_environment_variables (workspace_id, name, ciphertext, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $4)
-		ON CONFLICT (workspace_id, name) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = EXCLUDED.updated_at
-		RETURNING workspace_id, name, ciphertext, created_at, updated_at
-	`, scope.WorkspaceID, strings.TrimSpace(input.Name), input.Ciphertext, now).Scan(
-		&record.WorkspaceID, &record.Name, &record.Ciphertext, &record.CreatedAt, &record.UpdatedAt,
+		INSERT INTO managed_environment_variables (workspace_id, owner_id, name, ciphertext, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $5)
+		ON CONFLICT (workspace_id, owner_id, name) DO UPDATE SET ciphertext = EXCLUDED.ciphertext, updated_at = EXCLUDED.updated_at
+		RETURNING workspace_id, owner_id, name, ciphertext, created_at, updated_at
+	`, scope.WorkspaceID, ownerID, strings.TrimSpace(input.Name), input.Ciphertext, now).Scan(
+		&record.WorkspaceID, &record.OwnerID, &record.Name, &record.Ciphertext, &record.CreatedAt, &record.UpdatedAt,
 	)
 	if err != nil {
 		return envvars.EncryptedVariable{}, err
@@ -77,7 +84,10 @@ func (s *PostgresStore) DeleteEncryptedEnvironmentVariable(ctx context.Context, 
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `DELETE FROM managed_environment_variables WHERE workspace_id = $1 AND name = $2`, scope.WorkspaceID, strings.TrimSpace(name))
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM managed_environment_variables
+		WHERE workspace_id = $1 AND owner_id = $2 AND name = $3
+	`, scope.WorkspaceID, scope.OwnerID, strings.TrimSpace(name))
 	if err != nil {
 		return err
 	}

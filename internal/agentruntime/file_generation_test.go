@@ -219,6 +219,74 @@ func TestRuntimeBlocksCompletionUntilSegmentedFileIsValidated(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequiresReadReceiptBeforeOrdinaryEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("key=old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	editCall := func(id string) llm.Response {
+		return toolCallResponse(llm.ToolCall{ID: id, Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.edit_file", Arguments: mustJSON(t, map[string]any{
+				"path": path, "old_string": "key=old", "new_string": "key=new", "replace_all": false,
+			}),
+		}})
+	}
+	client := &scriptedFileGenerationClient{responses: []llm.Response{
+		editCall("blind-edit"),
+		toolCallResponse(llm.ToolCall{ID: "read", Type: "function", Function: llm.ToolCallFunction{
+			Name: "default.read_file", Arguments: mustJSON(t, map[string]any{"path": path}),
+		}}),
+		editCall("receipt-edit"),
+		textResponse("updated after reading"),
+	}}
+	var steps []Step
+	result, err := (DemoRuntime{Client: client, MaxToolRounds: 6}).RunTurn(t.Context(), TurnRequest{
+		SessionID: "sesn_read_receipt", TurnID: "turn_read_receipt",
+		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"update note"}]}`),
+		Config: Config{
+			InterventionMode: tools.InterventionModeFullAccess,
+			ToolRegistry:     tools.DefaultRegistry(), ToolExecutor: tools.NewDefaultExecutor(),
+			ToolExecutionContext: tools.ExecutionContext{Provider: capabilityLocalProvider()},
+		},
+		EmitStep: collectCompletionSteps(&steps),
+	})
+	if err != nil {
+		t.Fatalf("run read receipt flow: %v", err)
+	}
+	if payloadText(result.AgentPayload) != "updated after reading" {
+		t.Fatalf("unexpected final response: %s", payloadText(result.AgentPayload))
+	}
+	firstResult := firstStepType(steps, managedagents.EventRuntimeToolResult)
+	executionError, ok := firstResult.Data["error"].(*tools.ExecutionError)
+	if !ok || executionError.Type != "file_read_required" {
+		t.Fatalf("blind edit was not rejected with file_read_required: %#v", firstResult.Data)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil || string(content) != "key=new\n" {
+		t.Fatalf("unexpected edited content %q: %v", content, readErr)
+	}
+}
+
+func TestSegmentedStateTracksIndentedPlaceholderEdit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.html")
+	placeholder := "__TMA_PLACEHOLDER_HEADER_001__"
+	state := newSegmentedFileGenerationState()
+	state.Tasks[path] = &segmentedFileTaskState{
+		Path: path, Remaining: []string{placeholder}, SegmentHashes: map[string]string{}, PlanApproved: true,
+	}
+	call := tools.Call{APIName: "edit_file", Arguments: mustJSON(t, map[string]any{
+		"path": path, "old_string": "        " + placeholder + "\n", "new_string": "        <header>complete</header>\n", "replace_all": false,
+	})}
+	if !state.planApproves(call) {
+		t.Fatal("indented placeholder edit should reuse segmented plan approval")
+	}
+	resultState := mustJSON(t, capability.EditFileResult{Path: path, Replacements: 1, Success: true})
+	state.observe(call, tools.ExecutionResult{State: resultState}, true)
+	if len(state.Tasks[path].Remaining) != 0 || state.Tasks[path].SegmentHashes[placeholder] == "" {
+		t.Fatalf("indented placeholder was not consumed: %#v", state.Tasks[path])
+	}
+}
+
 func TestPublishesReferencedVerifiedWorkspaceArtifactWithoutOutputPaths(t *testing.T) {
 	state := newSegmentedFileGenerationState()
 	fileState := mustJSON(t, capability.FileResult{
@@ -264,6 +332,38 @@ func TestReferencedArtifactPublicationIgnoresUploadsAndUnreferencedFiles(t *test
 	}
 }
 
+func TestPublishesReferencedWorkspaceImageWithoutPriorRead(t *testing.T) {
+	state := newSegmentedFileGenerationState()
+	provider := &referencedArtifactProvider{}
+	recorder := &recordingArtifactRecorder{}
+	path := "/workspace/sunwukong_c275f767522d4577b191313055b2d696_1784539299.png"
+	response := "本地保存路径：`" + path + "`"
+	if err := state.publishReferencedFinalArtifacts(t.Context(), tools.ExecutionContext{
+		Provider: provider, ArtifactRecorder: recorder, SessionID: "sesn_image", TurnID: "turn_image",
+	}, response); err != nil {
+		t.Fatalf("publish referenced workspace image: %v", err)
+	}
+	if len(provider.reads) != 1 || provider.reads[0] != path {
+		t.Fatalf("expected runtime verification read, got %#v", provider.reads)
+	}
+	if len(recorder.results) != 1 || len(recorder.results[0].ExportedFiles) != 1 || recorder.results[0].ExportedFiles[0].Path != path {
+		t.Fatalf("expected referenced image export, results=%#v", recorder.results)
+	}
+}
+
+func TestReferencedWorkspaceDeliverablePathsHandlePlainAndCodePaths(t *testing.T) {
+	paths := referencedWorkspaceDeliverablePaths("结果 `/workspace/带 空格/成品.png`；备份 /workspace/report.pdf。忽略 /workspace/src/main.go 和 /workspace/uploads/art/input.png")
+	want := []string{"/workspace/report.pdf", "/workspace/带 空格/成品.png"}
+	if len(paths) != len(want) {
+		t.Fatalf("unexpected referenced paths: %#v", paths)
+	}
+	for index := range want {
+		if paths[index] != want[index] {
+			t.Fatalf("unexpected referenced paths: got %#v want %#v", paths, want)
+		}
+	}
+}
+
 // Keep the concrete local provider behind a helper so test setup stays compact.
 func capabilityLocalProvider() capability.LocalSystemProvider {
 	return capability.LocalSystemProvider{}
@@ -277,6 +377,16 @@ type scriptedFileGenerationClient struct {
 type recordingArtifactRecorder struct {
 	calls   []tools.Call
 	results []tools.ExecutionResult
+}
+
+type referencedArtifactProvider struct {
+	capability.UnavailableProvider
+	reads []string
+}
+
+func (provider *referencedArtifactProvider) ReadFile(_ context.Context, request capability.ReadFileRequest) (capability.FileResult, error) {
+	provider.reads = append(provider.reads, request.Path)
+	return capability.FileResult{Path: request.Path, Binary: true, Kind: "image", ContentType: "image/png"}, nil
 }
 
 func (recorder *recordingArtifactRecorder) RecordToolArtifact(_ context.Context, call tools.Call, _ tools.ExecutionContext, result tools.ExecutionResult) ([]tools.ArtifactRef, error) {

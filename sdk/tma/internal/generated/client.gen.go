@@ -56,6 +56,13 @@ const (
 	AgentImportRequestSchemaVersionN1 AgentImportRequestSchemaVersion = 1
 )
 
+// Defines values for AgentScheduleLastRunStatus.
+const (
+	AgentScheduleLastRunStatusDispatched AgentScheduleLastRunStatus = "dispatched"
+	AgentScheduleLastRunStatusFailed     AgentScheduleLastRunStatus = "failed"
+	AgentScheduleLastRunStatusPending    AgentScheduleLastRunStatus = "pending"
+)
+
 // Defines values for AuthClientConfigurationMode.
 const (
 	AuthClientConfigurationModeDisabled AuthClientConfigurationMode = "disabled"
@@ -130,6 +137,12 @@ const (
 	EnabledSkillModeExamplesOnly EnabledSkillMode = "examples_only"
 	EnabledSkillModeFull         EnabledSkillMode = "full"
 	EnabledSkillModeSummary      EnabledSkillMode = "summary"
+)
+
+// Defines values for EnvironmentVariableScope.
+const (
+	EnvironmentVariableScopePersonal  EnvironmentVariableScope = "personal"
+	EnvironmentVariableScopeWorkspace EnvironmentVariableScope = "workspace"
 )
 
 // Defines values for HumanInteractionRuntimeSettingsFallback.
@@ -498,10 +511,10 @@ const (
 
 // Defines values for SkillUsageStatus.
 const (
-	SkillUsageStatusDegraded SkillUsageStatus = "degraded"
-	SkillUsageStatusFailed   SkillUsageStatus = "failed"
-	SkillUsageStatusResolved SkillUsageStatus = "resolved"
-	SkillUsageStatusSkipped  SkillUsageStatus = "skipped"
+	Degraded SkillUsageStatus = "degraded"
+	Failed   SkillUsageStatus = "failed"
+	Resolved SkillUsageStatus = "resolved"
+	Skipped  SkillUsageStatus = "skipped"
 )
 
 // Defines values for TaskEvidenceRefKind.
@@ -751,6 +764,36 @@ type AgentRuntimeConfig struct {
 	WorkspaceId           string                  `json:"workspace_id"`
 }
 
+// AgentSchedule defines model for AgentSchedule.
+type AgentSchedule struct {
+	AgentId        string                      `json:"agent_id"`
+	CreatedAt      time.Time                   `json:"created_at"`
+	CreatedBy      string                      `json:"created_by"`
+	CronExpression string                      `json:"cron_expression"`
+	Enabled        bool                        `json:"enabled"`
+	EnvironmentId  string                      `json:"environment_id"`
+	Id             string                      `json:"id"`
+	LastError      *string                     `json:"last_error,omitempty"`
+	LastRunAt      *time.Time                  `json:"last_run_at"`
+	LastRunStatus  *AgentScheduleLastRunStatus `json:"last_run_status,omitempty"`
+	LastSessionId  *string                     `json:"last_session_id,omitempty"`
+	Name           string                      `json:"name"`
+	NextRunAt      *time.Time                  `json:"next_run_at"`
+	OwnerId        string                      `json:"owner_id"`
+	Prompt         string                      `json:"prompt"`
+	Timezone       string                      `json:"timezone"`
+	UpdatedAt      time.Time                   `json:"updated_at"`
+	WorkspaceId    string                      `json:"workspace_id"`
+}
+
+// AgentScheduleLastRunStatus defines model for AgentSchedule.LastRunStatus.
+type AgentScheduleLastRunStatus string
+
+// AgentScheduleList defines model for AgentScheduleList.
+type AgentScheduleList struct {
+	Schedules []AgentSchedule `json:"schedules"`
+}
+
 // AgentTaskGroupAggregate defines model for AgentTaskGroupAggregate.
 type AgentTaskGroupAggregate struct {
 	CanceledItemIndexes  *[]int32 `json:"canceled_item_indexes,omitempty"`
@@ -988,6 +1031,16 @@ type CreateAgentRequestOwnerType string
 // CreateAgentRequestVisibility defines model for CreateAgentRequest.Visibility.
 type CreateAgentRequestVisibility string
 
+// CreateAgentScheduleRequest defines model for CreateAgentScheduleRequest.
+type CreateAgentScheduleRequest struct {
+	CronExpression string  `json:"cron_expression"`
+	Enabled        *bool   `json:"enabled,omitempty"`
+	EnvironmentId  *string `json:"environment_id,omitempty"`
+	Name           string  `json:"name"`
+	Prompt         string  `json:"prompt"`
+	Timezone       *string `json:"timezone,omitempty"`
+}
+
 // CreateArtifactRequest defines model for CreateArtifactRequest.
 type CreateArtifactRequest struct {
 	ArtifactType  *string                 `json:"artifact_type,omitempty"`
@@ -1172,11 +1225,16 @@ type Environment struct {
 
 // EnvironmentVariable defines model for EnvironmentVariable.
 type EnvironmentVariable struct {
-	Configured bool      `json:"configured"`
-	CreatedAt  time.Time `json:"created_at"`
-	Name       string    `json:"name"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Configured bool                     `json:"configured"`
+	CreatedAt  time.Time                `json:"created_at"`
+	Editable   bool                     `json:"editable"`
+	Name       string                   `json:"name"`
+	Scope      EnvironmentVariableScope `json:"scope"`
+	UpdatedAt  time.Time                `json:"updated_at"`
 }
+
+// EnvironmentVariableScope defines model for EnvironmentVariable.Scope.
+type EnvironmentVariableScope string
 
 // EnvironmentVariableList defines model for EnvironmentVariableList.
 type EnvironmentVariableList struct {
@@ -2233,6 +2291,7 @@ type Principal struct {
 	OwnerId        string            `json:"owner_id"`
 	Roles          []PrincipalRoles  `json:"roles"`
 	Subject        string            `json:"subject"`
+	Username       *string           `json:"username,omitempty"`
 	WorkspaceId    string            `json:"workspace_id"`
 }
 
@@ -2430,6 +2489,13 @@ type Run struct {
 
 // RunStatus defines model for Run.Status.
 type RunStatus string
+
+// RunAgentScheduleResponse defines model for RunAgentScheduleResponse.
+type RunAgentScheduleResponse struct {
+	RunId    string        `json:"run_id"`
+	Schedule AgentSchedule `json:"schedule"`
+	Session  Session       `json:"session"`
+}
 
 // RunList defines model for RunList.
 type RunList struct {
@@ -3368,6 +3434,15 @@ type UpdateAgentRequest struct {
 	Tools  *map[string]interface{} `json:"tools,omitempty"`
 }
 
+// UpdateAgentScheduleRequest defines model for UpdateAgentScheduleRequest.
+type UpdateAgentScheduleRequest struct {
+	CronExpression *string `json:"cron_expression,omitempty"`
+	Enabled        *bool   `json:"enabled,omitempty"`
+	Name           *string `json:"name,omitempty"`
+	Prompt         *string `json:"prompt,omitempty"`
+	Timezone       *string `json:"timezone,omitempty"`
+}
+
 // UpdateLLMProviderRequest defines model for UpdateLLMProviderRequest.
 type UpdateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -3804,6 +3879,12 @@ type PatchV2AgentsByAgentIdJSONRequestBody = UpdateAgentRequest
 
 // PostV2AgentsByAgentIdConfigVersionsJSONRequestBody defines body for PostV2AgentsByAgentIdConfigVersions for application/json ContentType.
 type PostV2AgentsByAgentIdConfigVersionsJSONRequestBody = CreateAgentConfigVersionRequest
+
+// PostV2AgentsByAgentIdSchedulesJSONRequestBody defines body for PostV2AgentsByAgentIdSchedules for application/json ContentType.
+type PostV2AgentsByAgentIdSchedulesJSONRequestBody = CreateAgentScheduleRequest
+
+// PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody defines body for PatchV2AgentsByAgentIdSchedulesByScheduleId for application/json ContentType.
+type PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody = UpdateAgentScheduleRequest
 
 // PostV2AgentsByAgentIdToolingHealthJSONRequestBody defines body for PostV2AgentsByAgentIdToolingHealth for application/json ContentType.
 type PostV2AgentsByAgentIdToolingHealthJSONRequestBody = ToolingHealthRequest
@@ -4281,6 +4362,28 @@ type ClientInterface interface {
 
 	// GetV2AgentsByAgentIdExport request
 	GetV2AgentsByAgentIdExport(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2AgentsByAgentIdSchedules request
+	GetV2AgentsByAgentIdSchedules(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2AgentsByAgentIdSchedulesWithBody request with any body
+	PostV2AgentsByAgentIdSchedulesWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2AgentsByAgentIdSchedules(ctx context.Context, agentId string, body PostV2AgentsByAgentIdSchedulesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2AgentsByAgentIdSchedulesByScheduleId request
+	DeleteV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2AgentsByAgentIdSchedulesByScheduleId request
+	GetV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBody request with any body
+	PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBody(ctx context.Context, agentId string, scheduleId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, body PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2AgentsByAgentIdSchedulesByScheduleIdRun request
+	PostV2AgentsByAgentIdSchedulesByScheduleIdRun(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2AgentsByAgentIdToolingHealthWithBody request with any body
 	PostV2AgentsByAgentIdToolingHealthWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5044,6 +5147,102 @@ func (c *Client) PostV2AgentsByAgentIdConfigVersionsByVersionRollback(ctx contex
 
 func (c *Client) GetV2AgentsByAgentIdExport(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2AgentsByAgentIdExportRequest(c.Server, agentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2AgentsByAgentIdSchedules(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AgentsByAgentIdSchedulesRequest(c.Server, agentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AgentsByAgentIdSchedulesWithBody(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AgentsByAgentIdSchedulesRequestWithBody(c.Server, agentId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AgentsByAgentIdSchedules(ctx context.Context, agentId string, body PostV2AgentsByAgentIdSchedulesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AgentsByAgentIdSchedulesRequest(c.Server, agentId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2AgentsByAgentIdSchedulesByScheduleIdRequest(c.Server, agentId, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AgentsByAgentIdSchedulesByScheduleIdRequest(c.Server, agentId, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBody(ctx context.Context, agentId string, scheduleId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequestWithBody(c.Server, agentId, scheduleId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2AgentsByAgentIdSchedulesByScheduleId(ctx context.Context, agentId string, scheduleId string, body PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequest(c.Server, agentId, scheduleId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AgentsByAgentIdSchedulesByScheduleIdRun(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AgentsByAgentIdSchedulesByScheduleIdRunRequest(c.Server, agentId, scheduleId)
 	if err != nil {
 		return nil, err
 	}
@@ -8016,6 +8215,264 @@ func NewGetV2AgentsByAgentIdExportRequest(server string, agentId string) (*http.
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2AgentsByAgentIdSchedulesRequest generates requests for GetV2AgentsByAgentIdSchedules
+func NewGetV2AgentsByAgentIdSchedulesRequest(server string, agentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2AgentsByAgentIdSchedulesRequest calls the generic PostV2AgentsByAgentIdSchedules builder with application/json body
+func NewPostV2AgentsByAgentIdSchedulesRequest(server string, agentId string, body PostV2AgentsByAgentIdSchedulesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2AgentsByAgentIdSchedulesRequestWithBody(server, agentId, "application/json", bodyReader)
+}
+
+// NewPostV2AgentsByAgentIdSchedulesRequestWithBody generates requests for PostV2AgentsByAgentIdSchedules with any type of body
+func NewPostV2AgentsByAgentIdSchedulesRequestWithBody(server string, agentId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteV2AgentsByAgentIdSchedulesByScheduleIdRequest generates requests for DeleteV2AgentsByAgentIdSchedulesByScheduleId
+func NewDeleteV2AgentsByAgentIdSchedulesByScheduleIdRequest(server string, agentId string, scheduleId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "schedule_id", runtime.ParamLocationPath, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2AgentsByAgentIdSchedulesByScheduleIdRequest generates requests for GetV2AgentsByAgentIdSchedulesByScheduleId
+func NewGetV2AgentsByAgentIdSchedulesByScheduleIdRequest(server string, agentId string, scheduleId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "schedule_id", runtime.ParamLocationPath, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequest calls the generic PatchV2AgentsByAgentIdSchedulesByScheduleId builder with application/json body
+func NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequest(server string, agentId string, scheduleId string, body PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequestWithBody(server, agentId, scheduleId, "application/json", bodyReader)
+}
+
+// NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequestWithBody generates requests for PatchV2AgentsByAgentIdSchedulesByScheduleId with any type of body
+func NewPatchV2AgentsByAgentIdSchedulesByScheduleIdRequestWithBody(server string, agentId string, scheduleId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "schedule_id", runtime.ParamLocationPath, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2AgentsByAgentIdSchedulesByScheduleIdRunRequest generates requests for PostV2AgentsByAgentIdSchedulesByScheduleIdRun
+func NewPostV2AgentsByAgentIdSchedulesByScheduleIdRunRequest(server string, agentId string, scheduleId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "agent_id", runtime.ParamLocationPath, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "schedule_id", runtime.ParamLocationPath, scheduleId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/agents/%s/schedules/%s/run", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -15471,6 +15928,28 @@ type ClientWithResponsesInterface interface {
 	// GetV2AgentsByAgentIdExportWithResponse request
 	GetV2AgentsByAgentIdExportWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*GetV2AgentsByAgentIdExportResponse, error)
 
+	// GetV2AgentsByAgentIdSchedulesWithResponse request
+	GetV2AgentsByAgentIdSchedulesWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*GetV2AgentsByAgentIdSchedulesResponse, error)
+
+	// PostV2AgentsByAgentIdSchedulesWithBodyWithResponse request with any body
+	PostV2AgentsByAgentIdSchedulesWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesResponse, error)
+
+	PostV2AgentsByAgentIdSchedulesWithResponse(ctx context.Context, agentId string, body PostV2AgentsByAgentIdSchedulesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesResponse, error)
+
+	// DeleteV2AgentsByAgentIdSchedulesByScheduleIdWithResponse request
+	DeleteV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse, error)
+
+	// GetV2AgentsByAgentIdSchedulesByScheduleIdWithResponse request
+	GetV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*GetV2AgentsByAgentIdSchedulesByScheduleIdResponse, error)
+
+	// PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBodyWithResponse request with any body
+	PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBodyWithResponse(ctx context.Context, agentId string, scheduleId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse, error)
+
+	PatchV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, body PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse, error)
+
+	// PostV2AgentsByAgentIdSchedulesByScheduleIdRunWithResponse request
+	PostV2AgentsByAgentIdSchedulesByScheduleIdRunWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse, error)
+
 	// PostV2AgentsByAgentIdToolingHealthWithBodyWithResponse request with any body
 	PostV2AgentsByAgentIdToolingHealthWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdToolingHealthResponse, error)
 
@@ -16321,6 +16800,143 @@ func (r GetV2AgentsByAgentIdExportResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2AgentsByAgentIdExportResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2AgentsByAgentIdSchedulesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AgentScheduleList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2AgentsByAgentIdSchedulesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2AgentsByAgentIdSchedulesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2AgentsByAgentIdSchedulesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *AgentSchedule
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2AgentsByAgentIdSchedulesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2AgentsByAgentIdSchedulesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2AgentsByAgentIdSchedulesByScheduleIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AgentSchedule
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2AgentsByAgentIdSchedulesByScheduleIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2AgentsByAgentIdSchedulesByScheduleIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AgentSchedule
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *RunAgentScheduleResponse
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -20025,6 +20641,76 @@ func (c *ClientWithResponses) GetV2AgentsByAgentIdExportWithResponse(ctx context
 	return ParseGetV2AgentsByAgentIdExportResponse(rsp)
 }
 
+// GetV2AgentsByAgentIdSchedulesWithResponse request returning *GetV2AgentsByAgentIdSchedulesResponse
+func (c *ClientWithResponses) GetV2AgentsByAgentIdSchedulesWithResponse(ctx context.Context, agentId string, reqEditors ...RequestEditorFn) (*GetV2AgentsByAgentIdSchedulesResponse, error) {
+	rsp, err := c.GetV2AgentsByAgentIdSchedules(ctx, agentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2AgentsByAgentIdSchedulesResponse(rsp)
+}
+
+// PostV2AgentsByAgentIdSchedulesWithBodyWithResponse request with arbitrary body returning *PostV2AgentsByAgentIdSchedulesResponse
+func (c *ClientWithResponses) PostV2AgentsByAgentIdSchedulesWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesResponse, error) {
+	rsp, err := c.PostV2AgentsByAgentIdSchedulesWithBody(ctx, agentId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AgentsByAgentIdSchedulesResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2AgentsByAgentIdSchedulesWithResponse(ctx context.Context, agentId string, body PostV2AgentsByAgentIdSchedulesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesResponse, error) {
+	rsp, err := c.PostV2AgentsByAgentIdSchedules(ctx, agentId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AgentsByAgentIdSchedulesResponse(rsp)
+}
+
+// DeleteV2AgentsByAgentIdSchedulesByScheduleIdWithResponse request returning *DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse
+func (c *ClientWithResponses) DeleteV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	rsp, err := c.DeleteV2AgentsByAgentIdSchedulesByScheduleId(ctx, agentId, scheduleId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp)
+}
+
+// GetV2AgentsByAgentIdSchedulesByScheduleIdWithResponse request returning *GetV2AgentsByAgentIdSchedulesByScheduleIdResponse
+func (c *ClientWithResponses) GetV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*GetV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	rsp, err := c.GetV2AgentsByAgentIdSchedulesByScheduleId(ctx, agentId, scheduleId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp)
+}
+
+// PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBodyWithResponse request with arbitrary body returning *PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse
+func (c *ClientWithResponses) PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBodyWithResponse(ctx context.Context, agentId string, scheduleId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	rsp, err := c.PatchV2AgentsByAgentIdSchedulesByScheduleIdWithBody(ctx, agentId, scheduleId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchV2AgentsByAgentIdSchedulesByScheduleIdWithResponse(ctx context.Context, agentId string, scheduleId string, body PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	rsp, err := c.PatchV2AgentsByAgentIdSchedulesByScheduleId(ctx, agentId, scheduleId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp)
+}
+
+// PostV2AgentsByAgentIdSchedulesByScheduleIdRunWithResponse request returning *PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse
+func (c *ClientWithResponses) PostV2AgentsByAgentIdSchedulesByScheduleIdRunWithResponse(ctx context.Context, agentId string, scheduleId string, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse, error) {
+	rsp, err := c.PostV2AgentsByAgentIdSchedulesByScheduleIdRun(ctx, agentId, scheduleId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse(rsp)
+}
+
 // PostV2AgentsByAgentIdToolingHealthWithBodyWithResponse request with arbitrary body returning *PostV2AgentsByAgentIdToolingHealthResponse
 func (c *ClientWithResponses) PostV2AgentsByAgentIdToolingHealthWithBodyWithResponse(ctx context.Context, agentId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdToolingHealthResponse, error) {
 	rsp, err := c.PostV2AgentsByAgentIdToolingHealthWithBody(ctx, agentId, contentType, body, reqEditors...)
@@ -22259,6 +22945,197 @@ func ParseGetV2AgentsByAgentIdExportResponse(rsp *http.Response) (*GetV2AgentsBy
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2AgentsByAgentIdSchedulesResponse parses an HTTP response from a GetV2AgentsByAgentIdSchedulesWithResponse call
+func ParseGetV2AgentsByAgentIdSchedulesResponse(rsp *http.Response) (*GetV2AgentsByAgentIdSchedulesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2AgentsByAgentIdSchedulesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentScheduleList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2AgentsByAgentIdSchedulesResponse parses an HTTP response from a PostV2AgentsByAgentIdSchedulesWithResponse call
+func ParsePostV2AgentsByAgentIdSchedulesResponse(rsp *http.Response) (*PostV2AgentsByAgentIdSchedulesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2AgentsByAgentIdSchedulesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest AgentSchedule
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse parses an HTTP response from a DeleteV2AgentsByAgentIdSchedulesByScheduleIdWithResponse call
+func ParseDeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp *http.Response) (*DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2AgentsByAgentIdSchedulesByScheduleIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2AgentsByAgentIdSchedulesByScheduleIdResponse parses an HTTP response from a GetV2AgentsByAgentIdSchedulesByScheduleIdWithResponse call
+func ParseGetV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp *http.Response) (*GetV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2AgentsByAgentIdSchedulesByScheduleIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentSchedule
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchV2AgentsByAgentIdSchedulesByScheduleIdResponse parses an HTTP response from a PatchV2AgentsByAgentIdSchedulesByScheduleIdWithResponse call
+func ParsePatchV2AgentsByAgentIdSchedulesByScheduleIdResponse(rsp *http.Response) (*PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchV2AgentsByAgentIdSchedulesByScheduleIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentSchedule
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse parses an HTTP response from a PostV2AgentsByAgentIdSchedulesByScheduleIdRunWithResponse call
+func ParsePostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse(rsp *http.Response) (*PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RunAgentScheduleResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope

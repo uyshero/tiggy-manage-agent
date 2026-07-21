@@ -68,17 +68,18 @@ type Call struct {
 }
 
 type ExecutionContext struct {
-	WorkspaceID         string
-	SessionID           string
-	EnvironmentID       string
-	TurnID              string
-	Environment         map[string]string
-	Deadline            *time.Time
-	Provider            capability.Provider
-	ArtifactRecorder    ArtifactRecorder
-	DeferArtifacts      bool
-	TaskService         TaskToolService
-	CapabilityTransport bool
+	WorkspaceID          string
+	SessionID            string
+	EnvironmentID        string
+	TurnID               string
+	Environment          map[string]string
+	Deadline             *time.Time
+	Provider             capability.Provider
+	ArtifactRecorder     ArtifactRecorder
+	DeferArtifacts       bool
+	ExpectedFileRevision string
+	TaskService          TaskToolService
+	CapabilityTransport  bool
 }
 
 func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {

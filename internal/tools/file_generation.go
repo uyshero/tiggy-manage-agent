@@ -74,6 +74,9 @@ func ValidateFileMutationCallWithLimits(call Call, limits FileMutationLimits) *E
 		if json.Unmarshal(call.Arguments, &request) != nil {
 			return nil
 		}
+		if request.OldString == request.NewString {
+			return &ExecutionError{Type: "invalid_edit_noop", Message: "edit_file.old_string and edit_file.new_string must be different."}
+		}
 		if estimated := EstimateFileMutationTokens(request.NewString); estimated > limits.MaxTokens {
 			return &ExecutionError{
 				Type:    "edit_replacement_too_large",
@@ -92,17 +95,18 @@ func ValidateFileMutationCallWithLimits(call Call, limits FileMutationLimits) *E
 				Message: fmt.Sprintf("Replacement introduces invalid segmented placeholder %q. Use a unique numbered placeholder such as __TMA_PLACEHOLDER_REPORT_001__.", invalid),
 			}
 		}
-		if reservedSegmentedPlaceholderPattern.MatchString(request.OldString) && !IsSegmentedFilePlaceholder(request.OldString) {
+		placeholder, segmentedPlaceholder := SegmentedFilePlaceholderToken(request.OldString)
+		if reservedSegmentedPlaceholderPattern.MatchString(request.OldString) && !segmentedPlaceholder {
 			return &ExecutionError{
 				Type:    "invalid_segmented_file_edit",
-				Message: fmt.Sprintf("edit_file.old_string %q uses the reserved TMA placeholder prefix but is not numbered. Regenerate the skeleton with placeholders such as __TMA_PLACEHOLDER_REPORT_001__ before segmented replacement.", request.OldString),
+				Message: fmt.Sprintf("edit_file.old_string %q uses the reserved TMA placeholder prefix but is not numbered in the required format. Pass exactly one placeholder, optionally surrounded by whitespace, such as __TMA_PLACEHOLDER_REPORT_001__, and replace one placeholder per edit.", request.OldString),
 			}
 		}
-		if IsSegmentedFilePlaceholder(request.OldString) {
+		if segmentedPlaceholder {
 			if request.ReplaceAll {
 				return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment placeholder replacement must use replace_all=false so exactly one unique placeholder is consumed."}
 			}
-			if strings.Contains(request.NewString, request.OldString) {
+			if strings.Contains(request.NewString, placeholder) {
 				return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment replacement must consume its old placeholder and must not reinsert the same placeholder."}
 			}
 		}
@@ -129,7 +133,7 @@ func ValidateFileMutationBatch(calls []Call) *ExecutionError {
 
 func IsRecoverableFileGenerationError(errorType string) bool {
 	switch errorType {
-	case "file_content_too_large", "edit_replacement_too_large", "invalid_segmented_file_skeleton", "invalid_segmented_file_edit", "multiple_file_mutations":
+	case "file_content_too_large", "edit_replacement_too_large", "invalid_segmented_file_skeleton", "invalid_segmented_file_edit", "invalid_edit_noop", "file_read_required", "multiple_file_mutations":
 		return true
 	default:
 		return false
@@ -153,7 +157,15 @@ func SegmentedFilePlaceholders(value string) []string {
 }
 
 func IsSegmentedFilePlaceholder(value string) bool {
-	return segmentedFilePlaceholderPattern.MatchString(value) && segmentedFilePlaceholderPattern.FindString(value) == value
+	_, ok := SegmentedFilePlaceholderToken(value)
+	return ok
+}
+
+// SegmentedFilePlaceholderToken accepts indentation or line breaks around one
+// placeholder while returning the canonical token used by runtime state.
+func SegmentedFilePlaceholderToken(value string) (string, bool) {
+	trimmed := strings.TrimSpace(value)
+	return trimmed, segmentedFilePlaceholderPattern.MatchString(trimmed) && segmentedFilePlaceholderPattern.FindString(trimmed) == trimmed
 }
 
 // EstimateFileMutationTokens estimates the serialized JSON string rather than

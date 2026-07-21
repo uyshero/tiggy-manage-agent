@@ -309,6 +309,8 @@ type SecurityAuditReplayResult struct {
 type EnvironmentVariable struct {
 	Name       string    `json:"name"`
 	Configured bool      `json:"configured"`
+	Scope      string    `json:"scope"`
+	Editable   bool      `json:"editable"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

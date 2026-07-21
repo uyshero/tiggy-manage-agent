@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -26,9 +27,25 @@ import (
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
+	skillspkg "tiggy-manage-agent/internal/skills"
 )
 
 const testJWTSecret = "test-jwt-secret-with-at-least-32-bytes"
+
+type rlsSkillTestStore struct {
+	*testStore
+	expectedScope managedagents.AccessScope
+	observedScope managedagents.AccessScope
+}
+
+func (s *rlsSkillTestStore) GetSkill(ctx context.Context, id string) (skillspkg.Skill, error) {
+	scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx)
+	if !ok || scope != s.expectedScope {
+		return skillspkg.Skill{}, managedagents.ErrNotFound
+	}
+	s.observedScope = scope
+	return s.testStore.GetSkill(ctx, id)
+}
 
 func TestDisabledAuthBindsDefaultDatabaseWorkspaceScope(t *testing.T) {
 	authenticator, err := newIdentityAuthenticator(AuthConfig{Mode: AuthModeDisabled})
@@ -82,6 +99,48 @@ func TestWorkerCredentialBindsConfiguredDatabaseWorkspaceScope(t *testing.T) {
 	}
 	if captured.WorkspaceID != "wksp_worker_alpha" || captured.OwnerID != "" {
 		t.Fatalf("unexpected worker database scope: %+v", captured)
+	}
+}
+
+func TestResourceAuthorizationUsesPrincipalDatabaseScope(t *testing.T) {
+	authenticator, err := newIdentityAuthenticator(AuthConfig{
+		Mode: AuthModeJWT, JWTSecret: testJWTSecret, JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
+	})
+	if err != nil {
+		t.Fatalf("build identity authenticator: %v", err)
+	}
+
+	expectedScope := managedagents.AccessScope{WorkspaceID: "wksp_switched", OwnerID: "owner-switched"}
+	baseStore := newTestStore()
+	skill, err := baseStore.CreateSkill(t.Context(), skillspkg.CreateSkillInput{
+		WorkspaceID: expectedScope.WorkspaceID,
+		OwnerType:   skillspkg.OwnerTypeUser,
+		OwnerID:     expectedScope.OwnerID,
+		Identifier:  "switched-user-skill",
+		Title:       "Switched User Skill",
+	})
+	if err != nil {
+		t.Fatalf("create switched-user Skill: %v", err)
+	}
+	store := &rlsSkillTestStore{testStore: baseStore, expectedScope: expectedScope}
+	server := &Server{authenticator: authenticator, store: store}
+	handler := server.identityMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := PrincipalFromRequest(r)
+		if !ok || principal.OwnerID != expectedScope.OwnerID {
+			t.Errorf("authorized request did not carry switched-user principal: %+v", principal)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	token := signedTestJWT(t, "switched-user", expectedScope.WorkspaceID, expectedScope.OwnerID, []string{RoleMember}, nil)
+	request := authenticatedJSONRequest(t, http.MethodPost, "/v1/skills/"+skill.ID+"/enable", `{}`, token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected scoped Skill authorization to succeed, got %d: %s", response.Code, response.Body.String())
+	}
+	if store.observedScope != expectedScope {
+		t.Fatalf("Skill authorization used database scope %+v, want %+v", store.observedScope, expectedScope)
 	}
 }
 
@@ -633,11 +692,16 @@ func TestUnifiedOIDCAuthDiscoveryAlgorithmsRotationAndCachedKeys(t *testing.T) {
 	})
 	claims := map[string]any{
 		"sub": "oidc-user", "iss": provider.server.URL, "aud": "tma-api", "exp": time.Now().Add(time.Hour).Unix(),
-		"workspace_id": "wksp_oidc", "owner_id": "owner-oidc", "roles": []string{RoleMember},
+		"preferred_username": "alice", "workspace_id": "wksp_oidc", "owner_id": "owner-oidc", "roles": []string{RoleMember},
 	}
 
 	rsaToken := signedOIDCTestToken(t, rsaKey1, "rsa-1", "RS256", claims)
 	assertOIDCPrincipal(t, server, rsaToken, http.StatusOK)
+	usernameResponse := httptest.NewRecorder()
+	server.ServeHTTP(usernameResponse, authenticatedRequest(t, http.MethodGet, "/v2/auth/me", rsaToken))
+	if !bytes.Contains(usernameResponse.Body.Bytes(), []byte(`"username":"alice"`)) {
+		t.Fatalf("expected preferred_username in principal response, got %s", usernameResponse.Body.String())
+	}
 	if provider.jwksRequestCount() != 1 {
 		t.Fatalf("expected initial JWKS fetch, got %d", provider.jwksRequestCount())
 	}

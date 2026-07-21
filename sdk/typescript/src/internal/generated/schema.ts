@@ -148,6 +148,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/agents/{agent_id}/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_agents_by_agent_id_schedules"];
+        put?: never;
+        post: operations["post_v2_agents_by_agent_id_schedules"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/agents/{agent_id}/schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_agents_by_agent_id_schedules_by_schedule_id"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_v2_agents_by_agent_id_schedules_by_schedule_id"];
+        options?: never;
+        head?: never;
+        patch: operations["patch_v2_agents_by_agent_id_schedules_by_schedule_id"];
+        trace?: never;
+    };
+    "/v2/agents/{agent_id}/schedules/{schedule_id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_agents_by_agent_id_schedules_by_schedule_id_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/agents/{agent_id}/tooling-health": {
         parameters: {
             query?: never;
@@ -2393,6 +2441,54 @@ export interface components {
             archived_at?: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        AgentSchedule: {
+            id: string;
+            workspace_id: string;
+            owner_id: string;
+            agent_id: string;
+            environment_id: string;
+            name: string;
+            prompt: string;
+            cron_expression: string;
+            timezone: string;
+            enabled: boolean;
+            /** Format: date-time */
+            next_run_at?: string | null;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            last_session_id?: string;
+            /** @enum {string} */
+            last_run_status?: "pending" | "dispatched" | "failed";
+            last_error?: string;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AgentScheduleList: {
+            schedules: components["schemas"]["AgentSchedule"][];
+        };
+        CreateAgentScheduleRequest: {
+            environment_id?: string;
+            name: string;
+            prompt: string;
+            cron_expression: string;
+            timezone?: string;
+            enabled?: boolean;
+        };
+        UpdateAgentScheduleRequest: {
+            name?: string;
+            prompt?: string;
+            cron_expression?: string;
+            timezone?: string;
+            enabled?: boolean;
+        };
+        RunAgentScheduleResponse: {
+            schedule: components["schemas"]["AgentSchedule"];
+            run_id: string;
+            session: components["schemas"]["Session"];
         };
         PortableAgentConfig: {
             name: string;
@@ -4711,6 +4807,7 @@ export interface components {
         };
         Principal: {
             subject: string;
+            username?: string;
             organization_id?: string;
             workspace_id: string;
             owner_id: string;
@@ -4738,6 +4835,9 @@ export interface components {
         EnvironmentVariable: {
             name: string;
             configured: boolean;
+            /** @enum {string} */
+            scope: "personal" | "workspace";
+            editable: boolean;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -5449,6 +5549,202 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentExportDocument"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_agents_by_agent_id_schedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentScheduleList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_agents_by_agent_id_schedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAgentScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSchedule"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_agents_by_agent_id_schedules_by_schedule_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSchedule"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_agents_by_agent_id_schedules_by_schedule_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    patch_v2_agents_by_agent_id_schedules_by_schedule_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSchedule"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_agents_by_agent_id_schedules_by_schedule_id_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                schedule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAgentScheduleResponse"];
                 };
             };
             /** @description API error */

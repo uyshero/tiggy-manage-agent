@@ -22,6 +22,14 @@ func TestValidateFileMutationCallKeepsSmallWriteAndOrdinaryEdit(t *testing.T) {
 	}
 }
 
+func TestValidateFileMutationCallRejectsNoopEdit(t *testing.T) {
+	edit := Call{APIName: "edit_file", Arguments: json.RawMessage(`{"path":"note.txt","old_string":"same","new_string":"same"}`)}
+	validationError := ValidateFileMutationCall(edit)
+	if validationError == nil || validationError.Type != "invalid_edit_noop" {
+		t.Fatalf("expected no-op edit rejection, got %#v", validationError)
+	}
+}
+
 func TestValidateFileMutationCallRejectsOversizedPayloadsBeforeExecution(t *testing.T) {
 	large := strings.Repeat("complete semantic section with markup <div>value</div>\n", 1200)
 	if estimated := EstimateFileMutationTokens(large); estimated <= MaxFileMutationTokens {
@@ -63,6 +71,20 @@ func TestValidateFileMutationCallRejectsUnnumberedReservedPlaceholders(t *testin
 	editError := ValidateFileMutationCall(Call{APIName: "edit_file", Arguments: editArguments})
 	if editError == nil || editError.Type != "invalid_segmented_file_edit" || !strings.Contains(editError.Message, "not numbered") {
 		t.Fatalf("expected unnumbered edit placeholder rejection, got %#v", editError)
+	}
+}
+
+func TestValidateFileMutationCallAcceptsIndentedNumberedPlaceholder(t *testing.T) {
+	oldString := "        __TMA_PLACEHOLDER_HEADER_001__\n"
+	arguments, _ := json.Marshal(map[string]any{
+		"path": "report.html", "old_string": oldString, "new_string": "        <header>complete</header>\n", "replace_all": false,
+	})
+	if validationError := ValidateFileMutationCall(Call{APIName: "edit_file", Arguments: arguments}); validationError != nil {
+		t.Fatalf("indented numbered placeholder should remain valid: %#v", validationError)
+	}
+	placeholder, ok := SegmentedFilePlaceholderToken(oldString)
+	if !ok || placeholder != "__TMA_PLACEHOLDER_HEADER_001__" {
+		t.Fatalf("unexpected canonical placeholder: %q ok=%v", placeholder, ok)
 	}
 }
 

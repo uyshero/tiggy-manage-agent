@@ -253,6 +253,153 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/agents/{agent_id}/schedules:
+    get:
+      operationId: get_v2_agents_by_agent_id_schedules
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentScheduleList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_agents_by_agent_id_schedules
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentScheduleRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSchedule"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/agents/{agent_id}/schedules/{schedule_id}:
+    delete:
+      operationId: delete_v2_agents_by_agent_id_schedules_by_schedule_id
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: get_v2_agents_by_agent_id_schedules_by_schedule_id
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSchedule"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patch_v2_agents_by_agent_id_schedules_by_schedule_id
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentScheduleRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentSchedule"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/agents/{agent_id}/schedules/{schedule_id}/run:
+    post:
+      operationId: post_v2_agents_by_agent_id_schedules_by_schedule_id_run
+      parameters:
+        - name: agent_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: schedule_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunAgentScheduleResponse"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/agents/{agent_id}/tooling-health:
     post:
       operationId: post_v2_agents_by_agent_id_tooling_health
@@ -4215,6 +4362,58 @@ components:
         config_version: {$ref: "#/components/schemas/AgentConfigVersion"}
         archived_at: {type: string, format: date-time, nullable: true}
         created_at: {type: string, format: date-time}
+    AgentSchedule:
+      type: object
+      required: [id, workspace_id, owner_id, agent_id, environment_id, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        owner_id: {type: string}
+        agent_id: {type: string}
+        environment_id: {type: string}
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+        next_run_at: {type: string, format: date-time, nullable: true}
+        last_run_at: {type: string, format: date-time, nullable: true}
+        last_session_id: {type: string}
+        last_run_status: {type: string, enum: [pending, dispatched, failed]}
+        last_error: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AgentScheduleList:
+      type: object
+      required: [schedules]
+      properties:
+        schedules: {type: array, items: {$ref: "#/components/schemas/AgentSchedule"}}
+    CreateAgentScheduleRequest:
+      type: object
+      required: [name, prompt, cron_expression]
+      properties:
+        environment_id: {type: string}
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+    UpdateAgentScheduleRequest:
+      type: object
+      properties:
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+    RunAgentScheduleResponse:
+      type: object
+      required: [schedule, run_id, session]
+      properties:
+        schedule: {$ref: "#/components/schemas/AgentSchedule"}
+        run_id: {type: string}
+        session: {$ref: "#/components/schemas/Session"}
     PortableAgentConfig:
       type: object
       required: [name, llm_provider, llm_model, system]
@@ -6459,6 +6658,7 @@ components:
       required: [subject, workspace_id, owner_id, roles, auth_type]
       properties:
         subject: {type: string}
+        username: {type: string}
         organization_id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
@@ -6489,10 +6689,12 @@ components:
         oidc: {$ref: "#/components/schemas/AuthOIDCClientConfiguration"}
     EnvironmentVariable:
       type: object
-      required: [name, configured, created_at, updated_at]
+      required: [name, configured, scope, editable, created_at, updated_at]
       properties:
         name: {type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 128}
         configured: {type: boolean}
+        scope: {type: string, enum: [personal, workspace]}
+        editable: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
     EnvironmentVariableList:

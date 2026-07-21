@@ -1739,7 +1739,7 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
   );
 }
 
-function EnvironmentVariablesSettings({ workspaceID }) {
+function EnvironmentVariablesSettings({ canManageWorkspaceVariables, workspaceID }) {
   const [variables, setVariables] = useState([]);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -1809,7 +1809,7 @@ function EnvironmentVariablesSettings({ workspaceID }) {
         <strong className="environment-count">{variables.length}</strong>
       </div>
       <form className="settings-card environment-variable-form" onSubmit={save}>
-        <div className="settings-card-title">添加或轮换变量</div>
+        <div className="settings-card-title">添加或轮换{canManageWorkspaceVariables ? "工作区共享" : "个人"}变量</div>
         <div className="environment-form-grid">
           <label>
             <span>Key</span>
@@ -1827,14 +1827,19 @@ function EnvironmentVariablesSettings({ workspaceID }) {
       <div className="settings-card environment-variable-list">
         <div className="settings-card-title">已配置变量</div>
         {variables.length ? variables.map((variable) => (
-          <div className="settings-row" key={variable.name}>
+          <div className="settings-row" key={`${variable.scope || "workspace"}:${variable.name}`}>
             <div className="environment-variable-name">
               <code>{variable.name}</code>
-              <div className="subtle">更新于 {formatTime(variable.updated_at)}</div>
+              <div className="subtle">
+                <span className={`environment-variable-scope ${variable.scope || "workspace"}`}>{variable.scope === "personal" ? "个人" : "工作区共享"}</span>
+                更新于 {formatTime(variable.updated_at)}
+              </div>
             </div>
             <div className="settings-row-actions">
               <span className="environment-configured">已配置</span>
-              <button className="secondary danger" type="button" disabled={Boolean(busy)} onClick={() => remove(variable.name)}>{busy === `delete:${variable.name}` ? "删除中..." : "删除"}</button>
+              {variable.editable ? (
+                <button className="secondary danger" type="button" disabled={Boolean(busy)} onClick={() => remove(variable.name)}>{busy === `delete:${variable.name}` ? "删除中..." : "删除"}</button>
+              ) : <span className="environment-readonly">只读</span>}
             </div>
           </div>
         )) : <Empty>当前工作区没有环境变量。</Empty>}
@@ -2685,6 +2690,215 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
   );
 }
 
+const schedulePresets = [
+  { value: "0 9 * * 1-5", label: "工作日 09:00" },
+  { value: "0 9 * * *", label: "每天 09:00" },
+  { value: "0 */6 * * *", label: "每 6 小时" },
+  { value: "0 9 * * 1", label: "每周一 09:00" }
+];
+
+function newScheduleDraft() {
+  return {
+    name: "",
+    prompt: "",
+    cron_expression: schedulePresets[0].value,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+    enabled: true
+  };
+}
+
+function AgentScheduleManager({ agent, onOpenSession }) {
+  const [schedules, setSchedules] = useState([]);
+  const [draft, setDraft] = useState(newScheduleDraft);
+  const [editingID, setEditingID] = useState("");
+  const [deleteID, setDeleteID] = useState("");
+  const [busy, setBusy] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function loadSchedules() {
+    if (!agent?.id) {
+      setSchedules([]);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.agentSchedules(agent.id);
+      setSchedules(response.schedules || []);
+    } catch (loadError) {
+      setError(loadError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    setDraft(newScheduleDraft());
+    setEditingID("");
+    setDeleteID("");
+    loadSchedules();
+  }, [agent?.id]);
+
+  function editSchedule(schedule) {
+    setEditingID(schedule.id);
+    setDeleteID("");
+    setDraft({
+      name: schedule.name,
+      prompt: schedule.prompt,
+      cron_expression: schedule.cron_expression,
+      timezone: schedule.timezone || "UTC",
+      enabled: schedule.enabled !== false
+    });
+  }
+
+  async function submitSchedule(event) {
+    event.preventDefault();
+    if (!agent?.id || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim()) return;
+    setBusy(editingID || "create");
+    setError("");
+    try {
+      if (editingID) {
+        await api.updateAgentSchedule(agent.id, editingID, draft);
+      } else {
+        await api.createAgentSchedule(agent.id, draft);
+      }
+      setDraft(newScheduleDraft());
+      setEditingID("");
+      await loadSchedules();
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function toggleSchedule(schedule) {
+    setBusy(schedule.id);
+    setError("");
+    try {
+      const updated = await api.updateAgentSchedule(agent.id, schedule.id, { enabled: !schedule.enabled });
+      setSchedules((current) => current.map((item) => item.id === updated.id ? updated : item));
+    } catch (toggleError) {
+      setError(toggleError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runSchedule(schedule) {
+    setBusy(`run:${schedule.id}`);
+    setError("");
+    try {
+      const result = await api.runAgentSchedule(agent.id, schedule.id);
+      await loadSchedules();
+      if (result.session) onOpenSession(result.session);
+    } catch (runError) {
+      setError(runError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function removeSchedule(schedule) {
+    setBusy(`delete:${schedule.id}`);
+    setError("");
+    try {
+      await api.deleteAgentSchedule(agent.id, schedule.id);
+      setSchedules((current) => current.filter((item) => item.id !== schedule.id));
+      setDeleteID("");
+      if (editingID === schedule.id) {
+        setEditingID("");
+        setDraft(newScheduleDraft());
+      }
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  if (!agent) return <div className="settings-card"><Empty>请先选择一个智能体。</Empty></div>;
+
+  return (
+    <div className="agent-schedule-layout">
+      <form className="settings-card agent-schedule-form" onSubmit={submitSchedule}>
+        <div className="settings-card-title">{editingID ? "编辑定时任务" : "新建定时任务"}</div>
+        <label className="agent-editor-field">
+          <span>任务名称</span>
+          <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="日报汇总" />
+        </label>
+        <label className="agent-editor-field agent-schedule-wide">
+          <span>任务提示词</span>
+          <textarea rows="6" value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="整理今天的数据并生成摘要" />
+        </label>
+        <label className="agent-editor-field">
+          <span>执行周期</span>
+          <select value={schedulePresets.some((item) => item.value === draft.cron_expression) ? draft.cron_expression : "custom"} onChange={(event) => {
+            if (event.target.value !== "custom") setDraft((current) => ({ ...current, cron_expression: event.target.value }));
+          }}>
+            {schedulePresets.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            <option value="custom">自定义 Cron</option>
+          </select>
+        </label>
+        <label className="agent-editor-field">
+          <span>Cron 表达式</span>
+          <input value={draft.cron_expression} onChange={(event) => setDraft((current) => ({ ...current, cron_expression: event.target.value }))} />
+        </label>
+        <label className="agent-editor-field">
+          <span>时区</span>
+          <input value={draft.timezone} onChange={(event) => setDraft((current) => ({ ...current, timezone: event.target.value }))} placeholder="Asia/Shanghai" />
+        </label>
+        <label className="agent-schedule-enabled">
+          <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
+          <span>创建后启用</span>
+        </label>
+        <div className="agent-schedule-form-actions">
+          {editingID ? <button className="secondary" type="button" onClick={() => { setEditingID(""); setDraft(newScheduleDraft()); }}>取消</button> : null}
+          <button type="submit" disabled={Boolean(busy) || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim()}>{busy === (editingID || "create") ? "保存中..." : editingID ? "保存修改" : "创建任务"}</button>
+        </div>
+      </form>
+      <section className="settings-card agent-schedule-list">
+        <div className="agent-schedule-list-head">
+          <div className="settings-card-title">{agent.name || agent.id} · {schedules.length} 个任务</div>
+          <button className="icon-button secondary" type="button" title="刷新" aria-label="刷新定时任务" disabled={loading} onClick={loadSchedules}><RefreshIcon /></button>
+        </div>
+        {error ? <div className="agent-version-error">{error}</div> : null}
+        {loading && !schedules.length ? <Empty>正在加载定时任务...</Empty> : null}
+        {!loading && !schedules.length ? <Empty>当前 Agent 还没有定时任务。</Empty> : null}
+        {schedules.map((schedule) => (
+          <article className="agent-schedule-row" key={schedule.id}>
+            <div className="agent-schedule-main">
+              <div className="agent-schedule-title">
+                <strong>{schedule.name}</strong>
+                <Pill value={schedule.enabled ? "enabled" : "disabled"} />
+              </div>
+              <div className="agent-schedule-cron"><code>{schedule.cron_expression}</code><span>{schedule.timezone}</span></div>
+              <p>{schedule.prompt}</p>
+              <div className="agent-schedule-meta">
+                <span>下次 {schedule.next_run_at ? formatTime(schedule.next_run_at) : "未安排"}</span>
+                {schedule.last_run_at ? <span>上次 {formatTime(schedule.last_run_at)} · {schedule.last_run_status || "unknown"}</span> : null}
+                {schedule.last_session_id ? <button className="link-button" type="button" onClick={() => onOpenSession({ id: schedule.last_session_id })}>查看结果</button> : null}
+              </div>
+              {schedule.last_error ? <div className="agent-version-error">{schedule.last_error}</div> : null}
+            </div>
+            <div className="agent-schedule-actions">
+              <label className="agent-schedule-switch" title={schedule.enabled ? "停用" : "启用"}>
+                <input type="checkbox" checked={schedule.enabled} disabled={Boolean(busy)} onChange={() => toggleSchedule(schedule)} />
+                <span>{schedule.enabled ? "已启用" : "已停用"}</span>
+              </label>
+              <button type="button" disabled={Boolean(busy)} onClick={() => runSchedule(schedule)}>{busy === `run:${schedule.id}` ? "启动中..." : "立即运行"}</button>
+              <button className="secondary" type="button" disabled={Boolean(busy)} onClick={() => editSchedule(schedule)}>编辑</button>
+              <button className="icon-button danger" type="button" title="删除" aria-label={`删除 ${schedule.name}`} disabled={Boolean(busy)} onClick={() => setDeleteID(schedule.id)}><DeleteIcon /></button>
+            </div>
+            {deleteID === schedule.id ? <div className="agent-schedule-delete-confirm"><span>删除后不会再自动执行。</span><button className="secondary" type="button" onClick={() => setDeleteID("")}>取消</button><button className="danger" type="button" disabled={Boolean(busy)} onClick={() => removeSchedule(schedule)}>{busy === `delete:${schedule.id}` ? "删除中..." : "确认删除"}</button></div> : null}
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}
+
 function SettingsPage({
   activeSection,
   agents,
@@ -2717,6 +2931,7 @@ function SettingsPage({
   toolingCatalog,
   onSkillsChanged,
   onModelCatalogChanged,
+  principal,
   workspaceID
 }) {
   const [archiveQuery, setArchiveQuery] = useState("");
@@ -2759,6 +2974,7 @@ function SettingsPage({
   const unhealthyCount = healthItems.filter((item) => item.status !== "online").length;
   const healthByKey = new Map(healthItems.map((item) => [`${item.kind}:${item.identifier}`, item]));
   const mcpWorkspaceID = workspaceID || currentSession?.workspace_id || selectedAgent?.workspace_id || "";
+  const canManageWorkspaceVariables = (principal?.roles || []).some((role) => role === "operator" || role === "admin");
 
   async function refreshMCPRegistry() {
     const response = await api.mcpServers(mcpWorkspaceID);
@@ -2851,7 +3067,7 @@ function SettingsPage({
   const content = (() => {
     switch (activeSection) {
       case "environment":
-        return <EnvironmentVariablesSettings workspaceID={workspaceID} />;
+        return <EnvironmentVariablesSettings canManageWorkspaceVariables={canManageWorkspaceVariables} workspaceID={workspaceID} />;
       case "models":
         return <ModelManagementSettings onCatalogChanged={onModelCatalogChanged} onOpenEnvironment={() => setActiveSection("environment")} />;
       case "skills":
@@ -3093,6 +3309,7 @@ function SettingsPage({
             <div className="agent-management-tabs" role="tablist" aria-label="Agent 管理视图">
               <button className={agentManagementView === "config" ? "active" : ""} type="button" role="tab" aria-selected={agentManagementView === "config"} onClick={() => setAgentManagementView("config")}>配置编辑</button>
               <button className={agentManagementView === "permissions" ? "active" : ""} type="button" role="tab" aria-selected={agentManagementView === "permissions"} onClick={() => setAgentManagementView("permissions")}>权限矩阵</button>
+              <button className={agentManagementView === "schedules" ? "active" : ""} type="button" role="tab" aria-selected={agentManagementView === "schedules"} onClick={() => setAgentManagementView("schedules")}>定时任务</button>
             </div>
             {agentManagementView === "config" ? <div className="agent-management-layout">
               <div className="settings-card agent-management-list">
@@ -3121,7 +3338,8 @@ function SettingsPage({
                 <div className="settings-card-title">当前 Agent 配置</div>
                 <AgentConfigEditor agent={selectedAgent} mcpRegistryServers={mcpRegistryServers} modelOptions={modelOptions} onRollback={onRollbackAgent} onSave={onSaveAgent} rollingBackVersion={rollingBackVersion} saving={savingAgent} skills={skills} />
               </div>
-            </div> : (
+            </div> : null}
+            {agentManagementView === "permissions" ? (
               <div className="settings-card agent-permissions-card">
                 <div className="settings-card-title">默认工具权限 · {agents.length} 个 Agent</div>
                 {agentPermissionError ? <div className="agent-version-error">{agentPermissionError}</div> : null}
@@ -3167,7 +3385,8 @@ function SettingsPage({
                   </div>
                 ) : <Empty>工作区里还没有智能体。</Empty>}
               </div>
-            )}
+            ) : null}
+            {agentManagementView === "schedules" ? <AgentScheduleManager agent={selectedAgent} onOpenSession={onOpenSession} /> : null}
           </div>
         );
       case "work":
@@ -4525,6 +4744,7 @@ function WorkbenchApp() {
   const [composerDragActive, setComposerDragActive] = useState(false);
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = useState("");
+  const [mobileResultsOpen, setMobileResultsOpen] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
@@ -4633,13 +4853,16 @@ function WorkbenchApp() {
   }, []);
 
   useEffect(() => {
-    if (!mobileNavigationPanel) return undefined;
+    if (!mobileNavigationPanel && !mobileResultsOpen) return undefined;
     function closeOnEscape(event) {
-      if (event.key === "Escape") setMobileNavigationPanel("");
+      if (event.key === "Escape") {
+        setMobileNavigationPanel("");
+        setMobileResultsOpen(false);
+      }
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [mobileNavigationPanel]);
+  }, [mobileNavigationPanel, mobileResultsOpen]);
 
   useEffect(() => {
     if (!taskMenuSessionID) return undefined;
@@ -6645,6 +6868,7 @@ function WorkbenchApp() {
         onSelectAgent={selectAgentFromSettings}
         onUpdateAgentPermissions={updateAgentPermissionsFromSettings}
         onModelCatalogChanged={refreshModelOptions}
+        principal={principal}
         recentSessions={recentSessions}
         runtimeConfig={runtimeConfig}
         search={settingsSearch}
@@ -6689,7 +6913,7 @@ function WorkbenchApp() {
             type="button"
             aria-expanded={mobileNavigationPanel === "workspace"}
             aria-controls="mobile-navigation-sidebar"
-            onClick={() => setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace")}
+            onClick={() => { setMobileResultsOpen(false); setMobileNavigationPanel((current) => current === "workspace" ? "" : "workspace"); }}
           >
             工作区
           </button>
@@ -6698,23 +6922,38 @@ function WorkbenchApp() {
             type="button"
             aria-expanded={mobileNavigationPanel === "tasks"}
             aria-controls="mobile-navigation-sidebar"
-            onClick={() => setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks")}
+            onClick={() => { setMobileResultsOpen(false); setMobileNavigationPanel((current) => current === "tasks" ? "" : "tasks"); }}
           >
             任务
           </button>
+          {!pluginRoutePath ? (
+            <button
+              className={`secondary mobile-results-button ${mobileResultsOpen ? "active" : ""}`}
+              type="button"
+              aria-expanded={mobileResultsOpen}
+              aria-controls="mobile-results-sidebar"
+              onClick={() => {
+                setMobileNavigationPanel("");
+                setRightPanelTab("results");
+                setMobileResultsOpen((current) => !current);
+              }}
+            >
+              成果{resultFiles.length ? ` ${resultFiles.length}` : ""}
+            </button>
+          ) : null}
         </div>
         <div className="topbar-status">
-          {principal ? <span className="topbar-user" title={principal.subject || principal.owner_id}>{principal.subject || principal.owner_id}</span> : null}
+          {principal ? <span className="topbar-user" title={principal.username || principal.subject || principal.owner_id}>{principal.username || principal.subject || principal.owner_id}</span> : null}
           <button className="secondary topbar-settings" type="button" onClick={openSettingsPage}>设置</button>
           <button className="secondary topbar-logout" type="button" onClick={() => logout().catch((error) => setStatus(error.message))}>退出</button>
         </div>
       </header>
-      {mobileNavigationPanel ? (
+      {mobileNavigationPanel || mobileResultsOpen ? (
         <button
           className="mobile-navigation-backdrop"
           type="button"
           aria-label="关闭移动端导航"
-          onClick={() => setMobileNavigationPanel("")}
+          onClick={() => { setMobileNavigationPanel(""); setMobileResultsOpen(false); }}
         />
       ) : null}
       <div
@@ -7083,7 +7322,7 @@ function WorkbenchApp() {
                           aria-controls="composer-runtime-settings"
                           onClick={() => setMobileRuntimeSettingsOpen((current) => !current)}
                         >
-                          <span>审批与运行环境</span>
+                          <span>配置</span>
                           <CompactChevronIcon expanded={mobileRuntimeSettingsOpen} />
                         </button>
                         <div className="composer-collapsible-settings" id="composer-runtime-settings">
@@ -7111,29 +7350,33 @@ function WorkbenchApp() {
                               ))}
                             </select>
                           </label>
+                          <label className="composer-setting composer-setting-model">
+                            <span>模型</span>
+                            <select
+                              disabled={!modelOptions.length || savingSettings}
+                              value={selectedModelValue}
+                              onChange={(event) => {
+                                const [llmProvider, llmModel] = String(event.target.value || "").split("::");
+                                applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
+                              }}
+                            >
+                              {!modelOptions.length ? <option value="">No models</option> : null}
+                              {modelOptions.map((option) => (
+                                <option key={`${option.llmProvider}:${option.llmModel}`} value={`${option.llmProvider}::${option.llmModel}`}>
+                                  {option.label} · {modelCapabilityLabel(option.capabilityType)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button className="secondary composer-tool-button composer-tool-button-settings" type="button" onClick={() => setToolPickerOpen(true)}>
+                            工具
+                            {selectableToolingItems.length ? <span>{selectedGuidanceItems.length}/{selectableToolingItems.length}</span> : null}
+                          </button>
                         </div>
                       </div>
-                      <label className="composer-setting composer-setting-model">
-                        <span>模型</span>
-                        <select
-                          disabled={!modelOptions.length || savingSettings}
-                          value={selectedModelValue}
-                          onChange={(event) => {
-                            const [llmProvider, llmModel] = String(event.target.value || "").split("::");
-                            applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
-                          }}
-                        >
-                          {!modelOptions.length ? <option value="">No models</option> : null}
-                          {modelOptions.map((option) => (
-                            <option key={`${option.llmProvider}:${option.llmModel}`} value={`${option.llmProvider}::${option.llmModel}`}>
-                              {option.label} · {modelCapabilityLabel(option.capabilityType)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                     </div>
                     <div className="composer-toolbar-end">
-                      <button className="secondary composer-tool-button" type="button" onClick={() => setToolPickerOpen(true)}>
+                      <button className="secondary composer-tool-button composer-tool-button-primary" type="button" onClick={() => setToolPickerOpen(true)}>
                         工具
                         {selectableToolingItems.length ? <span>{selectedGuidanceItems.length}/{selectableToolingItems.length}</span> : null}
                       </button>
@@ -7210,7 +7453,11 @@ function WorkbenchApp() {
           </section>
         ) : null}
         {!pluginRoutePath ? (
-        <aside className="user-sidebar right">
+        <aside id="mobile-results-sidebar" className={`user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim()}>
+          <div className="mobile-sidebar-header">
+            <strong>成果</strong>
+            <button className="icon-button" type="button" aria-label="关闭成果" onClick={() => setMobileResultsOpen(false)}><CloseIcon /></button>
+          </div>
           <Panel
             className="right-tab-panel"
             title={(
@@ -7223,7 +7470,7 @@ function WorkbenchApp() {
             {rightPanelTab === "results" ? (
               resultFiles.length ? (
                 <div className="artifact-tree" role="tree" aria-label="结果文件目录">
-                  <ArtifactTreeNode node={artifactTree} depth={0} selectedArtifactID={artifactPreview?.resource?.id || ""} onPreview={(artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message))} />
+                  <ArtifactTreeNode node={artifactTree} depth={0} selectedArtifactID={artifactPreview?.resource?.id || ""} onPreview={(artifact) => { setMobileResultsOpen(false); previewArtifact(artifact).catch((error) => setStatus(error.message)); }} />
                 </div>
               ) : <Empty>还没有生成结果文件。</Empty>
             ) : (

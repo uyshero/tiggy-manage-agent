@@ -727,10 +727,6 @@ func (p OnlyboxesProvider) WriteFile(ctx context.Context, request WriteFileReque
 }
 
 func (p OnlyboxesProvider) EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error) {
-	rawPath := request.Path
-	if rawPath == "" {
-		rawPath = request.FilePath
-	}
 	workspaceDir, err := p.workspaceDir()
 	if err != nil {
 		return EditFileResult{}, err
@@ -738,12 +734,11 @@ func (p OnlyboxesProvider) EditFile(ctx context.Context, request EditFileRequest
 	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
 		return EditFileResult{}, err
 	}
-	path, err := p.resolveSandboxFilePath(rawPath, request.WorkDir)
+	path, err := p.resolveSandboxFilePath(request.Path, request.WorkDir)
 	if err != nil {
 		return EditFileResult{}, err
 	}
 	request.Path = path
-	request.FilePath = ""
 	request.WorkDir = ""
 	result, err := LocalSystemProvider{}.EditFile(ctx, request)
 	if err != nil {

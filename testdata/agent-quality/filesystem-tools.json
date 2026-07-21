@@ -58,16 +58,17 @@
       ]
     },
     {
-      "id": "stale_revision_restarts_with_read",
-      "category": "filesystem_recovery_revision",
+      "id": "blind_edit_recovers_with_read",
+      "category": "filesystem_recovery_read_receipt",
       "flow": "filesystem_tools",
       "max_retries": 1,
-      "filesystem": {"prompt": "Update config.txt, but recover safely if the revision is stale.", "files": {"config.txt": "mode=old\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 2, "tool_errors": ["stale_file_revision"], "tool_sequence": ["default.edit_file", "default.read_file"]},
+      "filesystem": {"prompt": "Update config.txt safely, reading it before applying the edit.", "files": {"config.txt": "mode=old\n"}},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 3, "tool_errors": ["file_read_required"], "tool_sequence": ["default.edit_file", "default.read_file", "default.edit_file"]},
       "candidates": [
-        {"tool_call": {"id": "call_stale_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "expected_revision": "stat-v1:stale"}}},
+        {"tool_call": {"id": "call_blind_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
         {"tool_call": {"id": "call_restart_read", "name": "default.read_file", "arguments": {"path": "config.txt"}}},
-        {"text": "The stale write was not applied; the file was read again before retrying."}
+        {"tool_call": {"id": "call_receipt_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
+        {"text": "The file was read before the edit was applied."}
       ]
     }
   ]

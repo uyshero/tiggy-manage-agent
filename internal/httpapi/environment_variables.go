@@ -28,7 +28,7 @@ func (s *Server) listEnvironmentVariables(w http.ResponseWriter, r *http.Request
 		writeEnvironmentVariableError(w, err)
 		return
 	}
-	variables, err := service.List(r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")))
+	variables, err := service.List(r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), environmentVariableOwnerID(r))
 	if err != nil {
 		writeEnvironmentVariableError(w, err)
 		return
@@ -47,13 +47,23 @@ func (s *Server) putEnvironmentVariable(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	variable, err := service.Put(r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), r.PathValue("name"), request.Value)
+	variable, err := service.Put(
+		r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), environmentVariableOwnerID(r),
+		r.PathValue("name"), request.Value,
+	)
 	s.recordEnvironmentVariableAudit(r, "environment_variable.put", r.PathValue("name"), err)
 	if err != nil {
 		writeEnvironmentVariableError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, variable)
+}
+
+func environmentVariableOwnerID(r *http.Request) string {
+	if principal, ok := PrincipalFromRequest(r); ok && !principal.HasRole(RoleOperator) {
+		return principal.OwnerID
+	}
+	return ""
 }
 
 func (s *Server) deleteEnvironmentVariable(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +115,10 @@ func writeEnvironmentVariableError(w http.ResponseWriter, err error) {
 	case errors.Is(err, envvars.ErrNotConfigured), strings.Contains(err.Error(), "store is unavailable"):
 		status = http.StatusServiceUnavailable
 		message = err.Error()
-	case strings.Contains(err.Error(), "not found"):
+	case errors.Is(err, managedagents.ErrForbidden):
+		status = http.StatusForbidden
+		message = "environment variable is read-only"
+	case errors.Is(err, managedagents.ErrNotFound), strings.Contains(err.Error(), "not found"):
 		status = http.StatusNotFound
 		message = "managed environment variable not found"
 	}

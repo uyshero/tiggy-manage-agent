@@ -15,11 +15,12 @@ import (
 
 var segmentedEditHashes sync.Map
 
+const maxEditableFileBytes int64 = 64 << 20
+
 // EditFileRequest 描述一次精确字符串替换编辑。
 type EditFileRequest struct {
 	Meta               RequestMeta `json:"meta"`
 	Path               string      `json:"path,omitempty"`
-	FilePath           string      `json:"file_path,omitempty"`
 	OldString          string      `json:"old_string"`
 	NewString          string      `json:"new_string"`
 	ReplaceAll         bool        `json:"replace_all,omitempty"`
@@ -45,11 +46,7 @@ type EditFileResult struct {
 }
 
 func (r EditFileRequest) resolvedPath() string {
-	raw := r.Path
-	if raw == "" {
-		raw = r.FilePath
-	}
-	return resolveAgainstWorkDir(raw, r.WorkDir)
+	return resolveAgainstWorkDir(r.Path, r.WorkDir)
 }
 
 func resolveAgainstWorkDir(path, workDir string) string {
@@ -75,6 +72,9 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 	if request.OldString == "" {
 		return editFailure(filePath, "invalid_edit_match", "old_string is required")
 	}
+	if request.OldString == request.NewString {
+		return editFailure(filePath, "invalid_edit_noop", "old_string and new_string must be different")
+	}
 	if err := ctx.Err(); err != nil {
 		return editFailure(filePath, "edit_canceled", err.Error())
 	}
@@ -91,6 +91,10 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 	if !info.Mode().IsRegular() {
 		_ = file.Close()
 		return editFailure(filePath, "unsupported_file_type", "edit_file only supports regular files")
+	}
+	if info.Size() > maxEditableFileBytes {
+		_ = file.Close()
+		return editFailure(filePath, "file_too_large", fmt.Sprintf("edit_file supports files up to %d bytes", maxEditableFileBytes))
 	}
 	revision := fileRevision(info)
 	if request.ExpectedRevision != "" && request.ExpectedRevision != revision {

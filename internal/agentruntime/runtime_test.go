@@ -650,8 +650,8 @@ func TestDemoRuntimeRequiresApprovalForSensitiveTools(t *testing.T) {
 	if _, ok := requiredStep.Private["continuation_messages"].([]llm.Message); !ok {
 		t.Fatalf("expected private continuation messages, got %#v", requiredStep.Private["continuation_messages"])
 	}
-	if len(client.requests) != 1 {
-		t.Fatalf("expected runtime to pause before second LLM request, got %d requests", len(client.requests))
+	if len(client.requests) != 2 {
+		t.Fatalf("expected read round followed by approval pause, got %d requests", len(client.requests))
 	}
 }
 
@@ -1332,6 +1332,8 @@ func TestDemoRuntimeResumesApprovedInterventionThroughToolLoop(t *testing.T) {
 	provider := &countingCapabilityProvider{}
 	var steps []Step
 	runtime := DemoRuntime{Client: client}
+	fileState := newSegmentedFileGenerationState()
+	fileState.recordFileReceipt("/tmp/note.txt", "stat-v1:test")
 
 	result, err := runtime.RunTurn(t.Context(), TurnRequest{
 		SessionID: "sesn_000001",
@@ -1341,9 +1343,10 @@ func TestDemoRuntimeResumesApprovedInterventionThroughToolLoop(t *testing.T) {
 				ID:         "call_edit",
 				Identifier: "default",
 				APIName:    "edit_file",
-				Arguments:  json.RawMessage(`{"file_path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
+				Arguments:  json.RawMessage(`{"path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
 			},
-			Status: managedagents.InterventionStatusApproved,
+			Status:            managedagents.InterventionStatusApproved,
+			ContinuationState: fileState.raw(),
 			Continuation: []llm.Message{{
 				Role: "assistant",
 				ToolCalls: []llm.ToolCall{{
@@ -1351,7 +1354,7 @@ func TestDemoRuntimeResumesApprovedInterventionThroughToolLoop(t *testing.T) {
 					Type: "function",
 					Function: llm.ToolCallFunction{
 						Name:      "default.edit_file",
-						Arguments: json.RawMessage(`{"file_path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
+						Arguments: json.RawMessage(`{"path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
 					},
 				}},
 			}},
@@ -1375,6 +1378,9 @@ func TestDemoRuntimeResumesApprovedInterventionThroughToolLoop(t *testing.T) {
 	}
 	if provider.editCalls != 1 {
 		t.Fatalf("expected approved tool to execute once, got %d", provider.editCalls)
+	}
+	if provider.lastExpectedRevision != "stat-v1:test" {
+		t.Fatalf("expected persisted read revision injection, got %q", provider.lastExpectedRevision)
 	}
 	if got := payloadText(result.AgentPayload); got != "captured" {
 		t.Fatalf("expected resumed final answer, got %q", got)
@@ -1439,7 +1445,7 @@ func TestDemoRuntimeResumedLoopCanRequireAnotherApproval(t *testing.T) {
 		SessionID: "sesn_000001",
 		TurnID:    "turn_000001",
 		ResumeIntervention: &InterventionResume{
-			Call:         tools.Call{ID: "call_read", Identifier: "default", APIName: "read_file", Arguments: json.RawMessage(`{"file_path":"README.md"}`)},
+			Call:         tools.Call{ID: "call_read", Identifier: "default", APIName: "read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)},
 			Status:       managedagents.InterventionStatusApproved,
 			Continuation: []llm.Message{{Role: "assistant"}},
 		},
@@ -1466,6 +1472,16 @@ func TestDemoRuntimeResumedLoopCanRequireAnotherApproval(t *testing.T) {
 	required := firstStepType(steps, managedagents.EventRuntimeToolInterventionRequired)
 	if required.Data["id"] != "call_edit" || required.Private["continuation_messages"] == nil {
 		t.Fatalf("expected persisted second continuation, got %#v", required)
+	}
+	rawState, ok := required.Private["continuation_state"].(json.RawMessage)
+	if !ok {
+		t.Fatalf("expected persisted file revision state, got %#v", required.Private["continuation_state"])
+	}
+	persistedState := segmentedFileGenerationStateFromRaw(rawState)
+	if revision, ok := persistedState.fileRevisionForEdit(tools.Call{
+		APIName: "edit_file", Arguments: json.RawMessage(`{"path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
+	}); !ok || revision != "stat-v1:test" {
+		t.Fatalf("expected read receipt in continuation state, revision=%q ok=%v state=%s", revision, ok, rawState)
 	}
 }
 
@@ -2538,6 +2554,13 @@ func (*countingSkillsToolService) Disable(context.Context, tools.SkillsDisableRe
 func (c *sensitiveToolLoopLLMClient) Generate(ctx context.Context, request llm.Request) (llm.Response, error) {
 	c.requests = append(c.requests, request)
 	if len(c.requests) == 1 {
+		return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			ID: "call_read", Type: "function", Function: llm.ToolCallFunction{
+				Name: "default.read_file", Arguments: json.RawMessage(`{"path":"/tmp/note.txt"}`),
+			},
+		}}}}, nil
+	}
+	if len(c.requests) == 2 {
 		return llm.Response{
 			Message: llm.Message{
 				Role: "assistant",
@@ -2546,7 +2569,7 @@ func (c *sensitiveToolLoopLLMClient) Generate(ctx context.Context, request llm.R
 					Type: "function",
 					Function: llm.ToolCallFunction{
 						Name:      "default.edit_file",
-						Arguments: json.RawMessage(`{"file_path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
+						Arguments: json.RawMessage(`{"path":"/tmp/note.txt","old_string":"a","new_string":"b"}`),
 					},
 				}},
 			},
@@ -2650,7 +2673,8 @@ func (p largeOutputCapabilityProvider) EditFile(context.Context, capability.Edit
 }
 
 type countingCapabilityProvider struct {
-	editCalls int
+	editCalls            int
+	lastExpectedRevision string
 }
 
 func (p *countingCapabilityProvider) RunCommand(context.Context, capability.RunCommandRequest) (capability.CommandResult, error) {
@@ -2661,17 +2685,18 @@ func (p *countingCapabilityProvider) ExecuteCode(context.Context, capability.Exe
 	return capability.CommandResult{}, nil
 }
 
-func (p *countingCapabilityProvider) ReadFile(context.Context, capability.ReadFileRequest) (capability.FileResult, error) {
-	return capability.FileResult{}, nil
+func (p *countingCapabilityProvider) ReadFile(_ context.Context, request capability.ReadFileRequest) (capability.FileResult, error) {
+	return capability.FileResult{Path: request.Path, Content: []byte("a"), SizeBytes: 1, ReturnedBytes: 1, EOF: true, FileRevision: "stat-v1:test", Kind: "text"}, nil
 }
 
 func (p *countingCapabilityProvider) WriteFile(context.Context, capability.WriteFileRequest) (capability.FileResult, error) {
 	return capability.FileResult{}, nil
 }
 
-func (p *countingCapabilityProvider) EditFile(context.Context, capability.EditFileRequest) (capability.EditFileResult, error) {
+func (p *countingCapabilityProvider) EditFile(_ context.Context, request capability.EditFileRequest) (capability.EditFileResult, error) {
 	p.editCalls++
-	return capability.EditFileResult{Success: true, Replacements: 1}, nil
+	p.lastExpectedRevision = request.ExpectedRevision
+	return capability.EditFileResult{Path: request.Path, Success: true, Replacements: 1, FileRevision: "stat-v1:edited"}, nil
 }
 
 type visionRoutingClient struct {

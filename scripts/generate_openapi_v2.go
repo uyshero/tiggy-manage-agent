@@ -89,6 +89,12 @@ var coreContracts = map[string]routeContract{
 	"post /v2/agents/{agent_id}/config-versions/{version}/rollback":            {ResponseSchema: "AgentConfigRollbackResponse", SuccessStatuses: []string{"201"}, IntegerPathParameters: map[string]bool{"version": true}},
 	"get /v2/agents/{agent_id}/export":                                         {ResponseSchema: "AgentExportDocument"},
 	"post /v2/agents/{agent_id}/tooling-health":                                {RequestSchema: "ToolingHealthRequest", ResponseSchema: "ToolingHealthResponse"},
+	"get /v2/agents/{agent_id}/schedules":                                      {ResponseSchema: "AgentScheduleList"},
+	"post /v2/agents/{agent_id}/schedules":                                     {RequestSchema: "CreateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule", SuccessStatuses: []string{"201"}},
+	"get /v2/agents/{agent_id}/schedules/{schedule_id}":                        {ResponseSchema: "AgentSchedule"},
+	"patch /v2/agents/{agent_id}/schedules/{schedule_id}":                      {RequestSchema: "UpdateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule"},
+	"delete /v2/agents/{agent_id}/schedules/{schedule_id}":                     {SuccessStatuses: []string{"204"}},
+	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                   {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201"}},
 	"get /v2/auth/config":                                                      {ResponseSchema: "AuthClientConfiguration"},
 	"get /v2/auth/me":                                                          {ResponseSchema: "AuthState"},
 	"get /v2/environment-variables":                                            {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -466,6 +472,58 @@ paths:
         config_version: {$ref: "#/components/schemas/AgentConfigVersion"}
         archived_at: {type: string, format: date-time, nullable: true}
         created_at: {type: string, format: date-time}
+    AgentSchedule:
+      type: object
+      required: [id, workspace_id, owner_id, agent_id, environment_id, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        owner_id: {type: string}
+        agent_id: {type: string}
+        environment_id: {type: string}
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+        next_run_at: {type: string, format: date-time, nullable: true}
+        last_run_at: {type: string, format: date-time, nullable: true}
+        last_session_id: {type: string}
+        last_run_status: {type: string, enum: [pending, dispatched, failed]}
+        last_error: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AgentScheduleList:
+      type: object
+      required: [schedules]
+      properties:
+        schedules: {type: array, items: {$ref: "#/components/schemas/AgentSchedule"}}
+    CreateAgentScheduleRequest:
+      type: object
+      required: [name, prompt, cron_expression]
+      properties:
+        environment_id: {type: string}
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+    UpdateAgentScheduleRequest:
+      type: object
+      properties:
+        name: {type: string}
+        prompt: {type: string}
+        cron_expression: {type: string}
+        timezone: {type: string}
+        enabled: {type: boolean}
+    RunAgentScheduleResponse:
+      type: object
+      required: [schedule, run_id, session]
+      properties:
+        schedule: {$ref: "#/components/schemas/AgentSchedule"}
+        run_id: {type: string}
+        session: {$ref: "#/components/schemas/Session"}
     PortableAgentConfig:
       type: object
       required: [name, llm_provider, llm_model, system]
@@ -2710,6 +2768,7 @@ paths:
       required: [subject, workspace_id, owner_id, roles, auth_type]
       properties:
         subject: {type: string}
+        username: {type: string}
         organization_id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
@@ -2740,10 +2799,12 @@ paths:
         oidc: {$ref: "#/components/schemas/AuthOIDCClientConfiguration"}
     EnvironmentVariable:
       type: object
-      required: [name, configured, created_at, updated_at]
+      required: [name, configured, scope, editable, created_at, updated_at]
       properties:
         name: {type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 128}
         configured: {type: boolean}
+        scope: {type: string, enum: [personal, workspace]}
+        editable: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
     EnvironmentVariableList:

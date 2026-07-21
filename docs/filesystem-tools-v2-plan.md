@@ -274,15 +274,15 @@ suggested_capability
   "path": "config.yaml",
   "old_string": "enabled: false",
   "new_string": "enabled: true",
-  "replace_all": false,
-  "expected_match_count": 1,
-  "expected_revision": "stat-v1:..."
+  "replace_all": false
 }
 ```
 
 规则：
 
-- 修改前校验 revision。
+- 模型只传 `path`、`old_string`、`new_string`、`replace_all`；`replace_all` 默认 `false`。
+- Runtime 要求同路径已有成功 Read receipt，或已有本轮 Write/Edit receipt，并把 receipt revision 注入 Provider。
+- Provider 修改前校验 Runtime 注入的 revision；模型不能自行声明 revision。
 - 默认 `expected_match_count=1`。
 - 0 次匹配返回 `match_not_found`。
 - 多次匹配且未显式允许返回 `match_not_unique`。

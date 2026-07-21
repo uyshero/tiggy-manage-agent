@@ -143,16 +143,11 @@ func (p WorkspacePathGuardProvider) EditFile(ctx context.Context, request EditFi
 	if err != nil {
 		return EditFileResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
 	}
-	rawPath := request.Path
-	if rawPath == "" {
-		rawPath = request.FilePath
-	}
-	path, err := p.resolveWritePath(resolveAgainstWorkDir(rawPath, resolvedWorkDir))
+	path, err := p.resolveWritePath(resolveAgainstWorkDir(request.Path, resolvedWorkDir))
 	if err != nil {
 		return EditFileResult{}, fmt.Errorf("workspace path guard edit denied: %w", err)
 	}
 	request.Path = path
-	request.FilePath = ""
 	request.WorkDir = ""
 	return p.inner().EditFile(ctx, request)
 }

@@ -77,6 +77,7 @@ type AuthConfig struct {
 
 type Principal struct {
 	Subject              string   `json:"subject"`
+	Username             string   `json:"username,omitempty"`
 	OrganizationID       string   `json:"organization_id,omitempty"`
 	WorkspaceID          string   `json:"workspace_id"`
 	OwnerID              string   `json:"owner_id"`
@@ -113,6 +114,9 @@ type jwksFreshnessTransport struct {
 
 type jwtClaims struct {
 	Subject        string          `json:"sub"`
+	Username       string          `json:"preferred_username"`
+	Name           string          `json:"name"`
+	Email          string          `json:"email"`
 	Issuer         string          `json:"iss"`
 	Audience       json.RawMessage `json:"aud"`
 	ExpiresAt      int64           `json:"exp"`
@@ -470,7 +474,7 @@ func (a *identityAuthenticator) authenticateOIDC(ctx context.Context, token stri
 		return Principal{}, fmt.Errorf("OIDC identity rejected: %w", err)
 	}
 	return normalizePrincipal(Principal{
-		Subject: resolved.Subject, OrganizationID: resolved.OrganizationID, WorkspaceID: resolved.WorkspaceID,
+		Subject: resolved.Subject, Username: identityUsername(claimStringValue(claims, "preferred_username"), claimStringValue(claims, "name"), claimStringValue(claims, "email")), OrganizationID: resolved.OrganizationID, WorkspaceID: resolved.WorkspaceID,
 		OwnerID: resolved.OwnerID, Roles: resolved.Roles, AuthType: AuthModeOIDC,
 		AuthorizationSources: resolved.AuthorizationSources,
 	})
@@ -532,7 +536,7 @@ func (a *identityAuthenticator) authenticateJWT(token string) (Principal, error)
 		sources = append(sources, "jwt_claim:owner_id")
 	}
 	return normalizePrincipal(Principal{
-		Subject: claims.Subject, OrganizationID: claims.OrganizationID, WorkspaceID: claims.WorkspaceID, OwnerID: claims.OwnerID,
+		Subject: claims.Subject, Username: identityUsername(claims.Username, claims.Name, claims.Email), OrganizationID: claims.OrganizationID, WorkspaceID: claims.WorkspaceID, OwnerID: claims.OwnerID,
 		Roles: roles, AuthType: AuthModeJWT, AuthorizationSources: sources,
 	})
 }
@@ -621,6 +625,7 @@ func isSafeRequestMethod(method string) bool {
 
 func normalizePrincipal(principal Principal) (Principal, error) {
 	principal.Subject = strings.TrimSpace(principal.Subject)
+	principal.Username = strings.TrimSpace(principal.Username)
 	principal.WorkspaceID = strings.TrimSpace(principal.WorkspaceID)
 	principal.OwnerID = strings.TrimSpace(principal.OwnerID)
 	if principal.Subject == "" || principal.WorkspaceID == "" {
@@ -648,6 +653,20 @@ func normalizePrincipal(principal Principal) (Principal, error) {
 	principal.Roles = roles
 	principal.AuthorizationSources = normalizedStringList(principal.AuthorizationSources)
 	return principal, nil
+}
+
+func identityUsername(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func claimStringValue(claims map[string]any, name string) string {
+	value, _ := claims[name].(string)
+	return strings.TrimSpace(value)
 }
 
 func (s *Server) identityMiddleware(next http.Handler) http.Handler {
@@ -706,11 +725,6 @@ func (s *Server) identityMiddleware(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": requiredRole + " role required"})
 			return
 		}
-		if err := s.authorizeResourceRequest(r, principal); err != nil {
-			s.auditAuthorizationDecision(r, principal, authorizationOutcomeForError(err), authorizationReasonForResourceError(err), requiredRole, err)
-			writeError(w, err)
-			return
-		}
 		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 		ctx, err = managedagents.ContextWithDatabaseAccessScope(ctx, accessScopeForPrincipal(principal))
 		if err != nil {
@@ -718,8 +732,14 @@ func (s *Server) identityMiddleware(next http.Handler) http.Handler {
 			writeError(w, err)
 			return
 		}
+		scopedRequest := r.WithContext(ctx)
+		if err := s.authorizeResourceRequest(scopedRequest, principal); err != nil {
+			s.auditAuthorizationDecision(r, principal, authorizationOutcomeForError(err), authorizationReasonForResourceError(err), requiredRole, err)
+			writeError(w, err)
+			return
+		}
 		s.auditAuthorizationDecision(r, principal, "allowed", "identity_boundary", requiredRole, nil)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, scopedRequest)
 	})
 }
 

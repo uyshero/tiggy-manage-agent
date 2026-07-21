@@ -153,6 +153,15 @@ func (s *Server) enableInstalledSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	var request enableInstalledSkillRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.authorizeSessionID(r, request.SessionID); err != nil {
+		writeError(w, err)
+		return
+	}
 	registry, ok := s.store.(skillspkg.Registry)
 	if !ok {
 		writeError(w, fmt.Errorf("skills registry is unavailable"))
@@ -160,15 +169,6 @@ func (s *Server) enableInstalledSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	skill, err := registry.GetSkill(r.Context(), r.PathValue("skill_id"))
 	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var request enableInstalledSkillRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := s.authorizeSessionID(r, request.SessionID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -197,6 +197,15 @@ func (s *Server) disableInstalledSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	var request disableInstalledSkillRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.authorizeSessionID(r, request.SessionID); err != nil {
+		writeError(w, err)
+		return
+	}
 	registry, ok := s.store.(skillspkg.Registry)
 	if !ok {
 		writeError(w, fmt.Errorf("skills registry is unavailable"))
@@ -204,15 +213,6 @@ func (s *Server) disableInstalledSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	skill, err := registry.GetSkill(r.Context(), r.PathValue("skill_id"))
 	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var request disableInstalledSkillRequest
-	if err := decodeJSON(r, &request); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if err := s.authorizeSessionID(r, request.SessionID); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -133,6 +133,26 @@ export function agentToolingHealth(agentId, body = {}, options = {}) {
   return coreSDK.agents.toolingHealth(agentId, body, options.signal);
 }
 
+export function agentSchedules(agentId) {
+  return getJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`);
+}
+
+export function createAgentSchedule(agentId, body) {
+  return postJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`, body);
+}
+
+export function updateAgentSchedule(agentId, scheduleId, body) {
+  return patchJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`, body);
+}
+
+export function deleteAgentSchedule(agentId, scheduleId) {
+  return deleteRequest(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}`);
+}
+
+export function runAgentSchedule(agentId, scheduleId) {
+  return postJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules/${encodeURIComponent(scheduleId)}/run`, {});
+}
+
 export async function mcpServers(workspaceId = "") {
   return { servers: await coreSDK.mcp.list(workspaceId ? { workspaceId } : {}) };
 }

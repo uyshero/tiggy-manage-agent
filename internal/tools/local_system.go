@@ -117,7 +117,7 @@ func (DefaultRuntime) Manifest() Manifest {
 				Namespace:         NamespaceDefault,
 				APIName:           "edit_file",
 				Description:       "Perform an exact string replacement. For segmented generation, replace exactly one unique numbered skeleton placeholder with one complete semantic segment; consumed placeholders make retries idempotent. Must read the file first before ordinary edits, and must verify no placeholders remain before completion. new_string has a hard limit of 8000 estimated tokens.",
-				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","description":"Path to edit. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"file_path":{"type":"string","description":"Legacy alias for path."},"old_string":{"type":"string","minLength":1,"description":"Exact existing UTF-8 text."},"new_string":{"type":"string","maxLength":8000,"description":"Replacement UTF-8 text; hard limit 8000 estimated tokens."},"replace_all":{"type":"boolean","description":"Replace every match. Without this option, old_string must match exactly once by default."},"work_dir":{"type":"string","description":"Base directory for relative paths."},"expected_revision":{"type":"string","description":"Only commit when the file still has this revision."},"expected_match_count":{"type":"integer","minimum":1,"description":"Required exact match count; defaults to 1 for a single replacement."}},"required":["old_string","new_string"]}`),
+				Parameters:        json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","minLength":1,"description":"Required target path. In cloud_sandbox, absolute paths must begin with /workspace or /mnt/data; otherwise use a relative path."},"old_string":{"type":"string","minLength":1,"description":"Required exact existing UTF-8 text copied from a prior read. For a segmented placeholder, surrounding indentation or line breaks are allowed."},"new_string":{"type":"string","maxLength":8000,"description":"Required replacement UTF-8 text; use an empty string to delete old_string. Hard limit 8000 estimated tokens."},"replace_all":{"type":"boolean","default":false,"description":"Replace every match. Without this option, old_string must match exactly once."}},"required":["path","old_string","new_string"]}`),
 				HumanIntervention: "optional",
 				Capabilities:      []string{CapabilityFilesystemRead, CapabilityFilesystemWrite},
 				Risk:              ToolRiskWrite,
@@ -328,6 +328,7 @@ func (DefaultRuntime) Execute(ctx context.Context, call Call, executionContext E
 			return ExecutionResult{}, fmt.Errorf("decode edit_file arguments: %w", err)
 		}
 		request.Idempotent = IsSegmentedFilePlaceholder(request.OldString)
+		request.ExpectedRevision = executionContext.ExpectedFileRevision
 		request.Meta = capability.NewRequestMeta(executionContext.SessionID, executionContext.TurnID, executionContext.Deadline)
 		result, err := provider.EditFile(ctx, request)
 		if err != nil {

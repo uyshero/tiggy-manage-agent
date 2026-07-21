@@ -140,7 +140,7 @@ func TestLocalSystemProviderEditFile(t *testing.T) {
 	}
 
 	result, err := provider.EditFile(context.Background(), EditFileRequest{
-		FilePath:  path,
+		Path:      path,
 		OldString: "beta",
 		NewString: "gamma",
 	})
@@ -157,5 +157,35 @@ func TestLocalSystemProviderEditFile(t *testing.T) {
 	}
 	if string(readResult.Content) != "alpha gamma" {
 		t.Fatalf("unexpected content: %q", string(readResult.Content))
+	}
+}
+
+func TestEditLocalFileRejectsNoop(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("same"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := editLocalFile(EditFileRequest{Path: path, OldString: "same", NewString: "same"})
+	if result.Success || result.Code != "invalid_edit_noop" {
+		t.Fatalf("expected no-op rejection, got %#v", result)
+	}
+}
+
+func TestEditLocalFileRejectsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.txt")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxEditableFileBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result := editLocalFile(EditFileRequest{Path: path, OldString: "old", NewString: "new"})
+	if result.Success || result.Code != "file_too_large" {
+		t.Fatalf("expected oversized-file rejection, got %#v", result)
 	}
 }

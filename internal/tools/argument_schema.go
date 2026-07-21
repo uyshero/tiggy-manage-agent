@@ -155,7 +155,13 @@ func schemaValidationMessage(err error, subject string) string {
 	}
 	instanceLocation := defaultSchemaLocation(leaf.InstanceLocation)
 	keywordLocation := defaultSchemaLocation(leaf.KeywordLocation)
-	return fmt.Sprintf("%s does not match schema at instance %s (constraint %s)", subject, instanceLocation, keywordLocation)
+	detail := ""
+	if strings.HasSuffix(keywordLocation, "/required") && strings.HasPrefix(leaf.Message, "missing properties:") {
+		// Required-property names come from the registered schema, not from the
+		// submitted values, so they are safe and make retries actionable.
+		detail = ": " + leaf.Message
+	}
+	return fmt.Sprintf("%s does not match schema at instance %s (constraint %s)%s", subject, instanceLocation, keywordLocation, detail)
 }
 
 func defaultSchemaLocation(value string) string {

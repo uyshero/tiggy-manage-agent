@@ -41,6 +41,8 @@ type testStore struct {
 	nextPolicyID        int64
 	nextPolicyVersionID int64
 	nextMCPRegistryID   int64
+	nextScheduleID      int64
+	nextScheduleRunID   int64
 
 	agents                    map[string]managedagents.Agent
 	agentConfigVersions       map[string][]managedagents.AgentConfigVersion
@@ -79,6 +81,7 @@ type testStore struct {
 	mcpRegistryServers        map[string]mcpregistry.Server
 	mcpRegistryVersions       map[string][]mcpregistry.Version
 	runIdempotency            map[string]map[string]testRunIdempotency
+	agentSchedules            map[string]managedagents.AgentSchedule
 }
 
 type testRunIdempotency struct {
@@ -121,6 +124,7 @@ func newTestStore() *testStore {
 		mcpRegistryServers:        make(map[string]mcpregistry.Server),
 		mcpRegistryVersions:       make(map[string][]mcpregistry.Version),
 		runIdempotency:            make(map[string]map[string]testRunIdempotency),
+		agentSchedules:            make(map[string]managedagents.AgentSchedule),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -143,45 +147,81 @@ func newTestStore() *testStore {
 	return store
 }
 
-func (s *testStore) ListEncryptedEnvironmentVariables(_ context.Context, workspaceID string) ([]envvars.EncryptedVariable, error) {
+func (s *testStore) ListEncryptedEnvironmentVariables(ctx context.Context, workspaceID string) ([]envvars.EncryptedVariable, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := s.environmentVariables[workspaceID]
 	result := make([]envvars.EncryptedVariable, 0, len(items))
 	for _, item := range items {
+		if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+			if scope.WorkspaceID != workspaceID {
+				return nil, managedagents.ErrForbidden
+			}
+			if item.OwnerID != "" && item.OwnerID != scope.OwnerID {
+				continue
+			}
+		} else if item.OwnerID != "" {
+			continue
+		}
 		item.Ciphertext = append([]byte(nil), item.Ciphertext...)
 		result = append(result, item)
 	}
 	return result, nil
 }
 
-func (s *testStore) UpsertEncryptedEnvironmentVariable(_ context.Context, input envvars.EncryptedVariable) (envvars.EncryptedVariable, error) {
+func (s *testStore) UpsertEncryptedEnvironmentVariable(ctx context.Context, input envvars.EncryptedVariable) (envvars.EncryptedVariable, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	ownerID := strings.TrimSpace(input.OwnerID)
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+		if scope.WorkspaceID != input.WorkspaceID {
+			return envvars.EncryptedVariable{}, managedagents.ErrForbidden
+		}
+		if ownerID == "" {
+			ownerID = scope.OwnerID
+		}
+		if ownerID != scope.OwnerID {
+			return envvars.EncryptedVariable{}, managedagents.ErrForbidden
+		}
+	}
 	if s.environmentVariables[input.WorkspaceID] == nil {
 		s.environmentVariables[input.WorkspaceID] = make(map[string]envvars.EncryptedVariable)
 	}
 	now := time.Now().UTC()
-	existing := s.environmentVariables[input.WorkspaceID][input.Name]
+	key := environmentVariableStoreKey(ownerID, input.Name)
+	existing := s.environmentVariables[input.WorkspaceID][key]
 	if existing.CreatedAt.IsZero() {
 		existing.CreatedAt = now
 	}
 	existing.WorkspaceID = input.WorkspaceID
+	existing.OwnerID = ownerID
 	existing.Name = input.Name
 	existing.Ciphertext = append([]byte(nil), input.Ciphertext...)
 	existing.UpdatedAt = now
-	s.environmentVariables[input.WorkspaceID][input.Name] = existing
+	s.environmentVariables[input.WorkspaceID][key] = existing
 	return existing, nil
 }
 
-func (s *testStore) DeleteEncryptedEnvironmentVariable(_ context.Context, workspaceID string, name string) error {
+func (s *testStore) DeleteEncryptedEnvironmentVariable(ctx context.Context, workspaceID string, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.environmentVariables[workspaceID][name]; !ok {
+	ownerID := ""
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+		if scope.WorkspaceID != workspaceID {
+			return managedagents.ErrForbidden
+		}
+		ownerID = scope.OwnerID
+	}
+	key := environmentVariableStoreKey(ownerID, name)
+	if _, ok := s.environmentVariables[workspaceID][key]; !ok {
 		return managedagents.ErrNotFound
 	}
-	delete(s.environmentVariables[workspaceID], name)
+	delete(s.environmentVariables[workspaceID], key)
 	return nil
+}
+
+func environmentVariableStoreKey(ownerID string, name string) string {
+	return strings.TrimSpace(ownerID) + "\x00" + strings.TrimSpace(name)
 }
 
 func (s *testStore) EnsureLLMProvider(input managedagents.EnsureLLMProviderInput) (managedagents.LLMProvider, error) {

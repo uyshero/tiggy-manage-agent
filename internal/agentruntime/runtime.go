@@ -531,6 +531,17 @@ func (runtime DemoRuntime) resolveInterventionResult(ctx context.Context, reques
 		executionContext.Deadline = deadlineFromContext(ctx)
 	}
 	executionContext.DeferArtifacts = fileGenerationState.shouldDeferArtifacts(call)
+	if normalizeToolAPIName(call.APIName) == "edit_file" {
+		revision, ok := fileGenerationState.fileRevisionForEdit(call)
+		if !ok {
+			result := fileReadRequiredResult(call)
+			if err := emitInterventionToolResult(ctx, request, call, result, decisionReason, 0); err != nil {
+				return tools.ExecutionResult{}, err
+			}
+			return result, nil
+		}
+		executionContext.ExpectedFileRevision = revision
+	}
 	startedAt := time.Now()
 	result, err := request.Config.ToolExecutor.Execute(ctx, call, executionContext)
 	if err != nil {
@@ -997,9 +1008,14 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 					if schemaError := registry.ValidateCallArguments(call); schemaError != nil {
 						preflightError = schemaError
 						if schemaError.Type == "invalid_tool_arguments" {
-							preflightError = &tools.ExecutionError{Type: schemaError.Type, Message: invalidToolSchemaRecoveryMessage(schemaError.Message)}
+							preflightError = &tools.ExecutionError{Type: schemaError.Type, Message: invalidToolSchemaRecoveryMessage(call, schemaError.Message)}
 						}
 					}
+				}
+			}
+			if preflightError == nil && normalizeToolAPIName(call.APIName) == "edit_file" {
+				if _, ok := fileGenerationState.fileRevisionForEdit(call); !ok {
+					preflightError = fileReadRequiredResult(call).Error
 				}
 			}
 		}
@@ -1019,7 +1035,7 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 			resultData["file_generation"] = fileGenerationMetricsData(fileGenerationState)
 			if err := emitStep(ctx, turnRequest, Step{
 				Type:    managedagents.EventRuntimeToolResult,
-				Message: "Rejected invalid or oversized tool arguments before policy evaluation.",
+				Message: "Rejected tool call during runtime preflight.",
 				Data:    withToolEventMetadata(resultData, toolMetadata),
 			}); err != nil {
 				return nil, err
@@ -1037,6 +1053,9 @@ func (runtime DemoRuntime) executeToolCalls(ctx context.Context, turnRequest Tur
 			executionContext.Deadline = deadlineFromContext(ctx)
 		}
 		executionContext.DeferArtifacts = fileGenerationState.shouldDeferArtifacts(call)
+		if revision, ok := fileGenerationState.fileRevisionForEdit(call); ok {
+			executionContext.ExpectedFileRevision = revision
+		}
 
 		if tools.IsAskUserCall(call) {
 			interactionRequest, parseErr := tools.ParseAskUserRequest(call.Arguments)
@@ -1282,8 +1301,21 @@ func invalidToolArgumentsMessage(call tools.Call) string {
 	}
 }
 
-func invalidToolSchemaRecoveryMessage(validationMessage string) string {
-	return "Tool arguments failed the registered JSON Schema validation: " + validationMessage + ". Regenerate the arguments to match the tool schema. Do not retry the unchanged payload."
+func invalidToolSchemaRecoveryMessage(call tools.Call, validationMessage string) string {
+	message := "Tool arguments failed the registered JSON Schema validation: " + validationMessage + ". Regenerate the arguments to match the tool schema. Do not retry the unchanged payload."
+	if normalizeToolAPIName(call.APIName) == "edit_file" {
+		message += ` Supply one complete object with path, old_string, new_string, and replace_all=false. new_string must be present even when it is empty.`
+	}
+	return message
+}
+
+func fileReadRequiredResult(call tools.Call) tools.ExecutionResult {
+	call = tools.NormalizeCall(call)
+	message := "edit_file requires a successful read_file of the same text file in this tool loop. Read the target path first, then retry the edit using text copied from that revision. A preceding write_file or successful edit also establishes the required revision receipt."
+	return tools.ExecutionResult{
+		ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: message,
+		Error: &tools.ExecutionError{Type: "file_read_required", Message: message},
+	}
 }
 
 func normalizeToolAPIName(apiName string) string {

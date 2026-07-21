@@ -421,6 +421,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('agent_deliberation_rounds', 'agent_deliberation_rounds_parent_isolation'),
 				('agent_deliberations', 'agent_deliberations_session_isolation'),
 				('agent_config_versions', 'agent_config_versions_workspace_isolation'),
+				('agent_schedule_runs', 'agent_schedule_runs_workspace_isolation'),
+				('agent_schedules', 'agent_schedules_workspace_isolation'),
 				('agents', 'agents_workspace_isolation'),
 				('environments', 'environments_workspace_isolation'),
 				('llm_usage_records', 'llm_usage_records_session_isolation'),
@@ -509,8 +511,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 45 {
-		return errors.New("tenant RLS tables are missing; apply migrations 000045 through 000065")
+	if checked != 47 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000081")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
@@ -518,6 +520,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 			VALUES
 				('tma_agent_id_seq'),
 				('tma_agent_deliberation_id_seq'),
+				('tma_agent_schedule_id_seq'),
+				('tma_agent_schedule_run_id_seq'),
 				('tma_environment_id_seq'),
 				('tma_event_id_seq'),
 				('tma_llm_usage_id_seq'),
@@ -574,8 +578,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 29 {
-		return errors.New("tenant resource sequences are missing; apply migrations 000001, 000015, 000016, 000017, 000018, 000031, 000032, 000033, 000036, 000038, 000048, and 000056")
+	if checked != 31 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000081")
 	}
 	return nil
 }
