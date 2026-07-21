@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tokenestimate"
 	"tiggy-manage-agent/internal/tools"
 )
@@ -72,6 +74,51 @@ type ContextBudgetBreakdown struct {
 	HistoryTokens            int `json:"history_tokens,omitempty"`
 	CurrentUserTokens        int `json:"current_user_tokens,omitempty"`
 	OmittedHistoryTokens     int `json:"omitted_history_tokens,omitempty"`
+}
+
+type PreparedTurnContext struct {
+	Result          ContextBuildResult
+	MaxOutputTokens int
+}
+
+// PrepareTurnContext exposes the existing prompt assembly rules to durable
+// runtimes without coupling them to DemoRuntime's model/tool loop.
+func PrepareTurnContext(request TurnRequest, now time.Time, builder ContextBuilder) (PreparedTurnContext, error) {
+	budget := contextBudgetFromSettings(request.Config.ContextWindowTokens, request.Config.RuntimeSettings)
+	if builder == nil {
+		builder = DefaultContextBuilder{MaxInputTokens: budget.MaxInputTokens}
+	}
+	renderedSkills := request.Config.Skills
+	if !request.Config.SkillsResolved {
+		resolved, err := skills.Resolve(request.Config.Skills)
+		if err != nil {
+			return PreparedTurnContext{}, fmt.Errorf("resolve skills: %w", err)
+		}
+		renderedSkills = resolved.Rendered
+	}
+	result, err := builder.Build(ContextBuildRequest{
+		System:                  request.Config.System,
+		CurrentDateContext:      buildCurrentDateContext(now),
+		PinnedContext:           combinePinnedContext(pinnedContextFromSettings(request.Config.RuntimeSettings), request.Config.TaskPlanContext),
+		SummaryText:             request.Config.SummaryText,
+		History:                 request.History,
+		UserPayload:             request.UserPayload,
+		CurrentUserImages:       request.ImageParts,
+		Tools:                   request.Config.Tools,
+		ModelTools:              request.Config.ModelTools,
+		Skills:                  renderedSkills,
+		ContextWindowTokens:     budget.ContextWindowTokens,
+		InputBudgetRatioPercent: budget.InputBudgetRatioPercent,
+		ReservedOutputTokens:    budget.ReservedOutputTokens,
+	})
+	if err != nil {
+		return PreparedTurnContext{}, err
+	}
+	return PreparedTurnContext{Result: result, MaxOutputTokens: maxLLMOutputTokens(budget.ReservedOutputTokens)}, nil
+}
+
+func MaxOutputTokensForContext(contextWindowTokens int, runtimeSettings json.RawMessage) int {
+	return maxLLMOutputTokens(contextBudgetFromSettings(contextWindowTokens, runtimeSettings).ReservedOutputTokens)
 }
 
 // historyContextMessage 在截断算法中同时保留 seq，便于上报被省略区间的边界。

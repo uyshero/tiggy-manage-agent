@@ -33,6 +33,8 @@ const (
 	DefaultTurnLeaseDurationMS                     = 10000
 	DefaultTurnHeartbeatIntervalMS                 = 1000
 	DefaultTurnTimeoutMS                           = 3600000
+	DefaultAgentCoreEnabled                        = false
+	DefaultAgentCoreRolloutPercent                 = 100
 	DefaultMaxToolRounds                           = 0
 	DefaultLLMProvider                             = "fake"
 	DefaultLLMModel                                = "fake-demo"
@@ -164,6 +166,10 @@ type TurnConfig struct {
 	Timeout                 time.Duration
 	TimeoutMillis           int
 	MaxToolRounds           int
+	AgentCoreEnabled        bool
+	AgentCoreRolloutPercent int
+	AgentCoreWorkspaceIDs   []string
+	AgentCoreAgentIDs       []string
 }
 
 type ContextConfig struct {
@@ -371,6 +377,10 @@ func FromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("TMA_SECURITY_AUDIT_INTEGRITY_KEYS_JSON: %w", err)
 	}
+	agentCoreRolloutPercent, err := envIntInRange("TMA_AGENT_CORE_ROLLOUT_PERCENT", DefaultAgentCoreRolloutPercent, 0, 100)
+	if err != nil {
+		return Config{}, err
+	}
 	config := Config{
 		Environment: envOrDefault("TMA_ENV", DefaultEnvironment),
 		HTTPAddr:    envOrDefault("TMA_HTTP_ADDR", DefaultHTTPAddr),
@@ -383,6 +393,10 @@ func FromEnv() (Config, error) {
 			HeartbeatIntervalMillis: envIntOrDefault("TMA_TURN_HEARTBEAT_INTERVAL_MS", DefaultTurnHeartbeatIntervalMS),
 			TimeoutMillis:           envIntOrDefault("TMA_TURN_TIMEOUT_MS", DefaultTurnTimeoutMS),
 			MaxToolRounds:           envNonNegativeIntOrDefault("TMA_MAX_TOOL_ROUNDS", DefaultMaxToolRounds),
+			AgentCoreEnabled:        envBoolOrDefault("TMA_AGENT_CORE_ENABLED", DefaultAgentCoreEnabled),
+			AgentCoreRolloutPercent: agentCoreRolloutPercent,
+			AgentCoreWorkspaceIDs:   splitCommaSeparated(os.Getenv("TMA_AGENT_CORE_WORKSPACE_IDS")),
+			AgentCoreAgentIDs:       splitCommaSeparated(os.Getenv("TMA_AGENT_CORE_AGENT_IDS")),
 		},
 		Context: ContextConfig{
 			DefaultWindowTokens: envIntOrDefault("TMA_DEFAULT_CONTEXT_WINDOW_TOKENS", DefaultContextWindowTokens),
@@ -995,6 +1009,18 @@ func envIntegerOrDefault(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envIntInRange(key string, fallback, minimum, maximum int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minimum || parsed > maximum {
+		return 0, fmt.Errorf("%s must be between %d and %d", key, minimum, maximum)
+	}
+	return parsed, nil
 }
 
 func envNonNegativeIntOrDefault(key string, fallback int) int {

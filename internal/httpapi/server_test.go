@@ -4300,6 +4300,35 @@ func TestAppendEventsPreferLatestInterruptsRunningTurnAndStartsNewestTurn(t *tes
 	}
 }
 
+func TestAppendSessionControlEventsTargetsRunningTurn(t *testing.T) {
+	recorder := &recordingRunner{}
+	server := NewServerWithStoreAndRunner(newTestStore(), recorder, nil)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{"name":"Control Agent","model":"fake-demo","system":"Follow controls."}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"Control Env","config":{"type":"cloud"}}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`","environment_id":"`+environment.ID+`"}`)
+	started := postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
+		"events":[{"type":"user.message","payload":{"content":[{"type":"text","text":"start"}]}}]
+	}`)
+	turnID := payloadString(started.Events[len(started.Events)-1].Payload, "turn_id")
+	controls := postJSON[eventsResponse](t, server, "/v1/sessions/"+session.ID+"/events", `{
+		"events":[
+			{"type":"user.steer","payload":{"content":[{"type":"text","text":"focus on correctness"}]}},
+			{"type":"user.follow_up","payload":{"content":[{"type":"text","text":"include tests"}]}}
+		]
+	}`)
+	if len(controls.Events) != 2 || controls.Events[0].Type != managedagents.EventUserSteer || controls.Events[1].Type != managedagents.EventUserFollowUp {
+		t.Fatalf("control events = %+v", controls.Events)
+	}
+	for _, event := range controls.Events {
+		if got := payloadString(event.Payload, "turn_id"); got != turnID {
+			t.Fatalf("control event %s turn_id = %q, want %q", event.Type, got, turnID)
+		}
+	}
+	if len(recorder.starts) != 1 || len(recorder.interrupts) != 0 {
+		t.Fatalf("runner dispatch starts=%d interrupts=%d", len(recorder.starts), len(recorder.interrupts))
+	}
+}
+
 func TestRunnerStartFailureMarksTurnFailedAndSessionIdle(t *testing.T) {
 	server := NewServerWithStoreAndRunner(newTestStore(), failingRunner{}, nil)
 

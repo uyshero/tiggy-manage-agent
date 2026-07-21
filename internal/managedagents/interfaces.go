@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"tiggy-manage-agent/internal/agentcore"
 )
 
 type DatabaseTenantIsolationValidator interface {
@@ -188,6 +190,14 @@ type SessionRunStore interface {
 	GetSessionRunContext(ctx context.Context, sessionID string, runID string) (SessionRun, error)
 	ListSessionRunsContext(ctx context.Context, sessionID string) ([]SessionRun, error)
 	ListSessionRunEventsContext(ctx context.Context, sessionID string, runID string, afterSeq int64) ([]Event, error)
+}
+
+type SessionControlReader interface {
+	ListSessionTurnControlEventsContext(ctx context.Context, sessionID string, turnID string, afterSeq int64) ([]Event, error)
+}
+
+type AgentLoopRepositoryFactory interface {
+	AgentLoopRepository(AgentLoopFence) agentcore.StateRepository
 }
 
 // SessionTaskPlanReader keeps read-only API consumers independent from the

@@ -33,8 +33,10 @@ type TurnExecutor interface {
 }
 
 type TurnResult struct {
-	AgentPayload json.RawMessage
-	Usage        *managedagents.RecordLLMUsageInput
+	AgentPayload     json.RawMessage
+	Usage            *managedagents.RecordLLMUsageInput
+	DurableFinalized bool
+	DurableStatus    string
 }
 
 type WorkerRunnerConfig struct {
@@ -357,6 +359,8 @@ func (r *WorkerRunner) workPersistent() {
 				UserEventSeq:       item.UserEventSeq,
 				UserPayload:        item.UserPayload,
 				ResumeIntervention: item.ResumeIntervention,
+				LeaseOwner:         r.config.InstanceID,
+				Attempt:            item.Attempt,
 			},
 			leased: true,
 		})
@@ -395,6 +399,14 @@ func (r *WorkerRunner) runJob(job workerJob) {
 			r.logger.Info("worker runner turn waiting for human intervention", "session_id", job.request.SessionID, "turn_id", job.request.TurnID)
 			return
 		}
+		if result.DurableFinalized {
+			if result.DurableStatus == "failed" {
+				r.recordFailedUsage(job.request, result.Usage, err)
+			}
+			r.logger.Info("worker runner durable turn finalized", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "status", result.DurableStatus, "error", err)
+			r.schedulePostProcess(job.request)
+			return
+		}
 		if job.ctx.Err() != nil {
 			if job.leased {
 				_ = r.releaseLease(job.request.SessionID, job.request.TurnID, job.request.Scope)
@@ -418,13 +430,17 @@ func (r *WorkerRunner) runJob(job workerJob) {
 		r.logger.Error("worker runner completion scope failed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "error", err)
 		return
 	}
-	events, err := managedagents.CompleteSessionTurnWithContext(databaseCtx, r.store, job.request.SessionID, job.request.TurnID, result.AgentPayload)
-	if err != nil {
-		r.logger.Error("worker runner completion failed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "error", err)
-		if job.leased {
-			_ = r.releaseLease(job.request.SessionID, job.request.TurnID, job.request.Scope)
+	eventCount := 0
+	if !result.DurableFinalized {
+		events, err := managedagents.CompleteSessionTurnWithContext(databaseCtx, r.store, job.request.SessionID, job.request.TurnID, result.AgentPayload)
+		if err != nil {
+			r.logger.Error("worker runner completion failed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "error", err)
+			if job.leased {
+				_ = r.releaseLease(job.request.SessionID, job.request.TurnID, job.request.Scope)
+			}
+			return
 		}
-		return
+		eventCount = len(events)
 	}
 	if result.Usage != nil {
 		usage := *result.Usage
@@ -434,7 +450,7 @@ func (r *WorkerRunner) runJob(job workerJob) {
 			r.logger.Error("worker runner llm usage record failed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "error", err)
 		}
 	}
-	r.logger.Info("worker runner turn completed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "events", len(events))
+	r.logger.Info("worker runner turn completed", "session_id", job.request.SessionID, "turn_id", job.request.TurnID, "events", eventCount, "durable_finalized", result.DurableFinalized)
 	r.schedulePostProcess(job.request)
 }
 

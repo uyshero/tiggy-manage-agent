@@ -2890,7 +2890,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
-		agents, agent_config_versions, agent_schedule_runs, agent_schedules, environments, managed_environment_variables,
+		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, environments, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
 		session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,

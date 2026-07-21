@@ -4228,6 +4228,25 @@ func (s *testStore) ListSessionRunEventsContext(_ context.Context, sessionID str
 	return events, nil
 }
 
+func (s *testStore) ListSessionTurnControlEventsContext(_ context.Context, sessionID string, turnID string, afterSeq int64) ([]managedagents.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[sessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	events := []managedagents.Event{}
+	for _, event := range s.events[sessionID] {
+		if event.Seq <= afterSeq || payloadString(event.Payload, "turn_id") != turnID {
+			continue
+		}
+		switch event.Type {
+		case managedagents.EventUserSteer, managedagents.EventUserFollowUp, managedagents.EventUserInterrupt:
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
 func (s *testStore) sessionRunLocked(sessionID string, runID string) (managedagents.SessionRun, bool) {
 	run := managedagents.SessionRun{ID: runID, SessionID: sessionID, Status: managedagents.TurnStatusRunning}
 	found := false
@@ -4564,6 +4583,18 @@ func (s *testStore) applyEventLocked(session *managedagents.Session, input manag
 		events = append(events, rejectionEvents...)
 		events = append(events, idleEvent)
 		return events, nil
+
+	case managedagents.EventUserSteer, managedagents.EventUserFollowUp:
+		if session.Status != managedagents.SessionStatusRunning {
+			return nil, fmt.Errorf("%w: %s requires running session", managedagents.ErrInvalid, input.Type)
+		}
+		turnID := s.currentTurnIDLocked(session.ID)
+		if turnID == "" {
+			return nil, fmt.Errorf("%w: running session has no active turn", managedagents.ErrInvalid)
+		}
+		event := s.appendEventLocked(session.ID, input.Type, payloadWithTurnID(input.Payload, turnID), now)
+		s.publishLocked(event)
+		return []managedagents.Event{event}, nil
 
 	default:
 		event := s.appendEventLocked(session.ID, input.Type, cloneRaw(input.Payload), now)

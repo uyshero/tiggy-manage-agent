@@ -999,21 +999,31 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 	})
 
 	liveEvents := runner.NewLiveEventBroker(256)
+	completionGate := agentruntime.TaskPlanCompletionGate{Reader: taskPlanReader}
 	turnExecutor := runner.AgentRuntimeTurnExecutor{
 		Runtime: agentruntime.DemoRuntime{
 			Client:         llmManager,
-			CompletionGate: agentruntime.TaskPlanCompletionGate{Reader: taskPlanReader},
+			CompletionGate: completionGate,
 			MaxToolRounds:  config.Turn.MaxToolRounds,
 		},
-		Store:            store,
-		ObjectStore:      objectStore,
-		ArtifactBucket:   config.ObjectStore.Bucket,
-		Timeout:          config.Turn.Timeout,
-		ProviderResolver: executionResolver,
-		MCPHost:          mcpHost,
-		MCPHTTPHost:      mcpHTTPHost,
-		MCPRuntimeGuard:  mcpRuntimeGuard,
-		LiveEvents:       liveEvents,
+		CoreRollout: runner.AgentCoreRolloutPolicy{
+			Enabled:      config.Turn.AgentCoreEnabled,
+			Percent:      config.Turn.AgentCoreRolloutPercent,
+			WorkspaceIDs: config.Turn.AgentCoreWorkspaceIDs,
+			AgentIDs:     config.Turn.AgentCoreAgentIDs,
+		},
+		CoreClient:         llmManager,
+		CoreCompletionGate: completionGate,
+		CoreMaxRounds:      config.Turn.MaxToolRounds,
+		Store:              store,
+		ObjectStore:        objectStore,
+		ArtifactBucket:     config.ObjectStore.Bucket,
+		Timeout:            config.Turn.Timeout,
+		ProviderResolver:   executionResolver,
+		MCPHost:            mcpHost,
+		MCPHTTPHost:        mcpHTTPHost,
+		MCPRuntimeGuard:    mcpRuntimeGuard,
+		LiveEvents:         liveEvents,
 	}
 	worker := runner.NewWorkerRunnerWithConfig(store, turnExecutor, runner.WorkerRunnerConfig{
 		WorkerCount:       config.Turn.WorkerCount,
@@ -1025,6 +1035,10 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 	logger.Info("using worker runner",
 		"turn_executor", "agent_runtime",
 		"agent_runtime", "demo",
+		"agent_core_enabled", config.Turn.AgentCoreEnabled,
+		"agent_core_rollout_percent", config.Turn.AgentCoreRolloutPercent,
+		"agent_core_workspace_count", len(config.Turn.AgentCoreWorkspaceIDs),
+		"agent_core_agent_count", len(config.Turn.AgentCoreAgentIDs),
 		"llm_provider", llmProvider,
 		"llm_model", llmModel,
 		"default_context_window_tokens", config.Context.DefaultWindowTokens,

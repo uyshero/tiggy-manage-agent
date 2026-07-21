@@ -6,6 +6,8 @@ CLI="${TMA_CLI:-bin/tma}"
 MESSAGE="${TMA_VERIFY_MESSAGE:-agent runtime verify}"
 EXPECTED_TEXT="${TMA_VERIFY_EXPECTED_TEXT:-Agent runtime received: agent runtime verify}"
 EXPECTED_PROTOCOL="${TMA_VERIFY_EXPECTED_PROTOCOL:-tma.agent_runtime.demo.v1}"
+REQUIRED_EVENTS="${TMA_VERIFY_REQUIRED_EVENTS:-session.status_running,user.message,runtime.started,runtime.thinking,runtime.llm_request,runtime.llm_response,runtime.completed,agent.message,session.status_idle}"
+AGENT_MODEL="${TMA_VERIFY_AGENT_MODEL:-verify-model}"
 WAIT_SECONDS="${TMA_VERIFY_WAIT_SECONDS:-10}"
 
 if [ ! -x "$CLI" ]; then
@@ -27,28 +29,18 @@ print(value)
 }
 
 validate_events() {
-  EXPECTED_TEXT="$EXPECTED_TEXT" EXPECTED_PROTOCOL="$EXPECTED_PROTOCOL" python3 -c '
+  EXPECTED_TEXT="$EXPECTED_TEXT" EXPECTED_PROTOCOL="$EXPECTED_PROTOCOL" REQUIRED_EVENTS="$REQUIRED_EVENTS" python3 -c '
 import json
 import os
 import sys
 
 expected_text = os.environ["EXPECTED_TEXT"]
 expected_protocol = os.environ["EXPECTED_PROTOCOL"]
+required = [value.strip() for value in os.environ["REQUIRED_EVENTS"].split(",") if value.strip()]
 data = json.load(sys.stdin)
 events = data.get("events", [])
 types = [event.get("type") for event in events]
 
-required = [
-    "session.status_running",
-    "user.message",
-    "runtime.started",
-    "runtime.thinking",
-    "runtime.llm_request",
-    "runtime.llm_response",
-    "runtime.completed",
-    "agent.message",
-    "session.status_idle",
-]
 missing = [event_type for event_type in required if event_type not in types]
 if missing:
     print("missing event types: " + ", ".join(missing), file=sys.stderr)
@@ -99,7 +91,7 @@ suffix="$(date +%Y%m%d%H%M%S)"
 echo "Creating agent"
 agent_json="$("$CLI" --base-url "$BASE_URL" agent create \
   --name "verify-agent-runtime-agent-$suffix" \
-  --model "verify-model" \
+  --model "$AGENT_MODEL" \
   --system "AgentRuntime verification agent.")"
 agent_id="$(printf '%s' "$agent_json" | json_field id)"
 

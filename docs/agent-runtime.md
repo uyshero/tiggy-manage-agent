@@ -64,6 +64,22 @@ type TurnResult struct {
 }
 ```
 
+### Durable Agent Core
+
+`internal/agentcore` 是新的、受灰度开关控制的 durable state machine。Runner 只负责路由和注入端口；每个 core turn 的 `phase`、messages、预算、usage、pending attempt、工具日志、压缩状态和控制游标都保存在 PostgreSQL `agent_loop_states.state_json`。每次提交使用 state revision、Worker `lease_owner`、attempt 和 lease 有效期做 fencing。同一 turn 一旦创建 core state，后续恢复始终继续走 core，不会因开关变化退回旧 Runtime。
+
+工具执行采用“先持久化 started，再执行，再逐调用持久化 result”的日志协议：
+
+- 每个调用都有基于 Session、Turn、call ID、名称和参数生成的稳定 idempotency key，并传入底层 executor。
+- manifest 可显式声明 `idempotency`、`concurrency_class` 和 `lock_key`；未声明时按 side effect 保守推断。
+- 全部为无锁 `parallel` 的批次最多 8 路并发；混有 `sequential` 或 lock 的批次整体按源顺序串行。完成结果无论实际返回顺序如何，都按模型原始 call 顺序写入下一轮上下文。
+- 普通 executor 错误转换成 `IsError=true` 的 Tool Result，不终止整个 turn，其他调用仍会继续；只有 context cancel/deadline 进入取消路径，结构非法的 Tool Result 才失败关闭。
+- 崩溃恢复时，`safe`、`keyed`、`idempotent` 调用使用相同 key 重放并递增 attempt；`unknown`、`unsafe` 的已 started 调用绝不重放，而是生成 `indeterminate` Tool Result，要求模型或用户核验外部状态。
+
+Core compaction 也属于 turn 内的 durable 模型 attempt。压缩调用先占用模型预算并持久化 pending 状态，成功后以摘要替换旧消息并保留最新公开 user message；崩溃留下的 pending compaction 会先记为 abandoned，再开始新的 attempt。完成态工具日志独立保留，因此旧 tool-call messages 被压缩后仍可用于审计和恢复判断。
+
+运行中的 Session event 会通过 `ControlPort` 进入 Core：`user.steer` 在下一模型调用前或完成前生效，`user.follow_up` 在完成前追加并触发新一轮模型调用，`user.interrupt` 进入统一取消路径。Core 使用 Session event `seq` 作为持久化 `ControlCursor`，避免恢复后重复消费。
+
 ### 完成质量门禁
 
 Runtime 在模型准备返回最终文本时先写入 `runtime.turn_completing`，并执行完成门禁；只有校验通过后才发布 `agent.message`。校验返回可修正失败时，Runtime 会把反馈追加到同一 Tool Loop，要求模型继续执行，默认最多重试 3 次，可通过 Session `runtime_settings.completion_gate.max_retries` 在 1–10 之间调整。校验器异常、非法结果或重试耗尽会失败关闭，不能把候选文本当作成功结果。

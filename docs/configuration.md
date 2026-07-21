@@ -595,6 +595,58 @@ TMA_TURN_TIMEOUT_MS=3600000
 
 默认值是 1 小时，给安装依赖、构建、运行测试、仓库检索等长任务留出空间。需要提前停止时应优先使用 interrupt。
 
+### `TMA_AGENT_CORE_ENABLED`
+
+启用基于 durable state machine 的新 Agent 执行核心。默认关闭：
+
+```env
+TMA_AGENT_CORE_ENABLED=false
+```
+
+启用前必须应用 `000083_agent_loop_states.sql`，并使用 PostgreSQL-backed Worker turn queue。每次状态提交同时校验 state revision、`lease_owner`、`attempt_count` 和 lease 有效期；未通过 fencing 校验的旧 Worker 不能写入状态或终结 turn。
+
+开关只决定尚未创建 core 状态的新 turn 走哪条执行路径。某个 turn 一旦已经写入 core 状态，即使随后关闭开关，也会继续由 core 恢复，避免同一 turn 在两套 Runtime 之间切换。
+
+新 turn 可以按 Workspace、Agent 和百分比做灰度：
+
+```env
+TMA_AGENT_CORE_ENABLED=true
+TMA_AGENT_CORE_ROLLOUT_PERCENT=10
+TMA_AGENT_CORE_WORKSPACE_IDS=wksp_alpha,wksp_beta
+TMA_AGENT_CORE_AGENT_IDS=agt_support,agt_research
+```
+
+`TMA_AGENT_CORE_ROLLOUT_PERCENT` 必须是 `0` 到 `100`，默认 `100`。两个 ID 列表均为空时不限制范围；列表非空时必须命中对应列表，两个列表同时配置时采用 AND 关系。百分比分桶使用 `workspace_id + agent_id + session_id`，因此同一 Session 的新 turn 会稳定走同一执行路径。总开关关闭或百分比为 `0` 时不创建新的 core 状态，但已有 core turn 仍可恢复。
+
+新 core 复用现有 LLM、Tools、MCP、Sandbox、Artifact、Skills 和 completion gate。当前模型不支持视觉且 turn 包含图片时会自动回退到旧 Runtime，以保留视觉前置分析能力。
+
+可以在 Agent runtime settings 中覆盖默认硬预算：
+
+```json
+{
+  "agent_core_budget": {
+    "max_rounds": 32,
+    "max_model_calls": 40,
+    "max_tool_calls": 128,
+    "max_input_tokens": 5120000,
+    "max_output_tokens": 655360,
+    "max_reasoning_tokens": 655360,
+    "max_cost_micros": 1000000000
+  }
+}
+```
+
+Core 会在运行中的消息估算超过 context window 的 55% 时执行 durable compaction。可以通过 runtime settings 调整阈值和 summary 上限；阈值设为 `0` 可关闭：
+
+```json
+{
+  "agent_core_compaction_threshold_tokens": 70000,
+  "agent_core_compaction_summary_max_chars": 12000
+}
+```
+
+`agent_core_compaction_threshold_tokens` 未设置时按当前模型 `context_window_tokens * 55%` 计算。每次压缩调用与普通模型调用共用 `agent_core_budget.max_model_calls`，usage 也进入同一预算。压缩开始前会先持久化 attempt，进程崩溃后放弃未完成 attempt 并重新计数；压缩结果只保留摘要和最新公开 user message。若最新 user message 本身已经超过阈值，Core 会等待积累一整个阈值规模的新上下文后再压缩，避免工具循环每轮重复调用压缩模型。
+
 ## Subagent
 
 `agent.spawn`、`agent.wait`、`agent.collect_result`、`agent.stream_events`、`agent.approve_tool`、`agent.reject_tool` 组成了第一版 subagent 编排闭环。服务端会在 `agent.spawn` 前执行一组治理规则，用来限制递归深度、单轮 fan-out，以及 workspace / user 的活跃 subagent 数量。

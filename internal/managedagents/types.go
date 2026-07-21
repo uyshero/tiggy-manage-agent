@@ -15,6 +15,7 @@ const (
 	LLMModelCapabilityVideoGeneration = "video_generation"
 	LLMModelCapabilityEmbedding       = "embedding"
 	LLMModelCapabilityReranker        = "reranker"
+	AgentLoopMessageProtocolVersion   = "tma.agent_loop.message.v1"
 
 	SessionStatusProvisioning = "provisioning"
 	SessionStatusIdle         = "idle"
@@ -36,6 +37,8 @@ const (
 
 	EventUserMessage   = "user.message"
 	EventUserInterrupt = "user.interrupt"
+	EventUserSteer     = "user.steer"
+	EventUserFollowUp  = "user.follow_up"
 	EventAgentMessage  = "agent.message"
 
 	EventRuntimeStarted                   = "runtime.started"
@@ -1123,7 +1126,9 @@ type AgentRuntimeConfig struct {
 	EnvironmentID         string          `json:"environment_id"`
 	LLMProvider           string          `json:"llm_provider"`
 	LLMProviderType       string          `json:"llm_provider_type,omitempty"`
+	LLMProviderRevision   int64           `json:"llm_provider_revision"`
 	LLMModel              string          `json:"llm_model"`
+	LLMModelRevision      int64           `json:"llm_model_revision"`
 	LLMBaseURL            string          `json:"llm_base_url,omitempty"`
 	LLMAPIKeyEnv          string          `json:"llm_api_key_env,omitempty"`
 	ContextWindowTokens   int             `json:"context_window_tokens"`

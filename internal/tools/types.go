@@ -54,6 +54,9 @@ type API struct {
 	HumanIntervention string          `json:"human_intervention,omitempty"`
 	Capabilities      []string        `json:"capabilities,omitempty"`
 	Risk              string          `json:"risk,omitempty"`
+	Idempotency       string          `json:"idempotency,omitempty"`
+	ConcurrencyClass  string          `json:"concurrency_class,omitempty"`
+	LockKey           string          `json:"lock_key,omitempty"`
 	Runtime           *RuntimePolicy  `json:"runtime,omitempty"`
 	Implementation    string          `json:"implementation,omitempty"`
 	HiddenFromModel   bool            `json:"hidden_from_model,omitempty"`
@@ -72,6 +75,7 @@ type ExecutionContext struct {
 	SessionID            string
 	EnvironmentID        string
 	TurnID               string
+	IdempotencyKey       string
 	Environment          map[string]string
 	Deadline             *time.Time
 	Provider             capability.Provider

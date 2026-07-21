@@ -16,6 +16,7 @@ var (
 	ErrForbidden        = errors.New("forbidden")
 	ErrConflict         = errors.New("conflict")
 	ErrRevisionConflict = errors.New("revision conflict")
+	ErrLeaseLost        = errors.New("lease lost")
 	ErrSessionBusy      = errors.New("session busy")
 	ErrTerminated       = errors.New("session terminated")
 )

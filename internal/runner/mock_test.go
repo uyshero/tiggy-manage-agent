@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"tiggy-manage-agent/internal/agentcore"
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/skills"
@@ -349,30 +350,33 @@ func TestWorkerRunnerPostProcessingDoesNotBlockTurnConsumer(t *testing.T) {
 }
 
 type mockStore struct {
-	mu               sync.Mutex
-	completed        int
-	failed           int
-	reason           string
-	payload          json.RawMessage
-	summaries        map[string]managedagents.SessionSummary
-	interventions    []managedagents.SaveSessionInterventionInput
-	usageRecords     []managedagents.RecordLLMUsageInput
-	exporterRuns     []managedagents.ObservabilityExporterRun
-	runtimeEvents    []string
-	runtimePayloads  []json.RawMessage
-	history          []managedagents.ConversationMessage
-	runtimeSettings  json.RawMessage
-	toolsConfig      json.RawMessage
-	skillsConfig     json.RawMessage
-	skillRecord      skills.Skill
-	skillVersion     skills.Version
-	skillUsages      []skills.Usage
-	workers          []managedagents.Worker
-	workerWork       map[string]managedagents.WorkerWork
-	enqueuedWork     []managedagents.EnqueueWorkerWorkInput
-	sessions         map[string]managedagents.Session
-	createdObjects   []managedagents.CreateObjectRefInput
-	createdArtifacts []managedagents.CreateSessionArtifactInput
+	mu                  sync.Mutex
+	completed           int
+	failed              int
+	reason              string
+	payload             json.RawMessage
+	summaries           map[string]managedagents.SessionSummary
+	interventions       []managedagents.SaveSessionInterventionInput
+	usageRecords        []managedagents.RecordLLMUsageInput
+	exporterRuns        []managedagents.ObservabilityExporterRun
+	runtimeEvents       []string
+	runtimePayloads     []json.RawMessage
+	history             []managedagents.ConversationMessage
+	runtimeSettings     json.RawMessage
+	toolsConfig         json.RawMessage
+	skillsConfig        json.RawMessage
+	skillRecord         skills.Skill
+	skillVersion        skills.Version
+	skillUsages         []skills.Usage
+	workers             []managedagents.Worker
+	workerWork          map[string]managedagents.WorkerWork
+	enqueuedWork        []managedagents.EnqueueWorkerWorkInput
+	sessions            map[string]managedagents.Session
+	createdObjects      []managedagents.CreateObjectRefInput
+	createdArtifacts    []managedagents.CreateSessionArtifactInput
+	agentLoopRepo       agentcore.StateRepository
+	listedInterventions []managedagents.SessionIntervention
+	controlEvents       []managedagents.Event
 }
 
 func (s *mockStore) completeCalls() int {
@@ -726,7 +730,23 @@ func (s *mockStore) SaveSessionIntervention(sessionID string, input managedagent
 }
 
 func (s *mockStore) ListSessionInterventions(string, string) ([]managedagents.SessionIntervention, error) {
-	return nil, nil
+	return append([]managedagents.SessionIntervention(nil), s.listedInterventions...), nil
+}
+
+func (s *mockStore) AgentLoopRepository(managedagents.AgentLoopFence) agentcore.StateRepository {
+	return s.agentLoopRepo
+}
+
+func (s *mockStore) ListSessionTurnControlEventsContext(_ context.Context, sessionID, turnID string, afterSeq int64) ([]managedagents.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	events := make([]managedagents.Event, 0, len(s.controlEvents))
+	for _, event := range s.controlEvents {
+		if event.SessionID == sessionID && event.TurnID == turnID && event.Seq > afterSeq {
+			events = append(events, event)
+		}
+	}
+	return events, nil
 }
 
 func (s *mockStore) DecideSessionIntervention(string, managedagents.DecideSessionInterventionInput) (managedagents.DecideSessionInterventionResult, error) {

@@ -35,16 +35,20 @@ const maxVisionImageBytes = 20 << 20
 
 // AgentRuntimeTurnExecutor 把 WorkerRunner 的 TurnExecutor 接口适配到 AgentRuntime。
 type AgentRuntimeTurnExecutor struct {
-	Runtime          agentruntime.Runtime
-	Store            managedagents.Store
-	ObjectStore      objectstore.Client
-	ArtifactBucket   string
-	Timeout          time.Duration
-	ProviderResolver execution.ProviderResolver
-	MCPHost          *mcp.StdioHost
-	MCPHTTPHost      *mcp.StreamableHTTPHost
-	MCPRuntimeGuard  *mcp.RuntimeGuard
-	LiveEvents       *LiveEventBroker
+	Runtime            agentruntime.Runtime
+	CoreRollout        AgentCoreRolloutPolicy
+	CoreClient         llm.Client
+	CoreCompletionGate agentruntime.CompletionGate
+	CoreMaxRounds      int
+	Store              managedagents.Store
+	ObjectStore        objectstore.Client
+	ArtifactBucket     string
+	Timeout            time.Duration
+	ProviderResolver   execution.ProviderResolver
+	MCPHost            *mcp.StdioHost
+	MCPHTTPHost        *mcp.StreamableHTTPHost
+	MCPRuntimeGuard    *mcp.RuntimeGuard
+	LiveEvents         *LiveEventBroker
 }
 
 func (e AgentRuntimeTurnExecutor) MCPHostStats() mcp.StdioHostStats {
@@ -83,9 +87,6 @@ func (e AgentRuntimeTurnExecutor) MCPRegistryRuntimeStates(workspaceID string) [
 }
 
 func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnRequest) (TurnResult, error) {
-	if e.Runtime == nil {
-		return TurnResult{}, errors.New("agent runtime is required")
-	}
 	if e.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, e.Timeout)
@@ -174,7 +175,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		managedEnvironment = mergeRuntimeSkillEnvironment(managedEnvironment, materializedSkills)
 		toolExecution.Context.Environment = managedEnvironment
 	}
-	result, err := e.Runtime.RunTurn(ctx, agentruntime.TurnRequest{
+	runtimeRequest := agentruntime.TurnRequest{
 		SessionID:          request.SessionID,
 		TurnID:             request.TurnID,
 		UserPayload:        request.UserPayload,
@@ -212,12 +213,30 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		},
 		EmitStep: emit,
 		EmitStream: func(event agentruntime.StreamEvent) {
-			e.LiveEvents.Publish(LiveEvent{
-				SessionID: request.SessionID, TurnID: request.TurnID, Type: LiveEventLLMText,
-				Index: event.Index, ToolRound: event.ToolRound, Operation: "append", ContentFormat: "markdown", Text: event.Text,
-			})
+			if e.LiveEvents != nil {
+				e.LiveEvents.Publish(LiveEvent{
+					SessionID: request.SessionID, TurnID: request.TurnID, Type: LiveEventLLMText,
+					Index: event.Index, ToolRound: event.ToolRound, Operation: "append", ContentFormat: "markdown", Text: event.Text,
+				})
+			}
 		},
-	})
+	}
+	if e.CoreRollout.Allows(config, request.SessionID) || e.hasAgentCoreState(ctx, request) {
+		coreResult, coreErr := e.runAgentCoreTurn(ctx, request, runtimeRequest, config, toolExecution, startedAt)
+		if !errors.Is(coreErr, errAgentCoreIneligible) {
+			coreResult.AgentPayload = tools.RedactEnvironmentJSON(coreResult.AgentPayload, managedEnvironment)
+			if coreErr == nil && coreResult.DurableStatus == "completed" {
+				if err := e.checkpointWorkspaceSnapshot(ctx, toolExecution.Provider, config, request); err != nil {
+					slog.Default().Warn("workspace snapshot checkpoint failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
+				}
+			}
+			return coreResult, coreErr
+		}
+	}
+	if e.Runtime == nil {
+		return TurnResult{}, errors.New("legacy agent runtime is required for this turn")
+	}
+	result, err := e.Runtime.RunTurn(ctx, runtimeRequest)
 	result.AgentPayload = tools.RedactEnvironmentJSON(result.AgentPayload, managedEnvironment)
 	result.SummaryText = tools.RedactEnvironmentText(result.SummaryText, managedEnvironment)
 	if err != nil {

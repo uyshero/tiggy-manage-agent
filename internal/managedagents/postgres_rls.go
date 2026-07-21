@@ -421,6 +421,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('agent_deliberation_rounds', 'agent_deliberation_rounds_parent_isolation'),
 				('agent_deliberations', 'agent_deliberations_session_isolation'),
 				('agent_config_versions', 'agent_config_versions_workspace_isolation'),
+				('agent_loop_states', 'agent_loop_states_session_isolation'),
 				('agent_schedule_runs', 'agent_schedule_runs_workspace_isolation'),
 				('agent_schedules', 'agent_schedules_workspace_isolation'),
 				('agents', 'agents_workspace_isolation'),
@@ -511,8 +512,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 47 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000081")
+	if checked != 48 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000083")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `

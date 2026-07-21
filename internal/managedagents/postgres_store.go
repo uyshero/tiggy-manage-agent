@@ -3337,6 +3337,8 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 			lp.base_url,
 			lp.api_key_env,
 			lp.enabled,
+			COALESCE(lp.revision, 0),
+			COALESCE(lm.revision, 0),
 			COALESCE(lm.context_window_tokens, $2),
 			COALESCE(lm.capability_type, 'text'),
 			vlp.id,
@@ -3381,6 +3383,8 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 		&baseURL,
 		&apiKeyEnv,
 		&enabled,
+		&config.LLMProviderRevision,
+		&config.LLMModelRevision,
 		&config.ContextWindowTokens,
 		&config.LLMCapabilityType,
 		&visionProviderID,
@@ -3459,6 +3463,8 @@ func (s *PostgresStore) applyRuntimeLLMOverrides(config *AgentRuntimeConfig, run
 			lp.base_url,
 			lp.api_key_env,
 			lp.enabled,
+			COALESCE(lp.revision, 0),
+			COALESCE(lm.revision, 0),
 			COALESCE(lm.context_window_tokens, $3),
 			COALESCE(lm.capability_type, 'text')
 		FROM llm_providers lp
@@ -3471,6 +3477,8 @@ func (s *PostgresStore) applyRuntimeLLMOverrides(config *AgentRuntimeConfig, run
 		&baseURL,
 		&apiKeyEnv,
 		&enabled,
+		&config.LLMProviderRevision,
+		&config.LLMModelRevision,
 		&config.ContextWindowTokens,
 		&config.LLMCapabilityType,
 	)
@@ -4531,7 +4539,13 @@ func (s *PostgresStore) decideSessionInterventionContext(ctx context.Context, se
 			return DecideSessionInterventionResult{}, err
 		}
 		if !resumable {
-			return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn is not resumable", ErrConflict)
+			pending, err := hasPendingTurnInterventionsTx(ctx, tx, sessionID, input.TurnID)
+			if err != nil {
+				return DecideSessionInterventionResult{}, err
+			}
+			if !pending {
+				return DecideSessionInterventionResult{}, fmt.Errorf("%w: intervention turn is not resumable", ErrConflict)
+			}
 		}
 	}
 
@@ -4977,6 +4991,49 @@ func (s *PostgresStore) ListSessionRunEventsContext(ctx context.Context, session
 		WHERE session_id = $1 AND turn_id = $2 AND seq > $3
 		ORDER BY seq ASC
 	`, sessionID, runID, afterSeq)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := []Event{}
+	for rows.Next() {
+		var event Event
+		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (s *PostgresStore) ListSessionTurnControlEventsContext(ctx context.Context, sessionID string, turnID string, afterSeq int64) ([]Event, error) {
+	if afterSeq < 0 {
+		return nil, fmt.Errorf("%w: after_seq must not be negative", ErrInvalid)
+	}
+	if _, err := s.GetSessionRunContext(ctx, sessionID, turnID); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, _, err := setContextDatabaseAccessScope(ctx, tx); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, session_id, COALESCE(turn_id, ''), seq, type, payload_json, created_at
+		FROM session_events
+		WHERE session_id = $1 AND turn_id = $2 AND seq > $3
+			AND type IN ($4, $5, $6)
+		ORDER BY seq ASC
+	`, sessionID, turnID, afterSeq, EventUserSteer, EventUserFollowUp, EventUserInterrupt)
 	if err != nil {
 		return nil, err
 	}
@@ -7922,6 +7979,23 @@ func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *S
 		events = append(events, idleEvent)
 		return events, nil
 
+	case EventUserSteer, EventUserFollowUp:
+		if session.Status != SessionStatusRunning {
+			return nil, fmt.Errorf("%w: %s requires running session", ErrInvalid, input.Type)
+		}
+		turnID, err := currentTurnID(ctx, tx, session.ID)
+		if err != nil {
+			return nil, err
+		}
+		if turnID == "" {
+			return nil, fmt.Errorf("%w: running session has no active turn", ErrInvalid)
+		}
+		event, err := s.appendEventTx(ctx, tx, session.ID, input.Type, payloadWithTurnID(input.Payload, turnID), now)
+		if err != nil {
+			return nil, err
+		}
+		return []Event{event}, nil
+
 	default:
 		event, err := s.appendEventTx(ctx, tx, session.ID, input.Type, cloneRaw(input.Payload), now)
 		if err != nil {
@@ -8540,7 +8614,12 @@ func markSessionTurnResumableTx(ctx context.Context, tx *sql.Tx, sessionID strin
 			lease_expires_at = NULL,
 			last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ($4, $5, $6)
-	`, sessionID, turnID, callID, TurnStatusRunning, TurnStatusWaitingApproval, TurnStatusWaitingHuman)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM session_interventions
+				WHERE session_id = $1 AND turn_id = $2 AND status = $7
+			)
+	`, sessionID, turnID, callID, TurnStatusRunning, TurnStatusWaitingApproval, TurnStatusWaitingHuman, InterventionStatusPending)
 	if err != nil {
 		return false, err
 	}
@@ -8549,6 +8628,18 @@ func markSessionTurnResumableTx(ctx context.Context, tx *sql.Tx, sessionID strin
 		return false, err
 	}
 	return rows == 1, nil
+}
+
+func hasPendingTurnInterventionsTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string) (bool, error) {
+	var pending bool
+	err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM session_interventions
+			WHERE session_id = $1 AND turn_id = $2 AND status = $3
+		)
+	`, sessionID, turnID, InterventionStatusPending).Scan(&pending)
+	return pending, err
 }
 
 func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {

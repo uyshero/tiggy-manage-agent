@@ -24,6 +24,8 @@ type TurnRequest struct {
 	UserPayload        json.RawMessage
 	ResumeIntervention *managedagents.SessionIntervention
 	Scope              managedagents.AccessScope
+	LeaseOwner         string
+	Attempt            int
 }
 
 // InterruptRequest 表示对某次 running turn 的中断请求。
