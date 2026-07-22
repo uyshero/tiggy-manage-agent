@@ -5247,6 +5247,21 @@ function WorkbenchApp() {
   const sessionStreamsRef = useRef(new Map());
   sessionIDRef.current = sessionID;
 
+  function isCurrentSession(value) {
+    return String(sessionIDRef.current || "").trim() === String(value || "").trim();
+  }
+
+  function mergeCurrentSessionEvents(value, nextEvents) {
+    if (!isCurrentSession(value)) return false;
+    const appendedEvents = nextEvents || [];
+    setEventsResponse((current) => ({
+      ...current,
+      events: mergeEvents(current.events, appendedEvents)
+    }));
+    eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(appendedEvents));
+    return true;
+  }
+
   useEffect(() => {
     let active = true;
     api.currentPrincipal().then((response) => {
@@ -5327,6 +5342,7 @@ function WorkbenchApp() {
         setStatus("ready");
         return;
       }
+      sessionIDRef.current = selected.id;
       setSessionID(selected.id);
       setAgentID(selected.agent_id || "");
       setEnvironmentID(selected.environment_id || "");
@@ -5646,6 +5662,7 @@ function WorkbenchApp() {
       api.artifacts(value).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
     if (requestID !== sessionLoadRequestRef.current) return { stale: true };
+    if (!isCurrentSession(value)) return { stale: true };
     if (nextEvents.error) throw new Error(nextEvents.error);
     setSessionMeta(nextSession);
     if (!nextSession.error) {
@@ -5735,6 +5752,7 @@ function WorkbenchApp() {
       api.interventions(sessionValue, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       api.artifacts(sessionValue).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
+    if (!isCurrentSession(sessionValue)) return null;
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
@@ -6313,6 +6331,8 @@ function WorkbenchApp() {
     });
     setAgentID(agent.id);
     setEnvironmentID(environment.id);
+    sessionLoadRequestRef.current += 1;
+    sessionIDRef.current = session.id;
     setSessionID(session.id);
     setSessionMeta(session);
     rememberSession(session.id);
@@ -6376,21 +6396,19 @@ function WorkbenchApp() {
     });
     const appendedEvents = response.events || [];
     const userEvent = appendedEvents.find((event) => event.type === "user.message");
-    setEventsResponse((current) => ({
-      ...current,
-      events: mergeEvents(current.events, appendedEvents)
-    }));
+    mergeCurrentSessionEvents(value, appendedEvents);
     const appendedStatus = latestSessionStatus(appendedEvents);
-    if (appendedStatus) mergeSessionStatus(value, appendedStatus);
-    eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(appendedEvents));
-    if (options.clearTask !== false) {
+    if (isCurrentSession(value) && appendedStatus) mergeSessionStatus(value, appendedStatus);
+    if (isCurrentSession(value) && options.clearTask !== false) {
       setTask("");
       setComposerFiles([]);
     }
-    setWaitingForReply(true);
-    setStatus("waiting for reply");
-    if (userEvent?.seq) {
-      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(userEvent.seq || 0));
+    if (isCurrentSession(value)) {
+      setWaitingForReply(true);
+      setStatus("waiting for reply");
+      if (userEvent?.seq) {
+        eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(userEvent.seq || 0));
+      }
     }
     return { response, userEvent };
   }
@@ -6507,14 +6525,10 @@ function WorkbenchApp() {
     try {
       const response = await api.interruptSession(value);
       const appendedEvents = response.events || [];
-      setEventsResponse((current) => ({
-        ...current,
-        events: mergeEvents(current.events, appendedEvents)
-      }));
-      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(appendedEvents));
-      setWaitingForReply(false);
+      mergeCurrentSessionEvents(value, appendedEvents);
+      if (isCurrentSession(value)) setWaitingForReply(false);
       await syncSession(value);
-      setStatus("interrupt requested");
+      if (isCurrentSession(value)) setStatus("interrupt requested");
       workbenchNotificationService.show({
         level: "success",
         title: "已请求中断",
@@ -6842,18 +6856,18 @@ function WorkbenchApp() {
     try {
       const isPlanApproval = intervention.kind === "plan_approval";
       const response = await api.approveIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: isPlanApproval ? "plan approved from app" : "approved from app" });
-      setEventsResponse((current) => ({
-        ...current,
-        events: mergeEvents(current.events, response.events || [])
-      }));
-      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(response.events || []));
-      setInterventionResponse((current) => ({
-        ...current,
-        interventions: (current.interventions || []).filter((item) => item.call_id !== intervention.call_id)
-      }));
+      mergeCurrentSessionEvents(sessionID, response.events || []);
+      if (isCurrentSession(sessionID)) {
+        setInterventionResponse((current) => ({
+          ...current,
+          interventions: (current.interventions || []).filter((item) => item.call_id !== intervention.call_id)
+        }));
+      }
       await syncSession(sessionID);
-      setWaitingForReply(true);
-      setStatus("waiting for reply");
+      if (isCurrentSession(sessionID)) {
+        setWaitingForReply(true);
+        setStatus("waiting for reply");
+      }
       workbenchNotificationService.show({
         level: "success",
         title: isPlanApproval ? "计划已批准" : "审批已通过",
@@ -6890,18 +6904,18 @@ function WorkbenchApp() {
       } else {
         result = await api.cancelIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: "canceled from app" });
       }
-      setEventsResponse((current) => ({
-        ...current,
-        events: mergeEvents(current.events, result.events || [])
-      }));
-      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(result.events || []));
-      setInterventionResponse((current) => ({
-        ...current,
-        interventions: (current.interventions || []).filter((item) => item.call_id !== intervention.call_id)
-      }));
+      mergeCurrentSessionEvents(sessionID, result.events || []);
+      if (isCurrentSession(sessionID)) {
+        setInterventionResponse((current) => ({
+          ...current,
+          interventions: (current.interventions || []).filter((item) => item.call_id !== intervention.call_id)
+        }));
+      }
       await syncSession(sessionID);
-      setWaitingForReply(true);
-      setStatus("waiting for reply");
+      if (isCurrentSession(sessionID)) {
+        setWaitingForReply(true);
+        setStatus("waiting for reply");
+      }
     } catch (error) {
       setWaitingForReply(false);
       workbenchNotificationService.show({
@@ -6974,14 +6988,11 @@ function WorkbenchApp() {
         updated_by: "workbench"
       });
       const nextSession = response.session || await api.session(sessionID);
+      if (!isCurrentSession(sessionID)) return null;
       setSessionMeta(nextSession);
       setRecentSessions((current) => [nextSession, ...current.filter((item) => item.id !== nextSession.id)]);
       if (response.event?.type) {
-        setEventsResponse((current) => ({
-          ...current,
-          events: mergeEvents(current.events, [response.event])
-        }));
-        eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(response.event.seq || 0));
+        mergeCurrentSessionEvents(sessionID, [response.event]);
       }
       await loadSessionSettings(sessionID, nextSession);
       const operationLabel = action?.operation === "disable"
@@ -7040,6 +7051,7 @@ function WorkbenchApp() {
     setToolPickerOpen(false);
     setLiveReply(sessionLiveRepliesRef.current.get(session.id) || null);
     setWaitingForReply(["provisioning", "running", "interrupting"].includes(String(session.status || "")));
+    sessionIDRef.current = session.id;
     setSessionID(session.id);
     setAgentID(session.agent_id || "");
     setEnvironmentID(session.environment_id || "");
@@ -7051,12 +7063,14 @@ function WorkbenchApp() {
   }
 
   function startNewTask() {
+    sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
     setComposerFiles([]);
     setComposerDragActive(false);
     setToolPickerOpen(false);
     setAgentID((current) => current || defaultAgentConfig?.id || "");
     setEnvironmentID("");
+    sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
     setEventsResponse({ events: [] });
@@ -7115,9 +7129,11 @@ function WorkbenchApp() {
   }
 
   function resetSessionViewForAgent(agent) {
+    sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
     setComposerFiles([]);
     setToolPickerOpen(false);
+    sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
     setEnvironmentID("");
@@ -7388,7 +7404,9 @@ function WorkbenchApp() {
     const imported = await api.importAgent(importedDocument);
     setAvailableAgents((current) => [...current.filter((item) => item.id !== imported.id), imported]);
     setAgentID(imported.id);
+    sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
+    sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
     setEnvironmentID("");
