@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolCallID } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID } from "./toolLifecycle.js";
 
 function event(seq, type, id, data = {}) {
   return { seq, type, created_at: `2026-07-14T16:19:0${seq}Z`, payload: { data: { id, ...data } } };
@@ -101,4 +101,35 @@ test("does not duplicate native runtime tool events", () => {
 
   assert.equal(events.filter((item) => item.type === "runtime.tool_call").length, 1);
   assert.equal(events.filter((item) => item.type === "runtime.tool_result").length, 1);
+});
+
+test("keeps approval state visible after an approved tool finishes", () => {
+  const call = event(1, "runtime.tool_call", "call-approved", {
+    identifier: "web.search",
+    approval_state: "pending",
+    approval_source: "human",
+    permission: { required: true, mode: "request_approval", risk: "read", reason: "network_access" }
+  });
+  const approved = event(2, "runtime.tool_intervention_approved", "call-approved", {
+    approval_source: "user",
+    decision_reason: "用户在工作台批准工具调用"
+  });
+  const result = event(3, "runtime.tool_result", "call-approved", { success: true });
+  const lifecycle = buildToolCallLifecycles([call, approved, result]).get("call-approved");
+  const approval = toolApprovalPresentation(call, lifecycle);
+
+  assert.equal(approval.status, "approved");
+  assert.equal(approval.label, "已批准（用户）");
+  assert.equal(approval.detail.reason, "用户在工作台批准工具调用");
+  assert.equal(approval.detail.risk, "read");
+});
+
+test("distinguishes tools that do not require approval", () => {
+  const call = event(1, "runtime.tool_call", "call-free", {
+    identifier: "web.search",
+    approval_state: "not_required",
+    permission: { required: false }
+  });
+
+  assert.equal(toolApprovalPresentation(call, {}).label, "无需审批");
 });

@@ -32,8 +32,10 @@ export function normalizeToolTimelineEvents(events) {
           identifier: call.name,
           arguments: objectValue(call.arguments),
           approval_state: item.approval_state,
+          approval_source: item.approval_source,
           disposition: item.disposition,
           execution_mode: item.execution_mode,
+          permission: objectValue(item.permission),
           side_effect: item.side_effect
         }, index, calls.length));
       });
@@ -69,6 +71,44 @@ export function normalizeToolTimelineEvents(events) {
     }
   }
   return normalized;
+}
+
+export function toolApprovalPresentation(event, lifecycle) {
+  const data = objectValue(event?.payload?.data);
+  const decision = lifecycle?.decision;
+  const decisionData = objectValue(decision?.payload?.data);
+  const requiredData = objectValue(lifecycle?.required?.payload?.data);
+  const permission = objectValue(data.permission);
+  const state = String(data.approval_state || "").trim().toLowerCase();
+  const source = approvalSourceLabel(decisionData.approval_source || data.approval_source);
+  const reason = approvalReason(decisionData.decision_reason || requiredData.reason || permission.reason);
+  const detail = {
+    source: source || undefined,
+    reason: reason || undefined,
+    risk: permission.risk || undefined,
+    policy_mode: permission.mode || undefined,
+    approval_policy: permission.approval_policy || undefined
+  };
+
+  if (decision?.type === "runtime.tool_intervention_rejected") {
+    return { status: "rejected", label: source ? `已拒绝（${source}）` : "已拒绝", kind: "error", detail };
+  }
+  if (decision?.type === "runtime.tool_intervention_approved") {
+    return { status: "approved", label: source ? `已批准（${source}）` : "已批准", kind: "approved", detail };
+  }
+  if (lifecycle?.required || state === "pending" || data.pending_intervention === true) {
+    return { status: "pending", label: source ? `待${source}审批` : "待审批", kind: "pending", detail };
+  }
+  if (["approved", "approve"].includes(state)) {
+    return { status: "approved", label: source ? `已批准（${source}）` : "已批准", kind: "approved", detail };
+  }
+  if (["rejected", "reject", "denied"].includes(state)) {
+    return { status: "rejected", label: source ? `已拒绝（${source}）` : "已拒绝", kind: "error", detail };
+  }
+  if (["not_required", "not-required", "none"].includes(state) || permission.required === false) {
+    return { status: "not_required", label: "无需审批", kind: "none", detail };
+  }
+  return { status: "not_triggered", label: "未触发审批", kind: "none", detail };
 }
 
 export function buildToolCallLifecycles(events) {
@@ -142,6 +182,21 @@ function toolResultContent(content) {
     const part = objectValue(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
+}
+
+function approvalSourceLabel(value) {
+  const source = String(value || "").trim().toLowerCase();
+  if (source === "user") return "用户";
+  if (source === "human") return "人工";
+  if (source === "policy") return "策略";
+  if (source === "system") return "系统";
+  return source;
+}
+
+function approvalReason(value) {
+  const reason = String(value || "").trim();
+  if (["approved from app", "approved from inspector"].includes(reason.toLowerCase())) return "";
+  return reason;
 }
 
 function durationMillis(startedAt, completedAt) {

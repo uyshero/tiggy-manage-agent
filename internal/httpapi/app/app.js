@@ -29647,8 +29647,10 @@ function normalizeToolTimelineEvents(events2) {
           identifier: call.name,
           arguments: objectValue$3(call.arguments),
           approval_state: item.approval_state,
+          approval_source: item.approval_source,
           disposition: item.disposition,
           execution_mode: item.execution_mode,
+          permission: objectValue$3(item.permission),
           side_effect: item.side_effect
         }, index2, calls.length));
       });
@@ -29684,6 +29686,43 @@ function normalizeToolTimelineEvents(events2) {
     }
   }
   return normalized;
+}
+function toolApprovalPresentation(event, lifecycle) {
+  var _a2, _b, _c, _d;
+  const data = objectValue$3((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
+  const decision = lifecycle == null ? void 0 : lifecycle.decision;
+  const decisionData = objectValue$3((_b = decision == null ? void 0 : decision.payload) == null ? void 0 : _b.data);
+  const requiredData = objectValue$3((_d = (_c = lifecycle == null ? void 0 : lifecycle.required) == null ? void 0 : _c.payload) == null ? void 0 : _d.data);
+  const permission = objectValue$3(data.permission);
+  const state = String(data.approval_state || "").trim().toLowerCase();
+  const source = approvalSourceLabel(decisionData.approval_source || data.approval_source);
+  const reason = approvalReason(decisionData.decision_reason || requiredData.reason || permission.reason);
+  const detail = {
+    source: source || void 0,
+    reason: reason || void 0,
+    risk: permission.risk || void 0,
+    policy_mode: permission.mode || void 0,
+    approval_policy: permission.approval_policy || void 0
+  };
+  if ((decision == null ? void 0 : decision.type) === "runtime.tool_intervention_rejected") {
+    return { status: "rejected", label: source ? `已拒绝（${source}）` : "已拒绝", kind: "error", detail };
+  }
+  if ((decision == null ? void 0 : decision.type) === "runtime.tool_intervention_approved") {
+    return { status: "approved", label: source ? `已批准（${source}）` : "已批准", kind: "approved", detail };
+  }
+  if ((lifecycle == null ? void 0 : lifecycle.required) || state === "pending" || data.pending_intervention === true) {
+    return { status: "pending", label: source ? `待${source}审批` : "待审批", kind: "pending", detail };
+  }
+  if (["approved", "approve"].includes(state)) {
+    return { status: "approved", label: source ? `已批准（${source}）` : "已批准", kind: "approved", detail };
+  }
+  if (["rejected", "reject", "denied"].includes(state)) {
+    return { status: "rejected", label: source ? `已拒绝（${source}）` : "已拒绝", kind: "error", detail };
+  }
+  if (["not_required", "not-required", "none"].includes(state) || permission.required === false) {
+    return { status: "not_required", label: "无需审批", kind: "none", detail };
+  }
+  return { status: "not_triggered", label: "未触发审批", kind: "none", detail };
 }
 function buildToolCallLifecycles(events2) {
   const lifecycles = /* @__PURE__ */ new Map();
@@ -29752,6 +29791,19 @@ function toolResultContent(content2) {
     const part = objectValue$3(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
+}
+function approvalSourceLabel(value) {
+  const source = String(value || "").trim().toLowerCase();
+  if (source === "user") return "用户";
+  if (source === "human") return "人工";
+  if (source === "policy") return "策略";
+  if (source === "system") return "系统";
+  return source;
+}
+function approvalReason(value) {
+  const reason = String(value || "").trim();
+  if (["approved from app", "approved from inspector"].includes(reason.toLowerCase())) return "";
+  return reason;
 }
 function durationMillis(startedAt, completedAt) {
   const started = new Date(startedAt || "").getTime();
@@ -38021,6 +38073,7 @@ function ProcessEventCard({
   const lifecycleRejected = ((_a2 = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _a2.type) === "runtime.tool_intervention_rejected";
   const lifecycleApproved = ((_b = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _b.type) === "runtime.tool_intervention_approved";
   const requiredData = eventData(toolLifecycle == null ? void 0 : toolLifecycle.required);
+  const toolApproval = event.type === "runtime.tool_call" ? toolApprovalPresentation(event, toolLifecycle) : null;
   if (event.type.startsWith("session.status_")) {
     const sessionStatus = sessionStatusFromEvent(event);
     const activity = activityView(event);
@@ -38054,18 +38107,20 @@ function ProcessEventCard({
     contextItems = [
       { label: summary.label.startsWith("skills.") ? "Skill 工具" : "工具", value: summary.label },
       { label: "操作", value: summary.title },
-      ...summary.detail ? [{ label: "目标", value: summary.detail }] : []
+      ...summary.detail ? [{ label: "目标", value: summary.detail }] : [],
+      { label: "审批", value: toolApproval.label }
     ];
     detailObject = {
       source: summary.sourceLabel,
       tool: summary.label,
       operation: summary.title,
       target: summary.detail || void 0,
+      approval: { status: toolApproval.status, ...toolApproval.detail },
       arguments: Object.keys(args).length ? args : void 0
     };
     tone = summary.risk === "high" ? "warn" : "tool";
     status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
-    statusLabel = summary.risk === "high" ? "待确认" : active ? "执行中" : "已调用";
+    statusLabel = active ? "执行中" : "待执行";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
@@ -38074,15 +38129,15 @@ function ProcessEventCard({
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
-      statusLabel = "已拒绝";
+      statusLabel = "未执行";
     } else if (lifecycleApproved) {
       tone = "ok";
-      status = "completed";
-      statusLabel = "已通过";
+      status = active ? "running" : "completed";
+      statusLabel = active ? "执行中" : "待执行";
     } else if (toolLifecycle == null ? void 0 : toolLifecycle.required) {
       tone = "warn";
       status = "warning";
-      statusLabel = "待审批";
+      statusLabel = "等待执行";
     }
   } else if (event.type === "runtime.tool_result") {
     const summary = toolSummary({
@@ -38344,7 +38399,7 @@ function ProcessEventCard({
           "耗时 ",
           formatDuration(durationMS)
         ] }) : null,
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: statusLabel }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: toolApproval ? `${toolApproval.label} · ${statusLabel}` : statusLabel }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `process-card-status-icon ${status}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ProcessStatusIcon, { status }) })
       ] })
     ] }),

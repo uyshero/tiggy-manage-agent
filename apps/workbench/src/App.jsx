@@ -7,7 +7,7 @@ import "./auth.js";
 import * as api from "./api.js";
 import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolCallID } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { providerErrorPresentation } from "./providerErrors.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
@@ -4713,6 +4713,7 @@ function ProcessEventCard({
   const lifecycleRejected = toolLifecycle?.decision?.type === "runtime.tool_intervention_rejected";
   const lifecycleApproved = toolLifecycle?.decision?.type === "runtime.tool_intervention_approved";
   const requiredData = eventData(toolLifecycle?.required);
+  const toolApproval = event.type === "runtime.tool_call" ? toolApprovalPresentation(event, toolLifecycle) : null;
 
   if (event.type.startsWith("session.status_")) {
     const sessionStatus = sessionStatusFromEvent(event);
@@ -4747,18 +4748,20 @@ function ProcessEventCard({
     contextItems = [
       { label: summary.label.startsWith("skills.") ? "Skill 工具" : "工具", value: summary.label },
       { label: "操作", value: summary.title },
-      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : [])
+      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : []),
+      { label: "审批", value: toolApproval.label }
     ];
     detailObject = {
       source: summary.sourceLabel,
       tool: summary.label,
       operation: summary.title,
       target: summary.detail || undefined,
+      approval: { status: toolApproval.status, ...toolApproval.detail },
       arguments: Object.keys(args).length ? args : undefined
     };
     tone = summary.risk === "high" ? "warn" : "tool";
     status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
-    statusLabel = summary.risk === "high" ? "待确认" : active ? "执行中" : "已调用";
+    statusLabel = active ? "执行中" : "待执行";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
@@ -4767,15 +4770,15 @@ function ProcessEventCard({
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
-      statusLabel = "已拒绝";
+      statusLabel = "未执行";
     } else if (lifecycleApproved) {
       tone = "ok";
-      status = "completed";
-      statusLabel = "已通过";
+      status = active ? "running" : "completed";
+      statusLabel = active ? "执行中" : "待执行";
     } else if (toolLifecycle?.required) {
       tone = "warn";
       status = "warning";
-      statusLabel = "待审批";
+      statusLabel = "等待执行";
     }
   } else if (event.type === "runtime.tool_result") {
     const summary = toolSummary({
@@ -5061,7 +5064,7 @@ function ProcessEventCard({
         <span className="process-card-status">
           {eventTime ? <span>{eventTime}</span> : null}
           {durationMS > 0 ? <span>耗时 {formatDuration(durationMS)}</span> : null}
-          <strong>{statusLabel}</strong>
+          <strong>{toolApproval ? `${toolApproval.label} · ${statusLabel}` : statusLabel}</strong>
           <span className={`process-card-status-icon ${status}`}><ProcessStatusIcon status={status} /></span>
         </span>
       </button>
