@@ -376,7 +376,7 @@ func saveAgentLoopState(ctx context.Context, tx *sql.Tx, session Session, state 
 }
 
 func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx *sql.Tx, state agentcore.State, runtimeEvents []agentcore.RuntimeEvent, now time.Time) ([]Event, error) {
-	events := make([]Event, 0, len(runtimeEvents))
+	events := make([]Event, 0, len(runtimeEvents)+1)
 	for _, runtimeEvent := range runtimeEvents {
 		if runtimeEvent.Type == "" {
 			return nil, fmt.Errorf("%w: agent loop runtime event type is required", ErrInvalid)
@@ -395,8 +395,57 @@ func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx 
 			return nil, err
 		}
 		events = append(events, event)
+		if progressData, ok := agentLoopProgressMessageData(state, runtimeEvent); ok {
+			progressPayload, err := json.Marshal(map[string]any{
+				"turn_id":       state.TurnID,
+				"loop_revision": state.Revision,
+				"message":       "Agent progress message persisted.",
+				"data":          progressData,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("encode agent loop progress message: %w", err)
+			}
+			progressEvent, err := store.appendEventTx(ctx, tx, state.SessionID, EventRuntimeProgressMessage, progressPayload, now)
+			if err != nil {
+				return nil, err
+			}
+			events = append(events, progressEvent)
+		}
 	}
 	return events, nil
+}
+
+func agentLoopProgressMessageData(state agentcore.State, runtimeEvent agentcore.RuntimeEvent) (map[string]any, bool) {
+	if runtimeEvent.Type != agentcore.EventModelResponded || len(state.Messages) == 0 {
+		return nil, false
+	}
+	message := state.Messages[len(state.Messages)-1]
+	if message.Role != model.RoleAssistant || message.Visibility != model.VisibilityInternal {
+		return nil, false
+	}
+	textParts := make([]string, 0, len(message.Content))
+	hasToolCall := false
+	for _, content := range message.Content {
+		switch content.Type {
+		case model.ContentText:
+			if text := strings.TrimSpace(content.Text); text != "" {
+				textParts = append(textParts, text)
+			}
+		case model.ContentToolCall:
+			if content.ToolCall != nil {
+				hasToolCall = true
+			}
+		}
+	}
+	if !hasToolCall || len(textParts) == 0 {
+		return nil, false
+	}
+	return map[string]any{
+		"content_format": "markdown",
+		"message_id":     message.ID,
+		"text":           strings.Join(textParts, "\n\n"),
+		"tool_round":     state.ModelAttempts,
+	}, true
 }
 
 func (a agentLoopPark) apply(ctx context.Context, _ *PostgresStore, tx *sql.Tx, _ Session, state agentcore.State, now time.Time) ([]Event, error) {

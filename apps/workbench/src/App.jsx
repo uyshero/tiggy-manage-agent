@@ -5625,9 +5625,10 @@ function WorkbenchApp() {
 	const renderedChatTimelineEvents = useMemo(() => {
 		if (!streamingReply) return chatTimelineEvents;
 		const hasDurableReply = chatTimelineEvents.some((event) => (
-			event.type === "agent.message" &&
-			payload(event).turn_id === streamingReply.turnID &&
-			hasVisibleAgentText(event)
+			payload(event).turn_id === streamingReply.turnID && (
+				(event.type === "agent.message" && hasVisibleAgentText(event)) ||
+				(event.type === "runtime.progress_message" && Number(eventData(event).tool_round || 0) === Number(streamingReply.toolRound || 0))
+			)
 		));
 		if (hasDurableReply) return chatTimelineEvents;
 		return [...chatTimelineEvents, {

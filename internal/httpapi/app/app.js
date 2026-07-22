@@ -38737,7 +38737,7 @@ function WorkbenchApp() {
   const streamingReply = (liveReply == null ? void 0 : liveReply.sessionID) === sessionID ? liveReply : null;
   const renderedChatTimelineEvents = reactExports.useMemo(() => {
     if (!streamingReply) return chatTimelineEvents;
-    const hasDurableReply = chatTimelineEvents.some((event) => event.type === "agent.message" && payload(event).turn_id === streamingReply.turnID && hasVisibleAgentText(event));
+    const hasDurableReply = chatTimelineEvents.some((event) => payload(event).turn_id === streamingReply.turnID && (event.type === "agent.message" && hasVisibleAgentText(event) || event.type === "runtime.progress_message" && Number(eventData(event).tool_round || 0) === Number(streamingReply.toolRound || 0)));
     if (hasDurableReply) return chatTimelineEvents;
     return [...chatTimelineEvents, {
       type: "agent.streaming",
