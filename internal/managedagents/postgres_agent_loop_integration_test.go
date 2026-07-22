@@ -57,6 +57,93 @@ func TestPostgresAgentLoopCompletesAndLoadsDurableState(t *testing.T) {
 	assertPostgresSessionStatus(t, store, session.ID, SessionStatusIdle)
 }
 
+func TestPostgresToolPermissionAuditProjectsAndPaginatesDurableEvents(t *testing.T) {
+	store := newPostgresAgentLoopIntegrationStore(t)
+	var table sql.NullString
+	if err := store.db.QueryRowContext(t.Context(), `SELECT to_regclass('public.tool_permission_audit_records')`).Scan(&table); err != nil || !table.Valid {
+		t.Fatalf("tool permission audit table: table=%v err=%v; apply migration 000085", table, err)
+	}
+	session := createPostgresIntegrationSession(t, store)
+	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{Payload: json.RawMessage(`{"content":[{"type":"text","text":"audit"}]}`)})
+	if err != nil {
+		t.Fatalf("start session run: %v", err)
+	}
+	ctx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	fence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-permission-audit")
+	durability := store.AgentLoopDurability(fence)
+	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
+	state.Phase = agentcore.PhaseAwaitingModel
+	plan := agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{
+		{
+			Call:            model.ToolCall{ID: "call_ask", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
+			Disposition:     agentcore.ToolDispositionExecute,
+			ValidationState: agentcore.ToolValidationValid,
+			ApprovalState:   agentcore.ToolApprovalPending,
+			ApprovalSource:  agentcore.ToolApprovalSourceHuman,
+			Permission: &agentcore.ToolPermissionDecision{
+				Decision: "ask", Required: true, Mode: "request_approval", ApprovalPolicy: "conditional",
+				MatchedRuleID: "ask-src", RuleSource: "session", Risk: "write",
+			},
+		},
+		{
+			Call:            model.ToolCall{ID: "call_deny", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/secrets/token"}`)},
+			Disposition:     agentcore.ToolDispositionDenied,
+			ValidationState: agentcore.ToolValidationValid,
+			ApprovalState:   agentcore.ToolApprovalNotRequired,
+			Permission: &agentcore.ToolPermissionDecision{
+				Decision: "deny", Mode: "full_access", ApprovalPolicy: "conditional",
+				MatchedRuleID: "deny-secrets", RuleSource: "workspace", Risk: "write",
+			},
+		},
+	}}
+	state, err = durability.Commit(ctx, agentcore.Transition{
+		ExpectedRevision: 0, Next: state,
+		Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolBatchPlanned, Payload: plan}},
+	})
+	if err != nil {
+		t.Fatalf("commit permission plan: %v", err)
+	}
+	next := state.Clone()
+	state, err = durability.Commit(ctx, agentcore.Transition{
+		ExpectedRevision: state.Revision, Next: next,
+		Events: []agentcore.RuntimeEvent{
+			{Type: agentcore.EventInterventionResolved, Payload: []agentcore.InteractionDecision{{InteractionID: "tool_approval:call_ask", Status: "approved"}}},
+			{Type: agentcore.EventToolCallResult, Payload: agentcore.ToolCallJournalEntry{CallID: "call_ask", Status: agentcore.ToolCallSucceeded}},
+			{Type: agentcore.EventToolCallResult, Payload: agentcore.ToolCallJournalEntry{CallID: "call_deny", Status: agentcore.ToolCallFailed}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("commit permission outcomes: %v", err)
+	}
+
+	records, err := store.ListToolPermissionAuditContext(ctx, ListToolPermissionAuditInput{SessionID: session.ID, Limit: 2})
+	if err != nil || len(records) != 2 {
+		t.Fatalf("list permission audit: records=%+v err=%v", records, err)
+	}
+	byCall := map[string]ToolPermissionAuditRecord{records[0].CallID: records[0], records[1].CallID: records[1]}
+	if ask := byCall["call_ask"]; ask.ApprovalStatus != "approved" || ask.ExecutionStatus != "succeeded" || ask.MatchedRuleID != "ask-src" {
+		t.Fatalf("ask audit = %+v", ask)
+	}
+	if deny := byCall["call_deny"]; deny.ExecutionStatus != "denied" || deny.RuleSource != "workspace" {
+		t.Fatalf("deny audit = %+v", deny)
+	}
+	first, err := store.ListToolPermissionAuditContext(ctx, ListToolPermissionAuditInput{SessionID: session.ID, Limit: 1})
+	if err != nil || len(first) != 1 {
+		t.Fatalf("first permission audit page: records=%+v err=%v", first, err)
+	}
+	second, err := store.ListToolPermissionAuditContext(ctx, ListToolPermissionAuditInput{
+		SessionID: session.ID, Limit: 1, Before: &first[0].CreatedAt,
+		BeforeTurnID: first[0].TurnID, BeforeCallID: first[0].CallID,
+	})
+	if err != nil || len(second) != 1 || second[0].CallID == first[0].CallID {
+		t.Fatalf("second permission audit page: first=%+v second=%+v err=%v", first, second, err)
+	}
+	otherWorkspaceCtx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: "wksp_other", OwnerID: session.OwnerID})
+	if _, err := store.ListToolPermissionAuditContext(otherWorkspaceCtx, ListToolPermissionAuditInput{SessionID: session.ID, Limit: 1}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-workspace permission audit error = %v, want forbidden", err)
+	}
+}
+
 func TestPostgresAgentLoopParksAndResumesThroughIntervention(t *testing.T) {
 	store := newPostgresAgentLoopIntegrationStore(t)
 	session := createPostgresIntegrationSession(t, store)
@@ -83,7 +170,11 @@ func TestPostgresAgentLoopParksAndResumesThroughIntervention(t *testing.T) {
 	)
 	toolPort := &modeltest.ScriptedTools{PreflightFunc: func(_ context.Context, _ agentcore.State, calls []model.ToolCall) (agentcore.ToolBatchPlan, error) {
 		return agentcore.ToolBatchPlan{
-			Calls:        []agentcore.PlannedToolCall{{Call: calls[0], ExecutionMode: "sequential", SideEffect: "write", Idempotency: "unknown"}},
+			Calls: []agentcore.PlannedToolCall{{
+				Call: calls[0], ExecutionMode: "sequential", SideEffect: "write", Idempotency: "unknown",
+				Disposition: agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+				ApprovalState: agentcore.ToolApprovalPending, ApprovalSource: agentcore.ToolApprovalSourceHuman,
+			}},
 			Interactions: []agentcore.RequiredInteraction{{ID: "approval_1", Kind: "tool_approval", CallID: calls[0].ID, Request: json.RawMessage(`{"risk":"write"}`)}},
 		}, nil
 	}}
@@ -156,27 +247,285 @@ func TestPostgresAgentLoopRejectsStaleRevision(t *testing.T) {
 	}
 }
 
-func TestPostgresAgentLoopDoesNotReplayStartedNonIdempotentTool(t *testing.T) {
+func TestPostgresAgentLoopRecoversStartedToolsByIdempotency(t *testing.T) {
+	tests := []struct {
+		idempotency string
+		replayable  bool
+	}{
+		{idempotency: "safe", replayable: true},
+		{idempotency: "keyed", replayable: true},
+		{idempotency: "unsafe", replayable: false},
+	}
+	for _, test := range tests {
+		t.Run(test.idempotency, func(t *testing.T) {
+			store := newPostgresAgentLoopIntegrationStore(t)
+			session := createPostgresIntegrationSession(t, store)
+			started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{Payload: json.RawMessage(`{"content":[{"type":"text","text":"write once"}]}`)})
+			if err != nil {
+				t.Fatalf("start session run: %v", err)
+			}
+			ctx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+			oldFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-crashed-worker")
+			durability := store.AgentLoopDurability(oldFence)
+			state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
+
+			state.Phase = agentcore.PhaseAwaitingModel
+			state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: 0, Next: state})
+			if err != nil {
+				t.Fatalf("commit awaiting model: %v", err)
+			}
+			call := model.ToolCall{ID: "call_once", Name: "integration.write_once", Arguments: json.RawMessage(`{"value":"once"}`)}
+			planned := agentcore.PlannedToolCall{
+				Call: call, ExecutionMode: "sequential", SideEffect: "write", Idempotency: test.idempotency,
+				IdempotencyKey: agentcore.StableToolIdempotencyKey(session.ID, started.Run.ID, call),
+				Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+				ApprovalState: agentcore.ToolApprovalNotRequired,
+			}
+			next := state.Clone()
+			next.Messages = append(next.Messages, model.Message{
+				ID: "assistant_tools", Role: model.RoleAssistant, Visibility: model.VisibilityInternal,
+				Content: []model.Content{{Type: model.ContentToolCall, ToolCall: &call}},
+			})
+			next.PendingToolBatch = &agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{planned}}
+			next.Phase = agentcore.PhasePreflightingTools
+			state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+			if err != nil {
+				t.Fatalf("commit preflight state: %v", err)
+			}
+			next = state.Clone()
+			next.Phase = agentcore.PhaseExecutingTools
+			next.ToolCalls = 1
+			next.Budget.ToolCalls = 1
+			state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+			if err != nil {
+				t.Fatalf("commit executing state: %v", err)
+			}
+			next = state.Clone()
+			next.ToolJournal = []agentcore.ToolCallJournalEntry{{
+				CallID: call.ID, Name: call.Name, Idempotency: planned.Idempotency, IdempotencyKey: planned.IdempotencyKey,
+				Status: agentcore.ToolCallStarted, Attempt: 1, StartedAt: time.Now().UTC(),
+			}}
+			state, err = durability.Commit(ctx, agentcore.Transition{
+				ExpectedRevision: state.Revision, Next: next,
+				Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolCallStarted, Message: "Tool call started before worker crash."}},
+			})
+			if err != nil {
+				t.Fatalf("commit started journal: %v", err)
+			}
+
+			resumeFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-recovery-worker")
+			toolPort := &modeltest.ScriptedTools{ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+				if !test.replayable {
+					return agentcore.ToolBatchResult{}, errors.New("non-idempotent tool must not be replayed")
+				}
+				if plan.Calls[0].IdempotencyKey != planned.IdempotencyKey {
+					return agentcore.ToolBatchResult{}, errors.New("replayed tool changed its idempotency key")
+				}
+				return agentcore.ToolBatchResult{Results: []model.ToolResult{{
+					CallID: call.ID, Name: call.Name, Content: []model.Content{{Type: model.ContentText, Text: "ok"}},
+				}}}, nil
+			}}
+			modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: model.Response{
+				Message:    model.Message{ID: "answer_recovered", Content: []model.Content{{Type: model.ContentText, Text: "recovery complete"}}},
+				StopReason: model.StopReasonComplete,
+			}})
+			engine := newPostgresAgentLoopEngine(t, store, resumeFence, modelPort, toolPort)
+			outcome, err := engine.Run(ctx, state)
+			if err != nil {
+				t.Fatalf("recover agent loop: %v", err)
+			}
+			_, execute := toolPort.Counts()
+			if test.replayable {
+				if outcome.Status != agentcore.OutcomeCompleted || len(outcome.State.ToolJournal) != 1 {
+					t.Fatalf("recovered outcome = %+v", outcome)
+				}
+				journal := outcome.State.ToolJournal[0]
+				if execute != 1 || journal.Status != agentcore.ToolCallSucceeded || journal.Attempt != 2 || journal.IdempotencyKey != planned.IdempotencyKey {
+					t.Fatalf("replayed tool execute=%d journal=%+v", execute, journal)
+				}
+				return
+			}
+			if outcome.Status != agentcore.OutcomePaused || outcome.Pause == nil || len(outcome.Pause.Interactions) != 1 || execute != 0 {
+				t.Fatalf("non-idempotent recovery outcome=%+v execute=%d", outcome, execute)
+			}
+			turnStatus, _ := postgresTurnState(t, store, session.ID, started.Run.ID)
+			if turnStatus != TurnStatusWaitingHuman {
+				t.Fatalf("reconciliation turn status = %q", turnStatus)
+			}
+			interventions, err := store.ListSessionInterventionsContext(ctx, session.ID, InterventionStatusPending)
+			if err != nil || len(interventions) != 1 || interventions[0].CallID != agentcore.ToolReconciliationRequestPurpose+":"+call.ID || interventions[0].Kind != InterventionKindClarification {
+				t.Fatalf("reconciliation interventions = %+v err=%v", interventions, err)
+			}
+			response := json.RawMessage(`{"mode":"form","fields":{"outcome":"executed","summary":"external transaction exists","evidence":"transaction:42"}}`)
+			if _, err := store.DecideSessionInterventionContext(ctx, session.ID, DecideSessionInterventionInput{
+				TurnID: started.Run.ID, CallID: interventions[0].CallID, Status: InterventionStatusAnswered, Response: response,
+			}); err != nil {
+				t.Fatalf("answer reconciliation: %v", err)
+			}
+			finalFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-reconciled-worker")
+			engine = newPostgresAgentLoopEngine(t, store, finalFence, modelPort, toolPort)
+			resumed, err := engine.Resume(ctx, outcome.State, []agentcore.InteractionDecision{{
+				InteractionID: outcome.Pause.Interactions[0].ID, Status: "approved", Response: response,
+			}})
+			if err != nil {
+				t.Fatalf("resume reconciliation: %v", err)
+			}
+			completed, err := engine.Run(ctx, resumed)
+			if err != nil || completed.Status != agentcore.OutcomeCompleted {
+				t.Fatalf("complete reconciled turn outcome=%+v err=%v", completed, err)
+			}
+			journal := completed.State.ToolJournal[0]
+			if journal.Status != agentcore.ToolCallSucceeded || journal.Attempt != 1 || journal.Reconciliation == nil || journal.Reconciliation.Outcome != agentcore.ToolReconciliationExecuted {
+				t.Fatalf("reconciled journal = %+v", journal)
+			}
+		})
+	}
+}
+
+func TestPostgresAgentLoopRecoversPartiallyCompletedToolBatch(t *testing.T) {
 	store := newPostgresAgentLoopIntegrationStore(t)
 	session := createPostgresIntegrationSession(t, store)
-	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{Payload: json.RawMessage(`{"content":[{"type":"text","text":"write once"}]}`)})
+	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{Payload: json.RawMessage(`{"content":[{"type":"text","text":"read twice"}]}`)})
 	if err != nil {
 		t.Fatalf("start session run: %v", err)
 	}
 	ctx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
-	oldFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-crashed-worker")
+	oldFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-partial-worker")
 	durability := store.AgentLoopDurability(oldFence)
 	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
-
 	state.Phase = agentcore.PhaseAwaitingModel
 	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: 0, Next: state})
 	if err != nil {
 		t.Fatalf("commit awaiting model: %v", err)
 	}
-	call := model.ToolCall{ID: "call_once", Name: "integration.write_once", Arguments: json.RawMessage(`{"value":"once"}`)}
+
+	calls := []model.ToolCall{
+		{ID: "call_completed", Name: "integration.read_completed", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_interrupted", Name: "integration.read_interrupted", Arguments: json.RawMessage(`{}`)},
+	}
+	planned := make([]agentcore.PlannedToolCall, len(calls))
+	for index, call := range calls {
+		planned[index] = agentcore.PlannedToolCall{
+			Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
+			IdempotencyKey: agentcore.StableToolIdempotencyKey(session.ID, started.Run.ID, call),
+			Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+			ApprovalState: agentcore.ToolApprovalNotRequired,
+		}
+	}
+	next := state.Clone()
+	next.Messages = append(next.Messages, model.Message{
+		ID: "assistant_tools", Role: model.RoleAssistant, Visibility: model.VisibilityInternal,
+		Content: []model.Content{
+			{Type: model.ContentToolCall, ToolCall: &calls[0]},
+			{Type: model.ContentToolCall, ToolCall: &calls[1]},
+		},
+	})
+	next.PendingToolBatch = &agentcore.ToolBatchPlan{Calls: planned}
+	next.Phase = agentcore.PhasePreflightingTools
+	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+	if err != nil {
+		t.Fatalf("commit partial batch preflight: %v", err)
+	}
+	next = state.Clone()
+	next.Phase = agentcore.PhaseExecutingTools
+	next.ToolCalls = len(calls)
+	next.Budget.ToolCalls = len(calls)
+	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+	if err != nil {
+		t.Fatalf("commit partial batch executing state: %v", err)
+	}
+	next = state.Clone()
+	completedAt := time.Now().UTC()
+	completedResult := model.ToolResult{
+		CallID: calls[0].ID, Name: calls[0].Name,
+		Content: []model.Content{{Type: model.ContentText, Text: "already completed"}},
+	}
+	next.ToolJournal = []agentcore.ToolCallJournalEntry{
+		{
+			CallID: calls[0].ID, Name: calls[0].Name, Idempotency: "safe", IdempotencyKey: planned[0].IdempotencyKey,
+			Status: agentcore.ToolCallSucceeded, Attempt: 1, StartedAt: completedAt, CompletedAt: &completedAt, Result: &completedResult,
+		},
+		{
+			CallID: calls[1].ID, Name: calls[1].Name, Idempotency: "safe", IdempotencyKey: planned[1].IdempotencyKey,
+			Status: agentcore.ToolCallStarted, Attempt: 1, StartedAt: completedAt,
+		},
+	}
+	state, err = durability.Commit(ctx, agentcore.Transition{
+		ExpectedRevision: state.Revision, Next: next,
+		Events: []agentcore.RuntimeEvent{
+			{Type: agentcore.EventToolCallResult, Message: "First tool result committed before worker crash."},
+			{Type: agentcore.EventToolCallStarted, Message: "Second tool call started before worker crash."},
+		},
+	})
+	if err != nil {
+		t.Fatalf("commit partial tool batch: %v", err)
+	}
+
+	resumeFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-partial-recovery")
+	toolPort := &modeltest.ScriptedTools{ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+		if len(plan.Calls) != 1 || plan.Calls[0].Call.ID != calls[1].ID || plan.Calls[0].IdempotencyKey != planned[1].IdempotencyKey {
+			return agentcore.ToolBatchResult{}, errors.New("recovery replayed the wrong tool call")
+		}
+		return agentcore.ToolBatchResult{Results: []model.ToolResult{{
+			CallID: calls[1].ID, Name: calls[1].Name, Content: []model.Content{{Type: model.ContentText, Text: "recovered"}},
+		}}}, nil
+	}}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+		Assert: func(request model.Request) error {
+			var resultIDs []string
+			for _, message := range request.Messages {
+				for _, content := range message.Content {
+					if content.ToolResult != nil {
+						resultIDs = append(resultIDs, content.ToolResult.CallID)
+					}
+				}
+			}
+			if len(resultIDs) != 2 || resultIDs[0] != calls[0].ID || resultIDs[1] != calls[1].ID {
+				return errors.New("recovered tool results are not in source order")
+			}
+			return nil
+		},
+		Response: model.Response{
+			Message:    model.Message{ID: "answer_recovered", Content: []model.Content{{Type: model.ContentText, Text: "partial batch recovered"}}},
+			StopReason: model.StopReasonComplete,
+		},
+	})
+	engine := newPostgresAgentLoopEngine(t, store, resumeFence, modelPort, toolPort)
+	outcome, err := engine.Run(ctx, state)
+	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("recover partial batch outcome=%+v err=%v", outcome, err)
+	}
+	if _, execute := toolPort.Counts(); execute != 1 {
+		t.Fatalf("replayed tool count = %d", execute)
+	}
+	if len(outcome.State.ToolJournal) != 2 || outcome.State.ToolJournal[0].Attempt != 1 || outcome.State.ToolJournal[1].Attempt != 2 || outcome.State.ToolJournal[1].Status != agentcore.ToolCallSucceeded {
+		t.Fatalf("recovered journal = %+v", outcome.State.ToolJournal)
+	}
+}
+
+func TestPostgresAgentLoopRejectsLateToolResultAfterLeaseLoss(t *testing.T) {
+	store := newPostgresAgentLoopIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{Payload: json.RawMessage(`{"content":[{"type":"text","text":"run once"}]}`)})
+	if err != nil {
+		t.Fatalf("start session run: %v", err)
+	}
+	ctx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	oldFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-stale-tool-worker")
+	oldDurability := store.AgentLoopDurability(oldFence)
+	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
+	state.Phase = agentcore.PhaseAwaitingModel
+	state, err = oldDurability.Commit(ctx, agentcore.Transition{ExpectedRevision: 0, Next: state})
+	if err != nil {
+		t.Fatalf("commit awaiting model: %v", err)
+	}
+
+	call := model.ToolCall{ID: "call_fenced", Name: "integration.fenced_read", Arguments: json.RawMessage(`{}`)}
 	planned := agentcore.PlannedToolCall{
-		Call: call, ExecutionMode: "sequential", SideEffect: "write", Idempotency: "unknown",
+		Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
 		IdempotencyKey: agentcore.StableToolIdempotencyKey(session.ID, started.Run.ID, call),
+		Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+		ApprovalState: agentcore.ToolApprovalNotRequired,
 	}
 	next := state.Clone()
 	next.Messages = append(next.Messages, model.Message{
@@ -185,7 +534,7 @@ func TestPostgresAgentLoopDoesNotReplayStartedNonIdempotentTool(t *testing.T) {
 	})
 	next.PendingToolBatch = &agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{planned}}
 	next.Phase = agentcore.PhasePreflightingTools
-	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+	state, err = oldDurability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
 	if err != nil {
 		t.Fatalf("commit preflight state: %v", err)
 	}
@@ -193,7 +542,7 @@ func TestPostgresAgentLoopDoesNotReplayStartedNonIdempotentTool(t *testing.T) {
 	next.Phase = agentcore.PhaseExecutingTools
 	next.ToolCalls = 1
 	next.Budget.ToolCalls = 1
-	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
+	state, err = oldDurability.Commit(ctx, agentcore.Transition{ExpectedRevision: state.Revision, Next: next})
 	if err != nil {
 		t.Fatalf("commit executing state: %v", err)
 	}
@@ -202,32 +551,59 @@ func TestPostgresAgentLoopDoesNotReplayStartedNonIdempotentTool(t *testing.T) {
 		CallID: call.ID, Name: call.Name, Idempotency: planned.Idempotency, IdempotencyKey: planned.IdempotencyKey,
 		Status: agentcore.ToolCallStarted, Attempt: 1, StartedAt: time.Now().UTC(),
 	}}
-	state, err = durability.Commit(ctx, agentcore.Transition{
+	state, err = oldDurability.Commit(ctx, agentcore.Transition{
 		ExpectedRevision: state.Revision, Next: next,
-		Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolCallStarted, Message: "Tool call started before worker crash."}},
+		Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolCallStarted, Message: "Tool call started before lease loss."}},
 	})
 	if err != nil {
 		t.Fatalf("commit started journal: %v", err)
 	}
 
-	resumeFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-recovery-worker")
-	toolPort := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
-		return agentcore.ToolBatchResult{}, errors.New("non-idempotent tool must not be replayed")
+	newFence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-current-tool-worker")
+	late := state.Clone()
+	lateCompletedAt := time.Now().UTC()
+	lateResult := model.ToolResult{
+		CallID: call.ID, Name: call.Name,
+		Content: []model.Content{{Type: model.ContentText, Text: "stale worker result"}},
+	}
+	late.ToolJournal[0].Status = agentcore.ToolCallSucceeded
+	late.ToolJournal[0].CompletedAt = &lateCompletedAt
+	late.ToolJournal[0].Result = &lateResult
+	if _, err := oldDurability.Commit(ctx, agentcore.Transition{
+		ExpectedRevision: state.Revision, Next: late,
+		Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolCallResult, Message: "Late stale worker result."}},
+	}); !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("late stale worker commit error = %v, want lease lost", err)
+	}
+
+	toolPort := &modeltest.ScriptedTools{ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+		if len(plan.Calls) != 1 || plan.Calls[0].IdempotencyKey != planned.IdempotencyKey {
+			return agentcore.ToolBatchResult{}, errors.New("recovered tool changed its idempotency key")
+		}
+		return agentcore.ToolBatchResult{Results: []model.ToolResult{{
+			CallID: call.ID, Name: call.Name,
+			Content: []model.Content{{Type: model.ContentText, Text: "current worker result"}},
+		}}}, nil
 	}}
 	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: model.Response{
-		Message:    model.Message{ID: "answer_recovered", Content: []model.Content{{Type: model.ContentText, Text: "manual verification required"}}},
+		Message:    model.Message{ID: "answer_recovered", Content: []model.Content{{Type: model.ContentText, Text: "fenced recovery complete"}}},
 		StopReason: model.StopReasonComplete,
 	}})
-	engine := newPostgresAgentLoopEngine(t, store, resumeFence, modelPort, toolPort)
+	engine := newPostgresAgentLoopEngine(t, store, newFence, modelPort, toolPort)
 	outcome, err := engine.Run(ctx, state)
-	if err != nil {
-		t.Fatalf("recover agent loop: %v", err)
+	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("recover after lease loss outcome=%+v err=%v", outcome, err)
 	}
-	if outcome.Status != agentcore.OutcomeCompleted || len(outcome.State.ToolJournal) != 1 || outcome.State.ToolJournal[0].Status != agentcore.ToolCallIndeterminate {
-		t.Fatalf("recovered outcome = %+v", outcome)
+	if _, execute := toolPort.Counts(); execute != 1 {
+		t.Fatalf("recovered tool count = %d", execute)
 	}
-	if _, execute := toolPort.Counts(); execute != 0 {
-		t.Fatalf("non-idempotent replay count = %d", execute)
+	journal := outcome.State.ToolJournal[0]
+	if journal.Status != agentcore.ToolCallSucceeded || journal.Attempt != 2 || journal.Result == nil || journal.Result.Content[0].Text != "current worker result" {
+		t.Fatalf("recovered journal = %+v", journal)
+	}
+	loaded, err := store.LoadAgentLoopStateContext(ctx, session.ID, started.Run.ID)
+	if err != nil || len(loaded.ToolJournal) != 1 || loaded.ToolJournal[0].Result == nil || loaded.ToolJournal[0].Result.Content[0].Text != "current worker result" {
+		t.Fatalf("loaded fenced state = %+v err=%v", loaded, err)
 	}
 }
 

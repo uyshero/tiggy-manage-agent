@@ -13,6 +13,7 @@ const (
 	EventToolBatchPlanned     EventType = "tool.batch_planned"
 	EventToolCallStarted      EventType = "tool.call_started"
 	EventToolCallResult       EventType = "tool.call_result"
+	EventToolCallReconciled   EventType = "tool.call_reconciled"
 	EventInterventionRequired EventType = "intervention.required"
 	EventInterventionResolved EventType = "intervention.resolved"
 	EventToolBatchCompleted   EventType = "tool.batch_completed"

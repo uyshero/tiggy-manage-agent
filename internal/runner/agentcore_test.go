@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -16,66 +15,14 @@ import (
 	"tiggy-manage-agent/internal/modeltest"
 )
 
-func TestAgentCoreRolloutPolicy(t *testing.T) {
-	t.Parallel()
-
-	config := managedagents.AgentRuntimeConfig{WorkspaceID: "wksp_a", AgentID: "agent_a"}
-	tests := []struct {
-		name   string
-		policy AgentCoreRolloutPolicy
-		want   bool
-	}{
-		{name: "disabled", policy: AgentCoreRolloutPolicy{Enabled: false, Percent: 100}, want: false},
-		{name: "zero percent", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 0}, want: false},
-		{name: "full rollout", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100}, want: true},
-		{name: "workspace allowed", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100, WorkspaceIDs: []string{"wksp_a"}}, want: true},
-		{name: "workspace denied", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100, WorkspaceIDs: []string{"wksp_b"}}, want: false},
-		{name: "agent allowed", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100, AgentIDs: []string{"agent_a"}}, want: true},
-		{name: "agent denied", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100, AgentIDs: []string{"agent_b"}}, want: false},
-		{name: "allowlists use and", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 100, WorkspaceIDs: []string{"wksp_a"}, AgentIDs: []string{"agent_b"}}, want: false},
-		{name: "invalid percent fails closed", policy: AgentCoreRolloutPolicy{Enabled: true, Percent: 101}, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := test.policy.Allows(config, "session_1"); got != test.want {
-				t.Fatalf("Allows() = %t, want %t", got, test.want)
-			}
-		})
-	}
-
-	policy := AgentCoreRolloutPolicy{Enabled: true, Percent: 50}
-	stable := policy.Allows(config, "session_stable")
-	for range 10 {
-		if got := policy.Allows(config, "session_stable"); got != stable {
-			t.Fatalf("session bucket changed: got %t, want %t", got, stable)
-		}
-	}
-	var allowed, denied bool
-	for index := range 100 {
-		if policy.Allows(config, fmt.Sprintf("session_%d", index)) {
-			allowed = true
-		} else {
-			denied = true
-		}
-	}
-	if !allowed || !denied {
-		t.Fatalf("50 percent rollout did not split sample: allowed=%t denied=%t", allowed, denied)
-	}
-}
-
 func TestAgentRuntimeTurnExecutorRunsDurableCore(t *testing.T) {
 	t.Parallel()
 
 	repository := &lazyStateRepository{}
 	store := &mockStore{agentLoopRepo: repository}
-	legacy := &forbiddenRuntime{}
 	executor := AgentRuntimeTurnExecutor{
-		Runtime:     legacy,
-		CoreRollout: AgentCoreRolloutPolicy{Enabled: true, Percent: 100},
-		CoreClient:  llm.FakeClient{},
-		Store:       store,
-		LiveEvents:  NewLiveEventBroker(8),
-		Timeout:     time.Minute,
+		CoreClient: llm.FakeClient{}, Store: store,
+		LiveEvents: NewLiveEventBroker(8), Timeout: time.Minute,
 	}
 	result, err := executor.RunTurn(context.Background(), TurnRequest{
 		SessionID: "session_1", TurnID: "turn_1", UserEventSeq: 10,
@@ -94,12 +41,38 @@ func TestAgentRuntimeTurnExecutorRunsDurableCore(t *testing.T) {
 	if err := json.Unmarshal(result.AgentPayload, &payload); err != nil || payload.ProtocolVersion != managedagents.AgentLoopMessageProtocolVersion {
 		t.Fatalf("agent payload = %s err = %v", result.AgentPayload, err)
 	}
-	if legacy.calls != 0 {
-		t.Fatalf("legacy runtime calls = %d", legacy.calls)
-	}
 	state, err := repository.Load(context.Background(), "session_1", "turn_1")
 	if err != nil || state.Phase != agentcore.PhaseCompleted {
 		t.Fatalf("durable state = %+v err = %v", state, err)
+	}
+}
+
+func TestAgentCoreVisionFallbackProducesDurableSupplement(t *testing.T) {
+	t.Parallel()
+
+	client := &sequenceLLMClient{responses: []llm.Response{{
+		Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "invoice total is 42"}}},
+		Usage:   llm.Usage{InputTokens: 10, OutputTokens: 5, TotalTokens: 15},
+	}}}
+	executor := AgentRuntimeTurnExecutor{CoreClient: client}
+	runtimeRequest := agentruntime.TurnRequest{
+		ImageParts: []llm.ContentPart{{Type: "image_url", ImageURL: &llm.ImageURL{URL: "data:image/png;base64,AA=="}}},
+		Config:     agentruntime.Config{VisionLLMAPIKey: "vision-secret"},
+	}
+	prepared, usage, err := executor.prepareAgentCoreVision(context.Background(), runtimeRequest, managedagents.AgentRuntimeConfig{
+		LLMCapabilityType:     managedagents.LLMModelCapabilityText,
+		VisionLLMProvider:     "vision-provider",
+		VisionLLMProviderType: llm.ProviderFake,
+		VisionLLMModel:        "vision-model",
+	})
+	if err != nil {
+		t.Fatalf("prepareAgentCoreVision() error = %v", err)
+	}
+	if len(prepared.ImageParts) != 0 || prepared.CurrentUserSupplement != "Vision model analysis of the uploaded image(s):\ninvoice total is 42" {
+		t.Fatalf("prepared request = %+v", prepared)
+	}
+	if usage.TotalTokens != 15 || usage.Source != "provider" {
+		t.Fatalf("usage = %+v", usage)
 	}
 }
 
@@ -115,13 +88,12 @@ func TestAgentRuntimeTurnExecutorConsumesSessionFollowUp(t *testing.T) {
 			Payload: []byte(`{"content":[{"type":"text","text":"also include verification"}],"turn_id":"turn_1"}`),
 		}},
 	}
-	legacy := &forbiddenRuntime{}
 	client := &sequenceLLMClient{responses: []llm.Response{
 		{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "initial answer"}}}},
 		{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "answer with verification"}}}},
 	}}
 	executor := AgentRuntimeTurnExecutor{
-		Runtime: legacy, CoreRollout: AgentCoreRolloutPolicy{Enabled: true, Percent: 100}, CoreClient: client, Store: store,
+		CoreClient: client, Store: store,
 		LiveEvents: NewLiveEventBroker(8), Timeout: time.Minute,
 	}
 	result, err := executor.RunTurn(context.Background(), TurnRequest{
@@ -133,8 +105,8 @@ func TestAgentRuntimeTurnExecutorConsumesSessionFollowUp(t *testing.T) {
 		t.Fatalf("RunTurn() result = %+v err = %v", result, err)
 	}
 	state, loadErr := repository.Load(context.Background(), "session_1", "turn_1")
-	if loadErr != nil || state.ControlCursor != 20 || client.Calls() != 2 || legacy.calls != 0 {
-		t.Fatalf("state = %+v loadErr = %v modelCalls=%d legacyCalls=%d", state, loadErr, client.Calls(), legacy.calls)
+	if loadErr != nil || state.ControlCursor != 20 || client.Calls() != 2 {
+		t.Fatalf("state = %+v loadErr = %v modelCalls=%d", state, loadErr, client.Calls())
 	}
 }
 
@@ -143,7 +115,6 @@ func TestAgentRuntimeTurnExecutorResumesRejectedCoreTool(t *testing.T) {
 
 	repository := &lazyStateRepository{}
 	store := &mockStore{agentLoopRepo: repository}
-	legacy := &forbiddenRuntime{}
 	client := &sequenceLLMClient{responses: []llm.Response{
 		{
 			Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "requesting write"}}, ToolCalls: []llm.ToolCall{{
@@ -153,7 +124,7 @@ func TestAgentRuntimeTurnExecutorResumesRejectedCoreTool(t *testing.T) {
 		{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "write was rejected"}}}},
 	}}
 	executor := AgentRuntimeTurnExecutor{
-		Runtime: legacy, CoreRollout: AgentCoreRolloutPolicy{Enabled: true, Percent: 100}, CoreClient: client, Store: store,
+		CoreClient: client, Store: store,
 		LiveEvents: NewLiveEventBroker(8), Timeout: time.Minute,
 	}
 	request := TurnRequest{
@@ -177,14 +148,63 @@ func TestAgentRuntimeTurnExecutorResumesRejectedCoreTool(t *testing.T) {
 	request.Attempt = 2
 	request.LeaseOwner = "worker_2"
 	request.ResumeIntervention = &store.listedInterventions[0]
-	executor.CoreRollout.Enabled = false
-	executor.Runtime = nil
 	result, err := executor.RunTurn(context.Background(), request)
 	if err != nil {
 		t.Fatalf("resumed RunTurn() error = %v", err)
 	}
-	if !result.DurableFinalized || result.DurableStatus != "completed" || client.Calls() != 2 || legacy.calls != 0 {
-		t.Fatalf("resumed result = %+v model calls = %d legacy calls = %d", result, client.Calls(), legacy.calls)
+	if !result.DurableFinalized || result.DurableStatus != "completed" || client.Calls() != 2 {
+		t.Fatalf("resumed result = %+v model calls = %d", result, client.Calls())
+	}
+}
+
+func TestAgentCoreInteractionDecisionStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		kind         string
+		status       string
+		wantStatus   string
+		wantResolved bool
+	}{
+		{name: "tool approved", kind: managedagents.InterventionKindToolApproval, status: managedagents.InterventionStatusApproved, wantStatus: managedagents.InterventionStatusApproved, wantResolved: true},
+		{name: "tool rejected", kind: managedagents.InterventionKindToolApproval, status: managedagents.InterventionStatusRejected, wantStatus: managedagents.InterventionStatusRejected, wantResolved: true},
+		{name: "plan approved", kind: managedagents.InterventionKindPlanApproval, status: managedagents.InterventionStatusApproved, wantStatus: managedagents.InterventionStatusApproved, wantResolved: true},
+		{name: "clarification answered", kind: managedagents.InterventionKindClarification, status: managedagents.InterventionStatusAnswered, wantStatus: managedagents.InterventionStatusApproved, wantResolved: true},
+		{name: "clarification skipped", kind: managedagents.InterventionKindClarification, status: managedagents.InterventionStatusSkipped, wantStatus: managedagents.InterventionStatusRejected, wantResolved: true},
+		{name: "upload canceled", kind: managedagents.InterventionKindUploadRequest, status: managedagents.InterventionStatusCanceled, wantStatus: managedagents.InterventionStatusRejected, wantResolved: true},
+		{name: "upload expired", kind: managedagents.InterventionKindUploadRequest, status: managedagents.InterventionStatusExpired, wantStatus: managedagents.InterventionStatusRejected, wantResolved: true},
+		{name: "pending", kind: managedagents.InterventionKindClarification, status: managedagents.InterventionStatusPending},
+		{name: "invalid cross-kind status", kind: managedagents.InterventionKindToolApproval, status: managedagents.InterventionStatusAnswered},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotStatus, gotResolved := agentCoreInteractionDecisionStatus(managedagents.SessionIntervention{Kind: test.kind, Status: test.status})
+			if gotStatus != test.wantStatus || gotResolved != test.wantResolved {
+				t.Fatalf("agentCoreInteractionDecisionStatus() = (%q, %t), want (%q, %t)", gotStatus, gotResolved, test.wantStatus, test.wantResolved)
+			}
+		})
+	}
+}
+
+func TestAgentCoreResumeDecisionsUsesReconciliationInteractionID(t *testing.T) {
+	t.Parallel()
+
+	interactionID := agentcore.ToolReconciliationRequestPurpose + ":call_write"
+	response := json.RawMessage(`{"outcome":"executed","summary":"external transaction exists"}`)
+	store := &mockStore{listedInterventions: []managedagents.SessionIntervention{{
+		SessionID: "session_1", TurnID: "turn_1", CallID: interactionID,
+		Kind: managedagents.InterventionKindClarification, Status: managedagents.InterventionStatusAnswered,
+		Response: response,
+	}}}
+	executor := AgentRuntimeTurnExecutor{Store: store}
+	state := agentcore.State{Pause: &agentcore.PauseState{Interactions: []agentcore.RequiredInteraction{{
+		ID: interactionID, Kind: managedagents.InterventionKindClarification, CallID: "call_write",
+		Request: json.RawMessage(`{"purpose":"tool_reconciliation"}`),
+	}}}}
+	decisions, err := executor.agentCoreResumeDecisions(context.Background(), TurnRequest{SessionID: "session_1", TurnID: "turn_1"}, state)
+	if err != nil || len(decisions) != 1 || decisions[0].InteractionID != interactionID || decisions[0].Status != managedagents.InterventionStatusApproved || string(decisions[0].Response) != string(response) {
+		t.Fatalf("agentCoreResumeDecisions() = %+v err=%v", decisions, err)
 	}
 }
 
@@ -193,9 +213,8 @@ func TestAgentRuntimeTurnExecutorDurablyFailsChangedCoreBinding(t *testing.T) {
 
 	repository := &lazyStateRepository{}
 	store := &mockStore{agentLoopRepo: repository}
-	legacy := &forbiddenRuntime{}
 	executor := AgentRuntimeTurnExecutor{
-		Runtime: legacy, CoreRollout: AgentCoreRolloutPolicy{Enabled: true, Percent: 100}, CoreClient: llm.FakeClient{}, Store: store,
+		CoreClient: llm.FakeClient{}, Store: store,
 		LiveEvents: NewLiveEventBroker(8), Timeout: time.Minute,
 	}
 	request := TurnRequest{
@@ -226,9 +245,6 @@ func TestAgentRuntimeTurnExecutorDurablyFailsChangedCoreBinding(t *testing.T) {
 	failed, loadErr := repository.Load(context.Background(), request.SessionID, request.TurnID)
 	if loadErr != nil || failed.Phase != agentcore.PhaseFailed || failed.Failure == nil || failed.Failure.Code != "runtime_binding_changed" {
 		t.Fatalf("failed state = %+v err = %v", failed, loadErr)
-	}
-	if legacy.calls != 0 {
-		t.Fatalf("legacy runtime calls = %d", legacy.calls)
 	}
 }
 
@@ -287,15 +303,6 @@ func TestWorkerRunnerSkipsLegacyFailureForDurableFailedResult(t *testing.T) {
 	if store.completeCalls() != 0 || store.failCalls() != 0 || store.usageCalls() != 1 {
 		t.Fatalf("legacy finalization calls: complete=%d fail=%d usage=%d", store.completeCalls(), store.failCalls(), store.usageCalls())
 	}
-}
-
-type forbiddenRuntime struct {
-	calls int
-}
-
-func (r *forbiddenRuntime) RunTurn(context.Context, agentruntime.TurnRequest) (agentruntime.TurnResult, error) {
-	r.calls++
-	return agentruntime.TurnResult{}, errors.New("legacy runtime must not run")
 }
 
 type durableExecutor struct {

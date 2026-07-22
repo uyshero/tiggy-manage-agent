@@ -175,8 +175,9 @@ func loadMCPRuntimeWithLookupHostsGuard(ctx context.Context, config mcppkg.Serve
 			Title:       mcpFirstNonEmptyString(config.Title, initialized.ServerInfo.Name, titleFromIdentifier(config.Identifier), defaultMCPServerTitle),
 			Description: mcpFirstNonEmptyString(config.Description, initialized.ServerInfo.Name, "MCP server "+config.Identifier),
 		},
-		Metadata:   mcpManifestMetadata(config, initialized, len(toolsList)),
-		SystemRole: "Use " + config.Identifier + ".* tools only when they are the best fit for the user's request.",
+		Metadata:       mcpManifestMetadata(config, initialized, len(toolsList)),
+		SystemRole:     "Use " + config.Identifier + ".* tools only when they are the best fit for the user's request.",
+		ApprovalPolicy: ApprovalPolicyNever,
 	}
 
 	include := stringSet(config.IncludeTools)
@@ -201,12 +202,16 @@ func loadMCPRuntimeWithLookupHostsGuard(ctx context.Context, config mcppkg.Serve
 		if len(parameters) == 0 || !json.Valid(parameters) {
 			parameters = json.RawMessage(`{"type":"object","properties":{}}`)
 		}
+		risk := mcpToolRisk(toolDef.Annotations)
+		approvalPolicy, approvalReason := externalToolApprovalForRisk(risk)
 		manifest.API = append(manifest.API, API{
 			Name:           alias,
 			APIName:        originalName,
 			Description:    mcpFirstNonEmptyString(toolDef.Description, toolDef.Title, defaultMCPToolDescription+" "+originalName),
 			Parameters:     parameters,
-			Risk:           mcpToolRisk(toolDef.Annotations),
+			Risk:           risk,
+			ApprovalPolicy: approvalPolicy,
+			ApprovalReason: approvalReason,
 			Implementation: ToolImplementationServerBuiltin,
 		})
 	}
@@ -223,6 +228,17 @@ func loadMCPRuntimeWithLookupHostsGuard(ctx context.Context, config mcppkg.Serve
 		OAuthCache:      resolvedClient.OAuthCache,
 		client:          client,
 	}, nil
+}
+
+func externalToolApprovalForRisk(risk string) (string, string) {
+	switch risk {
+	case ToolRiskExec:
+		return ApprovalPolicyAlways, InterventionReasonProcessExec
+	case ToolRiskWrite:
+		return ApprovalPolicyAlways, InterventionReasonExternalWrite
+	default:
+		return "", ""
+	}
 }
 
 func mcpRuntimeGuardPartition(workspaceID string, config mcppkg.ServerConfig) mcppkg.RuntimePartition {

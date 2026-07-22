@@ -201,6 +201,27 @@ func TestWorkspacePathGuardProviderRunsCommandFromWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestWorkspacePathGuardProviderExecutesCodeFromWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "marker.txt"), []byte("code-ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := provider.ExecuteCode(t.Context(), ExecuteCodeRequest{
+		Language: "sh", Code: "cat marker.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 0 || strings.TrimSpace(result.Stdout) != "code-ok" {
+		t.Fatalf("unexpected execute_code result: %#v", result)
+	}
+}
+
 func TestWorkspacePathGuardProviderEditFileWithinRoot(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("hello world\n"), 0o644); err != nil {
@@ -229,4 +250,86 @@ func TestWorkspacePathGuardProviderEditFileWithinRoot(t *testing.T) {
 	if string(content) != "hello sandbox\n" {
 		t.Fatalf("unexpected content: %q", string(content))
 	}
+}
+
+func TestWorkspacePathGuardProviderExportsArtifactWithinRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dist", "report.txt"), []byte("artifact content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewWorkspacePathGuardProvider(LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exporter ArtifactExportProvider = provider
+
+	result, err := exporter.ExportArtifactFile(t.Context(), ExportArtifactFileRequest{
+		Path: "report.txt", WorkDir: "dist",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != "report.txt" || result.Name != "report.txt" || string(result.Content) != "artifact content" {
+		t.Fatalf("unexpected artifact export: %#v", result)
+	}
+	_, err = exporter.ExportArtifactFile(t.Context(), ExportArtifactFileRequest{
+		Path: filepath.Join(filepath.Dir(root), "outside.txt"),
+	})
+	if err == nil {
+		t.Fatal("expected outside artifact export to be denied")
+	}
+}
+
+func TestWorkspacePathGuardProviderRejectsDirectorySwapBeforeEdit(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	safeDir := filepath.Join(root, "safe")
+	if err := os.MkdirAll(safeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(safeDir, "note.txt"), []byte("inside old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(outside, "note.txt")
+	if err := os.WriteFile(outsidePath, []byte("outside old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inner := &directorySwapEditProvider{safeDir: safeDir, outsideDir: outside}
+	provider, err := NewWorkspacePathGuardProvider(inner, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := provider.EditFile(t.Context(), EditFileRequest{
+		Path: "safe/note.txt", OldString: "old", NewString: "new",
+	})
+	if err != nil {
+		t.Fatalf("guarded capability errors should remain structured results: %v", err)
+	}
+	if result.Success || result.Code != "workspace_path_changed" {
+		t.Fatalf("directory swap was not rejected: %#v", result)
+	}
+	content, err := os.ReadFile(outsidePath)
+	if err != nil || string(content) != "outside old" {
+		t.Fatalf("outside file changed: %q err=%v", content, err)
+	}
+}
+
+type directorySwapEditProvider struct {
+	LocalSystemProvider
+	safeDir    string
+	outsideDir string
+}
+
+func (p *directorySwapEditProvider) EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error) {
+	if err := os.Rename(p.safeDir, p.safeDir+"-original"); err != nil {
+		return EditFileResult{}, err
+	}
+	if err := os.Symlink(p.outsideDir, p.safeDir); err != nil {
+		return EditFileResult{}, err
+	}
+	return p.LocalSystemProvider.EditFile(ctx, request)
 }

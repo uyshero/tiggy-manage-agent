@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 
@@ -21,6 +22,120 @@ const (
 )
 
 var compiledToolArgumentSchemas sync.Map
+
+// ValidateIntegrity distinguishes an intentionally empty registry from a
+// broken or dynamically changed registry. Model mistakes remain recoverable;
+// registry and schema defects are infrastructure failures.
+func (r Registry) ValidateIntegrity() error {
+	_, err := r.integritySnapshot()
+	return err
+}
+
+// Revision fingerprints the validated manifest snapshot used to plan a tool
+// batch. The durable plan can reject a different, but still valid, registry
+// before any tool executes.
+func (r Registry) Revision() (string, error) {
+	manifests, err := r.integritySnapshot()
+	if err != nil {
+		return "", err
+	}
+	return registryRevision(manifests)
+}
+
+// Snapshot captures each runtime manifest exactly once and returns a registry
+// whose contract cannot follow later changes made by the source runtimes.
+// Tool execution is still delegated to the source runtime.
+func (r Registry) Snapshot() (Registry, string, error) {
+	if r.runtimes == nil {
+		return Registry{}, "", newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tool registry is uninitialized")
+	}
+	identifiers := make([]string, 0, len(r.runtimes))
+	for identifier := range r.runtimes {
+		identifiers = append(identifiers, identifier)
+	}
+	sort.Strings(identifiers)
+
+	frozen := Registry{runtimes: make(map[string]Runtime, len(identifiers))}
+	manifests := make([]Manifest, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		runtime := r.runtimes[identifier]
+		if runtime == nil {
+			return Registry{}, "", newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tool runtime %q is nil", identifier)
+		}
+		manifest := runtime.Manifest()
+		if err := validateManifestIntegrity(identifier, manifest); err != nil {
+			return Registry{}, "", err
+		}
+		manifest, err := cloneManifest(manifest)
+		if err != nil {
+			return Registry{}, "", newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: clone manifest %q: %w", identifier, err)
+		}
+		manifests = append(manifests, manifest)
+		frozen.runtimes[identifier] = snapshotRuntime{manifest: manifest, inner: runtime}
+	}
+	revision, err := registryRevision(manifests)
+	if err != nil {
+		return Registry{}, "", err
+	}
+	return frozen, revision, nil
+}
+
+func registryRevision(manifests []Manifest) (string, error) {
+	encoded, err := json.Marshal(manifests)
+	if err != nil {
+		return "", newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: encode manifest snapshot: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (r Registry) integritySnapshot() ([]Manifest, error) {
+	if r.runtimes == nil {
+		return nil, newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tool registry is uninitialized")
+	}
+	identifiers := make([]string, 0, len(r.runtimes))
+	for identifier := range r.runtimes {
+		identifiers = append(identifiers, identifier)
+	}
+	sort.Strings(identifiers)
+	manifests := make([]Manifest, 0, len(identifiers))
+	for _, identifier := range identifiers {
+		runtime := r.runtimes[identifier]
+		if runtime == nil {
+			return nil, newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tool runtime %q is nil", identifier)
+		}
+		manifest := runtime.Manifest()
+		if err := validateManifestIntegrity(identifier, manifest); err != nil {
+			return nil, err
+		}
+		manifests = append(manifests, manifest)
+	}
+	return manifests, nil
+}
+
+func validateManifestIntegrity(identifier string, manifest Manifest) error {
+	if strings.TrimSpace(manifest.Identifier) != identifier {
+		return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: runtime key %q does not match manifest identifier %q", identifier, manifest.Identifier)
+	}
+	if err := ValidateManifestPermissions(manifest); err != nil {
+		return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: manifest %q permissions are invalid: %w", identifier, err)
+	}
+	seenAPIs := make(map[string]struct{}, len(manifest.API))
+	for _, api := range manifest.API {
+		name := strings.TrimSpace(api.Name)
+		if name == "" {
+			return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: manifest %q contains an unnamed API", identifier)
+		}
+		if _, exists := seenAPIs[name]; exists {
+			return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: manifest %q contains duplicate API %q", identifier, name)
+		}
+		seenAPIs[name] = struct{}{}
+		if _, err := CompileJSONSchema(api.Parameters); err != nil {
+			return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema is invalid for %s.%s: %w", identifier, name, err)
+		}
+	}
+	return nil
+}
 
 // ValidateCallArguments enforces the registered API schema before a tool call
 // reaches policy evaluation or an executor. Validation errors describe schema

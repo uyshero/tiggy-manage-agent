@@ -62,9 +62,10 @@ type Message struct {
 }
 
 type ToolCall struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Arguments      json.RawMessage `json:"arguments"`
+	ArgumentsError string          `json:"arguments_error,omitempty"`
 }
 
 type ToolResult struct {

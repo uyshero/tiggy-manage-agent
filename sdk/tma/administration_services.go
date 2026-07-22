@@ -126,6 +126,29 @@ func (s *AuditService) ListSession(ctx context.Context, sessionID string) ([]Ope
 	return s.list(ctx, sessionPath(sessionID)+"/operator-audit")
 }
 
+func (s *AuditService) ListToolPermissions(ctx context.Context, sessionID string, query ToolPermissionAuditQuery) (ToolPermissionAuditPage, error) {
+	values := url.Values{}
+	if query.Decision != "" {
+		values.Set("decision", query.Decision)
+	}
+	if query.Tool != "" {
+		values.Set("tool", query.Tool)
+	}
+	if query.Limit > 0 {
+		values.Set("limit", strconv.FormatInt(int64(query.Limit), 10))
+	}
+	if query.Cursor != "" {
+		values.Set("cursor", query.Cursor)
+	}
+	path := sessionPath(sessionID) + "/tool-permission-audit"
+	if len(values) > 0 {
+		path += "?" + values.Encode()
+	}
+	var response ToolPermissionAuditPage
+	err := s.client.DoJSON(ctx, http.MethodGet, path, nil, &response)
+	return response, err
+}
+
 func (s *AuditService) IntegrityKeys(ctx context.Context) (SecurityAuditIntegrityKeyStatus, error) {
 	var status SecurityAuditIntegrityKeyStatus
 	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/observability/security-audit/integrity-keys", nil, &status)

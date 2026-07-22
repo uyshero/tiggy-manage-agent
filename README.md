@@ -46,7 +46,7 @@ The Makefile stores Go build cache in the project-local `.gocache/` directory so
 
 Open the Workbench at [http://localhost:8080/app](http://localhost:8080/app) or the Inspector at [http://localhost:8080/inspector](http://localhost:8080/inspector). The repository includes prebuilt embedded assets; run `make build-web-ui` after changing either React app.
 
-User and control-plane APIs support OIDC/JWKS, legacy HS256 JWT, or trusted-gateway authentication with workspace-scoped RBAC. Protected requests emit structured authorization decision audit logs and low-cardinality Prometheus counters, with optional asynchronous OTLP/HTTP Logs export to an enterprise SIEM. Local development defaults to `TMA_AUTH_MODE=disabled`; `TMA_ENV=production` refuses to start without a complete identity configuration and worker service token. See [docs/configuration.md](./docs/configuration.md#unified-identity-and-rbac) and [docs/security-operations.md](./docs/security-operations.md).
+User and control-plane APIs support OIDC/JWKS, legacy HS256 JWT, or trusted-gateway authentication with workspace-scoped RBAC. Protected requests emit structured authorization decision audit logs and low-cardinality Prometheus counters, with optional asynchronous OTLP/HTTP Logs export to an enterprise SIEM. Local development defaults to `TMA_AUTH_MODE=disabled`; `TMA_ENV=production` refuses to start without a complete identity configuration and worker service token. See [configuration](./docs/configuration.md#server-与认证) and [operations](./docs/operations.md).
 
 ```bash
 curl http://localhost:8080/health
@@ -80,19 +80,7 @@ sql/migrations/         Postgres schema migrations
 
 ## Extension Development
 
-Before adding a Provider, Worker plugin, Tool namespace, MCP integration, lifecycle capability, or settings panel, follow these standards:
-
-- [Extension and Provider Governance Standard](./docs/extension-governance-standard.md) defines taxonomy, descriptors, capability discovery, compatibility, worker-offline behavior, conflicts, and user-approved Provider switching.
-- [Extension Settings Standard](./docs/extension-settings-standard.md) defines settings contributions, configuration scopes, schema-driven rendering, secrets, diagnostics, revisions, and offline UI behavior.
-- [Tool Plugin SDK](./docs/tool-plugin-sdk.md) defines the current process-plugin and worker execution protocol.
-- [API v2 Response and Data Standards](./docs/api-v2-response-and-data-standards.md) defines HTTP status, stable errors, retryability, JSON numbers, time, enums, and cursor pagination.
-- [Workbench Plugin Standard](./docs/workbench-plugin-standard.md) defines the trusted frontend plugin model for enterprise pages, navigation, widgets, commands, detail panels, SDK access, tenant enablement, and phased delivery.
-- [Server, Core SDK, and App Extension Boundaries](./docs/core-sdk-extension-architecture.md) defines ownership, dependency direction, certification, and multi-server rules.
-- [TMA Go Core SDK](./docs/go-core-sdk.md) documents the `/v2` Go client, Agent Run API, authentication, errors, and compatibility policy.
-- [TMA TypeScript / Node Core SDK](./docs/typescript-core-sdk.md) documents the Node 20+ client, generated OpenAPI types, Fetch transport, SSE, and App boundary.
-- [MCP Server Compatibility Matrix](./docs/mcp-server-compatibility.md) records pinned third-party server versions, stdio framing, real tool calls, and known gaps.
-
-New extensions must complete the checklists in the governance and settings standards before they are considered ready for integration.
+Before adding a Provider, Worker plugin, Tool namespace, MCP integration, lifecycle capability, or settings panel, read [Extensions](./docs/extensions.md), [Tools](./docs/tools.md), [MCP](./docs/mcp.md), and [Workbench](./docs/workbench.md). New extensions must pass the governance, compatibility, permission, isolation, and upgrade checks defined there.
 
 ## Go Core SDK
 
@@ -158,7 +146,7 @@ postgres://tma:tma@localhost:5432/tma?sslmode=disable
 
 Direct `go run ./cmd/tma-server` still requires `TMA_DATABASE_URL` from `.env` or your shell.
 
-The local `tma` database user is also the migration owner and is development-only. Production `tma-server` must use a separate non-owner PostgreSQL runtime role without `SUPERUSER` or `BYPASSRLS`; startup validates the forced workspace RLS policy for managed environment variables. See [Database configuration](./docs/configuration.md#tma_database_url).
+The local `tma` database user is also the migration owner and is development-only. Production `tma-server` must use a separate non-owner PostgreSQL runtime role without `SUPERUSER` or `BYPASSRLS`; startup validates the forced workspace RLS policy for managed environment variables. See [deployment](./docs/deployment.md#数据库迁移).
 
 Override the connection string when needed:
 
@@ -166,11 +154,11 @@ Override the connection string when needed:
 TMA_DATABASE_URL="postgres://user:pass@localhost:5432/db?sslmode=disable" make run
 ```
 
-The server runs turns through `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime`. The current runtime resolves the Session-bound AgentConfigVersion, then calls `llm.Manager` with that `llm_provider` / `llm_model`. The default `fake` provider stays local; `openai-compatible` can call an OpenAI Chat Completions compatible endpoint. Runtime design notes are in [docs/agent-runtime.md](./docs/agent-runtime.md).
+The server runs turns through `WorkerRunner + AgentRuntimeTurnExecutor + Agent Core`. Agent Core persists every turn transition and resolves the Session-bound AgentConfigVersion before calling `llm.Manager`. The default `fake` provider stays local; `openai-compatible` can call an OpenAI Chat Completions compatible endpoint. Runtime design notes are in [docs/architecture.md](./docs/architecture.md).
 
-Command turns are still documented as a lower-level external process adapter in [docs/command-turn-protocol.md](./docs/command-turn-protocol.md), but they are not the default server path.
+Command turns are still documented as a lower-level external process adapter in [docs/architecture.md](./docs/architecture.md), but they are not the default server path.
 
-The next Capability Provider boundary is documented in [docs/capability-provider.md](./docs/capability-provider.md). The current code defines a low-level provider surface, not a turn-level environment executor or a full Tool module.
+The next Capability Provider boundary is documented in [docs/architecture.md](./docs/architecture.md). The current code defines a low-level provider surface, not a turn-level environment executor or a full Tool module.
 
 After the server is running, verify the full CLI / HTTP / Runner path with:
 
@@ -258,10 +246,10 @@ The managed worker writes its PID to `.tma-worker.pid` and logs to
 script directly, for example
 `scripts/tma_worker.sh start --name viito-mac --concurrency 2`.
 
-The worker registers itself, sends worker heartbeat, polls `/v1/workers/{id}/work/poll`, acknowledges work, heartbeats running work leases, and completes work. `tool_execution` work uses the `tma.work.v1` invocation format; `default.*` tools run through `tools.DefaultRuntime + LocalSystemProvider` on the machine running `tma-worker`. By default a worker executes one work item at a time; use `--concurrency N` or `TMA_WORKER_CONCURRENCY=N` to lease and execute multiple queue jobs concurrently. Long-running work is renewed with `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL` while it is executing. On SIGINT/SIGTERM, the worker marks itself `draining`, stops polling, and waits up to `--shutdown-timeout` / `TMA_WORKER_SHUTDOWN_TIMEOUT` for running work to finish. When an agent config enables `local_system`, AgentRuntime only exposes those tools if a matching online worker exists, unless trusted local development explicitly enables server-local fallback.
+The worker registers itself, sends worker heartbeat, polls `/v1/workers/{id}/work/poll`, acknowledges work, heartbeats running work leases, and completes work. `tool_execution` work uses the `tma.work.v1` invocation format; `default.*` tools run through `tools.DefaultRuntime + LocalSystemProvider` on the machine running `tma-worker`. Set `--workspace-root PATH` or `TMA_WORKER_WORKSPACE_ROOT=PATH` to constrain local filesystem tools to one existing directory; production workers should configure this boundary. By default a worker executes one work item at a time; use `--concurrency N` or `TMA_WORKER_CONCURRENCY=N` to lease and execute multiple queue jobs concurrently. Long-running work is renewed with `--work-heartbeat-interval` / `TMA_WORKER_WORK_HEARTBEAT_INTERVAL` while it is executing. On SIGINT/SIGTERM, the worker marks itself `draining`, stops polling, and waits up to `--shutdown-timeout` / `TMA_WORKER_SHUTDOWN_TIMEOUT` for running work to finish. When an agent config enables `local_system`, AgentRuntime only exposes those tools if a matching online worker exists, unless trusted local development explicitly enables server-local fallback.
 
 ```bash
-bin/tma-worker --base-url http://localhost:8080 --name viito-mac
+bin/tma-worker --base-url http://localhost:8080 --name viito-mac --workspace-root "$PWD"
 ```
 
 Check worker connectivity and declared capabilities without starting the long-running loop:
@@ -297,9 +285,9 @@ bin/tma-worker --base-url http://localhost:8080 --name computer-worker --plugin 
 bin/tma worker diagnose --namespace computer --api get_state --capabilities computer.state.read,computer.ax.read --runtime local_system
 ```
 
-The process plugin protocol and SDK contract are documented in [docs/tool-plugin-sdk.md](./docs/tool-plugin-sdk.md). The `computer.*` API and backend contract are documented in [docs/computer-use-plugin.md](./docs/computer-use-plugin.md). Future language SDK packages should wrap this protocol rather than changing the core `tool_execution` shape.
+The process plugin protocol and SDK contract are documented in [docs/tools.md](./docs/tools.md). The `computer.*` API and backend contract are documented in [docs/tools.md](./docs/tools.md). Future language SDK packages should wrap this protocol rather than changing the core `tool_execution` shape.
 
-Agent-level MCP integration is documented in [docs/mcp-integration.md](./docs/mcp-integration.md). This path lets an Agent bind stdio or Streamable HTTP MCP servers through `config_version.mcp`, expose their tools as standard model tools, and execute them through the existing TMA tool/result pipeline. The TMA Server keeps stdio processes and remote HTTP Sessions alive per Session and Agent config, while isolating scopes and reclaiming idle entries.
+Agent-level MCP integration is documented in [docs/mcp.md](./docs/mcp.md). This path lets an Agent bind stdio or Streamable HTTP MCP servers through `config_version.mcp`, expose their tools as standard model tools, and execute them through the existing TMA tool/result pipeline. The TMA Server keeps stdio processes and remote HTTP Sessions alive per Session and Agent config, while isolating scopes and reclaiming idle entries.
 
 Run the end-to-end MCP stdio smoke test with:
 
@@ -363,7 +351,7 @@ bin/tma agent config update \
   --tools '{"tools":["web"],"runtime":"auto"}'
 ```
 
-Configuration details are in [docs/configuration.md](./docs/configuration.md#web-search--crawl).
+Configuration details are in [docs/configuration.md](./docs/configuration.md#web-与-browser).
 
 Example flow:
 
@@ -410,7 +398,7 @@ bin/tma session delete --session sesn_000001
 AgentRuntime turns run asynchronously. Sending a message through `session attach`
 records `session.status_running` and `user.message`; the background worker then
 records `agent.message` and `session.status_idle` when the runtime finishes.
-The demo runtime also records `runtime.started`, `runtime.thinking`, `runtime.llm_request`, `runtime.llm_response`, and `runtime.completed` events so the execution process is visible in `event list` and SSE streams.
+Agent Core records durable `runtime.*`, `model.*`, `tool.*`, `completion.*`, and intervention events so execution and recovery remain visible in `event list` and SSE streams.
 
 HTTP depends on the `internal/runner.Runner` interface. `cmd/tma-server` injects a `WorkerRunner` backed by `AgentRuntimeTurnExecutor`, so HTTP handlers do not know runtime execution details.
 If a Runner cannot start or complete a turn, the Store marks that turn as `failed`, records the failure reason, and returns the Session to `idle`.
@@ -448,21 +436,11 @@ bin/tma marketplace preview --session sesn_000001 --source '{"provider":"github"
 
 Run `bin/tma help` for Skill version/package/retention/GC and Marketplace install, binding, entry, and policy commands. Marketplace writes remain Server-controlled and do not create or directly execute tools.
 
-Troubleshooting notes are in [docs/troubleshooting.md](./docs/troubleshooting.md).
-
-Onlyboxes sandbox deployment is documented in [docs/产品设计架构图梳理.md](./docs/产品设计架构图梳理.md).
-
-The current HTTP API contract is documented in [docs/api-reference.md](./docs/api-reference.md).
-
-The remaining product gaps and recommended build order are tracked in [docs/product-gap-roadmap.md](./docs/product-gap-roadmap.md).
-
-The current multi-agent capability boundary, production closeout checklist, and deferred workflow roadmap are documented in [docs/agent-orchestration-status.md](./docs/agent-orchestration-status.md).
-
-Architecture decisions and development history are recorded in [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md).
+The consolidated documentation index is [docs/README.md](./docs/README.md). Architecture decisions and development history remain in [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md).
 
 ## Next Steps
 
-1. Complete the production closeout checklist in `docs/agent-orchestration-status.md`.
+1. Complete the production closeout checklist in `docs/roadmap.md`.
 2. Extend multi-principal RBAC to the remaining control actions and audit queries.
 3. Add token, cost, wall-clock, and fan-out budgets plus stuck detection and operational runbooks.
 4. Establish task-group capacity baselines, replay fixtures, real-model samples, and offline evals.

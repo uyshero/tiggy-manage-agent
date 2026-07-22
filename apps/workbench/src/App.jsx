@@ -536,20 +536,22 @@ const builtinToolNamespaces = [
 ];
 
 function parseToolPolicy(raw) {
-  if (!raw) return { explicit: false, enabledToolPatterns: [], runtime: "" };
+  if (!raw) return { explicit: false, enabledToolPatterns: [], permissionRules: [], runtime: "" };
   if (Array.isArray(raw)) {
     return {
       explicit: true,
       enabledToolPatterns: raw.map((value) => String(value || "").trim()).filter(Boolean),
+      permissionRules: [],
       runtime: ""
     };
   }
-  if (typeof raw !== "object") return { explicit: false, enabledToolPatterns: [], runtime: "" };
+  if (typeof raw !== "object") return { explicit: false, enabledToolPatterns: [], permissionRules: [], runtime: "" };
   const enabledTools = Array.isArray(raw.enabled_tools) ? raw.enabled_tools : [];
   const toolsList = Array.isArray(raw.tools) ? raw.tools : [];
   return {
     explicit: true,
     enabledToolPatterns: [...enabledTools, ...toolsList].map((value) => String(value || "").trim()).filter(Boolean),
+    permissionRules: Array.isArray(raw.permission_rules) ? raw.permission_rules.map((rule) => ({ ...rule })) : [],
     runtime: String(raw.runtime || "").trim()
   };
 }
@@ -1437,6 +1439,7 @@ function agentEditorDraft(agent) {
     selectedSkills: parseSkillsConfig(config.skills).enabled.map((item) => item.skill),
     selectedTools: enabledNamespaces,
     system: config.system || "",
+    permissionRules: toolPolicy.permissionRules,
     toolPatterns: toolPolicy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern)),
     toolRuntime: toolPolicy.runtime || ""
   };
@@ -1671,7 +1674,7 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
           llm_provider: draft.llmProvider,
           llm_model: draft.llmModel,
           system: draft.system,
-          tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], ...(draft.toolRuntime ? { runtime: draft.toolRuntime } : {}) },
+          tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...(draft.toolRuntime ? { runtime: draft.toolRuntime } : {}) },
           skills: { enabled: draft.selectedSkills.map((skill) => ({ skill })) },
           mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
             const identifier = String(server.identifier || server.id || server.name || "").trim();
@@ -2899,6 +2902,73 @@ function AgentScheduleManager({ agent, onOpenSession }) {
   );
 }
 
+const permissionRuleTools = [
+  { value: "default.read_file", label: "读取文件" },
+  { value: "default.write_file", label: "写入文件" },
+  { value: "default.edit_file", label: "编辑文件" }
+];
+
+function newPermissionRule(scope, index) {
+  return {
+    id: `${scope}-${Date.now()}-${index + 1}`,
+    tool: "default.edit_file",
+    argument: "path",
+    pattern: "",
+    behavior: scope === "workspace" ? "deny" : "ask",
+    reason: ""
+  };
+}
+
+function PermissionRuleEditor({ disabled, rules, scope, onChange }) {
+  function updateRule(index, patch) {
+    onChange(rules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...patch } : rule));
+  }
+  return (
+    <div className="permission-rule-editor">
+      {rules.length ? <div className="permission-rule-list">
+        {rules.map((rule, index) => (
+          <div className="permission-rule-row" key={`${rule.id || scope}-${index}`}>
+            <label><span>规则 ID</span><input disabled={disabled} value={rule.id || ""} onChange={(event) => updateRule(index, { id: event.target.value })} /></label>
+            <label><span>工具</span><select disabled={disabled} value={rule.tool || "default.edit_file"} onChange={(event) => updateRule(index, { tool: event.target.value })}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+            <label className="permission-rule-pattern"><span>路径模式</span><input disabled={disabled} value={rule.pattern || ""} onChange={(event) => updateRule(index, { pattern: event.target.value })} placeholder="/workspace/src/**" /></label>
+            <label><span>行为</span><select disabled={disabled || scope === "workspace"} value={scope === "workspace" ? "deny" : rule.behavior || "ask"} onChange={(event) => updateRule(index, { behavior: event.target.value })}>{scope === "workspace" ? <option value="deny">拒绝</option> : <><option value="allow">允许</option><option value="ask">询问</option><option value="deny">拒绝</option></>}</select></label>
+            <label className="permission-rule-reason"><span>原因</span><input disabled={disabled} value={rule.reason || ""} onChange={(event) => updateRule(index, { reason: event.target.value })} /></label>
+            <button className="icon-button danger" type="button" title="删除规则" aria-label={`删除规则 ${rule.id || index + 1}`} disabled={disabled} onClick={() => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index))}><DeleteIcon /></button>
+          </div>
+        ))}
+      </div> : <Empty>暂无路径规则。</Empty>}
+      <button className="secondary permission-rule-add" type="button" disabled={disabled || rules.length >= 100} onClick={() => onChange([...rules, newPermissionRule(scope, rules.length)])}>添加规则</button>
+    </div>
+  );
+}
+
+const permissionAuditLabels = {
+  allow: "允许",
+  ask: "需审批",
+  deny: "拒绝",
+  not_required: "无需审批",
+  pending: "待审批",
+  auto_approved: "自动批准",
+  approved: "已批准",
+  rejected: "已拒绝",
+  planned: "已计划",
+  denied: "已阻止",
+  started: "执行中",
+  succeeded: "成功",
+  failed: "失败",
+  indeterminate: "状态未知",
+  workspace: "Workspace",
+  session: "Session",
+  agent: "Agent",
+  request_approval: "请求审批",
+  approve_for_me: "自动审批",
+  full_access: "完全访问"
+};
+
+function permissionAuditLabel(value) {
+  return permissionAuditLabels[value] || value || "-";
+}
+
 function SettingsPage({
   activeSection,
   agents,
@@ -2916,6 +2986,7 @@ function SettingsPage({
   onSaveAgent,
   onSelectAgent,
   onUpdateAgentPermissions,
+  onUpdateSessionPermissions,
   recentSessions,
   runtimeConfig,
   search,
@@ -2946,6 +3017,27 @@ function SettingsPage({
   const [agentManagementView, setAgentManagementView] = useState("config");
   const [agentPermissionBusy, setAgentPermissionBusy] = useState("");
   const [agentPermissionError, setAgentPermissionError] = useState("");
+  const [agentPathRules, setAgentPathRules] = useState([]);
+  const [sessionPathRules, setSessionPathRules] = useState([]);
+  const [workspacePathRules, setWorkspacePathRules] = useState([]);
+  const [workspacePermissionRevision, setWorkspacePermissionRevision] = useState(0);
+  const [workspacePermissionLoading, setWorkspacePermissionLoading] = useState(false);
+  const [workspacePermissionBusy, setWorkspacePermissionBusy] = useState(false);
+  const [permissionPreviewContext, setPermissionPreviewContext] = useState("agent");
+  const [permissionPreviewTool, setPermissionPreviewTool] = useState("default.edit_file");
+  const [permissionPreviewPath, setPermissionPreviewPath] = useState("/workspace/src/main.go");
+  const [permissionPreviewMode, setPermissionPreviewMode] = useState("request_approval");
+  const [permissionPreviewBusy, setPermissionPreviewBusy] = useState(false);
+  const [permissionPreviewError, setPermissionPreviewError] = useState("");
+  const [permissionPreviewResult, setPermissionPreviewResult] = useState(null);
+  const [permissionAuditRecords, setPermissionAuditRecords] = useState([]);
+  const [permissionAuditLoading, setPermissionAuditLoading] = useState(false);
+  const [permissionAuditError, setPermissionAuditError] = useState("");
+  const [permissionAuditDecision, setPermissionAuditDecision] = useState("");
+  const [permissionAuditToolInput, setPermissionAuditToolInput] = useState("");
+  const [permissionAuditTool, setPermissionAuditTool] = useState("");
+  const [permissionAuditNextCursor, setPermissionAuditNextCursor] = useState("");
+  const [permissionAuditHasMore, setPermissionAuditHasMore] = useState(false);
   const [healthChecking, setHealthChecking] = useState("");
   const [healthError, setHealthError] = useState("");
   const [healthReport, setHealthReport] = useState({ mcp: [], skills: [] });
@@ -2954,6 +3046,7 @@ function SettingsPage({
   const [mcpRuntimeLoading, setMCPRuntimeLoading] = useState(false);
   const [mcpRuntimeError, setMCPRuntimeError] = useState("");
   const importAgentInputRef = useRef(null);
+  const permissionAuditRequestRef = useRef(0);
   const enabledSkills = toolingCatalog.sections.find((section) => section.key === "skills")?.items.filter((item) => item.selectable) || [];
   const availableMCP = toolingCatalog.sections.find((section) => section.key === "mcp")?.items || [];
   const availableTools = toolingCatalog.sections.find((section) => section.key === "tools")?.items || [];
@@ -2975,6 +3068,68 @@ function SettingsPage({
   const healthByKey = new Map(healthItems.map((item) => [`${item.kind}:${item.identifier}`, item]));
   const mcpWorkspaceID = workspaceID || currentSession?.workspace_id || selectedAgent?.workspace_id || "";
   const canManageWorkspaceVariables = (principal?.roles || []).some((role) => role === "operator" || role === "admin");
+
+  useEffect(() => {
+    setAgentPathRules(parseToolPolicy(selectedAgent?.config_version?.tools).permissionRules);
+  }, [selectedAgent?.id, selectedAgent?.current_config_version]);
+
+  useEffect(() => {
+    const settings = currentSession?.runtime_settings;
+    setSessionPathRules(Array.isArray(settings?.permission_rules) ? settings.permission_rules.map((rule) => ({ ...rule })) : []);
+  }, [currentSession?.id, currentSession?.runtime_settings]);
+
+  useEffect(() => {
+    let active = true;
+    if (activeSection !== "agent" || agentManagementView !== "permissions" || !mcpWorkspaceID) {
+      return () => { active = false; };
+    }
+    setWorkspacePermissionLoading(true);
+    setAgentPermissionError("");
+    api.workspaceToolPermissions(mcpWorkspaceID).then((response) => {
+      if (active) {
+        setWorkspacePathRules(Array.isArray(response.permission_rules) ? response.permission_rules : []);
+        setWorkspacePermissionRevision(Number(response.revision || 0));
+      }
+    }).catch((error) => {
+      if (active) setAgentPermissionError(error.message);
+    }).finally(() => {
+      if (active) setWorkspacePermissionLoading(false);
+    });
+    return () => { active = false; };
+  }, [activeSection, agentManagementView, mcpWorkspaceID]);
+
+  useEffect(() => {
+    let active = true;
+    const requestID = ++permissionAuditRequestRef.current;
+    if (activeSection !== "agent" || agentManagementView !== "permissions" || !currentSession?.id) {
+      setPermissionAuditRecords([]);
+      setPermissionAuditError("");
+      setPermissionAuditNextCursor("");
+      setPermissionAuditHasMore(false);
+      return () => { active = false; };
+    }
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    setPermissionAuditRecords([]);
+    setPermissionAuditNextCursor("");
+    setPermissionAuditHasMore(false);
+    api.sessionToolPermissionAudit(currentSession.id, {
+      ...(permissionAuditDecision ? { decision: permissionAuditDecision } : {}),
+      ...(permissionAuditTool ? { tool: permissionAuditTool } : {}),
+      limit: 50
+    }).then((page) => {
+      if (active && requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords(Array.isArray(page?.records) ? page.records : []);
+        setPermissionAuditNextCursor(page?.next_cursor || "");
+        setPermissionAuditHasMore(Boolean(page?.has_more));
+      }
+    }).catch((error) => {
+      if (active && requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    }).finally(() => {
+      if (active && requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
+    });
+    return () => { active = false; };
+  }, [activeSection, agentManagementView, currentSession?.id, permissionAuditDecision, permissionAuditTool]);
 
   async function refreshMCPRegistry() {
     const response = await api.mcpServers(mcpWorkspaceID);
@@ -3030,6 +3185,7 @@ function SettingsPage({
   }
   async function updateAgentToolPermission(agent, namespace, enabled) {
     const policy = parseToolPolicy(agent.config_version?.tools);
+    const existingTools = agent.config_version?.tools && typeof agent.config_version.tools === "object" && !Array.isArray(agent.config_version.tools) ? agent.config_version.tools : {};
     const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
     const customPatterns = policy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern) && !builtinToolNamespaces.some((item) => pattern.startsWith(`${item.key}.`)));
     const enabledNamespaces = builtinToolNamespaces
@@ -3040,13 +3196,148 @@ function SettingsPage({
     setAgentPermissionError("");
     try {
       await onUpdateAgentPermissions(agent.id, {
+        ...existingTools,
         enabled_tools: [...enabledNamespaces, ...customPatterns],
+        permission_rules: policy.permissionRules,
         ...(policy.runtime ? { runtime: policy.runtime } : {})
       });
     } catch (error) {
       setAgentPermissionError(error.message);
     } finally {
       setAgentPermissionBusy("");
+    }
+  }
+  async function saveAgentPathRules() {
+    if (!selectedAgent?.id) return;
+    const policy = parseToolPolicy(selectedAgent.config_version?.tools);
+    const existingTools = selectedAgent.config_version?.tools && typeof selectedAgent.config_version.tools === "object" && !Array.isArray(selectedAgent.config_version.tools) ? selectedAgent.config_version.tools : {};
+    const enabledTools = policy.explicit ? policy.enabledToolPatterns : builtinToolNamespaces.map((item) => item.key);
+    setAgentPermissionBusy("agent-path-rules");
+    setAgentPermissionError("");
+    try {
+      await onUpdateAgentPermissions(selectedAgent.id, {
+        ...existingTools,
+        enabled_tools: enabledTools,
+        permission_rules: agentPathRules,
+        ...(policy.runtime ? { runtime: policy.runtime } : {})
+      });
+    } catch (error) {
+      setAgentPermissionError(error.message);
+    } finally {
+      setAgentPermissionBusy("");
+    }
+  }
+  async function saveSessionPathRules() {
+    if (!currentSession?.id) return;
+    setAgentPermissionBusy("session-path-rules");
+    setAgentPermissionError("");
+    try {
+      const updated = await onUpdateSessionPermissions(currentSession.id, sessionPathRules, currentSession.runtime_settings_revision);
+      const rules = updated?.runtime_settings?.permission_rules;
+      setSessionPathRules(Array.isArray(rules) ? rules.map((rule) => ({ ...rule })) : []);
+    } catch (error) {
+      setAgentPermissionError(error.message);
+    } finally {
+      setAgentPermissionBusy("");
+    }
+  }
+  async function saveWorkspacePathRules() {
+    if (!mcpWorkspaceID) return;
+    setWorkspacePermissionBusy(true);
+    setAgentPermissionError("");
+    try {
+      const response = await api.updateWorkspaceToolPermissions(mcpWorkspaceID, workspacePathRules.map((rule) => ({ ...rule, behavior: "deny" })), workspacePermissionRevision);
+      setWorkspacePathRules(response.permission_rules || []);
+      setWorkspacePermissionRevision(Number(response.revision || workspacePermissionRevision));
+    } catch (error) {
+      if (error?.code === "revision_conflict") {
+        try {
+          const current = await api.workspaceToolPermissions(mcpWorkspaceID);
+          setWorkspacePathRules(Array.isArray(current.permission_rules) ? current.permission_rules : []);
+          setWorkspacePermissionRevision(Number(current.revision || 0));
+          setAgentPermissionError("Workspace 规则已被其他管理员更新，已加载最新版本。");
+        } catch (reloadError) {
+          setAgentPermissionError(reloadError.message);
+        }
+      } else {
+        setAgentPermissionError(error.message);
+      }
+    } finally {
+      setWorkspacePermissionBusy(false);
+    }
+  }
+  async function evaluatePermissionPreview(event) {
+    event.preventDefault();
+    if (!mcpWorkspaceID || !permissionPreviewPath.trim()) return;
+    const request = {
+      tool: permissionPreviewTool,
+      path: permissionPreviewPath.trim(),
+      intervention_mode: permissionPreviewMode
+    };
+    if (permissionPreviewContext === "agent" && selectedAgent?.id) request.agent_id = selectedAgent.id;
+    if (permissionPreviewContext === "session" && currentSession?.id) request.session_id = currentSession.id;
+    setPermissionPreviewBusy(true);
+    setPermissionPreviewError("");
+    setPermissionPreviewResult(null);
+    try {
+      setPermissionPreviewResult(await api.evaluateWorkspaceToolPermission(mcpWorkspaceID, request));
+    } catch (error) {
+      setPermissionPreviewError(error.message);
+    } finally {
+      setPermissionPreviewBusy(false);
+    }
+  }
+  async function refreshPermissionAudit() {
+    if (!currentSession?.id) return;
+    const requestID = ++permissionAuditRequestRef.current;
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    try {
+      const page = await api.sessionToolPermissionAudit(currentSession.id, {
+        ...(permissionAuditDecision ? { decision: permissionAuditDecision } : {}),
+        ...(permissionAuditTool ? { tool: permissionAuditTool } : {}),
+        limit: 50
+      });
+      if (requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords(Array.isArray(page?.records) ? page.records : []);
+        setPermissionAuditNextCursor(page?.next_cursor || "");
+        setPermissionAuditHasMore(Boolean(page?.has_more));
+      }
+    } catch (error) {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    } finally {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
+    }
+  }
+  function filterPermissionAudit(event) {
+    event.preventDefault();
+    setPermissionAuditTool(permissionAuditToolInput.trim());
+  }
+  async function loadMorePermissionAudit() {
+    if (!currentSession?.id || !permissionAuditHasMore || !permissionAuditNextCursor) return;
+    const requestID = ++permissionAuditRequestRef.current;
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    try {
+      const page = await api.sessionToolPermissionAudit(currentSession.id, {
+        ...(permissionAuditDecision ? { decision: permissionAuditDecision } : {}),
+        ...(permissionAuditTool ? { tool: permissionAuditTool } : {}),
+        limit: 50,
+        cursor: permissionAuditNextCursor
+      });
+      const incoming = Array.isArray(page?.records) ? page.records : [];
+      if (requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords((current) => {
+          const seen = new Set(current.map((record) => `${record.turn_id}\x00${record.call_id}`));
+          return current.concat(incoming.filter((record) => !seen.has(`${record.turn_id}\x00${record.call_id}`)));
+        });
+        setPermissionAuditNextCursor(page?.next_cursor || "");
+        setPermissionAuditHasMore(Boolean(page?.has_more));
+      }
+    } catch (error) {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    } finally {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
     }
   }
   const filteredArchivedSessions = useMemo(() => {
@@ -3340,51 +3631,123 @@ function SettingsPage({
               </div>
             </div> : null}
             {agentManagementView === "permissions" ? (
-              <div className="settings-card agent-permissions-card">
-                <div className="settings-card-title">默认工具权限 · {agents.length} 个 Agent</div>
-                {agentPermissionError ? <div className="agent-version-error">{agentPermissionError}</div> : null}
-                {agents.length ? (
-                  <div className="agent-permissions-scroll">
-                    <table className="agent-permissions-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Agent</th>
-                          {builtinToolNamespaces.map((item) => <th scope="col" key={item.key}>{item.title}</th>)}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {agents.map((agent) => {
-                          const policy = parseToolPolicy(agent.config_version?.tools);
-                          return (
-                            <tr className={agent.id === selectedAgent?.id ? "current" : ""} key={agent.id}>
-                              <th scope="row">
-                                <strong>{agent.name || agent.id}</strong>
-                                <span>版本 #{agent.current_config_version || 1}</span>
-                              </th>
-                              {builtinToolNamespaces.map((item) => {
-                                const checked = toolNamespaceEnabled(item.key, policy);
-                                const busy = agentPermissionBusy === `${agent.id}:${item.key}`;
-                                return (
-                                  <td key={item.key}>
-                                    <input
-                                      type="checkbox"
-                                      aria-label={`允许 ${agent.name || agent.id} 使用 ${item.title}`}
-                                      checked={checked}
-                                      disabled={Boolean(agentPermissionBusy)}
-                                      onChange={(event) => updateAgentToolPermission(agent, item.key, event.target.checked)}
-                                    />
-                                    {busy ? <span className="agent-permission-saving">保存中</span> : null}
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : <Empty>工作区里还没有智能体。</Empty>}
-              </div>
+              <>
+                <div className="settings-card agent-permissions-card">
+                  <div className="settings-card-title">默认工具权限 · {agents.length} 个 Agent</div>
+                  {agentPermissionError ? <div className="agent-version-error">{agentPermissionError}</div> : null}
+                  {agents.length ? (
+                    <div className="agent-permissions-scroll">
+                      <table className="agent-permissions-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Agent</th>
+                            {builtinToolNamespaces.map((item) => <th scope="col" key={item.key}>{item.title}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agents.map((agent) => {
+                            const policy = parseToolPolicy(agent.config_version?.tools);
+                            return (
+                              <tr className={agent.id === selectedAgent?.id ? "current" : ""} key={agent.id}>
+                                <th scope="row">
+                                  <strong>{agent.name || agent.id}</strong>
+                                  <span>版本 #{agent.current_config_version || 1}</span>
+                                </th>
+                                {builtinToolNamespaces.map((item) => {
+                                  const checked = toolNamespaceEnabled(item.key, policy);
+                                  const busy = agentPermissionBusy === `${agent.id}:${item.key}`;
+                                  return (
+                                    <td key={item.key}>
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`允许 ${agent.name || agent.id} 使用 ${item.title}`}
+                                        checked={checked}
+                                        disabled={Boolean(agentPermissionBusy)}
+                                        onChange={(event) => updateAgentToolPermission(agent, item.key, event.target.checked)}
+                                      />
+                                      {busy ? <span className="agent-permission-saving">保存中</span> : null}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <Empty>工作区里还没有智能体。</Empty>}
+                </div>
+                <section className="settings-card permission-policy-card">
+                  <header><div><div className="settings-card-title">Agent 路径规则</div><strong>{selectedAgent?.name || "未选择 Agent"}</strong></div><button type="button" disabled={!selectedAgent || Boolean(agentPermissionBusy)} onClick={saveAgentPathRules}>{agentPermissionBusy === "agent-path-rules" ? "保存中..." : "保存 Agent 规则"}</button></header>
+                  <PermissionRuleEditor disabled={!selectedAgent || Boolean(agentPermissionBusy)} rules={agentPathRules} scope="agent" onChange={setAgentPathRules} />
+                </section>
+                <section className="settings-card permission-policy-card session-policy-card">
+                  <header><div><div className="settings-card-title">Session 路径规则</div><strong>{currentSession?.title || currentSession?.id || "未选择 Session"}</strong></div><button type="button" disabled={!currentSession || Boolean(agentPermissionBusy)} onClick={saveSessionPathRules}>{agentPermissionBusy === "session-path-rules" ? "保存中..." : "保存 Session 规则"}</button></header>
+                  <PermissionRuleEditor disabled={!currentSession || Boolean(agentPermissionBusy)} rules={sessionPathRules} scope="session" onChange={setSessionPathRules} />
+                </section>
+                <section className="settings-card permission-policy-card workspace-policy-card">
+                  <header><div><div className="settings-card-title">Workspace 硬边界</div><strong>{mcpWorkspaceID || "未选择 Workspace"}{workspacePermissionRevision ? ` · r${workspacePermissionRevision}` : ""}</strong></div><button type="button" disabled={!canManageWorkspaceVariables || workspacePermissionBusy || workspacePermissionLoading || !mcpWorkspaceID || workspacePermissionRevision < 1} onClick={saveWorkspacePathRules}>{workspacePermissionBusy ? "保存中..." : "保存 Workspace 规则"}</button></header>
+                  {workspacePermissionLoading ? <Empty>正在加载 Workspace 规则...</Empty> : <PermissionRuleEditor disabled={!canManageWorkspaceVariables || workspacePermissionBusy} rules={workspacePathRules} scope="workspace" onChange={setWorkspacePathRules} />}
+                </section>
+                <section className="settings-card permission-preview-card">
+                  <header>
+                    <div><div className="settings-card-title">有效权限预览</div><strong>按真实执行优先级计算最终决策</strong></div>
+                  </header>
+                  <form className="permission-preview-form" onSubmit={evaluatePermissionPreview}>
+                    <label><span>上下文</span><select value={permissionPreviewContext} onChange={(event) => setPermissionPreviewContext(event.target.value)}><option value="workspace">仅 Workspace</option><option value="agent" disabled={!selectedAgent}>当前 Agent</option><option value="session" disabled={!currentSession}>当前 Session</option></select></label>
+                    <label><span>工具</span><select value={permissionPreviewTool} onChange={(event) => setPermissionPreviewTool(event.target.value)}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+                    <label className="permission-preview-path"><span>目标路径</span><input value={permissionPreviewPath} onChange={(event) => setPermissionPreviewPath(event.target.value)} placeholder="/workspace/src/main.go" /></label>
+                    <label><span>介入模式</span><select value={permissionPreviewMode} onChange={(event) => setPermissionPreviewMode(event.target.value)}><option value="request_approval">请求审批</option><option value="approve_for_me">自动批准</option><option value="full_access">完全访问</option></select></label>
+                    <button type="submit" disabled={permissionPreviewBusy || !mcpWorkspaceID || !permissionPreviewPath.trim() || (permissionPreviewContext === "agent" && !selectedAgent) || (permissionPreviewContext === "session" && !currentSession)}>{permissionPreviewBusy ? "计算中..." : "计算权限"}</button>
+                  </form>
+                  {permissionPreviewError ? <div className="agent-version-error">{permissionPreviewError}</div> : null}
+                  {permissionPreviewResult ? (
+                    <div className={`permission-preview-result ${permissionPreviewResult.decision}`}>
+                      <div className="permission-preview-decision"><span>最终决策</span><strong>{permissionPreviewResult.decision === "allow" ? "允许" : permissionPreviewResult.decision === "ask" ? "需审批" : "拒绝"}</strong></div>
+                      <dl>
+                        <div><dt>策略</dt><dd>{permissionPreviewResult.approval_policy || "-"}</dd></div>
+                        <div><dt>风险</dt><dd>{permissionPreviewResult.risk || "-"}</dd></div>
+                        <div><dt>命中规则</dt><dd>{permissionPreviewResult.matched_rule_id || "Manifest / API 默认值"}</dd></div>
+                        <div><dt>规则来源</dt><dd>{permissionPreviewResult.rule_source || "manifest"}</dd></div>
+                        <div><dt>原因</dt><dd>{permissionPreviewResult.reason || "-"}</dd></div>
+                        <div><dt>解析上下文</dt><dd>{permissionPreviewResult.session_id || permissionPreviewResult.agent_id || permissionPreviewResult.workspace_id}</dd></div>
+                      </dl>
+                    </div>
+                  ) : null}
+                </section>
+                <section className="settings-card permission-audit-card">
+                  <header>
+                    <div><div className="settings-card-title">工具权限审计</div><strong>{currentSession?.title || currentSession?.id || "未选择 Session"}</strong></div>
+                    <button className="icon-button secondary" type="button" title="刷新权限审计" aria-label="刷新权限审计" disabled={!currentSession || permissionAuditLoading} onClick={refreshPermissionAudit}><RefreshIcon /></button>
+                  </header>
+                  <form className="permission-audit-filters" onSubmit={filterPermissionAudit}>
+                    <label><span>决策</span><select disabled={!currentSession || permissionAuditLoading} value={permissionAuditDecision} onChange={(event) => setPermissionAuditDecision(event.target.value)}><option value="">全部决策</option><option value="allow">允许</option><option value="ask">需审批</option><option value="deny">拒绝</option></select></label>
+                    <label><span>工具</span><input disabled={!currentSession || permissionAuditLoading} value={permissionAuditToolInput} onChange={(event) => setPermissionAuditToolInput(event.target.value)} placeholder="default.edit_file" /></label>
+                    <button className="secondary" type="submit" disabled={!currentSession || permissionAuditLoading}>{permissionAuditLoading ? "加载中..." : "筛选"}</button>
+                  </form>
+                  {permissionAuditError ? <div className="agent-version-error">{permissionAuditError}</div> : null}
+                  {!currentSession ? <Empty>选择一个 Session 后查看权限审计。</Empty> : permissionAuditLoading && !permissionAuditRecords.length ? <Empty>正在加载权限审计...</Empty> : permissionAuditRecords.length ? (
+                    <>
+                      <div className="permission-audit-scroll">
+                        <table className="permission-audit-table">
+                        <thead><tr><th>时间</th><th>工具 / 路径</th><th>策略决策</th><th>审批状态</th><th>执行结果</th><th>命中规则 / 来源</th></tr></thead>
+                        <tbody>{permissionAuditRecords.map((record) => (
+                          <tr key={`${record.turn_id}:${record.call_id}`}>
+                            <td><time dateTime={record.created_at}>{formatTime(record.created_at)}</time><small>{record.turn_id || "-"}</small></td>
+                            <td><code>{record.tool}</code><small>{record.path || record.call_id}</small></td>
+                            <td><span className={`permission-audit-status ${record.decision}`}>{permissionAuditLabel(record.decision)}</span><small>{record.approval_policy || "-"}</small></td>
+                            <td><span className={`permission-audit-status ${record.approval_status}`}>{permissionAuditLabel(record.approval_status)}</span><small>{permissionAuditLabel(record.intervention_mode)}</small></td>
+                            <td><span className={`permission-audit-status ${record.execution_status}`}>{permissionAuditLabel(record.execution_status)}</span><small>{record.reason || record.risk || "-"}</small></td>
+                            <td><code>{record.matched_rule_id || "Manifest / API"}</code><small>{permissionAuditLabel(record.rule_source)}</small></td>
+                          </tr>
+                        ))}</tbody>
+                        </table>
+                      </div>
+                      <div className="permission-audit-pagination"><span>已加载 {permissionAuditRecords.length} 条</span>{permissionAuditHasMore ? <button className="secondary" type="button" disabled={permissionAuditLoading} onClick={loadMorePermissionAudit}>{permissionAuditLoading ? "加载中..." : "加载更多"}</button> : <span>已到最后一页</span>}</div>
+                    </>
+                  ) : <Empty>当前筛选条件下没有权限审计记录。</Empty>}
+                </section>
+              </>
             ) : null}
             {agentManagementView === "schedules" ? <AgentScheduleManager agent={selectedAgent} onOpenSession={onOpenSession} /> : null}
           </div>
@@ -4733,6 +5096,14 @@ function forgetSession() {
   } catch {}
 }
 
+function sortAvailableAgents(agents, defaultAgentID) {
+  return [...(agents || [])].sort((left, right) => {
+    if (left.id === defaultAgentID) return -1;
+    if (right.id === defaultAgentID) return 1;
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+}
+
 function WorkbenchApp() {
   const [status, setStatus] = useState("ready");
   const [principal, setPrincipal] = useState(null);
@@ -4745,6 +5116,7 @@ function WorkbenchApp() {
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = useState("");
   const [mobileResultsOpen, setMobileResultsOpen] = useState(false);
+  const [streamReconnectVersion, setStreamReconnectVersion] = useState(0);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
@@ -4813,6 +5185,8 @@ function WorkbenchApp() {
   const [pluginLoadState, setPluginLoadState] = useState("loading");
   const eventStreamCursorRef = useRef(0);
   const sessionSyncTimerRef = useRef(null);
+  const pageSuspendedRef = useRef(false);
+  const resumeSyncRef = useRef({ inFlight: false, lastStartedAt: 0 });
   const artifactResizeRef = useRef(null);
   const threadRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
@@ -4946,11 +5320,7 @@ function WorkbenchApp() {
       api.agents(),
       api.llmProviders()
     ]);
-    const sortedAgents = [...(agentsResponse.agents || [])].sort((left, right) => {
-      if (left.id === defaultAgent.id) return -1;
-      if (right.id === defaultAgent.id) return 1;
-      return String(left.name || "").localeCompare(String(right.name || ""));
-    });
+    const sortedAgents = sortAvailableAgents(agentsResponse.agents, defaultAgent.id);
     const enabledProviders = (providersResponse.providers || []).filter((provider) => provider.enabled !== false);
     const modelResponses = await Promise.all(enabledProviders.map((provider) => api.llmModels(provider.id).catch(() => ({ models: [] }))));
     const options = enabledProviders.flatMap((provider, index) => (
@@ -5325,6 +5695,118 @@ function WorkbenchApp() {
 
   useEffect(() => {
     const currentSessionID = String(sessionID || "").trim();
+    let disposed = false;
+
+    function markSuspended() {
+      pageSuspendedRef.current = true;
+    }
+
+    async function recoverAfterResume(force = false) {
+      if (document.visibilityState === "hidden") return;
+      if (!force && !pageSuspendedRef.current) return;
+      pageSuspendedRef.current = false;
+
+      const now = Date.now();
+      if (resumeSyncRef.current.inFlight || now - resumeSyncRef.current.lastStartedAt < 750) return;
+      resumeSyncRef.current = { inFlight: true, lastStartedAt: now };
+
+      if (currentSessionID) {
+        setLiveReply((current) => current?.sessionID === currentSessionID ? null : current);
+        setStreamReconnectVersion((current) => current + 1);
+      }
+
+      try {
+        const [eventsResult, sessionsResult, agentsResult, defaultAgentResult, principalResult] = await Promise.allSettled([
+          currentSessionID
+            ? api.events(currentSessionID, Number(eventStreamCursorRef.current || 0))
+            : Promise.resolve({ events: [] }),
+          api.sessions({ limit: 30 }),
+          api.agents(),
+          api.defaultAgent(),
+          api.currentPrincipal()
+        ]);
+        if (disposed) return;
+
+        if (eventsResult.status === "fulfilled") {
+          const recoveredEvents = eventsResult.value.events || [];
+          eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(recoveredEvents));
+          setEventsResponse((current) => ({
+            ...current,
+            events: mergeEvents(current.events, recoveredEvents),
+            error: ""
+          }));
+        }
+        if (sessionsResult.status === "fulfilled") {
+          setRecentSessions(sessionsResult.value.sessions || []);
+        }
+        if (defaultAgentResult.status === "fulfilled") {
+          setDefaultAgentConfig(defaultAgentResult.value);
+        }
+        if (agentsResult.status === "fulfilled") {
+          const defaultAgentID = defaultAgentResult.status === "fulfilled" ? defaultAgentResult.value.id : "";
+          const sortedAgents = sortAvailableAgents(agentsResult.value.agents, defaultAgentID);
+          setAvailableAgents(sortedAgents);
+          if (!currentSessionID) {
+            setAgentID((current) => sortedAgents.some((agent) => agent.id === current) ? current : (defaultAgentID || sortedAgents[0]?.id || ""));
+          }
+        }
+        if (principalResult.status === "fulfilled") {
+          setPrincipal(principalResult.value.principal || null);
+        }
+
+        if (currentSessionID) {
+          await syncSession(currentSessionID);
+          if (disposed) return;
+        }
+
+        if (sessionsResult.status === "rejected" && (!currentSessionID || eventsResult.status === "rejected")) {
+          throw sessionsResult.reason;
+        }
+        setStatus("已同步最新数据");
+      } catch (error) {
+        if (!disposed) setStatus(error?.message || String(error));
+      } finally {
+        resumeSyncRef.current.inFlight = false;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        markSuspended();
+        return;
+      }
+      recoverAfterResume().catch(() => {});
+    }
+
+    function handlePageShow() {
+      recoverAfterResume(true).catch(() => {});
+    }
+
+    function handleForcedResume() {
+      recoverAfterResume(true).catch(() => {});
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("freeze", markSuspended);
+    document.addEventListener("resume", handleForcedResume);
+    window.addEventListener("pagehide", markSuspended);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleForcedResume);
+    window.addEventListener("focus", handleForcedResume);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("freeze", markSuspended);
+      document.removeEventListener("resume", handleForcedResume);
+      window.removeEventListener("pagehide", markSuspended);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleForcedResume);
+      window.removeEventListener("focus", handleForcedResume);
+    };
+  }, [sessionID]);
+
+  useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
     if (!currentSessionID || sessionMeta?.id !== currentSessionID || sessionMeta?.error) return undefined;
     const afterSeq = Number(eventStreamCursorRef.current || 0);
     const controller = new AbortController();
@@ -5385,7 +5867,7 @@ function WorkbenchApp() {
         sessionSyncTimerRef.current = null;
       }
     };
-  }, [sessionID, sessionMeta?.id]);
+  }, [sessionID, sessionMeta?.id, streamReconnectVersion]);
 
   useEffect(() => {
     const currentSessionID = String(sessionID || "").trim();
@@ -5422,7 +5904,7 @@ function WorkbenchApp() {
       controller.abort();
       setLiveReply((current) => current?.sessionID === currentSessionID ? null : current);
     };
-  }, [sessionID, sessionMeta?.id]);
+  }, [sessionID, sessionMeta?.id, streamReconnectVersion]);
 
   useEffect(() => {
     if (!waitingForReply) return;
@@ -5765,7 +6247,7 @@ function WorkbenchApp() {
       settingsDraft.llmModel
     );
     if (shouldApplyInitialSettings) {
-      const updatedSession = await api.updateSessionRuntimeSettings(session.id, {
+      const updatedSession = await api.updateSessionRuntimeSettings(session.id, session.runtime_settings_revision, {
         human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
         llm_model: settingsDraft.llmModel || agent.config_version?.llm_model || "",
@@ -6585,7 +7067,7 @@ function WorkbenchApp() {
     setSavingSettings(true);
     setStatus("saving settings");
     try {
-      const updatedSession = await api.updateSessionRuntimeSettings(sessionID, {
+      const updatedSession = await api.updateSessionRuntimeSettings(sessionID, sessionMeta?.runtime_settings_revision, {
         human_interaction: humanInteractionRuntimeSettings(nextDraft.humanInteractionEnabled),
         intervention_mode: nextDraft.interventionMode,
         llm_model: nextDraft.llmModel,
@@ -6595,6 +7077,16 @@ function WorkbenchApp() {
       setSessionMeta(updatedSession);
       await loadSessionSettings(sessionID, updatedSession);
       setStatus("settings saved");
+    } catch (error) {
+      if (error?.code === "revision_conflict") {
+        const latest = await api.session(sessionID);
+        setSessionMeta(latest);
+        setRecentSessions((current) => [latest, ...current.filter((item) => item.id !== latest.id)]);
+        await loadSessionSettings(sessionID, latest);
+        setStatus("Session 设置已被其他操作更新，已加载最新版本，请重新保存");
+        return;
+      }
+      throw error;
     } finally {
       setSavingSettings(false);
     }
@@ -6844,6 +7336,30 @@ function WorkbenchApp() {
     return updated;
   }
 
+  async function updateSessionPermissionsFromSettings(targetSessionID, permissionRules, expectedRevision) {
+    setStatus("正在更新 Session 工具权限");
+    let updated;
+    try {
+      updated = await api.updateSessionRuntimeSettings(targetSessionID, expectedRevision, { permission_rules: permissionRules || [] });
+    } catch (error) {
+      if (error?.code !== "revision_conflict") throw error;
+      const latest = await api.session(targetSessionID);
+      if (targetSessionID === sessionID) {
+        setSessionMeta(latest);
+        setRecentSessions((current) => [latest, ...current.filter((item) => item.id !== latest.id)]);
+        await loadSessionSettings(targetSessionID, latest);
+      }
+      throw new Error("Session 设置已被其他操作更新，已加载最新版本，请重新保存");
+    }
+    if (targetSessionID === sessionID) {
+      setSessionMeta(updated);
+      setRecentSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await loadSessionSettings(targetSessionID, updated);
+    }
+    setStatus("Session 工具权限已更新");
+    return updated;
+  }
+
   if (settingsOpen) {
     return (
       <SettingsPage
@@ -6867,6 +7383,7 @@ function WorkbenchApp() {
         onSaveAgent={(body) => saveAgentFromSettings(body).catch((error) => setStatus(error.message))}
         onSelectAgent={selectAgentFromSettings}
         onUpdateAgentPermissions={updateAgentPermissionsFromSettings}
+        onUpdateSessionPermissions={updateSessionPermissionsFromSettings}
         onModelCatalogChanged={refreshModelOptions}
         principal={principal}
         recentSessions={recentSessions}

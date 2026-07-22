@@ -8,7 +8,37 @@ import (
 
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
+	"tiggy-manage-agent/internal/tools"
 )
+
+func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
+	store := newTestStore()
+	agent := mustCreateAgentForSubagentTest(t, store, "permission-rules-agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	session := mustCreateSessionForSubagentTest(t, store, agent.ID, environment.ID, "Permission rules")
+	server := &Server{store: store}
+
+	rules := []tools.PermissionRule{{
+		ID: "source-edit", Tool: "default.edit_file", Argument: "path",
+		Pattern: "/workspace/src/**", Behavior: tools.PermissionRuleAllow,
+	}}
+	updated, err := server.applySessionRuntimeSettingsPatch(t.Context(), session, sessionRuntimeSettingsRequest{PermissionRules: &rules})
+	if err != nil {
+		t.Fatalf("persist permission rules: %v", err)
+	}
+	parsed, err := tools.ParsePermissionRules(updated.RuntimeSettings)
+	if err != nil || len(parsed) != 1 || parsed[0].ID != "source-edit" || parsed[0].Source != "session" {
+		t.Fatalf("persisted rules = %#v, err=%v", parsed, err)
+	}
+
+	invalid := []tools.PermissionRule{{
+		ID: "bash", Tool: "default.run_command", Argument: "command",
+		Pattern: "rm *", Behavior: tools.PermissionRuleDeny,
+	}}
+	if _, err := server.applySessionRuntimeSettingsPatch(t.Context(), updated, sessionRuntimeSettingsRequest{PermissionRules: &invalid}); err == nil {
+		t.Fatal("unsupported permission rule was accepted")
+	}
+}
 
 func TestRerunSessionPreservesConfigSnapshotAndAllowsModelOverride(t *testing.T) {
 	store := newTestStore()
@@ -23,7 +53,8 @@ func TestRerunSessionPreservesConfigSnapshotAndAllowsModelOverride(t *testing.T)
 	environment := mustCreateEnvironmentForSubagentTest(t, store)
 	source := mustCreateSessionForSubagentTest(t, store, agent.ID, environment.ID, "Review this change")
 	if _, err := store.UpdateSessionRuntimeSettings(source.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"intervention_mode":"auto_approve","llm_provider":"fake","llm_model":"fake-v1","tool_runtime":"cloud_sandbox"}`),
+		RuntimeSettings:  json.RawMessage(`{"intervention_mode":"auto_approve","llm_provider":"fake","llm_model":"fake-v1","tool_runtime":"cloud_sandbox"}`),
+		ExpectedRevision: source.RuntimeSettingsRevision,
 	}); err != nil {
 		t.Fatalf("set source runtime settings: %v", err)
 	}

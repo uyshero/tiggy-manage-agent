@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -127,6 +128,20 @@ func TestDefaultRegistryToolSchemasCompile(t *testing.T) {
 	}
 }
 
+func TestRegistryIntegrityDistinguishesEmptyFromUninitialized(t *testing.T) {
+	if err := NewRegistry().ValidateIntegrity(); err != nil {
+		t.Fatalf("intentionally empty registry rejected: %v", err)
+	}
+	if err := (Registry{}).ValidateIntegrity(); err == nil || !strings.Contains(err.Error(), "invalid_tool_registry") {
+		t.Fatalf("uninitialized registry error = %v", err)
+	} else {
+		var contractError *ToolContractError
+		if !errors.As(err, &contractError) || contractError.ErrorCode() != "invalid_tool_registry" {
+			t.Fatalf("uninitialized registry error type = %T %v", err, err)
+		}
+	}
+}
+
 func TestRegistryRejectsInvalidOrExternalToolSchema(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -144,8 +159,12 @@ func TestRegistryRejectsInvalidOrExternalToolSchema(t *testing.T) {
 				t.Fatalf("expected invalid schema failure, got %#v", validationError)
 			}
 			result, err := (RegistryExecutor{Registry: registry}).Execute(t.Context(), Call{Identifier: "schema_test", APIName: "search", Arguments: json.RawMessage(`{"query":"ok","mode":"safe"}`)}, ExecutionContext{})
-			if err != nil || result.Error == nil || result.Error.Type != "invalid_tool_schema" || runtime.calls != 0 {
-				t.Fatalf("invalid schema reached runtime: result=%#v err=%v calls=%d", result, err, runtime.calls)
+			if err == nil || !strings.Contains(err.Error(), "invalid_tool_schema") || result.Error != nil || runtime.calls != 0 {
+				t.Fatalf("invalid schema was not fatal: result=%#v err=%v calls=%d", result, err, runtime.calls)
+			}
+			var contractError *ToolContractError
+			if !errors.As(err, &contractError) || contractError.ErrorCode() != "invalid_tool_schema" {
+				t.Fatalf("invalid schema error type = %T %v", err, err)
 			}
 		})
 	}

@@ -87,8 +87,9 @@ type MaterializedRuntimeSkill struct {
 }
 
 type ExportArtifactFileRequest struct {
-	Path    string `json:"path"`
-	WorkDir string `json:"work_dir,omitempty"`
+	Path        string `json:"path"`
+	WorkDir     string `json:"work_dir,omitempty"`
+	guardedRoot string
 }
 
 type ExportArtifactFileResult struct {
@@ -156,6 +157,7 @@ type RunCommandRequest struct {
 	TimeoutMS      int               `json:"timeout_ms,omitempty"`
 	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
 	OutputPaths    []string          `json:"output_paths,omitempty"`
+	guardedRoot    string
 }
 
 func (r RunCommandRequest) MarshalJSON() ([]byte, error) {
@@ -227,6 +229,7 @@ type ExecuteCodeRequest struct {
 	TimeoutMS      int               `json:"timeout_ms,omitempty"`
 	MaxOutputBytes int               `json:"max_output_bytes,omitempty"`
 	OutputPaths    []string          `json:"output_paths,omitempty"`
+	guardedRoot    string
 }
 
 type ReadFileRequest struct {
@@ -237,6 +240,7 @@ type ReadFileRequest struct {
 	StartLine    *int        `json:"start_line,omitempty"`
 	MaxLines     *int        `json:"max_lines,omitempty"`
 	FileRevision string      `json:"file_revision,omitempty"`
+	guardedRoot  string
 }
 
 type WriteFileRequest struct {
@@ -248,6 +252,7 @@ type WriteFileRequest struct {
 	ExpectedRevision string      `json:"expected_revision,omitempty"`
 	ContentSHA256    string      `json:"content_sha256,omitempty"`
 	CreateParents    *bool       `json:"create_parents,omitempty"`
+	guardedRoot      string
 }
 
 func (r WriteFileRequest) MarshalJSON() ([]byte, error) {
@@ -354,6 +359,7 @@ type SearchFileRequest struct {
 	Query        string      `json:"query"`
 	MaxResults   int         `json:"max_results,omitempty"`
 	FileRevision string      `json:"file_revision,omitempty"`
+	guardedRoot  string
 }
 
 type SearchFileMatch struct {
@@ -388,6 +394,7 @@ type FindFilesRequest struct {
 	IncludeHidden bool        `json:"include_hidden,omitempty"`
 	MaxResults    int         `json:"max_results,omitempty"`
 	AfterPath     string      `json:"after_path,omitempty"`
+	guardedRoot   string
 }
 
 type FoundFile struct {
@@ -422,6 +429,7 @@ type SearchFilesRequest struct {
 	IncludeHidden bool        `json:"include_hidden,omitempty"`
 	MaxFiles      int         `json:"max_files,omitempty"`
 	MaxResults    int         `json:"max_results,omitempty"`
+	guardedRoot   string
 }
 
 type SearchFilesMatch struct {

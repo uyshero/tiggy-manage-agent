@@ -14,25 +14,26 @@ const (
 )
 
 type Session struct {
-	ID                 string          `json:"id"`
-	WorkspaceID        string          `json:"workspace_id"`
-	OwnerID            string          `json:"owner_id"`
-	AgentID            string          `json:"agent_id"`
-	AgentConfigVersion int             `json:"agent_config_version"`
-	EnvironmentID      string          `json:"environment_id"`
-	ParentSessionID    string          `json:"parent_session_id,omitempty"`
-	ParentTurnID       string          `json:"parent_turn_id,omitempty"`
-	SpawnDepth         int             `json:"spawn_depth,omitempty"`
-	Status             string          `json:"status"`
-	Title              string          `json:"title,omitempty"`
-	SandboxID          string          `json:"sandbox_id,omitempty"`
-	RuntimeSettings    json.RawMessage `json:"runtime_settings,omitempty"`
-	PinnedAt           *time.Time      `json:"pinned_at"`
-	Tags               []string        `json:"tags"`
-	SummaryText        string          `json:"summary_text,omitempty"`
-	CreatedBy          string          `json:"created_by"`
-	CreatedAt          time.Time       `json:"created_at"`
-	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
+	ID                      string          `json:"id"`
+	WorkspaceID             string          `json:"workspace_id"`
+	OwnerID                 string          `json:"owner_id"`
+	AgentID                 string          `json:"agent_id"`
+	AgentConfigVersion      int             `json:"agent_config_version"`
+	EnvironmentID           string          `json:"environment_id"`
+	ParentSessionID         string          `json:"parent_session_id,omitempty"`
+	ParentTurnID            string          `json:"parent_turn_id,omitempty"`
+	SpawnDepth              int             `json:"spawn_depth,omitempty"`
+	Status                  string          `json:"status"`
+	Title                   string          `json:"title,omitempty"`
+	SandboxID               string          `json:"sandbox_id,omitempty"`
+	RuntimeSettings         json.RawMessage `json:"runtime_settings,omitempty"`
+	RuntimeSettingsRevision int64           `json:"runtime_settings_revision"`
+	PinnedAt                *time.Time      `json:"pinned_at"`
+	Tags                    []string        `json:"tags"`
+	SummaryText             string          `json:"summary_text,omitempty"`
+	CreatedBy               string          `json:"created_by"`
+	CreatedAt               time.Time       `json:"created_at"`
+	ArchivedAt              *time.Time      `json:"archived_at,omitempty"`
 }
 
 type Agent struct {
@@ -243,6 +244,16 @@ type UpdateSessionRuntimeSettingsRequest struct {
 	AgentConfigUpdatePolicy *string                          `json:"agent_config_update_policy,omitempty"`
 	HumanInteraction        *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
 	CompletionGate          *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+	PermissionRules         []PermissionRule                 `json:"permission_rules,omitempty"`
+}
+
+type PermissionRule struct {
+	ID       string `json:"id"`
+	Tool     string `json:"tool"`
+	Argument string `json:"argument"`
+	Pattern  string `json:"pattern"`
+	Behavior string `json:"behavior"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type HumanInteractionRuntimeSettings struct {

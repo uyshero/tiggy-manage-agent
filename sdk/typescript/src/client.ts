@@ -18,6 +18,7 @@ import { SessionsService } from "./services/sessions.js";
 import { TracesService } from "./services/traces.js";
 import { SkillsService } from "./services/skills.js";
 import { WorkersService, WorkerWorkService } from "./services/workers.js";
+import { WorkspaceToolPermissionsService } from "./services/workspace-tool-permissions.js";
 
 export interface TMAClientOptions extends TransportOptions {}
 
@@ -40,6 +41,7 @@ export class TMAClient {
   readonly observability: ObservabilityService;
   readonly audit: AuditService;
   readonly environmentVariables: EnvironmentVariablesService;
+  readonly workspaceToolPermissions: WorkspaceToolPermissionsService;
   readonly skills: SkillsService;
   readonly marketplace: MarketplaceService;
 
@@ -63,6 +65,7 @@ export class TMAClient {
     this.observability = new ObservabilityService(transport);
     this.audit = new AuditService(transport);
     this.environmentVariables = new EnvironmentVariablesService(transport);
+    this.workspaceToolPermissions = new WorkspaceToolPermissionsService(transport);
     this.skills = new SkillsService(transport);
     this.marketplace = new MarketplaceService(transport);
   }

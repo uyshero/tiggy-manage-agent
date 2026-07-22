@@ -202,12 +202,24 @@ func (d *MemoryDurability) Transitions() []string {
 }
 
 type ScriptedTools struct {
-	PreflightFunc func(context.Context, agentcore.State, []model.ToolCall) (agentcore.ToolBatchPlan, error)
-	ExecuteFunc   func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error)
+	PreflightFunc         func(context.Context, agentcore.State, []model.ToolCall) (agentcore.ToolBatchPlan, error)
+	ValidateExecutionFunc func(context.Context, agentcore.State, agentcore.ToolBatchPlan) error
+	ExecuteFunc           func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error)
 
-	mu             sync.Mutex
-	preflightCalls int
-	executeCalls   int
+	mu                     sync.Mutex
+	preflightCalls         int
+	validateExecutionCalls int
+	executeCalls           int
+}
+
+func (t *ScriptedTools) ValidateExecution(ctx context.Context, state agentcore.State, plan agentcore.ToolBatchPlan) error {
+	t.mu.Lock()
+	t.validateExecutionCalls++
+	t.mu.Unlock()
+	if t.ValidateExecutionFunc == nil {
+		return nil
+	}
+	return t.ValidateExecutionFunc(ctx, state, plan)
 }
 
 func (t *ScriptedTools) Preflight(ctx context.Context, state agentcore.State, calls []model.ToolCall) (agentcore.ToolBatchPlan, error) {
@@ -220,6 +232,8 @@ func (t *ScriptedTools) Preflight(ctx context.Context, state agentcore.State, ca
 			planned[index] = agentcore.PlannedToolCall{
 				Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
 				IdempotencyKey: agentcore.StableToolIdempotencyKey(state.SessionID, state.TurnID, call),
+				Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+				ApprovalState: agentcore.ToolApprovalNotRequired,
 			}
 		}
 		return agentcore.ToolBatchPlan{Calls: planned}, nil

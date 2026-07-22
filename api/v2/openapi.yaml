@@ -2279,6 +2279,11 @@ paths:
           in: path
           required: true
           schema: {type: string}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string}
+          description: "Quoted positive resource revision returned by the previous read."
       requestBody:
         required: true
         content:
@@ -2558,6 +2563,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionTaskPlanList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/tool-permission-audit:
+    get:
+      operationId: get_v2_sessions_by_session_id_tool_permission_audit
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: decision
+          in: query
+          required: false
+          schema: {type: string}
+        - name: tool
+          in: query
+          required: false
+          schema: {type: string}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, format: int32}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPermissionAuditList"
         default:
           description: API error
           content:
@@ -4230,6 +4272,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workspaces/{workspace_id}/tool-permissions:
+    get:
+      operationId: get_v2_workspaces_by_workspace_id_tool_permissions
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceToolPermissionPolicy"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: put_v2_workspaces_by_workspace_id_tool_permissions
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string}
+          description: "Quoted positive resource revision returned by the previous read."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkspaceToolPermissionPolicyRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceToolPermissionPolicy"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workspaces/{workspace_id}/tool-permissions/evaluate:
+    post:
+      operationId: post_v2_workspaces_by_workspace_id_tool_permissions_evaluate
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateWorkspaceToolPermissionRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateWorkspaceToolPermissionResult"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
   schemas:
     ErrorEnvelope:
@@ -4740,7 +4861,7 @@ components:
         to: {type: string, format: date-time}
     Session:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, tags, created_by, created_at]
+      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
@@ -4755,6 +4876,7 @@ components:
         title: {type: string}
         sandbox_id: {type: string}
         runtime_settings: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        runtime_settings_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
         pinned_at: {type: string, format: date-time, nullable: true}
         tags: {type: array, items: {type: string}}
         summary_text: {type: string}
@@ -4789,6 +4911,10 @@ components:
         llm_provider: {type: string}
         llm_model: {type: string}
         intervention_mode: {type: string}
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/PermissionRule"}
         tool_runtime: {type: string}
         cloud_sandbox_root: {type: string}
         cloud_sandbox_image: {type: string}
@@ -6707,6 +6833,78 @@ components:
       required: [value]
       properties:
         value: {type: string, writeOnly: true}
+    PermissionRule:
+      type: object
+      required: [id, tool, argument, pattern, behavior]
+      additionalProperties: false
+      properties:
+        id: {type: string, minLength: 1, maxLength: 120}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        argument: {type: string, enum: [path]}
+        pattern: {type: string, minLength: 1, maxLength: 2048}
+        behavior: {type: string, enum: [allow, ask, deny]}
+        reason: {type: string, maxLength: 500}
+    WorkspacePermissionRule:
+      type: object
+      required: [id, tool, argument, pattern, behavior]
+      additionalProperties: false
+      properties:
+        id: {type: string, minLength: 1, maxLength: 120}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        argument: {type: string, enum: [path]}
+        pattern: {type: string, minLength: 1, maxLength: 2048}
+        behavior: {type: string, enum: [deny]}
+        reason: {type: string, maxLength: 500}
+    UpdateWorkspaceToolPermissionPolicyRequest:
+      type: object
+      required: [permission_rules]
+      additionalProperties: false
+      properties:
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/WorkspacePermissionRule"}
+    WorkspaceToolPermissionPolicy:
+      type: object
+      required: [workspace_id, permission_rules, revision, updated_by, updated_at]
+      properties:
+        workspace_id: {type: string}
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/WorkspacePermissionRule"}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        updated_by: {type: string}
+        updated_at: {type: string, format: date-time}
+    EvaluateWorkspaceToolPermissionRequest:
+      type: object
+      required: [tool, path]
+      additionalProperties: false
+      properties:
+        agent_id: {type: string}
+        session_id: {type: string}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        path: {type: string, minLength: 1, maxLength: 4096}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+    EvaluateWorkspaceToolPermissionResult:
+      type: object
+      required: [workspace_id, tool, path, decision, allowed, required, intervention_mode]
+      additionalProperties: false
+      properties:
+        workspace_id: {type: string}
+        agent_id: {type: string}
+        session_id: {type: string}
+        tool: {type: string}
+        path: {type: string}
+        decision: {type: string, enum: [allow, ask, deny]}
+        allowed: {type: boolean}
+        required: {type: boolean}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+        approval_policy: {type: string, enum: [never, conditional, always]}
+        reason: {type: string}
+        risk: {type: string}
+        matched_rule_id: {type: string}
+        rule_source: {type: string, enum: [workspace, agent, session]}
     MCPConfigValue:
       oneOf:
         - {type: string}
@@ -6920,6 +7118,35 @@ components:
       required: [audit_records]
       properties:
         audit_records: {type: array, items: {$ref: "#/components/schemas/OperatorAuditRecord"}}
+    ToolPermissionAuditRecord:
+      type: object
+      required: [session_id, turn_id, call_id, tool, decision, allowed, required, intervention_mode, approval_status, execution_status, created_at]
+      additionalProperties: false
+      properties:
+        session_id: {type: string}
+        turn_id: {type: string}
+        call_id: {type: string}
+        tool: {type: string}
+        path: {type: string}
+        decision: {type: string, enum: [allow, ask, deny]}
+        allowed: {type: boolean}
+        required: {type: boolean}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+        approval_policy: {type: string, enum: [never, conditional, always]}
+        approval_status: {type: string, enum: [not_required, pending, auto_approved, approved, rejected]}
+        execution_status: {type: string, enum: [planned, denied, started, succeeded, failed, indeterminate]}
+        reason: {type: string}
+        risk: {type: string}
+        matched_rule_id: {type: string}
+        rule_source: {type: string, enum: [workspace, agent, session]}
+        created_at: {type: string, format: date-time}
+    ToolPermissionAuditList:
+      type: object
+      required: [records, next_cursor, has_more]
+      properties:
+        records: {type: array, items: {$ref: "#/components/schemas/ToolPermissionAuditRecord"}}
+        next_cursor: {type: string}
+        has_more: {type: boolean}
     SecurityAuditReplayResult:
       type: object
       required: [replayed]

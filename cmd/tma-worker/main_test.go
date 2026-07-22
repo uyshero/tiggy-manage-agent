@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -85,6 +87,46 @@ func TestParseWorkerConfigConcurrency(t *testing.T) {
 	}
 	if cfg.Concurrency != 3 {
 		t.Fatalf("expected configured concurrency 3, got %d", cfg.Concurrency)
+	}
+}
+
+func TestWorkerExecutorScopesFilesystemToConfiguredWorkspaceRoot(t *testing.T) {
+	t.Setenv("TMA_WORKER_PLUGINS", "")
+	root := t.TempDir()
+	cfg, err := parseWorkerConfig([]string{"--name", "scoped-worker", "--workspace-root", root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor, err := workerExecutor(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executor.WorkspaceRoot == "" || executor.WorkerCapabilities().Constraints["filesystem_scope"] != "workspace_root" {
+		t.Fatalf("worker root was not configured: root=%q constraints=%#v", executor.WorkspaceRoot, executor.WorkerCapabilities().Constraints)
+	}
+	if _, err := executor.Provider.WriteFile(t.Context(), capability.WriteFileRequest{
+		Path: filepath.Join(filepath.Dir(root), "outside.txt"), Content: []byte("blocked"),
+	}); err == nil || !strings.Contains(err.Error(), "workspace path guard write denied") {
+		t.Fatalf("outside write was not denied: %v", err)
+	}
+	if _, err := executor.Provider.WriteFile(t.Context(), capability.WriteFileRequest{
+		Path: "inside.txt", Content: []byte("allowed"),
+	}); err != nil {
+		t.Fatalf("inside write failed: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "inside.txt"))
+	if err != nil || string(content) != "allowed" {
+		t.Fatalf("inside write content = %q err=%v", content, err)
+	}
+}
+
+func TestWorkerExecutorRejectsMissingWorkspaceRoot(t *testing.T) {
+	_, err := workerExecutor(t.Context(), workerConfig{
+		Name: "scoped-worker", WorkspaceRoot: filepath.Join(t.TempDir(), "missing"),
+		ReadFileLimits: capability.ReadFileLimits{}.Effective(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "configure worker workspace root") {
+		t.Fatalf("missing workspace root error = %v", err)
 	}
 }
 

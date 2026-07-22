@@ -904,7 +904,11 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 		if err != nil {
 			return err
 		}
-		response, err := sdk.Sessions.UpdateRuntimeSettings(context.Background(), sessionID, request)
+		current, err := sdk.Sessions.Get(context.Background(), sessionID)
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Sessions.UpdateRuntimeSettings(context.Background(), sessionID, current.RuntimeSettingsRevision, request)
 		if err != nil {
 			return err
 		}
@@ -968,6 +972,45 @@ func commandSessionIntervention(client *apiClient, args []string) error {
 			return err
 		}
 		response, err := sdk.Interventions.DecideResult(context.Background(), sessionID, turnID, callID, args[0], reason)
+		if err != nil {
+			return err
+		}
+		return printJSON(response)
+	case "reconcile":
+		flags := flag.NewFlagSet("session intervention reconcile", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+
+		var sessionID string
+		var turnID string
+		var callID string
+		var outcome string
+		var summary string
+		var evidence string
+		flags.StringVar(&sessionID, "session", "", "session id")
+		flags.StringVar(&turnID, "turn", "", "turn id")
+		flags.StringVar(&callID, "call", "", "reconciliation intervention id")
+		flags.StringVar(&outcome, "outcome", "", "executed | not_executed | compensated")
+		flags.StringVar(&summary, "summary", "", "external-state verification summary")
+		flags.StringVar(&evidence, "evidence", "", "ticket, log, transaction, or artifact reference")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if sessionID == "" || turnID == "" || callID == "" || summary == "" {
+			return fmt.Errorf("session intervention reconcile requires --session, --turn, --call, --outcome, and --summary")
+		}
+		rawOutcome := outcome
+		outcome, ok := normalizeToolReconciliationOutcome(outcome)
+		if !ok {
+			return fmt.Errorf("unsupported reconciliation outcome %q", rawOutcome)
+		}
+
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		response, err := sdk.Interventions.Respond(context.Background(), sessionID, turnID, callID, map[string]string{
+			"outcome": outcome, "summary": summary, "evidence": evidence,
+		})
 		if err != nil {
 			return err
 		}
@@ -1379,6 +1422,19 @@ func normalizeToolRuntimeArg(value string) (string, bool) {
 	}
 }
 
+func normalizeToolReconciliationOutcome(value string) (string, bool) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "executed":
+		return "executed", true
+	case "not_executed":
+		return "not_executed", true
+	case "compensated":
+		return "compensated", true
+	default:
+		return "", false
+	}
+}
+
 func isHelpArg(value string) bool {
 	switch value {
 	case "help", "-h", "--help":
@@ -1460,6 +1516,7 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] session intervention list --session SESSION_ID [--status STATUS]
   tma [--base-url URL] [--auth-token TOKEN] session intervention approve --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
   tma [--base-url URL] [--auth-token TOKEN] session intervention reject --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] session intervention reconcile --session SESSION_ID --turn TURN_ID --call INTERVENTION_ID --outcome executed|not_executed|compensated --summary TEXT [--evidence REF]
   tma [--base-url URL] [--auth-token TOKEN] session archive --session SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session delete --session SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session summary get --session SESSION_ID

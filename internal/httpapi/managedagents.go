@@ -106,16 +106,29 @@ type traceSpanDetailResponse struct {
 }
 
 type sessionRuntimeSettingsRequest struct {
-	LLMProvider             *string `json:"llm_provider"`
-	LLMModel                *string `json:"llm_model"`
-	Model                   *string `json:"model"`
-	InterventionMode        *string `json:"intervention_mode"`
-	ToolRuntime             *string `json:"tool_runtime"`
-	CloudSandboxRoot        *string `json:"cloud_sandbox_root"`
-	CloudSandboxImage       *string `json:"cloud_sandbox_image"`
-	AllowNetwork            *bool   `json:"cloud_sandbox_allow_network"`
-	AgentConfigUpdatePolicy *string `json:"agent_config_update_policy"`
-	HumanInteraction        *struct {
+	ExpectedRevision                   int64                   `json:"-"`
+	LLMProvider                        *string                 `json:"llm_provider"`
+	LLMModel                           *string                 `json:"llm_model"`
+	Model                              *string                 `json:"model"`
+	InterventionMode                   *string                 `json:"intervention_mode"`
+	PermissionRules                    *[]tools.PermissionRule `json:"permission_rules"`
+	ToolRuntime                        *string                 `json:"tool_runtime"`
+	CloudSandboxRoot                   *string                 `json:"cloud_sandbox_root"`
+	CloudSandboxImage                  *string                 `json:"cloud_sandbox_image"`
+	AllowNetwork                       *bool                   `json:"cloud_sandbox_allow_network"`
+	AgentConfigUpdatePolicy            *string                 `json:"agent_config_update_policy"`
+	AgentCoreCompactionThresholdTokens *int                    `json:"agent_core_compaction_threshold_tokens"`
+	AgentCoreCompactionSummaryMaxChars *int                    `json:"agent_core_compaction_summary_max_chars"`
+	AgentCoreBudget                    *struct {
+		MaxRounds          *int   `json:"max_rounds"`
+		MaxModelCalls      *int   `json:"max_model_calls"`
+		MaxToolCalls       *int   `json:"max_tool_calls"`
+		MaxInputTokens     *int64 `json:"max_input_tokens"`
+		MaxOutputTokens    *int64 `json:"max_output_tokens"`
+		MaxReasoningTokens *int64 `json:"max_reasoning_tokens"`
+		MaxCostMicros      *int64 `json:"max_cost_micros"`
+	} `json:"agent_core_budget"`
+	HumanInteraction *struct {
 		Enabled        *bool    `json:"enabled"`
 		Modes          []string `json:"modes,omitempty"`
 		SupportsUpload *bool    `json:"supports_upload,omitempty"`
@@ -1421,6 +1434,8 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		SkillAssetGC:          skillretention.SnapshotMetrics(),
 		CompletionValidations: observability.CompletionValidationMetricsSnapshot(),
 		FilesystemTools:       observability.FilesystemToolMetricsSnapshot(),
+		AgentCore:             observability.AgentCoreMetricsSnapshot(),
+		WorkerLeases:          observability.WorkerLeaseMetricsSnapshot(),
 	}
 	if s.authorizationAudit != nil {
 		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()
@@ -2309,6 +2324,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	if input.LLMModel == "" && input.Model == "" {
 		input.LLMModel = s.defaultLLMModel
 	}
+	if err := validateAgentToolPermissionRules(input.Tools); err != nil {
+		writeError(w, err)
+		return
+	}
 	if input.Skills != nil {
 		normalized, err := s.validateAgentSkills(agentSkillValidationContext(r.Context(), input.WorkspaceID, input.OwnerType, input.OwnerID), input.WorkspaceID, input.Skills)
 		if err != nil {
@@ -2383,6 +2402,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		input.System = *request.System
 	}
 	if request.Tools != nil {
+		if validateErr := validateAgentToolPermissionRules(*request.Tools); validateErr != nil {
+			writeError(w, validateErr)
+			return
+		}
 		input.Tools = *request.Tools
 	}
 	if request.MCP != nil {
@@ -2491,6 +2514,10 @@ func (s *Server) createAgentConfigVersion(w http.ResponseWriter, r *http.Request
 		next.System = *request.System
 	}
 	if request.Tools != nil {
+		if validateErr := validateAgentToolPermissionRules(*request.Tools); validateErr != nil {
+			writeError(w, validateErr)
+			return
+		}
 		next.Tools = cloneJSONRaw(*request.Tools)
 	}
 	if request.MCP != nil {
@@ -2722,6 +2749,7 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setSessionRuntimeSettingsETag(w, session.RuntimeSettingsRevision)
 	writeJSON(w, http.StatusOK, session)
 }
 
@@ -3010,11 +3038,17 @@ func contentDispositionAttachment(filename string) string {
 }
 
 func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Request) {
+	expectedRevision, err := parseSessionRuntimeSettingsIfMatch(r.Header.Get("If-Match"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	var request sessionRuntimeSettingsRequest
 	if err := decodeJSON(r, &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	request.ExpectedRevision = expectedRevision
 	session, err := s.getSessionForRequest(r, r.PathValue("session_id"))
 	if err != nil {
 		writeError(w, err)
@@ -3025,7 +3059,28 @@ func (s *Server) updateSessionRuntimeSettings(w http.ResponseWriter, r *http.Req
 		writeError(w, err)
 		return
 	}
+	setSessionRuntimeSettingsETag(w, session.RuntimeSettingsRevision)
 	writeJSON(w, http.StatusOK, session)
+}
+
+func setSessionRuntimeSettingsETag(w http.ResponseWriter, revision int64) {
+	w.Header().Set("ETag", strconv.Quote(strconv.FormatInt(revision, 10)))
+}
+
+func parseSessionRuntimeSettingsIfMatch(value string) (int64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("%w: If-Match header is required", managedagents.ErrInvalid)
+	}
+	unquoted, err := strconv.Unquote(value)
+	if err != nil {
+		return 0, fmt.Errorf("%w: If-Match must be a quoted runtime settings revision", managedagents.ErrInvalid)
+	}
+	revision, err := strconv.ParseInt(unquoted, 10, 64)
+	if err != nil || revision <= 0 {
+		return 0, fmt.Errorf("%w: If-Match must contain a positive runtime settings revision", managedagents.ErrInvalid)
+	}
+	return revision, nil
 }
 
 func (s *Server) upgradeSessionAgentConfig(w http.ResponseWriter, r *http.Request) {
@@ -3379,7 +3434,8 @@ func approvalReminderPayload(pending []managedagents.SessionIntervention) json.R
 		}
 	}
 	payload, err := json.Marshal(map[string]any{
-		"protocol_version": "tma.agent_runtime.demo.v1",
+		"protocol_version": managedagents.AgentLoopMessageProtocolVersion,
+		"content_format":   "blocks",
 		"turn_id":          turnID,
 		"content": []map[string]string{{
 			"type": "text",

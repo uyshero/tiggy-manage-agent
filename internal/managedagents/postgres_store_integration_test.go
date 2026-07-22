@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -113,7 +114,8 @@ func TestPostgresNewRunFollowsLatestAgentConfigUnlessPinned(t *testing.T) {
 	t.Run("pinned", func(t *testing.T) {
 		session := createPostgresIntegrationSession(t, store)
 		if _, err := store.UpdateSessionRuntimeSettings(session.ID, UpdateSessionRuntimeSettingsInput{
-			RuntimeSettings: json.RawMessage(`{"agent_config_update_policy":"pinned"}`),
+			RuntimeSettings:  json.RawMessage(`{"agent_config_update_policy":"pinned"}`),
+			ExpectedRevision: session.RuntimeSettingsRevision,
 		}); err != nil {
 			t.Fatalf("pin session: %v", err)
 		}
@@ -138,6 +140,112 @@ func TestPostgresNewRunFollowsLatestAgentConfigUnlessPinned(t *testing.T) {
 			t.Fatalf("unexpected pinned run: %+v events=%+v", started.Run, started.Events)
 		}
 	})
+}
+
+func TestPostgresSessionRuntimeSettingsConcurrentUpdateAllowsOneWinner(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, settings := range []json.RawMessage{
+		json.RawMessage(`{"intervention_mode":"approve_for_me"}`),
+		json.RawMessage(`{"tool_runtime":"local_system"}`),
+	} {
+		settings := settings
+		go func() {
+			<-start
+			_, err := store.UpdateSessionRuntimeSettings(session.ID, UpdateSessionRuntimeSettingsInput{
+				RuntimeSettings: settings, ExpectedRevision: session.RuntimeSettingsRevision,
+			})
+			results <- err
+		}()
+	}
+	close(start)
+	succeeded, conflicted := 0, 0
+	for range 2 {
+		err := <-results
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, ErrRevisionConflict):
+			conflicted++
+		default:
+			t.Fatalf("unexpected concurrent update error: %v", err)
+		}
+	}
+	if succeeded != 1 || conflicted != 1 {
+		t.Fatalf("concurrent updates: succeeded=%d conflicted=%d", succeeded, conflicted)
+	}
+	loaded, err := store.GetSession(session.ID)
+	if err != nil {
+		t.Fatalf("get updated session: %v", err)
+	}
+	if loaded.RuntimeSettingsRevision != session.RuntimeSettingsRevision+1 {
+		t.Fatalf("revision = %d, want %d", loaded.RuntimeSettingsRevision, session.RuntimeSettingsRevision+1)
+	}
+}
+
+func TestPostgresWorkspaceToolPermissionPolicyRevisionAndRuntimeResolution(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	ctx := context.Background()
+	workspaceID := createPostgresIntegrationWorkspace(t, store, "tool-permissions")
+
+	initial, err := store.GetWorkspaceToolPermissionPolicyContext(ctx, workspaceID)
+	if err != nil {
+		t.Fatalf("get default workspace tool permissions: %v", err)
+	}
+	if initial.Revision != 1 || string(initial.Policy) != `{"permission_rules": []}` && string(initial.Policy) != `{"permission_rules":[]}` {
+		t.Fatalf("unexpected default policy: %+v policy=%s", initial, initial.Policy)
+	}
+	policyJSON := json.RawMessage(`{"permission_rules":[{"id":"deny-secrets","tool":"default.edit_file","argument":"path","pattern":"/workspace/secrets/**","behavior":"deny"}]}`)
+	updated, err := store.UpdateWorkspaceToolPermissionPolicyContext(ctx, UpdateWorkspaceToolPermissionPolicyInput{
+		WorkspaceID: workspaceID, Policy: policyJSON, ExpectedRevision: initial.Revision, UpdatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("update workspace tool permissions: %v", err)
+	}
+	if updated.Revision != 2 || updated.UpdatedBy != "integration-test" {
+		t.Fatalf("unexpected updated policy: %+v", updated)
+	}
+	if _, err := store.UpdateWorkspaceToolPermissionPolicyContext(ctx, UpdateWorkspaceToolPermissionPolicyInput{
+		WorkspaceID: workspaceID, Policy: json.RawMessage(`{"permission_rules":[]}`), ExpectedRevision: 1, UpdatedBy: "stale-writer",
+	}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale update error = %v, want revision conflict", err)
+	}
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	agent, err := store.CreateAgent(CreateAgentInput{
+		WorkspaceID: workspaceID, Name: "tool-policy-agent-" + suffix, Model: "test-model", System: "integration test",
+	})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	environment, err := store.CreateEnvironment(CreateEnvironmentInput{
+		WorkspaceID: workspaceID, Name: "tool-policy-env-" + suffix, Config: json.RawMessage(`{"type":"integration"}`),
+	})
+	if err != nil {
+		t.Fatalf("create environment: %v", err)
+	}
+	session, err := store.CreateSession(CreateSessionInput{
+		WorkspaceID: workspaceID, AgentID: agent.ID, EnvironmentID: environment.ID, CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, session.ID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM environments WHERE id = $1`, environment.ID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1`, agent.ID)
+	})
+	runtimeConfig, err := store.ResolveAgentRuntimeConfig(session.ID)
+	if err != nil {
+		t.Fatalf("resolve runtime config: %v", err)
+	}
+	var runtimePolicyValue any
+	var expectedPolicyValue any
+	if json.Unmarshal(runtimeConfig.WorkspaceToolPolicy, &runtimePolicyValue) != nil || json.Unmarshal(policyJSON, &expectedPolicyValue) != nil || !reflect.DeepEqual(runtimePolicyValue, expectedPolicyValue) {
+		t.Fatalf("runtime workspace policy = %s, want %s", runtimeConfig.WorkspaceToolPolicy, policyJSON)
+	}
 }
 
 func TestPostgresSkillRegistryVersionsAndUsage(t *testing.T) {
@@ -2393,7 +2501,7 @@ func TestPostgresStoreScopedTenantIsolation(t *testing.T) {
 	if err != nil || updatedSession.PinnedAt == nil {
 		t.Fatalf("update owner-scoped Session metadata: session=%+v err=%v", updatedSession, err)
 	}
-	updatedSession, err = store.UpdateSessionRuntimeSettingsContext(alphaOwnerContext, alphaSession.ID, UpdateSessionRuntimeSettingsInput{RuntimeSettings: json.RawMessage(`{"temperature":0.2}`)})
+	updatedSession, err = store.UpdateSessionRuntimeSettingsContext(alphaOwnerContext, alphaSession.ID, UpdateSessionRuntimeSettingsInput{RuntimeSettings: json.RawMessage(`{"temperature":0.2}`), ExpectedRevision: alphaSession.RuntimeSettingsRevision})
 	if err != nil || string(updatedSession.RuntimeSettings) != `{"temperature": 0.2}` {
 		t.Fatalf("update owner-scoped Session runtime settings: session=%+v err=%v", updatedSession, err)
 	}
@@ -2487,7 +2595,7 @@ func TestPostgresStoreScopedTenantIsolation(t *testing.T) {
 			return err
 		},
 		"context session runtime settings update": func() error {
-			_, err := store.UpdateSessionRuntimeSettingsContext(alphaOwnerContext, alphaPeerSession.ID, UpdateSessionRuntimeSettingsInput{RuntimeSettings: json.RawMessage(`{}`)})
+			_, err := store.UpdateSessionRuntimeSettingsContext(alphaOwnerContext, alphaPeerSession.ID, UpdateSessionRuntimeSettingsInput{RuntimeSettings: json.RawMessage(`{}`), ExpectedRevision: alphaPeerSession.RuntimeSettingsRevision})
 			return err
 		},
 		"context session archive": func() error {
@@ -2898,8 +3006,8 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
 		skill_marketplace_entries, skill_marketplace_policies, skill_marketplace_policy_versions,
 		skill_version_package_files, skill_versions, skills,
-		subagent_start_requests, subagent_task_group_items, subagent_task_groups, trace_indexes, trace_span_indexes,
-		worker_work, workers TO `+role); err != nil {
+		subagent_start_requests, subagent_task_group_items, subagent_task_groups, tool_permission_audit_records, trace_indexes, trace_span_indexes,
+		worker_work, workers, workspace_tool_permission_policies TO `+role); err != nil {
 		t.Fatalf("grant tenant table access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
@@ -4275,7 +4383,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}
@@ -4711,7 +4819,8 @@ func TestPostgresLLMReferenceIntegritySerializesConcurrentDelete(t *testing.T) {
 		t.Fatalf("create LLM reference session: %v", err)
 	}
 	if _, err := store.UpdateSessionRuntimeSettings(session.ID, UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"llm_provider":"` + providerID + `","llm_model":"` + overrideModel + `"}`),
+		RuntimeSettings:  json.RawMessage(`{"llm_provider":"` + providerID + `","llm_model":"` + overrideModel + `"}`),
+		ExpectedRevision: session.RuntimeSettingsRevision,
 	}); err != nil {
 		t.Fatalf("apply session LLM override: %v", err)
 	}

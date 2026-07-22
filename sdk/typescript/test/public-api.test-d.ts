@@ -20,10 +20,12 @@ import {
   TracesService,
   WorkersService,
   WorkerWorkService,
+  WorkspaceToolPermissionsService,
   type CreateSkillRequest,
   type LLMDiagnosticResult,
   type SessionListQuery,
   type TMAClientOptions,
+  type ToolPermissionAuditPage,
 } from "../src/index.js";
 import { createLowLevelClient, type paths } from "../src/low-level.js";
 
@@ -52,6 +54,7 @@ const services: [
   ObservabilityService,
   AuditService,
   EnvironmentVariablesService,
+  WorkspaceToolPermissionsService,
 ] = [
   client.auth,
   client.agents,
@@ -72,6 +75,7 @@ const services: [
   client.observability,
   client.audit,
   client.environmentVariables,
+  client.workspaceToolPermissions,
 ];
 
 new TMAClient("https://tma.example.com", options);
@@ -82,10 +86,18 @@ client.sessions.taskPlan("session/1");
 client.sessions.taskPlans("session/1");
 client.sessions.usage("session/1");
 client.sessions.upgradeConfig("session/1", { to_current: true, updated_by: "type-contract" });
+client.sessions.updateRuntimeSettings("session/1", 1, {
+  permission_rules: [{
+    id: "session-src", tool: "default.edit_file", argument: "path",
+    pattern: "/workspace/src/**", behavior: "allow",
+  }],
+});
 client.sessions.appendEvents("session/1", { events: [{ type: "custom.event", payload: { extension: true } }] });
 const providerDiagnostic: Promise<LLMDiagnosticResult> = client.llm.testProvider("provider/1");
 const modelDiagnostic: Promise<LLMDiagnosticResult> = client.llm.testModel("provider/1", "model/1");
 client.skills.create(skillRequest);
+client.workspaceToolPermissions.evaluate("workspace/1", { tool: "default.read_file", path: "/workspace/README.md" });
+const permissionAudit: Promise<ToolPermissionAuditPage> = client.audit.listToolPermissions("session/1", { decision: "ask", limit: 20, cursor: "next" });
 const handle: Promise<RunHandle> = client.runs.start("session/1", { input: { text: "run" } });
 const rawPaths: paths | undefined = undefined;
 
@@ -102,3 +114,4 @@ void handle;
 void rawPaths;
 void providerDiagnostic;
 void modelDiagnostic;
+void permissionAudit;

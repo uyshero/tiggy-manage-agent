@@ -31,6 +31,9 @@ func TestReadFileSmallFileBackwardCompatible(t *testing.T) {
 	if result.FileRevision == "" || result.StartLine != 1 || result.EndLine != 2 {
 		t.Fatalf("missing stable metadata: %#v", result)
 	}
+	if result.ContentSHA256 != contentSHA256(want) {
+		t.Fatalf("full read content hash = %q, want %q", result.ContentSHA256, contentSHA256(want))
+	}
 }
 
 func TestReadFileLargeSparseFileReturnsBoundedFirstPage(t *testing.T) {
@@ -59,6 +62,9 @@ func TestReadFileLargeSparseFileReturnsBoundedFirstPage(t *testing.T) {
 	}
 	if result.EOF || !result.Truncated || result.NextOffsetBytes != DefaultReadFileDefaultMaxBytes {
 		t.Fatalf("unexpected first-page metadata: %#v", result)
+	}
+	if result.ContentSHA256 != "" {
+		t.Fatalf("partial reads must not claim a whole-file content hash: %#v", result)
 	}
 }
 

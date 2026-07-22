@@ -176,6 +176,9 @@ func (r ProcessPluginRuntime) run(ctx context.Context, timeout time.Duration, mo
 }
 
 func validatePluginManifest(manifest Manifest) error {
+	if err := ValidateManifestPermissions(manifest); err != nil {
+		return err
+	}
 	namespace, ok := NormalizeToolNamespace(manifest.Identifier)
 	if !ok {
 		return fmt.Errorf("invalid identifier %q", manifest.Identifier)

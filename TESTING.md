@@ -24,7 +24,7 @@ make build
 make build-cli
 ```
 
-`make eval-agent-quality` 是无需 Docker、网络、数据库或真实模型的确定性 Agent 完成质量回归。它直接运行生产 Tool Loop 与 Task Plan completion gate，并对 false success、重试修正、verified evidence 合规和失败关闭执行 CI 阈值；指标定义见 [docs/agent-quality-evaluation.md](./docs/agent-quality-evaluation.md)。
+`make eval-agent-quality` 是无需 Docker、网络、数据库或真实模型的确定性 Agent 完成质量回归。它直接运行生产 Tool Loop 与 Task Plan completion gate，并对 false success、重试修正、verified evidence 合规和失败关闭执行 CI 阈值；指标定义见 [docs/architecture.md](./docs/architecture.md)。
 
 Postgres 集成测试默认跳过。可以显式运行：
 
@@ -82,7 +82,7 @@ make run
 http://localhost:8080
 ```
 
-启动服务。当前服务端使用内置 `agentruntime.DemoRuntime`：
+启动服务。当前服务端固定使用 durable Agent Core：
 
 ```bash
 make run
@@ -94,9 +94,9 @@ make run
 Agent runtime received: <你的文本>
 ```
 
-AgentRuntime 设计见 [docs/agent-runtime.md](./docs/agent-runtime.md)。
+AgentRuntime 设计见 [docs/architecture.md](./docs/architecture.md)。
 
-常见误配置和修正记录见 [docs/troubleshooting.md](./docs/troubleshooting.md)。
+常见误配置和修正记录见 [docs/operations.md](./docs/operations.md)。
 
 服务启动后，可在另一个终端跑自动验收：
 
@@ -111,6 +111,48 @@ make verify-agent-runtime-full
 ```
 
 `verify-agent-runtime-full` 会显式使用 `fake` Provider，适合检查基础 HTTP / Store / Runner / Runtime 链路，不受本地真实模型配置影响。
+
+### Agent Core staging 生产验收
+
+Agent Core staging 验收连接已经运行的 staging Server，默认地址是 `http://localhost:18088`。它不会启动或替换 Server，也不会创建临时数据库；普通入口会使用真实 Provider 完成模型回复、工具审批暂停/恢复和指标检查，并在当前 staging 数据库中创建验收 Agent、Environment、Session 和事件记录。
+
+前置条件：
+
+- `TMA_BASE_URL` 指向隔离的 staging Server。
+- `.env` 或 shell 中配置了可用的 `TMA_LLM_PROVIDER`、`TMA_LLM_MODEL` 和对应 API Key。
+- staging Server 与 PostgreSQL 已启动，`bin/tma` 可构建。
+
+非中断性验收：
+
+```bash
+make verify-agent-core-staging
+```
+
+优雅重启恢复演练：
+
+```bash
+make verify-agent-core-staging-restart
+```
+
+该入口会在审批已经持久化后向 staging Server 发送 `SIGTERM`，通过 `TMA_AGENT_CORE_STAGING_START_SCRIPT` 重新启动服务，再批准工具调用并验证 continuation。默认依赖 `.tma-agent-core-staging.pid`、`screen` 和 `/tmp/tma-agent-core-staging.sh`。
+
+进程崩溃恢复演练：
+
+```bash
+make verify-agent-core-staging-crash
+```
+
+该入口会在模型请求和未知幂等性的工具执行期间分别向 staging Server 发送 `SIGKILL`。模型 attempt 必须被标记为 abandoned 后重试；已 started 的未知幂等性工具不得重放，必须恢复为 `indeterminate`。
+
+基础设施恢复演练：
+
+```bash
+make verify-agent-core-staging-infrastructure
+```
+
+该入口会暂时停止 `TMA_AGENT_CORE_STAGING_POSTGRES_CONTAINER`（默认 `tma-postgres`），还会对主 Server 发送 `SIGSTOP`，在 `TMA_AGENT_CORE_COMPETITOR_BASE_URL`（默认 `http://localhost:18089`）启动竞争实例以验证 lease fencing。脚本有退出清理，但执行期间数据库和主 Server 会短暂不可用。
+
+重启、崩溃和基础设施入口只能在隔离 staging 环境执行，不能指向生产环境、共享开发数据库或承载其他验收任务的 Server。可以用 `TMA_AGENT_CORE_CRASH_MODE=model|tool|all` 和 `TMA_AGENT_CORE_INFRASTRUCTURE_MODE=database|fencing|all` 缩小演练范围。
 
 如果要手动验证 Context Builder 历史截断，可以在启动服务前设置：
 
@@ -156,6 +198,28 @@ bin/tma session intervention list --session sesn_000001 --status pending
 bin/tma session intervention approve --session sesn_000001 --turn turn_000003 --call call_edit --reason "looks safe"
 bin/tma session intervention reject --session sesn_000001 --turn turn_000003 --call call_edit --reason "not this time"
 ```
+
+Agent Core 恢复未知幂等性的 started 工具时不会自动重放，也不会直接让模型猜测结果。Turn 会进入 `waiting_human`，pending intervention 的 `request.purpose` 为 `tool_reconciliation`。先检查外部系统、日志或事务记录，再提交核对结果：
+
+```bash
+bin/tma session intervention list --session sesn_000001 --status pending
+
+bin/tma session intervention reconcile \
+  --session sesn_000001 \
+  --turn turn_000003 \
+  --call tool_reconciliation:call_run \
+  --outcome executed \
+  --summary "Transaction tx-42 exists and matches the requested payload." \
+  --evidence "audit:tx-42"
+```
+
+`--outcome` 只接受：
+
+- `executed`：人工确认副作用已经完成；journal 转为 succeeded，模型收到成功结果。
+- `not_executed`：人工确认副作用没有发生；journal 转为 failed + retryable，模型可以选择重新调用。
+- `compensated`：不确定副作用已经回滚或补偿；journal 转为 failed + non-retryable，模型不得把原调用当作成功。
+
+Workbench 会把同一请求显示为结构化表单。跳过或取消核对不会把调用转换成成功，原 `indeterminate` 结果继续交给模型安全收敛。`--summary` 和 `--evidence` 会进入 durable state、审计事件和后续模型上下文，只能填写非敏感核对信息，不能包含 Token、密码或完整凭据。
 
 ## 3. LLM Provider 管理命令
 
@@ -409,7 +473,7 @@ Agent runtime received: agent runtime verify
 并校验 `agent.message` payload 中包含当前协议版本：
 
 ```text
-protocol_version = tma.agent_runtime.demo.v1
+protocol_version = tma.agent_loop.message.v1
 ```
 
 ---
@@ -1502,7 +1566,7 @@ make verify-mcp-compatibility
 - `@modelcontextprotocol/server-everything@2026.7.4`：在本机随机端口启动 Streamable HTTP 模式，复用 Server Session，加载 tools/resources/resource templates/prompts，执行 Prompt/Resource completion 与 `echo` marker 调用。
 - `@yawlabs/postgres-mcp@0.6.20`：自动创建一次性数据库和随机只读角色，通过 `secret_ref: env:...` 注入连接串，验证 21 tools、参数化读取、`POSTGRES_MAX_ROWS=2` 截断、两类只读写入拒绝、stacked query 拒绝和数据最终不变。
 
-通过条件：五款 Server 均完成真实 `initialize`、`tools/list` 和 `tools/call`，返回非空 Server name/version 并确认协商 MCP `2025-06-18`；Filesystem 还必须在无命令行目录时完成反向 `roots/list`、允许目录有界收敛和 marker 读取；Everything 必须在同一 Streamable HTTP Session 中返回非空 tools/resources/resource templates/prompts，完成两类 completion 与 `echo`；PostgreSQL 必须证明结果截断、参数化查询、MCP 与数据库双层只读边界以及 rejected write 后数据不变。每个 `inputSchema` 都是合法 JSON，stdio 使用 MCP 标准 `json_lines` framing。文件测试数据只写入临时目录，本地 HTTP/stdio 进程、一次性数据库和角色结束后不得残留。默认 `go test ./...` 会跳过联网及数据库矩阵；完整结果与已知限制记录在 `docs/mcp-server-compatibility.md`。
+通过条件：五款 Server 均完成真实 `initialize`、`tools/list` 和 `tools/call`，返回非空 Server name/version 并确认协商 MCP `2025-06-18`；Filesystem 还必须在无命令行目录时完成反向 `roots/list`、允许目录有界收敛和 marker 读取；Everything 必须在同一 Streamable HTTP Session 中返回非空 tools/resources/resource templates/prompts，完成两类 completion 与 `echo`；PostgreSQL 必须证明结果截断、参数化查询、MCP 与数据库双层只读边界以及 rejected write 后数据不变。每个 `inputSchema` 都是合法 JSON，stdio 使用 MCP 标准 `json_lines` framing。文件测试数据只写入临时目录，本地 HTTP/stdio 进程、一次性数据库和角色结束后不得残留。默认 `go test ./...` 会跳过联网及数据库矩阵；完整结果与已知限制记录在 `docs/mcp.md`。
 
 legacy framing 聚焦回归：
 
@@ -1706,7 +1770,7 @@ make verify-worker-plugin-tools
 
 ### 17.9.2 Computer-use process plugin 验证
 
-这一节验证 `computer` 插件可以作为 worker 后端能力挂入现有 `tool_execution` 链路。该 smoke 使用 fake CUA backend，不控制真实电脑，但会覆盖 CUA tool 映射、截图落 PNG 文件、以及带 session 的 screenshot artifact ref；真实运行时可切到 `auto` / `cua` / `ax`。详细标准见 [docs/computer-use-plugin.md](./docs/computer-use-plugin.md)。
+这一节验证 `computer` 插件可以作为 worker 后端能力挂入现有 `tool_execution` 链路。该 smoke 使用 fake CUA backend，不控制真实电脑，但会覆盖 CUA tool 映射、截图落 PNG 文件、以及带 session 的 screenshot artifact ref；真实运行时可切到 `auto` / `cua` / `ax`。详细标准见 [docs/tools.md](./docs/tools.md)。
 
 ```bash
 make verify-computer-plugin-tools

@@ -460,10 +460,12 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('subagent_start_requests', 'subagent_start_requests_session_isolation'),
 				('subagent_task_group_items', 'subagent_task_group_items_group_isolation'),
 				('subagent_task_groups', 'subagent_task_groups_session_isolation'),
+				('tool_permission_audit_records', 'tool_permission_audit_records_isolation'),
 				('trace_indexes', 'trace_indexes_session_isolation'),
 				('trace_span_indexes', 'trace_span_indexes_trace_isolation'),
 				('worker_work', 'worker_work_workspace_isolation'),
-				('workers', 'workers_workspace_isolation')
+				('workers', 'workers_workspace_isolation'),
+				('workspace_tool_permission_policies', 'workspace_tool_permission_policies_isolation')
 		)
 		SELECT
 			required.table_name,
@@ -512,8 +514,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 48 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000083")
+	if checked != 50 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000085")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `

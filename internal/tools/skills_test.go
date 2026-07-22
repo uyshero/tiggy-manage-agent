@@ -81,7 +81,7 @@ func TestSkillsRuntimeManifestAndExecution(t *testing.T) {
 	if manifest.Identifier != SkillsIdentifier || len(manifest.API) != 8 {
 		t.Fatalf("unexpected skills manifest: %#v", manifest)
 	}
-	if manifest.API[2].Risk != ToolRiskRead || manifest.API[3].Risk != ToolRiskRead || manifest.API[4].Risk != ToolRiskRead || manifest.API[5].Risk != ToolRiskWrite || manifest.API[5].HumanIntervention == "" || manifest.API[6].Risk != ToolRiskWrite || manifest.API[7].Risk != ToolRiskWrite || manifest.API[7].HumanIntervention == "" {
+	if manifest.ApprovalPolicy != ApprovalPolicyNever || manifest.API[2].Risk != ToolRiskRead || manifest.API[3].Risk != ToolRiskRead || manifest.API[4].Risk != ToolRiskRead || manifest.API[5].Risk != ToolRiskWrite || manifest.API[5].ApprovalPolicy != ApprovalPolicyAlways || manifest.API[6].Risk != ToolRiskWrite || manifest.API[7].Risk != ToolRiskWrite || manifest.API[7].ApprovalPolicy != ApprovalPolicyAlways {
 		t.Fatalf("expected install and enable approval metadata: %#v", manifest.API)
 	}
 

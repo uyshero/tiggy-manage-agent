@@ -124,7 +124,7 @@ func TestToolSchemaCaseCountsExpectedRejectedCalls(t *testing.T) {
 		Thresholds: Thresholds{CasePassRateMin: 1, SchemaComplianceMin: 1, InvalidExecutionMax: 0},
 		Cases: []Case{{
 			ID: "schema_guard", Category: "schema_retry", Flow: "tool_schema", MaxRetries: 1,
-			Expected: Expectation{Outcome: "fail", SchemaRejections: 2, ErrorContains: "repeatedly returned invalid"},
+			Expected: Expectation{Outcome: "fail", SchemaRejections: 2, ErrorContains: "model request failed"},
 			Candidates: []Candidate{
 				{ToolCall: &ToolCallCandidate{ID: "bad_1", Arguments: json.RawMessage(`{"value":"candidate"}`)}},
 				{ToolCall: &ToolCallCandidate{ID: "bad_2", Arguments: json.RawMessage(`{"value":"candidate"}`)}},

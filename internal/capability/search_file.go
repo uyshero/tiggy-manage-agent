@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -25,6 +24,10 @@ func (provider LocalSystemProvider) SearchFile(ctx context.Context, request Sear
 }
 
 func searchLocalFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error) {
+	return searchLocalFileWithOpenHook(ctx, request, nil)
+}
+
+func searchLocalFileWithOpenHook(ctx context.Context, request SearchFileRequest, beforeOpen func()) (SearchFileResult, error) {
 	ctx, cancel := contextWithRequestDeadline(ctx, request.Meta.Deadline)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -62,7 +65,7 @@ func searchLocalFile(ctx context.Context, request SearchFileRequest) (SearchFile
 		)
 	}
 
-	file, err := os.Open(request.Path)
+	file, err := openLocalFileForSearch(request, beforeOpen)
 	if err != nil {
 		return SearchFileResult{}, err
 	}

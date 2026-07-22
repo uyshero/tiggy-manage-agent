@@ -16,6 +16,7 @@ export { SessionsService, type SessionListQuery } from "./services/sessions.js";
 export { SkillsService } from "./services/skills.js";
 export { TracesService } from "./services/traces.js";
 export { WorkersService, WorkerWorkService } from "./services/workers.js";
+export { WorkspaceToolPermissionsService } from "./services/workspace-tool-permissions.js";
 export { type EventStreamOptions, type LiveEventStreamOptions } from "./sse.js";
 export { type TokenSource, type TransportOptions } from "./transport.js";
 export * from "./types.js";

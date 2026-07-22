@@ -2,6 +2,8 @@ package agentcore
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"tiggy-manage-agent/internal/model"
@@ -30,7 +32,92 @@ type CompactionPort interface {
 
 type ToolPort interface {
 	Preflight(context.Context, State, []model.ToolCall) (ToolBatchPlan, error)
+	// ValidateExecution checks the complete durable batch without executing a
+	// tool. The Engine calls it before persisting any started journal entry.
+	ValidateExecution(context.Context, State, ToolBatchPlan) error
 	Execute(context.Context, State, ToolBatchPlan) (ToolBatchResult, error)
+}
+
+// ToolFatalError marks a ToolPort infrastructure failure that must terminate
+// the loop instead of being returned to the model as an execution result.
+type ToolFatalError struct {
+	Code  string
+	Cause error
+}
+
+// ToolResultError is a recoverable tool failure whose code and message are
+// explicitly safe to return to the model. Cause remains available through the
+// error chain for runtime diagnostics and must not be placed in model context.
+type ToolResultError struct {
+	code      string
+	message   string
+	retryable bool
+	cause     error
+}
+
+func NewToolResultError(code, message string, retryable bool, cause error) *ToolResultError {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = "tool_execution_failed"
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "Tool execution failed. Retry or use another approach."
+	}
+	return &ToolResultError{code: code, message: message, retryable: retryable, cause: cause}
+}
+
+func (e *ToolResultError) Error() string {
+	if e == nil || e.message == "" {
+		return "Tool execution failed. Retry or use another approach."
+	}
+	return e.message
+}
+
+func (e *ToolResultError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+func (e *ToolResultError) Code() string {
+	if e == nil || e.code == "" {
+		return "tool_execution_failed"
+	}
+	return e.code
+}
+
+func (e *ToolResultError) Retryable() bool {
+	return e != nil && e.retryable
+}
+
+func NewToolFatalError(code string, cause error) *ToolFatalError {
+	if cause == nil {
+		cause = errors.New("tool runtime infrastructure failure")
+	}
+	return &ToolFatalError{Code: strings.TrimSpace(code), Cause: cause}
+}
+
+func (e *ToolFatalError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "tool runtime infrastructure failure"
+	}
+	return e.Cause.Error()
+}
+
+func (e *ToolFatalError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *ToolFatalError) ErrorCode() string {
+	if e == nil || strings.TrimSpace(e.Code) == "" {
+		return "tool_runtime_failed"
+	}
+	return strings.TrimSpace(e.Code)
 }
 
 type CompletionOutcome string

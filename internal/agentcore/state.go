@@ -112,7 +112,7 @@ func ValidatePhaseTransition(from, to Phase) error {
 	case PhasePaused:
 		allowed = to == PhaseExecutingTools
 	case PhaseExecutingTools:
-		allowed = to == PhaseAwaitingModel
+		allowed = to == PhasePaused || to == PhaseAwaitingModel
 	case PhaseValidatingCompletion:
 		allowed = to == PhaseAwaitingModel || to == PhaseCompleted
 	}

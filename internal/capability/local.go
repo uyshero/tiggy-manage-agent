@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -88,6 +89,10 @@ func (LocalSystemProvider) ToolCapabilities() []string {
 }
 
 func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
+	return runLocalCommand(ctx, request, nil)
+}
+
+func runLocalCommand(ctx context.Context, request RunCommandRequest, beforeStart func()) (CommandResult, error) {
 	if request.Command == "" {
 		return CommandResult{}, fmt.Errorf("local system command is required")
 	}
@@ -104,10 +109,28 @@ func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandReq
 	defer cancelRun()
 
 	cmd := exec.Command(request.Command, request.Args...)
-	configureCommandProcessGroup(cmd)
+	workDirPinned := false
 	if request.WorkDir != "" {
-		cmd.Dir = request.WorkDir
+		workDir, inheritedDir, err := prepareGuardedCommandWorkDir(request.guardedRoot, request.WorkDir, len(cmd.ExtraFiles)+3)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		if inheritedDir != nil {
+			if cmd.Err != nil {
+				_ = inheritedDir.Close()
+				return CommandResult{}, cmd.Err
+			}
+			arguments := []string{"-c", "cd -P -- \"$1\" || exit 125\nexec 3<&-\nshift\nexec \"$@\"", "tma-workdir", workDir, cmd.Path}
+			arguments = append(arguments, request.Args...)
+			cmd = exec.Command("/bin/sh", arguments...)
+			defer inheritedDir.Close()
+			cmd.ExtraFiles = append(cmd.ExtraFiles, inheritedDir)
+			workDirPinned = true
+		} else {
+			cmd.Dir = workDir
+		}
 	}
+	configureCommandProcessGroup(cmd)
 	if len(request.Env) > 0 {
 		env := append([]string(nil), os.Environ()...)
 		for key, value := range request.Env {
@@ -133,6 +156,14 @@ func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandReq
 	cmd.Stderr = &stderr
 
 	startedAt := time.Now()
+	if beforeStart != nil {
+		beforeStart()
+	}
+	if !workDirPinned {
+		if err := ensureGuardedMutationPath(request.WorkDir, request.guardedRoot); err != nil {
+			return CommandResult{}, err
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		return CommandResult{}, err
 	}
@@ -205,6 +236,7 @@ func (provider LocalSystemProvider) ExecuteCode(ctx context.Context, request Exe
 			Env:            request.Env,
 			TimeoutMS:      request.TimeoutMS,
 			MaxOutputBytes: request.MaxOutputBytes,
+			guardedRoot:    request.guardedRoot,
 		})
 	case "python", "python3":
 		return provider.RunCommand(ctx, RunCommandRequest{
@@ -215,6 +247,7 @@ func (provider LocalSystemProvider) ExecuteCode(ctx context.Context, request Exe
 			Env:            request.Env,
 			TimeoutMS:      request.TimeoutMS,
 			MaxOutputBytes: request.MaxOutputBytes,
+			guardedRoot:    request.guardedRoot,
 		})
 	default:
 		return CommandResult{}, fmt.Errorf("unsupported local code language %q", request.Language)
@@ -233,7 +266,11 @@ func (LocalSystemProvider) EditFile(ctx context.Context, request EditFileRequest
 	return editLocalFileContext(ctx, request), nil
 }
 
-func (LocalSystemProvider) ExportArtifactFile(_ context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+func (LocalSystemProvider) ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+	return exportLocalArtifactFile(ctx, request, nil)
+}
+
+func exportLocalArtifactFile(ctx context.Context, request ExportArtifactFileRequest, beforeOpen func()) (ExportArtifactFileResult, error) {
 	path := strings.TrimSpace(request.Path)
 	if path == "" {
 		return ExportArtifactFileResult{}, fmt.Errorf("artifact export path is required")
@@ -245,16 +282,27 @@ func (LocalSystemProvider) ExportArtifactFile(_ context.Context, request ExportA
 		}
 		path = filepath.Join(workDir, path)
 	}
-	content, err := os.ReadFile(path)
+	if err := ctx.Err(); err != nil {
+		return ExportArtifactFileResult{}, err
+	}
+	file, err := openLocalFileForRead(ReadFileRequest{Path: path, guardedRoot: request.guardedRoot}, beforeOpen)
 	if err != nil {
 		return ExportArtifactFileResult{}, err
 	}
-	info, err := os.Stat(path)
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return ExportArtifactFileResult{}, err
 	}
-	if info.IsDir() {
-		return ExportArtifactFileResult{}, fmt.Errorf("artifact export path %q is a directory", path)
+	if !info.Mode().IsRegular() {
+		return ExportArtifactFileResult{}, newFileReadError("unsupported_file_type", "artifact export only supports regular files", map[string]any{"path": path})
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return ExportArtifactFileResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return ExportArtifactFileResult{}, err
 	}
 	return ExportArtifactFileResult{
 		Path:        strings.TrimSpace(request.Path),

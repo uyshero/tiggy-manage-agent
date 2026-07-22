@@ -42,7 +42,7 @@ func TestInteractionManifestSeparatesClarificationFromApproval(t *testing.T) {
 	askAPI := manifest.API[0]
 	uploadAPI := manifest.API[1]
 	approvalAPI := manifest.API[2]
-	if askAPI.HumanIntervention != "" || uploadAPI.HumanIntervention != "" || approvalAPI.HumanIntervention != "" {
+	if manifest.ApprovalPolicy != ApprovalPolicyNever || askAPI.ApprovalPolicy != "" || uploadAPI.ApprovalPolicy != "" || approvalAPI.ApprovalPolicy != "" {
 		t.Fatalf("interaction parking must not use tool approval metadata: %#v", manifest.API)
 	}
 	if askAPI.Name != InteractionAPIAskUser || !IsAskUserCall(Call{Identifier: InteractionIdentifier, APIName: InteractionAPIAskUser}) {

@@ -35,8 +35,6 @@ const maxVisionImageBytes = 20 << 20
 
 // AgentRuntimeTurnExecutor 把 WorkerRunner 的 TurnExecutor 接口适配到 AgentRuntime。
 type AgentRuntimeTurnExecutor struct {
-	Runtime            agentruntime.Runtime
-	CoreRollout        AgentCoreRolloutPolicy
 	CoreClient         llm.Client
 	CoreCompletionGate agentruntime.CompletionGate
 	CoreMaxRounds      int
@@ -117,11 +115,6 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		}
 		history = conversationHistoryAfterSeq(history, config.SummarySourceUntilSeq)
 	}
-	resume, err := runtimeInterventionResume(request.ResumeIntervention)
-	if err != nil {
-		_ = e.recordRuntimeFailed(ctx, err, emit)
-		return TurnResult{}, err
-	}
 	resolvedSkills, err := e.resolveSkills(ctx, request, config, emit)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
@@ -142,7 +135,6 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	history = redactConversationHistoryEnvironment(history, managedEnvironment)
 	request.UserPayload = tools.RedactEnvironmentJSON(request.UserPayload, managedEnvironment)
 	resolvedSkills.Rendered = tools.RedactEnvironmentJSON(resolvedSkills.Rendered, managedEnvironment)
-	resume = redactInterventionResumeEnvironment(resume, managedEnvironment)
 	toolExecution := execution.ResolveToolExecution(execution.ToolExecutionRequest{
 		Context:           ctx,
 		Config:            config,
@@ -175,13 +167,17 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		managedEnvironment = mergeRuntimeSkillEnvironment(managedEnvironment, materializedSkills)
 		toolExecution.Context.Environment = managedEnvironment
 	}
+	permissionRules, err := tools.ResolvePermissionRules(config.RuntimeSettings, config.Tools, config.WorkspaceToolPolicy)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, fmt.Errorf("resolve tool permission rules: %w", err)
+	}
 	runtimeRequest := agentruntime.TurnRequest{
-		SessionID:          request.SessionID,
-		TurnID:             request.TurnID,
-		UserPayload:        request.UserPayload,
-		History:            history,
-		ImageParts:         imageParts,
-		ResumeIntervention: resume,
+		SessionID:   request.SessionID,
+		TurnID:      request.TurnID,
+		UserPayload: request.UserPayload,
+		History:     history,
+		ImageParts:  imageParts,
 		Config: agentruntime.Config{
 			WorkspaceID:           config.WorkspaceID,
 			EnvironmentID:         config.EnvironmentID,
@@ -207,6 +203,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			Skills:                resolvedSkills.Rendered,
 			SkillsResolved:        true,
 			InterventionMode:      tools.ParseInterventionMode(config.RuntimeSettings),
+			PermissionRules:       permissionRules,
 			ToolRegistry:          toolExecution.Registry,
 			ToolExecutor:          tools.RegistryExecutor{Registry: toolExecution.Registry},
 			ToolExecutionContext:  toolExecution.Context,
@@ -221,59 +218,14 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			}
 		},
 	}
-	if e.CoreRollout.Allows(config, request.SessionID) || e.hasAgentCoreState(ctx, request) {
-		coreResult, coreErr := e.runAgentCoreTurn(ctx, request, runtimeRequest, config, toolExecution, startedAt)
-		if !errors.Is(coreErr, errAgentCoreIneligible) {
-			coreResult.AgentPayload = tools.RedactEnvironmentJSON(coreResult.AgentPayload, managedEnvironment)
-			if coreErr == nil && coreResult.DurableStatus == "completed" {
-				if err := e.checkpointWorkspaceSnapshot(ctx, toolExecution.Provider, config, request); err != nil {
-					slog.Default().Warn("workspace snapshot checkpoint failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
-				}
-			}
-			return coreResult, coreErr
-		}
-	}
-	if e.Runtime == nil {
-		return TurnResult{}, errors.New("legacy agent runtime is required for this turn")
-	}
-	result, err := e.Runtime.RunTurn(ctx, runtimeRequest)
+	result, err := e.runAgentCoreTurn(ctx, request, runtimeRequest, config, toolExecution, startedAt)
 	result.AgentPayload = tools.RedactEnvironmentJSON(result.AgentPayload, managedEnvironment)
-	result.SummaryText = tools.RedactEnvironmentText(result.SummaryText, managedEnvironment)
-	if err != nil {
-		if errors.Is(err, agentruntime.ErrPendingIntervention) {
-			return TurnResult{}, ErrTurnWaitingApproval
-		}
-		if errors.Is(err, agentruntime.ErrPendingHumanInput) {
-			return TurnResult{}, ErrTurnWaitingHuman
-		}
-		_ = e.recordRuntimeFailed(ctx, err, emit)
-		if ctx.Err() != nil {
-			return TurnResult{}, ctx.Err()
-		}
-		return TurnResult{
-			Usage: e.failedUsageRecord(request, config, result, time.Since(startedAt), err),
-		}, err
-	}
-	if result.SummaryText != "" && e.Store != nil {
-		if _, saveErr := managedagents.SaveSessionSummaryWithContext(ctx, e.Store, request.SessionID, managedagents.UpsertSessionSummaryInput{
-			SummaryText:    result.SummaryText,
-			SourceUntilSeq: result.SummarySourceUntilSeq,
-		}); saveErr != nil {
-			slog.Default().Warn("runtime summary save failed",
-				"session_id", request.SessionID,
-				"turn_id", request.TurnID,
-				"source_until_seq", result.SummarySourceUntilSeq,
-				"error", saveErr,
-			)
+	if err == nil && result.DurableStatus == "completed" {
+		if checkpointErr := e.checkpointWorkspaceSnapshot(ctx, toolExecution.Provider, config, request); checkpointErr != nil {
+			slog.Default().Warn("workspace snapshot checkpoint failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", checkpointErr)
 		}
 	}
-	if err := e.checkpointWorkspaceSnapshot(ctx, toolExecution.Provider, config, request); err != nil {
-		slog.Default().Warn("workspace snapshot checkpoint failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
-	}
-	return TurnResult{
-		AgentPayload: append(json.RawMessage(nil), result.AgentPayload...),
-		Usage:        e.usageRecord(request, config, result, time.Since(startedAt)),
-	}, nil
+	return result, err
 }
 
 func (e AgentRuntimeTurnExecutor) SubscribeLiveEvents(sessionID string) (<-chan LiveEvent, func(), error) {
@@ -567,28 +519,6 @@ func redactConversationHistoryEnvironment(history []managedagents.ConversationMe
 	return result
 }
 
-func redactInterventionResumeEnvironment(resume *agentruntime.InterventionResume, environment map[string]string) *agentruntime.InterventionResume {
-	if resume == nil || !tools.HasSensitiveEnvironment(environment) {
-		return resume
-	}
-	redacted := *resume
-	redacted.Response = tools.RedactEnvironmentJSON(resume.Response, environment)
-	redacted.Continuation = append([]llm.Message(nil), resume.Continuation...)
-	for messageIndex := range redacted.Continuation {
-		message := &redacted.Continuation[messageIndex]
-		message.Content = append([]llm.ContentPart(nil), message.Content...)
-		for partIndex := range message.Content {
-			message.Content[partIndex].Text = tools.RedactEnvironmentText(message.Content[partIndex].Text, environment)
-			if message.Content[partIndex].ImageURL != nil {
-				imageURL := *message.Content[partIndex].ImageURL
-				imageURL.URL = tools.RedactEnvironmentText(imageURL.URL, environment)
-				message.Content[partIndex].ImageURL = &imageURL
-			}
-		}
-	}
-	return &redacted
-}
-
 func (e AgentRuntimeTurnExecutor) loadUserImageParts(ctx context.Context, payload json.RawMessage, workspaceID string) ([]llm.ContentPart, error) {
 	databaseCtx, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: workspaceID})
 	if err != nil {
@@ -776,47 +706,6 @@ func estimateSkillTokens(raw json.RawMessage) int {
 	return tokenestimate.Text(string(raw))
 }
 
-func runtimeInterventionResume(intervention *managedagents.SessionIntervention) (*agentruntime.InterventionResume, error) {
-	if intervention == nil {
-		return nil, nil
-	}
-	var continuation []llm.Message
-	var continuationState json.RawMessage
-	if len(intervention.Continuation) > 0 {
-		if err := json.Unmarshal(intervention.Continuation, &continuation); err != nil {
-			var envelope interventionContinuationEnvelope
-			if envelopeErr := json.Unmarshal(intervention.Continuation, &envelope); envelopeErr != nil || envelope.ProtocolVersion != interventionContinuationProtocolVersion {
-				return nil, fmt.Errorf("decode intervention continuation: %w", err)
-			}
-			continuation = envelope.Messages
-			continuationState = append(json.RawMessage(nil), envelope.State...)
-		}
-	}
-	return &agentruntime.InterventionResume{
-		Call: tools.Call{
-			ID:         intervention.CallID,
-			Identifier: intervention.ToolIdentifier,
-			APIName:    intervention.APIName,
-			Arguments:  append(json.RawMessage(nil), intervention.Arguments...),
-		},
-		Kind:              intervention.Kind,
-		Status:            intervention.Status,
-		DecisionReason:    intervention.DecisionReason,
-		Response:          append(json.RawMessage(nil), intervention.Response...),
-		Continuation:      continuation,
-		ContinuationRound: intervention.ContinuationRound,
-		ContinuationState: continuationState,
-	}, nil
-}
-
-const interventionContinuationProtocolVersion = "tma.intervention_continuation.v2"
-
-type interventionContinuationEnvelope struct {
-	ProtocolVersion string          `json:"protocol_version"`
-	Messages        []llm.Message   `json:"messages"`
-	State           json.RawMessage `json:"state,omitempty"`
-}
-
 func (e AgentRuntimeTurnExecutor) resolveRuntimeConfig(ctx context.Context, sessionID string) (managedagents.AgentRuntimeConfig, error) {
 	if e.Store == nil {
 		return managedagents.AgentRuntimeConfig{}, nil
@@ -864,11 +753,6 @@ func (e AgentRuntimeTurnExecutor) emitStep(request TurnRequest) func(context.Con
 		eventType := step.Type
 		if eventType == "" {
 			return errors.New("runtime step type is required")
-		}
-		if eventType == managedagents.EventRuntimeToolInterventionRequired || eventType == managedagents.EventRuntimeHumanInputRequired || eventType == managedagents.EventRuntimePlanApprovalRequired {
-			if err := e.savePendingIntervention(ctx, request, step); err != nil {
-				return err
-			}
 		}
 		if step.Data == nil {
 			step.Data = map[string]any{}
@@ -1066,109 +950,6 @@ func parentSpanForRuntimeEvent(turnID string, eventType string, callID string) s
 	}
 }
 
-func (e AgentRuntimeTurnExecutor) savePendingIntervention(ctx context.Context, request TurnRequest, step agentruntime.Step) error {
-	if e.Store == nil {
-		return nil
-	}
-
-	callID, _ := step.Data["id"].(string)
-	identifier, _ := step.Data["identifier"].(string)
-	apiName, _ := step.Data["api_name"].(string)
-	mode, _ := step.Data["intervention_mode"].(string)
-	reason, _ := step.Data["reason"].(string)
-	kind, _ := step.Data["kind"].(string)
-	if kind == "" {
-		kind = managedagents.InterventionKindToolApproval
-	}
-	if callID == "" || identifier == "" || apiName == "" {
-		return nil
-	}
-
-	var arguments json.RawMessage
-	if value, ok := step.Private["arguments"].(json.RawMessage); ok && len(value) > 0 {
-		arguments = append(json.RawMessage(nil), value...)
-	} else if value, ok := step.Data["arguments"]; ok && value != nil {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("encode intervention arguments: %w", err)
-		}
-		arguments = encoded
-	}
-
-	var continuation json.RawMessage
-	if value, ok := step.Private["continuation_messages"]; ok && value != nil {
-		encoded, err := marshalInterventionContinuation(value)
-		if err != nil {
-			return fmt.Errorf("encode intervention continuation: %w", err)
-		}
-		continuation = encoded
-	}
-	if state, ok := step.Private["continuation_state"].(json.RawMessage); ok && len(state) > 0 && len(continuation) > 0 {
-		var messages []llm.Message
-		if err := json.Unmarshal(continuation, &messages); err != nil {
-			return fmt.Errorf("encode intervention continuation state: %w", err)
-		}
-		encoded, err := json.Marshal(interventionContinuationEnvelope{
-			ProtocolVersion: interventionContinuationProtocolVersion,
-			Messages:        messages,
-			State:           append(json.RawMessage(nil), state...),
-		})
-		if err != nil {
-			return fmt.Errorf("encode intervention continuation state: %w", err)
-		}
-		continuation = encoded
-	}
-	continuationRound := 0
-	if value, ok := step.Private["continuation_round"].(int); ok {
-		continuationRound = value
-	}
-
-	var interactionRequest json.RawMessage
-	if value, ok := step.Private["request"].(json.RawMessage); ok && len(value) > 0 {
-		interactionRequest = append(json.RawMessage(nil), value...)
-	}
-
-	if _, err := managedagents.SaveSessionInterventionWithContext(ctx, e.Store, request.SessionID, managedagents.SaveSessionInterventionInput{
-		TurnID:            request.TurnID,
-		CallID:            callID,
-		ToolIdentifier:    identifier,
-		APIName:           apiName,
-		Arguments:         arguments,
-		Kind:              kind,
-		Request:           interactionRequest,
-		InterventionMode:  mode,
-		Reason:            reason,
-		Continuation:      continuation,
-		ContinuationRound: continuationRound,
-	}); err != nil {
-		return err
-	}
-	if kind == managedagents.InterventionKindClarification || kind == managedagents.InterventionKindUploadRequest {
-		return managedagents.MarkSessionTurnWaitingHumanWithContext(ctx, e.Store, request.SessionID, request.TurnID)
-	}
-	return managedagents.MarkSessionTurnWaitingApprovalWithContext(ctx, e.Store, request.SessionID, request.TurnID)
-}
-
-func marshalInterventionContinuation(value any) ([]byte, error) {
-	messages, ok := value.([]llm.Message)
-	if !ok {
-		return json.Marshal(value)
-	}
-	normalized := append([]llm.Message(nil), messages...)
-	for messageIndex := range normalized {
-		normalized[messageIndex].ToolCalls = append([]llm.ToolCall(nil), normalized[messageIndex].ToolCalls...)
-		for callIndex := range normalized[messageIndex].ToolCalls {
-			raw := normalized[messageIndex].ToolCalls[callIndex].Function.Arguments
-			trimmed := strings.TrimSpace(string(raw))
-			var object map[string]json.RawMessage
-			if trimmed == "" || !json.Valid([]byte(trimmed)) || json.Unmarshal([]byte(trimmed), &object) != nil || object == nil {
-				normalized[messageIndex].ToolCalls[callIndex].Function.Arguments = json.RawMessage(`{}`)
-			}
-		}
-	}
-	return json.Marshal(normalized)
-}
-
 func (e AgentRuntimeTurnExecutor) recordRuntimeFailed(ctx context.Context, err error, emit func(context.Context, agentruntime.Step) error) error {
 	if e.Store == nil || err == nil || ctx.Err() != nil {
 		return nil
@@ -1190,47 +971,6 @@ func (e AgentRuntimeTurnExecutor) recordRuntimeFailed(ctx context.Context, err e
 		Message: err.Error(),
 		Data:    data,
 	})
-}
-
-func (e AgentRuntimeTurnExecutor) usageRecord(request TurnRequest, config managedagents.AgentRuntimeConfig, result agentruntime.TurnResult, latency time.Duration) *managedagents.RecordLLMUsageInput {
-	providerID := defaultString(result.Provider, config.LLMProvider)
-	model := defaultString(result.Model, config.LLMModel)
-	if providerID == "" || model == "" {
-		return nil
-	}
-	if config.WorkspaceID == "" || config.AgentID == "" || config.AgentConfigVersion <= 0 {
-		return nil
-	}
-
-	return &managedagents.RecordLLMUsageInput{
-		WorkspaceID:        config.WorkspaceID,
-		AgentID:            config.AgentID,
-		AgentConfigVersion: config.AgentConfigVersion,
-		SessionID:          request.SessionID,
-		TurnID:             request.TurnID,
-		ProviderID:         providerID,
-		ProviderType:       defaultString(result.ProviderType, config.LLMProviderType),
-		Model:              model,
-		InputTokens:        result.Usage.InputTokens,
-		OutputTokens:       result.Usage.OutputTokens,
-		TotalTokens:        result.Usage.TotalTokens,
-		CachedInputTokens:  result.Usage.CachedInputTokens,
-		ReasoningTokens:    result.Usage.ReasoningTokens,
-		LatencyMillis:      latency.Milliseconds(),
-		Status:             "completed",
-	}
-}
-
-func (e AgentRuntimeTurnExecutor) failedUsageRecord(request TurnRequest, config managedagents.AgentRuntimeConfig, result agentruntime.TurnResult, latency time.Duration, err error) *managedagents.RecordLLMUsageInput {
-	usage := e.usageRecord(request, config, result, latency)
-	if usage == nil {
-		return nil
-	}
-	usage.Status = "failed"
-	if err != nil {
-		usage.ErrorMessage = err.Error()
-	}
-	return usage
 }
 
 func defaultString(value, fallback string) string {

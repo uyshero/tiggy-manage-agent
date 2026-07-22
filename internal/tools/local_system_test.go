@@ -393,7 +393,7 @@ func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
 	if !ok {
 		t.Fatal("expected edit_file api")
 	}
-	if manifest.Identifier != DefaultIdentifier || api.Name != "edit_file" || api.HumanIntervention != "optional" {
+	if manifest.Identifier != DefaultIdentifier || api.Name != "edit_file" || api.ApprovalPolicy != ApprovalPolicyConditional || api.ApprovalReason != InterventionReasonFilesystemWrite {
 		t.Fatalf("unexpected api lookup result: manifest=%#v api=%#v", manifest, api)
 	}
 	if api.Namespace != NamespaceDefault || api.APIName != "edit_file" || !containsString(api.Capabilities, CapabilityFilesystemWrite) {
@@ -705,6 +705,35 @@ func TestRegistryExecutorRunsDefaultEditFile(t *testing.T) {
 	}
 	if string(content) != "hello gopher" {
 		t.Fatalf("unexpected file content: %q", string(content))
+	}
+}
+
+func TestDefaultRuntimeReturnsEditProviderFailureAsToolResult(t *testing.T) {
+	root := t.TempDir()
+	provider, err := capability.NewWorkspacePathGuardProvider(capability.LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatalf("create path-guard provider: %v", err)
+	}
+	arguments, err := json.Marshal(map[string]any{
+		"path":       filepath.Join(filepath.Dir(root), "outside.txt"),
+		"old_string": "old",
+		"new_string": "new",
+	})
+	if err != nil {
+		t.Fatalf("marshal arguments: %v", err)
+	}
+
+	result, err := (DefaultRuntime{}).Execute(context.Background(), Call{
+		ID: "call_edit_denied", APIName: "edit_file", Arguments: arguments,
+	}, ExecutionContext{Provider: provider})
+	if err != nil {
+		t.Fatalf("provider failure must remain a recoverable tool result: %v", err)
+	}
+	if result.Error == nil || result.Error.Type != "edit_execution_failed" {
+		t.Fatalf("unexpected edit failure result: %#v", result)
+	}
+	if !strings.Contains(result.Error.Message, "workspace path guard edit denied") {
+		t.Fatalf("expected path-guard reason, got %#v", result.Error)
 	}
 }
 

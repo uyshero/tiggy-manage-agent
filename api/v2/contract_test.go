@@ -116,6 +116,9 @@ func TestCoreOperationsUseExplicitSchemas(t *testing.T) {
 		{"get", "/v2/environment-variables", "", "200", "#/components/schemas/EnvironmentVariableList", "application/json"},
 		{"put", "/v2/environment-variables/{name}", "#/components/schemas/PutEnvironmentVariableRequest", "200", "#/components/schemas/EnvironmentVariable", "application/json"},
 		{"delete", "/v2/environment-variables/{name}", "", "204", "", "application/json"},
+		{"get", "/v2/workspaces/{workspace_id}/tool-permissions", "", "200", "#/components/schemas/WorkspaceToolPermissionPolicy", "application/json"},
+		{"put", "/v2/workspaces/{workspace_id}/tool-permissions", "#/components/schemas/UpdateWorkspaceToolPermissionPolicyRequest", "200", "#/components/schemas/WorkspaceToolPermissionPolicy", "application/json"},
+		{"post", "/v2/workspaces/{workspace_id}/tool-permissions/evaluate", "#/components/schemas/EvaluateWorkspaceToolPermissionRequest", "200", "#/components/schemas/EvaluateWorkspaceToolPermissionResult", "application/json"},
 		{"post", "/v2/environments", "#/components/schemas/CreateEnvironmentRequest", "201", "#/components/schemas/Environment", "application/json"},
 		{"patch", "/v2/llm-providers/{provider_id}", "#/components/schemas/UpdateLLMProviderRequest", "200", "#/components/schemas/LLMProvider", "application/json"},
 		{"post", "/v2/llm-providers/{provider_id}/test", "", "200", "#/components/schemas/LLMDiagnosticResult", "application/json"},
@@ -140,6 +143,7 @@ func TestCoreOperationsUseExplicitSchemas(t *testing.T) {
 		{"post", "/v2/mcp-servers/{server_id}/versions/{version}/restore", "", "200", "#/components/schemas/MCPRestoreResult", "application/json"},
 		{"get", "/v2/operator-audit", "", "200", "#/components/schemas/OperatorAuditList", "application/json"},
 		{"get", "/v2/sessions/{session_id}/operator-audit", "", "200", "#/components/schemas/OperatorAuditList", "application/json"},
+		{"get", "/v2/sessions/{session_id}/tool-permission-audit", "", "200", "#/components/schemas/ToolPermissionAuditList", "application/json"},
 		{"get", "/v2/observability/security-audit/integrity-keys", "", "200", "#/components/schemas/SecurityAuditIntegrityKeyStatus", "application/json"},
 		{"post", "/v2/observability/security-audit/replay", "", "200", "#/components/schemas/SecurityAuditReplayResult", "application/json"},
 		{"post", "/v2/skills", "#/components/schemas/CreateSkillRequest", "201", "#/components/schemas/Skill", "application/json"},
@@ -429,6 +433,7 @@ func TestLLMConditionalHeadersArePartOfContract(t *testing.T) {
 		t.Fatalf("%s %s is missing %s header", method, path, name)
 	}
 	assertParameter(t, "patch", "/v2/llm-providers/{provider_id}", "If-Match", true)
+	assertParameter(t, "patch", "/v2/sessions/{session_id}/runtime-settings", "If-Match", true)
 	assertParameter(t, "post", "/v2/llm-models", "If-Match", false)
 	assertParameter(t, "post", "/v2/llm-models", "If-None-Match", false)
 }

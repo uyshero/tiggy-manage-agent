@@ -2,8 +2,6 @@ package runner
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,12 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"tiggy-manage-agent/internal/agentcontrol"
 	"tiggy-manage-agent/internal/agentcore"
-	"tiggy-manage-agent/internal/agentcoreadapter"
 	"tiggy-manage-agent/internal/agentruntime"
 	"tiggy-manage-agent/internal/execution"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	coremodel "tiggy-manage-agent/internal/model"
+	"tiggy-manage-agent/internal/modelruntime"
+	"tiggy-manage-agent/internal/observability"
+	"tiggy-manage-agent/internal/toolruntime"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -24,36 +26,6 @@ const (
 	agentCoreProtocolVersion = managedagents.AgentLoopMessageProtocolVersion
 	agentCoreRouteStateKey   = "agent_core.model_route"
 )
-
-var errAgentCoreIneligible = errors.New("turn is not eligible for agent core")
-
-type AgentCoreRolloutPolicy struct {
-	Enabled      bool
-	Percent      int
-	WorkspaceIDs []string
-	AgentIDs     []string
-}
-
-func (p AgentCoreRolloutPolicy) Allows(config managedagents.AgentRuntimeConfig, sessionID string) bool {
-	if !p.Enabled || p.Percent <= 0 || p.Percent > 100 {
-		return false
-	}
-	if len(p.WorkspaceIDs) > 0 && !slices.Contains(p.WorkspaceIDs, config.WorkspaceID) {
-		return false
-	}
-	if len(p.AgentIDs) > 0 && !slices.Contains(p.AgentIDs, config.AgentID) {
-		return false
-	}
-	if p.Percent == 100 {
-		return true
-	}
-	return agentCoreRolloutBucket(config.WorkspaceID, config.AgentID, sessionID) < p.Percent
-}
-
-func agentCoreRolloutBucket(workspaceID, agentID, sessionID string) int {
-	sum := sha256.Sum256([]byte(workspaceID + "\x00" + agentID + "\x00" + sessionID))
-	return int(binary.BigEndian.Uint64(sum[:8]) % 100)
-}
 
 type agentCoreTurnError struct {
 	failure agentcore.Failure
@@ -64,22 +36,6 @@ func (e *agentCoreTurnError) Error() string {
 		return "agent core turn failed"
 	}
 	return e.failure.Message
-}
-
-func (e AgentRuntimeTurnExecutor) hasAgentCoreState(ctx context.Context, request TurnRequest) bool {
-	if strings.TrimSpace(request.LeaseOwner) == "" || request.Attempt <= 0 {
-		return false
-	}
-	factory, ok := e.Store.(managedagents.AgentLoopRepositoryFactory)
-	if !ok {
-		return false
-	}
-	repository := factory.AgentLoopRepository(managedagents.AgentLoopFence{LeaseOwner: request.LeaseOwner, Attempt: request.Attempt})
-	if repository == nil {
-		return false
-	}
-	_, err := repository.Load(ctx, request.SessionID, request.TurnID)
-	return err == nil || !errors.Is(err, managedagents.ErrNotFound)
 }
 
 func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
@@ -104,54 +60,75 @@ func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
 	if repository == nil {
 		return TurnResult{}, errors.New("agent core repository factory returned nil")
 	}
+	var err error
+	interventionPolicy := tools.InterventionPolicy{Mode: runtimeRequest.Config.InterventionMode, Rules: runtimeRequest.Config.PermissionRules}
+	if runtimeRequest.Config.PermissionRules == nil {
+		interventionPolicy, err = tools.InterventionPolicyFromSettings(runtimeRequest.Config.RuntimeSettings, runtimeRequest.Config.InterventionMode)
+		if err != nil {
+			return TurnResult{}, fmt.Errorf("load tool permission policy: %w", err)
+		}
+	}
+	snapshot, err := toolruntime.NewSnapshot(toolExecution.Registry, interventionPolicy)
+	if err != nil {
+		return TurnResult{}, fmt.Errorf("build tool runtime snapshot: %w", err)
+	}
+	definitions := snapshot.Definitions()
+	runtimeRequest.Config.Tools = snapshot.ModelContext()
+	runtimeRequest.Config.ModelTools = snapshot.ModelTools()
 
 	state, err := repository.Load(ctx, request.SessionID, request.TurnID)
 	if errors.Is(err, managedagents.ErrNotFound) {
-		if len(runtimeRequest.ImageParts) > 0 && !managedagents.LLMModelSupportsVision(config.LLMCapabilityType) {
-			return TurnResult{}, errAgentCoreIneligible
+		var visionUsage coremodel.Usage
+		runtimeRequest, visionUsage, err = e.prepareAgentCoreVision(ctx, runtimeRequest, config)
+		if err != nil {
+			return TurnResult{}, err
 		}
-		state, err = e.newAgentCoreState(ctx, request, runtimeRequest, config, toolExecution)
+		state, err = e.newAgentCoreState(ctx, request, runtimeRequest, config, definitions)
+		if err == nil && visionUsage.TotalTokens > 0 {
+			state.Usage = state.Usage.Add(visionUsage)
+			state.Budget.AddUsage(visionUsage)
+		}
 	}
 	if err != nil {
 		return TurnResult{}, fmt.Errorf("load agent core state: %w", err)
 	}
 
 	route := agentCoreRoute(config)
-	definitions := agentcoreadapter.ToolDefinitions(toolExecution.Registry)
-	modelPort := agentcoreadapter.LLMModel{
+	modelPort := modelruntime.LLMModel{
 		Client: e.CoreClient,
-		RouteResolver: agentcoreadapter.RouteResolverFunc(func(context.Context, coremodel.Route) (agentcoreadapter.ResolvedRoute, error) {
-			return agentcoreadapter.ResolvedRoute{
+		RouteResolver: modelruntime.RouteResolverFunc(func(context.Context, coremodel.Route) (modelruntime.ResolvedRoute, error) {
+			return modelruntime.ResolvedRoute{
 				Provider: config.LLMProvider, ProviderType: config.LLMProviderType, Model: config.LLMModel,
 				BaseURL: config.LLMBaseURL, APIKey: runtimeRequest.Config.LLMAPIKey,
 			}, nil
 		}),
 	}
-	contextPort := agentcoreadapter.FixedContext{
+	contextPort := modelruntime.FixedContext{
 		Purpose: coremodel.PurposeAgent, Route: route,
 		Tools:           definitions,
 		MaxOutputTokens: agentCoreMaxOutputTokens(runtimeRequest.Config.ContextWindowTokens, runtimeRequest.Config.RuntimeSettings),
 	}
 	compactionThreshold, compactionSummaryMaxChars := agentCoreCompactionSettings(runtimeRequest.Config.ContextWindowTokens, runtimeRequest.Config.RuntimeSettings)
-	compactionPort := agentcoreadapter.LLMCompactor{
+	compactionPort := modelruntime.LLMCompactor{
 		Model: modelPort, Route: route,
 		ThresholdTokens: compactionThreshold,
 		MaxOutputTokens: min(agentCoreMaxOutputTokens(runtimeRequest.Config.ContextWindowTokens, runtimeRequest.Config.RuntimeSettings), 4096),
 		SummaryMaxChars: compactionSummaryMaxChars,
 	}
-	toolPort := agentcoreadapter.ToolRuntime{
-		Registry:         toolExecution.Registry,
+	toolPort := toolruntime.ToolRuntime{
+		Snapshot:         snapshot,
 		Executor:         runtimeRequest.Config.ToolExecutor,
-		Policy:           tools.InterventionPolicy{Mode: runtimeRequest.Config.InterventionMode},
 		ExecutionContext: toolExecution.Context,
 	}
 	var controlPort agentcore.ControlPort
 	if reader, ok := e.Store.(managedagents.SessionControlReader); ok {
-		controlPort = agentcoreadapter.SessionControls{Reader: reader}
+		controlPort = agentcontrol.SessionControls{Reader: reader}
 	}
 	engine, err := agentcore.NewEngine(agentcore.Ports{
 		Model: modelPort, Context: contextPort, Compaction: compactionPort, Tools: toolPort,
-		Completion: agentcoreadapter.CompletionGate{Gate: e.CoreCompletionGate},
+		Completion: modelruntime.CompletionGate{
+			Gate: e.CoreCompletionGate, MaxRetries: agentruntime.CompletionGateMaxRetries(runtimeRequest.Config.RuntimeSettings),
+		},
 		Controls:   controlPort,
 		Durability: repository,
 		Live:       agentCoreLivePort{broker: e.LiveEvents, sessionID: request.SessionID, turnID: request.TurnID},
@@ -188,18 +165,77 @@ func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
 	return e.agentCoreTurnResult(request, config, outcome, time.Since(startedAt))
 }
 
+func (e AgentRuntimeTurnExecutor) prepareAgentCoreVision(
+	ctx context.Context,
+	request agentruntime.TurnRequest,
+	config managedagents.AgentRuntimeConfig,
+) (agentruntime.TurnRequest, coremodel.Usage, error) {
+	if len(request.ImageParts) == 0 || managedagents.LLMModelSupportsVision(config.LLMCapabilityType) {
+		return request, coremodel.Usage{}, nil
+	}
+	if config.VisionLLMProvider == "" || config.VisionLLMModel == "" {
+		return request, coremodel.Usage{}, agentruntime.ErrVisionModelNotConfigured
+	}
+	prompt := "Analyze the uploaded image or images accurately. Describe visible content, extract readable text, and identify details relevant to the user's request. Return analysis text only."
+	content := []llm.ContentPart{{Type: "text", Text: prompt}}
+	content = append(content, request.ImageParts...)
+	if request.EmitStep != nil {
+		if err := request.EmitStep(ctx, agentruntime.Step{
+			Type: managedagents.EventRuntimeLLMRequest, Message: "Sending images to the configured vision model.",
+			Data: map[string]any{"phase": "vision_analysis", "provider": config.VisionLLMProvider, "model": config.VisionLLMModel, "image_count": len(request.ImageParts)},
+		}); err != nil {
+			return request, coremodel.Usage{}, err
+		}
+	}
+	response, err := e.CoreClient.Generate(ctx, llm.Request{
+		Provider: config.VisionLLMProvider, ProviderType: config.VisionLLMProviderType,
+		Model: config.VisionLLMModel, BaseURL: config.VisionLLMBaseURL, APIKey: request.Config.VisionLLMAPIKey,
+		Messages: []llm.Message{{Role: "user", Content: content}},
+	})
+	if err != nil {
+		return request, coremodel.Usage{}, fmt.Errorf("vision model analysis failed: %w", err)
+	}
+	parts := make([]string, 0, len(response.Message.Content))
+	for _, part := range response.Message.Content {
+		if part.Type == "" || part.Type == "text" {
+			if text := strings.TrimSpace(part.Text); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	analysis := strings.TrimSpace(strings.Join(parts, "\n"))
+	if analysis == "" {
+		return request, coremodel.Usage{}, errors.New("vision model returned empty analysis")
+	}
+	if request.EmitStep != nil {
+		if err := request.EmitStep(ctx, agentruntime.Step{
+			Type: managedagents.EventRuntimeLLMResponse, Message: "Vision model analysis completed.",
+			Data: map[string]any{"phase": "vision_analysis", "provider": config.VisionLLMProvider, "model": config.VisionLLMModel, "usage": response.Usage},
+		}); err != nil {
+			return request, coremodel.Usage{}, err
+		}
+	}
+	request.ImageParts = nil
+	request.CurrentUserSupplement = "Vision model analysis of the uploaded image(s):\n" + analysis
+	return request, coremodel.Usage{
+		InputTokens: response.Usage.InputTokens, OutputTokens: response.Usage.OutputTokens,
+		TotalTokens: response.Usage.TotalTokens, CachedInputTokens: response.Usage.CachedInputTokens,
+		ReasoningTokens: response.Usage.ReasoningTokens, Source: coremodel.UsageSourceProvider,
+	}, nil
+}
+
 func (e AgentRuntimeTurnExecutor) newAgentCoreState(
 	ctx context.Context,
 	request TurnRequest,
 	runtimeRequest agentruntime.TurnRequest,
 	config managedagents.AgentRuntimeConfig,
-	toolExecution execution.ToolExecution,
+	definitions []coremodel.ToolDefinition,
 ) (agentcore.State, error) {
 	prepared, err := agentruntime.PrepareTurnContext(runtimeRequest, time.Now().UTC(), nil)
 	if err != nil {
 		return agentcore.State{}, err
 	}
-	messages, err := agentcoreadapter.MessagesFromLLM(prepared.Result.Messages)
+	messages, err := modelruntime.MessagesFromLLM(prepared.Result.Messages)
 	if err != nil {
 		return agentcore.State{}, err
 	}
@@ -215,7 +251,6 @@ func (e AgentRuntimeTurnExecutor) newAgentCoreState(
 		return agentcore.State{}, err
 	}
 	state.FeatureState = map[string]json.RawMessage{agentCoreRouteStateKey: routeJSON}
-	definitions := agentcoreadapter.ToolDefinitions(toolExecution.Registry)
 	for _, definition := range definitions {
 		state.ActiveTools = append(state.ActiveTools, definition.Name)
 	}
@@ -239,13 +274,17 @@ func (e AgentRuntimeTurnExecutor) agentCoreResumeDecisions(ctx context.Context, 
 	}
 	decisions := make([]agentcore.InteractionDecision, 0, len(state.Pause.Interactions))
 	for _, interaction := range state.Pause.Interactions {
-		intervention, ok := byCallID[interaction.CallID]
-		if !ok || (intervention.Status != managedagents.InterventionStatusApproved && intervention.Status != managedagents.InterventionStatusRejected) {
+		intervention, ok := byCallID[interaction.ID]
+		if !ok {
+			intervention, ok = byCallID[interaction.CallID]
+		}
+		status, resolved := agentCoreInteractionDecisionStatus(intervention)
+		if !ok || !resolved {
 			return nil, fmt.Errorf("agent core interaction %s is not resolved", interaction.ID)
 		}
 		decisions = append(decisions, agentcore.InteractionDecision{
 			InteractionID: interaction.ID,
-			Status:        intervention.Status,
+			Status:        status,
 			Response:      append(json.RawMessage(nil), intervention.Response...),
 			Reason:        intervention.DecisionReason,
 		})
@@ -253,8 +292,31 @@ func (e AgentRuntimeTurnExecutor) agentCoreResumeDecisions(ctx context.Context, 
 	return decisions, nil
 }
 
+func agentCoreInteractionDecisionStatus(intervention managedagents.SessionIntervention) (string, bool) {
+	switch intervention.Kind {
+	case managedagents.InterventionKindToolApproval, managedagents.InterventionKindPlanApproval:
+		switch intervention.Status {
+		case managedagents.InterventionStatusApproved, managedagents.InterventionStatusRejected:
+			return intervention.Status, true
+		}
+	case managedagents.InterventionKindClarification, managedagents.InterventionKindUploadRequest:
+		switch intervention.Status {
+		case managedagents.InterventionStatusAnswered:
+			return managedagents.InterventionStatusApproved, true
+		case managedagents.InterventionStatusSkipped, managedagents.InterventionStatusCanceled, managedagents.InterventionStatusExpired:
+			return managedagents.InterventionStatusRejected, true
+		}
+	}
+	return "", false
+}
+
 func (e AgentRuntimeTurnExecutor) agentCoreTurnResult(request TurnRequest, config managedagents.AgentRuntimeConfig, outcome agentcore.Outcome, latency time.Duration) (TurnResult, error) {
 	usage := agentCoreUsageRecord(request, config, outcome.State.Usage, latency)
+	if outcome.Status != agentcore.OutcomePaused {
+		for _, metric := range agentCoreOutcomeMetrics(outcome) {
+			observability.RecordAgentCoreMetric(metric)
+		}
+	}
 	switch outcome.Status {
 	case agentcore.OutcomePaused:
 		for _, interaction := range outcome.Pause.Interactions {
@@ -264,7 +326,7 @@ func (e AgentRuntimeTurnExecutor) agentCoreTurnResult(request TurnRequest, confi
 		}
 		return TurnResult{}, ErrTurnWaitingApproval
 	case agentcore.OutcomeCompleted:
-		payload, err := agentCoreAgentPayload(outcome.FinalMessage)
+		payload, err := agentCoreAgentPayload(request.TurnID, outcome.FinalMessage)
 		if err != nil {
 			return TurnResult{DurableFinalized: true, DurableStatus: string(agentcore.OutcomeCompleted), Usage: usage}, err
 		}
@@ -288,7 +350,35 @@ func (e AgentRuntimeTurnExecutor) agentCoreTurnResult(request TurnRequest, confi
 	}
 }
 
-func agentCoreAgentPayload(message *coremodel.Message) (json.RawMessage, error) {
+func agentCoreOutcomeMetrics(outcome agentcore.Outcome) []observability.AgentCoreMetricInput {
+	metrics := make([]observability.AgentCoreMetricInput, 0, 4+len(outcome.State.ToolJournal))
+	if count := int64(outcome.State.Context.CompactionCount); count > 0 {
+		metrics = append(metrics, observability.AgentCoreMetricInput{Event: observability.AgentCoreMetricCompactionCompleted, Count: count})
+	}
+	if outcome.Status == agentcore.OutcomeCompleted {
+		if count := int64(outcome.State.CompactionAttempts - outcome.State.Context.CompactionCount); count > 0 {
+			metrics = append(metrics, observability.AgentCoreMetricInput{Event: observability.AgentCoreMetricCompactionRecovered, Count: count})
+		}
+	}
+	for _, journal := range outcome.State.ToolJournal {
+		if journal.Attempt > 1 {
+			metrics = append(metrics, observability.AgentCoreMetricInput{
+				Event: observability.AgentCoreMetricToolReplayed, Idempotency: journal.Idempotency, Count: int64(journal.Attempt - 1),
+			})
+		}
+		if journal.Status == agentcore.ToolCallIndeterminate || journal.Reconciliation != nil {
+			metrics = append(metrics, observability.AgentCoreMetricInput{
+				Event: observability.AgentCoreMetricToolIndeterminate, Idempotency: journal.Idempotency, Count: 1,
+			})
+		}
+	}
+	if outcome.Failure != nil && outcome.Failure.Code == "budget_exhausted" {
+		metrics = append(metrics, observability.AgentCoreMetricInput{Event: observability.AgentCoreMetricBudgetExhausted, Count: 1})
+	}
+	return metrics
+}
+
+func agentCoreAgentPayload(turnID string, message *coremodel.Message) (json.RawMessage, error) {
 	if message == nil {
 		return nil, errors.New("agent core completed without a final message")
 	}
@@ -297,6 +387,7 @@ func agentCoreAgentPayload(message *coremodel.Message) (json.RawMessage, error) 
 		"content_format":   "blocks",
 		"content":          message.Content,
 		"message_id":       message.ID,
+		"turn_id":          turnID,
 	})
 }
 

@@ -2416,7 +2416,7 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 		"environment_id": "`+environment.ID+`"
 	}`)
 
-	updated := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
+	updated := patchSessionRuntimeSettings(t, server, session.ID, session.RuntimeSettingsRevision, `{
 		"intervention_mode": "approve_for_me",
 		"tool_runtime": "cloud_sandbox",
 		"cloud_sandbox_root": ".",
@@ -2433,7 +2433,7 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 		"completion_gate":             map[string]any{"max_retries": float64(10)},
 	})
 
-	merged := postJSONWithStatus[managedagents.Session](t, server, http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", `{
+	merged := patchSessionRuntimeSettings(t, server, session.ID, updated.RuntimeSettingsRevision, `{
 		"tool_runtime": "local_system"
 	}`, http.StatusOK)
 	assertRuntimeSettings(t, merged.RuntimeSettings, map[string]any{

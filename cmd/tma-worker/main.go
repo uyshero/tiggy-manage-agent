@@ -79,6 +79,7 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 	global.StringVar(&cfg.Token, "token", os.Getenv("TMA_WORKER_TOKEN"), "worker bearer token")
 	global.StringVar(&cfg.Name, "name", defaultWorkerName(), "worker name")
 	global.StringVar(&cfg.WorkspaceID, "workspace", getenvDefault("TMA_WORKER_WORKSPACE_ID", managedagents.DefaultWorkspaceID), "workspace id")
+	global.StringVar(&cfg.WorkspaceRoot, "workspace-root", os.Getenv("TMA_WORKER_WORKSPACE_ROOT"), "local filesystem root available to worker tools")
 	global.StringVar(&cfg.WorkerType, "type", getenvDefault("TMA_WORKER_TYPE", managedagents.WorkerTypeLocal), "worker type")
 	global.StringVar(&cfg.RegisteredBy, "registered-by", getenvDefault("TMA_WORKER_REGISTERED_BY", defaultWorkerName()), "registrar id")
 	global.IntVar(&cfg.LeaseSeconds, "lease-seconds", getenvDefaultInt("TMA_WORKER_LEASE_SECONDS", 60), "lease seconds")
@@ -101,6 +102,7 @@ func parseWorkerConfig(args []string) (workerConfig, error) {
 		return workerConfig{}, fmt.Errorf("worker name is required")
 	}
 	cfg.Concurrency = workerConcurrency(cfg.Concurrency)
+	cfg.WorkspaceRoot = strings.TrimSpace(cfg.WorkspaceRoot)
 	if err := cfg.ReadFileLimits.Validate(); err != nil {
 		return workerConfig{}, err
 	}
@@ -113,6 +115,7 @@ type workerConfig struct {
 	Token                 string
 	Name                  string
 	WorkspaceID           string
+	WorkspaceRoot         string
 	WorkerType            string
 	RegisteredBy          string
 	LeaseSeconds          int
@@ -172,7 +175,16 @@ func splitCSV(value string) []string {
 
 func workerExecutor(ctx context.Context, cfg workerConfig) (workruntime.Executor, error) {
 	executor := workruntime.DefaultExecutor(cfg.Name)
-	executor.Provider = capability.LocalSystemProvider{ReadFileLimits: cfg.ReadFileLimits}
+	localProvider := capability.LocalSystemProvider{ReadFileLimits: cfg.ReadFileLimits}
+	executor.Provider = localProvider
+	if cfg.WorkspaceRoot != "" {
+		guarded, err := capability.NewWorkspacePathGuardProvider(localProvider, cfg.WorkspaceRoot)
+		if err != nil {
+			return workruntime.Executor{}, fmt.Errorf("configure worker workspace root: %w", err)
+		}
+		executor.Provider = guarded
+		executor.WorkspaceRoot = guarded.RootDir
+	}
 	if len(cfg.Plugins) == 0 {
 		return executor, nil
 	}

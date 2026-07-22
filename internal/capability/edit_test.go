@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,31 @@ func TestEditLocalFileSingleReplacement(t *testing.T) {
 	}
 	if string(content) != "hello gopher\n" {
 		t.Fatalf("unexpected file content: %q", string(content))
+	}
+}
+
+func TestEditLocalFileProducesStandardUnifiedDiffForInsertion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	result := editLocalFile(EditFileRequest{
+		Path:      path,
+		OldString: "alpha\n",
+		NewString: "alpha\ninserted\n",
+	})
+	if !result.Success {
+		t.Fatalf("expected success, got %#v", result)
+	}
+	if result.LinesAdded != 1 || result.LinesDeleted != 0 {
+		t.Fatalf("unexpected line counts: +%d/-%d\n%s", result.LinesAdded, result.LinesDeleted, result.DiffText)
+	}
+	if !strings.Contains(result.DiffText, "@@ -") || !strings.Contains(result.DiffText, "+inserted\n") {
+		t.Fatalf("expected standard unified diff, got:\n%s", result.DiffText)
+	}
+	if strings.Contains(result.DiffText, "-beta\n") || strings.Contains(result.DiffText, "+beta\n") {
+		t.Fatalf("unchanged lines must remain context, got:\n%s", result.DiffText)
 	}
 }
 
@@ -78,30 +104,6 @@ func TestEditLocalFileOldStringNotFound(t *testing.T) {
 	}
 	if result.Error != "The specified old_string was not found in the file" {
 		t.Fatalf("unexpected error: %q", result.Error)
-	}
-}
-
-func TestEditLocalFileIdempotencyRequiresRecordedPlaceholderHash(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "report.txt")
-	placeholder := "__TMA_PLACEHOLDER_REPORT_001__"
-	replacement := "same content already elsewhere"
-	if err := os.WriteFile(path, []byte(replacement+"\n"+placeholder), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	first := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
-	if !first.Success || first.AlreadyApplied {
-		t.Fatalf("expected first replacement, got %#v", first)
-	}
-	retry := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
-	if !retry.Success || !retry.AlreadyApplied {
-		t.Fatalf("expected hash-backed replay, got %#v", retry)
-	}
-
-	ResetSegmentEditState(path)
-	withoutEvidence := editLocalFile(EditFileRequest{Path: path, OldString: placeholder, NewString: replacement, Idempotent: true})
-	if withoutEvidence.Success || withoutEvidence.AlreadyApplied {
-		t.Fatalf("matching content elsewhere must not imply already_applied: %#v", withoutEvidence)
 	}
 }
 

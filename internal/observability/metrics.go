@@ -30,6 +30,8 @@ type MetricsSnapshot struct {
 	SecurityAuditExporter  SecurityAuditExporterMetrics
 	FilesystemTools        []FilesystemToolRuntimeMetric
 	CompletionValidations  []CompletionValidationMetric
+	AgentCore              []AgentCoreRuntimeMetric
+	WorkerLeases           []WorkerLeaseMetric
 }
 
 type AuthorizationDecisionMetric struct {
@@ -55,8 +57,24 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeSecurityAuditExporterMetrics(&builder, snapshot.SecurityAuditExporter)
 	writeCompletionValidationCounterMetrics(&builder, snapshot.CompletionValidations)
 	writeFilesystemRuntimeMetrics(&builder, snapshot.FilesystemTools)
+	writeAgentCoreMetrics(&builder, snapshot.AgentCore, snapshot.WorkerLeases)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeAgentCoreMetrics(builder *strings.Builder, core []AgentCoreRuntimeMetric, leases []WorkerLeaseMetric) {
+	writeMetricHelp(builder, "tma_agent_core_events_total", "Process-local Agent Core recovery, replay, compaction, and budget events.")
+	writeMetricType(builder, "tma_agent_core_events_total", "counter")
+	for _, metric := range core {
+		writeMetric(builder, "tma_agent_core_events_total", map[string]string{
+			"event": metric.Event, "idempotency": metric.Idempotency,
+		}, metric.Count)
+	}
+	writeMetricHelp(builder, "tma_worker_lease_events_total", "Process-local durable turn lease renewal events.")
+	writeMetricType(builder, "tma_worker_lease_events_total", "counter")
+	for _, metric := range leases {
+		writeMetric(builder, "tma_worker_lease_events_total", map[string]string{"event": metric.Event}, metric.Count)
+	}
 }
 
 func writeFilesystemRuntimeMetrics(builder *strings.Builder, metrics []FilesystemToolRuntimeMetric) {

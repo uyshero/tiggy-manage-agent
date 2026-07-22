@@ -133,6 +133,22 @@ export function agentToolingHealth(agentId, body = {}, options = {}) {
   return coreSDK.agents.toolingHealth(agentId, body, options.signal);
 }
 
+export function workspaceToolPermissions(workspaceId) {
+  return coreSDK.workspaceToolPermissions.get(workspaceId);
+}
+
+export function updateWorkspaceToolPermissions(workspaceId, permissionRules, expectedRevision) {
+  return coreSDK.workspaceToolPermissions.update(workspaceId, expectedRevision, { permission_rules: permissionRules || [] });
+}
+
+export function evaluateWorkspaceToolPermission(workspaceId, request) {
+  return coreSDK.workspaceToolPermissions.evaluate(workspaceId, request);
+}
+
+export function sessionToolPermissionAudit(sessionId, query = {}) {
+  return coreSDK.audit.listToolPermissions(sessionId, query);
+}
+
 export function agentSchedules(agentId) {
   return getJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`);
 }
@@ -510,8 +526,8 @@ export async function skillAssetGCTombstones(workspaceId, limit = 20, options = 
   return { tombstones: await coreSDK.skills.listAssetGCTombstones({ workspaceId: workspaceId || undefined, limit }, options.signal) };
 }
 
-export function updateSessionRuntimeSettings(sessionId, body, options = {}) {
-  return coreSDK.sessions.updateRuntimeSettings(sessionId, body || {}, options.signal);
+export function updateSessionRuntimeSettings(sessionId, expectedRevision, body, options = {}) {
+  return coreSDK.sessions.updateRuntimeSettings(sessionId, expectedRevision, body || {}, options.signal);
 }
 
 export async function llmProviders() {
@@ -594,8 +610,8 @@ export function skillPackageDownloadPath(skillId, version) {
   return `/v2/skills/${encodeURIComponent(skillId)}/versions/${encodeURIComponent(version)}/package`;
 }
 
-export async function events(sessionId) {
-  return { events: await coreSDK.sessions.listEvents(sessionId) };
+export async function events(sessionId, afterSeq = 0) {
+  return { events: await coreSDK.sessions.listEvents(sessionId, afterSeq) };
 }
 
 export function streamSessionEvents(sessionId, options = {}) {

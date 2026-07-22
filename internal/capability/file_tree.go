@@ -28,9 +28,10 @@ const (
 )
 
 type fileCandidate struct {
-	absolute string
-	relative string
-	info     fs.FileInfo
+	absolute    string
+	relative    string
+	info        fs.FileInfo
+	guardedRoot string
 }
 
 func (provider LocalSystemProvider) FindFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error) {
@@ -38,6 +39,10 @@ func (provider LocalSystemProvider) FindFiles(ctx context.Context, request FindF
 }
 
 func findLocalFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error) {
+	return findLocalFilesWithDiscoveryHook(ctx, request, nil)
+}
+
+func findLocalFilesWithDiscoveryHook(ctx context.Context, request FindFilesRequest, afterRootOpen func()) (FindFilesResult, error) {
 	ctx, cancel := contextWithRequestDeadline(ctx, request.Meta.Deadline)
 	defer cancel()
 	root := strings.TrimSpace(request.Root)
@@ -64,7 +69,10 @@ func findLocalFiles(ctx context.Context, request FindFilesRequest) (FindFilesRes
 		return FindFilesResult{}, newFileReadError("search_limit_exceeded", fmt.Sprintf("max_results must be between 1 and %d", hardFindFilesMaxResults), nil)
 	}
 
-	candidates, scanned, truncated, err := discoverLocalFiles(ctx, root, []string{pattern}, request.Exclude, request.IncludeHidden, hardFindFilesScanned, maxResults+1, request.AfterPath)
+	candidates, scanned, truncated, err := discoverLocalFiles(
+		ctx, root, []string{pattern}, request.Exclude, request.IncludeHidden,
+		hardFindFilesScanned, maxResults+1, request.AfterPath, request.guardedRoot, afterRootOpen,
+	)
 	if err != nil {
 		return FindFilesResult{}, err
 	}
@@ -80,18 +88,18 @@ func findLocalFiles(ctx context.Context, request FindFilesRequest) (FindFilesRes
 		if err := ctx.Err(); err != nil {
 			return FindFilesResult{}, err
 		}
-		file, err := os.Open(candidate.absolute)
+		file, info, err := openDiscoveredCandidate(candidate)
 		if err != nil {
 			return FindFilesResult{}, err
 		}
-		binary, binaryErr := openedFileRequiresBinaryRouting(ctx, file, candidate.absolute, candidate.info.Size())
-		classification := classifyOpenedFile(file, candidate.absolute, candidate.info.Size(), binary)
+		binary, binaryErr := openedFileRequiresBinaryRouting(ctx, file, candidate.absolute, info.Size())
+		classification := classifyOpenedFile(file, candidate.absolute, info.Size(), binary)
 		_ = file.Close()
 		if binaryErr != nil {
 			return FindFilesResult{}, binaryErr
 		}
 		result.Files = append(result.Files, FoundFile{
-			Path: candidate.relative, SizeBytes: candidate.info.Size(), FileRevision: fileRevision(candidate.info),
+			Path: candidate.relative, SizeBytes: info.Size(), FileRevision: fileRevision(info),
 			Kind: classification.Kind, ContentType: classification.ContentType,
 		})
 	}
@@ -101,17 +109,18 @@ func findLocalFiles(ctx context.Context, request FindFilesRequest) (FindFilesRes
 	return result, nil
 }
 
-func discoverLocalFiles(ctx context.Context, root string, patterns, excludes []string, includeHidden bool, maxScanned, maxMatches int, afterPath string) ([]fileCandidate, int, bool, error) {
+func discoverLocalFiles(
+	ctx context.Context,
+	root string,
+	patterns, excludes []string,
+	includeHidden bool,
+	maxScanned, maxMatches int,
+	afterPath, guardedRoot string,
+	afterRootOpen func(),
+) ([]fileCandidate, int, bool, error) {
 	absoluteRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, 0, false, err
-	}
-	rootInfo, err := os.Stat(absoluteRoot)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	if !rootInfo.IsDir() {
-		return nil, 0, false, newFileReadError("unsupported_file_type", "file discovery root must be a directory", map[string]any{"root": root})
 	}
 	normalizedPatterns := make([]string, 0, len(patterns))
 	for _, value := range patterns {
@@ -134,6 +143,34 @@ func discoverLocalFiles(ctx context.Context, root string, patterns, excludes []s
 		}
 	}
 	afterPath = normalizeGlob(afterPath)
+	if strings.TrimSpace(guardedRoot) != "" {
+		return discoverLocalFilesGuarded(
+			ctx, guardedRoot, absoluteRoot, normalizedPatterns, normalizedExcludes,
+			includeHidden, maxScanned, maxMatches, afterPath, afterRootOpen,
+		)
+	}
+	return discoverLocalFilesPath(ctx, absoluteRoot, root, normalizedPatterns, normalizedExcludes, includeHidden, maxScanned, maxMatches, afterPath, afterRootOpen)
+}
+
+func discoverLocalFilesPath(
+	ctx context.Context,
+	absoluteRoot, displayRoot string,
+	patterns, excludes []string,
+	includeHidden bool,
+	maxScanned, maxMatches int,
+	afterPath string,
+	afterRootOpen func(),
+) ([]fileCandidate, int, bool, error) {
+	rootInfo, err := os.Stat(absoluteRoot)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if !rootInfo.IsDir() {
+		return nil, 0, false, newFileReadError("unsupported_file_type", "file discovery root must be a directory", map[string]any{"root": displayRoot})
+	}
+	if afterRootOpen != nil {
+		afterRootOpen()
+	}
 	candidates := make([]fileCandidate, 0, minInt(maxMatches, defaultFindFilesMaxResults))
 	scanned := 0
 	truncated := false
@@ -160,7 +197,7 @@ func discoverLocalFiles(ctx context.Context, root string, patterns, excludes []s
 			return nil
 		}
 		if entry.IsDir() {
-			if (!includeHidden && pathHasHiddenComponent(relative)) || matchesAnyGlob(normalizedExcludes, relative) {
+			if (!includeHidden && pathHasHiddenComponent(relative)) || matchesAnyGlob(excludes, relative) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -170,7 +207,7 @@ func discoverLocalFiles(ctx context.Context, root string, patterns, excludes []s
 			truncated = true
 			return stop
 		}
-		if !includeHidden && pathHasHiddenComponent(relative) || matchesAnyGlob(normalizedExcludes, relative) || !matchesAnyGlob(normalizedPatterns, relative) || relative <= afterPath {
+		if !includeHidden && pathHasHiddenComponent(relative) || matchesAnyGlob(excludes, relative) || !matchesAnyGlob(patterns, relative) || relative <= afterPath {
 			return nil
 		}
 		info, err := entry.Info()
@@ -192,6 +229,28 @@ func discoverLocalFiles(ctx context.Context, root string, patterns, excludes []s
 	}
 	sort.Slice(candidates, func(left, right int) bool { return candidates[left].relative < candidates[right].relative })
 	return candidates, scanned, truncated, nil
+}
+
+func openDiscoveredCandidate(candidate fileCandidate) (*os.File, fs.FileInfo, error) {
+	file, err := openLocalFileForRead(ReadFileRequest{Path: candidate.absolute, guardedRoot: candidate.guardedRoot}, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, newFileReadError("unsupported_file_type", "discovered path is no longer a regular file", map[string]any{"path": candidate.relative})
+	}
+	expected := fileRevision(candidate.info)
+	if actual := fileRevision(info); actual != expected {
+		_ = file.Close()
+		return nil, nil, staleFileRevisionError(candidate.relative, expected, actual)
+	}
+	return file, info, nil
 }
 
 func normalizeGlob(value string) string {
@@ -258,6 +317,10 @@ func (provider LocalSystemProvider) SearchFiles(ctx context.Context, request Sea
 }
 
 func searchLocalFiles(ctx context.Context, request SearchFilesRequest) (SearchFilesResult, error) {
+	return searchLocalFilesWithDiscoveryHook(ctx, request, nil)
+}
+
+func searchLocalFilesWithDiscoveryHook(ctx context.Context, request SearchFilesRequest, afterRootOpen func()) (SearchFilesResult, error) {
 	ctx, cancel := contextWithRequestDeadline(ctx, request.Meta.Deadline)
 	defer cancel()
 	mode := NormalizeSearchMode(request.Mode)
@@ -288,7 +351,10 @@ func searchLocalFiles(ctx context.Context, request SearchFilesRequest) (SearchFi
 	if strings.TrimSpace(root) == "" {
 		root = "."
 	}
-	candidates, _, discoveryTruncated, err := discoverLocalFiles(ctx, root, request.Paths, request.Exclude, request.IncludeHidden, hardFindFilesScanned, maxFiles+1, "")
+	candidates, _, discoveryTruncated, err := discoverLocalFiles(
+		ctx, root, request.Paths, request.Exclude, request.IncludeHidden,
+		hardFindFilesScanned, maxFiles+1, "", request.guardedRoot, afterRootOpen,
+	)
 	if err != nil {
 		return SearchFilesResult{}, err
 	}
@@ -344,17 +410,11 @@ func searchLocalFiles(ctx context.Context, request SearchFilesRequest) (SearchFi
 }
 
 func searchCandidate(ctx context.Context, candidate fileCandidate, query, mode string, caseSensitive bool, expression *regexp.Regexp, maxResults int) ([]SearchFilesMatch, bool, bool, error) {
-	probe, err := os.Open(candidate.absolute)
-	if err != nil {
-		return nil, false, false, err
-	}
-	binary, err := openedFileRequiresBinaryRouting(ctx, probe, candidate.absolute, candidate.info.Size())
-	_ = probe.Close()
-	if err != nil || binary {
-		return nil, binary, false, err
-	}
 	if mode == "literal" && caseSensitive {
-		result, err := searchLocalFile(ctx, SearchFileRequest{Path: candidate.absolute, Query: query, MaxResults: minInt(maxResults, hardSearchFileMaxResults)})
+		result, err := searchLocalFile(ctx, SearchFileRequest{
+			Path: candidate.absolute, Query: query, MaxResults: minInt(maxResults, hardSearchFileMaxResults),
+			FileRevision: fileRevision(candidate.info), guardedRoot: candidate.guardedRoot,
+		})
 		if err != nil {
 			return nil, false, false, err
 		}
@@ -368,17 +428,22 @@ func searchCandidate(ctx context.Context, candidate fileCandidate, query, mode s
 		return matches, result.Binary, result.Truncated, nil
 	}
 
-	file, err := os.Open(candidate.absolute)
+	file, info, err := openDiscoveredCandidate(candidate)
 	if err != nil {
 		return nil, false, false, err
 	}
 	defer file.Close()
+	binary, err := openedFileRequiresBinaryRouting(ctx, file, candidate.absolute, info.Size())
+	if err != nil || binary {
+		return nil, binary, false, err
+	}
 	if _, err := file.Seek(0, 0); err != nil {
 		return nil, false, false, err
 	}
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 32<<10), maxSearchFilesRegexLineBytes)
 	matches := make([]SearchFilesMatch, 0)
+	revision := fileRevision(info)
 	lineNumber := 0
 	offset := int64(0)
 	for scanner.Scan() {
@@ -407,9 +472,12 @@ func searchCandidate(ctx context.Context, candidate fileCandidate, query, mode s
 			}
 			matches = append(matches, SearchFilesMatch{
 				Path: candidate.relative, LineNumber: lineNumber, OffsetBytes: offset + int64(matchOffset),
-				Line: preview, LineTruncated: truncated, FileRevision: fileRevision(candidate.info),
+				Line: preview, LineTruncated: truncated, FileRevision: revision,
 			})
 			if len(matches) >= maxResults {
+				if err := ensureFileRevision(file, candidate.absolute, revision); err != nil {
+					return nil, false, false, err
+				}
 				return matches, false, true, nil
 			}
 		}
@@ -417,6 +485,9 @@ func searchCandidate(ctx context.Context, candidate fileCandidate, query, mode s
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, false, false, newFileReadError("search_line_too_long", fmt.Sprintf("search_files cannot evaluate a regex or case-insensitive match on a line larger than %d bytes", maxSearchFilesRegexLineBytes), map[string]any{"path": candidate.relative})
+	}
+	if err := ensureFileRevision(file, candidate.absolute, revision); err != nil {
+		return nil, false, false, err
 	}
 	return matches, false, false, nil
 }

@@ -1,4 +1,4 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
+.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
@@ -89,6 +89,18 @@ verify-agent-runtime: build-cli
 
 verify-agent-runtime-full: build build-cli db-up migrate-up
 	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" scripts/verify_agent_runtime_full.sh
+
+verify-agent-core-staging: build-cli
+	scripts/verify_agent_core_staging.sh
+
+verify-agent-core-staging-restart: build-cli
+	TMA_AGENT_CORE_STAGING_RESTART_DRILL=true scripts/verify_agent_core_staging.sh
+
+verify-agent-core-staging-crash: build-cli
+	TMA_AGENT_CORE_STAGING_CRASH_DRILL=true scripts/verify_agent_core_staging.sh
+
+verify-agent-core-staging-infrastructure: build-cli
+	TMA_AGENT_CORE_STAGING_INFRASTRUCTURE_DRILL=true scripts/verify_agent_core_staging.sh
 
 verify-llm-provider: build build-cli db-up migrate-up
 	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" scripts/verify_llm_provider_full.sh
@@ -223,7 +235,7 @@ migrate-up:
 	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
 
 generate-sql-baseline:
-	sh scripts/generate_sql_baseline.sh 000083
+	sh scripts/generate_sql_baseline.sh 000085
 
 verify-sql-baseline: generate-sql-baseline
-	sh scripts/verify_sql_baseline.sh sql/baselines/000083_baseline.sql
+	sh scripts/verify_sql_baseline.sh sql/baselines/000085_baseline.sql

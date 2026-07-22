@@ -59,7 +59,7 @@ make run
 {"status":"ok","service":"tiggy-manage-agent"}
 ```
 
-用户和控制面 API 支持 OIDC/JWKS、兼容的 HS256 JWT 或可信网关认证，并提供 Workspace 级 RBAC。受保护的请求会输出结构化授权决策审计日志和低基数 Prometheus 指标，也可以异步导出 OTLP/HTTP Logs 到企业 SIEM。本地开发默认使用 `TMA_AUTH_MODE=disabled`；`TMA_ENV=production` 下，如果身份配置或 Worker Service Token 不完整，服务将拒绝启动。详见[配置说明](./docs/configuration.md#unified-identity-and-rbac)和[安全运维](./docs/security-operations.md)。
+用户和控制面 API 支持 OIDC/JWKS、兼容的 HS256 JWT 或可信网关认证，并提供 Workspace 级 RBAC。受保护的请求会输出结构化授权决策审计日志和低基数 Prometheus 指标，也可以异步导出 OTLP/HTTP Logs 到企业 SIEM。本地开发默认使用 `TMA_AUTH_MODE=disabled`；`TMA_ENV=production` 下，如果身份配置或 Worker Service Token 不完整，服务将拒绝启动。详见[配置说明](./docs/configuration.md#server-与认证)和[安全运维](./docs/operations.md)。
 
 ## 项目结构
 
@@ -83,18 +83,7 @@ sql/migrations/         Postgres Schema 迁移
 
 ## 扩展开发
 
-新增 Provider、Worker 插件、Tool Namespace、MCP 集成、生命周期能力或设置面板前，请遵循以下规范：
-
-- [扩展与 Provider 治理规范](./docs/extension-governance-standard.md)：分类、Descriptor、能力发现、兼容性、Worker 离线行为、冲突和用户确认的 Provider 切换
-- [扩展设置规范](./docs/extension-settings-standard.md)：Settings Contribution、配置作用域、Schema 驱动渲染、Secret、诊断、Revision 和离线 UI
-- [Tool Plugin SDK](./docs/tool-plugin-sdk.md)：当前进程插件与 Worker 执行协议
-- [API v2 响应与数据规范](./docs/api-v2-response-and-data-standards.md)：HTTP 状态、稳定错误、可重试性、JSON 数字、时间、枚举和 Cursor 分页
-- [Workbench 插件规范](./docs/workbench-plugin-standard.md)：企业页面、导航、Widget、Command、详情面板、SDK 访问和租户启用模型
-- [Server、Core SDK 与 App 扩展边界](./docs/core-sdk-extension-architecture.md)：所有权、依赖方向、认证和多 Server 规则
-- [Go Core SDK](./docs/go-core-sdk.md)与[TypeScript Core SDK](./docs/typescript-core-sdk.md)：`/v2` 客户端、认证、错误、SSE 和兼容策略
-- [MCP Server 兼容矩阵](./docs/mcp-server-compatibility.md)：已固定的第三方版本、传输验证和已知缺口
-
-新扩展完成治理规范和设置规范中的检查清单后，才能视为可集成。
+新增 Provider、Worker 插件、Tool Namespace、MCP 集成、生命周期能力或设置面板前，请阅读[扩展治理](./docs/extensions.md)、[工具系统](./docs/tools.md)、[MCP 集成](./docs/mcp.md)和 [Workbench](./docs/workbench.md)。新扩展必须完成其中定义的治理、兼容性、权限、隔离和升级检查。
 
 ## Core SDK
 
@@ -164,9 +153,9 @@ postgres://tma:tma@localhost:5432/tma?sslmode=disable
 TMA_DATABASE_URL="postgres://user:pass@localhost:5432/db?sslmode=disable" make run
 ```
 
-本地 `tma` 数据库用户同时是 Migration Owner，只能用于开发。生产 Server 必须使用独立、非 Owner、无 `SUPERUSER` 和 `BYPASSRLS` 权限的运行角色；启动过程会校验托管环境变量的强制 Workspace RLS 策略。详见[数据库配置](./docs/configuration.md#tma_database_url)。
+本地 `tma` 数据库用户同时是 Migration Owner，只能用于开发。生产 Server 必须使用独立、非 Owner、无 `SUPERUSER` 和 `BYPASSRLS` 权限的运行角色；启动过程会校验托管环境变量的强制 Workspace RLS 策略。详见[数据库迁移](./docs/deployment.md#数据库迁移)。
 
-Server 通过 `WorkerRunner + AgentRuntimeTurnExecutor + agentruntime.DemoRuntime` 运行 Turn。Runtime 解析 Session 绑定的 AgentConfigVersion，再通过其中的 `llm_provider` / `llm_model` 调用 `llm.Manager`。默认 `fake` Provider 完全在本地运行；`openai-compatible` 可连接兼容 OpenAI Chat Completions 的端点。详见[Agent Runtime](./docs/agent-runtime.md)。
+Server 通过 `WorkerRunner + AgentRuntimeTurnExecutor + Agent Core` 运行 Turn。Agent Core 持久化每次状态转换，并解析 Session 绑定的 AgentConfigVersion 后调用 `llm.Manager`。默认 `fake` Provider 完全在本地运行；`openai-compatible` 可连接兼容 OpenAI Chat Completions 的端点。详见[Agent Runtime](./docs/architecture.md)。
 
 验证完整的 CLI / HTTP / Runner 链路：
 
@@ -199,7 +188,7 @@ GET  /v1/sessions/{id}/events
 GET  /v1/sessions/{id}/events/stream
 ```
 
-完整 HTTP 契约见 [API Reference](./docs/api-reference.md)。
+完整 HTTP 契约见 [API Reference](./docs/api.md)。
 
 ## CLI 与 Worker
 
@@ -237,12 +226,12 @@ make worker-stop
 scripts/tma_worker.sh start --name viito-mac --concurrency 2
 ```
 
-Worker 会注册、发送心跳、轮询并确认工作、续租运行中的任务，最后提交执行结果。`tool_execution` 使用 `tma.work.v1` 调用格式；`default.*` 工具在 Worker 所在机器通过 `tools.DefaultRuntime + LocalSystemProvider` 执行。默认并发为 1，可通过 `--concurrency N` 或 `TMA_WORKER_CONCURRENCY=N` 调整。收到 SIGINT/SIGTERM 后，Worker 会进入 `draining`、停止轮询，并在 Shutdown Timeout 内等待正在运行的工作结束。
+Worker 会注册、发送心跳、轮询并确认工作、续租运行中的任务，最后提交执行结果。`tool_execution` 使用 `tma.work.v1` 调用格式；`default.*` 工具在 Worker 所在机器通过 `tools.DefaultRuntime + LocalSystemProvider` 执行。使用 `--workspace-root PATH` 或 `TMA_WORKER_WORKSPACE_ROOT=PATH` 可将本机文件能力限制在一个已存在的目录内，生产 Worker 应配置该边界。默认并发为 1，可通过 `--concurrency N` 或 `TMA_WORKER_CONCURRENCY=N` 调整。收到 SIGINT/SIGTERM 后，Worker 会进入 `draining`、停止轮询，并在 Shutdown Timeout 内等待正在运行的工作结束。
 
 直接运行或只检查连接与声明的能力：
 
 ```bash
-bin/tma-worker --base-url http://localhost:8080 --name viito-mac
+bin/tma-worker --base-url http://localhost:8080 --name viito-mac --workspace-root "$PWD"
 bin/tma-worker doctor --base-url http://localhost:8080 --name viito-mac
 ```
 
@@ -275,9 +264,9 @@ bin/tma-worker --base-url http://localhost:8080 --name computer-worker \
   --plugin examples/plugins/computer-use/computer-plugin.py
 ```
 
-协议说明见 [Tool Plugin SDK](./docs/tool-plugin-sdk.md)，`computer.*` 接口见[计算机控制插件](./docs/computer-use-plugin.md)。
+协议说明见 [Tool Plugin SDK](./docs/tools.md)，`computer.*` 接口见[计算机控制插件](./docs/tools.md)。
 
-Agent 可通过 `config_version.mcp` 绑定 stdio 或 Streamable HTTP MCP Server，并将 MCP 工具作为普通模型工具接入现有 TMA 工具/结果链路。TMA Server 按 Session 和 Agent 配置维护 stdio 进程与远程 HTTP Session，同时隔离作用域并回收空闲实例。详见 [MCP 集成](./docs/mcp-integration.md)。
+Agent 可通过 `config_version.mcp` 绑定 stdio 或 Streamable HTTP MCP Server，并将 MCP 工具作为普通模型工具接入现有 TMA 工具/结果链路。TMA Server 按 Session 和 Agent 配置维护 stdio 进程与远程 HTTP Session，同时隔离作用域并回收空闲实例。详见 [MCP 集成](./docs/mcp.md)。
 
 ```bash
 make verify-mcp-stdio
@@ -312,7 +301,7 @@ bin/tma agent config update \
   --tools '{"tools":["web"],"runtime":"auto"}'
 ```
 
-配置细节见 [Web Search & Crawl](./docs/configuration.md#web-search--crawl)。
+配置细节见 [Web Search & Crawl](./docs/configuration.md#web-与-browser)。
 
 ## 基本使用流程
 
@@ -362,18 +351,11 @@ Marketplace 写操作由 Server 控制，不会创建或直接执行工具。完
 
 ## 文档索引
 
-- [故障排查](./docs/troubleshooting.md)
-- [生产部署](./docs/deployment.md)
-- [Inspector 使用说明](./docs/inspector.md)
-- [API Reference](./docs/api-reference.md)
-- [Onlyboxes 沙箱部署](./docs/产品设计架构图梳理.md)
-- [产品缺口与建议开发顺序](./docs/product-gap-roadmap.md)
-- [多 Agent 能力边界与上线清单](./docs/agent-orchestration-status.md)
-- [架构决策与开发历史](./DEVELOPMENT_LOG.md)
+主题文档统一从 [docs/README.md](./docs/README.md) 进入。架构决策与开发历史保留在 [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md)。
 
 ## 后续方向
 
-1. 完成 `docs/agent-orchestration-status.md` 中的生产收尾清单。
+1. 完成 `docs/roadmap.md` 中的生产收尾清单。
 2. 将多主体 RBAC 扩展到剩余控制操作和审计查询。
 3. 增加 Token、费用、Wall-clock 和 fan-out Budget，以及 Stuck Detection 和运维 Runbook。
 4. 建立 Task Group 容量基线、回放样例、真实模型样本和离线评测。

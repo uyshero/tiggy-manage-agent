@@ -132,6 +132,9 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 		if !expected[key] {
 			t.Fatalf("unexpected typed service request %s", key)
 		}
+		if strings.HasSuffix(r.URL.Path, "/runtime-settings") && r.Header.Get("If-Match") != `"1"` {
+			t.Fatalf("runtime settings If-Match = %q, want quoted revision 1", r.Header.Get("If-Match"))
+		}
 		delete(expected, key)
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodDelete {
@@ -182,7 +185,7 @@ func TestTypedSessionInterventionAndArtifactServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	completionRetries := 3
-	if _, err = client.Sessions.UpdateRuntimeSettings(ctx, "sesn/1", UpdateSessionRuntimeSettingsRequest{CompletionGate: &CompletionGateRuntimeSettings{MaxRetries: &completionRetries}}); err != nil {
+	if _, err = client.Sessions.UpdateRuntimeSettings(ctx, "sesn/1", 1, UpdateSessionRuntimeSettingsRequest{CompletionGate: &CompletionGateRuntimeSettings{MaxRetries: &completionRetries}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = client.Sessions.UpgradeConfig(ctx, "sesn/1", UpgradeSessionConfigRequest{ToVersion: 2}); err != nil {

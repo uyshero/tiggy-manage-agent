@@ -99,7 +99,7 @@ func TestValidateFileMutationBatchRejectsMultipleMutations(t *testing.T) {
 	}
 }
 
-func TestSegmentedWriteWithEditIsIdempotent(t *testing.T) {
+func TestSegmentedEditWithoutRuntimeEvidenceDoesNotGuessReplaySuccess(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.js")
 	executor := NewDefaultExecutor()
 	executionContext := ExecutionContext{Provider: capability.LocalSystemProvider{}}
@@ -132,15 +132,15 @@ func TestSegmentedWriteWithEditIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	retryResult := call("edit-1-retry", "edit_file", first)
-	if retryResult.Error != nil || !strings.Contains(retryResult.Content, "already applied") {
-		t.Fatalf("retry must succeed idempotently without duplicating content: %#v", retryResult)
+	if retryResult.Error == nil || retryResult.Error.Type != "match_not_found" {
+		t.Fatalf("standalone executor must not guess replay success without durable evidence: %#v", retryResult)
 	}
 	afterRetry, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(afterRetry) != string(afterFirst) {
-		t.Fatalf("retry changed file content:\n%s", afterRetry)
+		t.Fatalf("failed replay changed file content:\n%s", afterRetry)
 	}
 	if result := call("edit-2", "edit_file", map[string]any{
 		"path": path, "old_string": "__TMA_PLACEHOLDER_REPORT_002__",

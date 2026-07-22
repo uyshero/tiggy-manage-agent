@@ -75,7 +75,9 @@ func normalizeLLMUsageGroupBy(value string) string {
 
 func normalizeInterventionStatus(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "", InterventionStatusPending:
+	case "":
+		return ""
+	case InterventionStatusPending:
 		return InterventionStatusPending
 	case InterventionStatusApproved:
 		return InterventionStatusApproved

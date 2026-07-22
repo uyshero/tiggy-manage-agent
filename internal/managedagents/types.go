@@ -309,25 +309,26 @@ type Environment struct {
 }
 
 type Session struct {
-	ID                 string          `json:"id"`
-	WorkspaceID        string          `json:"workspace_id"`
-	OwnerID            string          `json:"owner_id"`
-	AgentID            string          `json:"agent_id"`
-	AgentConfigVersion int             `json:"agent_config_version"`
-	EnvironmentID      string          `json:"environment_id"`
-	ParentSessionID    string          `json:"parent_session_id,omitempty"`
-	ParentTurnID       string          `json:"parent_turn_id,omitempty"`
-	SpawnDepth         int             `json:"spawn_depth,omitempty"`
-	Status             string          `json:"status"`
-	Title              string          `json:"title,omitempty"`
-	SandboxID          string          `json:"sandbox_id,omitempty"`
-	RuntimeSettings    json.RawMessage `json:"runtime_settings,omitempty"`
-	PinnedAt           *time.Time      `json:"pinned_at"`
-	Tags               []string        `json:"tags"`
-	SummaryText        string          `json:"summary_text,omitempty"`
-	CreatedBy          string          `json:"created_by"`
-	CreatedAt          time.Time       `json:"created_at"`
-	ArchivedAt         *time.Time      `json:"archived_at,omitempty"`
+	ID                      string          `json:"id"`
+	WorkspaceID             string          `json:"workspace_id"`
+	OwnerID                 string          `json:"owner_id"`
+	AgentID                 string          `json:"agent_id"`
+	AgentConfigVersion      int             `json:"agent_config_version"`
+	EnvironmentID           string          `json:"environment_id"`
+	ParentSessionID         string          `json:"parent_session_id,omitempty"`
+	ParentTurnID            string          `json:"parent_turn_id,omitempty"`
+	SpawnDepth              int             `json:"spawn_depth,omitempty"`
+	Status                  string          `json:"status"`
+	Title                   string          `json:"title,omitempty"`
+	SandboxID               string          `json:"sandbox_id,omitempty"`
+	RuntimeSettings         json.RawMessage `json:"runtime_settings,omitempty"`
+	RuntimeSettingsRevision int64           `json:"runtime_settings_revision"`
+	PinnedAt                *time.Time      `json:"pinned_at"`
+	Tags                    []string        `json:"tags"`
+	SummaryText             string          `json:"summary_text,omitempty"`
+	CreatedBy               string          `json:"created_by"`
+	CreatedAt               time.Time       `json:"created_at"`
+	ArchivedAt              *time.Time      `json:"archived_at,omitempty"`
 }
 
 type Event struct {
@@ -1092,7 +1093,8 @@ type UpdateAgentInput struct {
 }
 
 type UpdateSessionRuntimeSettingsInput struct {
-	RuntimeSettings json.RawMessage `json:"runtime_settings"`
+	RuntimeSettings  json.RawMessage `json:"runtime_settings"`
+	ExpectedRevision int64           `json:"expected_revision"`
 }
 
 type UpdateSessionMetadataInput struct {
@@ -1143,6 +1145,7 @@ type AgentRuntimeConfig struct {
 	System                string          `json:"system"`
 	RuntimeSettings       json.RawMessage `json:"runtime_settings,omitempty"`
 	Tools                 json.RawMessage `json:"tools,omitempty"`
+	WorkspaceToolPolicy   json.RawMessage `json:"workspace_tool_policy,omitempty"`
 	MCP                   json.RawMessage `json:"mcp,omitempty"`
 	Skills                json.RawMessage `json:"skills,omitempty"`
 }

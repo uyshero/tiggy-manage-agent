@@ -68,7 +68,8 @@ func TestPinnedSessionKeepsConfigOnNewRun(t *testing.T) {
 		t.Fatalf("create session: %v", err)
 	}
 	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: json.RawMessage(`{"agent_config_update_policy":"pinned"}`),
+		RuntimeSettings:  json.RawMessage(`{"agent_config_update_policy":"pinned"}`),
+		ExpectedRevision: session.RuntimeSettingsRevision,
 	}); err != nil {
 		t.Fatalf("pin session: %v", err)
 	}

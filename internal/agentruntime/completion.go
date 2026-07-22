@@ -66,6 +66,10 @@ func completionGateMaxRetries(runtimeSettings json.RawMessage) int {
 	return value
 }
 
+func CompletionGateMaxRetries(runtimeSettings json.RawMessage) int {
+	return completionGateMaxRetries(runtimeSettings)
+}
+
 func normalizeCompletionVerdict(verdict CompletionVerdict, fallbackValidator string) (CompletionVerdict, error) {
 	verdict.Outcome = strings.ToLower(strings.TrimSpace(verdict.Outcome))
 	verdict.Validator = strings.TrimSpace(verdict.Validator)

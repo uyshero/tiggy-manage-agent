@@ -150,3 +150,43 @@ groups:
         annotations:
           summary: TMA completion validation retry rate is high
           description: More than half of at least five completion validation attempts required correction for ten minutes, indicating weak task planning, missing evidence, or an underperforming provider.
+
+      - alert: TMAAgentCoreBudgetExhausted
+        expr: increase(tma_agent_core_events_total{event="budget_exhausted"}[10m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA Agent Core exhausted a configured turn budget
+          description: One or more Agent Core turns reached a hard round, model-call, token, cost, or deadline budget. Inspect the turn runtime settings and provider usage before increasing limits.
+
+      - alert: TMAAgentCoreLeaseLost
+        expr: increase(tma_worker_lease_events_total{event="lease_lost"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA Agent Core worker lost a durable turn lease
+          description: A worker was fenced while executing a durable turn. Confirm worker health, PostgreSQL latency, and whether the replacement worker recovered the turn.
+
+      - alert: TMAAgentCoreIndeterminateTool
+        expr: increase(tma_agent_core_events_total{event="tool_indeterminate"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA Agent Core left a tool call indeterminate after recovery
+          description: An unsafe or unknown-idempotency tool was not replayed after a worker interruption. Manual verification may be required before retrying the task.
+
+      - alert: TMAAgentCoreCompactionRecoveryRateHigh
+        expr: (sum(increase(tma_agent_core_events_total{event="compaction_recovered"}[15m])) >= 3) and (sum(increase(tma_agent_core_events_total{event="compaction_recovered"}[15m])) / clamp_min(sum(increase(tma_agent_core_events_total{event="compaction_completed"}[15m])), 1) > 0.5)
+        for: 10m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA Agent Core compaction recovery rate is high
+          description: More than half of at least three compactions required recovery in the last fifteen minutes, indicating worker churn or an unstable execution environment.

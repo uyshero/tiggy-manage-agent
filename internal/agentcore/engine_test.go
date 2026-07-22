@@ -15,6 +15,7 @@ import (
 	"tiggy-manage-agent/internal/agentcore"
 	"tiggy-manage-agent/internal/model"
 	"tiggy-manage-agent/internal/modeltest"
+	toolpkg "tiggy-manage-agent/internal/tools"
 )
 
 var testNow = time.Date(2026, time.July, 21, 10, 0, 0, 0, time.UTC)
@@ -225,6 +226,8 @@ func TestEngineExecutesMixedToolBatchSequentiallyInSourceOrder(t *testing.T) {
 				planned = append(planned, agentcore.PlannedToolCall{
 					Call: call, ExecutionMode: mode, SideEffect: "none", Idempotency: "safe",
 					IdempotencyKey: agentcore.StableToolIdempotencyKey(state.SessionID, state.TurnID, call),
+					Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+					ApprovalState: agentcore.ToolApprovalNotRequired,
 				})
 			}
 			return agentcore.ToolBatchPlan{Calls: planned}, nil
@@ -277,15 +280,22 @@ func TestEngineConvertsToolPortFailureAndPreservesPartialResults(t *testing.T) {
 		modeltest.ModelStep{
 			Assert: func(request model.Request) error {
 				results := map[string]bool{}
+				failureText := ""
 				for _, message := range request.Messages {
 					for _, content := range message.Content {
 						if content.ToolResult != nil {
 							results[content.ToolResult.CallID] = content.ToolResult.IsError
+							if content.ToolResult.CallID == "call_fail" && len(content.ToolResult.Content) > 0 {
+								failureText = content.ToolResult.Content[0].Text
+							}
 						}
 					}
 				}
 				if !results["call_fail"] || results["call_ok"] {
 					return fmt.Errorf("partial tool results = %v", results)
+				}
+				if !strings.Contains(failureText, "Tool execution failed") || strings.Contains(failureText, "remote tool") {
+					return fmt.Errorf("unsafe default tool error text = %q", failureText)
 				}
 				return nil
 			},
@@ -302,36 +312,192 @@ func TestEngineConvertsToolPortFailureAndPreservesPartialResults(t *testing.T) {
 	}
 }
 
-func TestEngineDoesNotReplayStartedNonIdempotentTool(t *testing.T) {
+func TestEngineReturnsExplicitToolResultErrorToModel(t *testing.T) {
 	t.Parallel()
 
-	state, planned := executingToolState("unknown")
-	tools := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
-		return agentcore.ToolBatchResult{}, errors.New("non-idempotent tool must not be replayed")
+	state := initialState(100)
+	call := model.ToolCall{ID: "call_1", Name: "lookup", Arguments: json.RawMessage(`{}`)}
+	cause := errors.New("postgres://internal-secret")
+	visible := agentcore.NewToolResultError(
+		"database_unavailable", "Database temporarily unavailable. Retry the lookup later.", false, cause,
+	)
+	if !errors.Is(visible, cause) {
+		t.Fatal("ToolResultError did not preserve its diagnostic cause")
+	}
+	toolsPort := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+		return agentcore.ToolBatchResult{}, fmt.Errorf("lookup backend failed: %w", visible)
 	}}
-	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
-		Assert: func(request model.Request) error {
-			for _, message := range request.Messages {
-				for _, content := range message.Content {
-					if content.ToolResult != nil && content.ToolResult.CallID == planned.Call.ID && content.ToolResult.IsError && strings.Contains(string(content.ToolResult.State), "tool_execution_indeterminate") {
+	modelPort := modeltest.NewScriptedModel(
+		modeltest.ModelStep{Response: toolResponse("assistant_tools", []model.ToolCall{call})},
+		modeltest.ModelStep{
+			Assert: func(request model.Request) error {
+				for _, message := range request.Messages {
+					for _, content := range message.Content {
+						result := content.ToolResult
+						if result == nil || result.CallID != call.ID {
+							continue
+						}
+						text := result.Content[0].Text
+						if !result.IsError || result.Retryable || !strings.Contains(text, "Database temporarily unavailable") ||
+							strings.Contains(text, "internal-secret") || !strings.Contains(string(result.State), "database_unavailable") {
+							return fmt.Errorf("typed tool result = %+v", result)
+						}
 						return nil
 					}
 				}
-			}
-			return errors.New("indeterminate tool result missing")
+				return errors.New("typed tool result missing")
+			},
+			Response: textResponse("answer_2", "will retry later", model.Usage{}),
 		},
-		Response: textResponse("answer_2", "manual verification required", model.Usage{}),
-	})
-	engine, _ := newEngine(t, state, modelPort, tools, nil, nil)
+	)
+	engine, _ := newEngine(t, state, modelPort, toolsPort, nil, nil)
 	outcome, err := engine.Run(context.Background(), state)
 	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
 		t.Fatalf("Run() outcome = %+v err = %v", outcome, err)
 	}
-	if _, execute := tools.Counts(); execute != 0 {
-		t.Fatalf("non-idempotent replay count = %d", execute)
+}
+
+func TestEngineDoesNotReplayStartedNonIdempotentTools(t *testing.T) {
+	t.Parallel()
+
+	for _, idempotency := range []string{"unknown", "unsafe"} {
+		t.Run(idempotency, func(t *testing.T) {
+			state, planned := executingToolState(idempotency)
+			tools := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+				return agentcore.ToolBatchResult{}, errors.New("non-idempotent tool must not be replayed")
+			}}
+			modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+				Assert: func(request model.Request) error {
+					for _, message := range request.Messages {
+						for _, content := range message.Content {
+							if content.ToolResult != nil && content.ToolResult.CallID == planned.Call.ID && !content.ToolResult.IsError && strings.Contains(string(content.ToolResult.State), `"outcome":"executed"`) {
+								return nil
+							}
+						}
+					}
+					return errors.New("reconciled tool result missing")
+				},
+				Response: textResponse("answer_2", "operator confirmed execution", model.Usage{}),
+			})
+			engine, durability := newEngine(t, state, modelPort, tools, nil, nil)
+			paused, err := engine.Run(context.Background(), state)
+			if err != nil || paused.Status != agentcore.OutcomePaused || paused.Pause == nil || len(paused.Pause.Interactions) != 1 {
+				t.Fatalf("Run() outcome = %+v err = %v", paused, err)
+			}
+			if _, execute := tools.Counts(); execute != 0 {
+				t.Fatalf("non-idempotent replay count = %d", execute)
+			}
+			if paused.State.ToolJournal[0].Status != agentcore.ToolCallIndeterminate || paused.State.ToolJournal[0].Attempt != 1 || !strings.Contains(string(paused.Pause.Interactions[0].Request), agentcore.ToolReconciliationRequestPurpose) {
+				t.Fatalf("paused reconciliation = %+v journal=%+v", paused.Pause, paused.State.ToolJournal)
+			}
+			if _, err := engine.Resume(context.Background(), paused.State, []agentcore.InteractionDecision{{
+				InteractionID: paused.Pause.Interactions[0].ID,
+				Status:        "approved",
+				Response:      json.RawMessage(`{"mode":"form","fields":{"outcome":"executed","summary":"transaction tx-42 exists","evidence":"audit:tx-42"}}`),
+			}}); err != nil {
+				t.Fatalf("Resume() error = %v", err)
+			}
+			completed, err := engine.Run(context.Background(), durability.Snapshot())
+			if err != nil || completed.Status != agentcore.OutcomeCompleted {
+				t.Fatalf("Run(resumed) outcome = %+v err = %v", completed, err)
+			}
+			journal := completed.State.ToolJournal[0]
+			if journal.Status != agentcore.ToolCallSucceeded || journal.Reconciliation == nil || journal.Reconciliation.Outcome != agentcore.ToolReconciliationExecuted {
+				t.Fatalf("reconciled journal = %+v", journal)
+			}
+		})
 	}
-	if outcome.State.ToolJournal[0].Status != agentcore.ToolCallIndeterminate || outcome.State.ToolJournal[0].Attempt != 1 {
-		t.Fatalf("tool journal = %+v", outcome.State.ToolJournal)
+}
+
+func TestEngineReconcilesNonSuccessfulToolOutcomes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		outcome   string
+		retryable bool
+	}{
+		{outcome: agentcore.ToolReconciliationNotExecuted, retryable: true},
+		{outcome: agentcore.ToolReconciliationCompensated},
+	}
+	for _, test := range tests {
+		t.Run(test.outcome, func(t *testing.T) {
+			state, planned := executingToolState("unknown")
+			modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+				Assert: func(request model.Request) error {
+					for _, message := range request.Messages {
+						for _, content := range message.Content {
+							result := content.ToolResult
+							if result != nil && result.CallID == planned.Call.ID && result.IsError && result.Retryable == test.retryable && strings.Contains(string(result.State), `"outcome":"`+test.outcome+`"`) {
+								return nil
+							}
+						}
+					}
+					return errors.New("reconciled failure result missing")
+				},
+				Response: textResponse("answer_2", "reconciliation recorded", model.Usage{}),
+			})
+			tools := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+				return agentcore.ToolBatchResult{}, errors.New("non-idempotent tool must not be replayed")
+			}}
+			engine, durability := newEngine(t, state, modelPort, tools, nil, nil)
+			paused, err := engine.Run(context.Background(), state)
+			if err != nil || paused.Status != agentcore.OutcomePaused {
+				t.Fatalf("Run() outcome = %+v err = %v", paused, err)
+			}
+			response := json.RawMessage(fmt.Sprintf(`{"outcome":%q,"summary":"checked external system"}`, test.outcome))
+			if _, err := engine.Resume(context.Background(), paused.State, []agentcore.InteractionDecision{{
+				InteractionID: paused.Pause.Interactions[0].ID, Status: "approved", Response: response,
+			}}); err != nil {
+				t.Fatalf("Resume() error = %v", err)
+			}
+			completed, err := engine.Run(context.Background(), durability.Snapshot())
+			if err != nil || completed.Status != agentcore.OutcomeCompleted {
+				t.Fatalf("Run(resumed) outcome = %+v err = %v", completed, err)
+			}
+			journal := completed.State.ToolJournal[0]
+			if journal.Status != agentcore.ToolCallFailed || journal.Reconciliation == nil || journal.Reconciliation.Outcome != test.outcome {
+				t.Fatalf("reconciled journal = %+v", journal)
+			}
+		})
+	}
+}
+
+func TestEngineReconciliationPreservesResolvedToolApproval(t *testing.T) {
+	t.Parallel()
+
+	state, planned := executingToolState("unsafe")
+	planned.ApprovalState = agentcore.ToolApprovalApproved
+	planned.ApprovalSource = agentcore.ToolApprovalSourceHuman
+	state.PendingToolBatch.Calls[0] = planned
+	state.PendingToolBatch.Interactions = []agentcore.RequiredInteraction{{
+		ID: "tool_approval:" + planned.Call.ID, Kind: "tool_approval", CallID: planned.Call.ID,
+		Request:  json.RawMessage(`{"risk":"write"}`),
+		Decision: &agentcore.InteractionDecision{InteractionID: "tool_approval:" + planned.Call.ID, Status: "approved"},
+	}}
+	tools := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+		return agentcore.ToolBatchResult{}, errors.New("approved non-idempotent tool must not be replayed")
+	}}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: textResponse("answer_2", "reconciled", model.Usage{})})
+	engine, durability := newEngine(t, state, modelPort, tools, nil, nil)
+	paused, err := engine.Run(context.Background(), state)
+	if err != nil || paused.Status != agentcore.OutcomePaused || paused.Pause == nil || len(paused.Pause.Interactions) != 1 || len(paused.State.PendingToolBatch.Interactions) != 2 {
+		t.Fatalf("Run() outcome = %+v err=%v", paused, err)
+	}
+	if paused.State.PendingToolBatch.Interactions[0].Decision == nil || paused.Pause.Interactions[0].ID != agentcore.ToolReconciliationRequestPurpose+":"+planned.Call.ID {
+		t.Fatalf("approval/reconciliation interactions = %+v pause=%+v", paused.State.PendingToolBatch.Interactions, paused.Pause)
+	}
+	if _, err := engine.Resume(context.Background(), paused.State, []agentcore.InteractionDecision{{
+		InteractionID: paused.Pause.Interactions[0].ID, Status: "approved",
+		Response: json.RawMessage(`{"outcome":"compensated","summary":"external change was reverted"}`),
+	}}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	completed, err := engine.Run(context.Background(), durability.Snapshot())
+	if err != nil || completed.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("Run(resumed) outcome = %+v err=%v", completed, err)
+	}
+	if _, execute := tools.Counts(); execute != 0 {
+		t.Fatalf("reconciled tool replay count = %d", execute)
 	}
 }
 
@@ -339,8 +505,13 @@ func TestEngineRecoversRejectedStartedToolWithoutIndeterminateResult(t *testing.
 	t.Parallel()
 
 	state, planned := executingToolState("unsafe")
-	planned.ApprovalStatus = "rejected"
+	planned.ApprovalState = agentcore.ToolApprovalRejected
+	planned.ApprovalSource = agentcore.ToolApprovalSourceHuman
 	state.PendingToolBatch.Calls[0] = planned
+	state.PendingToolBatch.Interactions = []agentcore.RequiredInteraction{{
+		ID: "approval_1", Kind: "approval", CallID: planned.Call.ID, Request: json.RawMessage(`{}`),
+		Decision: &agentcore.InteractionDecision{InteractionID: "approval_1", Status: "rejected"},
+	}}
 	tools := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
 		return agentcore.ToolBatchResult{}, errors.New("rejected tool must not reach executor")
 	}}
@@ -367,24 +538,108 @@ func TestEngineRecoversRejectedStartedToolWithoutIndeterminateResult(t *testing.
 	}
 }
 
-func TestEngineReplaysSafeToolWithStableIdempotencyKey(t *testing.T) {
+func TestEngineReplaysSafeAndKeyedToolsWithStableIdempotencyKey(t *testing.T) {
 	t.Parallel()
 
-	state, planned := executingToolState("safe")
+	for _, idempotency := range []string{"safe", "keyed"} {
+		t.Run(idempotency, func(t *testing.T) {
+			state, planned := executingToolState(idempotency)
+			tools := &modeltest.ScriptedTools{ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+				if plan.Calls[0].IdempotencyKey != planned.IdempotencyKey {
+					return agentcore.ToolBatchResult{}, fmt.Errorf("idempotency key = %q, want %q", plan.Calls[0].IdempotencyKey, planned.IdempotencyKey)
+				}
+				return successfulResults(plan), nil
+			}}
+			modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: textResponse("answer_2", idempotency+" replay complete", model.Usage{})})
+			engine, _ := newEngine(t, state, modelPort, tools, nil, nil)
+			outcome, err := engine.Run(context.Background(), state)
+			if err != nil || outcome.Status != agentcore.OutcomeCompleted {
+				t.Fatalf("Run() outcome = %+v err = %v", outcome, err)
+			}
+			if _, execute := tools.Counts(); execute != 1 || outcome.State.ToolJournal[0].Attempt != 2 || outcome.State.ToolJournal[0].IdempotencyKey != planned.IdempotencyKey {
+				t.Fatalf("execute=%d journal=%+v", execute, outcome.State.ToolJournal)
+			}
+		})
+	}
+}
+
+func TestEngineRecoversPartiallyCompletedToolBatch(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	calls := []model.ToolCall{
+		{ID: "call_completed", Name: "read.completed", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_interrupted", Name: "read.interrupted", Arguments: json.RawMessage(`{}`)},
+	}
+	planned := make([]agentcore.PlannedToolCall, len(calls))
+	for index, call := range calls {
+		planned[index] = agentcore.PlannedToolCall{
+			Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
+			IdempotencyKey: agentcore.StableToolIdempotencyKey(state.SessionID, state.TurnID, call),
+			Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+			ApprovalState: agentcore.ToolApprovalNotRequired,
+		}
+	}
+	completedResult := model.ToolResult{
+		CallID: calls[0].ID, Name: calls[0].Name,
+		Content: []model.Content{{Type: model.ContentText, Text: "already completed"}},
+	}
+	completedAt := testNow
+	state.Messages = append(state.Messages, model.Message{
+		ID: "assistant_tools", Role: model.RoleAssistant, Visibility: model.VisibilityInternal,
+		Content: []model.Content{
+			{Type: model.ContentToolCall, ToolCall: &calls[0]},
+			{Type: model.ContentToolCall, ToolCall: &calls[1]},
+		},
+	})
+	state.Phase = agentcore.PhaseExecutingTools
+	state.PendingToolBatch = &agentcore.ToolBatchPlan{Calls: planned}
+	state.ToolCalls = len(calls)
+	state.Budget.ToolCalls = len(calls)
+	state.ToolJournal = []agentcore.ToolCallJournalEntry{
+		{
+			CallID: calls[0].ID, Name: calls[0].Name, Idempotency: "safe", IdempotencyKey: planned[0].IdempotencyKey,
+			Status: agentcore.ToolCallSucceeded, Attempt: 1, StartedAt: testNow, CompletedAt: &completedAt, Result: &completedResult,
+		},
+		{
+			CallID: calls[1].ID, Name: calls[1].Name, Idempotency: "safe", IdempotencyKey: planned[1].IdempotencyKey,
+			Status: agentcore.ToolCallStarted, Attempt: 1, StartedAt: testNow,
+		},
+	}
+
 	tools := &modeltest.ScriptedTools{ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
-		if plan.Calls[0].IdempotencyKey != planned.IdempotencyKey {
-			return agentcore.ToolBatchResult{}, fmt.Errorf("idempotency key = %q, want %q", plan.Calls[0].IdempotencyKey, planned.IdempotencyKey)
+		if len(plan.Calls) != 1 || plan.Calls[0].Call.ID != calls[1].ID || plan.Calls[0].IdempotencyKey != planned[1].IdempotencyKey {
+			return agentcore.ToolBatchResult{}, fmt.Errorf("replayed plan = %+v", plan.Calls)
 		}
 		return successfulResults(plan), nil
 	}}
-	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: textResponse("answer_2", "safe replay complete", model.Usage{})})
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+		Assert: func(request model.Request) error {
+			var resultIDs []string
+			for _, message := range request.Messages {
+				for _, content := range message.Content {
+					if content.ToolResult != nil {
+						resultIDs = append(resultIDs, content.ToolResult.CallID)
+					}
+				}
+			}
+			if !reflect.DeepEqual(resultIDs, []string{calls[0].ID, calls[1].ID}) {
+				return fmt.Errorf("tool result order = %v", resultIDs)
+			}
+			return nil
+		},
+		Response: textResponse("answer_2", "partial batch recovered", model.Usage{}),
+	})
 	engine, _ := newEngine(t, state, modelPort, tools, nil, nil)
 	outcome, err := engine.Run(context.Background(), state)
 	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
 		t.Fatalf("Run() outcome = %+v err = %v", outcome, err)
 	}
-	if _, execute := tools.Counts(); execute != 1 || outcome.State.ToolJournal[0].Attempt != 2 || outcome.State.ToolJournal[0].IdempotencyKey != planned.IdempotencyKey {
-		t.Fatalf("execute=%d journal=%+v", execute, outcome.State.ToolJournal)
+	if _, execute := tools.Counts(); execute != 1 {
+		t.Fatalf("replayed tool count = %d", execute)
+	}
+	if len(outcome.State.ToolJournal) != 2 || outcome.State.ToolJournal[0].Attempt != 1 || outcome.State.ToolJournal[1].Attempt != 2 || outcome.State.ToolJournal[1].Status != agentcore.ToolCallSucceeded {
+		t.Fatalf("tool journal = %+v", outcome.State.ToolJournal)
 	}
 }
 
@@ -438,6 +693,138 @@ func TestEngineFailsClosedForMissingToolResult(t *testing.T) {
 	}
 }
 
+func TestEngineValidatesParallelBatchBeforeStartingTools(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	calls := []model.ToolCall{
+		{ID: "call_1", Name: "first", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_2", Name: "second", Arguments: json.RawMessage(`{}`)},
+	}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: toolResponse("assistant_tools", calls)})
+	var validationCalls atomic.Int32
+	toolsPort := &modeltest.ScriptedTools{
+		ValidateExecutionFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) error {
+			validationCalls.Add(1)
+			return agentcore.NewToolFatalError("tool_registry_changed", errors.New("registry revision changed"))
+		},
+		ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+			return agentcore.ToolBatchResult{}, errors.New("execute must not run after failed batch validation")
+		},
+	}
+	engine, durability := newEngine(t, state, modelPort, toolsPort, nil, nil)
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeFailed || outcome.Failure == nil || outcome.Failure.Code != "tool_registry_changed" {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+	if len(outcome.State.ToolJournal) != 0 {
+		t.Fatalf("fatal tool journal = %+v", outcome.State.ToolJournal)
+	}
+	_, executeCalls := toolsPort.Counts()
+	if validationCalls.Load() != 1 || executeCalls != 0 {
+		t.Fatalf("validation calls = %d, execute calls = %d", validationCalls.Load(), executeCalls)
+	}
+	for _, event := range durability.Events() {
+		if event.Type == agentcore.EventToolCallStarted {
+			t.Fatalf("tool start event persisted after failed batch validation: %+v", event)
+		}
+	}
+}
+
+func TestEnginePreservesCodedToolPreflightFailure(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	call := model.ToolCall{ID: "call_1", Name: "broken.inspect", Arguments: json.RawMessage(`{}`)}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: toolResponse("assistant_tools", []model.ToolCall{call})})
+	toolsPort := &modeltest.ScriptedTools{PreflightFunc: func(context.Context, agentcore.State, []model.ToolCall) (agentcore.ToolBatchPlan, error) {
+		return agentcore.ToolBatchPlan{}, fmt.Errorf("snapshot validation: %w", toolpkg.NewToolContractError(
+			"invalid_tool_schema", errors.New("registered schema contains an external reference"),
+		))
+	}}
+	engine, _ := newEngine(t, state, modelPort, toolsPort, nil, nil)
+
+	outcome, err := engine.Run(t.Context(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeFailed || outcome.Failure == nil || outcome.Failure.Code != "invalid_tool_schema" ||
+		outcome.Failure.Message != "tool preflight infrastructure failed" {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+}
+
+func TestEngineTerminalizesStartedJournalAfterUnexpectedExecutionFatal(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	call := model.ToolCall{ID: "call_1", Name: "first", Arguments: json.RawMessage(`{}`)}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: toolResponse("assistant_tools", []model.ToolCall{call})})
+	toolsPort := &modeltest.ScriptedTools{ExecuteFunc: func(context.Context, agentcore.State, agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+		return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_runtime_failed", errors.New("unexpected execution failure"))
+	}}
+	engine, _ := newEngine(t, state, modelPort, toolsPort, nil, nil)
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeFailed || outcome.Failure == nil || outcome.Failure.Code != "tool_runtime_failed" {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+	if len(outcome.State.ToolJournal) != 1 || outcome.State.ToolJournal[0].Status != agentcore.ToolCallIndeterminate || outcome.State.ToolJournal[0].Result == nil {
+		t.Fatalf("fatal tool journal = %+v", outcome.State.ToolJournal)
+	}
+}
+
+func TestEnginePreservesToolContractRevisionsForSingleCallExecution(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	calls := []model.ToolCall{
+		{ID: "call_1", Name: "first", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_2", Name: "second", Arguments: json.RawMessage(`{}`)},
+	}
+	modelPort := modeltest.NewScriptedModel(
+		modeltest.ModelStep{Response: toolResponse("assistant_tools", calls)},
+		modeltest.ModelStep{Response: textResponse("assistant_done", "done", model.Usage{})},
+	)
+	toolsPort := &modeltest.ScriptedTools{
+		PreflightFunc: func(_ context.Context, _ agentcore.State, source []model.ToolCall) (agentcore.ToolBatchPlan, error) {
+			planned := make([]agentcore.PlannedToolCall, len(source))
+			for index, call := range source {
+				planned[index] = agentcore.PlannedToolCall{
+					Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
+					IdempotencyKey: "key_" + call.ID,
+					Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+					ApprovalState: agentcore.ToolApprovalNotRequired,
+				}
+			}
+			return agentcore.ToolBatchPlan{
+				Calls: planned, RegistryRevision: "sha256:registry", PolicyRevision: "sha256:policy",
+			}, nil
+		},
+		ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+			if plan.RegistryRevision != "sha256:registry" || plan.PolicyRevision != "sha256:policy" {
+				return agentcore.ToolBatchResult{}, fmt.Errorf("tool contract revisions were lost: %+v", plan)
+			}
+			return successfulResults(plan), nil
+		},
+	}
+	engine, _ := newEngine(t, state, modelPort, toolsPort, nil, nil)
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+}
+
 func TestEngineParksBeforeApprovalAndResumes(t *testing.T) {
 	t.Parallel()
 
@@ -450,12 +837,16 @@ func TestEngineParksBeforeApprovalAndResumes(t *testing.T) {
 	tools := &modeltest.ScriptedTools{
 		PreflightFunc: func(_ context.Context, _ agentcore.State, calls []model.ToolCall) (agentcore.ToolBatchPlan, error) {
 			return agentcore.ToolBatchPlan{
-				Calls:        []agentcore.PlannedToolCall{{Call: calls[0], ExecutionMode: "sequential", SideEffect: "write", Idempotency: "keyed"}},
+				Calls: []agentcore.PlannedToolCall{{
+					Call: calls[0], ExecutionMode: "sequential", SideEffect: "write", Idempotency: "keyed",
+					Disposition: agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+					ApprovalState: agentcore.ToolApprovalPending, ApprovalSource: agentcore.ToolApprovalSourceHuman,
+				}},
 				Interactions: []agentcore.RequiredInteraction{{ID: "approval_1", Kind: "approval", CallID: calls[0].ID, Request: json.RawMessage(`{"risk":"write"}`)}},
 			}, nil
 		},
 		ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
-			if plan.Calls[0].ApprovalStatus != "approved" || plan.Interactions[0].Decision == nil {
+			if plan.Calls[0].ApprovalState != agentcore.ToolApprovalApproved || plan.Calls[0].ApprovalSource != agentcore.ToolApprovalSourceHuman || plan.Interactions[0].Decision == nil {
 				return agentcore.ToolBatchResult{}, errors.New("approved decision missing from execution plan")
 			}
 			return successfulResults(plan), nil
@@ -512,7 +903,11 @@ func TestEngineDoesNotSendRejectedToolToExecutor(t *testing.T) {
 	)
 	tools := &modeltest.ScriptedTools{PreflightFunc: func(_ context.Context, _ agentcore.State, calls []model.ToolCall) (agentcore.ToolBatchPlan, error) {
 		return agentcore.ToolBatchPlan{
-			Calls:        []agentcore.PlannedToolCall{{Call: calls[0], ExecutionMode: "sequential", SideEffect: "destructive", Idempotency: "unsafe"}},
+			Calls: []agentcore.PlannedToolCall{{
+				Call: calls[0], ExecutionMode: "sequential", SideEffect: "destructive", Idempotency: "unsafe",
+				Disposition: agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+				ApprovalState: agentcore.ToolApprovalPending, ApprovalSource: agentcore.ToolApprovalSourceHuman,
+			}},
 			Interactions: []agentcore.RequiredInteraction{{ID: "approval_1", Kind: "approval", CallID: calls[0].ID, Request: json.RawMessage(`{"risk":"destructive"}`)}},
 		}, nil
 	}}
@@ -893,6 +1288,7 @@ func TestValidatePhaseTransition(t *testing.T) {
 		{agentcore.PhaseAwaitingModel, agentcore.PhasePreflightingTools},
 		{agentcore.PhasePreflightingTools, agentcore.PhasePaused},
 		{agentcore.PhasePaused, agentcore.PhaseExecutingTools},
+		{agentcore.PhaseExecutingTools, agentcore.PhasePaused},
 		{agentcore.PhaseExecutingTools, agentcore.PhaseAwaitingModel},
 		{agentcore.PhaseValidatingCompletion, agentcore.PhaseCompleted},
 		{agentcore.PhaseAwaitingModel, agentcore.PhaseFailed},
@@ -965,6 +1361,8 @@ func executingToolState(idempotency string) (agentcore.State, agentcore.PlannedT
 	planned := agentcore.PlannedToolCall{
 		Call: call, ExecutionMode: executionMode, SideEffect: "write", Idempotency: idempotency,
 		IdempotencyKey: agentcore.StableToolIdempotencyKey(state.SessionID, state.TurnID, call),
+		Disposition:    agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
+		ApprovalState: agentcore.ToolApprovalNotRequired,
 	}
 	state.Messages = append(state.Messages, model.Message{
 		ID: "assistant_tools", Role: model.RoleAssistant, Visibility: model.VisibilityInternal,

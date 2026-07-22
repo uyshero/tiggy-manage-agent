@@ -1,10 +1,13 @@
 package execution
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +16,49 @@ import (
 	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/internal/workruntime"
 )
+
+func TestWorkerBackedProviderEditFileRunsThroughWorkerRuntime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	if err := os.WriteFile(path, []byte("alpha old omega\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read, err := (capability.LocalSystemProvider{}).ReadFile(t.Context(), capability.ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerExecutor := workruntime.DefaultExecutor("loopback-worker")
+	store := &workerBackedTestStore{
+		workers: []managedagents.Worker{{
+			ID: "wrk_edit", WorkspaceID: "wksp_edit", Status: managedagents.WorkerStatusOnline,
+			Capabilities: rawWorkerCapabilities(t, map[string]any{
+				"namespaces": []string{"default"}, "apis": []string{"default.edit_file"},
+				"runtimes":     []string{"local_system"},
+				"capabilities": []string{"filesystem.read", "filesystem.write"},
+			}),
+		}},
+		loopbackExecutor: &workerExecutor,
+	}
+	provider := WorkerBackedProvider{
+		Store: store, WorkspaceID: "wksp_edit", SessionID: "sesn_edit", TurnID: "turn_edit",
+		PollInterval: time.Millisecond, WaitTimeout: time.Second,
+	}
+	result, err := provider.EditFile(t.Context(), capability.EditFileRequest{
+		Path: path, OldString: "old", NewString: "new",
+		ExpectedRevision: read.FileRevision, ExpectedContentSHA256: read.ContentSHA256,
+	})
+	if err != nil {
+		t.Fatalf("worker-backed edit failed: %v", err)
+	}
+	if !result.Success || result.Replacements != 1 || result.FileRevision == "" || result.ContentSHA256 == "" || !strings.Contains(result.DiffText, "@@ -") {
+		t.Fatalf("worker-backed edit lost result metadata: %#v", result)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "alpha new omega\n" {
+		t.Fatalf("worker-backed edit content = %q err=%v", content, err)
+	}
+}
 
 func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 	key := make([]byte, 32)
@@ -491,10 +536,11 @@ func TestDecodeWorkerToolResultRejectsOversizedExportedFile(t *testing.T) {
 }
 
 type workerBackedTestStore struct {
-	listInput       managedagents.ListWorkersInput
-	workers         []managedagents.Worker
-	enqueued        managedagents.EnqueueWorkerWorkInput
-	completedResult json.RawMessage
+	listInput        managedagents.ListWorkersInput
+	workers          []managedagents.Worker
+	enqueued         managedagents.EnqueueWorkerWorkInput
+	completedResult  json.RawMessage
+	loopbackExecutor *workruntime.Executor
 }
 
 func (s *workerBackedTestStore) ListWorkers(input managedagents.ListWorkersInput) ([]managedagents.Worker, error) {
@@ -504,14 +550,19 @@ func (s *workerBackedTestStore) ListWorkers(input managedagents.ListWorkersInput
 
 func (s *workerBackedTestStore) EnqueueWorkerWork(input managedagents.EnqueueWorkerWorkInput) (managedagents.WorkerWork, error) {
 	s.enqueued = input
-	return managedagents.WorkerWork{
+	work := managedagents.WorkerWork{
 		ID:          "work_000001",
 		WorkspaceID: input.WorkspaceID,
 		WorkerID:    input.WorkerID,
 		WorkType:    managedagents.WorkerWorkTypeToolExecution,
 		Status:      managedagents.WorkerWorkStatusPending,
 		Payload:     input.Payload,
-	}, nil
+	}
+	if s.loopbackExecutor != nil {
+		completion := s.loopbackExecutor.Execute(context.Background(), work)
+		s.completedResult = completion.Result
+	}
+	return work, nil
 }
 
 func (s *workerBackedTestStore) GetWorkerWork(id string) (managedagents.WorkerWork, error) {

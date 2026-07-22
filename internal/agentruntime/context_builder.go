@@ -81,8 +81,7 @@ type PreparedTurnContext struct {
 	MaxOutputTokens int
 }
 
-// PrepareTurnContext exposes the existing prompt assembly rules to durable
-// runtimes without coupling them to DemoRuntime's model/tool loop.
+// PrepareTurnContext exposes prompt assembly rules to the durable runtime.
 func PrepareTurnContext(request TurnRequest, now time.Time, builder ContextBuilder) (PreparedTurnContext, error) {
 	budget := contextBudgetFromSettings(request.Config.ContextWindowTokens, request.Config.RuntimeSettings)
 	if builder == nil {
@@ -104,6 +103,7 @@ func PrepareTurnContext(request TurnRequest, now time.Time, builder ContextBuild
 		History:                 request.History,
 		UserPayload:             request.UserPayload,
 		CurrentUserImages:       request.ImageParts,
+		CurrentUserSupplement:   request.CurrentUserSupplement,
 		Tools:                   request.Config.Tools,
 		ModelTools:              request.Config.ModelTools,
 		Skills:                  renderedSkills,

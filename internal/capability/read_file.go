@@ -104,6 +104,10 @@ func newFileReadError(code string, message string, metadata map[string]any) erro
 }
 
 func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFileLimits) (FileResult, error) {
+	return readLocalFileWithOpenHook(ctx, request, limits, nil)
+}
+
+func readLocalFileWithOpenHook(ctx context.Context, request ReadFileRequest, limits ReadFileLimits, beforeOpen func()) (FileResult, error) {
 	ctx, cancel := contextWithRequestDeadline(ctx, request.Meta.Deadline)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -118,7 +122,7 @@ func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFile
 		return FileResult{}, err
 	}
 
-	file, err := os.Open(request.Path)
+	file, err := openLocalFileForRead(request, beforeOpen)
 	if err != nil {
 		return FileResult{}, err
 	}
@@ -192,6 +196,9 @@ func readLocalFile(ctx context.Context, request ReadFileRequest, limits ReadFile
 		return FileResult{}, err
 	}
 	applyFileClassification(&result, classifyOpenedFile(file, request.Path, info.Size(), false))
+	if result.Mode == "byte" && result.OffsetBytes == 0 && result.EOF && int64(len(result.Content)) == info.Size() {
+		result.ContentSHA256 = contentSHA256(result.Content)
+	}
 	return result, nil
 }
 

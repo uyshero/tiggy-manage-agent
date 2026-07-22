@@ -30,14 +30,15 @@ const (
 )
 
 type Manifest struct {
-	Identifier        string         `json:"identifier"`
-	Type              string         `json:"type,omitempty"`
-	Meta              Meta           `json:"meta"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
-	SystemRole        string         `json:"system_role"`
-	API               []API          `json:"api"`
-	Executors         []string       `json:"executors,omitempty"`
-	HumanIntervention string         `json:"human_intervention,omitempty"`
+	Identifier     string         `json:"identifier"`
+	Type           string         `json:"type,omitempty"`
+	Meta           Meta           `json:"meta"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	SystemRole     string         `json:"system_role"`
+	API            []API          `json:"api"`
+	Executors      []string       `json:"executors,omitempty"`
+	ApprovalPolicy string         `json:"approval_policy,omitempty"`
+	ApprovalReason string         `json:"approval_reason,omitempty"`
 }
 
 type Meta struct {
@@ -46,20 +47,21 @@ type Meta struct {
 }
 
 type API struct {
-	Name              string          `json:"name"`
-	Namespace         string          `json:"namespace,omitempty"`
-	APIName           string          `json:"api,omitempty"`
-	Description       string          `json:"description"`
-	Parameters        json.RawMessage `json:"parameters,omitempty"`
-	HumanIntervention string          `json:"human_intervention,omitempty"`
-	Capabilities      []string        `json:"capabilities,omitempty"`
-	Risk              string          `json:"risk,omitempty"`
-	Idempotency       string          `json:"idempotency,omitempty"`
-	ConcurrencyClass  string          `json:"concurrency_class,omitempty"`
-	LockKey           string          `json:"lock_key,omitempty"`
-	Runtime           *RuntimePolicy  `json:"runtime,omitempty"`
-	Implementation    string          `json:"implementation,omitempty"`
-	HiddenFromModel   bool            `json:"hidden_from_model,omitempty"`
+	Name             string          `json:"name"`
+	Namespace        string          `json:"namespace,omitempty"`
+	APIName          string          `json:"api,omitempty"`
+	Description      string          `json:"description"`
+	Parameters       json.RawMessage `json:"parameters,omitempty"`
+	ApprovalPolicy   string          `json:"approval_policy,omitempty"`
+	ApprovalReason   string          `json:"approval_reason,omitempty"`
+	Capabilities     []string        `json:"capabilities,omitempty"`
+	Risk             string          `json:"risk,omitempty"`
+	Idempotency      string          `json:"idempotency,omitempty"`
+	ConcurrencyClass string          `json:"concurrency_class,omitempty"`
+	LockKey          string          `json:"lock_key,omitempty"`
+	Runtime          *RuntimePolicy  `json:"runtime,omitempty"`
+	Implementation   string          `json:"implementation,omitempty"`
+	HiddenFromModel  bool            `json:"hidden_from_model,omitempty"`
 }
 
 type Call struct {
@@ -71,19 +73,20 @@ type Call struct {
 }
 
 type ExecutionContext struct {
-	WorkspaceID          string
-	SessionID            string
-	EnvironmentID        string
-	TurnID               string
-	IdempotencyKey       string
-	Environment          map[string]string
-	Deadline             *time.Time
-	Provider             capability.Provider
-	ArtifactRecorder     ArtifactRecorder
-	DeferArtifacts       bool
-	ExpectedFileRevision string
-	TaskService          TaskToolService
-	CapabilityTransport  bool
+	WorkspaceID               string
+	SessionID                 string
+	EnvironmentID             string
+	TurnID                    string
+	IdempotencyKey            string
+	Environment               map[string]string
+	Deadline                  *time.Time
+	Provider                  capability.Provider
+	ArtifactRecorder          ArtifactRecorder
+	DeferArtifacts            bool
+	ExpectedFileRevision      string
+	ExpectedFileContentSHA256 string
+	TaskService               TaskToolService
+	CapabilityTransport       bool
 }
 
 func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {
@@ -150,6 +153,35 @@ type ResultContextOptions struct {
 type Runtime interface {
 	Manifest() Manifest
 	Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error)
+}
+
+type snapshotRuntime struct {
+	manifest Manifest
+	inner    Runtime
+}
+
+func (r snapshotRuntime) Manifest() Manifest {
+	manifest, err := cloneManifest(r.manifest)
+	if err != nil {
+		panic(fmt.Sprintf("clone validated tool manifest: %v", err))
+	}
+	return manifest
+}
+
+func (r snapshotRuntime) Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
+	return r.inner.Execute(ctx, call, executionContext)
+}
+
+func cloneManifest(manifest Manifest) (Manifest, error) {
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return Manifest{}, err
+	}
+	var cloned Manifest
+	if err := json.Unmarshal(encoded, &cloned); err != nil {
+		return Manifest{}, err
+	}
+	return cloned, nil
 }
 
 type Executor interface {
@@ -238,14 +270,26 @@ func DefaultRegistry() Registry {
 }
 
 func (r Registry) Register(runtime Runtime) {
+	if err := r.RegisterChecked(runtime); err != nil {
+		panic(err)
+	}
+}
+
+func (r Registry) RegisterChecked(runtime Runtime) error {
 	if runtime == nil {
-		return
+		return nil
 	}
 	manifest := runtime.Manifest()
 	if manifest.Identifier == "" {
-		return
+		return nil
+	}
+	if err := ValidateManifestPermissions(manifest); err != nil {
+		return NewToolContractError(
+			"invalid_tool_registry", fmt.Errorf("invalid_tool_registry: invalid tool manifest %q: %w", manifest.Identifier, err),
+		)
 	}
 	r.runtimes[manifest.Identifier] = runtime
+	return nil
 }
 
 func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
@@ -581,14 +625,17 @@ func NewDefaultExecutor() RegistryExecutor {
 func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
 	call = NormalizeCall(call)
 	registry := e.Registry
-	if registry.runtimes == nil {
-		registry = DefaultRegistry()
+	if err := registry.ValidateIntegrity(); err != nil {
+		return ExecutionResult{}, err
 	}
 	runtime, ok := registry.Get(call.Identifier)
 	if !ok {
 		return failedResult(call, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Identifier)), nil
 	}
 	if validationError := registry.ValidateCallArguments(call); validationError != nil {
+		if validationError.Type == "invalid_tool_schema" {
+			return ExecutionResult{}, fmt.Errorf("%s: %s", validationError.Type, validationError.Message)
+		}
 		return failedResult(call, validationError.Type, validationError.Message), nil
 	}
 

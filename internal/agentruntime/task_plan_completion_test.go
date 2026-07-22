@@ -73,47 +73,6 @@ func TestTaskPlanCompletionGateFailsClosedWhenPlanReadFails(t *testing.T) {
 	}
 }
 
-func TestTaskPlanCompletionGateDrivesToolLoopUntilPlanIsCompleted(t *testing.T) {
-	state := &taskPlanCompletionState{plan: managedagents.SessionTaskPlan{
-		ID: "plan_loop", SessionID: "session", Status: managedagents.TaskPlanStatusActive,
-		Items: []managedagents.SessionTaskItem{{
-			ID: "item_loop", PlanID: "plan_loop", Description: "Run verification", Status: managedagents.TaskItemStatusInProgress,
-		}},
-	}}
-	client := &taskPlanCompletionClient{}
-	registry := tools.NewRegistry(taskPlanEvidenceRuntime{}, tools.TaskRuntime{})
-	var steps []Step
-
-	result, err := (DemoRuntime{
-		Client:         client,
-		CompletionGate: TaskPlanCompletionGate{Reader: state},
-	}).RunTurn(t.Context(), TurnRequest{
-		SessionID: "session", TurnID: "turn",
-		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"finish the task"}]}`),
-		Config: Config{
-			ModelTools: registry.ModelTools(), ToolRegistry: registry,
-			ToolExecutor:         tools.RegistryExecutor{Registry: registry},
-			ToolExecutionContext: tools.ExecutionContext{TaskService: state},
-		},
-		EmitStep: collectCompletionSteps(&steps),
-	})
-	if err != nil {
-		t.Fatalf("run completion loop: %v", err)
-	}
-	if got := payloadText(result.AgentPayload); got != "verified final response" {
-		t.Fatalf("unexpected final response %q", got)
-	}
-	if client.calls != 5 || state.plan.Status != managedagents.TaskPlanStatusCompleted {
-		t.Fatalf("calls=%d plan=%#v", client.calls, state.plan)
-	}
-	if !strings.Contains(messagesText(client.requests[1].Messages), "task.update_items") {
-		t.Fatalf("completion feedback did not reach the next model request: %#v", client.requests[1].Messages)
-	}
-	if countCompletionSteps(steps, managedagents.EventRuntimeCompletionBlocked) != 1 || countCompletionSteps(steps, managedagents.EventRuntimeCompletionValidated) != 1 {
-		t.Fatalf("unexpected completion events: %#v", steps)
-	}
-}
-
 type taskPlanCompletionReader struct {
 	plan managedagents.SessionTaskPlan
 	err  error

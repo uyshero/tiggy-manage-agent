@@ -78,8 +78,11 @@ export class SessionsService extends ServiceBase {
     return this.transport.requestJSON("GET", path, undefined, signal ? { signal } : {});
   }
 
-  updateRuntimeSettings(sessionId: string, request: UpdateSessionRuntimeSettingsRequest, signal?: AbortSignal): Promise<Session> {
-    return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, signal ? { signal } : {});
+  updateRuntimeSettings(sessionId: string, expectedRevision: number, request: UpdateSessionRuntimeSettingsRequest, signal?: AbortSignal): Promise<Session> {
+    return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, {
+      headers: { "If-Match": `"${expectedRevision}"` },
+      ...(signal === undefined ? {} : { signal }),
+    });
   }
 
   runtimeConfig(sessionId: string, signal?: AbortSignal): Promise<AgentRuntimeConfig> {

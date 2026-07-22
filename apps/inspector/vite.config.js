@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 
 const apiTarget = process.env.TMA_DEV_API_BASE_URL || "http://127.0.0.1:8080";
-const inspectorManualMarkdown = readFileSync(new URL("../../docs/inspector.md", import.meta.url), "utf8");
+const inspectorManualMarkdown = readFileSync(new URL("../../docs/workbench.md", import.meta.url), "utf8");
 
 export default defineConfig({
   base: "/inspector/assets/",

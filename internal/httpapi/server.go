@@ -287,6 +287,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/agents/{agent_id}/config-versions", s.createAgentConfigVersion)
 	s.mux.HandleFunc("POST /v1/agents/{agent_id}/config-versions/{version}/rollback", s.rollbackAgentConfigVersion)
 	s.mux.HandleFunc("POST /v1/agents/{agent_id}/tooling-health", s.requireControlAuth(s.checkAgentToolingHealth))
+	s.mux.HandleFunc("GET /v1/workspaces/{workspace_id}/tool-permissions", s.getWorkspaceToolPermissions)
+	s.mux.HandleFunc("PUT /v1/workspaces/{workspace_id}/tool-permissions", s.requireControlAuth(s.updateWorkspaceToolPermissions))
+	s.mux.HandleFunc("POST /v1/workspaces/{workspace_id}/tool-permissions/evaluate", s.evaluateWorkspaceToolPermission)
 	s.mux.HandleFunc("POST /v1/agents/{agent_id}/schedules", s.createAgentSchedule)
 	s.mux.HandleFunc("GET /v1/agents/{agent_id}/schedules", s.listAgentSchedules)
 	s.mux.HandleFunc("GET /v1/agents/{agent_id}/schedules/{schedule_id}", s.getAgentSchedule)
@@ -354,6 +357,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/artifacts/upload", s.uploadSessionArtifact)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/events", s.appendSessionEvents)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/events", s.listSessionEvents)
+	s.mux.HandleFunc("GET /v1/sessions/{session_id}/tool-permission-audit", s.listSessionToolPermissionAudit)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/events/stream", s.streamSessionEvents)
 }
 

@@ -360,21 +360,10 @@ func evaluateCase(ctx context.Context, fixture Case) CaseResult {
 	}
 	reader := &replayPlanReader{}
 	client := &replayClient{candidates: fixture.Candidates, reader: reader}
-	steps := make([]agentruntime.Step, 0, len(fixture.Candidates)*3)
-	runtimeSettings, _ := json.Marshal(map[string]any{"completion_gate": map[string]any{"max_retries": fixture.MaxRetries}})
-
-	_, runErr := (agentruntime.DemoRuntime{
-		Client:         client,
-		CompletionGate: agentruntime.TaskPlanCompletionGate{Reader: reader},
-	}).RunTurn(ctx, agentruntime.TurnRequest{
-		SessionID:   "eval_" + fixture.ID,
-		TurnID:      "turn_1",
-		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"complete the task"}]}`),
-		Config:      agentruntime.Config{RuntimeSettings: runtimeSettings},
-		EmitStep: func(_ context.Context, step agentruntime.Step) error {
-			steps = append(steps, step)
-			return nil
-		},
+	_, steps, runErr := runAgentCoreEvaluation(ctx, agentCoreEvaluationRequest{
+		SessionID: "eval_" + fixture.ID, Prompt: "complete the task", Client: client,
+		Registry: tools.NewRegistry(), CompletionGate: agentruntime.TaskPlanCompletionGate{Reader: reader},
+		MaxRounds: fixture.MaxRetries + 8, MaxCompletionRetries: fixture.MaxRetries,
 	})
 
 	result := CaseResult{
@@ -387,6 +376,9 @@ func evaluateCase(ctx context.Context, fixture Case) CaseResult {
 		result.Error = runErr.Error()
 	}
 	result.Validator = lastCompletionValidator(steps)
+	if result.Validator == "" {
+		result.Validator = completionValidatorFromError(result.Error)
+	}
 	result.FalseSuccess = (fixture.Expected.Outcome == "fail" && result.ActualOutcome == "pass") ||
 		(fixture.Expected.BlockedRetries > 0 && result.ActualOutcome == "pass" && result.BlockedRetries < fixture.Expected.BlockedRetries)
 
@@ -406,6 +398,19 @@ func evaluateCase(ctx context.Context, fixture Case) CaseResult {
 	result.Failure = strings.Join(failures, "; ")
 	result.Passed = result.Failure == ""
 	return result
+}
+
+func completionValidatorFromError(message string) string {
+	const marker = "completion validator "
+	start := strings.Index(message, marker)
+	if start < 0 {
+		return ""
+	}
+	value := message[start+len(marker):]
+	if end := strings.IndexByte(value, ':'); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
 }
 
 func evaluateTaskGroupCase(fixture Case) CaseResult {
@@ -479,7 +484,6 @@ func evaluateToolSchemaCase(ctx context.Context, fixture Case) CaseResult {
 	runtimeTool := &schemaEvalRuntime{}
 	registry := tools.NewRegistry(runtimeTool)
 	client := &schemaReplayClient{candidates: fixture.Candidates}
-	steps := make([]agentruntime.Step, 0, len(fixture.Candidates)*3)
 	invalidCallIDs := make(map[string]bool)
 	for _, candidate := range fixture.Candidates {
 		if candidate.ToolCall == nil {
@@ -490,17 +494,9 @@ func evaluateToolSchemaCase(ctx context.Context, fixture Case) CaseResult {
 		}
 	}
 
-	_, runErr := (agentruntime.DemoRuntime{Client: client, MaxToolRounds: 8}).RunTurn(ctx, agentruntime.TurnRequest{
-		SessionID: "eval_" + fixture.ID, TurnID: "turn_1",
-		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"run the schema evaluation tool"}]}`),
-		Config: agentruntime.Config{
-			ModelTools: registry.ModelTools(), ToolRegistry: registry,
-			ToolExecutor: tools.RegistryExecutor{Registry: registry},
-		},
-		EmitStep: func(_ context.Context, step agentruntime.Step) error {
-			steps = append(steps, step)
-			return nil
-		},
+	_, steps, runErr := runAgentCoreEvaluation(ctx, agentCoreEvaluationRequest{
+		SessionID: "eval_" + fixture.ID, Prompt: "run the schema evaluation tool", Client: client,
+		Registry: registry, Executor: tools.RegistryExecutor{Registry: registry}, MaxRounds: 8,
 	})
 
 	result := CaseResult{
@@ -567,19 +563,10 @@ func evaluateFilesystemToolCase(ctx context.Context, fixture Case) CaseResult {
 		return manifest.Identifier == tools.NamespaceDefault && isVisibleFilesystemEvalTool(api.Name)
 	})
 	client := &filesystemReplayClient{candidates: append([]Candidate(nil), fixture.Candidates...)}
-	steps := make([]agentruntime.Step, 0, len(fixture.Candidates)*3)
-	userPayload, _ := json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": fixture.Filesystem.Prompt}}})
-	_, runErr := (agentruntime.DemoRuntime{Client: client, MaxToolRounds: 12}).RunTurn(ctx, agentruntime.TurnRequest{
-		SessionID: "eval_" + fixture.ID, TurnID: "turn_1", UserPayload: userPayload,
-		Config: agentruntime.Config{
-			ModelTools: registry.ModelTools(), ToolRegistry: registry,
-			ToolExecutor: tools.RegistryExecutor{Registry: registry}, InterventionMode: tools.InterventionModeFullAccess,
-			ToolExecutionContext: tools.ExecutionContext{Provider: provider},
-		},
-		EmitStep: func(_ context.Context, step agentruntime.Step) error {
-			steps = append(steps, step)
-			return nil
-		},
+	_, steps, runErr := runAgentCoreEvaluation(ctx, agentCoreEvaluationRequest{
+		SessionID: "eval_" + fixture.ID, Prompt: fixture.Filesystem.Prompt, Client: client,
+		Registry: registry, Executor: tools.RegistryExecutor{Registry: registry},
+		Execution: tools.ExecutionContext{Provider: provider}, MaxRounds: 12,
 	})
 
 	result := CaseResult{

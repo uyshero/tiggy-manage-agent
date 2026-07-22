@@ -28,12 +28,13 @@ func TestTypedAdministrationServices(t *testing.T) {
 		"GET /v2/mcp-servers/mcps%2F1/versions":                    `{"versions":[{"id":"mcpsv_1","server_id":"mcps/1","version":1,"config":{"identifier":"git"},"checksum_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","created_at":"2026-07-15T00:00:00Z"}]}`,
 		"POST /v2/mcp-servers/mcps%2F1/versions/1/restore":         `{"server":` + mcpServerFixture("active") + `,"source_version":1,"previous_version":2,"new_version":3}`,
 		"GET /v2/operator-audit?action=mcp_registry.update&limit=25&principal_id=user%2F1&session_id=sesn%2F1&workspace_id=wksp%2F1": `{"audit_records":[]}`,
-		"GET /v2/sessions/sesn%2F1/operator-audit":                               `{"audit_records":[]}`,
-		"GET /v2/observability/security-audit/integrity-keys":                    `{"active_key_id":"key_1","historical_unidentified_blocking":0,"keys":[]}`,
-		"POST /v2/observability/security-audit/replay?limit=50":                  `{"replayed":3}`,
-		"GET /v2/environment-variables?workspace_id=wksp%2F1":                    `{"variables":[]}`,
-		"PUT /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1":    `{"name":"SERVICE_API_KEY","configured":true,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`,
-		"DELETE /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1": "",
+		"GET /v2/sessions/sesn%2F1/operator-audit": `{"audit_records":[]}`,
+		"GET /v2/sessions/sesn%2F1/tool-permission-audit?cursor=cursor%2F1&decision=ask&limit=20&tool=default.edit_file": `{"records":[{"session_id":"sesn/1","turn_id":"turn/1","call_id":"call/1","tool":"default.edit_file","path":"/workspace/src/main.go","decision":"ask","allowed":false,"required":true,"intervention_mode":"request_approval","approval_policy":"conditional","approval_status":"approved","execution_status":"succeeded","matched_rule_id":"ask-src","rule_source":"session","created_at":"2026-07-15T00:00:00Z"}],"next_cursor":"next/cursor","has_more":true}`,
+		"GET /v2/observability/security-audit/integrity-keys":                                                            `{"active_key_id":"key_1","historical_unidentified_blocking":0,"keys":[]}`,
+		"POST /v2/observability/security-audit/replay?limit=50":                                                          `{"replayed":3}`,
+		"GET /v2/environment-variables?workspace_id=wksp%2F1":                                                            `{"variables":[]}`,
+		"PUT /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1":                                            `{"name":"SERVICE_API_KEY","configured":true,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`,
+		"DELETE /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1":                                         "",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Method + " " + r.URL.EscapedPath()
@@ -108,6 +109,10 @@ func TestTypedAdministrationServices(t *testing.T) {
 	}
 	if _, err = client.Audit.ListSession(ctx, "sesn/1"); err != nil {
 		t.Fatal(err)
+	}
+	permissionAudit, err := client.Audit.ListToolPermissions(ctx, "sesn/1", ToolPermissionAuditQuery{Decision: "ask", Tool: "default.edit_file", Limit: 20, Cursor: "cursor/1"})
+	if err != nil || len(permissionAudit.Records) != 1 || permissionAudit.Records[0].CallID != "call/1" || permissionAudit.Records[0].ApprovalStatus != "approved" || !permissionAudit.HasMore || permissionAudit.NextCursor != "next/cursor" {
+		t.Fatalf("tool permission audit=%+v err=%v", permissionAudit, err)
 	}
 	if _, err = client.Audit.IntegrityKeys(ctx); err != nil {
 		t.Fatal(err)

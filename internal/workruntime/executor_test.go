@@ -33,6 +33,23 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	}
 }
 
+func TestExecutorAdvertisesConfiguredWorkspaceRootWithoutLeakingPath(t *testing.T) {
+	root := t.TempDir()
+	executor := DefaultExecutor("scoped-worker")
+	executor.WorkspaceRoot = root
+	capabilities := executor.WorkerCapabilities()
+	if capabilities.Constraints["filesystem_scope"] != "workspace_root" || capabilities.Constraints["workspace_root_configured"] != true {
+		t.Fatalf("workspace constraints = %#v", capabilities.Constraints)
+	}
+	encoded, err := json.Marshal(capabilities)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), root) {
+		t.Fatalf("worker capabilities leaked host workspace root: %s", encoded)
+	}
+}
+
 func TestExecutorTransportsBoundedReadStateAndSearchMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "worker.log")
 	content := strings.Repeat("prefix\n", 1500) + "target line\n"
@@ -113,6 +130,52 @@ func TestExecutorTransportsBoundedReadStateAndSearchMetadata(t *testing.T) {
 	}
 	if len(searchFilesResult.Matches) != 1 || searchFilesResult.Matches[0].Path != "worker.log" || searchFilesResult.ScannedFiles != 1 || searchFilesResult.ScannedBytes == 0 {
 		t.Fatalf("worker search_files metadata was not preserved: %#v", searchFilesResult)
+	}
+}
+
+func TestExecutorTransportsInternalEditPreconditionsAndStructuredResult(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "note.txt")
+	content := []byte("alpha old omega\n")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read, err := (capability.LocalSystemProvider{}).ReadFile(t.Context(), capability.ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := json.Marshal(map[string]any{
+		"path": path, "old_string": "old", "new_string": "new", "replace_all": false,
+		"expected_revision": read.FileRevision, "expected_content_sha256": read.ContentSHA256,
+	})
+	payload, _ := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion: tools.WorkProtocolVersion, Namespace: tools.NamespaceDefault, API: "edit_file",
+		Capabilities: []string{tools.CapabilityFilesystemRead, tools.CapabilityFilesystemWrite}, Risk: tools.ToolRiskWrite,
+		Runtime: tools.ToolRuntimeLocalSystem, Input: input,
+	})
+	work := DefaultExecutor("test-worker").Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_edit", WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: payload,
+	})
+	if !work.Success {
+		t.Fatalf("worker edit failed: %s", work.ErrorMessage)
+	}
+	var body struct {
+		ToolResult struct {
+			State json.RawMessage `json:"state"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(work.Result, &body); err != nil {
+		t.Fatal(err)
+	}
+	var result capability.EditFileResult
+	if err := json.Unmarshal(body.ToolResult.State, &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success || result.Replacements != 1 || result.LinesAdded != 1 || result.LinesDeleted != 1 || result.FileRevision == "" || result.ContentSHA256 == "" || !strings.Contains(result.DiffText, "@@ -") {
+		t.Fatalf("worker edit result lost structured metadata: %#v", result)
+	}
+	edited, err := os.ReadFile(path)
+	if err != nil || string(edited) != "alpha new omega\n" {
+		t.Fatalf("worker edit content = %q err=%v", edited, err)
 	}
 }
 
@@ -320,6 +383,57 @@ func TestExecutorEmbedsExportedFilesInToolResult(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "result.txt")); err != nil {
 		t.Fatalf("expected worker output file to exist: %v", err)
+	}
+}
+
+func TestExecutorEmbedsExportedFilesWithWorkspaceGuard(t *testing.T) {
+	root := t.TempDir()
+	guarded, err := capability.NewWorkspacePathGuardProvider(capability.LocalSystemProvider{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := json.Marshal(map[string]any{
+		"command": "sh", "args": []string{"-c", "printf guarded-export > result.txt"},
+		"work_dir": ".", "output_paths": []string{"result.txt"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(tools.WorkInvocation{
+		ProtocolVersion: tools.WorkProtocolVersion, Namespace: tools.NamespaceDefault, API: "run_command",
+		Capabilities: []string{tools.CapabilityExec}, Risk: tools.ToolRiskExec,
+		Runtime: tools.ToolRuntimeLocalSystem, Input: input,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := DefaultExecutor("guarded-worker")
+	executor.Provider = guarded
+	executor.WorkspaceRoot = guarded.RootDir
+	result := executor.Execute(t.Context(), managedagents.WorkerWork{
+		ID: "work_guarded_export", WorkType: managedagents.WorkerWorkTypeToolExecution, Payload: payload,
+	})
+	if !result.Success {
+		t.Fatalf("guarded worker execution failed: %s result=%s", result.ErrorMessage, result.Result)
+	}
+	var body struct {
+		ToolResult struct {
+			ExportedFiles []tools.ArtifactExport `json:"exported_files"`
+			ArtifactError string                 `json:"artifact_error"`
+		} `json:"tool_result"`
+	}
+	if err := json.Unmarshal(result.Result, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ToolResult.ArtifactError != "" || len(body.ToolResult.ExportedFiles) != 1 {
+		t.Fatalf("guarded artifact export failed: %#v", body.ToolResult)
+	}
+	content, err := base64.StdEncoding.DecodeString(body.ToolResult.ExportedFiles[0].ContentBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "guarded-export" {
+		t.Fatalf("unexpected guarded export content: %q", content)
 	}
 }
 

@@ -145,6 +145,48 @@ const (
 	EnvironmentVariableScopeWorkspace EnvironmentVariableScope = "workspace"
 )
 
+// Defines values for EvaluateWorkspaceToolPermissionRequestInterventionMode.
+const (
+	EvaluateWorkspaceToolPermissionRequestInterventionModeApproveForMe    EvaluateWorkspaceToolPermissionRequestInterventionMode = "approve_for_me"
+	EvaluateWorkspaceToolPermissionRequestInterventionModeFullAccess      EvaluateWorkspaceToolPermissionRequestInterventionMode = "full_access"
+	EvaluateWorkspaceToolPermissionRequestInterventionModeRequestApproval EvaluateWorkspaceToolPermissionRequestInterventionMode = "request_approval"
+)
+
+// Defines values for EvaluateWorkspaceToolPermissionRequestTool.
+const (
+	EvaluateWorkspaceToolPermissionRequestToolDefaultEditFile  EvaluateWorkspaceToolPermissionRequestTool = "default.edit_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultReadFile  EvaluateWorkspaceToolPermissionRequestTool = "default.read_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultWriteFile EvaluateWorkspaceToolPermissionRequestTool = "default.write_file"
+)
+
+// Defines values for EvaluateWorkspaceToolPermissionResultApprovalPolicy.
+const (
+	EvaluateWorkspaceToolPermissionResultApprovalPolicyAlways      EvaluateWorkspaceToolPermissionResultApprovalPolicy = "always"
+	EvaluateWorkspaceToolPermissionResultApprovalPolicyConditional EvaluateWorkspaceToolPermissionResultApprovalPolicy = "conditional"
+	EvaluateWorkspaceToolPermissionResultApprovalPolicyNever       EvaluateWorkspaceToolPermissionResultApprovalPolicy = "never"
+)
+
+// Defines values for EvaluateWorkspaceToolPermissionResultDecision.
+const (
+	EvaluateWorkspaceToolPermissionResultDecisionAllow EvaluateWorkspaceToolPermissionResultDecision = "allow"
+	EvaluateWorkspaceToolPermissionResultDecisionAsk   EvaluateWorkspaceToolPermissionResultDecision = "ask"
+	EvaluateWorkspaceToolPermissionResultDecisionDeny  EvaluateWorkspaceToolPermissionResultDecision = "deny"
+)
+
+// Defines values for EvaluateWorkspaceToolPermissionResultInterventionMode.
+const (
+	EvaluateWorkspaceToolPermissionResultInterventionModeApproveForMe    EvaluateWorkspaceToolPermissionResultInterventionMode = "approve_for_me"
+	EvaluateWorkspaceToolPermissionResultInterventionModeFullAccess      EvaluateWorkspaceToolPermissionResultInterventionMode = "full_access"
+	EvaluateWorkspaceToolPermissionResultInterventionModeRequestApproval EvaluateWorkspaceToolPermissionResultInterventionMode = "request_approval"
+)
+
+// Defines values for EvaluateWorkspaceToolPermissionResultRuleSource.
+const (
+	EvaluateWorkspaceToolPermissionResultRuleSourceAgent     EvaluateWorkspaceToolPermissionResultRuleSource = "agent"
+	EvaluateWorkspaceToolPermissionResultRuleSourceSession   EvaluateWorkspaceToolPermissionResultRuleSource = "session"
+	EvaluateWorkspaceToolPermissionResultRuleSourceWorkspace EvaluateWorkspaceToolPermissionResultRuleSource = "workspace"
+)
+
 // Defines values for HumanInteractionRuntimeSettingsFallback.
 const (
 	AssistantMessage HumanInteractionRuntimeSettingsFallback = "assistant_message"
@@ -355,6 +397,25 @@ const (
 	OperatorAuditRecordOutcomeSucceeded OperatorAuditRecordOutcome = "succeeded"
 )
 
+// Defines values for PermissionRuleArgument.
+const (
+	PermissionRuleArgumentPath PermissionRuleArgument = "path"
+)
+
+// Defines values for PermissionRuleBehavior.
+const (
+	PermissionRuleBehaviorAllow PermissionRuleBehavior = "allow"
+	PermissionRuleBehaviorAsk   PermissionRuleBehavior = "ask"
+	PermissionRuleBehaviorDeny  PermissionRuleBehavior = "deny"
+)
+
+// Defines values for PermissionRuleTool.
+const (
+	PermissionRuleToolDefaultEditFile  PermissionRuleTool = "default.edit_file"
+	PermissionRuleToolDefaultReadFile  PermissionRuleTool = "default.read_file"
+	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default.write_file"
+)
+
 // Defines values for PrincipalAuthType.
 const (
 	Disabled PrincipalAuthType = "disabled"
@@ -420,8 +481,8 @@ const (
 
 // Defines values for SessionTaskPlanHandlingMode.
 const (
-	Planned SessionTaskPlanHandlingMode = "planned"
-	Tracked SessionTaskPlanHandlingMode = "tracked"
+	SessionTaskPlanHandlingModePlanned SessionTaskPlanHandlingMode = "planned"
+	SessionTaskPlanHandlingModeTracked SessionTaskPlanHandlingMode = "tracked"
 )
 
 // Defines values for SessionTaskPlanStatus.
@@ -499,8 +560,8 @@ const (
 
 // Defines values for SkillRetentionPolicyScopeType.
 const (
-	Organization SkillRetentionPolicyScopeType = "organization"
-	Workspace    SkillRetentionPolicyScopeType = "workspace"
+	SkillRetentionPolicyScopeTypeOrganization SkillRetentionPolicyScopeType = "organization"
+	SkillRetentionPolicyScopeTypeWorkspace    SkillRetentionPolicyScopeType = "workspace"
 )
 
 // Defines values for SkillRetentionPolicyStatus.
@@ -522,10 +583,74 @@ const (
 	ToolResult TaskEvidenceRefKind = "tool_result"
 )
 
+// Defines values for ToolPermissionAuditRecordApprovalPolicy.
+const (
+	ToolPermissionAuditRecordApprovalPolicyAlways      ToolPermissionAuditRecordApprovalPolicy = "always"
+	ToolPermissionAuditRecordApprovalPolicyConditional ToolPermissionAuditRecordApprovalPolicy = "conditional"
+	ToolPermissionAuditRecordApprovalPolicyNever       ToolPermissionAuditRecordApprovalPolicy = "never"
+)
+
+// Defines values for ToolPermissionAuditRecordApprovalStatus.
+const (
+	Approved     ToolPermissionAuditRecordApprovalStatus = "approved"
+	AutoApproved ToolPermissionAuditRecordApprovalStatus = "auto_approved"
+	NotRequired  ToolPermissionAuditRecordApprovalStatus = "not_required"
+	Pending      ToolPermissionAuditRecordApprovalStatus = "pending"
+	Rejected     ToolPermissionAuditRecordApprovalStatus = "rejected"
+)
+
+// Defines values for ToolPermissionAuditRecordDecision.
+const (
+	ToolPermissionAuditRecordDecisionAllow ToolPermissionAuditRecordDecision = "allow"
+	ToolPermissionAuditRecordDecisionAsk   ToolPermissionAuditRecordDecision = "ask"
+	ToolPermissionAuditRecordDecisionDeny  ToolPermissionAuditRecordDecision = "deny"
+)
+
+// Defines values for ToolPermissionAuditRecordExecutionStatus.
+const (
+	ToolPermissionAuditRecordExecutionStatusDenied        ToolPermissionAuditRecordExecutionStatus = "denied"
+	ToolPermissionAuditRecordExecutionStatusFailed        ToolPermissionAuditRecordExecutionStatus = "failed"
+	ToolPermissionAuditRecordExecutionStatusIndeterminate ToolPermissionAuditRecordExecutionStatus = "indeterminate"
+	ToolPermissionAuditRecordExecutionStatusPlanned       ToolPermissionAuditRecordExecutionStatus = "planned"
+	ToolPermissionAuditRecordExecutionStatusStarted       ToolPermissionAuditRecordExecutionStatus = "started"
+	ToolPermissionAuditRecordExecutionStatusSucceeded     ToolPermissionAuditRecordExecutionStatus = "succeeded"
+)
+
+// Defines values for ToolPermissionAuditRecordInterventionMode.
+const (
+	ApproveForMe    ToolPermissionAuditRecordInterventionMode = "approve_for_me"
+	FullAccess      ToolPermissionAuditRecordInterventionMode = "full_access"
+	RequestApproval ToolPermissionAuditRecordInterventionMode = "request_approval"
+)
+
+// Defines values for ToolPermissionAuditRecordRuleSource.
+const (
+	ToolPermissionAuditRecordRuleSourceAgent     ToolPermissionAuditRecordRuleSource = "agent"
+	ToolPermissionAuditRecordRuleSourceSession   ToolPermissionAuditRecordRuleSource = "session"
+	ToolPermissionAuditRecordRuleSourceWorkspace ToolPermissionAuditRecordRuleSource = "workspace"
+)
+
 // Defines values for UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy.
 const (
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyFollowLatest UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "follow_latest"
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyPinned       UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "pinned"
+)
+
+// Defines values for WorkspacePermissionRuleArgument.
+const (
+	WorkspacePermissionRuleArgumentPath WorkspacePermissionRuleArgument = "path"
+)
+
+// Defines values for WorkspacePermissionRuleBehavior.
+const (
+	WorkspacePermissionRuleBehaviorDeny WorkspacePermissionRuleBehavior = "deny"
+)
+
+// Defines values for WorkspacePermissionRuleTool.
+const (
+	DefaultEditFile  WorkspacePermissionRuleTool = "default.edit_file"
+	DefaultReadFile  WorkspacePermissionRuleTool = "default.read_file"
+	DefaultWriteFile WorkspacePermissionRuleTool = "default.write_file"
 )
 
 // APIError defines model for APIError.
@@ -1245,6 +1370,51 @@ type EnvironmentVariableList struct {
 type ErrorEnvelope struct {
 	Error APIError `json:"error"`
 }
+
+// EvaluateWorkspaceToolPermissionRequest defines model for EvaluateWorkspaceToolPermissionRequest.
+type EvaluateWorkspaceToolPermissionRequest struct {
+	AgentId          *string                                                 `json:"agent_id,omitempty"`
+	InterventionMode *EvaluateWorkspaceToolPermissionRequestInterventionMode `json:"intervention_mode,omitempty"`
+	Path             string                                                  `json:"path"`
+	SessionId        *string                                                 `json:"session_id,omitempty"`
+	Tool             EvaluateWorkspaceToolPermissionRequestTool              `json:"tool"`
+}
+
+// EvaluateWorkspaceToolPermissionRequestInterventionMode defines model for EvaluateWorkspaceToolPermissionRequest.InterventionMode.
+type EvaluateWorkspaceToolPermissionRequestInterventionMode string
+
+// EvaluateWorkspaceToolPermissionRequestTool defines model for EvaluateWorkspaceToolPermissionRequest.Tool.
+type EvaluateWorkspaceToolPermissionRequestTool string
+
+// EvaluateWorkspaceToolPermissionResult defines model for EvaluateWorkspaceToolPermissionResult.
+type EvaluateWorkspaceToolPermissionResult struct {
+	AgentId          *string                                               `json:"agent_id,omitempty"`
+	Allowed          bool                                                  `json:"allowed"`
+	ApprovalPolicy   *EvaluateWorkspaceToolPermissionResultApprovalPolicy  `json:"approval_policy,omitempty"`
+	Decision         EvaluateWorkspaceToolPermissionResultDecision         `json:"decision"`
+	InterventionMode EvaluateWorkspaceToolPermissionResultInterventionMode `json:"intervention_mode"`
+	MatchedRuleId    *string                                               `json:"matched_rule_id,omitempty"`
+	Path             string                                                `json:"path"`
+	Reason           *string                                               `json:"reason,omitempty"`
+	Required         bool                                                  `json:"required"`
+	Risk             *string                                               `json:"risk,omitempty"`
+	RuleSource       *EvaluateWorkspaceToolPermissionResultRuleSource      `json:"rule_source,omitempty"`
+	SessionId        *string                                               `json:"session_id,omitempty"`
+	Tool             string                                                `json:"tool"`
+	WorkspaceId      string                                                `json:"workspace_id"`
+}
+
+// EvaluateWorkspaceToolPermissionResultApprovalPolicy defines model for EvaluateWorkspaceToolPermissionResult.ApprovalPolicy.
+type EvaluateWorkspaceToolPermissionResultApprovalPolicy string
+
+// EvaluateWorkspaceToolPermissionResultDecision defines model for EvaluateWorkspaceToolPermissionResult.Decision.
+type EvaluateWorkspaceToolPermissionResultDecision string
+
+// EvaluateWorkspaceToolPermissionResultInterventionMode defines model for EvaluateWorkspaceToolPermissionResult.InterventionMode.
+type EvaluateWorkspaceToolPermissionResultInterventionMode string
+
+// EvaluateWorkspaceToolPermissionResultRuleSource defines model for EvaluateWorkspaceToolPermissionResult.RuleSource.
+type EvaluateWorkspaceToolPermissionResultRuleSource string
 
 // Event defines model for Event.
 type Event struct {
@@ -2273,6 +2443,25 @@ type OperatorAuditRecord struct {
 // OperatorAuditRecordOutcome defines model for OperatorAuditRecord.Outcome.
 type OperatorAuditRecordOutcome string
 
+// PermissionRule defines model for PermissionRule.
+type PermissionRule struct {
+	Argument PermissionRuleArgument `json:"argument"`
+	Behavior PermissionRuleBehavior `json:"behavior"`
+	Id       string                 `json:"id"`
+	Pattern  string                 `json:"pattern"`
+	Reason   *string                `json:"reason,omitempty"`
+	Tool     PermissionRuleTool     `json:"tool"`
+}
+
+// PermissionRuleArgument defines model for PermissionRule.Argument.
+type PermissionRuleArgument string
+
+// PermissionRuleBehavior defines model for PermissionRule.Behavior.
+type PermissionRuleBehavior string
+
+// PermissionRuleTool defines model for PermissionRule.Tool.
+type PermissionRuleTool string
+
 // PortableAgentConfig defines model for PortableAgentConfig.
 type PortableAgentConfig struct {
 	LlmModel    string                  `json:"llm_model"`
@@ -2416,6 +2605,7 @@ type RerunSessionRequest struct {
 	LlmModel                 *string                                     `json:"llm_model,omitempty"`
 	LlmProvider              *string                                     `json:"llm_provider,omitempty"`
 	MessageSeq               *int64                                      `json:"message_seq,omitempty"`
+	PermissionRules          *[]PermissionRule                           `json:"permission_rules,omitempty"`
 	Title                    *string                                     `json:"title,omitempty"`
 	ToolRuntime              *string                                     `json:"tool_runtime,omitempty"`
 }
@@ -2539,25 +2729,26 @@ type SecurityAuditReplayResult struct {
 
 // Session defines model for Session.
 type Session struct {
-	AgentConfigVersion int32                   `json:"agent_config_version"`
-	AgentId            string                  `json:"agent_id"`
-	ArchivedAt         *time.Time              `json:"archived_at"`
-	CreatedAt          time.Time               `json:"created_at"`
-	CreatedBy          string                  `json:"created_by"`
-	EnvironmentId      string                  `json:"environment_id"`
-	Id                 string                  `json:"id"`
-	OwnerId            string                  `json:"owner_id"`
-	ParentSessionId    *string                 `json:"parent_session_id,omitempty"`
-	ParentTurnId       *string                 `json:"parent_turn_id,omitempty"`
-	PinnedAt           *time.Time              `json:"pinned_at"`
-	RuntimeSettings    *map[string]interface{} `json:"runtime_settings,omitempty"`
-	SandboxId          *string                 `json:"sandbox_id,omitempty"`
-	SpawnDepth         *int32                  `json:"spawn_depth,omitempty"`
-	Status             string                  `json:"status"`
-	SummaryText        *string                 `json:"summary_text,omitempty"`
-	Tags               []string                `json:"tags"`
-	Title              *string                 `json:"title,omitempty"`
-	WorkspaceId        string                  `json:"workspace_id"`
+	AgentConfigVersion      int32                   `json:"agent_config_version"`
+	AgentId                 string                  `json:"agent_id"`
+	ArchivedAt              *time.Time              `json:"archived_at"`
+	CreatedAt               time.Time               `json:"created_at"`
+	CreatedBy               string                  `json:"created_by"`
+	EnvironmentId           string                  `json:"environment_id"`
+	Id                      string                  `json:"id"`
+	OwnerId                 string                  `json:"owner_id"`
+	ParentSessionId         *string                 `json:"parent_session_id,omitempty"`
+	ParentTurnId            *string                 `json:"parent_turn_id,omitempty"`
+	PinnedAt                *time.Time              `json:"pinned_at"`
+	RuntimeSettings         *map[string]interface{} `json:"runtime_settings,omitempty"`
+	RuntimeSettingsRevision int64                   `json:"runtime_settings_revision"`
+	SandboxId               *string                 `json:"sandbox_id,omitempty"`
+	SpawnDepth              *int32                  `json:"spawn_depth,omitempty"`
+	Status                  string                  `json:"status"`
+	SummaryText             *string                 `json:"summary_text,omitempty"`
+	Tags                    []string                `json:"tags"`
+	Title                   *string                 `json:"title,omitempty"`
+	WorkspaceId             string                  `json:"workspace_id"`
 }
 
 // SessionComparison defines model for SessionComparison.
@@ -3186,6 +3377,52 @@ type TaskEvidenceRef struct {
 // TaskEvidenceRefKind defines model for TaskEvidenceRef.Kind.
 type TaskEvidenceRefKind string
 
+// ToolPermissionAuditList defines model for ToolPermissionAuditList.
+type ToolPermissionAuditList struct {
+	HasMore    bool                        `json:"has_more"`
+	NextCursor string                      `json:"next_cursor"`
+	Records    []ToolPermissionAuditRecord `json:"records"`
+}
+
+// ToolPermissionAuditRecord defines model for ToolPermissionAuditRecord.
+type ToolPermissionAuditRecord struct {
+	Allowed          bool                                      `json:"allowed"`
+	ApprovalPolicy   *ToolPermissionAuditRecordApprovalPolicy  `json:"approval_policy,omitempty"`
+	ApprovalStatus   ToolPermissionAuditRecordApprovalStatus   `json:"approval_status"`
+	CallId           string                                    `json:"call_id"`
+	CreatedAt        time.Time                                 `json:"created_at"`
+	Decision         ToolPermissionAuditRecordDecision         `json:"decision"`
+	ExecutionStatus  ToolPermissionAuditRecordExecutionStatus  `json:"execution_status"`
+	InterventionMode ToolPermissionAuditRecordInterventionMode `json:"intervention_mode"`
+	MatchedRuleId    *string                                   `json:"matched_rule_id,omitempty"`
+	Path             *string                                   `json:"path,omitempty"`
+	Reason           *string                                   `json:"reason,omitempty"`
+	Required         bool                                      `json:"required"`
+	Risk             *string                                   `json:"risk,omitempty"`
+	RuleSource       *ToolPermissionAuditRecordRuleSource      `json:"rule_source,omitempty"`
+	SessionId        string                                    `json:"session_id"`
+	Tool             string                                    `json:"tool"`
+	TurnId           string                                    `json:"turn_id"`
+}
+
+// ToolPermissionAuditRecordApprovalPolicy defines model for ToolPermissionAuditRecord.ApprovalPolicy.
+type ToolPermissionAuditRecordApprovalPolicy string
+
+// ToolPermissionAuditRecordApprovalStatus defines model for ToolPermissionAuditRecord.ApprovalStatus.
+type ToolPermissionAuditRecordApprovalStatus string
+
+// ToolPermissionAuditRecordDecision defines model for ToolPermissionAuditRecord.Decision.
+type ToolPermissionAuditRecordDecision string
+
+// ToolPermissionAuditRecordExecutionStatus defines model for ToolPermissionAuditRecord.ExecutionStatus.
+type ToolPermissionAuditRecordExecutionStatus string
+
+// ToolPermissionAuditRecordInterventionMode defines model for ToolPermissionAuditRecord.InterventionMode.
+type ToolPermissionAuditRecordInterventionMode string
+
+// ToolPermissionAuditRecordRuleSource defines model for ToolPermissionAuditRecord.RuleSource.
+type ToolPermissionAuditRecordRuleSource string
+
 // ToolingHealthItem defines model for ToolingHealthItem.
 type ToolingHealthItem struct {
 	Capabilities          *[]string `json:"capabilities,omitempty"`
@@ -3484,11 +3721,17 @@ type UpdateSessionRuntimeSettingsRequest struct {
 	InterventionMode         *string                                                     `json:"intervention_mode,omitempty"`
 	LlmModel                 *string                                                     `json:"llm_model,omitempty"`
 	LlmProvider              *string                                                     `json:"llm_provider,omitempty"`
+	PermissionRules          *[]PermissionRule                                           `json:"permission_rules,omitempty"`
 	ToolRuntime              *string                                                     `json:"tool_runtime,omitempty"`
 }
 
 // UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy Defaults to follow_latest.
 type UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy string
+
+// UpdateWorkspaceToolPermissionPolicyRequest defines model for UpdateWorkspaceToolPermissionPolicyRequest.
+type UpdateWorkspaceToolPermissionPolicyRequest struct {
+	PermissionRules []WorkspacePermissionRule `json:"permission_rules"`
+}
 
 // UpgradeSessionConfigRequest defines model for UpgradeSessionConfigRequest.
 type UpgradeSessionConfigRequest struct {
@@ -3620,6 +3863,34 @@ type WorkerWorkDiagnosis struct {
 	Worker  *WorkerSummary `json:"worker,omitempty"`
 }
 
+// WorkspacePermissionRule defines model for WorkspacePermissionRule.
+type WorkspacePermissionRule struct {
+	Argument WorkspacePermissionRuleArgument `json:"argument"`
+	Behavior WorkspacePermissionRuleBehavior `json:"behavior"`
+	Id       string                          `json:"id"`
+	Pattern  string                          `json:"pattern"`
+	Reason   *string                         `json:"reason,omitempty"`
+	Tool     WorkspacePermissionRuleTool     `json:"tool"`
+}
+
+// WorkspacePermissionRuleArgument defines model for WorkspacePermissionRule.Argument.
+type WorkspacePermissionRuleArgument string
+
+// WorkspacePermissionRuleBehavior defines model for WorkspacePermissionRule.Behavior.
+type WorkspacePermissionRuleBehavior string
+
+// WorkspacePermissionRuleTool defines model for WorkspacePermissionRule.Tool.
+type WorkspacePermissionRuleTool string
+
+// WorkspaceToolPermissionPolicy defines model for WorkspaceToolPermissionPolicy.
+type WorkspaceToolPermissionPolicy struct {
+	PermissionRules []WorkspacePermissionRule `json:"permission_rules"`
+	Revision        int64                     `json:"revision"`
+	UpdatedAt       time.Time                 `json:"updated_at"`
+	UpdatedBy       string                    `json:"updated_by"`
+	WorkspaceId     string                    `json:"workspace_id"`
+}
+
 // GetV2EnvironmentVariablesParams defines parameters for GetV2EnvironmentVariables.
 type GetV2EnvironmentVariablesParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
@@ -3739,9 +4010,23 @@ type GetV2SessionsBySessionIdRunsByRunIdEventsStreamParams struct {
 	AfterSeq *string `form:"after_seq,omitempty" json:"after_seq,omitempty"`
 }
 
+// PatchV2SessionsBySessionIdRuntimeSettingsParams defines parameters for PatchV2SessionsBySessionIdRuntimeSettings.
+type PatchV2SessionsBySessionIdRuntimeSettingsParams struct {
+	// IfMatch Quoted positive resource revision returned by the previous read.
+	IfMatch string `json:"If-Match"`
+}
+
 // GetV2SessionsBySessionIdSkillUsagesParams defines parameters for GetV2SessionsBySessionIdSkillUsages.
 type GetV2SessionsBySessionIdSkillUsagesParams struct {
 	TurnId *string `form:"turn_id,omitempty" json:"turn_id,omitempty"`
+}
+
+// GetV2SessionsBySessionIdToolPermissionAuditParams defines parameters for GetV2SessionsBySessionIdToolPermissionAudit.
+type GetV2SessionsBySessionIdToolPermissionAuditParams struct {
+	Decision *string `form:"decision,omitempty" json:"decision,omitempty"`
+	Tool     *string `form:"tool,omitempty" json:"tool,omitempty"`
+	Limit    *int32  `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor   *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // GetV2SessionsBySessionIdTraceParams defines parameters for GetV2SessionsBySessionIdTrace.
@@ -3866,6 +4151,12 @@ type GetV2TracesByTraceIdSpansBySpanIdParams struct {
 type GetV2WorkersParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 	Status      *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// PutV2WorkspacesByWorkspaceIdToolPermissionsParams defines parameters for PutV2WorkspacesByWorkspaceIdToolPermissions.
+type PutV2WorkspacesByWorkspaceIdToolPermissionsParams struct {
+	// IfMatch Quoted positive resource revision returned by the previous read.
+	IfMatch string `json:"If-Match"`
 }
 
 // PostV2AgentsJSONRequestBody defines body for PostV2Agents for application/json ContentType.
@@ -4059,6 +4350,12 @@ type PostV2WorkersDiagnoseJSONRequestBody = WorkerDiagnoseRequest
 
 // PostV2WorkersReapExpiredJSONRequestBody defines body for PostV2WorkersReapExpired for application/json ContentType.
 type PostV2WorkersReapExpiredJSONRequestBody = ReapExpiredWorkersRequest
+
+// PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody defines body for PutV2WorkspacesByWorkspaceIdToolPermissions for application/json ContentType.
+type PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody = UpdateWorkspaceToolPermissionPolicyRequest
+
+// PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody defines body for PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate for application/json ContentType.
+type PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody = EvaluateWorkspaceToolPermissionRequest
 
 // AsMCPConfigValue0 returns the union data inside the MCPConfigValue as a MCPConfigValue0
 func (t MCPConfigValue) AsMCPConfigValue0() (MCPConfigValue0, error) {
@@ -4666,9 +4963,9 @@ type ClientInterface interface {
 	GetV2SessionsBySessionIdRuntimeConfig(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PatchV2SessionsBySessionIdRuntimeSettingsWithBody request with any body
-	PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx context.Context, sessionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	PatchV2SessionsBySessionIdRuntimeSettings(ctx context.Context, sessionId string, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PatchV2SessionsBySessionIdRuntimeSettings(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionsBySessionIdSkillUsages request
 	GetV2SessionsBySessionIdSkillUsages(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdSkillUsagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4706,6 +5003,9 @@ type ClientInterface interface {
 
 	// GetV2SessionsBySessionIdTaskPlans request
 	GetV2SessionsBySessionIdTaskPlans(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2SessionsBySessionIdToolPermissionAudit request
+	GetV2SessionsBySessionIdToolPermissionAudit(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdToolPermissionAuditParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionsBySessionIdTrace request
 	GetV2SessionsBySessionIdTrace(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdTraceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4963,6 +5263,19 @@ type ClientInterface interface {
 
 	// PostV2WorkersByWorkerIdArchive request
 	PostV2WorkersByWorkerIdArchive(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2WorkspacesByWorkspaceIdToolPermissions request
+	GetV2WorkspacesByWorkspaceIdToolPermissions(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2WorkspacesByWorkspaceIdToolPermissionsWithBody request with any body
+	PutV2WorkspacesByWorkspaceIdToolPermissionsWithBody(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2WorkspacesByWorkspaceIdToolPermissions(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, body PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBody request with any body
+	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBody(ctx context.Context, workspaceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) GetV2AgentDiscussionStrategies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -6465,8 +6778,8 @@ func (c *Client) GetV2SessionsBySessionIdRuntimeConfig(ctx context.Context, sess
 	return c.Client.Do(req)
 }
 
-func (c *Client) PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx context.Context, sessionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(c.Server, sessionId, contentType, body)
+func (c *Client) PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(c.Server, sessionId, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6477,8 +6790,8 @@ func (c *Client) PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx context.C
 	return c.Client.Do(req)
 }
 
-func (c *Client) PatchV2SessionsBySessionIdRuntimeSettings(ctx context.Context, sessionId string, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2SessionsBySessionIdRuntimeSettingsRequest(c.Server, sessionId, body)
+func (c *Client) PatchV2SessionsBySessionIdRuntimeSettings(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2SessionsBySessionIdRuntimeSettingsRequest(c.Server, sessionId, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6635,6 +6948,18 @@ func (c *Client) GetV2SessionsBySessionIdTaskPlan(ctx context.Context, sessionId
 
 func (c *Client) GetV2SessionsBySessionIdTaskPlans(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2SessionsBySessionIdTaskPlansRequest(c.Server, sessionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdToolPermissionAudit(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdToolPermissionAuditParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdToolPermissionAuditRequest(c.Server, sessionId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7787,6 +8112,66 @@ func (c *Client) GetV2WorkersByWorkerId(ctx context.Context, workerId string, re
 
 func (c *Client) PostV2WorkersByWorkerIdArchive(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2WorkersByWorkerIdArchiveRequest(c.Server, workerId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2WorkspacesByWorkspaceIdToolPermissions(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2WorkspacesByWorkspaceIdToolPermissionsRequest(c.Server, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2WorkspacesByWorkspaceIdToolPermissionsWithBody(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequestWithBody(c.Server, workspaceId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2WorkspacesByWorkspaceIdToolPermissions(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, body PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequest(c.Server, workspaceId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBody(ctx context.Context, workspaceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequestWithBody(c.Server, workspaceId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequest(c.Server, workspaceId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11941,18 +12326,18 @@ func NewGetV2SessionsBySessionIdRuntimeConfigRequest(server string, sessionId st
 }
 
 // NewPatchV2SessionsBySessionIdRuntimeSettingsRequest calls the generic PatchV2SessionsBySessionIdRuntimeSettings builder with application/json body
-func NewPatchV2SessionsBySessionIdRuntimeSettingsRequest(server string, sessionId string, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody) (*http.Request, error) {
+func NewPatchV2SessionsBySessionIdRuntimeSettingsRequest(server string, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(server, sessionId, "application/json", bodyReader)
+	return NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(server, sessionId, params, "application/json", bodyReader)
 }
 
 // NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody generates requests for PatchV2SessionsBySessionIdRuntimeSettings with any type of body
-func NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(server string, sessionId string, contentType string, body io.Reader) (*http.Request, error) {
+func NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(server string, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -11983,6 +12368,19 @@ func NewPatchV2SessionsBySessionIdRuntimeSettingsRequestWithBody(server string, 
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, params.IfMatch)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
 
 	return req, nil
 }
@@ -12434,6 +12832,110 @@ func NewGetV2SessionsBySessionIdTaskPlansRequest(server string, sessionId string
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2SessionsBySessionIdToolPermissionAuditRequest generates requests for GetV2SessionsBySessionIdToolPermissionAudit
+func NewGetV2SessionsBySessionIdToolPermissionAuditRequest(server string, sessionId string, params *GetV2SessionsBySessionIdToolPermissionAuditParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/tool-permission-audit", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Decision != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "decision", runtime.ParamLocationQuery, *params.Decision); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Tool != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "tool", runtime.ParamLocationQuery, *params.Tool); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "cursor", runtime.ParamLocationQuery, *params.Cursor); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -15841,6 +16343,147 @@ func NewPostV2WorkersByWorkerIdArchiveRequest(server string, workerId string) (*
 	return req, nil
 }
 
+// NewGetV2WorkspacesByWorkspaceIdToolPermissionsRequest generates requests for GetV2WorkspacesByWorkspaceIdToolPermissions
+func NewGetV2WorkspacesByWorkspaceIdToolPermissionsRequest(server string, workspaceId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspaces/%s/tool-permissions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequest calls the generic PutV2WorkspacesByWorkspaceIdToolPermissions builder with application/json body
+func NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequest(server string, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, body PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequestWithBody(server, workspaceId, params, "application/json", bodyReader)
+}
+
+// NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequestWithBody generates requests for PutV2WorkspacesByWorkspaceIdToolPermissions with any type of body
+func NewPutV2WorkspacesByWorkspaceIdToolPermissionsRequestWithBody(server string, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspaces/%s/tool-permissions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, params.IfMatch)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequest calls the generic PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate builder with application/json body
+func NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequest(server string, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequestWithBody(server, workspaceId, "application/json", bodyReader)
+}
+
+// NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequestWithBody generates requests for PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate with any type of body
+func NewPostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateRequestWithBody(server string, workspaceId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspaces/%s/tool-permissions/evaluate", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -16231,9 +16874,9 @@ type ClientWithResponsesInterface interface {
 	GetV2SessionsBySessionIdRuntimeConfigWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRuntimeConfigResponse, error)
 
 	// PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse request with any body
-	PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse(ctx context.Context, sessionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error)
+	PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error)
 
-	PatchV2SessionsBySessionIdRuntimeSettingsWithResponse(ctx context.Context, sessionId string, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error)
+	PatchV2SessionsBySessionIdRuntimeSettingsWithResponse(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error)
 
 	// GetV2SessionsBySessionIdSkillUsagesWithResponse request
 	GetV2SessionsBySessionIdSkillUsagesWithResponse(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdSkillUsagesParams, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdSkillUsagesResponse, error)
@@ -16271,6 +16914,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2SessionsBySessionIdTaskPlansWithResponse request
 	GetV2SessionsBySessionIdTaskPlansWithResponse(ctx context.Context, sessionId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTaskPlansResponse, error)
+
+	// GetV2SessionsBySessionIdToolPermissionAuditWithResponse request
+	GetV2SessionsBySessionIdToolPermissionAuditWithResponse(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdToolPermissionAuditParams, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdToolPermissionAuditResponse, error)
 
 	// GetV2SessionsBySessionIdTraceWithResponse request
 	GetV2SessionsBySessionIdTraceWithResponse(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdTraceParams, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdTraceResponse, error)
@@ -16528,6 +17174,19 @@ type ClientWithResponsesInterface interface {
 
 	// PostV2WorkersByWorkerIdArchiveWithResponse request
 	PostV2WorkersByWorkerIdArchiveWithResponse(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*PostV2WorkersByWorkerIdArchiveResponse, error)
+
+	// GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse request
+	GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*GetV2WorkspacesByWorkspaceIdToolPermissionsResponse, error)
+
+	// PutV2WorkspacesByWorkspaceIdToolPermissionsWithBodyWithResponse request with any body
+	PutV2WorkspacesByWorkspaceIdToolPermissionsWithBodyWithResponse(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2WorkspacesByWorkspaceIdToolPermissionsResponse, error)
+
+	PutV2WorkspacesByWorkspaceIdToolPermissionsWithResponse(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, body PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2WorkspacesByWorkspaceIdToolPermissionsResponse, error)
+
+	// PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBodyWithResponse request with any body
+	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBodyWithResponse(ctx context.Context, workspaceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error)
+
+	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithResponse(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error)
 }
 
 type GetV2AgentDiscussionStrategiesResponse struct {
@@ -19005,6 +19664,29 @@ func (r GetV2SessionsBySessionIdTaskPlansResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2SessionsBySessionIdToolPermissionAuditResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ToolPermissionAuditList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdToolPermissionAuditResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdToolPermissionAuditResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2SessionsBySessionIdTraceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -20501,6 +21183,75 @@ func (r PostV2WorkersByWorkerIdArchiveResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2WorkspacesByWorkspaceIdToolPermissionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceToolPermissionPolicy
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2WorkspacesByWorkspaceIdToolPermissionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2WorkspacesByWorkspaceIdToolPermissionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2WorkspacesByWorkspaceIdToolPermissionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceToolPermissionPolicy
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2WorkspacesByWorkspaceIdToolPermissionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2WorkspacesByWorkspaceIdToolPermissionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluateWorkspaceToolPermissionResult
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 // GetV2AgentDiscussionStrategiesWithResponse request returning *GetV2AgentDiscussionStrategiesResponse
 func (c *ClientWithResponses) GetV2AgentDiscussionStrategiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentDiscussionStrategiesResponse, error) {
 	rsp, err := c.GetV2AgentDiscussionStrategies(ctx, reqEditors...)
@@ -21598,16 +22349,16 @@ func (c *ClientWithResponses) GetV2SessionsBySessionIdRuntimeConfigWithResponse(
 }
 
 // PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse request with arbitrary body returning *PatchV2SessionsBySessionIdRuntimeSettingsResponse
-func (c *ClientWithResponses) PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse(ctx context.Context, sessionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error) {
-	rsp, err := c.PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx, sessionId, contentType, body, reqEditors...)
+func (c *ClientWithResponses) PatchV2SessionsBySessionIdRuntimeSettingsWithBodyWithResponse(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error) {
+	rsp, err := c.PatchV2SessionsBySessionIdRuntimeSettingsWithBody(ctx, sessionId, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParsePatchV2SessionsBySessionIdRuntimeSettingsResponse(rsp)
 }
 
-func (c *ClientWithResponses) PatchV2SessionsBySessionIdRuntimeSettingsWithResponse(ctx context.Context, sessionId string, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error) {
-	rsp, err := c.PatchV2SessionsBySessionIdRuntimeSettings(ctx, sessionId, body, reqEditors...)
+func (c *ClientWithResponses) PatchV2SessionsBySessionIdRuntimeSettingsWithResponse(ctx context.Context, sessionId string, params *PatchV2SessionsBySessionIdRuntimeSettingsParams, body PatchV2SessionsBySessionIdRuntimeSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2SessionsBySessionIdRuntimeSettingsResponse, error) {
+	rsp, err := c.PatchV2SessionsBySessionIdRuntimeSettings(ctx, sessionId, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -21727,6 +22478,15 @@ func (c *ClientWithResponses) GetV2SessionsBySessionIdTaskPlansWithResponse(ctx 
 		return nil, err
 	}
 	return ParseGetV2SessionsBySessionIdTaskPlansResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdToolPermissionAuditWithResponse request returning *GetV2SessionsBySessionIdToolPermissionAuditResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdToolPermissionAuditWithResponse(ctx context.Context, sessionId string, params *GetV2SessionsBySessionIdToolPermissionAuditParams, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdToolPermissionAuditResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdToolPermissionAudit(ctx, sessionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdToolPermissionAuditResponse(rsp)
 }
 
 // GetV2SessionsBySessionIdTraceWithResponse request returning *GetV2SessionsBySessionIdTraceResponse
@@ -22560,6 +23320,49 @@ func (c *ClientWithResponses) PostV2WorkersByWorkerIdArchiveWithResponse(ctx con
 		return nil, err
 	}
 	return ParsePostV2WorkersByWorkerIdArchiveResponse(rsp)
+}
+
+// GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse request returning *GetV2WorkspacesByWorkspaceIdToolPermissionsResponse
+func (c *ClientWithResponses) GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*GetV2WorkspacesByWorkspaceIdToolPermissionsResponse, error) {
+	rsp, err := c.GetV2WorkspacesByWorkspaceIdToolPermissions(ctx, workspaceId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2WorkspacesByWorkspaceIdToolPermissionsResponse(rsp)
+}
+
+// PutV2WorkspacesByWorkspaceIdToolPermissionsWithBodyWithResponse request with arbitrary body returning *PutV2WorkspacesByWorkspaceIdToolPermissionsResponse
+func (c *ClientWithResponses) PutV2WorkspacesByWorkspaceIdToolPermissionsWithBodyWithResponse(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2WorkspacesByWorkspaceIdToolPermissionsResponse, error) {
+	rsp, err := c.PutV2WorkspacesByWorkspaceIdToolPermissionsWithBody(ctx, workspaceId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2WorkspacesByWorkspaceIdToolPermissionsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2WorkspacesByWorkspaceIdToolPermissionsWithResponse(ctx context.Context, workspaceId string, params *PutV2WorkspacesByWorkspaceIdToolPermissionsParams, body PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2WorkspacesByWorkspaceIdToolPermissionsResponse, error) {
+	rsp, err := c.PutV2WorkspacesByWorkspaceIdToolPermissions(ctx, workspaceId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2WorkspacesByWorkspaceIdToolPermissionsResponse(rsp)
+}
+
+// PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBodyWithResponse request with arbitrary body returning *PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse
+func (c *ClientWithResponses) PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBodyWithResponse(ctx context.Context, workspaceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error) {
+	rsp, err := c.PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBody(ctx, workspaceId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithResponse(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error) {
+	rsp, err := c.PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate(ctx, workspaceId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse(rsp)
 }
 
 // ParseGetV2AgentDiscussionStrategiesResponse parses an HTTP response from a GetV2AgentDiscussionStrategiesWithResponse call
@@ -26063,6 +26866,39 @@ func ParseGetV2SessionsBySessionIdTaskPlansResponse(rsp *http.Response) (*GetV2S
 	return response, nil
 }
 
+// ParseGetV2SessionsBySessionIdToolPermissionAuditResponse parses an HTTP response from a GetV2SessionsBySessionIdToolPermissionAuditWithResponse call
+func ParseGetV2SessionsBySessionIdToolPermissionAuditResponse(rsp *http.Response) (*GetV2SessionsBySessionIdToolPermissionAuditResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdToolPermissionAuditResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ToolPermissionAuditList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2SessionsBySessionIdTraceResponse parses an HTTP response from a GetV2SessionsBySessionIdTraceWithResponse call
 func ParseGetV2SessionsBySessionIdTraceResponse(rsp *http.Response) (*GetV2SessionsBySessionIdTraceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -28198,6 +29034,105 @@ func ParsePostV2WorkersByWorkerIdArchiveResponse(rsp *http.Response) (*PostV2Wor
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Worker
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2WorkspacesByWorkspaceIdToolPermissionsResponse parses an HTTP response from a GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse call
+func ParseGetV2WorkspacesByWorkspaceIdToolPermissionsResponse(rsp *http.Response) (*GetV2WorkspacesByWorkspaceIdToolPermissionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2WorkspacesByWorkspaceIdToolPermissionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceToolPermissionPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2WorkspacesByWorkspaceIdToolPermissionsResponse parses an HTTP response from a PutV2WorkspacesByWorkspaceIdToolPermissionsWithResponse call
+func ParsePutV2WorkspacesByWorkspaceIdToolPermissionsResponse(rsp *http.Response) (*PutV2WorkspacesByWorkspaceIdToolPermissionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2WorkspacesByWorkspaceIdToolPermissionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceToolPermissionPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse parses an HTTP response from a PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithResponse call
+func ParsePostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse(rsp *http.Response) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluateWorkspaceToolPermissionResult
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

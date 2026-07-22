@@ -293,9 +293,9 @@ func (s *SessionsService) RuntimeCapabilities(ctx context.Context, sessionID str
 	return result, err
 }
 
-func (s *SessionsService) UpdateRuntimeSettings(ctx context.Context, sessionID string, request UpdateSessionRuntimeSettingsRequest) (Session, error) {
+func (s *SessionsService) UpdateRuntimeSettings(ctx context.Context, sessionID string, expectedRevision int64, request UpdateSessionRuntimeSettingsRequest) (Session, error) {
 	var session Session
-	err := s.client.DoJSON(ctx, http.MethodPatch, sessionPath(sessionID)+"/runtime-settings", request, &session)
+	err := s.client.DoJSONWithHeaders(ctx, http.MethodPatch, sessionPath(sessionID)+"/runtime-settings", revisionHeaders(expectedRevision), request, &session)
 	return session, err
 }
 

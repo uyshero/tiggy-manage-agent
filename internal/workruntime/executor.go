@@ -15,6 +15,7 @@ import (
 
 type Executor struct {
 	WorkerName           string
+	WorkspaceRoot        string
 	Registry             tools.Registry
 	Provider             capability.Provider
 	ArtifactUploader     ArtifactUploader
@@ -73,7 +74,15 @@ func (e Executor) WorkerCapabilities() tools.WorkerCapabilities {
 	if e.DeclaredCapabilities != nil {
 		return cloneWorkerCapabilities(*e.DeclaredCapabilities)
 	}
-	return LocalSystemCapabilities(e.registry())
+	capabilities := LocalSystemCapabilities(e.registry())
+	if strings.TrimSpace(e.WorkspaceRoot) != "" {
+		if capabilities.Constraints == nil {
+			capabilities.Constraints = map[string]any{}
+		}
+		capabilities.Constraints["filesystem_scope"] = "workspace_root"
+		capabilities.Constraints["workspace_root_configured"] = true
+	}
+	return capabilities
 }
 
 func (e Executor) WorkerCapabilitiesJSON() json.RawMessage {
@@ -149,20 +158,26 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 	if _, _, ok := registry.GetAPI(invocation.Namespace, invocation.API); !ok {
 		return workFailure("unsupported tool api: " + invocation.Namespace + "." + invocation.API)
 	}
+	arguments, editRevision, editContentSHA256, err := workerCapabilityArguments(invocation)
+	if err != nil {
+		return workFailure("invalid tool execution payload: " + err.Error())
+	}
 
 	result, err := (tools.RegistryExecutor{Registry: registry}).Execute(ctx, tools.Call{
 		ID:         work.ID,
 		Identifier: invocation.Namespace,
 		APIName:    invocation.API,
-		Arguments:  invocation.Input,
+		Arguments:  arguments,
 	}, tools.ExecutionContext{
-		WorkspaceID:         work.WorkspaceID,
-		SessionID:           work.SessionID,
-		EnvironmentID:       work.EnvironmentID,
-		TurnID:              work.TurnID,
-		Environment:         environment,
-		Provider:            e.provider(),
-		CapabilityTransport: true,
+		WorkspaceID:               work.WorkspaceID,
+		SessionID:                 work.SessionID,
+		EnvironmentID:             work.EnvironmentID,
+		TurnID:                    work.TurnID,
+		Environment:               environment,
+		Provider:                  e.provider(),
+		CapabilityTransport:       true,
+		ExpectedFileRevision:      editRevision,
+		ExpectedFileContentSHA256: editContentSHA256,
 	})
 	exportedFiles, artifactRefs, exportErr := e.collectExportedFiles(ctx, work, tools.Call{
 		ID:         work.ID,
@@ -210,6 +225,33 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 		Success: true,
 		Result:  resultJSON,
 	}
+}
+
+func workerCapabilityArguments(invocation tools.WorkInvocation) (json.RawMessage, string, string, error) {
+	arguments := append(json.RawMessage(nil), invocation.Input...)
+	if invocation.Namespace != tools.NamespaceDefault || invocation.API != "edit_file" {
+		return arguments, "", "", nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(arguments, &object); err != nil {
+		return nil, "", "", err
+	}
+	var revision string
+	if raw := object["expected_revision"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &revision); err != nil {
+			return nil, "", "", fmt.Errorf("decode edit expected_revision: %w", err)
+		}
+		delete(object, "expected_revision")
+	}
+	var contentSHA256 string
+	if raw := object["expected_content_sha256"]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &contentSHA256); err != nil {
+			return nil, "", "", fmt.Errorf("decode edit expected_content_sha256: %w", err)
+		}
+		delete(object, "expected_content_sha256")
+	}
+	arguments, err := json.Marshal(object)
+	return arguments, strings.TrimSpace(revision), strings.ToLower(strings.TrimSpace(contentSHA256)), err
 }
 
 func (e Executor) collectExportedFiles(ctx context.Context, work managedagents.WorkerWork, call tools.Call, result tools.ExecutionResult) ([]tools.ArtifactExport, []tools.ArtifactRef, error) {

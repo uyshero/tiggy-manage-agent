@@ -34,6 +34,7 @@ import {
   disableSkill,
   downloadArtifact,
   environmentVariables,
+  evaluateWorkspaceToolPermission,
   events,
   enableSkill,
   exportAgent,
@@ -66,6 +67,7 @@ import {
   session,
   sessionRuntimeCapabilities,
   sessionRuntimeConfig,
+  sessionToolPermissionAudit,
   sessionTaskGroup,
   sessionTaskGroups,
   sendSessionMessage,
@@ -107,6 +109,8 @@ import {
   updateSessionRuntimeSettings,
   upgradeSessionConfig,
   updateAgent,
+  updateWorkspaceToolPermissions,
+  workspaceToolPermissions,
   upsertLLMModel
 } from "./api.js";
 
@@ -419,14 +423,14 @@ test("Session events, Artifact reads/downloads, and Interventions use v2 SDK ser
   globalThis.fetch = async (path, options) => {
     const url = String(path);
     requests.push({ url, options });
-    if (url.endsWith("/events")) return response({ events: [{ id: "event/1", type: "future.event" }] });
+    if (url.includes("/events")) return response({ events: [{ id: "event/1", type: "future.event" }] });
     if (url.endsWith("/artifacts")) return response({ artifacts: [{ id: "artifact/1", metadata: { extension: { preserved: true } } }] });
     if (url.endsWith("/download")) return { ok: true, headers: new Headers({ "content-type": "text/plain" }) };
     return response({ interventions: [{ call_id: "call/1", status: "pending" }] });
   };
   try {
     const controller = new AbortController();
-    const eventList = await events("session/1");
+    const eventList = await events("session/1", 4);
     const artifactList = await artifacts("session/1");
     const download = await downloadArtifact("session/1", "artifact/1", { signal: controller.signal });
     const interventionList = await interventions("session/1", "pending");
@@ -440,7 +444,7 @@ test("Session events, Artifact reads/downloads, and Interventions use v2 SDK ser
   }
 
   assert.deepEqual(requests.map((request) => request.url), [
-    "http://localhost/v2/sessions/session%2F1/events",
+    "http://localhost/v2/sessions/session%2F1/events?after_seq=4",
     "http://localhost/v2/sessions/session%2F1/artifacts",
     "http://localhost/v2/sessions/session%2F1/artifacts/artifact%2F1/download",
     "http://localhost/v2/sessions/session%2F1/interventions?status=pending"
@@ -914,7 +918,7 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
   globalThis.fetch = async (path, options) => {
     const url = String(path);
     const body = options.body ? JSON.parse(options.body) : undefined;
-    requests.push({ url, method: options.method, body, signal: options.signal });
+    requests.push({ url, method: options.method, body, signal: options.signal, headers: new Headers(options.headers) });
     if (options.method === "DELETE") return { ok: true, status: 204 };
     if (url.endsWith("/rerun")) {
       return response({ source_session_id: "session/1", source_event_seq: 4, session: { id: "rerun/1" }, events: [] });
@@ -928,8 +932,12 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
     const restored = await restoreSession("session/source", { signal: controller.signal });
     const rerun = await rerunSession("session/source", { title: "Rerun", message_seq: 4 }, { signal: controller.signal });
     const metadata = await updateSessionMetadata("session/source", { pinned: false, tags: ["qa", "sdk"] }, { signal: controller.signal });
-    const runtime = await updateSessionRuntimeSettings("session/source", {
-      intervention_mode: "request_approval", tool_runtime: "cloud_sandbox", cloud_sandbox_allow_network: false
+    const runtime = await updateSessionRuntimeSettings("session/source", 7, {
+      intervention_mode: "request_approval", tool_runtime: "cloud_sandbox", cloud_sandbox_allow_network: false,
+      permission_rules: [{
+        id: "session-src", tool: "default.edit_file", argument: "path",
+        pattern: "/workspace/src/**", behavior: "allow"
+      }]
     }, { signal: controller.signal });
     await upgradeSessionConfig("session/source", { to_version: 3, updated_by: "workbench" }, { signal: controller.signal });
     await deleteSession("session/source", { signal: controller.signal });
@@ -960,6 +968,11 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
   assert.deepEqual(requests[3].body, { title: "Rerun", message_seq: 4 });
   assert.deepEqual(requests[4].body, { pinned: false, tags: ["qa", "sdk"] });
   assert.equal(requests[5].body.cloud_sandbox_allow_network, false);
+  assert.equal(requests[5].headers.get("If-Match"), `"7"`);
+  assert.deepEqual(requests[5].body.permission_rules, [{
+    id: "session-src", tool: "default.edit_file", argument: "path",
+    pattern: "/workspace/src/**", behavior: "allow"
+  }]);
   assert.deepEqual(requests[6].body, { to_version: 3, updated_by: "workbench" });
   assert.equal(requests[7].body, undefined);
 });
@@ -1022,4 +1035,61 @@ test("Agent lifecycle, portability, rollback, and tooling health use typed v2 SD
   assert.deepEqual(requests[3].body.agent.tools, { extension: { preserved: true } });
   assert.deepEqual(requests[4].body, {});
   assert.deepEqual(requests[5].body, { kind: "mcp", identifier: "git" });
+});
+
+test("Workspace tool permissions use the typed v2 SDK and encode workspace ids", async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    requests.push({ url: String(path), method: options.method, body, headers: new Headers(options.headers) });
+    return response({ workspace_id: "workspace/1", permission_rules: body?.permission_rules || [], revision: body ? 4 : 3, updated_by: "operator", updated_at: "2026-07-21T00:00:00Z" });
+  };
+  const rules = [{ id: "deny-secrets", tool: "default.edit_file", argument: "path", pattern: "/workspace/secrets/**", behavior: "deny" }];
+  try {
+    await workspaceToolPermissions("workspace/1");
+    const updated = await updateWorkspaceToolPermissions("workspace/1", rules, 3);
+    await evaluateWorkspaceToolPermission("workspace/1", {
+      agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+      intervention_mode: "request_approval"
+    });
+    assert.deepEqual(updated.permission_rules, rules);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(requests.map(({ method, url }) => `${method} ${url}`), [
+    "GET http://localhost/v2/workspaces/workspace%2F1/tool-permissions",
+    "PUT http://localhost/v2/workspaces/workspace%2F1/tool-permissions",
+    "POST http://localhost/v2/workspaces/workspace%2F1/tool-permissions/evaluate"
+  ]);
+  assert.deepEqual(requests[1].body, { permission_rules: rules });
+  assert.equal(requests[1].headers.get("If-Match"), `"3"`);
+  assert.deepEqual(requests[2].body, {
+    agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+    intervention_mode: "request_approval"
+  });
+});
+
+test("Session tool permission audit uses the typed v2 SDK and encodes filters", async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    requests.push({ url: String(path), method: options.method });
+    return response({ records: [{ call_id: "call/1", decision: "ask" }], next_cursor: "next/cursor", has_more: true });
+  };
+  try {
+    const page = await sessionToolPermissionAudit("session/1", {
+      decision: "ask",
+      tool: "default.edit_file",
+      limit: 20,
+      cursor: "cursor/1"
+    });
+    assert.deepEqual(page, { records: [{ call_id: "call/1", decision: "ask" }], next_cursor: "next/cursor", has_more: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(requests, [{
+    method: "GET",
+    url: "http://localhost/v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default.edit_file&limit=20&cursor=cursor%2F1"
+  }]);
 });

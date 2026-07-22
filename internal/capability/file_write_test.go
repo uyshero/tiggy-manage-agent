@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -66,6 +67,26 @@ func TestEditFileRequiresUniqueMatchAndRevision(t *testing.T) {
 	stale, err := provider.EditFile(t.Context(), EditFileRequest{Path: path, OldString: "bar", NewString: "baz", ExpectedRevision: created.FileRevision})
 	if err != nil || stale.Code != "stale_file_revision" {
 		t.Fatalf("unexpected stale edit result: %#v err=%v", stale, err)
+	}
+}
+
+func TestEditFileRejectsStaleContentHash(t *testing.T) {
+	provider := LocalSystemProvider{}
+	path := filepath.Join(t.TempDir(), "note.txt")
+	created, err := provider.WriteFile(t.Context(), WriteFileRequest{Path: path, Content: []byte("old value")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := provider.EditFile(t.Context(), EditFileRequest{
+		Path: path, OldString: "old", NewString: "new", ExpectedRevision: created.FileRevision,
+		ExpectedContentSHA256: strings.Repeat("0", 64),
+	})
+	if err != nil || result.Success || result.Code != "stale_file_content" {
+		t.Fatalf("unexpected stale-content result: %#v err=%v", result, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "old value" {
+		t.Fatalf("stale-content edit changed file: %q err=%v", content, err)
 	}
 }
 

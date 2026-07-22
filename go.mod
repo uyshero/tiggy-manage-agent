@@ -7,9 +7,11 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oapi-codegen/runtime v1.1.1
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	golang.org/x/oauth2 v0.36.0
+	golang.org/x/sys v0.26.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -26,6 +28,5 @@ require (
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/zalando/go-keyring v0.2.6 // indirect
 	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )

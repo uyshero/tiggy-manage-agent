@@ -100,6 +100,9 @@ var coreContracts = map[string]routeContract{
 	"get /v2/environment-variables":                                            {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"put /v2/environment-variables/{name}":                                     {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"delete /v2/environment-variables/{name}":                                  {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/workspaces/{workspace_id}/tool-permissions":                       {ResponseSchema: "WorkspaceToolPermissionPolicy"},
+	"put /v2/workspaces/{workspace_id}/tool-permissions":                       {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":             {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
 	"post /v2/environments":                                                    {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
 	"get /v2/llm-providers":                                                    {ResponseSchema: "LLMProviderList"},
 	"post /v2/llm-providers":                                                   {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
@@ -190,7 +193,7 @@ var coreContracts = map[string]routeContract{
 	"post /v2/sessions/{session_id}/archive":                                   {ResponseSchema: "Session"},
 	"post /v2/sessions/{session_id}/restore":                                   {ResponseSchema: "Session"},
 	"post /v2/sessions/{session_id}/rerun":                                     {RequestSchema: "RerunSessionRequest", ResponseSchema: "RerunSessionResponse", SuccessStatuses: []string{"201"}},
-	"patch /v2/sessions/{session_id}/runtime-settings":                         {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session"},
+	"patch /v2/sessions/{session_id}/runtime-settings":                         {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session", Parameters: []contractParameter{ifMatchParameter}},
 	"get /v2/sessions/{session_id}/runtime-config":                             {ResponseSchema: "AgentRuntimeConfig"},
 	"get /v2/sessions/{session_id}/runtime-capabilities":                       {ResponseSchema: "SessionRuntimeCapabilities"},
 	"post /v2/sessions/{session_id}/config/upgrade":                            {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
@@ -201,6 +204,7 @@ var coreContracts = map[string]routeContract{
 	"get /v2/sessions/{session_id}/usage":                                      {ResponseSchema: "SessionUsage"},
 	"get /v2/sessions/{session_id}/trace":                                      {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
 	"get /v2/sessions/{session_id}/operator-audit":                             {ResponseSchema: "OperatorAuditList"},
+	"get /v2/sessions/{session_id}/tool-permission-audit":                      {ResponseSchema: "ToolPermissionAuditList", Parameters: []contractParameter{{Name: "decision", In: "query"}, {Name: "tool", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}, {Name: "cursor", In: "query"}}},
 	"get /v2/sessions/{session_id}/skill-usages":                               {ResponseSchema: "SkillUsageList", Parameters: []contractParameter{{Name: "turn_id", In: "query"}}},
 	"get /v2/sessions/{session_id}/interventions":                              {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
 	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve": {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
@@ -850,7 +854,7 @@ paths:
         to: {type: string, format: date-time}
     Session:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, tags, created_by, created_at]
+      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
@@ -865,6 +869,7 @@ paths:
         title: {type: string}
         sandbox_id: {type: string}
         runtime_settings: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        runtime_settings_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
         pinned_at: {type: string, format: date-time, nullable: true}
         tags: {type: array, items: {type: string}}
         summary_text: {type: string}
@@ -899,6 +904,10 @@ paths:
         llm_provider: {type: string}
         llm_model: {type: string}
         intervention_mode: {type: string}
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/PermissionRule"}
         tool_runtime: {type: string}
         cloud_sandbox_root: {type: string}
         cloud_sandbox_image: {type: string}
@@ -2817,6 +2826,78 @@ paths:
       required: [value]
       properties:
         value: {type: string, writeOnly: true}
+    PermissionRule:
+      type: object
+      required: [id, tool, argument, pattern, behavior]
+      additionalProperties: false
+      properties:
+        id: {type: string, minLength: 1, maxLength: 120}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        argument: {type: string, enum: [path]}
+        pattern: {type: string, minLength: 1, maxLength: 2048}
+        behavior: {type: string, enum: [allow, ask, deny]}
+        reason: {type: string, maxLength: 500}
+    WorkspacePermissionRule:
+      type: object
+      required: [id, tool, argument, pattern, behavior]
+      additionalProperties: false
+      properties:
+        id: {type: string, minLength: 1, maxLength: 120}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        argument: {type: string, enum: [path]}
+        pattern: {type: string, minLength: 1, maxLength: 2048}
+        behavior: {type: string, enum: [deny]}
+        reason: {type: string, maxLength: 500}
+    UpdateWorkspaceToolPermissionPolicyRequest:
+      type: object
+      required: [permission_rules]
+      additionalProperties: false
+      properties:
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/WorkspacePermissionRule"}
+    WorkspaceToolPermissionPolicy:
+      type: object
+      required: [workspace_id, permission_rules, revision, updated_by, updated_at]
+      properties:
+        workspace_id: {type: string}
+        permission_rules:
+          type: array
+          maxItems: 100
+          items: {$ref: "#/components/schemas/WorkspacePermissionRule"}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        updated_by: {type: string}
+        updated_at: {type: string, format: date-time}
+    EvaluateWorkspaceToolPermissionRequest:
+      type: object
+      required: [tool, path]
+      additionalProperties: false
+      properties:
+        agent_id: {type: string}
+        session_id: {type: string}
+        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        path: {type: string, minLength: 1, maxLength: 4096}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+    EvaluateWorkspaceToolPermissionResult:
+      type: object
+      required: [workspace_id, tool, path, decision, allowed, required, intervention_mode]
+      additionalProperties: false
+      properties:
+        workspace_id: {type: string}
+        agent_id: {type: string}
+        session_id: {type: string}
+        tool: {type: string}
+        path: {type: string}
+        decision: {type: string, enum: [allow, ask, deny]}
+        allowed: {type: boolean}
+        required: {type: boolean}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+        approval_policy: {type: string, enum: [never, conditional, always]}
+        reason: {type: string}
+        risk: {type: string}
+        matched_rule_id: {type: string}
+        rule_source: {type: string, enum: [workspace, agent, session]}
     MCPConfigValue:
       oneOf:
         - {type: string}
@@ -3030,6 +3111,35 @@ paths:
       required: [audit_records]
       properties:
         audit_records: {type: array, items: {$ref: "#/components/schemas/OperatorAuditRecord"}}
+    ToolPermissionAuditRecord:
+      type: object
+      required: [session_id, turn_id, call_id, tool, decision, allowed, required, intervention_mode, approval_status, execution_status, created_at]
+      additionalProperties: false
+      properties:
+        session_id: {type: string}
+        turn_id: {type: string}
+        call_id: {type: string}
+        tool: {type: string}
+        path: {type: string}
+        decision: {type: string, enum: [allow, ask, deny]}
+        allowed: {type: boolean}
+        required: {type: boolean}
+        intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
+        approval_policy: {type: string, enum: [never, conditional, always]}
+        approval_status: {type: string, enum: [not_required, pending, auto_approved, approved, rejected]}
+        execution_status: {type: string, enum: [planned, denied, started, succeeded, failed, indeterminate]}
+        reason: {type: string}
+        risk: {type: string}
+        matched_rule_id: {type: string}
+        rule_source: {type: string, enum: [workspace, agent, session]}
+        created_at: {type: string, format: date-time}
+    ToolPermissionAuditList:
+      type: object
+      required: [records, next_cursor, has_more]
+      properties:
+        records: {type: array, items: {$ref: "#/components/schemas/ToolPermissionAuditRecord"}}
+        next_cursor: {type: string}
+        has_more: {type: boolean}
     SecurityAuditReplayResult:
       type: object
       required: [replayed]

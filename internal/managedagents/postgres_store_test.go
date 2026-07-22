@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+func TestNormalizeInterventionStatusPreservesEmptyFilter(t *testing.T) {
+	if got := normalizeInterventionStatus(""); got != "" {
+		t.Fatalf("empty intervention status filter normalized to %q", got)
+	}
+	if got := normalizeInterventionStatus(" pending "); got != InterventionStatusPending {
+		t.Fatalf("pending intervention status normalized to %q", got)
+	}
+}
+
 func TestInterruptedToolResultPayloadClosesToolChain(t *testing.T) {
 	payload, err := interruptedToolResultPayload(SessionIntervention{
 		TurnID:         "turn_1",

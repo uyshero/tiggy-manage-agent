@@ -97,7 +97,7 @@ func (s *Server) rerunSession(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	created, err = managedagents.UpdateSessionRuntimeSettingsWithContext(r.Context(), s.store, created.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings: cloneRuntimeSettings(source.RuntimeSettings),
+		RuntimeSettings: cloneRuntimeSettings(source.RuntimeSettings), ExpectedRevision: created.RuntimeSettingsRevision,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -273,6 +273,12 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 		}
 		settings["intervention_mode"] = mode
 	}
+	if request.PermissionRules != nil {
+		if err := tools.ValidatePermissionRules(*request.PermissionRules); err != nil {
+			return managedagents.Session{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+		}
+		settings["permission_rules"] = *request.PermissionRules
+	}
 	if request.ToolRuntime != nil {
 		runtime, ok := tools.NormalizeToolRuntime(*request.ToolRuntime)
 		if !ok {
@@ -297,6 +303,62 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 		default:
 			return managedagents.Session{}, fmt.Errorf("%w: unsupported agent_config_update_policy %q", managedagents.ErrInvalid, *request.AgentConfigUpdatePolicy)
 		}
+	}
+	if request.AgentCoreCompactionThresholdTokens != nil {
+		if *request.AgentCoreCompactionThresholdTokens < 0 {
+			return managedagents.Session{}, fmt.Errorf("%w: agent_core_compaction_threshold_tokens must be non-negative", managedagents.ErrInvalid)
+		}
+		settings["agent_core_compaction_threshold_tokens"] = *request.AgentCoreCompactionThresholdTokens
+	}
+	if request.AgentCoreCompactionSummaryMaxChars != nil {
+		if *request.AgentCoreCompactionSummaryMaxChars <= 0 {
+			return managedagents.Session{}, fmt.Errorf("%w: agent_core_compaction_summary_max_chars must be positive", managedagents.ErrInvalid)
+		}
+		settings["agent_core_compaction_summary_max_chars"] = *request.AgentCoreCompactionSummaryMaxChars
+	}
+	if request.AgentCoreBudget != nil {
+		budget := map[string]any{}
+		if existing, ok := settings["agent_core_budget"].(map[string]any); ok {
+			for key, value := range existing {
+				budget[key] = value
+			}
+		}
+		budgetInts := []struct {
+			name  string
+			value *int
+		}{
+			{name: "max_rounds", value: request.AgentCoreBudget.MaxRounds},
+			{name: "max_model_calls", value: request.AgentCoreBudget.MaxModelCalls},
+			{name: "max_tool_calls", value: request.AgentCoreBudget.MaxToolCalls},
+		}
+		for _, field := range budgetInts {
+			if field.value == nil {
+				continue
+			}
+			if *field.value <= 0 {
+				return managedagents.Session{}, fmt.Errorf("%w: agent_core_budget.%s must be positive", managedagents.ErrInvalid, field.name)
+			}
+			budget[field.name] = *field.value
+		}
+		budgetInt64s := []struct {
+			name  string
+			value *int64
+		}{
+			{name: "max_input_tokens", value: request.AgentCoreBudget.MaxInputTokens},
+			{name: "max_output_tokens", value: request.AgentCoreBudget.MaxOutputTokens},
+			{name: "max_reasoning_tokens", value: request.AgentCoreBudget.MaxReasoningTokens},
+			{name: "max_cost_micros", value: request.AgentCoreBudget.MaxCostMicros},
+		}
+		for _, field := range budgetInt64s {
+			if field.value == nil {
+				continue
+			}
+			if *field.value <= 0 {
+				return managedagents.Session{}, fmt.Errorf("%w: agent_core_budget.%s must be positive", managedagents.ErrInvalid, field.name)
+			}
+			budget[field.name] = *field.value
+		}
+		settings["agent_core_budget"] = budget
 	}
 	if request.HumanInteraction != nil {
 		humanInteraction := map[string]any{}
@@ -333,7 +395,13 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 	if err != nil {
 		return managedagents.Session{}, err
 	}
-	return managedagents.UpdateSessionRuntimeSettingsWithContext(ctx, s.store, session.ID, managedagents.UpdateSessionRuntimeSettingsInput{RuntimeSettings: raw})
+	expectedRevision := request.ExpectedRevision
+	if expectedRevision <= 0 {
+		expectedRevision = session.RuntimeSettingsRevision
+	}
+	return managedagents.UpdateSessionRuntimeSettingsWithContext(ctx, s.store, session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: raw, ExpectedRevision: expectedRevision,
+	})
 }
 
 func humanInteractionCapabilities(raw json.RawMessage) humanInteractionCapabilitiesResponse {

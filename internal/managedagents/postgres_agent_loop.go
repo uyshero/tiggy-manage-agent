@@ -407,10 +407,14 @@ func (a agentLoopPark) apply(ctx context.Context, _ *PostgresStore, tx *sql.Tx, 
 	seenCalls := make(map[string]struct{}, len(a.pause.Interactions))
 	waitingStatus := TurnStatusWaitingApproval
 	for _, interaction := range a.pause.Interactions {
-		if _, exists := seenCalls[interaction.CallID]; exists {
+		recordCallID := interaction.CallID
+		if strings.HasPrefix(interaction.ID, agentcore.ToolReconciliationRequestPurpose+":") {
+			recordCallID = interaction.ID
+		}
+		if _, exists := seenCalls[recordCallID]; exists {
 			return nil, fmt.Errorf("%w: postgres interventions allow one interaction per tool call", ErrInvalid)
 		}
-		seenCalls[interaction.CallID] = struct{}{}
+		seenCalls[recordCallID] = struct{}{}
 		call, ok := callByID[interaction.CallID]
 		if !ok {
 			return nil, fmt.Errorf("%w: pause interaction references unknown call %s", ErrInvalid, interaction.CallID)
@@ -428,7 +432,7 @@ func (a agentLoopPark) apply(ctx context.Context, _ *PostgresStore, tx *sql.Tx, 
 				session_id, turn_id, call_id, tool_identifier, api_name, arguments_json,
 				intervention_mode, reason, status, requested_at, kind, request_json
 			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		`, state.SessionID, state.TurnID, call.ID, identifier, apiName, nullableRaw(call.Arguments),
+		`, state.SessionID, state.TurnID, recordCallID, identifier, apiName, nullableRaw(call.Arguments),
 			agentLoopInterventionModeRequestApproval, a.pause.Reason, InterventionStatusPending, now, kind, nullableRaw(interaction.Request)); err != nil {
 			return nil, err
 		}

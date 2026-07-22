@@ -5,6 +5,7 @@ import type {
   ObservabilityStatus,
   OperatorAuditQuery,
   OperatorAuditRecord,
+  ToolPermissionAuditPage,
   PutEnvironmentVariableRequest,
   SecurityAuditIntegrityKeyStatus,
   SecurityAuditReplayResult,
@@ -40,6 +41,11 @@ export class AuditService extends ServiceBase {
 
   listSession(sessionId: string, signal?: AbortSignal): Promise<OperatorAuditRecord[]> {
     return this.listPath(`${sessionPath(sessionId)}/operator-audit`, signal);
+  }
+
+  listToolPermissions(sessionId: string, query: { decision?: "allow" | "ask" | "deny"; tool?: string; limit?: number; cursor?: string } = {}, signal?: AbortSignal): Promise<ToolPermissionAuditPage> {
+    const path = withQuery(resourcePath("/v2/sessions", sessionId) + "/tool-permission-audit", query);
+    return this.transport.requestJSON<ToolPermissionAuditPage>("GET", path, undefined, signal ? { signal } : {});
   }
 
   integrityKeys(signal?: AbortSignal): Promise<SecurityAuditIntegrityKeyStatus> {

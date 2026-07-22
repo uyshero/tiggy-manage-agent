@@ -302,6 +302,39 @@ type OperatorAuditQuery struct {
 	Limit       int32
 }
 
+type ToolPermissionAuditRecord struct {
+	SessionID        string    `json:"session_id"`
+	TurnID           string    `json:"turn_id"`
+	CallID           string    `json:"call_id"`
+	Tool             string    `json:"tool"`
+	Path             string    `json:"path,omitempty"`
+	Decision         string    `json:"decision"`
+	Allowed          bool      `json:"allowed"`
+	Required         bool      `json:"required"`
+	InterventionMode string    `json:"intervention_mode"`
+	ApprovalPolicy   string    `json:"approval_policy,omitempty"`
+	ApprovalStatus   string    `json:"approval_status"`
+	ExecutionStatus  string    `json:"execution_status"`
+	Reason           string    `json:"reason,omitempty"`
+	Risk             string    `json:"risk,omitempty"`
+	MatchedRuleID    string    `json:"matched_rule_id,omitempty"`
+	RuleSource       string    `json:"rule_source,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type ToolPermissionAuditQuery struct {
+	Decision string
+	Tool     string
+	Limit    int32
+	Cursor   string
+}
+
+type ToolPermissionAuditPage struct {
+	Records    []ToolPermissionAuditRecord `json:"records"`
+	NextCursor string                      `json:"next_cursor"`
+	HasMore    bool                        `json:"has_more"`
+}
+
 type SecurityAuditReplayResult struct {
 	Replayed int32 `json:"replayed"`
 }

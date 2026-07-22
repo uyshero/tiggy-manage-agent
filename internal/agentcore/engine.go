@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"tiggy-manage-agent/internal/model"
 )
 
 var (
 	ErrInvalidTransition = errors.New("invalid agent state transition")
-	ErrTruncatedToolCall = errors.New("model tool call was truncated")
 )
 
 type Engine struct {
@@ -130,32 +130,44 @@ func (e *Engine) Resume(ctx context.Context, initial State, decisions []Interact
 	}
 
 	next := state.Clone()
-	callStatus := map[string]string{}
-	for index := range next.PendingToolBatch.Interactions {
-		interaction := &next.PendingToolBatch.Interactions[index]
+	callStatus := map[string]ToolApprovalState{}
+	events := []RuntimeEvent{{
+		Type: EventInterventionResolved, Message: "Required interactions were resolved.", Payload: decisions,
+	}}
+	for _, pausedInteraction := range state.Pause.Interactions {
+		interaction, ok := interactionByID(next.PendingToolBatch.Interactions, pausedInteraction.ID)
+		if !ok {
+			return State{}, fmt.Errorf("paused interaction %q is missing from the tool plan", pausedInteraction.ID)
+		}
 		decision, ok := decisionByID[interaction.ID]
 		if !ok {
 			return State{}, fmt.Errorf("missing decision for interaction %q", interaction.ID)
 		}
 		decision.Response = append([]byte(nil), decision.Response...)
 		interaction.Decision = &decision
-		if callStatus[interaction.CallID] != "rejected" {
-			callStatus[interaction.CallID] = decision.Status
+		if isToolReconciliationInteraction(*interaction) && decision.Status == "approved" {
+			entry, err := e.applyToolReconciliation(&next, *interaction, decision)
+			if err != nil {
+				return State{}, err
+			}
+			events = append(events, RuntimeEvent{
+				Type: EventToolCallReconciled, Message: "Indeterminate tool call was reconciled by an operator.", Payload: entry,
+			})
+		}
+		if (interaction.Kind == "tool_approval" || interaction.Kind == "approval") && callStatus[interaction.CallID] != ToolApprovalRejected {
+			callStatus[interaction.CallID] = ToolApprovalState(decision.Status)
 		}
 	}
 	for index := range next.PendingToolBatch.Calls {
 		if status := callStatus[next.PendingToolBatch.Calls[index].Call.ID]; status != "" {
-			next.PendingToolBatch.Calls[index].ApprovalStatus = status
+			next.PendingToolBatch.Calls[index].ApprovalState = status
+			next.PendingToolBatch.Calls[index].ApprovalSource = ToolApprovalSourceHuman
 		}
 	}
 	next.PendingToolBatch.Interactions = cloneInteractions(next.PendingToolBatch.Interactions)
 	next.Pause = nil
 	next.Phase = PhaseExecutingTools
-	return e.commit(ctx, state, next, RuntimeEvent{
-		Type:    EventInterventionResolved,
-		Message: "Required interactions were resolved.",
-		Payload: decisions,
-	})
+	return e.commit(ctx, state, next, events...)
 }
 
 // Fail terminalizes a durable turn when orchestration-level validation fails
@@ -283,6 +295,9 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 	}
 	message.Role = model.RoleAssistant
 	message.Visibility = model.VisibilityInternal
+	if response.StopReason == model.StopReasonLength {
+		markTruncatedToolCalls(&message)
+	}
 	if err := message.Validate(); err != nil {
 		failed, failErr := e.fail(ctx, state, "invalid_model_response", "model returned an invalid response", false)
 		return State{}, &failed, failErr
@@ -300,11 +315,7 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 		return State{}, &failed, failErr
 	}
 	if len(calls) > 0 {
-		if response.StopReason == model.StopReasonLength {
-			failed, failErr := e.failFrom(ctx, state, next, "truncated_tool_call", ErrTruncatedToolCall.Error(), false)
-			return State{}, &failed, failErr
-		}
-		if response.StopReason != model.StopReasonToolCall {
+		if response.StopReason != model.StopReasonToolCall && response.StopReason != model.StopReasonLength {
 			failed, failErr := e.failFrom(ctx, state, next, "invalid_model_response", "model returned tool calls with an incompatible stop reason", false)
 			return State{}, &failed, failErr
 		}
@@ -439,7 +450,13 @@ func (e *Engine) preflightTools(ctx context.Context, state State) (State, *Outco
 			canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
 			return State{}, &canceled, cancelErr
 		}
-		failed, failErr := e.fail(ctx, state, "tool_preflight_failed", "tool preflight failed", false)
+		code := codedErrorCode(err)
+		message := "tool preflight infrastructure failed"
+		if code == "" {
+			code = "tool_preflight_failed"
+			message = "tool preflight failed"
+		}
+		failed, failErr := e.fail(ctx, state, code, message, false)
 		return State{}, &failed, failErr
 	}
 	bindToolIdempotencyKeys(state, &plan)
@@ -477,6 +494,18 @@ func (e *Engine) executeTools(ctx context.Context, state State) (State, *Outcome
 		return State{}, &failed, err
 	}
 	plan := *cloneToolBatchPlan(state.PendingToolBatch)
+	if outcome, err := e.parkToolReconciliation(ctx, state, plan); err != nil || outcome != nil {
+		return State{}, outcome, err
+	}
+	if err := e.ports.Tools.ValidateExecution(ctx, state.Clone(), plan); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
+			return State{}, &canceled, cancelErr
+		}
+		code, message := toolRuntimeFailure(err, "tool_execution_precheck_failed", "tool runtime rejected the durable execution plan")
+		failed, failErr := e.fail(context.WithoutCancel(ctx), state, code, message, false)
+		return State{}, &failed, failErr
+	}
 	prepared, parallel, sequential, immediate, err := e.prepareToolCalls(ctx, state, plan)
 	if err != nil {
 		return State{}, nil, err
@@ -496,7 +525,12 @@ func (e *Engine) executeTools(ctx context.Context, state State) (State, *Outcome
 		state, fatalErr, canceled = e.executeSequentialToolCalls(ctx, state, plan, sequential)
 	}
 	if fatalErr != nil {
-		failed, failErr := e.fail(context.WithoutCancel(ctx), state, "invalid_tool_results", "tool runtime returned invalid results", false)
+		state, err = e.terminalizeStartedToolCalls(context.WithoutCancel(ctx), state, plan)
+		if err != nil {
+			return State{}, nil, err
+		}
+		code, message := toolRuntimeFailure(fatalErr, "invalid_tool_results", "tool runtime returned invalid results")
+		failed, failErr := e.fail(context.WithoutCancel(ctx), state, code, message, false)
 		return State{}, &failed, failErr
 	}
 	if canceled || ctx.Err() != nil {
@@ -536,6 +570,247 @@ func (e *Engine) executeTools(ctx context.Context, state State) (State, *Outcome
 	return committed, nil, commitErr
 }
 
+func (e *Engine) parkToolReconciliation(ctx context.Context, state State, plan ToolBatchPlan) (*Outcome, error) {
+	journalIndexes := toolJournalIndex(state.ToolJournal)
+	pending := make([]PlannedToolCall, 0)
+	for _, planned := range plan.Calls {
+		index, exists := journalIndexes[planned.Call.ID]
+		if !exists || state.ToolJournal[index].Status != ToolCallStarted || planned.ApprovalState == ToolApprovalRejected || toolCallReplayable(planned.Idempotency) {
+			continue
+		}
+		pending = append(pending, planned)
+	}
+	if len(pending) == 0 {
+		return nil, nil
+	}
+
+	next := state.Clone()
+	nextPlan := *cloneToolBatchPlan(&plan)
+	pause := PauseState{Reason: "tool_reconciliation_required"}
+	events := make([]RuntimeEvent, 0, len(pending)+1)
+	completedAt := e.ports.Clock.Now()
+	for _, planned := range pending {
+		index := toolJournalIndex(next.ToolJournal)[planned.Call.ID]
+		next.ToolJournal[index].Status = ToolCallIndeterminate
+		next.ToolJournal[index].CompletedAt = &completedAt
+		next.ToolJournal[index].Result = cloneToolResult(indeterminateToolResult(planned,
+			"Tool execution may have completed before recovery. Reconcile the external side effect before this turn continues."))
+		interaction, err := toolReconciliationInteraction(planned)
+		if err != nil {
+			return nil, err
+		}
+		nextPlan.Interactions = append(nextPlan.Interactions, interaction)
+		pause.Interactions = append(pause.Interactions, interaction)
+		events = append(events, RuntimeEvent{
+			Type: EventToolCallResult, Message: "Tool call outcome is indeterminate and requires reconciliation.", Payload: next.ToolJournal[index],
+		})
+	}
+	next.PendingToolBatch = &nextPlan
+	next.Pause = &pause
+	next.Phase = PhasePaused
+	events = append(events, RuntimeEvent{
+		Type: EventInterventionRequired, Message: "Indeterminate tool calls require operator reconciliation.", Payload: pause,
+	})
+	parked, err := e.park(ctx, state, next, pause, events...)
+	if err != nil {
+		return nil, err
+	}
+	return &Outcome{Status: OutcomePaused, State: parked, Pause: clonePauseState(parked.Pause)}, nil
+}
+
+type toolReconciliationRequest struct {
+	Purpose  string                    `json:"purpose"`
+	Question string                    `json:"question"`
+	Mode     string                    `json:"mode"`
+	Fields   []toolReconciliationField `json:"fields"`
+	Tool     toolReconciliationTool    `json:"tool"`
+}
+
+type toolReconciliationField struct {
+	ID          string                     `json:"id"`
+	Label       string                     `json:"label"`
+	Type        string                     `json:"type"`
+	Required    bool                       `json:"required,omitempty"`
+	Placeholder string                     `json:"placeholder,omitempty"`
+	Choices     []toolReconciliationChoice `json:"choices,omitempty"`
+}
+
+type toolReconciliationChoice struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+type toolReconciliationTool struct {
+	CallID         string `json:"call_id"`
+	Name           string `json:"name"`
+	SideEffect     string `json:"side_effect"`
+	Idempotency    string `json:"idempotency"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func toolReconciliationInteraction(planned PlannedToolCall) (RequiredInteraction, error) {
+	request := toolReconciliationRequest{
+		Purpose:  ToolReconciliationRequestPurpose,
+		Question: "This tool may have changed an external system before the worker stopped. Verify the external state before continuing.",
+		Mode:     "form",
+		Fields: []toolReconciliationField{
+			{
+				ID: "outcome", Label: "Reconciliation outcome", Type: "select", Required: true,
+				Choices: []toolReconciliationChoice{
+					{ID: ToolReconciliationExecuted, Label: "Confirmed executed", Description: "The intended side effect is present."},
+					{ID: ToolReconciliationNotExecuted, Label: "Confirmed not executed", Description: "The intended side effect did not occur."},
+					{ID: ToolReconciliationCompensated, Label: "Compensated", Description: "The uncertain side effect was reversed or otherwise compensated."},
+				},
+			},
+			{ID: "summary", Label: "Verification summary", Type: "text", Required: true, Placeholder: "Describe what was checked and the observed state."},
+			{ID: "evidence", Label: "Evidence reference", Type: "text", Placeholder: "Ticket, log, transaction, or artifact reference."},
+		},
+		Tool: toolReconciliationTool{
+			CallID: planned.Call.ID, Name: planned.Call.Name, SideEffect: planned.SideEffect,
+			Idempotency: planned.Idempotency, IdempotencyKey: planned.IdempotencyKey,
+		},
+	}
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return RequiredInteraction{}, fmt.Errorf("encode tool reconciliation request: %w", err)
+	}
+	return RequiredInteraction{
+		ID:   ToolReconciliationRequestPurpose + ":" + planned.Call.ID,
+		Kind: "clarification", CallID: planned.Call.ID, Request: raw,
+	}, nil
+}
+
+func isToolReconciliationInteraction(interaction RequiredInteraction) bool {
+	var request struct {
+		Purpose string `json:"purpose"`
+	}
+	return json.Unmarshal(interaction.Request, &request) == nil && request.Purpose == ToolReconciliationRequestPurpose
+}
+
+func (e *Engine) applyToolReconciliation(state *State, interaction RequiredInteraction, decision InteractionDecision) (ToolCallJournalEntry, error) {
+	if state == nil {
+		return ToolCallJournalEntry{}, fmt.Errorf("tool reconciliation state is required")
+	}
+	reconciliation, err := parseToolReconciliationResponse(decision.Response, e.ports.Clock.Now())
+	if err != nil {
+		return ToolCallJournalEntry{}, fmt.Errorf("invalid reconciliation for %s: %w", interaction.CallID, err)
+	}
+	index, ok := toolJournalIndex(state.ToolJournal)[interaction.CallID]
+	if !ok || state.ToolJournal[index].Status != ToolCallIndeterminate {
+		return ToolCallJournalEntry{}, fmt.Errorf("tool reconciliation call %q is not indeterminate", interaction.CallID)
+	}
+	planned, ok := plannedToolCallByID(state.PendingToolBatch, interaction.CallID)
+	if !ok {
+		return ToolCallJournalEntry{}, fmt.Errorf("tool reconciliation call %q is missing from the durable plan", interaction.CallID)
+	}
+	result, status, err := reconciledToolResult(planned, reconciliation)
+	if err != nil {
+		return ToolCallJournalEntry{}, err
+	}
+	state.ToolJournal[index].Status = status
+	state.ToolJournal[index].Result = &result
+	state.ToolJournal[index].Reconciliation = &reconciliation
+	return state.ToolJournal[index], nil
+}
+
+func plannedToolCallByID(plan *ToolBatchPlan, callID string) (PlannedToolCall, bool) {
+	if plan == nil {
+		return PlannedToolCall{}, false
+	}
+	for _, planned := range plan.Calls {
+		if planned.Call.ID == callID {
+			return planned, true
+		}
+	}
+	return PlannedToolCall{}, false
+}
+
+func interactionByID(interactions []RequiredInteraction, interactionID string) (*RequiredInteraction, bool) {
+	for index := range interactions {
+		if interactions[index].ID == interactionID {
+			return &interactions[index], true
+		}
+	}
+	return nil, false
+}
+
+func parseToolReconciliationResponse(raw json.RawMessage, resolvedAt time.Time) (ToolReconciliation, error) {
+	var response struct {
+		Outcome  string            `json:"outcome"`
+		Summary  string            `json:"summary"`
+		Evidence string            `json:"evidence"`
+		Answer   string            `json:"answer"`
+		Fields   map[string]string `json:"fields"`
+	}
+	if len(raw) == 0 || !json.Valid(raw) || json.Unmarshal(raw, &response) != nil {
+		return ToolReconciliation{}, fmt.Errorf("response must be a JSON object")
+	}
+	if response.Outcome == "" {
+		response.Outcome = response.Fields["outcome"]
+	}
+	if response.Outcome == "" {
+		response.Outcome = response.Answer
+	}
+	if response.Summary == "" {
+		response.Summary = response.Fields["summary"]
+	}
+	if response.Evidence == "" {
+		response.Evidence = response.Fields["evidence"]
+	}
+	reconciliation := ToolReconciliation{
+		Outcome: strings.TrimSpace(response.Outcome), Summary: strings.TrimSpace(response.Summary),
+		Evidence: strings.TrimSpace(response.Evidence), ResolvedAt: resolvedAt,
+	}
+	if err := reconciliation.Validate(); err != nil {
+		return ToolReconciliation{}, err
+	}
+	return reconciliation, nil
+}
+
+func reconciledToolResult(planned PlannedToolCall, reconciliation ToolReconciliation) (model.ToolResult, ToolCallStatus, error) {
+	state, err := json.Marshal(map[string]any{
+		"status": "reconciled", "outcome": reconciliation.Outcome, "summary": reconciliation.Summary,
+		"evidence": reconciliation.Evidence, "idempotency_key": planned.IdempotencyKey,
+	})
+	if err != nil {
+		return model.ToolResult{}, "", err
+	}
+	result := model.ToolResult{CallID: planned.Call.ID, Name: planned.Call.Name, State: state}
+	switch reconciliation.Outcome {
+	case ToolReconciliationExecuted:
+		result.Content = []model.Content{{Type: model.ContentText, Text: "Operator reconciliation confirmed the tool side effect completed. " + reconciliation.Summary}}
+		return result, ToolCallSucceeded, nil
+	case ToolReconciliationNotExecuted:
+		result.Content = []model.Content{{Type: model.ContentText, Text: "Operator reconciliation confirmed the tool side effect did not occur. " + reconciliation.Summary}}
+		result.IsError = true
+		result.Retryable = true
+		return result, ToolCallFailed, nil
+	case ToolReconciliationCompensated:
+		result.Content = []model.Content{{Type: model.ContentText, Text: "Operator reconciliation confirmed the uncertain side effect was compensated. " + reconciliation.Summary}}
+		result.IsError = true
+		return result, ToolCallFailed, nil
+	default:
+		return model.ToolResult{}, "", fmt.Errorf("unsupported tool reconciliation outcome %q", reconciliation.Outcome)
+	}
+}
+
+func toolRuntimeFailure(err error, defaultCode, defaultMessage string) (string, string) {
+	code := codedErrorCode(err)
+	if code == "" {
+		return defaultCode, defaultMessage
+	}
+	return code, "tool runtime infrastructure failed"
+}
+
+func codedErrorCode(err error) string {
+	var coded interface{ ErrorCode() string }
+	if !errors.As(err, &coded) {
+		return ""
+	}
+	return strings.TrimSpace(coded.ErrorCode())
+}
+
 const maxConcurrentToolCalls = 8
 
 type toolCallOutcome struct {
@@ -556,7 +831,7 @@ func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBat
 	now := e.ports.Clock.Now()
 	parallelBatch := true
 	for _, planned := range plan.Calls {
-		if planned.ApprovalStatus != "rejected" && (planned.ExecutionMode != "parallel" || strings.TrimSpace(planned.LockKey) != "") {
+		if planned.ApprovalState != ToolApprovalRejected && (planned.ExecutionMode != "parallel" || strings.TrimSpace(planned.LockKey) != "") {
 			parallelBatch = false
 			break
 		}
@@ -567,7 +842,7 @@ func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBat
 		if exists && next.ToolJournal[index].Status != ToolCallStarted {
 			continue
 		}
-		if exists && planned.ApprovalStatus == "rejected" {
+		if exists && planned.ApprovalState == ToolApprovalRejected {
 			immediate = append(immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
 			continue
 		}
@@ -593,7 +868,7 @@ func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBat
 		}
 		entry := next.ToolJournal[journalIndex[planned.Call.ID]]
 		events = append(events, RuntimeEvent{Type: EventToolCallStarted, Message: "Tool call started.", Payload: entry})
-		if planned.ApprovalStatus == "rejected" {
+		if planned.ApprovalState == ToolApprovalRejected {
 			immediate = append(immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
 		} else if parallelBatch {
 			parallel = append(parallel, planned)
@@ -666,7 +941,11 @@ func (e *Engine) executeToolCall(ctx context.Context, state State, plan ToolBatc
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return toolCallOutcome{planned: planned, result: failedToolResult(planned, "tool_execution_canceled", "Tool execution was canceled.", true), status: ToolCallFailed, canceled: true}
 		}
-		return toolCallOutcome{planned: planned, result: failedToolResult(planned, "tool_execution_failed", err.Error(), true), status: ToolCallFailed}
+		var toolFatal *ToolFatalError
+		if errors.As(err, &toolFatal) {
+			return toolCallOutcome{planned: planned, err: toolFatal}
+		}
+		return toolCallOutcome{planned: planned, result: toolErrorResult(planned, err), status: ToolCallFailed}
 	}
 	if err := validateToolResults(single, executed); err != nil {
 		return toolCallOutcome{planned: planned, err: fmt.Errorf("tool %s: %w", planned.Call.ID, err)}
@@ -694,8 +973,31 @@ func (e *Engine) commitToolCallResult(ctx context.Context, state State, outcome 
 	})
 }
 
+func (e *Engine) terminalizeStartedToolCalls(ctx context.Context, state State, plan ToolBatchPlan) (State, error) {
+	for _, planned := range plan.Calls {
+		index, ok := toolJournalIndex(state.ToolJournal)[planned.Call.ID]
+		if !ok || state.ToolJournal[index].Status != ToolCallStarted {
+			continue
+		}
+		outcome := toolCallOutcome{
+			planned: planned,
+			result: indeterminateToolResult(planned,
+				"Tool execution outcome is unknown because the tool runtime failed after execution started."),
+			status: ToolCallIndeterminate,
+		}
+		var err error
+		state, err = e.commitToolCallResult(ctx, state, outcome)
+		if err != nil {
+			return State{}, err
+		}
+	}
+	return state, nil
+}
+
 func singleToolPlan(plan ToolBatchPlan, planned PlannedToolCall) ToolBatchPlan {
-	single := ToolBatchPlan{Calls: []PlannedToolCall{planned}}
+	single := ToolBatchPlan{
+		Calls: []PlannedToolCall{planned}, RegistryRevision: plan.RegistryRevision, PolicyRevision: plan.PolicyRevision,
+	}
 	for _, interaction := range plan.Interactions {
 		if interaction.CallID == planned.Call.ID {
 			single.Interactions = append(single.Interactions, interaction)
@@ -757,6 +1059,19 @@ func indeterminateToolResult(planned PlannedToolCall, message string) model.Tool
 	return failedToolResult(planned, "tool_execution_indeterminate", message, false)
 }
 
+func toolErrorResult(planned PlannedToolCall, err error) model.ToolResult {
+	code := "tool_execution_failed"
+	message := "Tool execution failed. Retry or use another approach."
+	retryable := true
+	var visible *ToolResultError
+	if errors.As(err, &visible) {
+		code = visible.Code()
+		message = visible.Error()
+		retryable = visible.Retryable()
+	}
+	return failedToolResult(planned, code, message, retryable)
+}
+
 func failedToolResult(planned PlannedToolCall, code, message string, retryable bool) model.ToolResult {
 	state, _ := json.Marshal(map[string]any{"status": "failed", "error_type": code, "idempotency_key": planned.IdempotencyKey})
 	return model.ToolResult{
@@ -795,7 +1110,7 @@ func (e *Engine) validateCompletion(ctx context.Context, state State) (State, *O
 				canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
 				return State{}, &canceled, cancelErr
 			}
-			failed, failErr := e.fail(ctx, state, "completion_validator_failed", "completion validation failed", false)
+			failed, failErr := e.fail(ctx, state, "completion_validator_failed", "completion validation failed: "+err.Error(), false)
 			return State{}, &failed, failErr
 		}
 	}
@@ -1054,12 +1369,26 @@ func toolCalls(message model.Message) []model.ToolCall {
 	return calls
 }
 
+func markTruncatedToolCalls(message *model.Message) {
+	if message == nil {
+		return
+	}
+	for index := range message.Content {
+		call := message.Content[index].ToolCall
+		if message.Content[index].Type != model.ContentToolCall || call == nil {
+			continue
+		}
+		call.ArgumentsError = "tool call was not executed because the model response hit the output token limit; re-issue it with complete arguments"
+	}
+}
+
 func plannedCalls(state State, calls []model.ToolCall) []PlannedToolCall {
 	planned := make([]PlannedToolCall, len(calls))
 	for index, call := range calls {
 		planned[index] = PlannedToolCall{
 			Call: call, ExecutionMode: "sequential", SideEffect: "unknown", Idempotency: "unknown",
 			IdempotencyKey: StableToolIdempotencyKey(state.SessionID, state.TurnID, call),
+			Disposition:    ToolDispositionExecute, ValidationState: ToolValidationValid, ApprovalState: ToolApprovalNotRequired,
 		}
 	}
 	return planned

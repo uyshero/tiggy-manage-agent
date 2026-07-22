@@ -82,6 +82,7 @@ type testStore struct {
 	mcpRegistryVersions       map[string][]mcpregistry.Version
 	runIdempotency            map[string]map[string]testRunIdempotency
 	agentSchedules            map[string]managedagents.AgentSchedule
+	workspaceToolPolicies     map[string]managedagents.WorkspaceToolPermissionPolicy
 }
 
 type testRunIdempotency struct {
@@ -125,6 +126,7 @@ func newTestStore() *testStore {
 		mcpRegistryVersions:       make(map[string][]mcpregistry.Version),
 		runIdempotency:            make(map[string]map[string]testRunIdempotency),
 		agentSchedules:            make(map[string]managedagents.AgentSchedule),
+		workspaceToolPolicies:     make(map[string]managedagents.WorkspaceToolPermissionPolicy),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -1884,21 +1886,22 @@ func (s *testStore) createSessionLocked(input managedagents.CreateSessionInput) 
 	now := time.Now().UTC()
 	id := s.nextID("sesn", &s.nextSessionID)
 	session := managedagents.Session{
-		ID:                 id,
-		WorkspaceID:        workspaceID,
-		OwnerID:            defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
-		AgentID:            agent.ID,
-		AgentConfigVersion: agentConfigVersion,
-		EnvironmentID:      environment.ID,
-		ParentSessionID:    input.ParentSessionID,
-		ParentTurnID:       input.ParentTurnID,
-		SpawnDepth:         input.SpawnDepth,
-		Status:             managedagents.SessionStatusIdle,
-		Title:              input.Title,
-		RuntimeSettings:    json.RawMessage(`{}`),
-		Tags:               []string{},
-		CreatedBy:          defaultString(input.CreatedBy, "system"),
-		CreatedAt:          now,
+		ID:                      id,
+		WorkspaceID:             workspaceID,
+		OwnerID:                 defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
+		AgentID:                 agent.ID,
+		AgentConfigVersion:      agentConfigVersion,
+		EnvironmentID:           environment.ID,
+		ParentSessionID:         input.ParentSessionID,
+		ParentTurnID:            input.ParentTurnID,
+		SpawnDepth:              input.SpawnDepth,
+		Status:                  managedagents.SessionStatusIdle,
+		Title:                   input.Title,
+		RuntimeSettings:         json.RawMessage(`{}`),
+		RuntimeSettingsRevision: 1,
+		Tags:                    []string{},
+		CreatedBy:               defaultString(input.CreatedBy, "system"),
+		CreatedAt:               now,
 	}
 	s.sessions[id] = session
 	s.appendEventLocked(id, managedagents.EventSessionStatusProvisioning, json.RawMessage(`{"status":"provisioning"}`), now)
@@ -2347,7 +2350,14 @@ func (s *testStore) UpdateSessionRuntimeSettings(id string, input managedagents.
 	if !ok {
 		return managedagents.Session{}, managedagents.ErrNotFound
 	}
+	if input.ExpectedRevision <= 0 {
+		return managedagents.Session{}, managedagents.ErrInvalid
+	}
+	if input.ExpectedRevision != session.RuntimeSettingsRevision {
+		return managedagents.Session{}, managedagents.ErrRevisionConflict
+	}
 	session.RuntimeSettings = cloneRaw(input.RuntimeSettings)
+	session.RuntimeSettingsRevision++
 	s.sessions[id] = session
 	return session, nil
 }
@@ -2683,6 +2693,7 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		return managedagents.AgentRuntimeConfig{}, managedagents.ErrInvalid
 	}
 	summary := s.summaries[sessionID]
+	workspaceToolPolicy := s.workspaceToolPolicies[session.WorkspaceID]
 	var visionModel managedagents.LLMModel
 	var visionProvider managedagents.LLMProvider
 	for _, candidate := range s.models {
@@ -2722,9 +2733,47 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		System:                configVersion.System,
 		RuntimeSettings:       cloneRaw(session.RuntimeSettings),
 		Tools:                 cloneRaw(configVersion.Tools),
+		WorkspaceToolPolicy:   cloneRaw(workspaceToolPolicy.Policy),
 		MCP:                   cloneRaw(configVersion.MCP),
 		Skills:                cloneRaw(configVersion.Skills),
 	}, nil
+}
+
+func (s *testStore) GetWorkspaceToolPermissionPolicyContext(_ context.Context, workspaceID string) (managedagents.WorkspaceToolPermissionPolicy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if policy, ok := s.workspaceToolPolicies[workspaceID]; ok {
+		policy.Policy = cloneRaw(policy.Policy)
+		return policy, nil
+	}
+	return managedagents.WorkspaceToolPermissionPolicy{
+		WorkspaceID: workspaceID,
+		Policy:      json.RawMessage(`{"permission_rules":[]}`),
+		Revision:    1,
+		UpdatedBy:   "system",
+		UpdatedAt:   time.Now().UTC(),
+	}, nil
+}
+
+func (s *testStore) UpdateWorkspaceToolPermissionPolicyContext(_ context.Context, input managedagents.UpdateWorkspaceToolPermissionPolicyInput) (managedagents.WorkspaceToolPermissionPolicy, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	currentRevision := int64(1)
+	if current, ok := s.workspaceToolPolicies[input.WorkspaceID]; ok {
+		currentRevision = current.Revision
+	}
+	if input.ExpectedRevision != currentRevision {
+		return managedagents.WorkspaceToolPermissionPolicy{}, managedagents.ErrRevisionConflict
+	}
+	policy := managedagents.WorkspaceToolPermissionPolicy{
+		WorkspaceID: input.WorkspaceID,
+		Policy:      cloneRaw(input.Policy),
+		Revision:    currentRevision + 1,
+		UpdatedBy:   input.UpdatedBy,
+		UpdatedAt:   time.Now().UTC(),
+	}
+	s.workspaceToolPolicies[input.WorkspaceID] = policy
+	return policy, nil
 }
 
 func (s *testStore) GetSessionSummary(sessionID string) (managedagents.SessionSummary, error) {
@@ -4406,6 +4455,38 @@ func (s *testStore) ListEvents(sessionID string, afterSeq int64) ([]managedagent
 		}
 	}
 	return events, nil
+}
+
+func (s *testStore) ListToolPermissionAuditContext(_ context.Context, input managedagents.ListToolPermissionAuditInput) ([]managedagents.ToolPermissionAuditRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessions[input.SessionID]; !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	records := managedagents.ProjectToolPermissionAudit(s.events[input.SessionID])
+	filtered := make([]managedagents.ToolPermissionAuditRecord, 0, len(records))
+	for _, record := range records {
+		if input.Decision != "" && record.Decision != input.Decision {
+			continue
+		}
+		if input.Tool != "" && record.Tool != input.Tool {
+			continue
+		}
+		if input.Before != nil {
+			before := input.Before.UTC()
+			if record.CreatedAt.After(before) {
+				continue
+			}
+			if record.CreatedAt.Equal(before) && (record.TurnID > input.BeforeTurnID || (record.TurnID == input.BeforeTurnID && record.CallID >= input.BeforeCallID)) {
+				continue
+			}
+		}
+		filtered = append(filtered, record)
+		if len(filtered) == input.Limit {
+			break
+		}
+	}
+	return filtered, nil
 }
 
 func (s *testStore) ListConversationMessages(sessionID string, beforeSeq int64) ([]managedagents.ConversationMessage, error) {

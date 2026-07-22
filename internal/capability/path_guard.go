@@ -39,30 +39,33 @@ func NewDefaultWorkspacePathGuardProvider() Provider {
 }
 
 func (p WorkspacePathGuardProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
-	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))
+	workDir, root, err := p.resolveReadPathWithRoot(defaultGuardString(request.WorkDir, "."))
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
 	}
 	request.WorkDir = workDir
+	request.guardedRoot = root
 	return p.inner().RunCommand(ctx, request)
 }
 
 func (p WorkspacePathGuardProvider) ExecuteCode(ctx context.Context, request ExecuteCodeRequest) (CommandResult, error) {
-	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))
+	workDir, root, err := p.resolveReadPathWithRoot(defaultGuardString(request.WorkDir, "."))
 	if err != nil {
 		return CommandResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
 	}
 	request.WorkDir = workDir
+	request.guardedRoot = root
 	return p.inner().ExecuteCode(ctx, request)
 }
 
 func (p WorkspacePathGuardProvider) ReadFile(ctx context.Context, request ReadFileRequest) (FileResult, error) {
 	displayPath := request.Path
-	path, err := p.resolveReadPath(request.Path)
+	path, root, err := p.resolveReadPathWithRoot(request.Path)
 	if err != nil {
 		return FileResult{}, fmt.Errorf("workspace path guard read denied: %w", err)
 	}
 	request.Path = path
+	request.guardedRoot = root
 	result, err := p.inner().ReadFile(ctx, request)
 	if err != nil {
 		return FileResult{}, remapFileReadErrorPath(err, displayPath)
@@ -72,7 +75,7 @@ func (p WorkspacePathGuardProvider) ReadFile(ctx context.Context, request ReadFi
 
 func (p WorkspacePathGuardProvider) SearchFile(ctx context.Context, request SearchFileRequest) (SearchFileResult, error) {
 	displayPath := request.Path
-	path, err := p.resolveReadPath(request.Path)
+	path, root, err := p.resolveReadPathWithRoot(request.Path)
 	if err != nil {
 		return SearchFileResult{}, fmt.Errorf("workspace path guard search denied: %w", err)
 	}
@@ -81,6 +84,7 @@ func (p WorkspacePathGuardProvider) SearchFile(ctx context.Context, request Sear
 		return SearchFileResult{}, fmt.Errorf("workspace file search is unavailable")
 	}
 	request.Path = path
+	request.guardedRoot = root
 	result, err := provider.SearchFile(ctx, request)
 	if err != nil {
 		return SearchFileResult{}, remapFileReadErrorPath(err, displayPath)
@@ -90,7 +94,7 @@ func (p WorkspacePathGuardProvider) SearchFile(ctx context.Context, request Sear
 
 func (p WorkspacePathGuardProvider) FindFiles(ctx context.Context, request FindFilesRequest) (FindFilesResult, error) {
 	displayRoot := defaultGuardString(request.Root, ".")
-	root, err := p.resolveReadPath(displayRoot)
+	root, guardedRoot, err := p.resolveReadPathWithRoot(displayRoot)
 	if err != nil {
 		return FindFilesResult{}, fmt.Errorf("workspace path guard discovery denied: %w", err)
 	}
@@ -99,6 +103,7 @@ func (p WorkspacePathGuardProvider) FindFiles(ctx context.Context, request FindF
 		return FindFilesResult{}, fmt.Errorf("workspace file discovery is unavailable")
 	}
 	request.Root = root
+	request.guardedRoot = guardedRoot
 	result, err := provider.FindFiles(ctx, request)
 	if err != nil {
 		return FindFilesResult{}, remapFileReadErrorPath(err, displayRoot)
@@ -109,7 +114,7 @@ func (p WorkspacePathGuardProvider) FindFiles(ctx context.Context, request FindF
 
 func (p WorkspacePathGuardProvider) SearchFiles(ctx context.Context, request SearchFilesRequest) (SearchFilesResult, error) {
 	displayRoot := defaultGuardString(request.Root, ".")
-	root, err := p.resolveReadPath(displayRoot)
+	root, guardedRoot, err := p.resolveReadPathWithRoot(displayRoot)
 	if err != nil {
 		return SearchFilesResult{}, fmt.Errorf("workspace path guard search denied: %w", err)
 	}
@@ -118,6 +123,7 @@ func (p WorkspacePathGuardProvider) SearchFiles(ctx context.Context, request Sea
 		return SearchFilesResult{}, fmt.Errorf("workspace file tree search is unavailable")
 	}
 	request.Root = root
+	request.guardedRoot = guardedRoot
 	result, err := provider.SearchFiles(ctx, request)
 	if err != nil {
 		return SearchFilesResult{}, remapFileReadErrorPath(err, displayRoot)
@@ -126,11 +132,12 @@ func (p WorkspacePathGuardProvider) SearchFiles(ctx context.Context, request Sea
 }
 
 func (p WorkspacePathGuardProvider) WriteFile(ctx context.Context, request WriteFileRequest) (FileResult, error) {
-	path, err := p.resolveWritePath(request.Path)
+	path, root, err := p.resolveWritePathWithRoot(request.Path)
 	if err != nil {
 		return FileResult{}, fmt.Errorf("workspace path guard write denied: %w", err)
 	}
 	request.Path = path
+	request.guardedRoot = root
 	return p.inner().WriteFile(ctx, request)
 }
 
@@ -143,13 +150,39 @@ func (p WorkspacePathGuardProvider) EditFile(ctx context.Context, request EditFi
 	if err != nil {
 		return EditFileResult{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
 	}
-	path, err := p.resolveWritePath(resolveAgainstWorkDir(request.Path, resolvedWorkDir))
+	path, root, err := p.resolveWritePathWithRoot(resolveAgainstWorkDir(request.Path, resolvedWorkDir))
 	if err != nil {
 		return EditFileResult{}, fmt.Errorf("workspace path guard edit denied: %w", err)
 	}
 	request.Path = path
 	request.WorkDir = ""
+	request.guardedRoot = root
 	return p.inner().EditFile(ctx, request)
+}
+
+func (p WorkspacePathGuardProvider) ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+	displayPath := request.Path
+	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))
+	if err != nil {
+		return ExportArtifactFileResult{}, fmt.Errorf("workspace path guard artifact work_dir denied: %w", err)
+	}
+	path, root, err := p.resolveReadPathWithRoot(resolveAgainstWorkDir(request.Path, workDir))
+	if err != nil {
+		return ExportArtifactFileResult{}, fmt.Errorf("workspace path guard artifact export denied: %w", err)
+	}
+	exporter, ok := p.inner().(ArtifactExportProvider)
+	if !ok || exporter == nil {
+		return ExportArtifactFileResult{}, fmt.Errorf("workspace artifact export is unavailable")
+	}
+	request.Path = path
+	request.WorkDir = ""
+	request.guardedRoot = root
+	result, err := exporter.ExportArtifactFile(ctx, request)
+	if err != nil {
+		return ExportArtifactFileResult{}, remapFileReadErrorPath(err, displayPath)
+	}
+	result.Path = displayPath
+	return result, nil
 }
 
 func (p WorkspacePathGuardProvider) inner() Provider {
@@ -183,28 +216,51 @@ func (p WorkspacePathGuardProvider) writableRoots() ([]string, error) {
 }
 
 func (p WorkspacePathGuardProvider) resolveReadPath(value string) (string, error) {
-	root, err := p.root()
-	if err != nil {
-		return "", err
-	}
-	return resolvePathInside(root, value)
+	path, _, err := p.resolveReadPathWithRoot(value)
+	return path, err
 }
 
-func (p WorkspacePathGuardProvider) resolveWritePath(value string) (string, error) {
+func (p WorkspacePathGuardProvider) resolveReadPathWithRoot(value string) (string, string, error) {
+	root, err := p.root()
+	if err != nil {
+		return "", "", err
+	}
+	path, err := resolvePathInside(root, value)
+	if err != nil {
+		return "", "", err
+	}
+	return path, root, nil
+}
+
+func (p WorkspacePathGuardProvider) resolveWritePathWithRoot(value string) (string, string, error) {
 	path, err := p.resolveReadPath(value)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	writableRoots, err := p.writableRoots()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, root := range writableRoots {
 		if pathInsideRoot(path, root) {
-			return path, nil
+			return path, root, nil
 		}
 	}
-	return "", fmt.Errorf("%q is outside writable workspace roots", value)
+	return "", "", fmt.Errorf("%q is outside writable workspace roots", value)
+}
+
+func ensureGuardedMutationPath(path, root string) error {
+	if strings.TrimSpace(root) == "" {
+		return nil
+	}
+	if _, err := resolvePathInside(root, path); err != nil {
+		return newFileReadError(
+			"workspace_path_changed",
+			"target path changed after workspace authorization; resolve the path and retry",
+			map[string]any{"path": path},
+		)
+	}
+	return nil
 }
 
 func cleanWorkspaceRoot(rootDir string) (string, error) {

@@ -141,7 +141,7 @@
       "category": "schema_retry_exhaustion",
       "flow": "tool_schema",
       "max_retries": 1,
-      "expected": {"outcome": "fail", "blocked_retries": 0, "schema_rejections": 2, "tool_executions": 0, "error_contains": "repeatedly returned invalid"},
+      "expected": {"outcome": "fail", "blocked_retries": 0, "schema_rejections": 2, "tool_executions": 0, "error_contains": "model request failed"},
       "candidates": [
         {"tool_call": {"id": "call_schema_bad_1", "arguments": {"value": "candidate", "mode": "unsupported"}}},
         {"tool_call": {"id": "call_schema_bad_2", "arguments": {"value": "candidate", "mode": "unsupported"}}}

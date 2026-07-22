@@ -4,10 +4,11 @@ set -eu
 BASE_URL="${TMA_BASE_URL:-http://localhost:8080}"
 CLI="${TMA_CLI:-bin/tma}"
 MESSAGE="${TMA_VERIFY_MESSAGE:-agent runtime verify}"
-EXPECTED_TEXT="${TMA_VERIFY_EXPECTED_TEXT:-Agent runtime received: agent runtime verify}"
-EXPECTED_PROTOCOL="${TMA_VERIFY_EXPECTED_PROTOCOL:-tma.agent_runtime.demo.v1}"
-REQUIRED_EVENTS="${TMA_VERIFY_REQUIRED_EVENTS:-session.status_running,user.message,runtime.started,runtime.thinking,runtime.llm_request,runtime.llm_response,runtime.completed,agent.message,session.status_idle}"
+EXPECTED_TEXT="${TMA_VERIFY_EXPECTED_TEXT-Agent runtime received: agent runtime verify}"
+EXPECTED_PROTOCOL="${TMA_VERIFY_EXPECTED_PROTOCOL:-tma.agent_loop.message.v1}"
+REQUIRED_EVENTS="${TMA_VERIFY_REQUIRED_EVENTS:-session.status_running,user.message,runtime.started,model.requested,model.responded,completion.started,completion.validated,runtime.completed,agent.message,session.status_idle}"
 AGENT_MODEL="${TMA_VERIFY_AGENT_MODEL:-verify-model}"
+AGENT_SYSTEM="${TMA_VERIFY_AGENT_SYSTEM:-AgentRuntime verification agent.}"
 WAIT_SECONDS="${TMA_VERIFY_WAIT_SECONDS:-10}"
 
 if [ ! -x "$CLI" ]; then
@@ -59,8 +60,13 @@ if expected_protocol and agent_payload.get("protocol_version") != expected_proto
 
 content = agent_payload.get("content", [])
 texts = [item.get("text", "") for item in content if item.get("type") == "text"]
-if expected_text not in texts:
-    print("expected agent text not found: " + expected_text, file=sys.stderr)
+if expected_text:
+    if expected_text not in texts:
+        print("expected agent text not found: " + expected_text, file=sys.stderr)
+        print("actual texts: " + repr(texts), file=sys.stderr)
+        sys.exit(5)
+elif not any(text.strip() for text in texts):
+    print("agent.message does not contain non-empty text", file=sys.stderr)
     print("actual texts: " + repr(texts), file=sys.stderr)
     sys.exit(5)
 
@@ -92,7 +98,7 @@ echo "Creating agent"
 agent_json="$("$CLI" --base-url "$BASE_URL" agent create \
   --name "verify-agent-runtime-agent-$suffix" \
   --model "$AGENT_MODEL" \
-  --system "AgentRuntime verification agent.")"
+  --system "$AGENT_SYSTEM")"
 agent_id="$(printf '%s' "$agent_json" | json_field id)"
 
 echo "Creating environment"
@@ -127,7 +133,11 @@ while [ "$(date +%s)" -le "$deadline" ]; do
 done
 
 echo "AgentRuntime verification timed out after ${WAIT_SECONDS}s" >&2
-echo "Expected agent text: $EXPECTED_TEXT" >&2
+if [ -n "$EXPECTED_TEXT" ]; then
+  echo "Expected agent text: $EXPECTED_TEXT" >&2
+else
+  echo "Expected non-empty agent text" >&2
+fi
 echo "Expected protocol version: ${EXPECTED_PROTOCOL:-<skip>}" >&2
 echo "Last events:" >&2
 printf '%s\n' "$last_events" >&2

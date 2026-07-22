@@ -26234,8 +26234,11 @@ class SessionsService extends ServiceBase {
     const path2 = withQuery("/v2/session-comparisons", { left_session_id: leftSessionId, right_session_id: rightSessionId });
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {});
   }
-  updateRuntimeSettings(sessionId, request, signal) {
-    return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, signal ? { signal } : {});
+  updateRuntimeSettings(sessionId, expectedRevision, request, signal) {
+    return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, {
+      headers: { "If-Match": `"${expectedRevision}"` },
+      ...signal === void 0 ? {} : { signal }
+    });
   }
   runtimeConfig(sessionId, signal) {
     return this.transport.requestJSON("GET", `${sessionPath(sessionId)}/runtime-config`, void 0, signal ? { signal } : {});
@@ -26296,6 +26299,10 @@ class AuditService extends ServiceBase {
   }
   listSession(sessionId, signal) {
     return this.listPath(`${sessionPath(sessionId)}/operator-audit`, signal);
+  }
+  listToolPermissions(sessionId, query = {}, signal) {
+    const path2 = withQuery(resourcePath("/v2/sessions", sessionId) + "/tool-permission-audit", query);
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {});
   }
   integrityKeys(signal) {
     return this.transport.requestJSON("GET", "/v2/observability/security-audit/integrity-keys", void 0, signal ? { signal } : {});
@@ -26664,16 +26671,16 @@ class MarketplaceService extends ServiceBase {
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.policies);
   }
   getPolicy(policyId, signal) {
-    return this.transport.requestJSON("GET", policyPath(policyId), void 0, signal ? { signal } : {});
+    return this.transport.requestJSON("GET", policyPath$1(policyId), void 0, signal ? { signal } : {});
   }
   publishPolicyVersion(policyId, request, signal) {
-    return this.transport.requestJSON("POST", `${policyPath(policyId)}/versions`, request, signal ? { signal } : {});
+    return this.transport.requestJSON("POST", `${policyPath$1(policyId)}/versions`, request, signal ? { signal } : {});
   }
   getPolicyVersion(policyId, version2, signal) {
-    return this.transport.requestJSON("GET", resourcePath(`${policyPath(policyId)}/versions`, version2), void 0, signal ? { signal } : {});
+    return this.transport.requestJSON("GET", resourcePath(`${policyPath$1(policyId)}/versions`, version2), void 0, signal ? { signal } : {});
   }
   archivePolicy(policyId, signal) {
-    return this.transport.requestJSON("POST", `${policyPath(policyId)}/archive`, void 0, signal ? { signal } : {});
+    return this.transport.requestJSON("POST", `${policyPath$1(policyId)}/archive`, void 0, signal ? { signal } : {});
   }
   transitionEntry(entryId, action, request, signal) {
     return this.transport.requestJSON("POST", `${entryPath(entryId)}/${action}`, request, signal ? { signal } : {});
@@ -26682,7 +26689,7 @@ class MarketplaceService extends ServiceBase {
 function entryPath(entryId) {
   return resourcePath("/v2/skill-marketplace-entries", entryId);
 }
-function policyPath(policyId) {
+function policyPath$1(policyId) {
   return resourcePath("/v2/skill-marketplace-policies", policyId);
 }
 class ObjectRefsService extends ServiceBase {
@@ -26946,6 +26953,23 @@ function workerPath(workerId) {
 function workPath(workId) {
   return resourcePath("/v2/worker-work", workId);
 }
+class WorkspaceToolPermissionsService extends ServiceBase {
+  get(workspaceId, signal) {
+    return this.transport.requestJSON("GET", policyPath(workspaceId), void 0, signal ? { signal } : {});
+  }
+  update(workspaceId, expectedRevision, request, signal) {
+    return this.transport.requestJSON("PUT", policyPath(workspaceId), request, {
+      headers: { "If-Match": `"${expectedRevision}"` },
+      ...signal === void 0 ? {} : { signal }
+    });
+  }
+  evaluate(workspaceId, request, signal) {
+    return this.transport.requestJSON("POST", policyPath(workspaceId) + "/evaluate", request, signal ? { signal } : {});
+  }
+}
+function policyPath(workspaceId) {
+  return resourcePath("/v2/workspaces", workspaceId) + "/tool-permissions";
+}
 class TMAClient {
   constructor(baseURL2, options = {}) {
     __publicField(this, "raw");
@@ -26966,6 +26990,7 @@ class TMAClient {
     __publicField(this, "observability");
     __publicField(this, "audit");
     __publicField(this, "environmentVariables");
+    __publicField(this, "workspaceToolPermissions");
     __publicField(this, "skills");
     __publicField(this, "marketplace");
     const transport = new Transport(baseURL2, options);
@@ -26987,6 +27012,7 @@ class TMAClient {
     this.observability = new ObservabilityService(transport);
     this.audit = new AuditService(transport);
     this.environmentVariables = new EnvironmentVariablesService(transport);
+    this.workspaceToolPermissions = new WorkspaceToolPermissionsService(transport);
     this.skills = new SkillsService(transport);
     this.marketplace = new MarketplaceService(transport);
   }
@@ -27070,6 +27096,18 @@ function rollbackAgentConfigVersion(agentId, version2, options = {}) {
 }
 function agentToolingHealth(agentId, body = {}, options = {}) {
   return coreSDK.agents.toolingHealth(agentId, body, options.signal);
+}
+function workspaceToolPermissions(workspaceId) {
+  return coreSDK.workspaceToolPermissions.get(workspaceId);
+}
+function updateWorkspaceToolPermissions(workspaceId, permissionRules, expectedRevision) {
+  return coreSDK.workspaceToolPermissions.update(workspaceId, expectedRevision, { permission_rules: permissionRules || [] });
+}
+function evaluateWorkspaceToolPermission(workspaceId, request) {
+  return coreSDK.workspaceToolPermissions.evaluate(workspaceId, request);
+}
+function sessionToolPermissionAudit(sessionId, query = {}) {
+  return coreSDK.audit.listToolPermissions(sessionId, query);
 }
 function agentSchedules(agentId) {
   return getJSON(`/v1/agents/${encodeURIComponent(agentId)}/schedules`);
@@ -27341,8 +27379,8 @@ async function skillAssetGCRuns(workspaceId, limit = 20, options = {}) {
 async function skillAssetGCTombstones(workspaceId, limit = 20, options = {}) {
   return { tombstones: await coreSDK.skills.listAssetGCTombstones({ workspaceId, limit }, options.signal) };
 }
-function updateSessionRuntimeSettings(sessionId, body, options = {}) {
-  return coreSDK.sessions.updateRuntimeSettings(sessionId, body || {}, options.signal);
+function updateSessionRuntimeSettings(sessionId, expectedRevision, body, options = {}) {
+  return coreSDK.sessions.updateRuntimeSettings(sessionId, expectedRevision, body || {}, options.signal);
 }
 async function llmProviders() {
   return { providers: await coreSDK.llm.listProviders() };
@@ -27398,8 +27436,8 @@ function objectRefDownloadPath(objectRefId, sessionId) {
 function skillPackageDownloadPath(skillId, version2) {
   return `/v2/skills/${encodeURIComponent(skillId)}/versions/${encodeURIComponent(version2)}/package`;
 }
-async function events(sessionId) {
-  return { events: await coreSDK.sessions.listEvents(sessionId) };
+async function events(sessionId, afterSeq = 0) {
+  return { events: await coreSDK.sessions.listEvents(sessionId, afterSeq) };
 }
 function streamSessionEvents(sessionId, options = {}) {
   return coreSDK.sessions.events(sessionId, options);
@@ -33685,20 +33723,22 @@ const builtinToolNamespaces = [
   { key: "skills", title: "技能工具", description: "检索技能、查看技能和读取技能资产。" }
 ];
 function parseToolPolicy(raw) {
-  if (!raw) return { explicit: false, enabledToolPatterns: [], runtime: "" };
+  if (!raw) return { explicit: false, enabledToolPatterns: [], permissionRules: [], runtime: "" };
   if (Array.isArray(raw)) {
     return {
       explicit: true,
       enabledToolPatterns: raw.map((value) => String(value || "").trim()).filter(Boolean),
+      permissionRules: [],
       runtime: ""
     };
   }
-  if (typeof raw !== "object") return { explicit: false, enabledToolPatterns: [], runtime: "" };
+  if (typeof raw !== "object") return { explicit: false, enabledToolPatterns: [], permissionRules: [], runtime: "" };
   const enabledTools = Array.isArray(raw.enabled_tools) ? raw.enabled_tools : [];
   const toolsList = Array.isArray(raw.tools) ? raw.tools : [];
   return {
     explicit: true,
     enabledToolPatterns: [...enabledTools, ...toolsList].map((value) => String(value || "").trim()).filter(Boolean),
+    permissionRules: Array.isArray(raw.permission_rules) ? raw.permission_rules.map((rule) => ({ ...rule })) : [],
     runtime: String(raw.runtime || "").trim()
   };
 }
@@ -34413,6 +34453,7 @@ function agentEditorDraft(agent2) {
     selectedSkills: parseSkillsConfig(config.skills).enabled.map((item) => item.skill),
     selectedTools: enabledNamespaces,
     system: config.system || "",
+    permissionRules: toolPolicy.permissionRules,
     toolPatterns: toolPolicy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern)),
     toolRuntime: toolPolicy.runtime || ""
   };
@@ -34655,7 +34696,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
         llm_provider: draft.llmProvider,
         llm_model: draft.llmModel,
         system: draft.system,
-        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], ...draft.toolRuntime ? { runtime: draft.toolRuntime } : {} },
+        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...draft.toolRuntime ? { runtime: draft.toolRuntime } : {} },
         skills: { enabled: draft.selectedSkills.map((skill) => ({ skill })) },
         mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
           const identifier = String(server.identifier || server.id || server.name || "").trim();
@@ -35983,6 +36024,81 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
     ] })
   ] });
 }
+const permissionRuleTools = [
+  { value: "default.read_file", label: "读取文件" },
+  { value: "default.write_file", label: "写入文件" },
+  { value: "default.edit_file", label: "编辑文件" }
+];
+function newPermissionRule(scope, index2) {
+  return {
+    id: `${scope}-${Date.now()}-${index2 + 1}`,
+    tool: "default.edit_file",
+    argument: "path",
+    pattern: "",
+    behavior: scope === "workspace" ? "deny" : "ask",
+    reason: ""
+  };
+}
+function PermissionRuleEditor({ disabled, rules, scope, onChange }) {
+  function updateRule(index2, patch2) {
+    onChange(rules.map((rule, ruleIndex) => ruleIndex === index2 ? { ...rule, ...patch2 } : rule));
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "permission-rule-editor", children: [
+    rules.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "permission-rule-list", children: rules.map((rule, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "permission-rule-row", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "规则 ID" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled, value: rule.id || "", onChange: (event) => updateRule(index2, { id: event.target.value }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { disabled, value: rule.tool || "default.edit_file", onChange: (event) => updateRule(index2, { tool: event.target.value }), children: permissionRuleTools.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "permission-rule-pattern", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "路径模式" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled, value: rule.pattern || "", onChange: (event) => updateRule(index2, { pattern: event.target.value }), placeholder: "/workspace/src/**" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "行为" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { disabled: disabled || scope === "workspace", value: scope === "workspace" ? "deny" : rule.behavior || "ask", onChange: (event) => updateRule(index2, { behavior: event.target.value }), children: scope === "workspace" ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "deny", children: "拒绝" }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "allow", children: "允许" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "ask", children: "询问" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "deny", children: "拒绝" })
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "permission-rule-reason", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "原因" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled, value: rule.reason || "", onChange: (event) => updateRule(index2, { reason: event.target.value }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button danger", type: "button", title: "删除规则", "aria-label": `删除规则 ${rule.id || index2 + 1}`, disabled, onClick: () => onChange(rules.filter((_, ruleIndex) => ruleIndex !== index2)), children: /* @__PURE__ */ jsxRuntimeExports.jsx(DeleteIcon, {}) })
+    ] }, `${rule.id || scope}-${index2}`)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "暂无路径规则。" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary permission-rule-add", type: "button", disabled: disabled || rules.length >= 100, onClick: () => onChange([...rules, newPermissionRule(scope, rules.length)]), children: "添加规则" })
+  ] });
+}
+const permissionAuditLabels = {
+  allow: "允许",
+  ask: "需审批",
+  deny: "拒绝",
+  not_required: "无需审批",
+  pending: "待审批",
+  auto_approved: "自动批准",
+  approved: "已批准",
+  rejected: "已拒绝",
+  planned: "已计划",
+  denied: "已阻止",
+  started: "执行中",
+  succeeded: "成功",
+  failed: "失败",
+  indeterminate: "状态未知",
+  workspace: "Workspace",
+  session: "Session",
+  agent: "Agent",
+  request_approval: "请求审批",
+  approve_for_me: "自动审批",
+  full_access: "完全访问"
+};
+function permissionAuditLabel(value) {
+  return permissionAuditLabels[value] || value || "-";
+}
 function SettingsPage({
   activeSection,
   agents: agents2,
@@ -36000,6 +36116,7 @@ function SettingsPage({
   onSaveAgent,
   onSelectAgent,
   onUpdateAgentPermissions,
+  onUpdateSessionPermissions,
   recentSessions,
   runtimeConfig,
   search: search2,
@@ -36031,6 +36148,27 @@ function SettingsPage({
   const [agentManagementView, setAgentManagementView] = reactExports.useState("config");
   const [agentPermissionBusy, setAgentPermissionBusy] = reactExports.useState("");
   const [agentPermissionError, setAgentPermissionError] = reactExports.useState("");
+  const [agentPathRules, setAgentPathRules] = reactExports.useState([]);
+  const [sessionPathRules, setSessionPathRules] = reactExports.useState([]);
+  const [workspacePathRules, setWorkspacePathRules] = reactExports.useState([]);
+  const [workspacePermissionRevision, setWorkspacePermissionRevision] = reactExports.useState(0);
+  const [workspacePermissionLoading, setWorkspacePermissionLoading] = reactExports.useState(false);
+  const [workspacePermissionBusy, setWorkspacePermissionBusy] = reactExports.useState(false);
+  const [permissionPreviewContext, setPermissionPreviewContext] = reactExports.useState("agent");
+  const [permissionPreviewTool, setPermissionPreviewTool] = reactExports.useState("default.edit_file");
+  const [permissionPreviewPath, setPermissionPreviewPath] = reactExports.useState("/workspace/src/main.go");
+  const [permissionPreviewMode, setPermissionPreviewMode] = reactExports.useState("request_approval");
+  const [permissionPreviewBusy, setPermissionPreviewBusy] = reactExports.useState(false);
+  const [permissionPreviewError, setPermissionPreviewError] = reactExports.useState("");
+  const [permissionPreviewResult, setPermissionPreviewResult] = reactExports.useState(null);
+  const [permissionAuditRecords, setPermissionAuditRecords] = reactExports.useState([]);
+  const [permissionAuditLoading, setPermissionAuditLoading] = reactExports.useState(false);
+  const [permissionAuditError, setPermissionAuditError] = reactExports.useState("");
+  const [permissionAuditDecision, setPermissionAuditDecision] = reactExports.useState("");
+  const [permissionAuditToolInput, setPermissionAuditToolInput] = reactExports.useState("");
+  const [permissionAuditTool, setPermissionAuditTool] = reactExports.useState("");
+  const [permissionAuditNextCursor, setPermissionAuditNextCursor] = reactExports.useState("");
+  const [permissionAuditHasMore, setPermissionAuditHasMore] = reactExports.useState(false);
   const [healthChecking, setHealthChecking] = reactExports.useState("");
   const [healthError, setHealthError] = reactExports.useState("");
   const [healthReport, setHealthReport] = reactExports.useState({ mcp: [], skills: [] });
@@ -36039,6 +36177,7 @@ function SettingsPage({
   const [mcpRuntimeLoading, setMCPRuntimeLoading] = reactExports.useState(false);
   const [mcpRuntimeError, setMCPRuntimeError] = reactExports.useState("");
   const importAgentInputRef = reactExports.useRef(null);
+  const permissionAuditRequestRef = reactExports.useRef(0);
   const enabledSkills = ((_a2 = toolingCatalog.sections.find((section) => section.key === "skills")) == null ? void 0 : _a2.items.filter((item) => item.selectable)) || [];
   const availableMCP = ((_b = toolingCatalog.sections.find((section) => section.key === "mcp")) == null ? void 0 : _b.items) || [];
   const availableTools = ((_c = toolingCatalog.sections.find((section) => section.key === "tools")) == null ? void 0 : _c.items) || [];
@@ -36056,6 +36195,73 @@ function SettingsPage({
   const healthByKey = new Map(healthItems.map((item) => [`${item.kind}:${item.identifier}`, item]));
   const mcpWorkspaceID = workspaceID || (currentSession == null ? void 0 : currentSession.workspace_id) || (selectedAgent == null ? void 0 : selectedAgent.workspace_id) || "";
   const canManageWorkspaceVariables = ((principal == null ? void 0 : principal.roles) || []).some((role) => role === "operator" || role === "admin");
+  reactExports.useEffect(() => {
+    var _a3;
+    setAgentPathRules(parseToolPolicy((_a3 = selectedAgent == null ? void 0 : selectedAgent.config_version) == null ? void 0 : _a3.tools).permissionRules);
+  }, [selectedAgent == null ? void 0 : selectedAgent.id, selectedAgent == null ? void 0 : selectedAgent.current_config_version]);
+  reactExports.useEffect(() => {
+    const settings = currentSession == null ? void 0 : currentSession.runtime_settings;
+    setSessionPathRules(Array.isArray(settings == null ? void 0 : settings.permission_rules) ? settings.permission_rules.map((rule) => ({ ...rule })) : []);
+  }, [currentSession == null ? void 0 : currentSession.id, currentSession == null ? void 0 : currentSession.runtime_settings]);
+  reactExports.useEffect(() => {
+    let active = true;
+    if (activeSection !== "agent" || agentManagementView !== "permissions" || !mcpWorkspaceID) {
+      return () => {
+        active = false;
+      };
+    }
+    setWorkspacePermissionLoading(true);
+    setAgentPermissionError("");
+    workspaceToolPermissions(mcpWorkspaceID).then((response) => {
+      if (active) {
+        setWorkspacePathRules(Array.isArray(response.permission_rules) ? response.permission_rules : []);
+        setWorkspacePermissionRevision(Number(response.revision || 0));
+      }
+    }).catch((error) => {
+      if (active) setAgentPermissionError(error.message);
+    }).finally(() => {
+      if (active) setWorkspacePermissionLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeSection, agentManagementView, mcpWorkspaceID]);
+  reactExports.useEffect(() => {
+    let active = true;
+    const requestID = ++permissionAuditRequestRef.current;
+    if (activeSection !== "agent" || agentManagementView !== "permissions" || !(currentSession == null ? void 0 : currentSession.id)) {
+      setPermissionAuditRecords([]);
+      setPermissionAuditError("");
+      setPermissionAuditNextCursor("");
+      setPermissionAuditHasMore(false);
+      return () => {
+        active = false;
+      };
+    }
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    setPermissionAuditRecords([]);
+    setPermissionAuditNextCursor("");
+    setPermissionAuditHasMore(false);
+    sessionToolPermissionAudit(currentSession.id, {
+      ...permissionAuditDecision ? { decision: permissionAuditDecision } : {},
+      ...permissionAuditTool ? { tool: permissionAuditTool } : {},
+      limit: 50
+    }).then((page) => {
+      if (active && requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords(Array.isArray(page == null ? void 0 : page.records) ? page.records : []);
+        setPermissionAuditNextCursor((page == null ? void 0 : page.next_cursor) || "");
+        setPermissionAuditHasMore(Boolean(page == null ? void 0 : page.has_more));
+      }
+    }).catch((error) => {
+      if (active && requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    }).finally(() => {
+      if (active && requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeSection, agentManagementView, currentSession == null ? void 0 : currentSession.id, permissionAuditDecision, permissionAuditTool]);
   async function refreshMCPRegistry() {
     const response = await mcpServers(mcpWorkspaceID);
     setMCPRegistryServers(response.servers || []);
@@ -36106,8 +36312,9 @@ function SettingsPage({
     }
   }
   async function updateAgentToolPermission(agent2, namespace, enabled) {
-    var _a3;
+    var _a3, _b2;
     const policy = parseToolPolicy((_a3 = agent2.config_version) == null ? void 0 : _a3.tools);
+    const existingTools = ((_b2 = agent2.config_version) == null ? void 0 : _b2.tools) && typeof agent2.config_version.tools === "object" && !Array.isArray(agent2.config_version.tools) ? agent2.config_version.tools : {};
     const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
     const customPatterns = policy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern) && !builtinToolNamespaces.some((item) => pattern.startsWith(`${item.key}.`)));
     const enabledNamespaces = builtinToolNamespaces.filter((item) => item.key === namespace ? enabled : toolNamespaceEnabled(item.key, policy)).map((item) => item.key);
@@ -36116,13 +36323,150 @@ function SettingsPage({
     setAgentPermissionError("");
     try {
       await onUpdateAgentPermissions(agent2.id, {
+        ...existingTools,
         enabled_tools: [...enabledNamespaces, ...customPatterns],
+        permission_rules: policy.permissionRules,
         ...policy.runtime ? { runtime: policy.runtime } : {}
       });
     } catch (error) {
       setAgentPermissionError(error.message);
     } finally {
       setAgentPermissionBusy("");
+    }
+  }
+  async function saveAgentPathRules() {
+    var _a3, _b2;
+    if (!(selectedAgent == null ? void 0 : selectedAgent.id)) return;
+    const policy = parseToolPolicy((_a3 = selectedAgent.config_version) == null ? void 0 : _a3.tools);
+    const existingTools = ((_b2 = selectedAgent.config_version) == null ? void 0 : _b2.tools) && typeof selectedAgent.config_version.tools === "object" && !Array.isArray(selectedAgent.config_version.tools) ? selectedAgent.config_version.tools : {};
+    const enabledTools = policy.explicit ? policy.enabledToolPatterns : builtinToolNamespaces.map((item) => item.key);
+    setAgentPermissionBusy("agent-path-rules");
+    setAgentPermissionError("");
+    try {
+      await onUpdateAgentPermissions(selectedAgent.id, {
+        ...existingTools,
+        enabled_tools: enabledTools,
+        permission_rules: agentPathRules,
+        ...policy.runtime ? { runtime: policy.runtime } : {}
+      });
+    } catch (error) {
+      setAgentPermissionError(error.message);
+    } finally {
+      setAgentPermissionBusy("");
+    }
+  }
+  async function saveSessionPathRules() {
+    var _a3;
+    if (!(currentSession == null ? void 0 : currentSession.id)) return;
+    setAgentPermissionBusy("session-path-rules");
+    setAgentPermissionError("");
+    try {
+      const updated = await onUpdateSessionPermissions(currentSession.id, sessionPathRules, currentSession.runtime_settings_revision);
+      const rules = (_a3 = updated == null ? void 0 : updated.runtime_settings) == null ? void 0 : _a3.permission_rules;
+      setSessionPathRules(Array.isArray(rules) ? rules.map((rule) => ({ ...rule })) : []);
+    } catch (error) {
+      setAgentPermissionError(error.message);
+    } finally {
+      setAgentPermissionBusy("");
+    }
+  }
+  async function saveWorkspacePathRules() {
+    if (!mcpWorkspaceID) return;
+    setWorkspacePermissionBusy(true);
+    setAgentPermissionError("");
+    try {
+      const response = await updateWorkspaceToolPermissions(mcpWorkspaceID, workspacePathRules.map((rule) => ({ ...rule, behavior: "deny" })), workspacePermissionRevision);
+      setWorkspacePathRules(response.permission_rules || []);
+      setWorkspacePermissionRevision(Number(response.revision || workspacePermissionRevision));
+    } catch (error) {
+      if ((error == null ? void 0 : error.code) === "revision_conflict") {
+        try {
+          const current = await workspaceToolPermissions(mcpWorkspaceID);
+          setWorkspacePathRules(Array.isArray(current.permission_rules) ? current.permission_rules : []);
+          setWorkspacePermissionRevision(Number(current.revision || 0));
+          setAgentPermissionError("Workspace 规则已被其他管理员更新，已加载最新版本。");
+        } catch (reloadError) {
+          setAgentPermissionError(reloadError.message);
+        }
+      } else {
+        setAgentPermissionError(error.message);
+      }
+    } finally {
+      setWorkspacePermissionBusy(false);
+    }
+  }
+  async function evaluatePermissionPreview(event) {
+    event.preventDefault();
+    if (!mcpWorkspaceID || !permissionPreviewPath.trim()) return;
+    const request = {
+      tool: permissionPreviewTool,
+      path: permissionPreviewPath.trim(),
+      intervention_mode: permissionPreviewMode
+    };
+    if (permissionPreviewContext === "agent" && (selectedAgent == null ? void 0 : selectedAgent.id)) request.agent_id = selectedAgent.id;
+    if (permissionPreviewContext === "session" && (currentSession == null ? void 0 : currentSession.id)) request.session_id = currentSession.id;
+    setPermissionPreviewBusy(true);
+    setPermissionPreviewError("");
+    setPermissionPreviewResult(null);
+    try {
+      setPermissionPreviewResult(await evaluateWorkspaceToolPermission(mcpWorkspaceID, request));
+    } catch (error) {
+      setPermissionPreviewError(error.message);
+    } finally {
+      setPermissionPreviewBusy(false);
+    }
+  }
+  async function refreshPermissionAudit() {
+    if (!(currentSession == null ? void 0 : currentSession.id)) return;
+    const requestID = ++permissionAuditRequestRef.current;
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    try {
+      const page = await sessionToolPermissionAudit(currentSession.id, {
+        ...permissionAuditDecision ? { decision: permissionAuditDecision } : {},
+        ...permissionAuditTool ? { tool: permissionAuditTool } : {},
+        limit: 50
+      });
+      if (requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords(Array.isArray(page == null ? void 0 : page.records) ? page.records : []);
+        setPermissionAuditNextCursor((page == null ? void 0 : page.next_cursor) || "");
+        setPermissionAuditHasMore(Boolean(page == null ? void 0 : page.has_more));
+      }
+    } catch (error) {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    } finally {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
+    }
+  }
+  function filterPermissionAudit(event) {
+    event.preventDefault();
+    setPermissionAuditTool(permissionAuditToolInput.trim());
+  }
+  async function loadMorePermissionAudit() {
+    if (!(currentSession == null ? void 0 : currentSession.id) || !permissionAuditHasMore || !permissionAuditNextCursor) return;
+    const requestID = ++permissionAuditRequestRef.current;
+    setPermissionAuditLoading(true);
+    setPermissionAuditError("");
+    try {
+      const page = await sessionToolPermissionAudit(currentSession.id, {
+        ...permissionAuditDecision ? { decision: permissionAuditDecision } : {},
+        ...permissionAuditTool ? { tool: permissionAuditTool } : {},
+        limit: 50,
+        cursor: permissionAuditNextCursor
+      });
+      const incoming = Array.isArray(page == null ? void 0 : page.records) ? page.records : [];
+      if (requestID === permissionAuditRequestRef.current) {
+        setPermissionAuditRecords((current) => {
+          const seen = new Set(current.map((record) => `${record.turn_id}\0${record.call_id}`));
+          return current.concat(incoming.filter((record) => !seen.has(`${record.turn_id}\0${record.call_id}`)));
+        });
+        setPermissionAuditNextCursor((page == null ? void 0 : page.next_cursor) || "");
+        setPermissionAuditHasMore(Boolean(page == null ? void 0 : page.has_more));
+      }
+    } catch (error) {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditError(error.message);
+    } finally {
+      if (requestID === permissionAuditRequestRef.current) setPermissionAuditLoading(false);
     }
   }
   const filteredArchivedSessions = reactExports.useMemo(() => {
@@ -36509,49 +36853,222 @@ function SettingsPage({
               /* @__PURE__ */ jsxRuntimeExports.jsx(AgentConfigEditor, { agent: selectedAgent, mcpRegistryServers, modelOptions, onRollback: onRollbackAgent, onSave: onSaveAgent, rollingBackVersion, saving: savingAgent, skills: skills2 })
             ] })
           ] }) : null,
-          agentManagementView === "permissions" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-permissions-card", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card-title", children: [
-              "默认工具权限 · ",
-              agents2.length,
-              " 个 Agent"
+          agentManagementView === "permissions" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-permissions-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card-title", children: [
+                "默认工具权限 · ",
+                agents2.length,
+                " 个 Agent"
+              ] }),
+              agentPermissionError ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: agentPermissionError }) : null,
+              agents2.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-permissions-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "agent-permissions-table", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: "Agent" }),
+                  builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: item.title }, item.key))
+                ] }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: agents2.map((agent2) => {
+                  var _a4;
+                  const policy = parseToolPolicy((_a4 = agent2.config_version) == null ? void 0 : _a4.tools);
+                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: agent2.id === (selectedAgent == null ? void 0 : selectedAgent.id) ? "current" : "", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("th", { scope: "row", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: agent2.name || agent2.id }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                        "版本 #",
+                        agent2.current_config_version || 1
+                      ] })
+                    ] }),
+                    builtinToolNamespaces.map((item) => {
+                      const checked = toolNamespaceEnabled(item.key, policy);
+                      const busy = agentPermissionBusy === `${agent2.id}:${item.key}`;
+                      return /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(
+                          "input",
+                          {
+                            type: "checkbox",
+                            "aria-label": `允许 ${agent2.name || agent2.id} 使用 ${item.title}`,
+                            checked,
+                            disabled: Boolean(agentPermissionBusy),
+                            onChange: (event) => updateAgentToolPermission(agent2, item.key, event.target.checked)
+                          }
+                        ),
+                        busy ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "agent-permission-saving", children: "保存中" }) : null
+                      ] }, item.key);
+                    })
+                  ] }, agent2.id);
+                }) })
+              ] }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "工作区里还没有智能体。" })
             ] }),
-            agentPermissionError ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: agentPermissionError }) : null,
-            agents2.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-permissions-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "agent-permissions-table", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: "Agent" }),
-                builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: item.title }, item.key))
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-policy-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "Agent 路径规则" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: (selectedAgent == null ? void 0 : selectedAgent.name) || "未选择 Agent" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: !selectedAgent || Boolean(agentPermissionBusy), onClick: saveAgentPathRules, children: agentPermissionBusy === "agent-path-rules" ? "保存中..." : "保存 Agent 规则" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(PermissionRuleEditor, { disabled: !selectedAgent || Boolean(agentPermissionBusy), rules: agentPathRules, scope: "agent", onChange: setAgentPathRules })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-policy-card session-policy-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "Session 路径规则" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: (currentSession == null ? void 0 : currentSession.title) || (currentSession == null ? void 0 : currentSession.id) || "未选择 Session" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: !currentSession || Boolean(agentPermissionBusy), onClick: saveSessionPathRules, children: agentPermissionBusy === "session-path-rules" ? "保存中..." : "保存 Session 规则" })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(PermissionRuleEditor, { disabled: !currentSession || Boolean(agentPermissionBusy), rules: sessionPathRules, scope: "session", onChange: setSessionPathRules })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-policy-card workspace-policy-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "Workspace 硬边界" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
+                    mcpWorkspaceID || "未选择 Workspace",
+                    workspacePermissionRevision ? ` · r${workspacePermissionRevision}` : ""
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: !canManageWorkspaceVariables || workspacePermissionBusy || workspacePermissionLoading || !mcpWorkspaceID || workspacePermissionRevision < 1, onClick: saveWorkspacePathRules, children: workspacePermissionBusy ? "保存中..." : "保存 Workspace 规则" })
+              ] }),
+              workspacePermissionLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "正在加载 Workspace 规则..." }) : /* @__PURE__ */ jsxRuntimeExports.jsx(PermissionRuleEditor, { disabled: !canManageWorkspaceVariables || workspacePermissionBusy, rules: workspacePathRules, scope: "workspace", onChange: setWorkspacePathRules })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-preview-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("header", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "有效权限预览" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "按真实执行优先级计算最终决策" })
               ] }) }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: agents2.map((agent2) => {
-                var _a4;
-                const policy = parseToolPolicy((_a4 = agent2.config_version) == null ? void 0 : _a4.tools);
-                return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: agent2.id === (selectedAgent == null ? void 0 : selectedAgent.id) ? "current" : "", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("th", { scope: "row", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: agent2.name || agent2.id }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                      "版本 #",
-                      agent2.current_config_version || 1
-                    ] })
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "permission-preview-form", onSubmit: evaluatePermissionPreview, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "上下文" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: permissionPreviewContext, onChange: (event) => setPermissionPreviewContext(event.target.value), children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "workspace", children: "仅 Workspace" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "agent", disabled: !selectedAgent, children: "当前 Agent" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "session", disabled: !currentSession, children: "当前 Session" })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: permissionPreviewTool, onChange: (event) => setPermissionPreviewTool(event.target.value), children: permissionRuleTools.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)) })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "permission-preview-path", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "目标路径" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: permissionPreviewPath, onChange: (event) => setPermissionPreviewPath(event.target.value), placeholder: "/workspace/src/main.go" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "介入模式" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: permissionPreviewMode, onChange: (event) => setPermissionPreviewMode(event.target.value), children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "请求审批" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "自动批准" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: permissionPreviewBusy || !mcpWorkspaceID || !permissionPreviewPath.trim() || permissionPreviewContext === "agent" && !selectedAgent || permissionPreviewContext === "session" && !currentSession, children: permissionPreviewBusy ? "计算中..." : "计算权限" })
+              ] }),
+              permissionPreviewError ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: permissionPreviewError }) : null,
+              permissionPreviewResult ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `permission-preview-result ${permissionPreviewResult.decision}`, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "permission-preview-decision", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "最终决策" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: permissionPreviewResult.decision === "allow" ? "允许" : permissionPreviewResult.decision === "ask" ? "需审批" : "拒绝" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("dl", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "策略" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.approval_policy || "-" })
                   ] }),
-                  builtinToolNamespaces.map((item) => {
-                    const checked = toolNamespaceEnabled(item.key, policy);
-                    const busy = agentPermissionBusy === `${agent2.id}:${item.key}`;
-                    return /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "input",
-                        {
-                          type: "checkbox",
-                          "aria-label": `允许 ${agent2.name || agent2.id} 使用 ${item.title}`,
-                          checked,
-                          disabled: Boolean(agentPermissionBusy),
-                          onChange: (event) => updateAgentToolPermission(agent2, item.key, event.target.checked)
-                        }
-                      ),
-                      busy ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "agent-permission-saving", children: "保存中" }) : null
-                    ] }, item.key);
-                  })
-                ] }, agent2.id);
-              }) })
-            ] }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "工作区里还没有智能体。" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "风险" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.risk || "-" })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "命中规则" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.matched_rule_id || "Manifest / API 默认值" })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "规则来源" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.rule_source || "manifest" })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "原因" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.reason || "-" })
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "解析上下文" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: permissionPreviewResult.session_id || permissionPreviewResult.agent_id || permissionPreviewResult.workspace_id })
+                  ] })
+                ] })
+              ] }) : null
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-audit-card", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "工具权限审计" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: (currentSession == null ? void 0 : currentSession.title) || (currentSession == null ? void 0 : currentSession.id) || "未选择 Session" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button secondary", type: "button", title: "刷新权限审计", "aria-label": "刷新权限审计", disabled: !currentSession || permissionAuditLoading, onClick: refreshPermissionAudit, children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshIcon, {}) })
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "permission-audit-filters", onSubmit: filterPermissionAudit, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "决策" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { disabled: !currentSession || permissionAuditLoading, value: permissionAuditDecision, onChange: (event) => setPermissionAuditDecision(event.target.value), children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "全部决策" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "allow", children: "允许" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "ask", children: "需审批" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "deny", children: "拒绝" })
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled: !currentSession || permissionAuditLoading, value: permissionAuditToolInput, onChange: (event) => setPermissionAuditToolInput(event.target.value), placeholder: "default.edit_file" })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "submit", disabled: !currentSession || permissionAuditLoading, children: permissionAuditLoading ? "加载中..." : "筛选" })
+              ] }),
+              permissionAuditError ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: permissionAuditError }) : null,
+              !currentSession ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "选择一个 Session 后查看权限审计。" }) : permissionAuditLoading && !permissionAuditRecords.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "正在加载权限审计..." }) : permissionAuditRecords.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "permission-audit-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "permission-audit-table", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "时间" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "工具 / 路径" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "策略决策" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "审批状态" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "执行结果" }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "命中规则 / 来源" })
+                  ] }) }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: permissionAuditRecords.map((record) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("time", { dateTime: record.created_at, children: formatTime(record.created_at) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: record.turn_id || "-" })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: record.tool }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: record.path || record.call_id })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `permission-audit-status ${record.decision}`, children: permissionAuditLabel(record.decision) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: record.approval_policy || "-" })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `permission-audit-status ${record.approval_status}`, children: permissionAuditLabel(record.approval_status) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: permissionAuditLabel(record.intervention_mode) })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `permission-audit-status ${record.execution_status}`, children: permissionAuditLabel(record.execution_status) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: record.reason || record.risk || "-" })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: record.matched_rule_id || "Manifest / API" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: permissionAuditLabel(record.rule_source) })
+                    ] })
+                  ] }, `${record.turn_id}:${record.call_id}`)) })
+                ] }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "permission-audit-pagination", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                    "已加载 ",
+                    permissionAuditRecords.length,
+                    " 条"
+                  ] }),
+                  permissionAuditHasMore ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: permissionAuditLoading, onClick: loadMorePermissionAudit, children: permissionAuditLoading ? "加载中..." : "加载更多" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "已到最后一页" })
+                ] })
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "当前筛选条件下没有权限审计记录。" })
+            ] })
           ] }) : null,
           agentManagementView === "schedules" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AgentScheduleManager, { agent: selectedAgent, onOpenSession }) : null
         ] });
@@ -37715,6 +38232,13 @@ function forgetSession() {
   } catch {
   }
 }
+function sortAvailableAgents(agents2, defaultAgentID) {
+  return [...agents2 || []].sort((left, right) => {
+    if (left.id === defaultAgentID) return -1;
+    if (right.id === defaultAgentID) return 1;
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+}
 function WorkbenchApp() {
   var _a2, _b;
   const [status, setStatus] = reactExports.useState("ready");
@@ -37728,6 +38252,7 @@ function WorkbenchApp() {
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = reactExports.useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = reactExports.useState("");
   const [mobileResultsOpen, setMobileResultsOpen] = reactExports.useState(false);
+  const [streamReconnectVersion, setStreamReconnectVersion] = reactExports.useState(0);
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
@@ -37796,6 +38321,8 @@ function WorkbenchApp() {
   const [pluginLoadState, setPluginLoadState] = reactExports.useState("loading");
   const eventStreamCursorRef = reactExports.useRef(0);
   const sessionSyncTimerRef = reactExports.useRef(null);
+  const pageSuspendedRef = reactExports.useRef(false);
+  const resumeSyncRef = reactExports.useRef({ inFlight: false, lastStartedAt: 0 });
   const artifactResizeRef = reactExports.useRef(null);
   const threadRef = reactExports.useRef(null);
   const shouldAutoScrollRef = reactExports.useRef(true);
@@ -37920,11 +38447,7 @@ function WorkbenchApp() {
       agents(),
       llmProviders()
     ]);
-    const sortedAgents = [...agentsResponse.agents || []].sort((left, right) => {
-      if (left.id === defaultAgent$1.id) return -1;
-      if (right.id === defaultAgent$1.id) return 1;
-      return String(left.name || "").localeCompare(String(right.name || ""));
-    });
+    const sortedAgents = sortAvailableAgents(agentsResponse.agents, defaultAgent$1.id);
     const enabledProviders = (providersResponse.providers || []).filter((provider) => provider.enabled !== false);
     const modelResponses = await Promise.all(enabledProviders.map((provider) => llmModels(provider.id).catch(() => ({ models: [] }))));
     const options = enabledProviders.flatMap((provider, index2) => (modelResponses[index2].models || []).map((model) => ({
@@ -38281,6 +38804,109 @@ function WorkbenchApp() {
   }
   reactExports.useEffect(() => {
     const currentSessionID = String(sessionID || "").trim();
+    let disposed = false;
+    function markSuspended() {
+      pageSuspendedRef.current = true;
+    }
+    async function recoverAfterResume(force = false) {
+      if (document.visibilityState === "hidden") return;
+      if (!force && !pageSuspendedRef.current) return;
+      pageSuspendedRef.current = false;
+      const now = Date.now();
+      if (resumeSyncRef.current.inFlight || now - resumeSyncRef.current.lastStartedAt < 750) return;
+      resumeSyncRef.current = { inFlight: true, lastStartedAt: now };
+      if (currentSessionID) {
+        setLiveReply((current) => (current == null ? void 0 : current.sessionID) === currentSessionID ? null : current);
+        setStreamReconnectVersion((current) => current + 1);
+      }
+      try {
+        const [eventsResult, sessionsResult, agentsResult, defaultAgentResult, principalResult] = await Promise.allSettled([
+          currentSessionID ? events(currentSessionID, Number(eventStreamCursorRef.current || 0)) : Promise.resolve({ events: [] }),
+          sessions({ limit: 30 }),
+          agents(),
+          defaultAgent(),
+          currentPrincipal()
+        ]);
+        if (disposed) return;
+        if (eventsResult.status === "fulfilled") {
+          const recoveredEvents = eventsResult.value.events || [];
+          eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(recoveredEvents));
+          setEventsResponse((current) => ({
+            ...current,
+            events: mergeEvents(current.events, recoveredEvents),
+            error: ""
+          }));
+        }
+        if (sessionsResult.status === "fulfilled") {
+          setRecentSessions(sessionsResult.value.sessions || []);
+        }
+        if (defaultAgentResult.status === "fulfilled") {
+          setDefaultAgentConfig(defaultAgentResult.value);
+        }
+        if (agentsResult.status === "fulfilled") {
+          const defaultAgentID = defaultAgentResult.status === "fulfilled" ? defaultAgentResult.value.id : "";
+          const sortedAgents = sortAvailableAgents(agentsResult.value.agents, defaultAgentID);
+          setAvailableAgents(sortedAgents);
+          if (!currentSessionID) {
+            setAgentID((current) => {
+              var _a3;
+              return sortedAgents.some((agent2) => agent2.id === current) ? current : defaultAgentID || ((_a3 = sortedAgents[0]) == null ? void 0 : _a3.id) || "";
+            });
+          }
+        }
+        if (principalResult.status === "fulfilled") {
+          setPrincipal(principalResult.value.principal || null);
+        }
+        if (currentSessionID) {
+          await syncSession(currentSessionID);
+          if (disposed) return;
+        }
+        if (sessionsResult.status === "rejected" && (!currentSessionID || eventsResult.status === "rejected")) {
+          throw sessionsResult.reason;
+        }
+        setStatus("已同步最新数据");
+      } catch (error) {
+        if (!disposed) setStatus((error == null ? void 0 : error.message) || String(error));
+      } finally {
+        resumeSyncRef.current.inFlight = false;
+      }
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        markSuspended();
+        return;
+      }
+      recoverAfterResume().catch(() => {
+      });
+    }
+    function handlePageShow() {
+      recoverAfterResume(true).catch(() => {
+      });
+    }
+    function handleForcedResume() {
+      recoverAfterResume(true).catch(() => {
+      });
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("freeze", markSuspended);
+    document.addEventListener("resume", handleForcedResume);
+    window.addEventListener("pagehide", markSuspended);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleForcedResume);
+    window.addEventListener("focus", handleForcedResume);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("freeze", markSuspended);
+      document.removeEventListener("resume", handleForcedResume);
+      window.removeEventListener("pagehide", markSuspended);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleForcedResume);
+      window.removeEventListener("focus", handleForcedResume);
+    };
+  }, [sessionID]);
+  reactExports.useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
     if (!currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.id) !== currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.error)) return void 0;
     const afterSeq = Number(eventStreamCursorRef.current || 0);
     const controller = new AbortController();
@@ -38336,7 +38962,7 @@ function WorkbenchApp() {
         sessionSyncTimerRef.current = null;
       }
     };
-  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id]);
+  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id, streamReconnectVersion]);
   reactExports.useEffect(() => {
     const currentSessionID = String(sessionID || "").trim();
     if (!currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.id) !== currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.error)) return void 0;
@@ -38369,7 +38995,7 @@ function WorkbenchApp() {
       controller.abort();
       setLiveReply((current) => (current == null ? void 0 : current.sessionID) === currentSessionID ? null : current);
     };
-  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id]);
+  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id, streamReconnectVersion]);
   reactExports.useEffect(() => {
     if (!waitingForReply) return;
     if (effectiveSessionStatus === "interrupting") {
@@ -38689,7 +39315,7 @@ function WorkbenchApp() {
       settingsDraft.interventionMode || settingsDraft.toolRuntime || settingsDraft.llmProvider || settingsDraft.llmModel
     );
     if (shouldApplyInitialSettings) {
-      const updatedSession = await updateSessionRuntimeSettings(session2.id, {
+      const updatedSession = await updateSessionRuntimeSettings(session2.id, session2.runtime_settings_revision, {
         human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
         llm_model: settingsDraft.llmModel || ((_b2 = agent2.config_version) == null ? void 0 : _b2.llm_model) || "",
@@ -39469,7 +40095,7 @@ function WorkbenchApp() {
     setSavingSettings(true);
     setStatus("saving settings");
     try {
-      const updatedSession = await updateSessionRuntimeSettings(sessionID, {
+      const updatedSession = await updateSessionRuntimeSettings(sessionID, sessionMeta == null ? void 0 : sessionMeta.runtime_settings_revision, {
         human_interaction: humanInteractionRuntimeSettings(nextDraft.humanInteractionEnabled),
         intervention_mode: nextDraft.interventionMode,
         llm_model: nextDraft.llmModel,
@@ -39479,6 +40105,16 @@ function WorkbenchApp() {
       setSessionMeta(updatedSession);
       await loadSessionSettings(sessionID, updatedSession);
       setStatus("settings saved");
+    } catch (error) {
+      if ((error == null ? void 0 : error.code) === "revision_conflict") {
+        const latest = await session(sessionID);
+        setSessionMeta(latest);
+        setRecentSessions((current) => [latest, ...current.filter((item) => item.id !== latest.id)]);
+        await loadSessionSettings(sessionID, latest);
+        setStatus("Session 设置已被其他操作更新，已加载最新版本，请重新保存");
+        return;
+      }
+      throw error;
     } finally {
       setSavingSettings(false);
     }
@@ -39707,6 +40343,29 @@ function WorkbenchApp() {
     setStatus(`${updated.name || updated.id} 的工具权限已更新`);
     return updated;
   }
+  async function updateSessionPermissionsFromSettings(targetSessionID, permissionRules, expectedRevision) {
+    setStatus("正在更新 Session 工具权限");
+    let updated;
+    try {
+      updated = await updateSessionRuntimeSettings(targetSessionID, expectedRevision, { permission_rules: permissionRules || [] });
+    } catch (error) {
+      if ((error == null ? void 0 : error.code) !== "revision_conflict") throw error;
+      const latest = await session(targetSessionID);
+      if (targetSessionID === sessionID) {
+        setSessionMeta(latest);
+        setRecentSessions((current) => [latest, ...current.filter((item) => item.id !== latest.id)]);
+        await loadSessionSettings(targetSessionID, latest);
+      }
+      throw new Error("Session 设置已被其他操作更新，已加载最新版本，请重新保存");
+    }
+    if (targetSessionID === sessionID) {
+      setSessionMeta(updated);
+      setRecentSessions((current) => current.map((item) => item.id === updated.id ? updated : item));
+      await loadSessionSettings(targetSessionID, updated);
+    }
+    setStatus("Session 工具权限已更新");
+    return updated;
+  }
   if (settingsOpen) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(
       SettingsPage,
@@ -39731,6 +40390,7 @@ function WorkbenchApp() {
         onSaveAgent: (body) => saveAgentFromSettings(body).catch((error) => setStatus(error.message)),
         onSelectAgent: selectAgentFromSettings,
         onUpdateAgentPermissions: updateAgentPermissionsFromSettings,
+        onUpdateSessionPermissions: updateSessionPermissionsFromSettings,
         onModelCatalogChanged: refreshModelOptions,
         principal,
         recentSessions,

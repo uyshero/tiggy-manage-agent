@@ -2615,21 +2615,22 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 
 	now := time.Now().UTC()
 	session := Session{
-		ID:                 id,
-		WorkspaceID:        workspaceID,
-		OwnerID:            defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
-		AgentID:            agentID,
-		AgentConfigVersion: agentConfigVersion,
-		EnvironmentID:      input.EnvironmentID,
-		ParentSessionID:    strings.TrimSpace(input.ParentSessionID),
-		ParentTurnID:       strings.TrimSpace(input.ParentTurnID),
-		SpawnDepth:         input.SpawnDepth,
-		Status:             SessionStatusIdle,
-		Title:              input.Title,
-		RuntimeSettings:    json.RawMessage(`{}`),
-		Tags:               []string{},
-		CreatedBy:          defaultString(input.CreatedBy, "system"),
-		CreatedAt:          now,
+		ID:                      id,
+		WorkspaceID:             workspaceID,
+		OwnerID:                 defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
+		AgentID:                 agentID,
+		AgentConfigVersion:      agentConfigVersion,
+		EnvironmentID:           input.EnvironmentID,
+		ParentSessionID:         strings.TrimSpace(input.ParentSessionID),
+		ParentTurnID:            strings.TrimSpace(input.ParentTurnID),
+		SpawnDepth:              input.SpawnDepth,
+		Status:                  SessionStatusIdle,
+		Title:                   input.Title,
+		RuntimeSettings:         json.RawMessage(`{}`),
+		RuntimeSettingsRevision: 1,
+		Tags:                    []string{},
+		CreatedBy:               defaultString(input.CreatedBy, "system"),
+		CreatedAt:               now,
 	}
 
 	_, err = tx.ExecContext(ctx, `
@@ -3282,6 +3283,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 	}
 	var config AgentRuntimeConfig
 	var tools []byte
+	var workspaceToolPolicy []byte
 	var mcp []byte
 	var skills []byte
 	var runtimeSettings []byte
@@ -3331,6 +3333,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 			av.system,
 			s.runtime_settings_json,
 			av.tools_json,
+			COALESCE(wtp.policy_json, '{"permission_rules":[]}'::jsonb),
 			av.mcp_json,
 			av.skills_json,
 			lp.provider_type,
@@ -3349,6 +3352,10 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 			ss.summary_text,
 			ss.source_until_seq
 		FROM sessions s
+		JOIN workspaces w
+			ON w.id = s.workspace_id
+		LEFT JOIN workspace_tool_permission_policies wtp
+			ON wtp.workspace_id = w.id
 		JOIN agent_config_versions av
 			ON av.agent_id = s.agent_id
 			AND av.version = s.agent_config_version
@@ -3377,6 +3384,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 		&config.System,
 		&runtimeSettings,
 		&tools,
+		&workspaceToolPolicy,
 		&mcp,
 		&skills,
 		&providerType,
@@ -3409,6 +3417,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 	config.ParentSessionID = session.ParentSessionID
 	config.SpawnDepth = session.SpawnDepth
 	config.Tools = cloneRaw(tools)
+	config.WorkspaceToolPolicy = cloneRaw(workspaceToolPolicy)
 	config.MCP = cloneRaw(mcp)
 	config.Skills = cloneRaw(skills)
 	config.LLMProviderType = providerType.String
@@ -3742,7 +3751,7 @@ func (s *PostgresStore) getSession(id string, scope AccessScope) (Session, error
 	var archivedAt sql.NullTime
 
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, pinned_at, tags_json,
+		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3766,6 +3775,7 @@ func (s *PostgresStore) getSession(id string, scope AccessScope) (Session, error
 		&title,
 		&sandboxID,
 		&runtimeSettings,
+		&session.RuntimeSettingsRevision,
 		&pinnedAt,
 		&tags,
 		&session.SummaryText,
@@ -3804,7 +3814,7 @@ func (s *PostgresStore) ListSessions(input ListSessionsInput) ([]Session, error)
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(context.Background(), `
-		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.pinned_at, s.tags_json,
+		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
 			COALESCE(
 				NULLIF(ss.summary_text, ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = s.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3869,7 +3879,7 @@ func (s *PostgresStore) listSessionsScopedContext(ctx context.Context, input Lis
 		limit = 50
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.pinned_at, s.tags_json,
+		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
 			COALESCE(
 				NULLIF(ss.summary_text, ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = s.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3916,6 +3926,9 @@ func (s *PostgresStore) UpdateSessionRuntimeSettings(id string, input UpdateSess
 }
 
 func (s *PostgresStore) updateSessionRuntimeSettingsContext(ctx context.Context, id string, input UpdateSessionRuntimeSettingsInput) (Session, error) {
+	if input.ExpectedRevision <= 0 {
+		return Session{}, fmt.Errorf("%w: expected runtime settings revision must be positive", ErrInvalid)
+	}
 	if len(input.RuntimeSettings) == 0 {
 		input.RuntimeSettings = json.RawMessage(`{}`)
 	}
@@ -3941,12 +3954,22 @@ func (s *PostgresStore) updateSessionRuntimeSettingsContext(ctx context.Context,
 	if err := authorizeSessionAccessScope(session, scope, scoped); err != nil {
 		return Session{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `
+	if session.RuntimeSettingsRevision != input.ExpectedRevision {
+		return Session{}, fmt.Errorf("%w: session runtime settings revision changed", ErrRevisionConflict)
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE sessions
-		SET runtime_settings_json = $2
-		WHERE id = $1
-	`, id, input.RuntimeSettings); err != nil {
+		SET runtime_settings_json = $2,
+			runtime_settings_revision = runtime_settings_revision + 1
+		WHERE id = $1 AND runtime_settings_revision = $3
+	`, id, input.RuntimeSettings, input.ExpectedRevision)
+	if err != nil {
 		return Session{}, normalizeLLMReferenceWriteError(err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return Session{}, err
+	} else if affected != 1 {
+		return Session{}, fmt.Errorf("%w: session runtime settings revision changed", ErrRevisionConflict)
 	}
 	updated, err := getSessionTx(ctx, tx, id)
 	if err != nil {
@@ -8038,6 +8061,9 @@ func (s *PostgresStore) appendEventTx(ctx context.Context, tx *sql.Tx, sessionID
 	if err != nil {
 		return Event{}, err
 	}
+	if err := s.projectToolPermissionAuditEventTx(ctx, tx, event); err != nil {
+		return Event{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `SELECT pg_notify($1, $2)`, eventNotificationChannel, event.SessionID); err != nil {
 		return Event{}, err
 	}
@@ -8702,7 +8728,7 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 
 func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, pinned_at, tags_json,
+		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -8716,7 +8742,7 @@ func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	// 涉及状态迁移的事务都通过 FOR UPDATE 锁住 Session，保护状态机一致性。
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, pinned_at, tags_json,
+		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -8753,6 +8779,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 		&title,
 		&sandboxID,
 		&runtimeSettings,
+		&session.RuntimeSettingsRevision,
 		&pinnedAt,
 		&tags,
 		&session.SummaryText,
@@ -8811,6 +8838,7 @@ func scanSessionRow(scanner interface {
 		&title,
 		&sandboxID,
 		&runtimeSettings,
+		&session.RuntimeSettingsRevision,
 		&pinnedAt,
 		&tags,
 		&session.SummaryText,

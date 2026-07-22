@@ -381,8 +381,9 @@ func (AgentRuntime) Manifest() Manifest {
 			Title:       "Agent Tools",
 			Description: "Create and orchestrate subagent sessions inside the current workspace.",
 		},
-		SystemRole: "Use agent.* tools only when there are two or more independent subtasks that can run concurrently, specialized isolation is useful, or intermediate research would consume substantial parent context. Do not delegate single-step work, tightly coupled sequential work, or tasks that can be completed in one or two tool calls. Prefer agent.spawn for one independent unit and agent.run_group for parallel fan-out. Always wait for and collect delegated results before final completion.",
-		Executors:  []string{ExecutorServer},
+		SystemRole:     "Use agent.* tools only when there are two or more independent subtasks that can run concurrently, specialized isolation is useful, or intermediate research would consume substantial parent context. Do not delegate single-step work, tightly coupled sequential work, or tasks that can be completed in one or two tool calls. Prefer agent.spawn for one independent unit and agent.run_group for parallel fan-out. Always wait for and collect delegated results before final completion.",
+		Executors:      []string{ExecutorServer},
+		ApprovalPolicy: ApprovalPolicyNever,
 		API: []API{
 			{
 				Name:           "spawn",

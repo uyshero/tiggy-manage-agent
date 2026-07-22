@@ -6,6 +6,39 @@ describe("typed control-plane services", () => {
   let server: TestServer | undefined;
   afterEach(async () => { await server?.close(); server = undefined; });
 
+  it("evaluates effective workspace tool permissions", async () => {
+    let captured: { method?: string; url?: string; body?: unknown } = {};
+    server = await startServer(async (request, response) => {
+      captured = {
+        method: request.method,
+        url: request.url,
+        body: JSON.parse((await readBody(request)).toString()),
+      };
+      json(response, 200, {
+        workspace_id: "workspace/1", agent_id: "agent/1",
+        tool: "default.edit_file", path: "/workspace/src/main.go",
+        decision: "ask", allowed: false, required: true,
+        intervention_mode: "request_approval", approval_policy: "conditional",
+        reason: "filesystem_write", risk: "write",
+      });
+    });
+    const client = new TMAClient(server.baseURL);
+    const result = await client.workspaceToolPermissions.evaluate("workspace/1", {
+      agent_id: "agent/1", tool: "default.edit_file",
+      path: "/workspace/src/main.go", intervention_mode: "request_approval",
+    });
+
+    expect(result.decision).toBe("ask");
+    expect(captured).toEqual({
+      method: "POST",
+      url: "/v2/workspaces/workspace%2F1/tool-permissions/evaluate",
+      body: {
+        agent_id: "agent/1", tool: "default.edit_file",
+        path: "/workspace/src/main.go", intervention_mode: "request_approval",
+      },
+    });
+  });
+
   it("implements LLM concurrency headers and usage queries", async () => {
     const requests: Array<{ method: string; url: string; ifMatch?: string; ifNoneMatch?: string }> = [];
     server = await startServer(async (request, response) => {
@@ -141,6 +174,19 @@ describe("typed control-plane services", () => {
         return;
       }
       if (request.url?.includes("operator-audit")) { json(response, 200, { audit_records: [] }); return; }
+      if (request.url?.includes("tool-permission-audit")) {
+        json(response, 200, { records: [{
+          session_id: "session/1", turn_id: "turn/1", call_id: "call/1",
+          tool: "default.edit_file", path: "/workspace/src/main.go",
+          decision: "ask", allowed: false, required: true,
+          intervention_mode: "request_approval", approval_policy: "conditional",
+          approval_status: "approved", execution_status: "succeeded",
+          reason: "filesystem_write", risk: "write",
+          matched_rule_id: "ask-src", rule_source: "session",
+          created_at: "2026-07-15T00:00:00Z",
+        }], next_cursor: "next/cursor", has_more: true });
+        return;
+      }
       if (request.url?.endsWith("integrity-keys")) { json(response, 200, { active_key_id: "key/1", historical_unidentified_blocking: 0, keys: [] }); return; }
       if (request.url?.includes("security-audit/replay")) { json(response, 200, { replayed: 2 }); return; }
       if (request.url === "/v2/observability/status") { json(response, 200, { enabled: true, exporter: { custom: true } }); return; }
@@ -169,6 +215,7 @@ describe("typed control-plane services", () => {
     await client.observability.integrityKeys();
     await client.audit.list({ workspaceId: "workspace/1", sessionId: "session/1", principalId: "user/1", action: "mcp_registry.update", limit: 25 });
     await client.audit.listSession("session/1");
+    const permissionAudit = await client.audit.listToolPermissions("session/1", { decision: "ask", tool: "default.edit_file", limit: 20, cursor: "cursor/1" });
     await client.audit.integrityKeys();
     await client.audit.replayDeadLetters(50);
     await client.environmentVariables.list({ workspaceId: "workspace/1" });
@@ -178,8 +225,11 @@ describe("typed control-plane services", () => {
     expect(servers[0]?.status).toBe("future_state");
     expect(versions[0]?.config).toMatchObject({ extension: { preserved: true } });
     expect(testResult.result).toMatchObject({ extension: { preserved: true } });
+    expect(permissionAudit.records[0]).toMatchObject({ call_id: "call/1", approval_status: "approved", execution_status: "succeeded" });
+    expect(permissionAudit).toMatchObject({ next_cursor: "next/cursor", has_more: true });
     expect(requests).toContain("POST /v2/mcp-servers/mcp%2F1/versions/1/restore");
     expect(requests).toContain("GET /v2/operator-audit?workspace_id=workspace%2F1&session_id=session%2F1&principal_id=user%2F1&action=mcp_registry.update&limit=25");
+    expect(requests).toContain("GET /v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default.edit_file&limit=20&cursor=cursor%2F1");
     expect(requests).toContain("PUT /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
     expect(requests).toContain("DELETE /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
   });

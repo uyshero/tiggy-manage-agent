@@ -479,6 +479,13 @@ func (r *WorkerRunner) startLeaseHeartbeat(ctx context.Context, request TurnRequ
 					r.logger.Warn("worker runner lease heartbeat failed", "session_id", request.SessionID, "turn_id", request.TurnID, "error", err)
 				}
 				if err != nil || !active {
+					event := observability.WorkerLeaseMetricRenewalInactive
+					if errors.Is(err, managedagents.ErrLeaseLost) {
+						event = observability.WorkerLeaseMetricLost
+					} else if err != nil {
+						event = observability.WorkerLeaseMetricRenewalFailed
+					}
+					observability.RecordWorkerLeaseMetric(event)
 					if cancel := r.takeTurn(key); cancel != nil {
 						cancel()
 					}

@@ -38,10 +38,6 @@ var configEnvKeys = []string{
 	"TMA_TURN_HEARTBEAT_INTERVAL_MS",
 	"TMA_TURN_TIMEOUT_MS",
 	"TMA_MAX_TOOL_ROUNDS",
-	"TMA_AGENT_CORE_ENABLED",
-	"TMA_AGENT_CORE_ROLLOUT_PERCENT",
-	"TMA_AGENT_CORE_WORKSPACE_IDS",
-	"TMA_AGENT_CORE_AGENT_IDS",
 	"TMA_DEFAULT_CONTEXT_WINDOW_TOKENS",
 	"TMA_LLM_PROVIDER",
 	"TMA_LLM_PROVIDER_TYPE",
@@ -354,12 +350,6 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Turn.MaxToolRounds != DefaultMaxToolRounds {
 		t.Fatalf("expected default max tool rounds %d, got %d", DefaultMaxToolRounds, config.Turn.MaxToolRounds)
 	}
-	if config.Turn.AgentCoreEnabled != DefaultAgentCoreEnabled {
-		t.Fatalf("expected default agent core enabled %t, got %t", DefaultAgentCoreEnabled, config.Turn.AgentCoreEnabled)
-	}
-	if config.Turn.AgentCoreRolloutPercent != DefaultAgentCoreRolloutPercent || len(config.Turn.AgentCoreWorkspaceIDs) != 0 || len(config.Turn.AgentCoreAgentIDs) != 0 {
-		t.Fatalf("unexpected default agent core rollout: %+v", config.Turn)
-	}
 	if config.Turn.PollInterval != time.Duration(DefaultTurnPollIntervalMS)*time.Millisecond || config.Turn.LeaseDuration != time.Duration(DefaultTurnLeaseDurationMS)*time.Millisecond || config.Turn.HeartbeatInterval != time.Duration(DefaultTurnHeartbeatIntervalMS)*time.Millisecond {
 		t.Fatalf("unexpected default turn lease config: %+v", config.Turn)
 	}
@@ -521,38 +511,6 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.Observability.SecurityAudit.MaxAttempts != DefaultSecurityAuditMaxAttempts || config.Observability.SecurityAudit.Retention != time.Duration(DefaultSecurityAuditRetentionDays)*24*time.Hour {
 		t.Fatalf("unexpected default security audit retry/retention config: %+v", config.Observability.SecurityAudit)
-	}
-}
-
-func TestFromEnvEnablesAgentCore(t *testing.T) {
-	clearConfigEnv(t)
-	t.Setenv("TMA_DATABASE_URL", "postgres://example")
-	t.Setenv("TMA_AGENT_CORE_ENABLED", "true")
-	t.Setenv("TMA_AGENT_CORE_ROLLOUT_PERCENT", "25")
-	t.Setenv("TMA_AGENT_CORE_WORKSPACE_IDS", "wksp_a, wksp_b")
-	t.Setenv("TMA_AGENT_CORE_AGENT_IDS", "agent_a,agent_b")
-	config, err := FromEnv()
-	if err != nil {
-		t.Fatalf("from env: %v", err)
-	}
-	if !config.Turn.AgentCoreEnabled {
-		t.Fatal("agent core feature flag was not enabled")
-	}
-	if config.Turn.AgentCoreRolloutPercent != 25 || !reflect.DeepEqual(config.Turn.AgentCoreWorkspaceIDs, []string{"wksp_a", "wksp_b"}) || !reflect.DeepEqual(config.Turn.AgentCoreAgentIDs, []string{"agent_a", "agent_b"}) {
-		t.Fatalf("unexpected agent core rollout config: %+v", config.Turn)
-	}
-}
-
-func TestFromEnvRejectsInvalidAgentCoreRolloutPercent(t *testing.T) {
-	for _, value := range []string{"-1", "101", "invalid"} {
-		t.Run(value, func(t *testing.T) {
-			clearConfigEnv(t)
-			t.Setenv("TMA_DATABASE_URL", "postgres://example")
-			t.Setenv("TMA_AGENT_CORE_ROLLOUT_PERCENT", value)
-			if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_AGENT_CORE_ROLLOUT_PERCENT must be between 0 and 100") {
-				t.Fatalf("FromEnv() error = %v", err)
-			}
-		})
 	}
 }
 

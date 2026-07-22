@@ -2,32 +2,29 @@ package capability
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-)
 
-var segmentedEditHashes sync.Map
+	"github.com/pmezard/go-difflib/difflib"
+)
 
 const maxEditableFileBytes int64 = 64 << 20
 
 // EditFileRequest 描述一次精确字符串替换编辑。
 type EditFileRequest struct {
-	Meta               RequestMeta `json:"meta"`
-	Path               string      `json:"path,omitempty"`
-	OldString          string      `json:"old_string"`
-	NewString          string      `json:"new_string"`
-	ReplaceAll         bool        `json:"replace_all,omitempty"`
-	WorkDir            string      `json:"work_dir,omitempty"`
-	Idempotent         bool        `json:"idempotent,omitempty"`
-	ExpectedRevision   string      `json:"expected_revision,omitempty"`
-	ExpectedMatchCount *int        `json:"expected_match_count,omitempty"`
+	Meta                  RequestMeta `json:"meta"`
+	Path                  string      `json:"path,omitempty"`
+	OldString             string      `json:"old_string"`
+	NewString             string      `json:"new_string"`
+	ReplaceAll            bool        `json:"replace_all,omitempty"`
+	WorkDir               string      `json:"work_dir,omitempty"`
+	ExpectedRevision      string      `json:"expected_revision,omitempty"`
+	ExpectedContentSHA256 string      `json:"expected_content_sha256,omitempty"`
+	ExpectedMatchCount    *int        `json:"expected_match_count,omitempty"`
+	guardedRoot           string
 }
 
 // EditFileResult 对齐 local-file-shell editLocalFile 的返回结构。
@@ -65,6 +62,10 @@ func editLocalFile(request EditFileRequest) EditFileResult {
 }
 
 func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFileResult {
+	return editLocalFileContextWithOpenHook(ctx, request, nil)
+}
+
+func editLocalFileContextWithOpenHook(ctx context.Context, request EditFileRequest, beforeOpen func()) EditFileResult {
 	filePath := request.resolvedPath()
 	if filePath == "" {
 		return editFailure(filePath, "invalid_edit_path", "file path is required")
@@ -78,9 +79,20 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 	if err := ctx.Err(); err != nil {
 		return editFailure(filePath, "edit_canceled", err.Error())
 	}
+	if err := ensureGuardedMutationPath(filePath, request.guardedRoot); err != nil {
+		var fileErr *FileReadError
+		if errors.As(err, &fileErr) {
+			return editFailure(filePath, fileErr.Code, fileErr.Message)
+		}
+		return editFailure(filePath, "workspace_path_changed", err.Error())
+	}
 
-	file, err := os.Open(filePath)
+	file, err := openLocalFileForEdit(request, beforeOpen)
 	if err != nil {
+		var fileErr *FileReadError
+		if errors.As(err, &fileErr) {
+			return editFailure(filePath, fileErr.Code, fileErr.Message)
+		}
 		return editFailure(filePath, "file_not_found", err.Error())
 	}
 	info, err := file.Stat()
@@ -119,6 +131,13 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 		_ = file.Close()
 		return editFailure(filePath, "stale_file_revision", err.Error())
 	}
+	if expected := strings.ToLower(strings.TrimSpace(request.ExpectedContentSHA256)); expected != "" {
+		actual := contentSHA256(contentBytes)
+		if actual != expected {
+			_ = file.Close()
+			return editFailure(filePath, "stale_file_content", "file content changed since it was read")
+		}
+	}
 	_ = file.Close()
 	content := string(contentBytes)
 
@@ -132,17 +151,8 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 		}
 	}
 
-	segmentHash := editSegmentHash(request.NewString)
 	matchCount := strings.Count(content, search)
 	if matchCount == 0 {
-		if request.Idempotent && recordedSegmentEdit(filePath, request.OldString, segmentHash) {
-			return EditFileResult{
-				Path:           filePath,
-				Replacements:   0,
-				AlreadyApplied: true,
-				Success:        true,
-			}
-		}
 		return editFailure(filePath, "match_not_found", "The specified old_string was not found in the file")
 	}
 	expectedMatches := 1
@@ -175,7 +185,7 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 
 	written, err := writeLocalFileAtomic(ctx, WriteFileRequest{
 		Meta: request.Meta, Path: filePath, Content: []byte(newContent), Mode: WriteModeOverwrite,
-		ExpectedRevision: revision,
+		ExpectedRevision: revision, guardedRoot: request.guardedRoot,
 	})
 	if err != nil {
 		var fileErr *FileReadError
@@ -184,10 +194,6 @@ func editLocalFileContext(ctx context.Context, request EditFileRequest) EditFile
 		}
 		return editFailure(filePath, "edit_write_failed", err.Error())
 	}
-	if request.Idempotent {
-		recordSegmentEdit(filePath, request.OldString, segmentHash)
-	}
-
 	patch := createPatch(filePath, content, newContent)
 	diffText := fmt.Sprintf("diff --git a%s b%s\n%s", filePath, filePath, patch)
 	linesAdded, linesDeleted := countPatchLineChanges(patch)
@@ -208,89 +214,20 @@ func editFailure(path, code, message string) EditFileResult {
 	return EditFileResult{Path: path, Replacements: 0, Success: false, Code: code, Error: message}
 }
 
-func editSegmentHash(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
-}
-
-func segmentedEditKey(filePath, placeholder string) string {
-	absolutePath, err := filepath.Abs(filePath)
-	if err == nil {
-		filePath = filepath.Clean(absolutePath)
-	}
-	return filePath + "\x00" + placeholder
-}
-
-func recordSegmentEdit(filePath, placeholder, hash string) {
-	if filePath == "" || placeholder == "" || hash == "" {
-		return
-	}
-	segmentedEditHashes.Store(segmentedEditKey(filePath, placeholder), hash)
-}
-
-func recordedSegmentEdit(filePath, placeholder, hash string) bool {
-	value, ok := segmentedEditHashes.Load(segmentedEditKey(filePath, placeholder))
-	return ok && value == hash
-}
-
-// ResetSegmentEditState clears retry evidence when a file is recreated.
-func ResetSegmentEditState(filePath string) {
-	prefix := segmentedEditKey(filePath, "")
-	segmentedEditHashes.Range(func(key, _ any) bool {
-		if text, ok := key.(string); ok && strings.HasPrefix(text, prefix) {
-			segmentedEditHashes.Delete(key)
-		}
-		return true
-	})
-}
-
 func toCRLF(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	return strings.ReplaceAll(value, "\n", "\r\n")
 }
 
 func createPatch(filePath, oldContent, newContent string) string {
-	var builder strings.Builder
-	builder.WriteString("--- ")
-	builder.WriteString(filePath)
-	builder.WriteByte('\n')
-	builder.WriteString("+++ ")
-	builder.WriteString(filePath)
-	builder.WriteByte('\n')
-
-	oldLines := strings.Split(oldContent, "\n")
-	newLines := strings.Split(newContent, "\n")
-	maxLen := len(oldLines)
-	if len(newLines) > maxLen {
-		maxLen = len(newLines)
-	}
-
-	for index := 0; index < maxLen; index++ {
-		hasOld := index < len(oldLines)
-		hasNew := index < len(newLines)
-		var oldLine, newLine string
-		if hasOld {
-			oldLine = oldLines[index]
-		}
-		if hasNew {
-			newLine = newLines[index]
-		}
-		if hasOld && hasNew && oldLine == newLine {
-			continue
-		}
-		if hasOld {
-			builder.WriteByte('-')
-			builder.WriteString(oldLine)
-			builder.WriteByte('\n')
-		}
-		if hasNew {
-			builder.WriteByte('+')
-			builder.WriteString(newLine)
-			builder.WriteByte('\n')
-		}
-	}
-
-	return builder.String()
+	patch, _ := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+		A:        difflib.SplitLines(oldContent),
+		B:        difflib.SplitLines(newContent),
+		FromFile: filePath,
+		ToFile:   filePath,
+		Context:  3,
+	})
+	return patch
 }
 
 func countPatchLineChanges(patch string) (linesAdded, linesDeleted int) {
