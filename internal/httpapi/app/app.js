@@ -37343,7 +37343,7 @@ const chatTimelineInternalEventTypes = /* @__PURE__ */ new Set([
   "intervention.required",
   "intervention.resolved"
 ]);
-function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}) {
+function compactChatTimelineEvents(sourceEvents, { includeThinking = true, thinkingAfterSeq = 0 } = {}) {
   const sorted = [...sourceEvents || []].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -37351,7 +37351,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}
   function flushInternalEvents() {
     var _a2;
     if (!internalEvents.length) return;
-    if (!includeThinking) {
+    if (!includeThinking || Number(internalEvents.at(-1).seq || 0) <= Number(thinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
     }
@@ -37382,7 +37382,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
-      if (!includeThinking) continue;
+      if (!includeThinking || Number(event.seq || 0) <= Number(thinkingAfterSeq || 0)) continue;
       compacted.push(event);
       continue;
     }
@@ -38686,6 +38686,7 @@ function WorkbenchApp() {
   const chatTimelineEvents = reactExports.useMemo(() => {
     const timelineStatus = latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status);
     const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    const thinkingAfterSeq = events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
     return compactChatTimelineEvents([...events$1].filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
@@ -38702,7 +38703,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-    }), { includeThinking });
+    }), { includeThinking, thinkingAfterSeq });
   }, [events$1, sessionMeta == null ? void 0 : sessionMeta.status]);
   const latestSuccessfulSkillInstallSeq = reactExports.useMemo(() => {
     const event = [...events$1].reverse().find((item) => {

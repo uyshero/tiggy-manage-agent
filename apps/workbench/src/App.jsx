@@ -4055,7 +4055,7 @@ const chatTimelineInternalEventTypes = new Set([
   "intervention.resolved"
 ]);
 
-function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}) {
+function compactChatTimelineEvents(sourceEvents, { includeThinking = true, thinkingAfterSeq = 0 } = {}) {
   const sorted = [...(sourceEvents || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -4063,7 +4063,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}
 
   function flushInternalEvents() {
     if (!internalEvents.length) return;
-    if (!includeThinking) {
+    if (!includeThinking || Number(internalEvents.at(-1).seq || 0) <= Number(thinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
     }
@@ -4095,7 +4095,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
-      if (!includeThinking) continue;
+      if (!includeThinking || Number(event.seq || 0) <= Number(thinkingAfterSeq || 0)) continue;
       compacted.push(event);
       continue;
     }
@@ -5568,6 +5568,9 @@ function WorkbenchApp() {
   const chatTimelineEvents = useMemo(() => {
     const timelineStatus = latestSessionStatus(events, sessionMeta?.status);
     const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    const thinkingAfterSeq = events.reduce((maximum, event) => (
+      event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum
+    ), 0);
     return compactChatTimelineEvents([...events]
       .filter((event) => {
       if (event.type === "user.message") return true;
@@ -5585,7 +5588,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-      }), { includeThinking });
+      }), { includeThinking, thinkingAfterSeq });
   }, [events, sessionMeta?.status]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
     const event = [...events].reverse().find((item) => {
