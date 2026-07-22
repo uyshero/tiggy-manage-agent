@@ -7,7 +7,7 @@ import "./auth.js";
 import * as api from "./api.js";
 import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
-import { buildToolCallLifecycles, terminalToolLifecycleEvent, toolCallID } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolCallID } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { providerErrorPresentation } from "./providerErrors.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
@@ -151,6 +151,8 @@ const sessionSyncEventTypes = new Set([
 const liveReplyTerminalEventTypes = new Set([
   "agent.message",
   "runtime.tool_call",
+  "tool.batch_planned",
+  "tool.call_started",
   "runtime.tool_intervention_required",
   "runtime.human_input_required",
   "runtime.plan_approval_required",
@@ -4742,19 +4744,26 @@ function ProcessEventCard({
     title = summary.title;
     metaLabel = `调用 · ${summary.label}`;
     preview = processPreview(data.identifier, data.api_name, args, {}, summary.source);
+    contextItems = [
+      { label: summary.label.startsWith("skills.") ? "Skill 工具" : "工具", value: summary.label },
+      { label: "操作", value: summary.title },
+      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : [])
+    ];
     detailObject = {
       source: summary.sourceLabel,
+      tool: summary.label,
+      operation: summary.title,
+      target: summary.detail || undefined,
       arguments: Object.keys(args).length ? args : undefined
     };
     tone = summary.risk === "high" ? "warn" : "tool";
     status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
     statusLabel = summary.risk === "high" ? "待确认" : active ? "执行中" : "已调用";
-    defaultExpanded = active;
+    defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
       statusLabel = lifecycleResultData.success === false ? "失败" : "完成";
-      defaultExpanded = false;
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
@@ -5596,8 +5605,9 @@ function WorkbenchApp() {
   }
 
   const events = eventsResponse.events || [];
+  const toolTimelineEvents = useMemo(() => normalizeToolTimelineEvents(events), [events]);
   const currentTaskPlan = useMemo(() => latestTaskPlan(events, taskPlanResponse.plan), [events, taskPlanResponse.plan]);
-  const toolCallLifecycles = useMemo(() => buildToolCallLifecycles(events), [events]);
+  const toolCallLifecycles = useMemo(() => buildToolCallLifecycles(toolTimelineEvents), [toolTimelineEvents]);
   const conversationEvents = useMemo(() => events
     .filter((event) => event.type === "user.message" || event.type === "agent.message")
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
@@ -5607,7 +5617,7 @@ function WorkbenchApp() {
     const thinkingAfterSeq = events.reduce((maximum, event) => (
       event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum
     ), 0);
-    return compactChatTimelineEvents([...events]
+    return compactChatTimelineEvents([...toolTimelineEvents]
       .filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
@@ -5625,7 +5635,7 @@ function WorkbenchApp() {
         "runtime.failed"
       ].includes(event.type);
       }), { includeThinking, thinkingAfterSeq });
-  }, [events, sessionMeta?.status]);
+  }, [events, sessionMeta?.status, toolTimelineEvents]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
     const event = [...events].reverse().find((item) => {
       const data = eventData(item);

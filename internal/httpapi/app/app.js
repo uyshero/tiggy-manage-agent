@@ -29620,6 +29620,71 @@ function toolCallID(event) {
   if (!data || typeof data !== "object" || Array.isArray(data)) return "";
   return String(data.id || data.call_id || "").trim();
 }
+function normalizeToolTimelineEvents(events2) {
+  var _a2, _b, _c, _d, _e, _f, _g;
+  const source = Array.isArray(events2) ? events2 : [];
+  const plannedCalls = /* @__PURE__ */ new Map();
+  const nativeCalls = new Set(source.filter((event) => (event == null ? void 0 : event.type) === "runtime.tool_call").map(toolCallID).filter(Boolean));
+  const nativeResults = new Set(source.filter((event) => (event == null ? void 0 : event.type) === "runtime.tool_result").map(toolCallID).filter(Boolean));
+  for (const event of source) {
+    if ((event == null ? void 0 : event.type) !== "tool.batch_planned") continue;
+    for (const item of arrayValue((_b = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data) == null ? void 0 : _b.calls)) {
+      const call = objectValue$3(item == null ? void 0 : item.call);
+      const callID = String(call.id || "").trim();
+      if (callID) plannedCalls.set(callID, { call, item });
+    }
+  }
+  const normalized = [];
+  for (const event of source) {
+    normalized.push(event);
+    if ((event == null ? void 0 : event.type) === "tool.batch_planned") {
+      const calls = arrayValue((_d = (_c = event == null ? void 0 : event.payload) == null ? void 0 : _c.data) == null ? void 0 : _d.calls);
+      calls.forEach((item, index2) => {
+        const call = objectValue$3(item == null ? void 0 : item.call);
+        const callID = String(call.id || "").trim();
+        if (!callID || nativeCalls.has(callID)) return;
+        normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
+          identifier: call.name,
+          arguments: objectValue$3(call.arguments),
+          approval_state: item.approval_state,
+          disposition: item.disposition,
+          execution_mode: item.execution_mode,
+          side_effect: item.side_effect
+        }, index2, calls.length));
+      });
+      continue;
+    }
+    if ((event == null ? void 0 : event.type) === "tool.call_started") {
+      const data = objectValue$3((_e = event == null ? void 0 : event.payload) == null ? void 0 : _e.data);
+      const callID = String(data.call_id || "").trim();
+      if (!callID || nativeCalls.has(callID) || plannedCalls.has(callID)) continue;
+      normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
+        identifier: data.name,
+        arguments: {},
+        attempt: data.attempt
+      }));
+      continue;
+    }
+    if ((event == null ? void 0 : event.type) === "tool.call_result") {
+      const data = objectValue$3((_f = event == null ? void 0 : event.payload) == null ? void 0 : _f.data);
+      const result = objectValue$3(data.result);
+      const callID = String(data.call_id || result.call_id || "").trim();
+      if (!callID || nativeResults.has(callID)) continue;
+      const planned = ((_g = plannedCalls.get(callID)) == null ? void 0 : _g.call) || {};
+      normalized.push(runtimeToolEvent(event, "runtime.tool_result", callID, {
+        identifier: data.name || result.name || planned.name,
+        arguments: objectValue$3(planned.arguments),
+        success: toolResultSucceeded(data.status, result),
+        content: toolResultContent(result.content),
+        state: objectValue$3(result.state),
+        artifacts: arrayValue(result.artifacts),
+        error: objectValue$3(result.error),
+        duration_ms: durationMillis(data.started_at, data.completed_at)
+      }));
+    }
+  }
+  return normalized;
+}
 function buildToolCallLifecycles(events2) {
   const lifecycles = /* @__PURE__ */ new Map();
   for (const event of events2 || []) {
@@ -29661,6 +29726,43 @@ function buildToolCallLifecycles(events2) {
 function latestEvent(left, right) {
   if (!left) return right;
   return Number((right == null ? void 0 : right.seq) || 0) > Number(left.seq || 0) ? right : left;
+}
+function runtimeToolEvent(source, type, callID, data, index2 = 0, count = 1) {
+  const baseSeq = Number((source == null ? void 0 : source.seq) || 0);
+  return {
+    ...source,
+    type,
+    seq: baseSeq + (index2 + 1) / (Math.max(count, 1) + 1),
+    payload: {
+      ...objectValue$3(source == null ? void 0 : source.payload),
+      data: { id: callID, call_id: callID, ...data }
+    }
+  };
+}
+function toolResultSucceeded(status, result) {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (["failed", "error", "rejected", "canceled", "cancelled"].includes(normalized)) return false;
+  if (Object.keys(objectValue$3(result.error)).length) return false;
+  return true;
+}
+function toolResultContent(content2) {
+  if (typeof content2 === "string") return content2;
+  return arrayValue(content2).map((item) => {
+    if (typeof item === "string") return item;
+    const part = objectValue$3(item);
+    return String(part.text || part.content || "");
+  }).filter(Boolean).join("\n");
+}
+function durationMillis(startedAt, completedAt) {
+  const started = new Date(startedAt || "").getTime();
+  const completed = new Date(completedAt || "").getTime();
+  return Number.isFinite(started) && Number.isFinite(completed) && completed > started ? completed - started : 0;
+}
+function objectValue$3(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function arrayValue(value) {
+  return Array.isArray(value) ? value : [];
 }
 function terminalToolLifecycleEvent(lifecycle) {
   return latestEvent(lifecycle == null ? void 0 : lifecycle.decision, lifecycle == null ? void 0 : lifecycle.result) || null;
@@ -33412,6 +33514,8 @@ const sessionSyncEventTypes = /* @__PURE__ */ new Set([
 const liveReplyTerminalEventTypes = /* @__PURE__ */ new Set([
   "agent.message",
   "runtime.tool_call",
+  "tool.batch_planned",
+  "tool.call_started",
   "runtime.tool_intervention_required",
   "runtime.human_input_required",
   "runtime.plan_approval_required",
@@ -37947,19 +38051,26 @@ function ProcessEventCard({
     title = summary.title;
     metaLabel = `调用 · ${summary.label}`;
     preview = processPreview(data.identifier, data.api_name, args, {}, summary.source);
+    contextItems = [
+      { label: summary.label.startsWith("skills.") ? "Skill 工具" : "工具", value: summary.label },
+      { label: "操作", value: summary.title },
+      ...summary.detail ? [{ label: "目标", value: summary.detail }] : []
+    ];
     detailObject = {
       source: summary.sourceLabel,
+      tool: summary.label,
+      operation: summary.title,
+      target: summary.detail || void 0,
       arguments: Object.keys(args).length ? args : void 0
     };
     tone = summary.risk === "high" ? "warn" : "tool";
     status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
     statusLabel = summary.risk === "high" ? "待确认" : active ? "执行中" : "已调用";
-    defaultExpanded = active;
+    defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
       statusLabel = lifecycleResultData.success === false ? "失败" : "完成";
-      defaultExpanded = false;
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
@@ -38715,14 +38826,15 @@ function WorkbenchApp() {
     });
   }
   const events$1 = eventsResponse.events || [];
+  const toolTimelineEvents = reactExports.useMemo(() => normalizeToolTimelineEvents(events$1), [events$1]);
   const currentTaskPlan = reactExports.useMemo(() => latestTaskPlan(events$1, taskPlanResponse.plan), [events$1, taskPlanResponse.plan]);
-  const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(events$1), [events$1]);
+  const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(toolTimelineEvents), [toolTimelineEvents]);
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
   const chatTimelineEvents = reactExports.useMemo(() => {
     const timelineStatus = latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status);
     const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
     const thinkingAfterSeq = events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
-    return compactChatTimelineEvents([...events$1].filter((event) => {
+    return compactChatTimelineEvents([...toolTimelineEvents].filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       if (chatTimelineStatusEventTypes.has(event.type)) return true;
@@ -38739,7 +38851,7 @@ function WorkbenchApp() {
         "runtime.failed"
       ].includes(event.type);
     }), { includeThinking, thinkingAfterSeq });
-  }, [events$1, sessionMeta == null ? void 0 : sessionMeta.status]);
+  }, [events$1, sessionMeta == null ? void 0 : sessionMeta.status, toolTimelineEvents]);
   const latestSuccessfulSkillInstallSeq = reactExports.useMemo(() => {
     const event = [...events$1].reverse().find((item) => {
       const data = eventData(item);
