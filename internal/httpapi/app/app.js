@@ -37504,9 +37504,15 @@ function conversationFinalFileArtifacts(artifacts2, events2) {
     return artifactReferencedByMessage(artifact, eventText(finalMessageByTurn.get(turnID)));
   });
 }
+function normalizeArtifactDownloadLinks(text2) {
+  return String(text2 || "").replace(
+    /https?:\/\/[^/\s<>\])]+(\/v[12]\/sessions\/[^/\s<>\])]+\/artifacts\/[^/\s<>\])]+\/download(?:\?[^\s<>\])]+)?(?:#[^\s<>\])]+)?)/gi,
+    "$1"
+  );
+}
 function agentMessageWithArtifactLinks(text2, hasArtifacts) {
   if (!hasArtifacts) return text2;
-  return String(text2 || "").replace(
+  return normalizeArtifactDownloadLinks(text2).replace(
     /^\s*(?:\*\*)?文件(?:路径|地址)(?:\*\*)?\s*[：:]\s*`[^`]+`\s*$/gm,
     "文件已保存到任务产物，可从下方预览或下载。"
   ).replace(/点击上方\s*artifact\s*中的/gi, "使用下方相关文件中的");

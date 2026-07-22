@@ -4229,9 +4229,16 @@ function conversationFinalFileArtifacts(artifacts, events) {
   });
 }
 
+function normalizeArtifactDownloadLinks(text) {
+  return String(text || "").replace(
+    /https?:\/\/[^/\s<>\])]+(\/v[12]\/sessions\/[^/\s<>\])]+\/artifacts\/[^/\s<>\])]+\/download(?:\?[^\s<>\])]+)?(?:#[^\s<>\])]+)?)/gi,
+    "$1"
+  );
+}
+
 function agentMessageWithArtifactLinks(text, hasArtifacts) {
   if (!hasArtifacts) return text;
-  return String(text || "")
+  return normalizeArtifactDownloadLinks(text)
     .replace(
       /^\s*(?:\*\*)?文件(?:路径|地址)(?:\*\*)?\s*[：:]\s*`[^`]+`\s*$/gm,
       "文件已保存到任务产物，可从下方预览或下载。"
