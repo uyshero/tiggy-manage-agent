@@ -39,15 +39,7 @@ func (e *Engine) Run(ctx context.Context, initial State) (Outcome, error) {
 		}
 
 		switch state.Phase {
-		case PhasePreparing:
-			next := state.Clone()
-			next.Phase = PhaseAwaitingModel
-			committed, err := e.commit(ctx, state, next, RuntimeEvent{Type: EventRuntimeStarted, Message: "Agent runtime started."})
-			if err != nil {
-				return Outcome{}, err
-			}
-			state = committed
-		case PhaseAwaitingModel:
+		case PhasePreparing, PhaseAwaitingModel:
 			next, outcome, err := e.awaitModel(ctx, state)
 			if err != nil || outcome != nil {
 				if outcome != nil {
@@ -223,14 +215,18 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 	if strings.TrimSpace(attempt.ID) == "" {
 		return State{}, nil, fmt.Errorf("id generator returned an empty model attempt id")
 	}
+	if next.Phase == PhasePreparing {
+		next.Phase = PhaseAwaitingModel
+	}
 	next.PendingModel = &attempt
 	next.ModelAttempts++
 	next.Budget.ReserveModelCall()
-	committed, err := e.commit(ctx, state, next, RuntimeEvent{
+	events := runtimeStartEvents(state, RuntimeEvent{
 		Type:    EventModelRequested,
 		Message: "Model request started.",
 		Payload: attempt,
 	})
+	committed, err := e.commit(ctx, state, next, events...)
 	if err != nil {
 		return State{}, nil, err
 	}
@@ -370,12 +366,16 @@ func (e *Engine) compactContext(ctx context.Context, state State) (State, *Outco
 	if strings.TrimSpace(attempt.ID) == "" {
 		return State{}, nil, fmt.Errorf("id generator returned an empty compaction attempt id")
 	}
+	if next.Phase == PhasePreparing {
+		next.Phase = PhaseAwaitingModel
+	}
 	next.PendingCompaction = &attempt
 	next.CompactionAttempts++
 	next.Budget.ReserveModelCall()
-	committed, err := e.commit(ctx, state, next, RuntimeEvent{
+	events := runtimeStartEvents(state, RuntimeEvent{
 		Type: EventContextCompacting, Message: "Context compaction started.", Payload: attempt,
 	})
+	committed, err := e.commit(ctx, state, next, events...)
 	if err != nil {
 		return State{}, nil, err
 	}
@@ -1088,40 +1088,36 @@ func (e *Engine) validateCompletion(ctx context.Context, state State) (State, *O
 		return State{}, &failed, err
 	}
 
-	next := state.Clone()
-	next.PendingCompletion.Attempt++
-	next.CompletionAttempts++
-	committed, err := e.commit(ctx, state, next, RuntimeEvent{
+	basis := state.Clone()
+	basis.PendingCompletion.Attempt++
+	basis.CompletionAttempts++
+	startedEvent := RuntimeEvent{
 		Type:    EventCompletionStarted,
 		Message: "Completion validation started.",
-		Payload: map[string]any{"message_id": candidate.ID, "attempt": next.PendingCompletion.Attempt},
-	})
-	if err != nil {
-		return State{}, nil, err
+		Payload: map[string]any{"message_id": candidate.ID, "attempt": basis.PendingCompletion.Attempt},
 	}
-	state = committed
-	candidate, _ = state.messageByID(state.PendingCompletion.MessageID)
 
 	verdict := CompletionVerdict{Outcome: CompletionPass, ValidatorID: "builtin.pass"}
 	if e.ports.Completion != nil {
-		verdict, err = e.ports.Completion.Validate(ctx, CompletionCandidate{Message: candidate, Attempt: state.PendingCompletion.Attempt, State: state.Clone()})
+		var err error
+		verdict, err = e.ports.Completion.Validate(ctx, CompletionCandidate{Message: candidate, Attempt: basis.PendingCompletion.Attempt, State: basis.Clone()})
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
+				canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), basis, "context_canceled", "agent execution was canceled", startedEvent)
 				return State{}, &canceled, cancelErr
 			}
-			failed, failErr := e.fail(ctx, state, "completion_validator_failed", "completion validation failed: "+err.Error(), false)
+			failed, failErr := e.failFrom(ctx, state, basis, "completion_validator_failed", "completion validation failed: "+err.Error(), false, startedEvent)
 			return State{}, &failed, failErr
 		}
 	}
 	if err := validateCompletionVerdict(verdict); err != nil {
-		failed, failErr := e.fail(ctx, state, "invalid_completion_verdict", "completion validator returned an invalid verdict", false)
+		failed, failErr := e.failFrom(ctx, state, basis, "invalid_completion_verdict", "completion validator returned an invalid verdict", false, startedEvent)
 		return State{}, &failed, failErr
 	}
 
 	switch verdict.Outcome {
 	case CompletionRetry:
-		next = state.Clone()
+		next := basis.Clone()
 		next.Messages = append(next.Messages, model.Message{
 			ID:         e.ports.IDs.NewID("message"),
 			Role:       model.RoleSystem,
@@ -1130,31 +1126,35 @@ func (e *Engine) validateCompletion(ctx context.Context, state State) (State, *O
 		})
 		next.PendingCompletion = nil
 		next.Phase = PhaseAwaitingModel
-		committed, commitErr := e.commit(ctx, state, next, RuntimeEvent{Type: EventCompletionRetried, Message: "Completion validation requested another model turn.", Payload: verdict})
+		committed, commitErr := e.commit(ctx, state, next,
+			startedEvent,
+			RuntimeEvent{Type: EventCompletionRetried, Message: "Completion validation requested another model turn.", Payload: verdict},
+		)
 		return committed, nil, commitErr
 	case CompletionFail:
-		failed, failErr := e.fail(ctx, state, defaultString(verdict.ReasonCode, "completion_rejected"), defaultString(verdict.Reason, "completion was rejected"), false)
+		failed, failErr := e.failFrom(ctx, state, basis, defaultString(verdict.ReasonCode, "completion_rejected"), defaultString(verdict.Reason, "completion was rejected"), false, startedEvent)
 		return State{}, &failed, failErr
 	case CompletionPass:
-		controlled, outcome, controlErr := e.applyControls(ctx, state, ControlBeforeComplete)
+		controlled, outcome, controlErr := e.applyControls(ctx, basis, ControlBeforeComplete)
 		if controlErr != nil || outcome != nil {
 			return State{}, outcome, controlErr
 		}
-		if controlled.Revision != state.Revision {
-			next = controlled.Clone()
+		if controlled.Revision != basis.Revision {
+			next := controlled.Clone()
 			next.PendingCompletion = nil
 			next.Phase = PhaseAwaitingModel
 			committed, commitErr := e.commit(ctx, controlled, next, RuntimeEvent{Type: EventCompletionRetried, Message: "A follow-up command continued the agent turn."})
 			return committed, nil, commitErr
 		}
-		next = state.Clone()
+		next := basis.Clone()
 		if !markMessagePublic(next.Messages, candidate.ID) {
-			failed, failErr := e.fail(ctx, state, "completion_candidate_missing", "completion candidate is missing", false)
+			failed, failErr := e.failFrom(ctx, state, basis, "completion_candidate_missing", "completion candidate is missing", false, startedEvent)
 			return State{}, &failed, failErr
 		}
 		next.PendingCompletion = nil
 		next.Phase = PhaseCompleted
 		completed, completeErr := e.complete(ctx, state, next, candidate.ID,
+			startedEvent,
 			RuntimeEvent{Type: EventCompletionValidated, Message: "Completion candidate passed validation.", Payload: verdict},
 			RuntimeEvent{Type: EventRuntimeCompleted, Message: "Agent runtime completed."},
 		)
@@ -1218,6 +1218,9 @@ func (e *Engine) applyControls(ctx context.Context, state State, point ControlPo
 	if !changed && next.ControlCursor == state.ControlCursor {
 		return state, nil, nil
 	}
+	if state.Phase == PhasePreparing {
+		return next, nil, nil
+	}
 	committed, commitErr := e.commit(ctx, state, next)
 	return committed, nil, commitErr
 }
@@ -1226,8 +1229,19 @@ func (e *Engine) deferControls(ctx context.Context, state, next State, changed b
 	if !changed {
 		return state, nil, nil
 	}
+	if state.Phase == PhasePreparing {
+		return next, nil, nil
+	}
 	committed, err := e.commit(ctx, state, next)
 	return committed, nil, err
+}
+
+func runtimeStartEvents(state State, events ...RuntimeEvent) []RuntimeEvent {
+	if state.Phase != PhasePreparing {
+		return events
+	}
+	started := RuntimeEvent{Type: EventRuntimeStarted, Message: "Agent runtime started."}
+	return append([]RuntimeEvent{started}, events...)
 }
 
 func (e *Engine) commit(ctx context.Context, current, next State, events ...RuntimeEvent) (State, error) {
@@ -1285,18 +1299,20 @@ func (e *Engine) fail(ctx context.Context, current State, code, message string, 
 	return e.failFrom(ctx, current, current, code, message, retryable)
 }
 
-func (e *Engine) failFrom(ctx context.Context, current, basis State, code, message string, retryable bool) (Outcome, error) {
+func (e *Engine) failFrom(ctx context.Context, current, basis State, code, message string, retryable bool, events ...RuntimeEvent) (Outcome, error) {
 	failure := Failure{Code: code, Message: message, Retryable: retryable}
 	next := terminalState(basis, PhaseFailed, failure)
 	next.Revision = current.Revision
 	if err := ValidatePhaseTransition(current.Phase, next.Phase); err != nil {
 		return Outcome{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
+	events = runtimeStartEvents(current, events...)
+	events = append(events, RuntimeEvent{Type: EventRuntimeFailed, Message: "Agent runtime failed.", Payload: failure})
 	committed, err := e.ports.Durability.Fail(ctx, TerminalTransition{
 		Transition: Transition{
 			ExpectedRevision: current.Revision,
 			Next:             next,
-			Events:           []RuntimeEvent{{Type: EventRuntimeFailed, Message: "Agent runtime failed.", Payload: failure}},
+			Events:           events,
 		},
 		Failure: failure,
 	})
@@ -1310,17 +1326,19 @@ func (e *Engine) failFrom(ctx context.Context, current, basis State, code, messa
 	return Outcome{Status: OutcomeFailed, State: committed, Failure: cloneFailure(&failure)}, nil
 }
 
-func (e *Engine) cancel(ctx context.Context, current State, code, message string) (Outcome, error) {
+func (e *Engine) cancel(ctx context.Context, current State, code, message string, events ...RuntimeEvent) (Outcome, error) {
 	failure := Failure{Code: code, Message: message}
 	next := terminalState(current, PhaseCanceled, failure)
 	if err := ValidatePhaseTransition(current.Phase, next.Phase); err != nil {
 		return Outcome{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
+	events = runtimeStartEvents(current, events...)
+	events = append(events, RuntimeEvent{Type: EventRuntimeCanceled, Message: "Agent runtime was canceled.", Payload: failure})
 	committed, err := e.ports.Durability.Cancel(ctx, TerminalTransition{
 		Transition: Transition{
 			ExpectedRevision: current.Revision,
 			Next:             next,
-			Events:           []RuntimeEvent{{Type: EventRuntimeCanceled, Message: "Agent runtime was canceled.", Payload: failure}},
+			Events:           events,
 		},
 		Failure: failure,
 	})

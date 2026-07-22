@@ -1435,6 +1435,7 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		CompletionValidations: observability.CompletionValidationMetricsSnapshot(),
 		FilesystemTools:       observability.FilesystemToolMetricsSnapshot(),
 		AgentCore:             observability.AgentCoreMetricsSnapshot(),
+		AgentCoreDurability:   observability.AgentCoreDurabilityMetricsSnapshot(),
 		WorkerLeases:          observability.WorkerLeaseMetricsSnapshot(),
 	}
 	if s.authorizationAudit != nil {
@@ -3142,6 +3143,12 @@ func (s *Server) decideSessionIntervention(w http.ResponseWriter, r *http.Reques
 	if err := decodeJSON(r, &request); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
+	}
+	if status == managedagents.InterventionStatusApproved {
+		if err := s.applySelectedPermissionRule(r.Context(), r.PathValue("session_id"), r.PathValue("turn_id"), r.PathValue("call_id"), request.Response); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	result, err := managedagents.DecideSessionInterventionWithContext(r.Context(), s.store, r.PathValue("session_id"), managedagents.DecideSessionInterventionInput{
 		TurnID:         r.PathValue("turn_id"),

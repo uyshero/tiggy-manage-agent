@@ -31,6 +31,7 @@ type MetricsSnapshot struct {
 	FilesystemTools        []FilesystemToolRuntimeMetric
 	CompletionValidations  []CompletionValidationMetric
 	AgentCore              []AgentCoreRuntimeMetric
+	AgentCoreDurability    []AgentCoreDurabilityMetric
 	WorkerLeases           []WorkerLeaseMetric
 }
 
@@ -58,8 +59,35 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeCompletionValidationCounterMetrics(&builder, snapshot.CompletionValidations)
 	writeFilesystemRuntimeMetrics(&builder, snapshot.FilesystemTools)
 	writeAgentCoreMetrics(&builder, snapshot.AgentCore, snapshot.WorkerLeases)
+	writeAgentCoreDurabilityMetrics(&builder, snapshot.AgentCoreDurability)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeAgentCoreDurabilityMetrics(builder *strings.Builder, metrics []AgentCoreDurabilityMetric) {
+	writeMetricHelp(builder, "tma_agent_core_durability_commits_total", "Agent Core durability operations by bounded operation and outcome.")
+	writeMetricType(builder, "tma_agent_core_durability_commits_total", "counter")
+	writeMetricHelp(builder, "tma_agent_core_durability_duration_milliseconds", "Agent Core durability operation latency histogram.")
+	writeMetricType(builder, "tma_agent_core_durability_duration_milliseconds", "histogram")
+	writeMetricHelp(builder, "tma_agent_core_durability_state_bytes_total", "Cumulative serialized Agent Core state bytes submitted to durability.")
+	writeMetricType(builder, "tma_agent_core_durability_state_bytes_total", "counter")
+	writeMetricHelp(builder, "tma_agent_core_durability_state_bytes_max", "Maximum serialized Agent Core state bytes submitted to durability.")
+	writeMetricType(builder, "tma_agent_core_durability_state_bytes_max", "gauge")
+	writeMetricHelp(builder, "tma_agent_core_durability_events_total", "Cumulative runtime events submitted with Agent Core durability operations.")
+	writeMetricType(builder, "tma_agent_core_durability_events_total", "counter")
+	for _, metric := range metrics {
+		labels := map[string]string{"operation": metric.Operation, "outcome": metric.Outcome}
+		writeMetric(builder, "tma_agent_core_durability_commits_total", labels, metric.Count)
+		for index, upperBound := range agentCoreDurabilityDurationBuckets {
+			writeMetric(builder, "tma_agent_core_durability_duration_milliseconds_bucket", withLabel(labels, "le", fmt.Sprintf("%d", upperBound)), metricBucketCount(metric.DurationBucketCounts, index))
+		}
+		writeMetric(builder, "tma_agent_core_durability_duration_milliseconds_bucket", withLabel(labels, "le", "+Inf"), metricBucketCount(metric.DurationBucketCounts, len(agentCoreDurabilityDurationBuckets)))
+		writeMetric(builder, "tma_agent_core_durability_duration_milliseconds_sum", labels, metric.DurationSumMillis)
+		writeMetric(builder, "tma_agent_core_durability_duration_milliseconds_count", labels, metric.Count)
+		writeMetric(builder, "tma_agent_core_durability_state_bytes_total", labels, metric.StateBytesSum)
+		writeMetric(builder, "tma_agent_core_durability_state_bytes_max", labels, metric.StateBytesMax)
+		writeMetric(builder, "tma_agent_core_durability_events_total", labels, metric.Events)
+	}
 }
 
 func writeAgentCoreMetrics(builder *strings.Builder, core []AgentCoreRuntimeMetric, leases []WorkerLeaseMetric) {

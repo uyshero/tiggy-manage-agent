@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -37,6 +38,54 @@ type PermissionRule struct {
 	Behavior string `json:"behavior"`
 	Reason   string `json:"reason,omitempty"`
 	Source   string `json:"-"`
+}
+
+type PermissionRuleSuggestion struct {
+	Scope string         `json:"scope"`
+	Label string         `json:"label"`
+	Rule  PermissionRule `json:"rule"`
+}
+
+// SuggestedPermissionRules returns explicit allow-rule choices for one file
+// call. Suggestions never mutate policy and require a separate user decision
+// from approving the current tool call.
+func SuggestedPermissionRules(call Call) []PermissionRuleSuggestion {
+	call = NormalizeCall(call)
+	tool := call.Identifier + "." + call.APIName
+	if !filePermissionRuleTools[tool] {
+		return nil
+	}
+	var arguments struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(call.Arguments, &arguments) != nil {
+		return nil
+	}
+	filePath := normalizePermissionPath(arguments.Path)
+	if filePath == "" || filePath == "." {
+		return nil
+	}
+	directory := path.Dir(filePath)
+	pattern := "*"
+	if directory != "." {
+		pattern = strings.TrimSuffix(directory, "/") + "/**"
+	}
+	if validatePermissionPathPattern(pattern) != nil {
+		return nil
+	}
+	result := make([]PermissionRuleSuggestion, 0, 2)
+	for _, scope := range []string{PermissionRuleSourceSession, PermissionRuleSourceAgent} {
+		sum := sha256.Sum256([]byte(scope + "\x00" + tool + "\x00" + pattern))
+		result = append(result, PermissionRuleSuggestion{
+			Scope: scope,
+			Label: fmt.Sprintf("Allow %s for %s", tool, pattern),
+			Rule: PermissionRule{
+				ID: fmt.Sprintf("suggest-%s-%x", scope, sum[:6]), Tool: tool, Argument: "path",
+				Pattern: pattern, Behavior: PermissionRuleAllow,
+			},
+		})
+	}
+	return result
 }
 
 func ParsePermissionRules(raw json.RawMessage) ([]PermissionRule, error) {

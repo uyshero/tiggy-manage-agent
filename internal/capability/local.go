@@ -266,6 +266,10 @@ func (LocalSystemProvider) EditFile(ctx context.Context, request EditFileRequest
 	return editLocalFileContext(ctx, request), nil
 }
 
+func (LocalSystemProvider) PreviewEditFile(ctx context.Context, request EditFileRequest) (EditFilePreview, error) {
+	return previewLocalFileContext(ctx, request), nil
+}
+
 func (LocalSystemProvider) ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
 	return exportLocalArtifactFile(ctx, request, nil)
 }

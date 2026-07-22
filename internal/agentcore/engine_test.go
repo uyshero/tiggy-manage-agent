@@ -37,8 +37,87 @@ func TestEngineCompletesWithoutTools(t *testing.T) {
 	if outcome.FinalMessage == nil || outcome.FinalMessage.ID != "answer_1" || outcome.FinalMessage.Visibility != model.VisibilityPublic {
 		t.Fatalf("Run() final message = %+v", outcome.FinalMessage)
 	}
-	if got := durability.Transitions(); !reflect.DeepEqual(got, []string{"commit", "commit", "commit", "commit", "complete"}) {
+	if got := durability.Transitions(); !reflect.DeepEqual(got, []string{"commit", "commit", "complete"}) {
 		t.Fatalf("durability transitions = %v", got)
+	}
+	events := durability.Events()
+	if len(events) < 2 || events[0].Type != agentcore.EventRuntimeStarted || events[1].Type != agentcore.EventModelRequested {
+		t.Fatalf("start events = %+v", events)
+	}
+	if len(events) < 2 || events[len(events)-2].Type != agentcore.EventCompletionValidated || events[len(events)-1].Type != agentcore.EventRuntimeCompleted {
+		t.Fatalf("completion events = %+v", events)
+	}
+}
+
+func TestEngineMergesInitialSteerIntoFirstModelAttempt(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	steer := model.Message{
+		ID: "steer_1", Role: model.RoleUser, Visibility: model.VisibilityPublic,
+		Content: []model.Content{{Type: model.ContentText, Text: "include the latest constraint"}},
+	}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+		Assert: func(request model.Request) error {
+			for _, message := range request.Messages {
+				if message.ID == steer.ID {
+					return nil
+				}
+			}
+			return errors.New("initial steer was not included in the first model request")
+		},
+		Response: textResponse("answer_1", "done", model.Usage{}),
+	})
+	durability := modeltest.NewMemoryDurability(state)
+	engine, err := agentcore.NewEngine(agentcore.Ports{
+		Model: modelPort, Context: testContext(),
+		Controls:   staticControls{commands: []agentcore.ControlCommand{{Seq: 1, Mode: agentcore.ControlSteer, Message: &steer}}},
+		Durability: durability, Clock: modeltest.FixedClock{Time: testNow}, IDs: modeltest.NewSequenceIDs(),
+	})
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeCompleted || outcome.State.ControlCursor != 1 {
+		t.Fatalf("outcome = %q cursor = %d", outcome.Status, outcome.State.ControlCursor)
+	}
+	if got := durability.Transitions(); !reflect.DeepEqual(got, []string{"commit", "commit", "complete"}) {
+		t.Fatalf("durability transitions = %v", got)
+	}
+}
+
+func TestEnginePersistsInitialCancelWithoutStartCommit(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	durability := modeltest.NewMemoryDurability(state)
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: textResponse("answer_1", "must not run", model.Usage{})})
+	engine, err := agentcore.NewEngine(agentcore.Ports{
+		Model: modelPort, Context: testContext(),
+		Controls:   staticControls{commands: []agentcore.ControlCommand{{Seq: 1, Mode: agentcore.ControlCancel, Reason: "operator canceled"}}},
+		Durability: durability, Clock: modeltest.FixedClock{Time: testNow}, IDs: modeltest.NewSequenceIDs(),
+	})
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeCanceled || len(modelPort.Requests()) != 0 {
+		t.Fatalf("outcome = %q model requests = %d", outcome.Status, len(modelPort.Requests()))
+	}
+	if got := durability.Transitions(); !reflect.DeepEqual(got, []string{"cancel"}) {
+		t.Fatalf("durability transitions = %v", got)
+	}
+	events := durability.Events()
+	if len(events) != 2 || events[0].Type != agentcore.EventRuntimeStarted || events[1].Type != agentcore.EventRuntimeCanceled {
+		t.Fatalf("cancel events = %+v", events)
 	}
 }
 

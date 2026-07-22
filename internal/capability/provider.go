@@ -41,6 +41,12 @@ type Provider interface {
 	EditFile(ctx context.Context, request EditFileRequest) (EditFileResult, error)
 }
 
+// EditPreviewProvider computes the exact mutation without writing it. Tool
+// runtimes use this optional capability to bind human approval to a revision.
+type EditPreviewProvider interface {
+	PreviewEditFile(ctx context.Context, request EditFileRequest) (EditFilePreview, error)
+}
+
 type CapabilityDescriptor interface {
 	ToolRuntime() string
 	ToolCapabilities() []string

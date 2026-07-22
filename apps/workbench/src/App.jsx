@@ -12,6 +12,13 @@ import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, su
 import { providerErrorPresentation } from "./providerErrors.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
+import {
+  appendSessionMessageQueue,
+  normalizeSessionMessageQueue,
+  removeSessionMessageQueueItem,
+  sessionMessageQueueItems,
+  sessionMessageQueueStorageKey
+} from "./sessionQueue.js";
 import DialogHost from "./workbench/DialogHost.jsx";
 import { createDialogService } from "./workbench/dialogService.js";
 import NotificationHost from "./workbench/NotificationHost.jsx";
@@ -237,6 +244,14 @@ function CloseIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16">
       <path d="m4 4 8 8m0-8-8 8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16">
+      <rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="currentColor" />
     </svg>
   );
 }
@@ -851,6 +866,9 @@ function approvalSummary(intervention) {
 
 function ApprovalCard({ intervention, onApprove, onReject, busy, active }) {
   const summary = approvalSummary(intervention);
+  const request = objectValue(intervention.request);
+  const editPreview = objectValue(request.edit_preview);
+  const suggestions = Array.isArray(request.suggested_permission_rules) ? request.suggested_permission_rules : [];
   return (
     <div className={`approval-card risk-${summary.risk}`}>
       <div className="approval-card-header">
@@ -863,12 +881,41 @@ function ApprovalCard({ intervention, onApprove, onReject, busy, active }) {
           </Meta>
         </div>
         <div className="approval-actions">
-          <button type="button" disabled={busy} onClick={() => onApprove(intervention)}>{active ? "审批中..." : "批准"}</button>
+          <button type="button" disabled={busy} onClick={() => onApprove(intervention, "")}>{active ? "审批中..." : "仅批准本次"}</button>
           <button className="secondary" type="button" disabled={busy} onClick={() => onReject(intervention)}>拒绝</button>
         </div>
       </div>
       {summary.detail ? <div className="approval-summary">{summary.detail}</div> : null}
       {intervention.reason ? <div className="approval-reason">{intervention.reason}</div> : null}
+      {editPreview.unified_diff ? (
+        <section className="approval-edit-preview" aria-label="编辑差异预览">
+          <div className="approval-edit-preview-meta">
+            <strong>编辑差异</strong>
+            <span>+{Number(editPreview.lines_added || 0)} / -{Number(editPreview.lines_deleted || 0)}</span>
+            {editPreview.base_revision ? <code>{editPreview.base_revision}</code> : null}
+          </div>
+          <pre>{String(editPreview.unified_diff)}</pre>
+        </section>
+      ) : null}
+      {suggestions.length ? (
+        <div className="approval-rule-actions">
+          {suggestions.map((suggestion) => {
+            const rule = objectValue(suggestion.rule);
+            const scope = suggestion.scope === "agent" ? "此 Agent" : "本会话";
+            return (
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy || !rule.id}
+                key={rule.id || `${suggestion.scope}:${rule.pattern}`}
+                onClick={() => onApprove(intervention, rule.id)}
+              >
+                批准并允许{scope}：{rule.pattern || "该路径"}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       <div className="subtle">调用 {intervention.call_id} · 任务轮次 {intervention.turn_id}</div>
       <details className="approval-details">
         <summary>参数</summary>
@@ -5691,6 +5738,19 @@ function forgetSession() {
   } catch {}
 }
 
+function rememberedSessionMessageQueue() {
+  try {
+    return normalizeSessionMessageQueue(JSON.parse(window.localStorage.getItem(sessionMessageQueueStorageKey) || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function sessionMessageQueueID() {
+  if (globalThis.crypto?.randomUUID) return `queue_${globalThis.crypto.randomUUID()}`;
+  return `queue_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
 function sortAvailableAgents(agents, defaultAgentID) {
   return [...(agents || [])].sort((left, right) => {
     if (left.id === defaultAgentID) return -1;
@@ -5717,6 +5777,8 @@ function WorkbenchApp() {
   const [mobileResultsOpen, setMobileResultsOpen] = useState(false);
   const [streamReconnectVersion, setStreamReconnectVersion] = useState(0);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [steeringQueueID, setSteeringQueueID] = useState("");
+  const [queuedMessages, setQueuedMessages] = useState(rememberedSessionMessageQueue);
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
   const [liveReply, setLiveReply] = useState(null);
@@ -5799,7 +5861,27 @@ function WorkbenchApp() {
   const sessionEventCursorsRef = useRef(new Map());
   const sessionLiveRepliesRef = useRef(new Map());
   const sessionStreamsRef = useRef(new Map());
+  const queuedMessageDispatchRef = useRef(new Set());
   sessionIDRef.current = sessionID;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(sessionMessageQueueStorageKey, JSON.stringify(queuedMessages));
+    } catch {}
+  }, [queuedMessages]);
+
+  useEffect(() => {
+    function syncQueuedMessages(event) {
+      if (event.key !== sessionMessageQueueStorageKey) return;
+      try {
+        setQueuedMessages(normalizeSessionMessageQueue(JSON.parse(event.newValue || "[]")));
+      } catch {
+        setQueuedMessages([]);
+      }
+    }
+    window.addEventListener("storage", syncQueuedMessages);
+    return () => window.removeEventListener("storage", syncQueuedMessages);
+  }, []);
 
   function isCurrentSession(value) {
     return String(sessionIDRef.current || "").trim() === String(value || "").trim();
@@ -5981,7 +6063,7 @@ function WorkbenchApp() {
     ), 0);
     return compactChatTimelineEvents([...toolTimelineEvents]
       .filter((event) => {
-      if (event.type === "user.message") return true;
+      if (event.type === "user.message" || event.type === "user.steer") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       if (chatTimelineStatusEventTypes.has(event.type)) return true;
       return [
@@ -6060,6 +6142,7 @@ function WorkbenchApp() {
     ), 0);
   }, [events]);
   const effectiveSessionStatus = useMemo(() => latestSessionStatus(events, sessionMeta?.status), [events, sessionMeta?.status]);
+  const activeQueuedMessages = useMemo(() => sessionMessageQueueItems(queuedMessages, sessionID), [queuedMessages, sessionID]);
   const lastIdleTurnStatus = useMemo(() => latestIdleTurnStatus(events), [events]);
   const liveSignal = useMemo(() => turnSignal(events, {
     sinceSeq: lastUserSeq,
@@ -6971,18 +7054,42 @@ function WorkbenchApp() {
       setStatus("task required");
       return;
     }
-    const queued = Boolean(waitingForReply || effectiveSessionStatus === "running" || effectiveSessionStatus === "interrupting");
-    setStatus(composerFiles.length || composerLibraryItems.length ? "preparing files" : (queued ? "queued message" : "sending task"));
+    const queued = options.queue ?? Boolean(isCurrentSession(value) && (
+      waitingForReply || effectiveSessionStatus === "running" || effectiveSessionStatus === "interrupting"
+    ));
+    setStatus(composerFiles.length || composerLibraryItems.length ? "preparing files" : (queued ? "正在加入队列" : "sending task"));
     const attachments = options.attachments || [
       ...await uploadComposerFiles(value),
       ...await referenceComposerLibraryItems(value)
     ];
-    setStatus(queued ? "queued message" : "sending task");
+    if (queued) {
+      const queueItem = {
+        id: sessionMessageQueueID(),
+        session_id: value,
+        text: guidedText,
+        display_text: text || attachmentItems.map((item) => item.file?.name || item.name || "附件任务").filter(Boolean).join("、") || "附件任务",
+        attachments,
+        created_at: new Date().toISOString()
+      };
+      setQueuedMessages((current) => appendSessionMessageQueue(current, queueItem));
+      if (isCurrentSession(value) && options.clearTask !== false) {
+        setTask("");
+        setComposerFiles([]);
+        setComposerLibraryItems([]);
+      }
+      if (isCurrentSession(value)) {
+        setWaitingForReply(true);
+        setStatus("已加入发送队列");
+      }
+      return { queued: true, queueItem };
+    }
+
+    setStatus("sending task");
     const response = await api.sendSessionMessage(value, guidedText, {
       preferLatest: false,
       attachments,
-      queued,
-      queueIfBusy: true
+      idempotencyKey: options.idempotencyKey,
+      queueIfBusy: false
     });
     const appendedEvents = response.events || [];
     const userEvent = appendedEvents.find((event) => event.type === "user.message");
@@ -7003,6 +7110,80 @@ function WorkbenchApp() {
     }
     return { response, userEvent };
   }
+
+  async function steerQueuedMessage(queueItem) {
+    const value = String(queueItem?.session_id || "").trim();
+    if (!value || !queueItem?.id) return;
+    if (effectiveSessionStatus !== "running") {
+      setStatus("任务已不在运行，无法发送引导");
+      return;
+    }
+    if (queueItem.attachments?.length) {
+      setStatus("包含附件的排队任务不能提升为引导");
+      return;
+    }
+
+    setSteeringQueueID(queueItem.id);
+    setStatus("正在发送引导");
+    try {
+      const response = await api.steerSession(value, queueItem.text);
+      const appendedEvents = response.events || [];
+      const steerEvent = appendedEvents.find((event) => event.type === "user.steer");
+      mergeCurrentSessionEvents(value, appendedEvents);
+      setQueuedMessages((current) => removeSessionMessageQueueItem(current, queueItem.id));
+      if (isCurrentSession(value)) {
+        setWaitingForReply(true);
+        setStatus("已发送引导");
+        if (steerEvent?.seq) {
+          eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(steerEvent.seq || 0));
+        }
+      }
+      return { response, steerEvent };
+    } finally {
+      setSteeringQueueID("");
+    }
+  }
+
+  function removeQueuedMessage(queueItemID) {
+    setQueuedMessages((current) => removeSessionMessageQueueItem(current, queueItemID));
+  }
+
+  useEffect(() => {
+    const statusBySession = new Map(recentSessions.map((session) => [session.id, String(session.status || "")]));
+    if (sessionID) statusBySession.set(sessionID, String(effectiveSessionStatus || sessionMeta?.status || ""));
+    const firstBySession = new Map();
+    for (const item of queuedMessages) {
+      if (!firstBySession.has(item.session_id)) firstBySession.set(item.session_id, item);
+    }
+
+    for (const item of firstBySession.values()) {
+      if (workflowRun?.status === "running" && workflowRun.sessionID === item.session_id) continue;
+      if (statusBySession.get(item.session_id) !== "idle" || queuedMessageDispatchRef.current.has(item.id)) continue;
+      queuedMessageDispatchRef.current.add(item.id);
+      api.sendSessionMessage(item.session_id, item.text, {
+        attachments: item.attachments || [],
+        idempotencyKey: item.id,
+        queueIfBusy: false
+      }).then((response) => {
+        const appendedEvents = response.events || [];
+        setQueuedMessages((current) => removeSessionMessageQueueItem(current, item.id));
+        mergeCurrentSessionEvents(item.session_id, appendedEvents);
+        mergeSessionStatus(item.session_id, latestSessionStatus(appendedEvents) || "running");
+        if (isCurrentSession(item.session_id)) {
+          setWaitingForReply(true);
+          setStatus("已发送队列中的下一条任务");
+        }
+      }).catch((error) => {
+        if (error?.code === "session_busy") {
+          mergeSessionStatus(item.session_id, "running");
+          return;
+        }
+        if (isCurrentSession(item.session_id)) setStatus(`队列发送失败：${error.message || error}`);
+      }).finally(() => {
+        queuedMessageDispatchRef.current.delete(item.id);
+      });
+    }
+  }, [effectiveSessionStatus, queuedMessages, recentSessions, sessionID, sessionMeta?.status, workflowRun]);
 
   function applyTaskTemplate(template, asWorkflow) {
     const toolNames = new Set(template.tools || []);
@@ -7346,6 +7527,7 @@ function WorkbenchApp() {
       try {
         window.localStorage.removeItem(workflowStorageKey(nextSessionID));
       } catch {}
+      setQueuedMessages((current) => current.filter((item) => item.session_id !== nextSessionID));
       setRecentSessions((current) => current.filter((item) => item.id !== nextSessionID));
       if (sessionID === nextSessionID) {
         startNewTask();
@@ -7437,7 +7619,7 @@ function WorkbenchApp() {
     }
   }
 
-  async function approve(intervention) {
+  async function approve(intervention, permissionRuleSuggestionID = "") {
     const decisionKey = `${sessionID}:${intervention.turn_id}:${intervention.call_id}`;
     if (approvalDecisionRef.current) return;
     approvalDecisionRef.current = decisionKey;
@@ -7446,9 +7628,13 @@ function WorkbenchApp() {
     setStatus("approving");
     try {
       const isPlanApproval = intervention.kind === "plan_approval";
-      const response = await api.approveIntervention(sessionID, intervention.turn_id, intervention.call_id, {
+      const requestBody = {
         reason: isPlanApproval ? "用户在工作台批准执行计划" : "用户在工作台批准工具调用"
-      });
+      };
+      if (permissionRuleSuggestionID) {
+        requestBody.response = { permission_rule_suggestion_id: permissionRuleSuggestionID };
+      }
+      const response = await api.approveIntervention(sessionID, intervention.turn_id, intervention.call_id, requestBody);
       mergeCurrentSessionEvents(sessionID, response.events || []);
       if (isCurrentSession(sessionID)) {
         setInterventionResponse((current) => ({
@@ -7639,6 +7825,7 @@ function WorkbenchApp() {
 
   async function openSession(session) {
     setStatus("loading chat");
+    setSteeringQueueID("");
     clearArtifactPreview();
     setComposerFiles([]);
     setComposerLibraryItems([]);
@@ -7673,6 +7860,7 @@ function WorkbenchApp() {
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
+    setSteeringQueueID("");
     setRuntimeConfig(null);
     setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
     setSettingsDraft({
@@ -7738,6 +7926,7 @@ function WorkbenchApp() {
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
+    setSteeringQueueID("");
     setApprovalsOpen(false);
     setTaskHoverPreview(null);
     setStatus("ready");
@@ -7812,10 +8001,10 @@ function WorkbenchApp() {
         }
       : isSessionBusy
         ? {
-            className: "composer-primary-button interrupt",
-            disabled: false,
-            label: "运行中",
-            mode: "interrupt"
+            className: "composer-primary-button queue",
+            disabled: uploadingFiles || !hasComposerContent,
+            label: uploadingFiles ? "准备中..." : "排队",
+            mode: "queue"
           }
         : {
             className: "composer-primary-button",
@@ -7870,12 +8059,16 @@ function WorkbenchApp() {
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) {
       return;
     }
-    if ((primaryAction.mode !== "start" && primaryAction.mode !== "send") || primaryAction.disabled) {
+    if (!["start", "send", "queue"].includes(primaryAction.mode) || primaryAction.disabled) {
       return;
     }
     event.preventDefault();
     if (primaryAction.mode === "start") {
       startSession().catch((error) => setStatus(error.message));
+      return;
+    }
+    if (primaryAction.mode === "queue") {
+      sendTask().catch((error) => setStatus(error.message));
       return;
     }
     if (workflowMode && selectedTaskTemplate?.workflow_steps?.length && task.trim()) {
@@ -8141,6 +8334,7 @@ function WorkbenchApp() {
             <button
               className={`secondary mobile-results-button ${mobileResultsOpen ? "active" : ""}`}
               type="button"
+              aria-label="查看结果文件"
               aria-expanded={mobileResultsOpen}
               aria-controls="mobile-results-sidebar"
               onClick={() => {
@@ -8149,7 +8343,7 @@ function WorkbenchApp() {
                 setMobileResultsOpen((current) => !current);
               }}
             >
-              成果{resultFiles.length ? ` ${resultFiles.length}` : ""}
+              结果文件{resultFiles.length ? ` ${resultFiles.length}` : ""}
             </button>
           ) : null}
         </div>
@@ -8349,9 +8543,10 @@ function WorkbenchApp() {
                       </article>
                     ) : null;
                   }
-				  if (event.type === "user.message" || event.type === "agent.message" || event.type === "agent.streaming") {
+				  if (event.type === "user.message" || event.type === "user.steer" || event.type === "agent.message" || event.type === "agent.streaming") {
 					const streaming = event.type === "agent.streaming";
-					const role = event.type === "user.message" ? "user" : "agent";
+					const steeringMessage = event.type === "user.steer";
+					const role = event.type === "user.message" || steeringMessage ? "user" : "agent";
 					const messageKey = role === "agent" && payload(event).turn_id
 						? `message-agent-${payload(event).turn_id}`
 						: `${event.seq}-${event.type}`;
@@ -8360,7 +8555,7 @@ function WorkbenchApp() {
                       : uploadedMessageArtifacts(event, artifacts);
                     return (
 					  <article aria-live={streaming ? "polite" : undefined} className={`message ${role}${streaming ? " streaming" : ""}`} key={messageKey}>
-						<Meta><strong>{role === "user" ? "你" : "通用智能体"}</strong><span>{formatTime(event.created_at)}</span>{streaming ? <span>生成中</span> : null}</Meta>
+							<Meta><strong>{role === "user" ? (steeringMessage ? "你 · 引导" : "你") : "通用智能体"}</strong><span>{formatTime(event.created_at)}</span>{streaming ? <span>生成中</span> : null}</Meta>
 						{role === "agent" ? (
 						  <AgentMessageBody
 						    artifacts={messageArtifacts}
@@ -8448,6 +8643,38 @@ function WorkbenchApp() {
               </section>
               <TaskPlanPrompt plan={currentTaskPlan} />
               <section className="composer">
+                {activeQueuedMessages.length ? (
+                  <div className="composer-queue" aria-label="待发送任务">
+                    {activeQueuedMessages.map((item, index) => (
+                      <div className="composer-queue-item" key={item.id}>
+                        <span className="composer-queue-index" aria-hidden="true">↳</span>
+                        <div className="composer-queue-copy">
+                          <strong>{item.display_text}</strong>
+                          <small>队列 {index + 1}{item.attachments.length ? ` · ${item.attachments.length} 个附件` : ""}</small>
+                        </div>
+                        <button
+                          className="composer-queue-steer"
+                          type="button"
+                          disabled={sessionStatus !== "running" || Boolean(item.attachments.length) || Boolean(steeringQueueID)}
+                          title={item.attachments.length ? "包含附件的任务不能作为运行中引导" : "将这条任务立即作为当前轮引导"}
+                          onClick={() => steerQueuedMessage(item).catch((error) => setStatus(error.message))}
+                        >
+                          {steeringQueueID === item.id ? "引导中..." : "引导"}
+                        </button>
+                        <button
+                          className="icon-button composer-queue-delete"
+                          type="button"
+                          title="从队列删除"
+                          aria-label={`删除排队任务：${item.display_text}`}
+                          disabled={queuedMessageDispatchRef.current.has(item.id) || steeringQueueID === item.id}
+                          onClick={() => removeQueuedMessage(item.id)}
+                        >
+                          <DeleteIcon />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <div
                   className={`composer-shell ${composerDragActive ? "drag-active" : ""}`}
                   onDragEnter={(event) => { event.preventDefault(); setComposerDragActive(true); }}
@@ -8505,7 +8732,7 @@ function WorkbenchApp() {
                     onChange={(event) => setTask(event.target.value)}
                     onKeyDown={handleTaskComposerKeyDown}
                     onPaste={handleComposerPaste}
-                    placeholder="让 TMA 帮你构建、检查、修改或执行某项工作... 回车发送，Shift+Enter 换行。"
+                    placeholder={isSessionBusy ? "输入下一条任务... 回车加入队列，Shift+Enter 换行。" : "让 TMA 帮你构建、检查、修改或执行某项工作... 回车发送，Shift+Enter 换行。"}
                   />
                   <div className="composer-input-actions">
                     <div className="composer-attach-control">
@@ -8515,6 +8742,7 @@ function WorkbenchApp() {
                         disabled={uploadingFiles || composerFiles.length + composerLibraryItems.length >= maxComposerFiles}
                         onClick={() => setComposerAttachMenuOpen((current) => !current)}
                         aria-label="添加文件"
+                        title="添加文件"
                         aria-expanded={composerAttachMenuOpen}
                       >
                         <span aria-hidden="true">+</span>
@@ -8628,13 +8856,24 @@ function WorkbenchApp() {
                             }
                             return;
                           }
-                          if (primaryAction.mode === "interrupt") {
-                            confirmInterruptTask().catch((error) => setStatus(error.message));
+                          if (primaryAction.mode === "queue") {
+                            sendTask().catch((error) => setStatus(error.message));
                           }
                         }}
                       >
                         {primaryAction.label}
                       </button>
+                      {isSessionBusy && !isSessionInterrupting ? (
+                        <button
+                          className="composer-stop-button"
+                          type="button"
+                          title="停止任务"
+                          aria-label="停止当前任务"
+                          onClick={() => confirmInterruptTask().catch((error) => setStatus(error.message))}
+                        >
+                          <StopIcon />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -8686,8 +8925,8 @@ function WorkbenchApp() {
         {!pluginRoutePath ? (
         <aside id="mobile-results-sidebar" className={`user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim()}>
           <div className="mobile-sidebar-header">
-            <strong>成果</strong>
-            <button className="icon-button" type="button" aria-label="关闭成果" onClick={() => setMobileResultsOpen(false)}><CloseIcon /></button>
+            <strong>结果文件</strong>
+            <button className="icon-button" type="button" aria-label="关闭结果文件" onClick={() => setMobileResultsOpen(false)}><CloseIcon /></button>
           </div>
           <Panel
             className="right-tab-panel"

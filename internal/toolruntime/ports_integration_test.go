@@ -163,6 +163,216 @@ func TestToolRuntimeRequiresApprovalBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestToolRuntimeApprovalIncludesSuggestedFilePermissionRules(t *testing.T) {
+	t.Parallel()
+
+	adapter := toolruntime.ToolRuntime{
+		Snapshot: mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
+	}
+	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
+	call := coremodel.ToolCall{
+		ID: "write_1", Name: "default.write_file",
+		Arguments: json.RawMessage(`{"path":"/workspace/src/config/app.go","content":"new"}`),
+	}
+	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{call})
+	if err != nil {
+		t.Fatalf("Preflight() error = %v", err)
+	}
+	if len(plan.Interactions) != 1 {
+		t.Fatalf("interactions = %+v", plan.Interactions)
+	}
+	var request struct {
+		Suggestions []tools.PermissionRuleSuggestion `json:"suggested_permission_rules"`
+	}
+	if err := json.Unmarshal(plan.Interactions[0].Request, &request); err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Suggestions) != 2 || request.Suggestions[0].Rule.Pattern != "/workspace/src/config/**" {
+		t.Fatalf("approval request suggestions = %+v", request.Suggestions)
+	}
+}
+
+func TestToolRuntimeEditApprovalBindsDurableDiffAndExecutesExactPreview(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "approval.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := stateWithPersistedFileRead(t, path)
+	adapter := toolruntime.ToolRuntime{
+		Snapshot:         mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
+		ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}, SessionID: state.SessionID, TurnID: state.TurnID},
+	}
+	call := coremodel.ToolCall{
+		ID: "edit_approval", Name: "default.edit_file",
+		Arguments: mustRawJSON(t, map[string]any{"path": path, "old_string": "beta", "new_string": "BETA"}),
+	}
+	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
+	if err != nil {
+		t.Fatalf("Preflight() error = %v", err)
+	}
+	if len(plan.Interactions) != 1 {
+		t.Fatalf("interactions = %+v", plan.Interactions)
+	}
+	var request struct {
+		Preview struct {
+			BaseRevision string `json:"base_revision"`
+			BaseSHA256   string `json:"base_sha256"`
+			UnifiedDiff  string `json:"unified_diff"`
+			PatchSHA256  string `json:"patch_sha256"`
+			CallSHA256   string `json:"call_sha256"`
+			LinesAdded   int    `json:"lines_added"`
+			LinesDeleted int    `json:"lines_deleted"`
+		} `json:"edit_preview"`
+		Suggestions []tools.PermissionRuleSuggestion `json:"suggested_permission_rules"`
+	}
+	if err := json.Unmarshal(plan.Interactions[0].Request, &request); err != nil {
+		t.Fatal(err)
+	}
+	if request.Preview.BaseRevision == "" || request.Preview.BaseSHA256 == "" || request.Preview.PatchSHA256 == "" ||
+		request.Preview.CallSHA256 == "" || !strings.Contains(request.Preview.UnifiedDiff, "-beta") ||
+		!strings.Contains(request.Preview.UnifiedDiff, "+BETA") || request.Preview.LinesAdded != 1 || request.Preview.LinesDeleted != 1 ||
+		len(request.Suggestions) != 2 {
+		t.Fatalf("approval request = %+v", request)
+	}
+	plan.Calls[0].ApprovalState = agentcore.ToolApprovalApproved
+	plan.Calls[0].ApprovalSource = agentcore.ToolApprovalSourceHuman
+	plan.Interactions[0].Decision = &agentcore.InteractionDecision{
+		InteractionID: plan.Interactions[0].ID, Status: managedagents.InterventionStatusApproved,
+	}
+	result, err := adapter.Execute(t.Context(), state, plan)
+	if err != nil || len(result.Results) != 1 || result.Results[0].IsError {
+		t.Fatalf("Execute() result = %+v error = %v", result, err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "alpha\nBETA\n" {
+		t.Fatalf("approved content = %q err=%v", content, err)
+	}
+}
+
+func TestToolRuntimeEditApprovalRejectsChangedFileAndTamperedPreview(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		mutate func(t *testing.T, path string, plan *agentcore.ToolBatchPlan)
+	}{
+		{
+			name: "file changed",
+			mutate: func(t *testing.T, path string, _ *agentcore.ToolBatchPlan) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "preview tampered",
+			mutate: func(t *testing.T, _ string, plan *agentcore.ToolBatchPlan) {
+				t.Helper()
+				var request map[string]any
+				if err := json.Unmarshal(plan.Interactions[0].Request, &request); err != nil {
+					t.Fatal(err)
+				}
+				request["edit_preview"].(map[string]any)["patch_sha256"] = strings.Repeat("0", 64)
+				plan.Interactions[0].Request = mustRawJSON(t, request)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "stale.txt")
+			original := "old\n"
+			if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			state := stateWithPersistedFileRead(t, path)
+			adapter := toolruntime.ToolRuntime{
+				Snapshot:         mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
+				ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}},
+			}
+			call := coremodel.ToolCall{ID: "edit_stale", Name: "default.edit_file", Arguments: mustRawJSON(t, map[string]any{
+				"path": path, "old_string": "old", "new_string": "new",
+			})}
+			plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
+			if err != nil || len(plan.Interactions) != 1 {
+				t.Fatalf("Preflight() plan=%+v err=%v", plan, err)
+			}
+			plan.Calls[0].ApprovalState = agentcore.ToolApprovalApproved
+			plan.Calls[0].ApprovalSource = agentcore.ToolApprovalSourceHuman
+			plan.Interactions[0].Decision = &agentcore.InteractionDecision{InteractionID: plan.Interactions[0].ID, Status: managedagents.InterventionStatusApproved}
+			test.mutate(t, path, &plan)
+			result, err := adapter.Execute(t.Context(), state, plan)
+			if err != nil || len(result.Results) != 1 || !result.Results[0].IsError || !result.Results[0].Retryable {
+				t.Fatalf("Execute() result=%+v err=%v", result, err)
+			}
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if test.name == "preview tampered" && string(content) != original {
+				t.Fatalf("tampered approval changed file: %q", content)
+			}
+			if test.name == "file changed" && string(content) != "external\n" {
+				t.Fatalf("stale approval overwrote external content: %q", content)
+			}
+		})
+	}
+}
+
+func TestToolRuntimeDoesNotRequestApprovalForInvalidEditPreview(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "invalid-preview.txt")
+	if err := os.WriteFile(path, []byte("present\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state := stateWithPersistedFileRead(t, path)
+	adapter := toolruntime.ToolRuntime{
+		Snapshot:         mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
+		ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}},
+	}
+	call := coremodel.ToolCall{ID: "edit_invalid", Name: "default.edit_file", Arguments: mustRawJSON(t, map[string]any{
+		"path": path, "old_string": "missing", "new_string": "new",
+	})}
+	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
+	if err != nil || len(plan.Interactions) != 0 {
+		t.Fatalf("Preflight() plan=%+v err=%v", plan, err)
+	}
+	result, err := adapter.Execute(t.Context(), state, plan)
+	if err != nil || len(result.Results) != 1 || !result.Results[0].IsError || !strings.Contains(string(result.Results[0].State), "match_not_found") {
+		t.Fatalf("Execute() result=%+v err=%v", result, err)
+	}
+}
+
+func stateWithPersistedFileRead(t *testing.T, path string) agentcore.State {
+	t.Helper()
+	readResult, err := (capability.LocalSystemProvider{}).ReadFile(t.Context(), capability.ReadFileRequest{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	readState, err := json.Marshal(readResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := coremodel.ToolCall{ID: "read_receipt", Name: "default.read_file", Arguments: mustRawJSON(t, map[string]any{"path": path})}
+	result := coremodel.ToolResult{
+		CallID: read.ID, Name: read.Name, State: readState,
+		Content: []coremodel.Content{{Type: coremodel.ContentText, Text: string(readResult.Content)}},
+	}
+	return agentcore.State{
+		SessionID: "session_1", TurnID: "turn_1",
+		Messages: []coremodel.Message{{
+			ID: "assistant_read", Role: coremodel.RoleAssistant, Visibility: coremodel.VisibilityInternal,
+			Content: []coremodel.Content{{Type: coremodel.ContentToolCall, ToolCall: &read}},
+		}},
+		ToolJournal: []agentcore.ToolCallJournalEntry{{
+			CallID: read.ID, Name: read.Name, Status: agentcore.ToolCallSucceeded, Result: &result,
+		}},
+	}
+}
+
 func TestToolRuntimeCurrentDenyOverridesOldApproval(t *testing.T) {
 	t.Parallel()
 
@@ -645,6 +855,24 @@ func TestToolRuntimeHonorsManifestExecutionMetadata(t *testing.T) {
 	}
 	if len(plan.Calls) != 1 || plan.Calls[0].Idempotency != "keyed" || plan.Calls[0].ExecutionMode != "parallel" || plan.Calls[0].LockKey != "session_1:customer-record" {
 		t.Fatalf("planned call = %+v", plan.Calls)
+	}
+}
+
+func TestToolRuntimeExpandsEditFilePathLockKey(t *testing.T) {
+	t.Parallel()
+
+	registry := tools.DefaultRegistry()
+	snapshot := fullAccessSnapshot(t, registry)
+	adapter := toolruntime.ToolRuntime{Snapshot: snapshot}
+	plan, err := adapter.Preflight(context.Background(), agentcore.State{SessionID: "session_1", TurnID: "turn_1"}, []coremodel.ToolCall{{
+		ID: "call_edit", Name: "default.edit_file",
+		Arguments: json.RawMessage(`{"path":"src/../src/app.go","old_string":"old","new_string":"new"}`),
+	}})
+	if err != nil {
+		t.Fatalf("Preflight() error = %v", err)
+	}
+	if len(plan.Calls) != 1 || plan.Calls[0].LockKey != "session_1:file:src/app.go" {
+		t.Fatalf("planned edit call = %+v", plan.Calls)
 	}
 }
 

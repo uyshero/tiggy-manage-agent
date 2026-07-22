@@ -85,7 +85,11 @@ func segmentedEditIdentity(call coremodel.ToolCall) (fileMutationIdentity, bool)
 	if json.Unmarshal(call.Arguments, &request) != nil {
 		return fileMutationIdentity{}, false
 	}
-	placeholder, ok := tools.SegmentedFilePlaceholderToken(request.OldString)
+	operation, ok := singleEditOperation(request)
+	if !ok {
+		return fileMutationIdentity{}, false
+	}
+	placeholder, ok := tools.SegmentedFilePlaceholderToken(operation.OldString)
 	if !ok {
 		return fileMutationIdentity{}, false
 	}
@@ -93,7 +97,7 @@ func segmentedEditIdentity(call coremodel.ToolCall) (fileMutationIdentity, bool)
 	if path == "" {
 		return fileMutationIdentity{}, false
 	}
-	hash := sha256.Sum256([]byte(request.NewString))
+	hash := sha256.Sum256([]byte(operation.NewString))
 	return fileMutationIdentity{
 		path: path, placeholder: placeholder, replacement: hex.EncodeToString(hash[:]),
 	}, true
@@ -117,7 +121,25 @@ func editReplacementPlaceholders(call coremodel.ToolCall) []string {
 	if json.Unmarshal(call.Arguments, &request) != nil {
 		return nil
 	}
-	return tools.SegmentedFilePlaceholders(request.NewString)
+	operations := request.Edits
+	if len(operations) == 0 {
+		operations = []capability.EditOperation{{OldString: request.OldString, NewString: request.NewString, ReplaceAll: request.ReplaceAll}}
+	}
+	var placeholders []string
+	for _, operation := range operations {
+		placeholders = append(placeholders, tools.SegmentedFilePlaceholders(operation.NewString)...)
+	}
+	return placeholders
+}
+
+func singleEditOperation(request capability.EditFileRequest) (capability.EditOperation, bool) {
+	if len(request.Edits) == 1 && request.OldString == "" && request.NewString == "" && !request.ReplaceAll {
+		return request.Edits[0], true
+	}
+	if len(request.Edits) == 0 && request.OldString != "" {
+		return capability.EditOperation{OldString: request.OldString, NewString: request.NewString, ReplaceAll: request.ReplaceAll}, true
+	}
+	return capability.EditOperation{}, false
 }
 
 func normalizedMutationPath(path, workDir string) string {

@@ -746,6 +746,35 @@ func (p OnlyboxesProvider) EditFile(ctx context.Context, request EditFileRequest
 	}
 	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
 		result.Path = displayPath
+		if result.DiffText != "" {
+			result.DiffText = strings.ReplaceAll(result.DiffText, path, displayPath)
+			result.PatchSHA256 = contentSHA256([]byte(result.DiffText))
+		}
+	}
+	return result, nil
+}
+
+func (p OnlyboxesProvider) PreviewEditFile(ctx context.Context, request EditFileRequest) (EditFilePreview, error) {
+	workspaceDir, err := p.workspaceDir()
+	if err != nil {
+		return EditFilePreview{}, err
+	}
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return EditFilePreview{}, err
+	}
+	path, err := p.resolveSandboxFilePath(request.Path, request.WorkDir)
+	if err != nil {
+		return EditFilePreview{}, err
+	}
+	request.Path = path
+	request.WorkDir = ""
+	result := previewLocalFileContext(ctx, request)
+	if displayPath, displayErr := p.hostPathToSandboxPath(path); displayErr == nil {
+		result.Path = displayPath
+		if result.UnifiedDiff != "" {
+			result.UnifiedDiff = strings.ReplaceAll(result.UnifiedDiff, path, displayPath)
+			result.PatchSHA256 = contentSHA256([]byte(result.UnifiedDiff))
+		}
 	}
 	return result, nil
 }

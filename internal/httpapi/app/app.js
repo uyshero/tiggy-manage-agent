@@ -26382,12 +26382,13 @@ class InterventionsService extends ServiceBase {
     const path2 = withQuery(`${sessionPath(sessionId)}/interventions`, { status });
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.interventions);
   }
-  decide(sessionId, turnId, callId, decision, reason = "", signal) {
+  decide(sessionId, turnId, callId, decision, reason = "", signal, response) {
     const path2 = resourcePath(`${sessionPath(sessionId)}/interventions`, turnId, callId) + `/${decision}`;
-    return this.transport.requestJSON("POST", path2, { reason }, signal ? { signal } : {});
+    const body = response === void 0 ? { reason } : { reason, response };
+    return this.transport.requestJSON("POST", path2, body, signal ? { signal } : {});
   }
-  approve(sessionId, turnId, callId, reason = "", signal) {
-    return this.decide(sessionId, turnId, callId, "approve", reason, signal);
+  approve(sessionId, turnId, callId, reason = "", signal, response) {
+    return this.decide(sessionId, turnId, callId, "approve", reason, signal, response);
   }
   reject(sessionId, turnId, callId, reason = "", signal) {
     return this.decide(sessionId, turnId, callId, "reject", reason, signal);
@@ -27213,6 +27214,16 @@ async function sendSessionMessage(sessionId, text2, options = {}) {
     throw error;
   }
 }
+function steerSession(sessionId, text2, options = {}) {
+  return coreSDK.sessions.appendEvents(sessionId, {
+    events: [{
+      type: "user.steer",
+      payload: {
+        content: [{ type: "text", text: text2 }]
+      }
+    }]
+  }, options.signal);
+}
 async function uploadSessionArtifact(sessionId, file, options = {}) {
   return coreSDK.artifacts.upload(sessionId, {
     name: file.name,
@@ -27484,7 +27495,7 @@ function taskTemplates() {
   return getJSON("/v1/task-templates");
 }
 function approveIntervention(sessionId, turnId, callId, body = {}, options = {}) {
-  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal);
+  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal, body.response);
 }
 function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) {
   return coreSDK.interventions.reject(sessionId, turnId, callId, body.reason || "", options.signal);
@@ -30019,6 +30030,34 @@ function normalizePlan(value) {
 }
 function objectValue$2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+const sessionMessageQueueStorageKey = "tma.workbench.session-message-queue.v1";
+function normalizeSessionMessageQueue(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const id2 = String(item.id || "").trim();
+    const sessionID = String(item.session_id || "").trim();
+    const text2 = String(item.text || "").trim();
+    if (!id2 || !sessionID || !text2) return [];
+    return [{
+      id: id2,
+      session_id: sessionID,
+      text: text2,
+      display_text: String(item.display_text || text2).trim() || text2,
+      attachments: Array.isArray(item.attachments) ? item.attachments : [],
+      created_at: String(item.created_at || "")
+    }];
+  }).sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)) || left.id.localeCompare(right.id));
+}
+function appendSessionMessageQueue(items, item) {
+  return normalizeSessionMessageQueue([...items || [], item]);
+}
+function removeSessionMessageQueueItem(items, itemID) {
+  return normalizeSessionMessageQueue(items).filter((item) => item.id !== itemID);
+}
+function sessionMessageQueueItems(items, sessionID) {
+  return normalizeSessionMessageQueue(items).filter((item) => item.session_id === sessionID);
 }
 const focusableSelector = [
   "button:not([disabled])",
@@ -33648,6 +33687,9 @@ function FileIcon() {
 function CloseIcon() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 4 8 8m0-8-8 8", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5" }) });
 }
+function StopIcon() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "4.5", y: "4.5", width: "7", height: "7", rx: "1", fill: "currentColor" }) });
+}
 function CompactChevronIcon({ expanded = false }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: expanded ? "m4 10 4-4 4 4" : "m4 6 4 4 4-4", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", strokeWidth: "1.5" }) });
 }
@@ -34195,6 +34237,9 @@ function approvalSummary(intervention) {
 }
 function ApprovalCard({ intervention, onApprove, onReject, busy, active }) {
   const summary = approvalSummary(intervention);
+  const request = objectValue(intervention.request);
+  const editPreview = objectValue(request.edit_preview);
+  const suggestions = Array.isArray(request.suggested_permission_rules) ? request.suggested_permission_rules : [];
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `approval-card risk-${summary.risk}`, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-card-header", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -34209,12 +34254,45 @@ function ApprovalCard({ intervention, onApprove, onReject, busy, active }) {
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-actions", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: busy, onClick: () => onApprove(intervention), children: active ? "审批中..." : "批准" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: busy, onClick: () => onApprove(intervention, ""), children: active ? "审批中..." : "仅批准本次" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: busy, onClick: () => onReject(intervention), children: "拒绝" })
       ] })
     ] }),
     summary.detail ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-summary", children: summary.detail }) : null,
     intervention.reason ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-reason", children: intervention.reason }) : null,
+    editPreview.unified_diff ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "approval-edit-preview", "aria-label": "编辑差异预览", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "approval-edit-preview-meta", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "编辑差异" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "+",
+          Number(editPreview.lines_added || 0),
+          " / -",
+          Number(editPreview.lines_deleted || 0)
+        ] }),
+        editPreview.base_revision ? /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: editPreview.base_revision }) : null
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: String(editPreview.unified_diff) })
+    ] }) : null,
+    suggestions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "approval-rule-actions", children: suggestions.map((suggestion) => {
+      const rule = objectValue(suggestion.rule);
+      const scope = suggestion.scope === "agent" ? "此 Agent" : "本会话";
+      return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          className: "secondary",
+          type: "button",
+          disabled: busy || !rule.id,
+          onClick: () => onApprove(intervention, rule.id),
+          children: [
+            "批准并允许",
+            scope,
+            "：",
+            rule.pattern || "该路径"
+          ]
+        },
+        rule.id || `${suggestion.scope}:${rule.pattern}`
+      );
+    }) }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
       "调用 ",
       intervention.call_id,
@@ -39060,6 +39138,18 @@ function forgetSession() {
   } catch {
   }
 }
+function rememberedSessionMessageQueue() {
+  try {
+    return normalizeSessionMessageQueue(JSON.parse(window.localStorage.getItem(sessionMessageQueueStorageKey) || "[]"));
+  } catch {
+    return [];
+  }
+}
+function sessionMessageQueueID() {
+  var _a2;
+  if ((_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) return `queue_${globalThis.crypto.randomUUID()}`;
+  return `queue_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
 function sortAvailableAgents(agents2, defaultAgentID) {
   return [...agents2 || []].sort((left, right) => {
     if (left.id === defaultAgentID) return -1;
@@ -39086,6 +39176,8 @@ function WorkbenchApp() {
   const [mobileResultsOpen, setMobileResultsOpen] = reactExports.useState(false);
   const [streamReconnectVersion, setStreamReconnectVersion] = reactExports.useState(0);
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
+  const [steeringQueueID, setSteeringQueueID] = reactExports.useState("");
+  const [queuedMessages, setQueuedMessages] = reactExports.useState(rememberedSessionMessageQueue);
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
   const [liveReply, setLiveReply] = reactExports.useState(null);
@@ -39168,7 +39260,26 @@ function WorkbenchApp() {
   const sessionEventCursorsRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const sessionLiveRepliesRef = reactExports.useRef(/* @__PURE__ */ new Map());
   const sessionStreamsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const queuedMessageDispatchRef = reactExports.useRef(/* @__PURE__ */ new Set());
   sessionIDRef.current = sessionID;
+  reactExports.useEffect(() => {
+    try {
+      window.localStorage.setItem(sessionMessageQueueStorageKey, JSON.stringify(queuedMessages));
+    } catch {
+    }
+  }, [queuedMessages]);
+  reactExports.useEffect(() => {
+    function syncQueuedMessages(event) {
+      if (event.key !== sessionMessageQueueStorageKey) return;
+      try {
+        setQueuedMessages(normalizeSessionMessageQueue(JSON.parse(event.newValue || "[]")));
+      } catch {
+        setQueuedMessages([]);
+      }
+    }
+    window.addEventListener("storage", syncQueuedMessages);
+    return () => window.removeEventListener("storage", syncQueuedMessages);
+  }, []);
   function isCurrentSession(value) {
     return String(sessionIDRef.current || "").trim() === String(value || "").trim();
   }
@@ -39334,7 +39445,7 @@ function WorkbenchApp() {
     const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
     const thinkingAfterSeq = events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
     return compactChatTimelineEvents([...toolTimelineEvents].filter((event) => {
-      if (event.type === "user.message") return true;
+      if (event.type === "user.message" || event.type === "user.steer") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       if (chatTimelineStatusEventTypes.has(event.type)) return true;
       return [
@@ -39404,6 +39515,7 @@ function WorkbenchApp() {
     return events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
   }, [events$1]);
   const effectiveSessionStatus = reactExports.useMemo(() => latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status), [events$1, sessionMeta == null ? void 0 : sessionMeta.status]);
+  const activeQueuedMessages = reactExports.useMemo(() => sessionMessageQueueItems(queuedMessages, sessionID), [queuedMessages, sessionID]);
   const lastIdleTurnStatus = reactExports.useMemo(() => latestIdleTurnStatus(events$1), [events$1]);
   const liveSignal = reactExports.useMemo(() => turnSignal(events$1, {
     sinceSeq: lastUserSeq,
@@ -40262,18 +40374,42 @@ function WorkbenchApp() {
       setStatus("task required");
       return;
     }
-    const queued = Boolean(waitingForReply || effectiveSessionStatus === "running" || effectiveSessionStatus === "interrupting");
-    setStatus(composerFiles.length || composerLibraryItems.length ? "preparing files" : queued ? "queued message" : "sending task");
+    const queued = options.queue ?? Boolean(isCurrentSession(value) && (waitingForReply || effectiveSessionStatus === "running" || effectiveSessionStatus === "interrupting"));
+    setStatus(composerFiles.length || composerLibraryItems.length ? "preparing files" : queued ? "正在加入队列" : "sending task");
     const attachments = options.attachments || [
       ...await uploadComposerFiles(value),
       ...await referenceComposerLibraryItems(value)
     ];
-    setStatus(queued ? "queued message" : "sending task");
+    if (queued) {
+      const queueItem = {
+        id: sessionMessageQueueID(),
+        session_id: value,
+        text: guidedText,
+        display_text: text2 || attachmentItems.map((item) => {
+          var _a4;
+          return ((_a4 = item.file) == null ? void 0 : _a4.name) || item.name || "附件任务";
+        }).filter(Boolean).join("、") || "附件任务",
+        attachments,
+        created_at: (/* @__PURE__ */ new Date()).toISOString()
+      };
+      setQueuedMessages((current) => appendSessionMessageQueue(current, queueItem));
+      if (isCurrentSession(value) && options.clearTask !== false) {
+        setTask("");
+        setComposerFiles([]);
+        setComposerLibraryItems([]);
+      }
+      if (isCurrentSession(value)) {
+        setWaitingForReply(true);
+        setStatus("已加入发送队列");
+      }
+      return { queued: true, queueItem };
+    }
+    setStatus("sending task");
     const response = await sendSessionMessage(value, guidedText, {
       preferLatest: false,
       attachments,
-      queued,
-      queueIfBusy: true
+      idempotencyKey: options.idempotencyKey,
+      queueIfBusy: false
     });
     const appendedEvents = response.events || [];
     const userEvent = appendedEvents.find((event) => event.type === "user.message");
@@ -40294,6 +40430,76 @@ function WorkbenchApp() {
     }
     return { response, userEvent };
   }
+  async function steerQueuedMessage(queueItem) {
+    var _a3;
+    const value = String((queueItem == null ? void 0 : queueItem.session_id) || "").trim();
+    if (!value || !(queueItem == null ? void 0 : queueItem.id)) return;
+    if (effectiveSessionStatus !== "running") {
+      setStatus("任务已不在运行，无法发送引导");
+      return;
+    }
+    if ((_a3 = queueItem.attachments) == null ? void 0 : _a3.length) {
+      setStatus("包含附件的排队任务不能提升为引导");
+      return;
+    }
+    setSteeringQueueID(queueItem.id);
+    setStatus("正在发送引导");
+    try {
+      const response = await steerSession(value, queueItem.text);
+      const appendedEvents = response.events || [];
+      const steerEvent = appendedEvents.find((event) => event.type === "user.steer");
+      mergeCurrentSessionEvents(value, appendedEvents);
+      setQueuedMessages((current) => removeSessionMessageQueueItem(current, queueItem.id));
+      if (isCurrentSession(value)) {
+        setWaitingForReply(true);
+        setStatus("已发送引导");
+        if (steerEvent == null ? void 0 : steerEvent.seq) {
+          eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(steerEvent.seq || 0));
+        }
+      }
+      return { response, steerEvent };
+    } finally {
+      setSteeringQueueID("");
+    }
+  }
+  function removeQueuedMessage(queueItemID) {
+    setQueuedMessages((current) => removeSessionMessageQueueItem(current, queueItemID));
+  }
+  reactExports.useEffect(() => {
+    const statusBySession = new Map(recentSessions.map((session2) => [session2.id, String(session2.status || "")]));
+    if (sessionID) statusBySession.set(sessionID, String(effectiveSessionStatus || (sessionMeta == null ? void 0 : sessionMeta.status) || ""));
+    const firstBySession = /* @__PURE__ */ new Map();
+    for (const item of queuedMessages) {
+      if (!firstBySession.has(item.session_id)) firstBySession.set(item.session_id, item);
+    }
+    for (const item of firstBySession.values()) {
+      if ((workflowRun == null ? void 0 : workflowRun.status) === "running" && workflowRun.sessionID === item.session_id) continue;
+      if (statusBySession.get(item.session_id) !== "idle" || queuedMessageDispatchRef.current.has(item.id)) continue;
+      queuedMessageDispatchRef.current.add(item.id);
+      sendSessionMessage(item.session_id, item.text, {
+        attachments: item.attachments || [],
+        idempotencyKey: item.id,
+        queueIfBusy: false
+      }).then((response) => {
+        const appendedEvents = response.events || [];
+        setQueuedMessages((current) => removeSessionMessageQueueItem(current, item.id));
+        mergeCurrentSessionEvents(item.session_id, appendedEvents);
+        mergeSessionStatus(item.session_id, latestSessionStatus(appendedEvents) || "running");
+        if (isCurrentSession(item.session_id)) {
+          setWaitingForReply(true);
+          setStatus("已发送队列中的下一条任务");
+        }
+      }).catch((error) => {
+        if ((error == null ? void 0 : error.code) === "session_busy") {
+          mergeSessionStatus(item.session_id, "running");
+          return;
+        }
+        if (isCurrentSession(item.session_id)) setStatus(`队列发送失败：${error.message || error}`);
+      }).finally(() => {
+        queuedMessageDispatchRef.current.delete(item.id);
+      });
+    }
+  }, [effectiveSessionStatus, queuedMessages, recentSessions, sessionID, sessionMeta == null ? void 0 : sessionMeta.status, workflowRun]);
   function applyTaskTemplate(template, asWorkflow) {
     const toolNames = new Set(template.tools || []);
     const skillNames = new Set(template.skills || []);
@@ -40616,6 +40822,7 @@ function WorkbenchApp() {
         window.localStorage.removeItem(workflowStorageKey(nextSessionID));
       } catch {
       }
+      setQueuedMessages((current) => current.filter((item) => item.session_id !== nextSessionID));
       setRecentSessions((current) => current.filter((item) => item.id !== nextSessionID));
       if (sessionID === nextSessionID) {
         startNewTask();
@@ -40699,7 +40906,7 @@ function WorkbenchApp() {
       });
     }
   }
-  async function approve(intervention) {
+  async function approve(intervention, permissionRuleSuggestionID = "") {
     const decisionKey = `${sessionID}:${intervention.turn_id}:${intervention.call_id}`;
     if (approvalDecisionRef.current) return;
     approvalDecisionRef.current = decisionKey;
@@ -40708,9 +40915,13 @@ function WorkbenchApp() {
     setStatus("approving");
     try {
       const isPlanApproval = intervention.kind === "plan_approval";
-      const response = await approveIntervention(sessionID, intervention.turn_id, intervention.call_id, {
+      const requestBody = {
         reason: isPlanApproval ? "用户在工作台批准执行计划" : "用户在工作台批准工具调用"
-      });
+      };
+      if (permissionRuleSuggestionID) {
+        requestBody.response = { permission_rule_suggestion_id: permissionRuleSuggestionID };
+      }
+      const response = await approveIntervention(sessionID, intervention.turn_id, intervention.call_id, requestBody);
       mergeCurrentSessionEvents(sessionID, response.events || []);
       if (isCurrentSession(sessionID)) {
         setInterventionResponse((current) => ({
@@ -40895,6 +41106,7 @@ function WorkbenchApp() {
   }
   async function openSession(session2) {
     setStatus("loading chat");
+    setSteeringQueueID("");
     clearArtifactPreview();
     setComposerFiles([]);
     setComposerLibraryItems([]);
@@ -40929,6 +41141,7 @@ function WorkbenchApp() {
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
+    setSteeringQueueID("");
     setRuntimeConfig(null);
     setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
     setSettingsDraft({
@@ -40990,6 +41203,7 @@ function WorkbenchApp() {
     setInterventionResponse({ interventions: [] });
     setArtifactResponse({ artifacts: [] });
     setWaitingForReply(false);
+    setSteeringQueueID("");
     setApprovalsOpen(false);
     setTaskHoverPreview(null);
     setStatus("ready");
@@ -41051,10 +41265,10 @@ function WorkbenchApp() {
     label: "中断中...",
     mode: "interrupting"
   } : isSessionBusy ? {
-    className: "composer-primary-button interrupt",
-    disabled: false,
-    label: "运行中",
-    mode: "interrupt"
+    className: "composer-primary-button queue",
+    disabled: uploadingFiles || !hasComposerContent,
+    label: uploadingFiles ? "准备中..." : "排队",
+    mode: "queue"
   } : {
     className: "composer-primary-button",
     disabled: uploadingFiles || !hasComposerContent,
@@ -41098,12 +41312,16 @@ function WorkbenchApp() {
     if (event.key !== "Enter" || event.shiftKey || ((_a3 = event.nativeEvent) == null ? void 0 : _a3.isComposing)) {
       return;
     }
-    if (primaryAction.mode !== "start" && primaryAction.mode !== "send" || primaryAction.disabled) {
+    if (!["start", "send", "queue"].includes(primaryAction.mode) || primaryAction.disabled) {
       return;
     }
     event.preventDefault();
     if (primaryAction.mode === "start") {
       startSession().catch((error) => setStatus(error.message));
+      return;
+    }
+    if (primaryAction.mode === "queue") {
+      sendTask().catch((error) => setStatus(error.message));
       return;
     }
     if (workflowMode && ((_b2 = selectedTaskTemplate == null ? void 0 : selectedTaskTemplate.workflow_steps) == null ? void 0 : _b2.length) && task.trim()) {
@@ -41380,6 +41598,7 @@ function WorkbenchApp() {
           {
             className: `secondary mobile-results-button ${mobileResultsOpen ? "active" : ""}`,
             type: "button",
+            "aria-label": "查看结果文件",
             "aria-expanded": mobileResultsOpen,
             "aria-controls": "mobile-results-sidebar",
             onClick: () => {
@@ -41388,7 +41607,7 @@ function WorkbenchApp() {
               setMobileResultsOpen((current) => !current);
             },
             children: [
-              "成果",
+              "结果文件",
               resultFiles.length ? ` ${resultFiles.length}` : ""
             ]
           }
@@ -41610,14 +41829,15 @@ function WorkbenchApp() {
                   const progressText = String(eventData(event).text || "").trim();
                   return progressText ? /* @__PURE__ */ jsxRuntimeExports.jsx("article", { "aria-label": "通用智能体过程更新", className: "agent-progress-message", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: progressText }) }, `${event.seq}-${event.type}`) : null;
                 }
-                if (event.type === "user.message" || event.type === "agent.message" || event.type === "agent.streaming") {
+                if (event.type === "user.message" || event.type === "user.steer" || event.type === "agent.message" || event.type === "agent.streaming") {
                   const streaming = event.type === "agent.streaming";
-                  const role = event.type === "user.message" ? "user" : "agent";
+                  const steeringMessage = event.type === "user.steer";
+                  const role = event.type === "user.message" || steeringMessage ? "user" : "agent";
                   const messageKey = role === "agent" && payload(event).turn_id ? `message-agent-${payload(event).turn_id}` : `${event.seq}-${event.type}`;
                   const messageArtifacts = streaming ? [] : role === "agent" ? finalAgentMessageArtifacts(event, artifacts$1) : uploadedMessageArtifacts(event, artifacts$1);
                   return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { "aria-live": streaming ? "polite" : void 0, className: `message ${role}${streaming ? " streaming" : ""}`, children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsxs(Meta, { children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: role === "user" ? "你" : "通用智能体" }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: role === "user" ? steeringMessage ? "你 · 引导" : "你" : "通用智能体" }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) }),
                       streaming ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "生成中" }) : null
                     ] }),
@@ -41701,256 +41921,304 @@ function WorkbenchApp() {
               ] }) : null
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPlanPrompt, { plan: currentTaskPlan }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "composer", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
-              {
-                className: `composer-shell ${composerDragActive ? "drag-active" : ""}`,
-                onDragEnter: (event) => {
-                  event.preventDefault();
-                  setComposerDragActive(true);
-                },
-                onDragOver: (event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "copy";
-                },
-                onDragLeave: (event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget)) setComposerDragActive(false);
-                },
-                onDrop: handleComposerDrop,
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "input",
-                    {
-                      className: "composer-file-input",
-                      ref: composerFileInputRef,
-                      type: "file",
-                      multiple: true,
-                      onChange: (event) => {
-                        addComposerFiles(event.target.files);
-                        event.target.value = "";
-                      }
-                    }
-                  ),
-                  composerFiles.length || composerLibraryItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachments", "aria-label": "待上传文件", children: [
-                    composerFiles.map((item) => {
-                      const extension2 = item.file.name.includes(".") ? item.file.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
-                      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-attachment ${item.status}`, title: item.error || item.file.name, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-icon", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: extension2 })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-copy", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.file.name }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.status === "uploading" ? "上传中..." : item.status === "uploaded" ? "已上传" : item.status === "error" ? "上传失败，发送时重试" : formatFileSize(item.file.size) })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", disabled: uploadingFiles, onClick: () => removeComposerFile(item.id), title: "移除文件", "aria-label": `移除 ${item.file.name}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
-                      ] }, item.id);
-                    }),
-                    composerLibraryItems.map((item) => {
-                      const extension2 = item.name.includes(".") ? item.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
-                      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment library", title: item.name, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-icon", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: extension2 })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-copy", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.name }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                            "成果库 · ",
-                            item.directory || "未分类"
-                          ] })
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", disabled: uploadingFiles, onClick: () => setComposerLibraryItems((current) => current.filter((entry2) => entry2.id !== item.id)), title: "移除文件", "aria-label": `移除 ${item.name}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
-                      ] }, `library:${item.id}`);
-                    })
-                  ] }) : null,
-                  composerVisionError() ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-vision-warning", role: "alert", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: composerVisionError() }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => {
-                      setSettingsSection("models");
-                      setSettingsOpen(true);
-                    }, children: "配置模型" })
-                  ] }) : null,
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "textarea",
-                    {
-                      value: task,
-                      onChange: (event) => setTask(event.target.value),
-                      onKeyDown: handleTaskComposerKeyDown,
-                      onPaste: handleComposerPaste,
-                      placeholder: "让 TMA 帮你构建、检查、修改或执行某项工作... 回车发送，Shift+Enter 换行。"
-                    }
-                  ),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-input-actions", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attach-control", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "composer", children: [
+              activeQueuedMessages.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-queue", "aria-label": "待发送任务", children: activeQueuedMessages.map((item, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-queue-item", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-queue-index", "aria-hidden": "true", children: "↳" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-queue-copy", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.display_text }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+                    "队列 ",
+                    index2 + 1,
+                    item.attachments.length ? ` · ${item.attachments.length} 个附件` : ""
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: "composer-queue-steer",
+                    type: "button",
+                    disabled: sessionStatus !== "running" || Boolean(item.attachments.length) || Boolean(steeringQueueID),
+                    title: item.attachments.length ? "包含附件的任务不能作为运行中引导" : "将这条任务立即作为当前轮引导",
+                    onClick: () => steerQueuedMessage(item).catch((error) => setStatus(error.message)),
+                    children: steeringQueueID === item.id ? "引导中..." : "引导"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: "icon-button composer-queue-delete",
+                    type: "button",
+                    title: "从队列删除",
+                    "aria-label": `删除排队任务：${item.display_text}`,
+                    disabled: queuedMessageDispatchRef.current.has(item.id) || steeringQueueID === item.id,
+                    onClick: () => removeQueuedMessage(item.id),
+                    children: /* @__PURE__ */ jsxRuntimeExports.jsx(DeleteIcon, {})
+                  }
+                )
+              ] }, item.id)) }) : null,
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "div",
+                {
+                  className: `composer-shell ${composerDragActive ? "drag-active" : ""}`,
+                  onDragEnter: (event) => {
+                    event.preventDefault();
+                    setComposerDragActive(true);
+                  },
+                  onDragOver: (event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                  },
+                  onDragLeave: (event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setComposerDragActive(false);
+                  },
+                  onDrop: handleComposerDrop,
+                  children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx(
-                      "button",
+                      "input",
                       {
-                        className: "icon-button composer-attach-button",
-                        type: "button",
-                        disabled: uploadingFiles || composerFiles.length + composerLibraryItems.length >= maxComposerFiles,
-                        onClick: () => setComposerAttachMenuOpen((current) => !current),
-                        "aria-label": "添加文件",
-                        "aria-expanded": composerAttachMenuOpen,
-                        children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", children: "+" })
+                        className: "composer-file-input",
+                        ref: composerFileInputRef,
+                        type: "file",
+                        multiple: true,
+                        onChange: (event) => {
+                          addComposerFiles(event.target.files);
+                          event.target.value = "";
+                        }
                       }
                     ),
-                    composerAttachMenuOpen ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attach-menu", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => {
-                        var _a3;
-                        setComposerAttachMenuOpen(false);
-                        (_a3 = composerFileInputRef.current) == null ? void 0 : _a3.click();
-                      }, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "上传本地文件" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "从设备选择文件" })
-                        ] })
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => {
-                        setComposerAttachMenuOpen(false);
-                        setAchievementPickerOpen(true);
-                      }, children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(FolderIcon, {}),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "引用成果库文件" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "跨会话复用已有成果" })
-                        ] })
-                      ] })
-                    ] }) : null
-                  ] }) }),
-                  selectedTaskTemplate ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-template-selection", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: workflowMode ? "工作流" : "任务模板" }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selectedTaskTemplate.title }),
-                      workflowMode ? /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
-                        ((_a2 = selectedTaskTemplate.workflow_steps) == null ? void 0 : _a2.length) || 0,
-                        " 步顺序执行"
-                      ] }) : null
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", title: "清除任务模板", "aria-label": "清除任务模板", onClick: clearTaskTemplate, children: "×" })
-                  ] }) : null,
-                  selectedGuidanceItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-guidance-chips", children: selectedGuidanceItems.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "composer-guidance-chip", type: "button", onClick: () => toggleGuidanceKey(item.key), children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: toolingGuidanceLabel(item) }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "×" })
-                  ] }, item.key)) }) : null,
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-settings-inline", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                    composerFiles.length || composerLibraryItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachments", "aria-label": "待上传文件", children: [
+                      composerFiles.map((item) => {
+                        const extension2 = item.file.name.includes(".") ? item.file.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
+                        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-attachment ${item.status}`, title: item.error || item.file.name, children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-icon", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: extension2 })
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-copy", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.file.name }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.status === "uploading" ? "上传中..." : item.status === "uploaded" ? "已上传" : item.status === "error" ? "上传失败，发送时重试" : formatFileSize(item.file.size) })
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", disabled: uploadingFiles, onClick: () => removeComposerFile(item.id), title: "移除文件", "aria-label": `移除 ${item.file.name}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+                        ] }, item.id);
+                      }),
+                      composerLibraryItems.map((item) => {
+                        const extension2 = item.name.includes(".") ? item.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
+                        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment library", title: item.name, children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-icon", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: extension2 })
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attachment-copy", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.name }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                              "成果库 · ",
+                              item.directory || "未分类"
+                            ] })
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", disabled: uploadingFiles, onClick: () => setComposerLibraryItems((current) => current.filter((entry2) => entry2.id !== item.id)), title: "移除文件", "aria-label": `移除 ${item.name}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+                        ] }, `library:${item.id}`);
+                      })
+                    ] }) : null,
+                    composerVisionError() ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-vision-warning", role: "alert", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: composerVisionError() }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => {
+                        setSettingsSection("models");
+                        setSettingsOpen(true);
+                      }, children: "配置模型" })
+                    ] }) : null,
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "textarea",
+                      {
+                        value: task,
+                        onChange: (event) => setTask(event.target.value),
+                        onKeyDown: handleTaskComposerKeyDown,
+                        onPaste: handleComposerPaste,
+                        placeholder: isSessionBusy ? "输入下一条任务... 回车加入队列，Shift+Enter 换行。" : "让 TMA 帮你构建、检查、修改或执行某项工作... 回车发送，Shift+Enter 换行。"
+                      }
+                    ),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-input-actions", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attach-control", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
                         "button",
                         {
-                          className: "secondary composer-settings-toggle",
+                          className: "icon-button composer-attach-button",
                           type: "button",
-                          "aria-expanded": mobileRuntimeSettingsOpen,
-                          "aria-controls": "composer-runtime-settings",
-                          onClick: () => setMobileRuntimeSettingsOpen((current) => !current),
-                          children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "配置" }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded: mobileRuntimeSettingsOpen })
-                          ]
+                          disabled: uploadingFiles || composerFiles.length + composerLibraryItems.length >= maxComposerFiles,
+                          onClick: () => setComposerAttachMenuOpen((current) => !current),
+                          "aria-label": "添加文件",
+                          title: "添加文件",
+                          "aria-expanded": composerAttachMenuOpen,
+                          children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", children: "+" })
                         }
                       ),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-collapsible-settings", id: "composer-runtime-settings", children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                            "select",
-                            {
-                              disabled: savingSettings,
-                              value: settingsDraft.interventionMode,
-                              onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
-                              children: [
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
-                                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
-                              ]
-                            }
-                          )
+                      composerAttachMenuOpen ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-attach-menu", children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => {
+                          var _a3;
+                          setComposerAttachMenuOpen(false);
+                          (_a3 = composerFileInputRef.current) == null ? void 0 : _a3.click();
+                        }, children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "上传本地文件" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "从设备选择文件" })
+                          ] })
                         ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsx(
-                            "select",
-                            {
-                              disabled: savingSettings,
-                              value: settingsDraft.toolRuntime,
-                              onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
-                              children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
-                            }
-                          )
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting composer-setting-model", children: [
-                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "模型" }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                            "select",
-                            {
-                              disabled: !modelOptions.length || savingSettings,
-                              value: selectedModelValue,
-                              onChange: (event) => {
-                                const [llmProvider, llmModel] = String(event.target.value || "").split("::");
-                                applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
-                              },
-                              children: [
-                                !modelOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "No models" }) : null,
-                                modelOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: `${option.llmProvider}::${option.llmModel}`, children: [
-                                  option.label,
-                                  " · ",
-                                  modelCapabilityLabel(option.capabilityType)
-                                ] }, `${option.llmProvider}:${option.llmModel}`))
-                              ]
-                            }
-                          )
-                        ] }),
-                        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-settings", type: "button", onClick: () => setToolPickerOpen(true), children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => {
+                          setComposerAttachMenuOpen(false);
+                          setAchievementPickerOpen(true);
+                        }, children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx(FolderIcon, {}),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "引用成果库文件" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "跨会话复用已有成果" })
+                          ] })
+                        ] })
+                      ] }) : null
+                    ] }) }),
+                    selectedTaskTemplate ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-template-selection", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: workflowMode ? "工作流" : "任务模板" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selectedTaskTemplate.title }),
+                        workflowMode ? /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+                          ((_a2 = selectedTaskTemplate.workflow_steps) == null ? void 0 : _a2.length) || 0,
+                          " 步顺序执行"
+                        ] }) : null
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", title: "清除任务模板", "aria-label": "清除任务模板", onClick: clearTaskTemplate, children: "×" })
+                    ] }) : null,
+                    selectedGuidanceItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-guidance-chips", children: selectedGuidanceItems.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "composer-guidance-chip", type: "button", onClick: () => toggleGuidanceKey(item.key), children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: toolingGuidanceLabel(item) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "×" })
+                    ] }, item.key)) }) : null,
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-settings-inline", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                          "button",
+                          {
+                            className: "secondary composer-settings-toggle",
+                            type: "button",
+                            "aria-expanded": mobileRuntimeSettingsOpen,
+                            "aria-controls": "composer-runtime-settings",
+                            onClick: () => setMobileRuntimeSettingsOpen((current) => !current),
+                            children: [
+                              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "配置" }),
+                              /* @__PURE__ */ jsxRuntimeExports.jsx(CompactChevronIcon, { expanded: mobileRuntimeSettingsOpen })
+                            ]
+                          }
+                        ),
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-collapsible-settings", id: "composer-runtime-settings", children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                              "select",
+                              {
+                                disabled: savingSettings,
+                                value: settingsDraft.interventionMode,
+                                onChange: (event) => applySessionSettings({ interventionMode: event.target.value }).catch((error) => setStatus(error.message)),
+                                children: [
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "request_approval", children: "先审批" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
+                                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
+                                ]
+                              }
+                            )
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsx(
+                              "select",
+                              {
+                                disabled: savingSettings,
+                                value: settingsDraft.toolRuntime,
+                                onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
+                                children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
+                              }
+                            )
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting composer-setting-model", children: [
+                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "模型" }),
+                            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                              "select",
+                              {
+                                disabled: !modelOptions.length || savingSettings,
+                                value: selectedModelValue,
+                                onChange: (event) => {
+                                  const [llmProvider, llmModel] = String(event.target.value || "").split("::");
+                                  applySessionSettings({ llmModel: llmModel || "", llmProvider: llmProvider || "" }).catch((error) => setStatus(error.message));
+                                },
+                                children: [
+                                  !modelOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "No models" }) : null,
+                                  modelOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsxs("option", { value: `${option.llmProvider}::${option.llmModel}`, children: [
+                                    option.label,
+                                    " · ",
+                                    modelCapabilityLabel(option.capabilityType)
+                                  ] }, `${option.llmProvider}:${option.llmModel}`))
+                                ]
+                              }
+                            )
+                          ] }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-settings", type: "button", onClick: () => setToolPickerOpen(true), children: [
+                            "工具",
+                            selectableToolingItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                              selectedGuidanceItems.length,
+                              "/",
+                              selectableToolingItems.length
+                            ] }) : null
+                          ] })
+                        ] })
+                      ] }) }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar-end", children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-primary", type: "button", onClick: () => setToolPickerOpen(true), children: [
                           "工具",
                           selectableToolingItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
                             selectedGuidanceItems.length,
                             "/",
                             selectableToolingItems.length
                           ] }) : null
-                        ] })
-                      ] })
-                    ] }) }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar-end", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary composer-tool-button composer-tool-button-primary", type: "button", onClick: () => setToolPickerOpen(true), children: [
-                        "工具",
-                        selectableToolingItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                          selectedGuidanceItems.length,
-                          "/",
-                          selectableToolingItems.length
-                        ] }) : null
-                      ] }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx(
-                        "button",
-                        {
-                          type: "button",
-                          className: primaryAction.className,
-                          disabled: primaryAction.disabled,
-                          onClick: () => {
-                            var _a3;
-                            if (primaryAction.mode === "start") {
-                              startSession().catch((error) => setStatus(error.message));
-                              return;
-                            }
-                            if (primaryAction.mode === "send") {
-                              if (workflowMode && ((_a3 = selectedTaskTemplate == null ? void 0 : selectedTaskTemplate.workflow_steps) == null ? void 0 : _a3.length) && task.trim()) {
-                                startWorkflow(sessionID, selectedTaskTemplate, task.trim()).catch((error) => setStatus(error.message));
-                              } else {
+                        ] }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(
+                          "button",
+                          {
+                            type: "button",
+                            className: primaryAction.className,
+                            disabled: primaryAction.disabled,
+                            onClick: () => {
+                              var _a3;
+                              if (primaryAction.mode === "start") {
+                                startSession().catch((error) => setStatus(error.message));
+                                return;
+                              }
+                              if (primaryAction.mode === "send") {
+                                if (workflowMode && ((_a3 = selectedTaskTemplate == null ? void 0 : selectedTaskTemplate.workflow_steps) == null ? void 0 : _a3.length) && task.trim()) {
+                                  startWorkflow(sessionID, selectedTaskTemplate, task.trim()).catch((error) => setStatus(error.message));
+                                } else {
+                                  sendTask().catch((error) => setStatus(error.message));
+                                }
+                                return;
+                              }
+                              if (primaryAction.mode === "queue") {
                                 sendTask().catch((error) => setStatus(error.message));
                               }
-                              return;
-                            }
-                            if (primaryAction.mode === "interrupt") {
-                              confirmInterruptTask().catch((error) => setStatus(error.message));
-                            }
-                          },
-                          children: primaryAction.label
-                        }
-                      )
+                            },
+                            children: primaryAction.label
+                          }
+                        ),
+                        isSessionBusy && !isSessionInterrupting ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                          "button",
+                          {
+                            className: "composer-stop-button",
+                            type: "button",
+                            title: "停止任务",
+                            "aria-label": "停止当前任务",
+                            onClick: () => confirmInterruptTask().catch((error) => setStatus(error.message)),
+                            children: /* @__PURE__ */ jsxRuntimeExports.jsx(StopIcon, {})
+                          }
+                        ) : null
+                      ] })
                     ] })
-                  ] })
-                ]
-              }
-            ) })
+                  ]
+                }
+              )
+            ] })
           ] }) }),
           !pluginRoutePath && artifactPreview ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "artifact-preview-pane", "aria-label": "结果预览", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "artifact-resize-handle", type: "button", "aria-label": "拖动调整预览宽度", onPointerDown: startArtifactResize }),
@@ -41995,8 +42263,8 @@ function WorkbenchApp() {
           ] }) : null,
           !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { id: "mobile-results-sidebar", className: `user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim(), children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-sidebar-header", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "成果" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", "aria-label": "关闭成果", onClick: () => setMobileResultsOpen(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "结果文件" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", "aria-label": "关闭结果文件", onClick: () => setMobileResultsOpen(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               Panel,

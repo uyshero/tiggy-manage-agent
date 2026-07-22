@@ -186,6 +186,9 @@ func (d *PostgresAgentLoopDurability) apply(ctx context.Context, transition agen
 	if err := action.validate(transition); err != nil {
 		return agentcore.State{}, err
 	}
+	if useAgentLoopFastCommit(action, transition) {
+		return d.applyFastCommit(ctx, transition)
+	}
 	scope, ok := DatabaseAccessScopeFromContext(ctx)
 	if !ok {
 		return agentcore.State{}, fmt.Errorf("%w: agent loop database access scope is required", ErrForbidden)
@@ -231,8 +234,10 @@ func (d *PostgresAgentLoopDurability) apply(ctx context.Context, transition agen
 		if err := agentcore.ValidatePhaseTransition(stored.Phase, transition.Next.Phase); err != nil {
 			return agentcore.State{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
-	} else if transition.ExpectedRevision != 0 || transition.Next.Phase != agentcore.PhaseAwaitingModel {
-		return agentcore.State{}, fmt.Errorf("%w: initial agent loop transition must create awaiting_model revision 1", ErrRevisionConflict)
+	} else if transition.ExpectedRevision != 0 {
+		return agentcore.State{}, fmt.Errorf("%w: initial agent loop transition expected revision 0", ErrRevisionConflict)
+	} else if err := agentcore.ValidatePhaseTransition(agentcore.PhasePreparing, transition.Next.Phase); err != nil {
+		return agentcore.State{}, fmt.Errorf("%w: invalid initial agent loop transition: %v", ErrInvalid, err)
 	}
 
 	next := transition.Next.Clone()
@@ -270,6 +275,125 @@ func (d *PostgresAgentLoopDurability) apply(ctx context.Context, transition agen
 	return next.Clone(), nil
 }
 
+func useAgentLoopFastCommit(action agentLoopAction, transition agentcore.Transition) bool {
+	_, ordinaryCommit := action.(agentLoopCommit)
+	return ordinaryCommit && transition.ExpectedRevision > 0
+}
+
+// applyFastCommit keeps ordinary loop progress on an optimistic CAS path.
+// Park/complete/fail/cancel still use the fully locked transaction because
+// they also mutate session, turn, or intervention state.
+func (d *PostgresAgentLoopDurability) applyFastCommit(ctx context.Context, transition agentcore.Transition) (agentcore.State, error) {
+	scope, ok := DatabaseAccessScopeFromContext(ctx)
+	if !ok {
+		return agentcore.State{}, fmt.Errorf("%w: agent loop database access scope is required", ErrForbidden)
+	}
+	tx, err := d.store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return agentcore.State{}, err
+	}
+	defer tx.Rollback()
+	if _, err := setDatabaseAccessScope(ctx, tx, scope.WorkspaceID); err != nil {
+		return agentcore.State{}, err
+	}
+	session, err := lockAgentLoopSession(ctx, tx, transition.Next.SessionID)
+	if err != nil {
+		return agentcore.State{}, err
+	}
+	if session.WorkspaceID != scope.WorkspaceID || (scope.OwnerID != "" && session.OwnerID != scope.OwnerID) {
+		return agentcore.State{}, ErrForbidden
+	}
+	if session.Status == SessionStatusTerminated {
+		return agentcore.State{}, ErrTerminated
+	}
+
+	next := transition.Next.Clone()
+	next.Revision = transition.ExpectedRevision + 1
+	if err := next.Validate(); err != nil {
+		return agentcore.State{}, fmt.Errorf("%w: invalid agent loop state: %v", ErrInvalid, err)
+	}
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return agentcore.State{}, fmt.Errorf("encode agent loop state: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_loop_states AS state
+		SET revision = $3, phase = $4, state_json = $5, updated_at = now()
+		WHERE state.session_id = $1
+		  AND state.turn_id = $2
+		  AND state.revision = $6
+		  AND CASE $4
+			WHEN 'awaiting_model' THEN state.phase IN ('preparing', 'awaiting_model', 'executing_tools', 'validating_completion')
+			WHEN 'preflighting_tools' THEN state.phase = 'awaiting_model'
+			WHEN 'executing_tools' THEN state.phase IN ('preflighting_tools', 'paused', 'executing_tools')
+			WHEN 'validating_completion' THEN state.phase IN ('awaiting_model', 'validating_completion')
+			ELSE false
+		  END
+		  AND EXISTS (
+			SELECT 1
+			FROM session_turns AS turn
+			WHERE turn.session_id = state.session_id
+			  AND turn.id = state.turn_id
+			  AND turn.status = $7
+			  AND turn.lease_owner = $8
+			  AND turn.attempt_count = $9
+			  AND turn.lease_expires_at > CURRENT_TIMESTAMP
+		  )
+	`, next.SessionID, next.TurnID, next.Revision, next.Phase, raw, transition.ExpectedRevision,
+		TurnStatusRunning, d.fence.LeaseOwner, d.fence.Attempt)
+	if err != nil {
+		return agentcore.State{}, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return agentcore.State{}, err
+	}
+	if rows != 1 {
+		return agentcore.State{}, d.diagnoseFastCommitConflict(ctx, tx, transition)
+	}
+
+	now := time.Now().UTC()
+	events, err := appendAgentLoopRuntimeEvents(ctx, d.store, tx, next, transition.Events, now)
+	if err != nil {
+		return agentcore.State{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return agentcore.State{}, err
+	}
+	for _, event := range events {
+		d.store.hub.publish(event)
+	}
+	return next.Clone(), nil
+}
+
+func (d *PostgresAgentLoopDurability) diagnoseFastCommitConflict(ctx context.Context, tx *sql.Tx, transition agentcore.Transition) error {
+	_, turn, err := lockAgentLoopTurn(ctx, tx, transition.Next.SessionID, transition.Next.TurnID)
+	if err != nil {
+		return err
+	}
+	if turn.status != TurnStatusRunning {
+		return fmt.Errorf("%w: agent loop turn is %s", ErrLeaseLost, turn.status)
+	}
+	if !turn.leaseValid || turn.leaseOwner != d.fence.LeaseOwner || turn.attempt != d.fence.Attempt {
+		return fmt.Errorf("%w: expected owner=%s attempt=%d", ErrLeaseLost, d.fence.LeaseOwner, d.fence.Attempt)
+	}
+	stored, exists, err := loadAgentLoopStateForUpdate(ctx, tx, transition.Next.SessionID, transition.Next.TurnID)
+	if err != nil {
+		return err
+	}
+	if !exists || stored.Revision != transition.ExpectedRevision {
+		actual := int64(0)
+		if exists {
+			actual = stored.Revision
+		}
+		return fmt.Errorf("%w: expected=%d actual=%d", ErrRevisionConflict, transition.ExpectedRevision, actual)
+	}
+	if err := agentcore.ValidatePhaseTransition(stored.Phase, transition.Next.Phase); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	return fmt.Errorf("%w: agent loop commit preconditions changed", ErrConflict)
+}
+
 func validateAgentLoopTransitionInput(transition agentcore.Transition) error {
 	if transition.ExpectedRevision < 0 || transition.Next.Revision != transition.ExpectedRevision {
 		return fmt.Errorf("%w: transition revision is invalid", ErrInvalid)
@@ -288,15 +412,8 @@ type agentLoopTurnFence struct {
 }
 
 func lockAgentLoopTurn(ctx context.Context, tx *sql.Tx, sessionID, turnID string) (Session, agentLoopTurnFence, error) {
-	var session Session
-	if err := tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, owner_id, status
-		FROM sessions
-		WHERE id = $1
-		FOR UPDATE
-	`, sessionID).Scan(&session.ID, &session.WorkspaceID, &session.OwnerID, &session.Status); errors.Is(err, sql.ErrNoRows) {
-		return Session{}, agentLoopTurnFence{}, fmt.Errorf("%w: session %s", ErrNotFound, sessionID)
-	} else if err != nil {
+	session, err := lockAgentLoopSession(ctx, tx, sessionID)
+	if err != nil {
 		return Session{}, agentLoopTurnFence{}, err
 	}
 	var turn agentLoopTurnFence
@@ -313,6 +430,21 @@ func lockAgentLoopTurn(ctx context.Context, tx *sql.Tx, sessionID, turnID string
 	}
 	turn.leaseOwner = leaseOwner.String
 	return session, turn, nil
+}
+
+func lockAgentLoopSession(ctx context.Context, tx *sql.Tx, sessionID string) (Session, error) {
+	var session Session
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id, workspace_id, owner_id, status
+		FROM sessions
+		WHERE id = $1
+		FOR UPDATE
+	`, sessionID).Scan(&session.ID, &session.WorkspaceID, &session.OwnerID, &session.Status); errors.Is(err, sql.ErrNoRows) {
+		return Session{}, fmt.Errorf("%w: session %s", ErrNotFound, sessionID)
+	} else if err != nil {
+		return Session{}, err
+	}
+	return session, nil
 }
 
 func loadAgentLoopStateForUpdate(ctx context.Context, tx *sql.Tx, sessionID, turnID string) (agentcore.State, bool, error) {

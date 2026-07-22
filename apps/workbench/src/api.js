@@ -269,6 +269,17 @@ export async function sendSessionMessage(sessionId, text, options = {}) {
   }
 }
 
+export function steerSession(sessionId, text, options = {}) {
+  return coreSDK.sessions.appendEvents(sessionId, {
+    events: [{
+      type: "user.steer",
+      payload: {
+        content: [{ type: "text", text }]
+      }
+    }]
+  }, options.signal);
+}
+
 export async function uploadSessionArtifact(sessionId, file, options = {}) {
   return coreSDK.artifacts.upload(sessionId, {
     name: file.name,
@@ -688,7 +699,7 @@ export function sessionTaskGroup(sessionId, groupId, options = {}) {
 }
 
 export function approveIntervention(sessionId, turnId, callId, body = {}, options = {}) {
-  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal);
+  return coreSDK.interventions.approve(sessionId, turnId, callId, body.reason || "", options.signal, body.response);
 }
 
 export function rejectIntervention(sessionId, turnId, callId, body = {}, options = {}) {

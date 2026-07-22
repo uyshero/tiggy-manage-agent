@@ -160,6 +160,29 @@ func (p WorkspacePathGuardProvider) EditFile(ctx context.Context, request EditFi
 	return p.inner().EditFile(ctx, request)
 }
 
+func (p WorkspacePathGuardProvider) PreviewEditFile(ctx context.Context, request EditFileRequest) (EditFilePreview, error) {
+	workDir := request.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+	resolvedWorkDir, err := p.resolveReadPath(workDir)
+	if err != nil {
+		return EditFilePreview{}, fmt.Errorf("workspace path guard work_dir denied: %w", err)
+	}
+	path, root, err := p.resolveWritePathWithRoot(resolveAgainstWorkDir(request.Path, resolvedWorkDir))
+	if err != nil {
+		return EditFilePreview{}, fmt.Errorf("workspace path guard edit preview denied: %w", err)
+	}
+	previewer, ok := p.inner().(EditPreviewProvider)
+	if !ok || previewer == nil {
+		return EditFilePreview{}, fmt.Errorf("workspace edit preview is unavailable")
+	}
+	request.Path = path
+	request.WorkDir = ""
+	request.guardedRoot = root
+	return previewer.PreviewEditFile(ctx, request)
+}
+
 func (p WorkspacePathGuardProvider) ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
 	displayPath := request.Path
 	workDir, err := p.resolveReadPath(defaultGuardString(request.WorkDir, "."))

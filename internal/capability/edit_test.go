@@ -2,11 +2,51 @@ package capability
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestEditPreviewIsReadOnlyAndMatchesExecutionPatch(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "preview.txt")
+	original := "alpha\nbeta\ngamma\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider := LocalSystemProvider{}
+	request := EditFileRequest{Path: path, Edits: []EditOperation{
+		{OldString: "alpha", NewString: "ALPHA"},
+		{OldString: "gamma", NewString: "GAMMA"},
+	}}
+	preview, err := provider.PreviewEditFile(t.Context(), request)
+	if err != nil {
+		t.Fatalf("PreviewEditFile() error = %v", err)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil || string(content) != original {
+		t.Fatalf("preview changed file: content=%q err=%v", content, readErr)
+	}
+	sum := sha256.Sum256([]byte(preview.UnifiedDiff))
+	if !preview.Success || preview.BaseRevision == "" || preview.BaseContentSHA256 == "" ||
+		preview.PatchSHA256 != hex.EncodeToString(sum[:]) || preview.LinesAdded != 2 || preview.LinesDeleted != 2 {
+		t.Fatalf("preview = %+v", preview)
+	}
+	request.ExpectedRevision = preview.BaseRevision
+	request.ExpectedContentSHA256 = preview.BaseContentSHA256
+	result, err := provider.EditFile(t.Context(), request)
+	if err != nil {
+		t.Fatalf("EditFile() error = %v", err)
+	}
+	if !result.Success || result.DiffText != preview.UnifiedDiff || result.PatchSHA256 != preview.PatchSHA256 ||
+		result.BaseRevision != preview.BaseRevision || result.BaseContentSHA256 != preview.BaseContentSHA256 {
+		t.Fatalf("result = %+v preview = %+v", result, preview)
+	}
+}
 
 func TestEditLocalFileSingleReplacement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "note.txt")
@@ -104,6 +144,77 @@ func TestEditLocalFileOldStringNotFound(t *testing.T) {
 	}
 	if result.Error != "The specified old_string was not found in the file" {
 		t.Fatalf("unexpected error: %q", result.Error)
+	}
+}
+
+func TestEditLocalFileAppliesMultipleReplacementsAtomically(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "multi.txt")
+	if err := os.WriteFile(path, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := editLocalFile(EditFileRequest{
+		Path: path,
+		Edits: []EditOperation{
+			{OldString: "alpha", NewString: "ALPHA"},
+			{OldString: "gamma", NewString: "GAMMA"},
+		},
+	})
+	if !result.Success || result.Replacements != 2 || result.LinesAdded != 2 || result.LinesDeleted != 2 {
+		t.Fatalf("multi edit result = %+v", result)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "ALPHA\nbeta\nGAMMA\n" {
+		t.Fatalf("multi edit content = %q err=%v", content, err)
+	}
+}
+
+func TestEditLocalFileRejectsOverlappingMultiEditWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "overlap.txt")
+	original := "first second third\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := editLocalFile(EditFileRequest{
+		Path: path,
+		Edits: []EditOperation{
+			{OldString: "first second", NewString: "FIRST"},
+			{OldString: "second third", NewString: "THIRD"},
+		},
+	})
+	if result.Success || result.Code != "overlapping_edits" {
+		t.Fatalf("overlapping edit result = %+v", result)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != original {
+		t.Fatalf("overlapping edit changed content = %q err=%v", content, err)
+	}
+}
+
+func TestEditLocalFileRejectsIncompleteMultiEditWithoutWriting(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "missing.txt")
+	original := "alpha\nbeta\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := editLocalFile(EditFileRequest{
+		Path: path,
+		Edits: []EditOperation{
+			{OldString: "alpha", NewString: "ALPHA"},
+			{OldString: "missing", NewString: "MISSING"},
+		},
+	})
+	if result.Success || result.Code != "match_not_found" {
+		t.Fatalf("incomplete edit result = %+v", result)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != original {
+		t.Fatalf("incomplete edit changed content = %q err=%v", content, err)
 	}
 }
 

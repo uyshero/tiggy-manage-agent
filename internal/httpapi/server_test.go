@@ -2537,6 +2537,118 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 	postJSONWithStatus[map[string]string](t, server, http.MethodPost, "/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_read/reject", `{}`, http.StatusBadRequest)
 }
 
+func TestSessionInterventionApprovalAppliesValidatedSuggestedPermissionRule(t *testing.T) {
+	for _, scope := range []string{tools.PermissionRuleSourceSession, tools.PermissionRuleSourceAgent} {
+		t.Run(scope, func(t *testing.T) {
+			store := newTestStore()
+			recorder := &recordingRunner{}
+			server := NewServerWithStoreAndRunner(store, recorder, nil)
+			agent, err := store.CreateAgent(managedagents.CreateAgentInput{Name: "rule-agent", LLMProvider: "fake", LLMModel: "fake-demo"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			environment, err := store.CreateEnvironment(managedagents.CreateEnvironmentInput{Name: "rule-env", Config: json.RawMessage(`{"type":"cloud"}`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := store.CreateSession(managedagents.CreateSessionInput{AgentID: agent.ID, EnvironmentID: environment.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{
+				Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"edit"}]}`),
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turnID := payloadString(startEvents[1].Payload, "turn_id")
+			arguments := json.RawMessage(`{"path":"/workspace/src/app.go","old_string":"old","new_string":"new"}`)
+			suggestions := tools.SuggestedPermissionRules(tools.Call{Identifier: tools.DefaultIdentifier, APIName: "edit_file", Arguments: arguments})
+			var selected tools.PermissionRuleSuggestion
+			for _, suggestion := range suggestions {
+				if suggestion.Scope == scope {
+					selected = suggestion
+				}
+			}
+			request, err := json.Marshal(map[string]any{"suggested_permission_rules": suggestions})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+				TurnID: turnID, CallID: "call_edit", ToolIdentifier: tools.DefaultIdentifier, APIName: "edit_file",
+				Arguments: arguments, Kind: managedagents.InterventionKindToolApproval, Request: request,
+				InterventionMode: tools.InterventionModeRequestApproval, Reason: "filesystem write",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			body, err := json.Marshal(map[string]any{
+				"reason": "approve and remember", "response": map[string]any{"permission_rule_suggestion_id": selected.Rule.ID},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			decided := postJSONWithStatus[managedagents.DecideSessionInterventionResult](t, server, http.MethodPost,
+				"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_edit/approve", string(body), http.StatusOK)
+			if decided.Intervention.Status != managedagents.InterventionStatusApproved || len(recorder.starts) != 1 {
+				t.Fatalf("decision=%+v starts=%+v", decided, recorder.starts)
+			}
+
+			if scope == tools.PermissionRuleSourceSession {
+				updated, err := store.GetSession(session.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rules, err := tools.ParsePermissionRulesForSource(updated.RuntimeSettings, scope)
+				if err != nil || len(rules) != 1 || rules[0].ID != selected.Rule.ID || updated.RuntimeSettingsRevision != session.RuntimeSettingsRevision+1 {
+					t.Fatalf("session rules=%+v revision=%d err=%v", rules, updated.RuntimeSettingsRevision, err)
+				}
+			} else {
+				updated, err := store.GetAgent(agent.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				rules, err := tools.ParsePermissionRulesForSource(updated.ConfigVersion.Tools, scope)
+				if err != nil || len(rules) != 1 || rules[0].ID != selected.Rule.ID || updated.CurrentConfigVersion != agent.CurrentConfigVersion+1 {
+					t.Fatalf("Agent rules=%+v version=%d err=%v", rules, updated.CurrentConfigVersion, err)
+				}
+			}
+		})
+	}
+}
+
+func TestSessionInterventionApprovalRejectsForgedPermissionSuggestion(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, &recordingRunner{}, nil)
+	agent, _ := store.CreateAgent(managedagents.CreateAgentInput{Name: "forged-rule-agent", LLMProvider: "fake", LLMModel: "fake-demo"})
+	environment, _ := store.CreateEnvironment(managedagents.CreateEnvironmentInput{Name: "forged-rule-env", Config: json.RawMessage(`{"type":"cloud"}`)})
+	session, _ := store.CreateSession(managedagents.CreateSessionInput{AgentID: agent.ID, EnvironmentID: environment.ID})
+	startEvents, err := store.AppendEvents(session.ID, []managedagents.AppendEventInput{{Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[]}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turnID := payloadString(startEvents[1].Payload, "turn_id")
+	arguments := json.RawMessage(`{"path":"/workspace/src/app.go","old_string":"old","new_string":"new"}`)
+	suggestions := tools.SuggestedPermissionRules(tools.Call{Identifier: tools.DefaultIdentifier, APIName: "edit_file", Arguments: arguments})
+	request, _ := json.Marshal(map[string]any{"suggested_permission_rules": suggestions})
+	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
+		TurnID: turnID, CallID: "call_forged", ToolIdentifier: tools.DefaultIdentifier, APIName: "edit_file", Arguments: arguments,
+		Kind: managedagents.InterventionKindToolApproval, Request: request, InterventionMode: tools.InterventionModeRequestApproval,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	postJSONWithStatus[map[string]any](t, server, http.MethodPost,
+		"/v1/sessions/"+session.ID+"/interventions/"+turnID+"/call_forged/approve",
+		`{"response":{"permission_rule_suggestion_id":"suggest-agent-forged"}}`, http.StatusBadRequest)
+	pending, err := store.ListSessionInterventions(session.ID, managedagents.InterventionStatusPending)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending interventions=%+v err=%v", pending, err)
+	}
+	updated, err := store.GetAgent(agent.ID)
+	if err != nil || updated.CurrentConfigVersion != agent.CurrentConfigVersion {
+		t.Fatalf("forged selection changed Agent: %+v err=%v", updated, err)
+	}
+}
+
 func TestSessionInterventionDecisionRetriesAfterSchedulingFailure(t *testing.T) {
 	store := newTestStore()
 	runner := &flakyStartRunner{failures: 1}

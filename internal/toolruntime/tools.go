@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"tiggy-manage-agent/internal/agentcore"
@@ -104,7 +105,7 @@ func (r ToolRuntime) Preflight(ctx context.Context, state agentcore.State, calls
 			planned.Disposition = agentcore.ToolDispositionDenied
 		}
 		_, persistedReplay := persistedSegmentEditReplay(state, source)
-		_, hasFileReceipt := persistedFileReceiptForEdit(state, source)
+		fileReceipt, hasFileReceipt := persistedFileReceiptForEdit(state, source)
 		if decision.Allowed && decision.Required {
 			planned.ApprovalState = agentcore.ToolApprovalAuto
 			planned.ApprovalSource = agentcore.ToolApprovalSourcePolicy
@@ -125,18 +126,27 @@ func (r ToolRuntime) Preflight(ctx context.Context, state agentcore.State, calls
 			continue
 		}
 		if !decision.Allowed {
-			request, err := json.Marshal(map[string]any{
-				"kind":            "tool_approval",
-				"call_id":         source.ID,
-				"tool":            source.Name,
-				"arguments":       json.RawMessage(source.Arguments),
-				"reason":          decision.Reason,
-				"policy_mode":     decision.Mode,
-				"approval_policy": decision.ApprovalPolicy,
-				"matched_rule_id": decision.MatchedRuleID,
-				"rule_source":     decision.RuleSource,
-				"risk":            decision.Risk,
-			})
+			requestData := map[string]any{
+				"kind":                       "tool_approval",
+				"call_id":                    source.ID,
+				"tool":                       source.Name,
+				"arguments":                  json.RawMessage(source.Arguments),
+				"reason":                     decision.Reason,
+				"policy_mode":                decision.Mode,
+				"approval_policy":            decision.ApprovalPolicy,
+				"matched_rule_id":            decision.MatchedRuleID,
+				"rule_source":                decision.RuleSource,
+				"risk":                       decision.Risk,
+				"suggested_permission_rules": tools.SuggestedPermissionRules(call),
+			}
+			if call.Identifier == tools.DefaultIdentifier && call.APIName == "edit_file" {
+				preview, ok := r.buildDurableEditPreview(ctx, source, fileReceipt)
+				if !ok {
+					continue
+				}
+				requestData["edit_preview"] = preview
+			}
+			request, err := json.Marshal(requestData)
 			if err != nil {
 				return agentcore.ToolBatchPlan{}, err
 			}
@@ -303,7 +313,22 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 			results = append(results, fileReadRequiredToolResult(planned.Call))
 			continue
 		}
-		if !decision.Allowed && !hasApprovedToolInteraction(plan.Interactions, planned.Call.ID) {
+		approved := hasApprovedToolInteraction(plan.Interactions, planned.Call.ID)
+		if call.Identifier == tools.DefaultIdentifier && call.APIName == "edit_file" && (approved || !decision.Allowed) {
+			currentPreview, previewErr := r.previewEditCall(ctx, planned.Call, fileReceipt)
+			if previewErr != nil || !currentPreview.Success {
+				results = append(results, editPreviewFailureToolResult(planned.Call, currentPreview, previewErr))
+				continue
+			}
+			if approved {
+				persistedPreview, ok := approvedDurableEditPreview(plan.Interactions, planned.Call, fileReceipt)
+				if !ok || !sameEditPreview(persistedPreview, currentPreview) {
+					results = append(results, staleEditPreviewToolResult(planned.Call))
+					continue
+				}
+			}
+		}
+		if !decision.Allowed && !approved {
 			results = append(results, approvalRequiredToolResult(planned.Call, decision))
 			continue
 		}
@@ -538,6 +563,18 @@ func toolIsReadOnly(api tools.API) bool {
 
 func toolLockKey(api tools.API, state agentcore.State, call coremodel.ToolCall, executionMode string) string {
 	if value := strings.TrimSpace(api.LockKey); value != "" {
+		if strings.Contains(value, "{path}") {
+			var arguments map[string]json.RawMessage
+			var path string
+			if json.Unmarshal(call.Arguments, &arguments) == nil {
+				_ = json.Unmarshal(arguments["path"], &path)
+			}
+			path = strings.TrimSpace(path)
+			if path == "" {
+				return state.SessionID + ":" + call.Name
+			}
+			value = strings.ReplaceAll(value, "{path}", filepath.ToSlash(filepath.Clean(path)))
+		}
 		return state.SessionID + ":" + value
 	}
 	if executionMode == "sequential" {

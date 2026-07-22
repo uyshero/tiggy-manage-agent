@@ -74,41 +74,54 @@ func ValidateFileMutationCallWithLimits(call Call, limits FileMutationLimits) *E
 		if json.Unmarshal(call.Arguments, &request) != nil {
 			return nil
 		}
-		if request.OldString == request.NewString {
-			return &ExecutionError{Type: "invalid_edit_noop", Message: "edit_file.old_string and edit_file.new_string must be different."}
+		operations := request.Edits
+		if len(operations) == 0 {
+			operations = []capability.EditOperation{{OldString: request.OldString, NewString: request.NewString, ReplaceAll: request.ReplaceAll}}
 		}
-		if estimated := EstimateFileMutationTokens(request.NewString); estimated > limits.MaxTokens {
+		totalEstimated := 0
+		segmentedOperations := 0
+		for index, operation := range operations {
+			if operation.OldString == operation.NewString {
+				return &ExecutionError{Type: "invalid_edit_noop", Message: fmt.Sprintf("edit_file operation %d old_string and new_string must be different.", index)}
+			}
+			totalEstimated += EstimateFileMutationTokens(operation.NewString)
+			if duplicate := duplicateSegmentedPlaceholder(operation.NewString); duplicate != "" {
+				return &ExecutionError{
+					Type:    "invalid_segmented_file_edit",
+					Message: fmt.Sprintf("Replacement introduces duplicate placeholder %q. Split at semantic boundaries and use a unique numbered placeholder for each remaining segment.", duplicate),
+				}
+			}
+			if invalid := invalidSegmentedPlaceholder(operation.NewString); invalid != "" {
+				return &ExecutionError{
+					Type:    "invalid_segmented_file_edit",
+					Message: fmt.Sprintf("Replacement introduces invalid segmented placeholder %q. Use a unique numbered placeholder such as __TMA_PLACEHOLDER_REPORT_001__.", invalid),
+				}
+			}
+			placeholder, segmentedPlaceholder := SegmentedFilePlaceholderToken(operation.OldString)
+			if reservedSegmentedPlaceholderPattern.MatchString(operation.OldString) && !segmentedPlaceholder {
+				return &ExecutionError{
+					Type:    "invalid_segmented_file_edit",
+					Message: fmt.Sprintf("edit_file old_string %q uses the reserved TMA placeholder prefix but is not numbered in the required format. Pass exactly one placeholder, optionally surrounded by whitespace, such as __TMA_PLACEHOLDER_REPORT_001__.", operation.OldString),
+				}
+			}
+			if segmentedPlaceholder {
+				segmentedOperations++
+				if operation.ReplaceAll {
+					return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment placeholder replacement must use replace_all=false so exactly one unique placeholder is consumed."}
+				}
+				if strings.Contains(operation.NewString, placeholder) {
+					return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment replacement must consume its old placeholder and must not reinsert the same placeholder."}
+				}
+			}
+		}
+		if totalEstimated > limits.MaxTokens {
 			return &ExecutionError{
 				Type:    "edit_replacement_too_large",
-				Message: segmentedFileGenerationMessage("edit_file.new_string", estimated, limits),
+				Message: segmentedFileGenerationMessage("edit_file replacement content", totalEstimated, limits),
 			}
 		}
-		if duplicate := duplicateSegmentedPlaceholder(request.NewString); duplicate != "" {
-			return &ExecutionError{
-				Type:    "invalid_segmented_file_edit",
-				Message: fmt.Sprintf("Replacement introduces duplicate placeholder %q. Split at semantic boundaries and use a unique numbered placeholder for each remaining segment.", duplicate),
-			}
-		}
-		if invalid := invalidSegmentedPlaceholder(request.NewString); invalid != "" {
-			return &ExecutionError{
-				Type:    "invalid_segmented_file_edit",
-				Message: fmt.Sprintf("Replacement introduces invalid segmented placeholder %q. Use a unique numbered placeholder such as __TMA_PLACEHOLDER_REPORT_001__.", invalid),
-			}
-		}
-		placeholder, segmentedPlaceholder := SegmentedFilePlaceholderToken(request.OldString)
-		if reservedSegmentedPlaceholderPattern.MatchString(request.OldString) && !segmentedPlaceholder {
-			return &ExecutionError{
-				Type:    "invalid_segmented_file_edit",
-				Message: fmt.Sprintf("edit_file.old_string %q uses the reserved TMA placeholder prefix but is not numbered in the required format. Pass exactly one placeholder, optionally surrounded by whitespace, such as __TMA_PLACEHOLDER_REPORT_001__, and replace one placeholder per edit.", request.OldString),
-			}
-		}
-		if segmentedPlaceholder {
-			if request.ReplaceAll {
-				return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment placeholder replacement must use replace_all=false so exactly one unique placeholder is consumed."}
-			}
-			if strings.Contains(request.NewString, placeholder) {
-				return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segment replacement must consume its old placeholder and must not reinsert the same placeholder."}
-			}
+		if segmentedOperations > 0 && len(operations) != 1 {
+			return &ExecutionError{Type: "invalid_segmented_file_edit", Message: "Segmented generation must replace exactly one numbered placeholder per edit_file call."}
 		}
 	}
 	return nil

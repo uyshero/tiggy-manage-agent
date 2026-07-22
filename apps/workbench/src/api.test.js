@@ -72,6 +72,7 @@ import {
   sessionTaskGroups,
   sendSessionMessage,
   sessions,
+  steerSession,
   skillAssetGCRuns,
   skillAssetGCTombstones,
   skillAssetRetentionEffective,
@@ -602,6 +603,41 @@ test("Session messages start Runs while preserving the legacy busy queue", async
   });
 });
 
+test("Session steering appends a text control event to the active Run", async () => {
+  const requests = [];
+  const controller = new AbortController();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    requests.push({ path: String(path), options });
+    return response({
+      events: [{
+        id: "event/steer",
+        session_id: "session/1",
+        turn_id: "run/1",
+        seq: 8,
+        type: "user.steer",
+        payload: { content: [{ type: "text", text: "先检查测试失败原因" }] }
+      }]
+    });
+  };
+  try {
+    const result = await steerSession("session/1", "先检查测试失败原因", { signal: controller.signal });
+    assert.equal(result.events[0].type, "user.steer");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, "http://localhost/v2/sessions/session%2F1/events");
+  assert.equal(requests[0].options.method, "POST");
+  assert.equal(requests[0].options.signal, controller.signal);
+  assert.deepEqual(JSON.parse(requests[0].options.body), {
+    events: [{
+      type: "user.steer",
+      payload: { content: [{ type: "text", text: "先检查测试失败原因" }] }
+    }]
+  });
+});
+
 test("Intervention decisions use typed v2 SDK methods without changing response shape", async () => {
   const requests = [];
   const originalFetch = globalThis.fetch;
@@ -615,7 +651,10 @@ test("Intervention decisions use typed v2 SDK methods without changing response 
   };
   try {
     const controller = new AbortController();
-    const approved = await approveIntervention("session/1", "turn/1", "call/1", { reason: "approved from app" }, { signal: controller.signal });
+    const approved = await approveIntervention("session/1", "turn/1", "call/1", {
+      reason: "approved from app",
+      response: { permission_rule_suggestion_id: "suggest-agent-123" }
+    }, { signal: controller.signal });
     const rejected = await rejectIntervention("session/1", "turn/1", "call/1", { reason: "unsafe operation" }, { signal: controller.signal });
     assert.equal(approved.intervention.status, "approved");
     assert.equal(approved.events[0].seq, 1);
@@ -631,7 +670,7 @@ test("Intervention decisions use typed v2 SDK methods without changing response 
     "http://localhost/v2/sessions/session%2F1/interventions/turn%2F1/call%2F1/reject"
   ]);
   assert.deepEqual(requests.map((request) => JSON.parse(request.options.body)), [
-    { reason: "approved from app" },
+    { reason: "approved from app", response: { permission_rule_suggestion_id: "suggest-agent-123" } },
     { reason: "unsafe operation" }
   ]);
 });

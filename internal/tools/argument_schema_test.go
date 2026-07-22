@@ -46,9 +46,11 @@ func TestEditFileSchemaRequiresPathAndCompleteReplacement(t *testing.T) {
 		want      string
 	}{
 		{name: "canonical", arguments: `{"path":"note.txt","old_string":"old","new_string":"new"}`, valid: true},
+		{name: "multi edit", arguments: `{"path":"note.txt","edits":[{"old_string":"old","new_string":"new"},{"old_string":"left","new_string":"right"}]}`, valid: true},
 		{name: "noncanonical path field is rejected", arguments: `{"file_path":"note.txt","old_string":"old","new_string":"new"}`, want: "missing properties: 'path'"},
-		{name: "missing replacement fields", arguments: `{"path":"note.txt"}`, want: "missing properties: 'old_string', 'new_string'"},
+		{name: "missing replacement fields", arguments: `{"path":"note.txt"}`, want: "oneOf"},
 		{name: "missing path", arguments: `{"old_string":"old","new_string":"new"}`, want: "missing properties: 'path'"},
+		{name: "mixed edit forms", arguments: `{"path":"note.txt","old_string":"old","new_string":"new","edits":[{"old_string":"left","new_string":"right"}]}`, want: "oneOf"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			validationError := registry.ValidateCallArguments(Call{Identifier: DefaultIdentifier, APIName: "edit_file", Arguments: json.RawMessage(test.arguments)})
@@ -77,13 +79,13 @@ func TestEditFileModelSchemaExposesOnlyCanonicalFields(t *testing.T) {
 	if err := json.Unmarshal(api.Parameters, &schema); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"path", "old_string", "new_string", "replace_all"} {
+	for _, field := range []string{"path", "edits", "old_string", "new_string", "replace_all"} {
 		if _, ok := schema.Properties[field]; !ok {
 			t.Fatalf("edit_file schema is missing %s", field)
 		}
 	}
-	if len(schema.Properties) != 4 {
-		t.Fatalf("edit_file model schema must expose exactly four fields: %#v", schema.Properties)
+	if len(schema.Properties) != 5 {
+		t.Fatalf("edit_file model schema must expose exactly five fields: %#v", schema.Properties)
 	}
 	for _, hidden := range []string{"work_dir", "expected_revision", "expected_match_count", "file_path"} {
 		if _, ok := schema.Properties[hidden]; ok {

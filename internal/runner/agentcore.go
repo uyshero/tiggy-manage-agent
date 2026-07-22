@@ -130,7 +130,7 @@ func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
 			Gate: e.CoreCompletionGate, MaxRetries: agentruntime.CompletionGateMaxRetries(runtimeRequest.Config.RuntimeSettings),
 		},
 		Controls:   controlPort,
-		Durability: repository,
+		Durability: observability.InstrumentAgentCoreDurability(repository),
 		Live:       agentCoreLivePort{broker: e.LiveEvents, sessionID: request.SessionID, turnID: request.TurnID},
 		Clock:      agentCoreClock{},
 		IDs:        &agentCoreIDs{turnID: request.TurnID, attempt: request.Attempt},

@@ -8,13 +8,14 @@ export class InterventionsService extends ServiceBase {
     return this.transport.requestJSON<{ interventions: Intervention[] }>("GET", path, undefined, signal ? { signal } : {}).then((value) => value.interventions);
   }
 
-  decide(sessionId: string, turnId: string, callId: string, decision: "approve" | "reject", reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
+  decide(sessionId: string, turnId: string, callId: string, decision: "approve" | "reject", reason = "", signal?: AbortSignal, response?: unknown): Promise<InterventionDecision> {
     const path = resourcePath(`${sessionPath(sessionId)}/interventions`, turnId, callId) + `/${decision}`;
-    return this.transport.requestJSON("POST", path, { reason }, signal ? { signal } : {});
+    const body = response === undefined ? { reason } : { reason, response };
+    return this.transport.requestJSON("POST", path, body, signal ? { signal } : {});
   }
 
-  approve(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {
-    return this.decide(sessionId, turnId, callId, "approve", reason, signal);
+  approve(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal, response?: unknown): Promise<InterventionDecision> {
+    return this.decide(sessionId, turnId, callId, "approve", reason, signal, response);
   }
 
   reject(sessionId: string, turnId: string, callId: string, reason = "", signal?: AbortSignal): Promise<InterventionDecision> {

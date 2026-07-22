@@ -237,12 +237,29 @@ func TestPostgresAgentLoopRejectsStaleRevision(t *testing.T) {
 		t.Fatalf("initial commit: %v", err)
 	}
 	if _, err := durability.Commit(ctx, transition); !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("stale commit error = %v, want revision conflict", err)
+		t.Fatalf("stale initial commit error = %v, want revision conflict", err)
 	}
-	leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-new-worker")
 	next = committed.Clone()
 	next.ControlCursor = 1
-	if _, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: committed.Revision, Next: next}); !errors.Is(err, ErrLeaseLost) {
+	advanced, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: committed.Revision, Next: next})
+	if err != nil {
+		t.Fatalf("fast commit: %v", err)
+	}
+	if advanced.Revision != committed.Revision+1 || advanced.ControlCursor != 1 {
+		t.Fatalf("fast committed state = %+v", advanced)
+	}
+	if _, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: committed.Revision, Next: next}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale fast commit error = %v, want revision conflict", err)
+	}
+	invalid := advanced.Clone()
+	invalid.Phase = agentcore.PhaseExecutingTools
+	if _, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: advanced.Revision, Next: invalid}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid fast phase error = %v, want invalid", err)
+	}
+	leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-new-worker")
+	next = advanced.Clone()
+	next.ControlCursor = 2
+	if _, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: advanced.Revision, Next: next}); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("expired worker commit error = %v, want lease lost", err)
 	}
 }

@@ -114,6 +114,30 @@ func TestPermissionRulesRejectUnknownFields(t *testing.T) {
 	}
 }
 
+func TestSuggestedPermissionRulesUseParentDirectoryAndExplicitScopes(t *testing.T) {
+	t.Parallel()
+
+	suggestions := SuggestedPermissionRules(Call{
+		Name:      "default.edit_file",
+		Arguments: json.RawMessage(`{"path":"/workspace/src/config/app.go","old_string":"old","new_string":"new"}`),
+	})
+	if len(suggestions) != 2 {
+		t.Fatalf("suggestions = %+v", suggestions)
+	}
+	if suggestions[0].Scope != PermissionRuleSourceSession || suggestions[1].Scope != PermissionRuleSourceAgent {
+		t.Fatalf("suggestion scopes = %+v", suggestions)
+	}
+	for _, suggestion := range suggestions {
+		if suggestion.Rule.Tool != "default.edit_file" || suggestion.Rule.Argument != "path" ||
+			suggestion.Rule.Pattern != "/workspace/src/config/**" || suggestion.Rule.Behavior != PermissionRuleAllow || suggestion.Rule.ID == "" {
+			t.Fatalf("suggestion = %+v", suggestion)
+		}
+		if err := ValidatePermissionRules([]PermissionRule{suggestion.Rule}); err != nil {
+			t.Fatalf("suggested rule is invalid: %v", err)
+		}
+	}
+}
+
 func permissionRuleTestCall(filePath string) Call {
 	arguments, _ := json.Marshal(map[string]string{"path": filePath})
 	return Call{Identifier: NamespaceDefault, APIName: "edit_file", Arguments: arguments}
