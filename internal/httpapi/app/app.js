@@ -37430,36 +37430,6 @@ function resolvedSkillsByTurn(sourceEvents) {
   }
   return new Map([...byTurn].map(([turnID, skills2]) => [turnID, [...skills2.values()]]));
 }
-function isActivityEvent(event) {
-  return Boolean(event == null ? void 0 : event.type) && (event.type.startsWith("runtime.") || event.type.startsWith("session.status_"));
-}
-function activitySummary(event) {
-  const summary = activityView(event).detail || eventText(event);
-  return shortText(summary || event.type || "");
-}
-function compactActivityEvents(sourceEvents) {
-  const compacted = [];
-  const relevantEvents = (sourceEvents || []).filter((event) => isActivityEvent(event) || event.type === "agent.message");
-  relevantEvents.forEach((event) => {
-    const activity = activityView(event);
-    const previous2 = compacted[compacted.length - 1];
-    const signature = [activity.title, activity.detail, activity.kind].join("|");
-    if (previous2 && previous2.signature === signature && event.type === previous2.type) {
-      previous2.count += 1;
-      previous2.event = event;
-      previous2.activity = activity;
-      return;
-    }
-    compacted.push({
-      activity,
-      count: 1,
-      event,
-      signature,
-      type: event.type
-    });
-  });
-  return compacted.slice(-10).reverse();
-}
 function activityView(event) {
   var _a2, _b;
   const data = eventData(event);
@@ -38569,7 +38539,6 @@ function WorkbenchApp() {
   const [rollingBackAgentVersion, setRollingBackAgentVersion] = reactExports.useState(0);
   const [approvalsOpen, setApprovalsOpen] = reactExports.useState(false);
   const [visibleTaskCount, setVisibleTaskCount] = reactExports.useState(10);
-  const [rightPanelTab, setRightPanelTab] = reactExports.useState("results");
   const [taskTemplates$1, setTaskTemplates] = reactExports.useState([]);
   const [templatePickerOpen, setTemplatePickerOpen] = reactExports.useState(false);
   const [selectedTaskTemplateID, setSelectedTaskTemplateID] = reactExports.useState("");
@@ -38861,9 +38830,6 @@ function WorkbenchApp() {
     return sessionID ? "active" : "not started";
   }, [interventions$1.length, effectiveSessionStatus, sessionID]);
   const hasPendingApprovals = interventions$1.length > 0;
-  const activityEvents = reactExports.useMemo(() => {
-    return compactActivityEvents(events$1);
-  }, [events$1]);
   const filteredTaskSessions = reactExports.useMemo(() => {
     const query = taskSearch.trim().toLowerCase();
     const activeAgentID = String(agentID || (defaultAgentConfig == null ? void 0 : defaultAgentConfig.id) || "").trim();
@@ -41376,34 +41342,11 @@ function WorkbenchApp() {
               Panel,
               {
                 className: "right-tab-panel",
-                title: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "right-panel-tabs", role: "tablist", "aria-label": "右侧面板", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: rightPanelTab === "results" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "results", onClick: () => setRightPanelTab("results"), children: [
-                    "结果",
-                    resultFiles.length ? ` (${resultFiles.length})` : ""
-                  ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: rightPanelTab === "activity" ? "active" : "", type: "button", role: "tab", "aria-selected": rightPanelTab === "activity", onClick: () => setRightPanelTab("activity"), children: "执行" })
-                ] }),
-                children: rightPanelTab === "results" ? resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => {
+                title: `结果${resultFiles.length ? ` (${resultFiles.length})` : ""}`,
+                children: resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => {
                   setMobileResultsOpen(false);
                   previewArtifact(artifact).catch((error) => setStatus(error.message));
-                } }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list activity-list", role: "tabpanel", children: activityEvents.length ? activityEvents.map((item) => {
-                  const activity = item.activity;
-                  const event = item.event;
-                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `list-item activity-item ${activity.kind}`, children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "activity-head", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: activity.title }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(event.created_at) })
-                    ] }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
-                      activity.detail || activitySummary(event) || "暂无详情。",
-                      item.count > 1 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                        " · ",
-                        item.count,
-                        " 次更新"
-                      ] }) : null
-                    ] })
-                  ] }, `${event.seq}-${event.type}-${item.count}`);
-                }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有执行记录。" }) })
+                } }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" })
               }
             )
           ] }) : null

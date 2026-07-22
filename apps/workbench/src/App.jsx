@@ -4146,39 +4146,6 @@ function resolvedSkillsByTurn(sourceEvents) {
   return new Map([...byTurn].map(([turnID, skills]) => [turnID, [...skills.values()]]));
 }
 
-function isActivityEvent(event) {
-  return Boolean(event?.type) && (event.type.startsWith("runtime.") || event.type.startsWith("session.status_"));
-}
-
-function activitySummary(event) {
-  const summary = activityView(event).detail || eventText(event);
-  return shortText(summary || event.type || "");
-}
-
-function compactActivityEvents(sourceEvents) {
-  const compacted = [];
-  const relevantEvents = (sourceEvents || []).filter((event) => isActivityEvent(event) || event.type === "agent.message");
-  relevantEvents.forEach((event) => {
-    const activity = activityView(event);
-    const previous = compacted[compacted.length - 1];
-    const signature = [activity.title, activity.detail, activity.kind].join("|");
-    if (previous && previous.signature === signature && event.type === previous.type) {
-      previous.count += 1;
-      previous.event = event;
-      previous.activity = activity;
-      return;
-    }
-    compacted.push({
-      activity,
-      count: 1,
-      event,
-      signature,
-      type: event.type
-    });
-  });
-  return compacted.slice(-10).reverse();
-}
-
 function activityView(event) {
   const data = eventData(event);
   switch (event?.type) {
@@ -5443,7 +5410,6 @@ function WorkbenchApp() {
   const [rollingBackAgentVersion, setRollingBackAgentVersion] = useState(0);
   const [approvalsOpen, setApprovalsOpen] = useState(false);
   const [visibleTaskCount, setVisibleTaskCount] = useState(10);
-  const [rightPanelTab, setRightPanelTab] = useState("results");
   const [taskTemplates, setTaskTemplates] = useState([]);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [selectedTaskTemplateID, setSelectedTaskTemplateID] = useState("");
@@ -5760,9 +5726,6 @@ function WorkbenchApp() {
     return sessionID ? "active" : "not started";
   }, [interventions.length, effectiveSessionStatus, sessionID]);
   const hasPendingApprovals = interventions.length > 0;
-  const activityEvents = useMemo(() => {
-    return compactActivityEvents(events);
-  }, [events]);
   const filteredTaskSessions = useMemo(() => {
     const query = taskSearch.trim().toLowerCase();
     const activeAgentID = String(agentID || defaultAgentConfig?.id || "").trim();
@@ -8331,39 +8294,13 @@ function WorkbenchApp() {
           </div>
           <Panel
             className="right-tab-panel"
-            title={(
-              <div className="right-panel-tabs" role="tablist" aria-label="右侧面板">
-                <button className={rightPanelTab === "results" ? "active" : ""} type="button" role="tab" aria-selected={rightPanelTab === "results"} onClick={() => setRightPanelTab("results")}>结果{resultFiles.length ? ` (${resultFiles.length})` : ""}</button>
-                <button className={rightPanelTab === "activity" ? "active" : ""} type="button" role="tab" aria-selected={rightPanelTab === "activity"} onClick={() => setRightPanelTab("activity")}>执行</button>
-              </div>
-            )}
+            title={`结果${resultFiles.length ? ` (${resultFiles.length})` : ""}`}
           >
-            {rightPanelTab === "results" ? (
-              resultFiles.length ? (
-                <div className="artifact-tree" role="tree" aria-label="结果文件目录">
-                  <ArtifactTreeNode node={artifactTree} depth={0} selectedArtifactID={artifactPreview?.resource?.id || ""} onPreview={(artifact) => { setMobileResultsOpen(false); previewArtifact(artifact).catch((error) => setStatus(error.message)); }} />
-                </div>
-              ) : <Empty>还没有生成结果文件。</Empty>
-            ) : (
-              <div className="list activity-list" role="tabpanel">
-                {activityEvents.length ? activityEvents.map((item) => {
-                  const activity = item.activity;
-                  const event = item.event;
-                  return (
-                    <div className={`list-item activity-item ${activity.kind}`} key={`${event.seq}-${event.type}-${item.count}`}>
-                      <div className="activity-head">
-                        <strong>{activity.title}</strong>
-                        <span>{formatTime(event.created_at)}</span>
-                      </div>
-                      <div className="subtle">
-                        {activity.detail || activitySummary(event) || "暂无详情。"}
-                        {item.count > 1 ? <span> · {item.count} 次更新</span> : null}
-                      </div>
-                    </div>
-                  );
-                }) : <Empty>还没有执行记录。</Empty>}
+            {resultFiles.length ? (
+              <div className="artifact-tree" role="tree" aria-label="结果文件目录">
+                <ArtifactTreeNode node={artifactTree} depth={0} selectedArtifactID={artifactPreview?.resource?.id || ""} onPreview={(artifact) => { setMobileResultsOpen(false); previewArtifact(artifact).catch((error) => setStatus(error.message)); }} />
               </div>
-            )}
+            ) : <Empty>还没有生成结果文件。</Empty>}
           </Panel>
         </aside>
         ) : null}
