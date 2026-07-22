@@ -6,6 +6,126 @@ info:
 servers:
   - url: /
 paths:
+  /v2/achievement-library:
+    get:
+      operationId: get_v2_achievement_library
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AchievementLibraryList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/achievement-library/{item_id}:
+    delete:
+      operationId: delete_v2_achievement_library_by_item_id
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patch_v2_achievement_library_by_item_id
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAchievementLibraryItemRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AchievementLibraryItem"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/achievement-library/{item_id}/download:
+    get:
+      operationId: get_v2_achievement_library_by_item_id_download
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/BinaryContent"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/achievement-library/{item_id}/reference:
+    post:
+      operationId: post_v2_achievement_library_by_item_id_reference
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReferenceAchievementLibraryItemRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AchievementLibraryReference"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/agent/discussion-strategies:
     get:
       operationId: get_v2_agent_discussion_strategies
@@ -389,6 +509,12 @@ paths:
           schema: {type: string}
       responses:
         "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunAgentScheduleResponse"
+        "202":
           description: Successful response
           content:
             application/json:
@@ -1526,6 +1652,37 @@ paths:
       responses:
         "204":
           description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library:
+    post:
+      operationId: post_v2_sessions_by_session_id_artifacts_by_artifact_id_achievement_library
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAchievementLibraryItemRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AchievementLibraryItem"
         default:
           description: API error
           content:
@@ -4485,13 +4642,16 @@ components:
         created_at: {type: string, format: date-time}
     AgentSchedule:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, environment_id, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
+      required: [id, workspace_id, owner_id, agent_id, environment_id, session_mode, approval_mode, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
         agent_id: {type: string}
         environment_id: {type: string}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -4500,7 +4660,7 @@ components:
         next_run_at: {type: string, format: date-time, nullable: true}
         last_run_at: {type: string, format: date-time, nullable: true}
         last_session_id: {type: string}
-        last_run_status: {type: string, enum: [pending, dispatched, failed]}
+        last_run_status: {type: string, enum: [pending, waiting_session, dispatching, dispatched, failed]}
         last_error: {type: string}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
@@ -4515,6 +4675,9 @@ components:
       required: [name, prompt, cron_expression]
       properties:
         environment_id: {type: string}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -4528,13 +4691,17 @@ components:
         cron_expression: {type: string}
         timezone: {type: string}
         enabled: {type: boolean}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
     RunAgentScheduleResponse:
       type: object
-      required: [schedule, run_id, session]
+      required: [schedule, run_id, status]
       properties:
         schedule: {$ref: "#/components/schemas/AgentSchedule"}
         run_id: {type: string}
-        session: {$ref: "#/components/schemas/Session"}
+        status: {type: string, enum: [waiting_session, dispatched]}
+        session: {$ref: "#/components/schemas/Session", nullable: true}
     PortableAgentConfig:
       type: object
       required: [name, llm_provider, llm_model, system]
@@ -5256,6 +5423,56 @@ components:
       properties:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
+        workspace_path: {type: string}
+    AchievementLibraryItem:
+      type: object
+      required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        object_ref_id: {type: string}
+        source_session_id: {type: string}
+        source_artifact_id: {type: string}
+        name: {type: string, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AchievementLibraryList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/AchievementLibraryItem"}}
+    CreateAchievementLibraryItemRequest:
+      type: object
+      properties:
+        name: {type: string, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+    UpdateAchievementLibraryItemRequest:
+      type: object
+      required: [name]
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+    ReferenceAchievementLibraryItemRequest:
+      type: object
+      required: [session_id]
+      properties:
+        session_id: {type: string}
+    AchievementLibraryReference:
+      type: object
+      required: [item, artifact, object_ref, workspace_path]
+      properties:
+        item: {$ref: "#/components/schemas/AchievementLibraryItem"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
         workspace_path: {type: string}
     SubagentTaskGroup:
       type: object

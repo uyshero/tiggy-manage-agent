@@ -56,11 +56,25 @@ const (
 	AgentImportRequestSchemaVersionN1 AgentImportRequestSchemaVersion = 1
 )
 
+// Defines values for AgentScheduleApprovalMode.
+const (
+	AgentScheduleApprovalModeApproveForMe AgentScheduleApprovalMode = "approve_for_me"
+	AgentScheduleApprovalModeFullAccess   AgentScheduleApprovalMode = "full_access"
+)
+
 // Defines values for AgentScheduleLastRunStatus.
 const (
-	AgentScheduleLastRunStatusDispatched AgentScheduleLastRunStatus = "dispatched"
-	AgentScheduleLastRunStatusFailed     AgentScheduleLastRunStatus = "failed"
-	AgentScheduleLastRunStatusPending    AgentScheduleLastRunStatus = "pending"
+	AgentScheduleLastRunStatusDispatched     AgentScheduleLastRunStatus = "dispatched"
+	AgentScheduleLastRunStatusDispatching    AgentScheduleLastRunStatus = "dispatching"
+	AgentScheduleLastRunStatusFailed         AgentScheduleLastRunStatus = "failed"
+	AgentScheduleLastRunStatusPending        AgentScheduleLastRunStatus = "pending"
+	AgentScheduleLastRunStatusWaitingSession AgentScheduleLastRunStatus = "waiting_session"
+)
+
+// Defines values for AgentScheduleSessionMode.
+const (
+	AgentScheduleSessionModeExistingSession AgentScheduleSessionMode = "existing_session"
+	AgentScheduleSessionModeNewSession      AgentScheduleSessionMode = "new_session"
 )
 
 // Defines values for AuthClientConfigurationMode.
@@ -87,6 +101,18 @@ const (
 const (
 	CreateAgentRequestVisibilityPrivate   CreateAgentRequestVisibility = "private"
 	CreateAgentRequestVisibilityWorkspace CreateAgentRequestVisibility = "workspace"
+)
+
+// Defines values for CreateAgentScheduleRequestApprovalMode.
+const (
+	CreateAgentScheduleRequestApprovalModeApproveForMe CreateAgentScheduleRequestApprovalMode = "approve_for_me"
+	CreateAgentScheduleRequestApprovalModeFullAccess   CreateAgentScheduleRequestApprovalMode = "full_access"
+)
+
+// Defines values for CreateAgentScheduleRequestSessionMode.
+const (
+	CreateAgentScheduleRequestSessionModeExistingSession CreateAgentScheduleRequestSessionMode = "existing_session"
+	CreateAgentScheduleRequestSessionModeNewSession      CreateAgentScheduleRequestSessionMode = "new_session"
 )
 
 // Defines values for CreateMarketplacePolicyRequestScopeType.
@@ -471,6 +497,12 @@ const (
 	RunStatusWaitingHuman    RunStatus = "waiting_human"
 )
 
+// Defines values for RunAgentScheduleResponseStatus.
+const (
+	Dispatched     RunAgentScheduleResponseStatus = "dispatched"
+	WaitingSession RunAgentScheduleResponseStatus = "waiting_session"
+)
+
 // Defines values for SessionTaskItemStatus.
 const (
 	SessionTaskItemStatusBlocked    SessionTaskItemStatus = "blocked"
@@ -618,9 +650,9 @@ const (
 
 // Defines values for ToolPermissionAuditRecordInterventionMode.
 const (
-	ApproveForMe    ToolPermissionAuditRecordInterventionMode = "approve_for_me"
-	FullAccess      ToolPermissionAuditRecordInterventionMode = "full_access"
-	RequestApproval ToolPermissionAuditRecordInterventionMode = "request_approval"
+	ToolPermissionAuditRecordInterventionModeApproveForMe    ToolPermissionAuditRecordInterventionMode = "approve_for_me"
+	ToolPermissionAuditRecordInterventionModeFullAccess      ToolPermissionAuditRecordInterventionMode = "full_access"
+	ToolPermissionAuditRecordInterventionModeRequestApproval ToolPermissionAuditRecordInterventionMode = "request_approval"
 )
 
 // Defines values for ToolPermissionAuditRecordRuleSource.
@@ -628,6 +660,18 @@ const (
 	ToolPermissionAuditRecordRuleSourceAgent     ToolPermissionAuditRecordRuleSource = "agent"
 	ToolPermissionAuditRecordRuleSourceSession   ToolPermissionAuditRecordRuleSource = "session"
 	ToolPermissionAuditRecordRuleSourceWorkspace ToolPermissionAuditRecordRuleSource = "workspace"
+)
+
+// Defines values for UpdateAgentScheduleRequestApprovalMode.
+const (
+	UpdateAgentScheduleRequestApprovalModeApproveForMe UpdateAgentScheduleRequestApprovalMode = "approve_for_me"
+	UpdateAgentScheduleRequestApprovalModeFullAccess   UpdateAgentScheduleRequestApprovalMode = "full_access"
+)
+
+// Defines values for UpdateAgentScheduleRequestSessionMode.
+const (
+	ExistingSession UpdateAgentScheduleRequestSessionMode = "existing_session"
+	NewSession      UpdateAgentScheduleRequestSessionMode = "new_session"
 )
 
 // Defines values for UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy.
@@ -662,6 +706,35 @@ type APIError struct {
 	Message   string                  `json:"message"`
 	RequestId string                  `json:"request_id"`
 	Retryable bool                    `json:"retryable"`
+}
+
+// AchievementLibraryItem defines model for AchievementLibraryItem.
+type AchievementLibraryItem struct {
+	CreatedAt        time.Time `json:"created_at"`
+	CreatedBy        string    `json:"created_by"`
+	Description      *string   `json:"description,omitempty"`
+	Directory        *string   `json:"directory,omitempty"`
+	Id               string    `json:"id"`
+	Name             string    `json:"name"`
+	ObjectRefId      string    `json:"object_ref_id"`
+	SourceArtifactId *string   `json:"source_artifact_id,omitempty"`
+	SourceSessionId  *string   `json:"source_session_id,omitempty"`
+	Tags             []string  `json:"tags"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	WorkspaceId      string    `json:"workspace_id"`
+}
+
+// AchievementLibraryList defines model for AchievementLibraryList.
+type AchievementLibraryList struct {
+	Items []AchievementLibraryItem `json:"items"`
+}
+
+// AchievementLibraryReference defines model for AchievementLibraryReference.
+type AchievementLibraryReference struct {
+	Artifact      Artifact               `json:"artifact"`
+	Item          AchievementLibraryItem `json:"item"`
+	ObjectRef     ObjectRef              `json:"object_ref"`
+	WorkspacePath string                 `json:"workspace_path"`
 }
 
 // Agent defines model for Agent.
@@ -891,28 +964,37 @@ type AgentRuntimeConfig struct {
 
 // AgentSchedule defines model for AgentSchedule.
 type AgentSchedule struct {
-	AgentId        string                      `json:"agent_id"`
-	CreatedAt      time.Time                   `json:"created_at"`
-	CreatedBy      string                      `json:"created_by"`
-	CronExpression string                      `json:"cron_expression"`
-	Enabled        bool                        `json:"enabled"`
-	EnvironmentId  string                      `json:"environment_id"`
-	Id             string                      `json:"id"`
-	LastError      *string                     `json:"last_error,omitempty"`
-	LastRunAt      *time.Time                  `json:"last_run_at"`
-	LastRunStatus  *AgentScheduleLastRunStatus `json:"last_run_status,omitempty"`
-	LastSessionId  *string                     `json:"last_session_id,omitempty"`
-	Name           string                      `json:"name"`
-	NextRunAt      *time.Time                  `json:"next_run_at"`
-	OwnerId        string                      `json:"owner_id"`
-	Prompt         string                      `json:"prompt"`
-	Timezone       string                      `json:"timezone"`
-	UpdatedAt      time.Time                   `json:"updated_at"`
-	WorkspaceId    string                      `json:"workspace_id"`
+	AgentId         string                      `json:"agent_id"`
+	ApprovalMode    AgentScheduleApprovalMode   `json:"approval_mode"`
+	CreatedAt       time.Time                   `json:"created_at"`
+	CreatedBy       string                      `json:"created_by"`
+	CronExpression  string                      `json:"cron_expression"`
+	Enabled         bool                        `json:"enabled"`
+	EnvironmentId   string                      `json:"environment_id"`
+	Id              string                      `json:"id"`
+	LastError       *string                     `json:"last_error,omitempty"`
+	LastRunAt       *time.Time                  `json:"last_run_at"`
+	LastRunStatus   *AgentScheduleLastRunStatus `json:"last_run_status,omitempty"`
+	LastSessionId   *string                     `json:"last_session_id,omitempty"`
+	Name            string                      `json:"name"`
+	NextRunAt       *time.Time                  `json:"next_run_at"`
+	OwnerId         string                      `json:"owner_id"`
+	Prompt          string                      `json:"prompt"`
+	SessionMode     AgentScheduleSessionMode    `json:"session_mode"`
+	TargetSessionId *string                     `json:"target_session_id,omitempty"`
+	Timezone        string                      `json:"timezone"`
+	UpdatedAt       time.Time                   `json:"updated_at"`
+	WorkspaceId     string                      `json:"workspace_id"`
 }
+
+// AgentScheduleApprovalMode defines model for AgentSchedule.ApprovalMode.
+type AgentScheduleApprovalMode string
 
 // AgentScheduleLastRunStatus defines model for AgentSchedule.LastRunStatus.
 type AgentScheduleLastRunStatus string
+
+// AgentScheduleSessionMode defines model for AgentSchedule.SessionMode.
+type AgentScheduleSessionMode string
 
 // AgentScheduleList defines model for AgentScheduleList.
 type AgentScheduleList struct {
@@ -1126,6 +1208,14 @@ type CompletionGateRuntimeSettings struct {
 	MaxRetries *int32 `json:"max_retries,omitempty"`
 }
 
+// CreateAchievementLibraryItemRequest defines model for CreateAchievementLibraryItemRequest.
+type CreateAchievementLibraryItemRequest struct {
+	Description *string   `json:"description,omitempty"`
+	Directory   *string   `json:"directory,omitempty"`
+	Name        *string   `json:"name,omitempty"`
+	Tags        *[]string `json:"tags,omitempty"`
+}
+
 // CreateAgentConfigVersionRequest defines model for CreateAgentConfigVersionRequest.
 type CreateAgentConfigVersionRequest = UpdateAgentRequest
 
@@ -1158,13 +1248,22 @@ type CreateAgentRequestVisibility string
 
 // CreateAgentScheduleRequest defines model for CreateAgentScheduleRequest.
 type CreateAgentScheduleRequest struct {
-	CronExpression string  `json:"cron_expression"`
-	Enabled        *bool   `json:"enabled,omitempty"`
-	EnvironmentId  *string `json:"environment_id,omitempty"`
-	Name           string  `json:"name"`
-	Prompt         string  `json:"prompt"`
-	Timezone       *string `json:"timezone,omitempty"`
+	ApprovalMode    *CreateAgentScheduleRequestApprovalMode `json:"approval_mode,omitempty"`
+	CronExpression  string                                  `json:"cron_expression"`
+	Enabled         *bool                                   `json:"enabled,omitempty"`
+	EnvironmentId   *string                                 `json:"environment_id,omitempty"`
+	Name            string                                  `json:"name"`
+	Prompt          string                                  `json:"prompt"`
+	SessionMode     *CreateAgentScheduleRequestSessionMode  `json:"session_mode,omitempty"`
+	TargetSessionId *string                                 `json:"target_session_id,omitempty"`
+	Timezone        *string                                 `json:"timezone,omitempty"`
 }
+
+// CreateAgentScheduleRequestApprovalMode defines model for CreateAgentScheduleRequest.ApprovalMode.
+type CreateAgentScheduleRequestApprovalMode string
+
+// CreateAgentScheduleRequestSessionMode defines model for CreateAgentScheduleRequest.SessionMode.
+type CreateAgentScheduleRequestSessionMode string
 
 // CreateArtifactRequest defines model for CreateArtifactRequest.
 type CreateArtifactRequest struct {
@@ -2577,6 +2676,11 @@ type ReapedSubagent struct {
 	Session         Session `json:"session"`
 }
 
+// ReferenceAchievementLibraryItemRequest defines model for ReferenceAchievementLibraryItemRequest.
+type ReferenceAchievementLibraryItemRequest struct {
+	SessionId string `json:"session_id"`
+}
+
 // RenderedSkillsContext defines model for RenderedSkillsContext.
 type RenderedSkillsContext struct {
 	Content string                      `json:"content"`
@@ -2682,10 +2786,14 @@ type RunStatus string
 
 // RunAgentScheduleResponse defines model for RunAgentScheduleResponse.
 type RunAgentScheduleResponse struct {
-	RunId    string        `json:"run_id"`
-	Schedule AgentSchedule `json:"schedule"`
-	Session  Session       `json:"session"`
+	RunId    string                         `json:"run_id"`
+	Schedule AgentSchedule                  `json:"schedule"`
+	Session  *Session                       `json:"session,omitempty"`
+	Status   RunAgentScheduleResponseStatus `json:"status"`
 }
+
+// RunAgentScheduleResponseStatus defines model for RunAgentScheduleResponse.Status.
+type RunAgentScheduleResponseStatus string
 
 // RunList defines model for RunList.
 type RunList struct {
@@ -3658,6 +3766,15 @@ type TurnTraceStats struct {
 	ToolCalls        int32      `json:"tool_calls"`
 }
 
+// UpdateAchievementLibraryItemRequest defines model for UpdateAchievementLibraryItemRequest.
+type UpdateAchievementLibraryItemRequest struct {
+	Description *string   `json:"description,omitempty"`
+	Directory   *string   `json:"directory,omitempty"`
+	Name        string    `json:"name"`
+	Tags        *[]string `json:"tags,omitempty"`
+	WorkspaceId *string   `json:"workspace_id,omitempty"`
+}
+
 // UpdateAgentRequest defines model for UpdateAgentRequest.
 type UpdateAgentRequest struct {
 	LlmModel    *string                 `json:"llm_model,omitempty"`
@@ -3673,12 +3790,21 @@ type UpdateAgentRequest struct {
 
 // UpdateAgentScheduleRequest defines model for UpdateAgentScheduleRequest.
 type UpdateAgentScheduleRequest struct {
-	CronExpression *string `json:"cron_expression,omitempty"`
-	Enabled        *bool   `json:"enabled,omitempty"`
-	Name           *string `json:"name,omitempty"`
-	Prompt         *string `json:"prompt,omitempty"`
-	Timezone       *string `json:"timezone,omitempty"`
+	ApprovalMode    *UpdateAgentScheduleRequestApprovalMode `json:"approval_mode,omitempty"`
+	CronExpression  *string                                 `json:"cron_expression,omitempty"`
+	Enabled         *bool                                   `json:"enabled,omitempty"`
+	Name            *string                                 `json:"name,omitempty"`
+	Prompt          *string                                 `json:"prompt,omitempty"`
+	SessionMode     *UpdateAgentScheduleRequestSessionMode  `json:"session_mode,omitempty"`
+	TargetSessionId *string                                 `json:"target_session_id,omitempty"`
+	Timezone        *string                                 `json:"timezone,omitempty"`
 }
+
+// UpdateAgentScheduleRequestApprovalMode defines model for UpdateAgentScheduleRequest.ApprovalMode.
+type UpdateAgentScheduleRequestApprovalMode string
+
+// UpdateAgentScheduleRequestSessionMode defines model for UpdateAgentScheduleRequest.SessionMode.
+type UpdateAgentScheduleRequestSessionMode string
 
 // UpdateLLMProviderRequest defines model for UpdateLLMProviderRequest.
 type UpdateLLMProviderRequest struct {
@@ -3889,6 +4015,21 @@ type WorkspaceToolPermissionPolicy struct {
 	UpdatedAt       time.Time                 `json:"updated_at"`
 	UpdatedBy       string                    `json:"updated_by"`
 	WorkspaceId     string                    `json:"workspace_id"`
+}
+
+// GetV2AchievementLibraryParams defines parameters for GetV2AchievementLibrary.
+type GetV2AchievementLibraryParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
+// DeleteV2AchievementLibraryByItemIdParams defines parameters for DeleteV2AchievementLibraryByItemId.
+type DeleteV2AchievementLibraryByItemIdParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
+// GetV2AchievementLibraryByItemIdDownloadParams defines parameters for GetV2AchievementLibraryByItemIdDownload.
+type GetV2AchievementLibraryByItemIdDownloadParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 }
 
 // GetV2EnvironmentVariablesParams defines parameters for GetV2EnvironmentVariables.
@@ -4159,6 +4300,12 @@ type PutV2WorkspacesByWorkspaceIdToolPermissionsParams struct {
 	IfMatch string `json:"If-Match"`
 }
 
+// PatchV2AchievementLibraryByItemIdJSONRequestBody defines body for PatchV2AchievementLibraryByItemId for application/json ContentType.
+type PatchV2AchievementLibraryByItemIdJSONRequestBody = UpdateAchievementLibraryItemRequest
+
+// PostV2AchievementLibraryByItemIdReferenceJSONRequestBody defines body for PostV2AchievementLibraryByItemIdReference for application/json ContentType.
+type PostV2AchievementLibraryByItemIdReferenceJSONRequestBody = ReferenceAchievementLibraryItemRequest
+
 // PostV2AgentsJSONRequestBody defines body for PostV2Agents for application/json ContentType.
 type PostV2AgentsJSONRequestBody = CreateAgentRequest
 
@@ -4215,6 +4362,9 @@ type PostV2SessionsBySessionIdArtifactsJSONRequestBody = CreateArtifactRequest
 
 // PostV2SessionsBySessionIdArtifactsUploadMultipartRequestBody defines body for PostV2SessionsBySessionIdArtifactsUpload for multipart/form-data ContentType.
 type PostV2SessionsBySessionIdArtifactsUploadMultipartRequestBody = ArtifactUploadRequest
+
+// PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody defines body for PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary for application/json ContentType.
+type PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody = CreateAchievementLibraryItemRequest
 
 // PostV2SessionsBySessionIdConfigUpgradeJSONRequestBody defines body for PostV2SessionsBySessionIdConfigUpgrade for application/json ContentType.
 type PostV2SessionsBySessionIdConfigUpgradeJSONRequestBody = UpgradeSessionConfigRequest
@@ -4616,6 +4766,25 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// GetV2AchievementLibrary request
+	GetV2AchievementLibrary(ctx context.Context, params *GetV2AchievementLibraryParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2AchievementLibraryByItemId request
+	DeleteV2AchievementLibraryByItemId(ctx context.Context, itemId string, params *DeleteV2AchievementLibraryByItemIdParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchV2AchievementLibraryByItemIdWithBody request with any body
+	PatchV2AchievementLibraryByItemIdWithBody(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchV2AchievementLibraryByItemId(ctx context.Context, itemId string, body PatchV2AchievementLibraryByItemIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2AchievementLibraryByItemIdDownload request
+	GetV2AchievementLibraryByItemIdDownload(ctx context.Context, itemId string, params *GetV2AchievementLibraryByItemIdDownloadParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2AchievementLibraryByItemIdReferenceWithBody request with any body
+	PostV2AchievementLibraryByItemIdReferenceWithBody(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2AchievementLibraryByItemIdReference(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2AgentDiscussionStrategies request
 	GetV2AgentDiscussionStrategies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4858,6 +5027,11 @@ type ClientInterface interface {
 
 	// DeleteV2SessionsBySessionIdArtifactsByArtifactId request
 	DeleteV2SessionsBySessionIdArtifactsByArtifactId(ctx context.Context, sessionId string, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBody request with any body
+	PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBody(ctx context.Context, sessionId string, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary(ctx context.Context, sessionId string, artifactId string, body PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionsBySessionIdArtifactsByArtifactIdDownload request
 	GetV2SessionsBySessionIdArtifactsByArtifactIdDownload(ctx context.Context, sessionId string, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5276,6 +5450,90 @@ type ClientInterface interface {
 	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithBody(ctx context.Context, workspaceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) GetV2AchievementLibrary(ctx context.Context, params *GetV2AchievementLibraryParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AchievementLibraryRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2AchievementLibraryByItemId(ctx context.Context, itemId string, params *DeleteV2AchievementLibraryByItemIdParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2AchievementLibraryByItemIdRequest(c.Server, itemId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2AchievementLibraryByItemIdWithBody(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2AchievementLibraryByItemIdRequestWithBody(c.Server, itemId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2AchievementLibraryByItemId(ctx context.Context, itemId string, body PatchV2AchievementLibraryByItemIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2AchievementLibraryByItemIdRequest(c.Server, itemId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2AchievementLibraryByItemIdDownload(ctx context.Context, itemId string, params *GetV2AchievementLibraryByItemIdDownloadParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AchievementLibraryByItemIdDownloadRequest(c.Server, itemId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AchievementLibraryByItemIdReferenceWithBody(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AchievementLibraryByItemIdReferenceRequestWithBody(c.Server, itemId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AchievementLibraryByItemIdReference(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AchievementLibraryByItemIdReferenceRequest(c.Server, itemId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) GetV2AgentDiscussionStrategies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -6312,6 +6570,30 @@ func (c *Client) PostV2SessionsBySessionIdArtifactsUploadWithBody(ctx context.Co
 
 func (c *Client) DeleteV2SessionsBySessionIdArtifactsByArtifactId(ctx context.Context, sessionId string, artifactId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteV2SessionsBySessionIdArtifactsByArtifactIdRequest(c.Server, sessionId, artifactId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBody(ctx context.Context, sessionId string, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequestWithBody(c.Server, sessionId, artifactId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary(ctx context.Context, sessionId string, artifactId string, body PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequest(c.Server, sessionId, artifactId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -8180,6 +8462,261 @@ func (c *Client) PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluate(ctx contex
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewGetV2AchievementLibraryRequest generates requests for GetV2AchievementLibrary
+func NewGetV2AchievementLibraryRequest(server string, params *GetV2AchievementLibraryParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/achievement-library")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteV2AchievementLibraryByItemIdRequest generates requests for DeleteV2AchievementLibraryByItemId
+func NewDeleteV2AchievementLibraryByItemIdRequest(server string, itemId string, params *DeleteV2AchievementLibraryByItemIdParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "item_id", runtime.ParamLocationPath, itemId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/achievement-library/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPatchV2AchievementLibraryByItemIdRequest calls the generic PatchV2AchievementLibraryByItemId builder with application/json body
+func NewPatchV2AchievementLibraryByItemIdRequest(server string, itemId string, body PatchV2AchievementLibraryByItemIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchV2AchievementLibraryByItemIdRequestWithBody(server, itemId, "application/json", bodyReader)
+}
+
+// NewPatchV2AchievementLibraryByItemIdRequestWithBody generates requests for PatchV2AchievementLibraryByItemId with any type of body
+func NewPatchV2AchievementLibraryByItemIdRequestWithBody(server string, itemId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "item_id", runtime.ParamLocationPath, itemId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/achievement-library/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2AchievementLibraryByItemIdDownloadRequest generates requests for GetV2AchievementLibraryByItemIdDownload
+func NewGetV2AchievementLibraryByItemIdDownloadRequest(server string, itemId string, params *GetV2AchievementLibraryByItemIdDownloadParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "item_id", runtime.ParamLocationPath, itemId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/achievement-library/%s/download", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2AchievementLibraryByItemIdReferenceRequest calls the generic PostV2AchievementLibraryByItemIdReference builder with application/json body
+func NewPostV2AchievementLibraryByItemIdReferenceRequest(server string, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2AchievementLibraryByItemIdReferenceRequestWithBody(server, itemId, "application/json", bodyReader)
+}
+
+// NewPostV2AchievementLibraryByItemIdReferenceRequestWithBody generates requests for PostV2AchievementLibraryByItemIdReference with any type of body
+func NewPostV2AchievementLibraryByItemIdReferenceRequestWithBody(server string, itemId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "item_id", runtime.ParamLocationPath, itemId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/achievement-library/%s/reference", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewGetV2AgentDiscussionStrategiesRequest generates requests for GetV2AgentDiscussionStrategies
@@ -11017,6 +11554,60 @@ func NewDeleteV2SessionsBySessionIdArtifactsByArtifactIdRequest(server string, s
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequest calls the generic PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary builder with application/json body
+func NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequest(server string, sessionId string, artifactId string, body PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequestWithBody(server, sessionId, artifactId, "application/json", bodyReader)
+}
+
+// NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequestWithBody generates requests for PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary with any type of body
+func NewPostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryRequestWithBody(server string, sessionId string, artifactId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "artifact_id", runtime.ParamLocationPath, artifactId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/artifacts/%s/achievement-library", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -16527,6 +17118,25 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// GetV2AchievementLibraryWithResponse request
+	GetV2AchievementLibraryWithResponse(ctx context.Context, params *GetV2AchievementLibraryParams, reqEditors ...RequestEditorFn) (*GetV2AchievementLibraryResponse, error)
+
+	// DeleteV2AchievementLibraryByItemIdWithResponse request
+	DeleteV2AchievementLibraryByItemIdWithResponse(ctx context.Context, itemId string, params *DeleteV2AchievementLibraryByItemIdParams, reqEditors ...RequestEditorFn) (*DeleteV2AchievementLibraryByItemIdResponse, error)
+
+	// PatchV2AchievementLibraryByItemIdWithBodyWithResponse request with any body
+	PatchV2AchievementLibraryByItemIdWithBodyWithResponse(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2AchievementLibraryByItemIdResponse, error)
+
+	PatchV2AchievementLibraryByItemIdWithResponse(ctx context.Context, itemId string, body PatchV2AchievementLibraryByItemIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2AchievementLibraryByItemIdResponse, error)
+
+	// GetV2AchievementLibraryByItemIdDownloadWithResponse request
+	GetV2AchievementLibraryByItemIdDownloadWithResponse(ctx context.Context, itemId string, params *GetV2AchievementLibraryByItemIdDownloadParams, reqEditors ...RequestEditorFn) (*GetV2AchievementLibraryByItemIdDownloadResponse, error)
+
+	// PostV2AchievementLibraryByItemIdReferenceWithBodyWithResponse request with any body
+	PostV2AchievementLibraryByItemIdReferenceWithBodyWithResponse(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AchievementLibraryByItemIdReferenceResponse, error)
+
+	PostV2AchievementLibraryByItemIdReferenceWithResponse(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AchievementLibraryByItemIdReferenceResponse, error)
+
 	// GetV2AgentDiscussionStrategiesWithResponse request
 	GetV2AgentDiscussionStrategiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentDiscussionStrategiesResponse, error)
 
@@ -16769,6 +17379,11 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteV2SessionsBySessionIdArtifactsByArtifactIdWithResponse request
 	DeleteV2SessionsBySessionIdArtifactsByArtifactIdWithResponse(ctx context.Context, sessionId string, artifactId string, reqEditors ...RequestEditorFn) (*DeleteV2SessionsBySessionIdArtifactsByArtifactIdResponse, error)
+
+	// PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBodyWithResponse request with any body
+	PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBodyWithResponse(ctx context.Context, sessionId string, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse, error)
+
+	PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithResponse(ctx context.Context, sessionId string, artifactId string, body PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse, error)
 
 	// GetV2SessionsBySessionIdArtifactsByArtifactIdDownloadWithResponse request
 	GetV2SessionsBySessionIdArtifactsByArtifactIdDownloadWithResponse(ctx context.Context, sessionId string, artifactId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdArtifactsByArtifactIdDownloadResponse, error)
@@ -17189,6 +17804,119 @@ type ClientWithResponsesInterface interface {
 	PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateWithResponse(ctx context.Context, workspaceId string, body PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse, error)
 }
 
+type GetV2AchievementLibraryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AchievementLibraryList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2AchievementLibraryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2AchievementLibraryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2AchievementLibraryByItemIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2AchievementLibraryByItemIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2AchievementLibraryByItemIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchV2AchievementLibraryByItemIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AchievementLibraryItem
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchV2AchievementLibraryByItemIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchV2AchievementLibraryByItemIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2AchievementLibraryByItemIdDownloadResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2AchievementLibraryByItemIdDownloadResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2AchievementLibraryByItemIdDownloadResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2AchievementLibraryByItemIdReferenceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *AchievementLibraryReference
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2AchievementLibraryByItemIdReferenceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2AchievementLibraryByItemIdReferenceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2AgentDiscussionStrategiesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -17583,6 +18311,7 @@ type PostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON201      *RunAgentScheduleResponse
+	JSON202      *RunAgentScheduleResponse
 	JSONDefault  *ErrorEnvelope
 }
 
@@ -18763,6 +19492,29 @@ func (r DeleteV2SessionsBySessionIdArtifactsByArtifactIdResponse) Status() strin
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r DeleteV2SessionsBySessionIdArtifactsByArtifactIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *AchievementLibraryItem
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -21252,6 +22004,67 @@ func (r PostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse) StatusCode
 	return 0
 }
 
+// GetV2AchievementLibraryWithResponse request returning *GetV2AchievementLibraryResponse
+func (c *ClientWithResponses) GetV2AchievementLibraryWithResponse(ctx context.Context, params *GetV2AchievementLibraryParams, reqEditors ...RequestEditorFn) (*GetV2AchievementLibraryResponse, error) {
+	rsp, err := c.GetV2AchievementLibrary(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2AchievementLibraryResponse(rsp)
+}
+
+// DeleteV2AchievementLibraryByItemIdWithResponse request returning *DeleteV2AchievementLibraryByItemIdResponse
+func (c *ClientWithResponses) DeleteV2AchievementLibraryByItemIdWithResponse(ctx context.Context, itemId string, params *DeleteV2AchievementLibraryByItemIdParams, reqEditors ...RequestEditorFn) (*DeleteV2AchievementLibraryByItemIdResponse, error) {
+	rsp, err := c.DeleteV2AchievementLibraryByItemId(ctx, itemId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2AchievementLibraryByItemIdResponse(rsp)
+}
+
+// PatchV2AchievementLibraryByItemIdWithBodyWithResponse request with arbitrary body returning *PatchV2AchievementLibraryByItemIdResponse
+func (c *ClientWithResponses) PatchV2AchievementLibraryByItemIdWithBodyWithResponse(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2AchievementLibraryByItemIdResponse, error) {
+	rsp, err := c.PatchV2AchievementLibraryByItemIdWithBody(ctx, itemId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2AchievementLibraryByItemIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchV2AchievementLibraryByItemIdWithResponse(ctx context.Context, itemId string, body PatchV2AchievementLibraryByItemIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2AchievementLibraryByItemIdResponse, error) {
+	rsp, err := c.PatchV2AchievementLibraryByItemId(ctx, itemId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2AchievementLibraryByItemIdResponse(rsp)
+}
+
+// GetV2AchievementLibraryByItemIdDownloadWithResponse request returning *GetV2AchievementLibraryByItemIdDownloadResponse
+func (c *ClientWithResponses) GetV2AchievementLibraryByItemIdDownloadWithResponse(ctx context.Context, itemId string, params *GetV2AchievementLibraryByItemIdDownloadParams, reqEditors ...RequestEditorFn) (*GetV2AchievementLibraryByItemIdDownloadResponse, error) {
+	rsp, err := c.GetV2AchievementLibraryByItemIdDownload(ctx, itemId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2AchievementLibraryByItemIdDownloadResponse(rsp)
+}
+
+// PostV2AchievementLibraryByItemIdReferenceWithBodyWithResponse request with arbitrary body returning *PostV2AchievementLibraryByItemIdReferenceResponse
+func (c *ClientWithResponses) PostV2AchievementLibraryByItemIdReferenceWithBodyWithResponse(ctx context.Context, itemId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AchievementLibraryByItemIdReferenceResponse, error) {
+	rsp, err := c.PostV2AchievementLibraryByItemIdReferenceWithBody(ctx, itemId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AchievementLibraryByItemIdReferenceResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2AchievementLibraryByItemIdReferenceWithResponse(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AchievementLibraryByItemIdReferenceResponse, error) {
+	rsp, err := c.PostV2AchievementLibraryByItemIdReference(ctx, itemId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AchievementLibraryByItemIdReferenceResponse(rsp)
+}
+
 // GetV2AgentDiscussionStrategiesWithResponse request returning *GetV2AgentDiscussionStrategiesResponse
 func (c *ClientWithResponses) GetV2AgentDiscussionStrategiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentDiscussionStrategiesResponse, error) {
 	rsp, err := c.GetV2AgentDiscussionStrategies(ctx, reqEditors...)
@@ -22015,6 +22828,23 @@ func (c *ClientWithResponses) DeleteV2SessionsBySessionIdArtifactsByArtifactIdWi
 		return nil, err
 	}
 	return ParseDeleteV2SessionsBySessionIdArtifactsByArtifactIdResponse(rsp)
+}
+
+// PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBodyWithResponse request with arbitrary body returning *PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse
+func (c *ClientWithResponses) PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBodyWithResponse(ctx context.Context, sessionId string, artifactId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithBody(ctx, sessionId, artifactId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithResponse(ctx context.Context, sessionId string, artifactId string, body PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse, error) {
+	rsp, err := c.PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibrary(ctx, sessionId, artifactId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse(rsp)
 }
 
 // GetV2SessionsBySessionIdArtifactsByArtifactIdDownloadWithResponse request returning *GetV2SessionsBySessionIdArtifactsByArtifactIdDownloadResponse
@@ -23365,6 +24195,157 @@ func (c *ClientWithResponses) PostV2WorkspacesByWorkspaceIdToolPermissionsEvalua
 	return ParsePostV2WorkspacesByWorkspaceIdToolPermissionsEvaluateResponse(rsp)
 }
 
+// ParseGetV2AchievementLibraryResponse parses an HTTP response from a GetV2AchievementLibraryWithResponse call
+func ParseGetV2AchievementLibraryResponse(rsp *http.Response) (*GetV2AchievementLibraryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2AchievementLibraryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AchievementLibraryList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2AchievementLibraryByItemIdResponse parses an HTTP response from a DeleteV2AchievementLibraryByItemIdWithResponse call
+func ParseDeleteV2AchievementLibraryByItemIdResponse(rsp *http.Response) (*DeleteV2AchievementLibraryByItemIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2AchievementLibraryByItemIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchV2AchievementLibraryByItemIdResponse parses an HTTP response from a PatchV2AchievementLibraryByItemIdWithResponse call
+func ParsePatchV2AchievementLibraryByItemIdResponse(rsp *http.Response) (*PatchV2AchievementLibraryByItemIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchV2AchievementLibraryByItemIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AchievementLibraryItem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2AchievementLibraryByItemIdDownloadResponse parses an HTTP response from a GetV2AchievementLibraryByItemIdDownloadWithResponse call
+func ParseGetV2AchievementLibraryByItemIdDownloadResponse(rsp *http.Response) (*GetV2AchievementLibraryByItemIdDownloadResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2AchievementLibraryByItemIdDownloadResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2AchievementLibraryByItemIdReferenceResponse parses an HTTP response from a PostV2AchievementLibraryByItemIdReferenceWithResponse call
+func ParsePostV2AchievementLibraryByItemIdReferenceResponse(rsp *http.Response) (*PostV2AchievementLibraryByItemIdReferenceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2AchievementLibraryByItemIdReferenceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest AchievementLibraryReference
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2AgentDiscussionStrategiesResponse parses an HTTP response from a GetV2AgentDiscussionStrategiesWithResponse call
 func ParseGetV2AgentDiscussionStrategiesResponse(rsp *http.Response) (*GetV2AgentDiscussionStrategiesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -23939,6 +24920,13 @@ func ParsePostV2AgentsByAgentIdSchedulesByScheduleIdRunResponse(rsp *http.Respon
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest RunAgentScheduleResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -25581,6 +26569,39 @@ func ParseDeleteV2SessionsBySessionIdArtifactsByArtifactIdResponse(rsp *http.Res
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse parses an HTTP response from a PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryWithResponse call
+func ParsePostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse(rsp *http.Response) (*PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2SessionsBySessionIdArtifactsByArtifactIdAchievementLibraryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest AchievementLibraryItem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

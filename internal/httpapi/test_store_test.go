@@ -30,6 +30,7 @@ type testStore struct {
 	nextEventID         int64
 	nextObjectID        int64
 	nextArtifactID      int64
+	nextAchievementID   int64
 	nextWorkerID        int64
 	nextWorkID          int64
 	nextExporterRunID   int64
@@ -60,6 +61,7 @@ type testStore struct {
 	traceSpanIndexes          map[string][]managedagents.TraceSpanIndexEntry
 	objectRefs                map[string]managedagents.ObjectRef
 	sessionArtifacts          map[string][]managedagents.SessionArtifact
+	achievementLibrary        map[string]managedagents.AchievementLibraryItem
 	workers                   map[string]managedagents.Worker
 	workerWork                map[string]managedagents.WorkerWork
 	subscribers               map[string]map[chan struct{}]struct{}
@@ -82,6 +84,8 @@ type testStore struct {
 	mcpRegistryVersions       map[string][]mcpregistry.Version
 	runIdempotency            map[string]map[string]testRunIdempotency
 	agentSchedules            map[string]managedagents.AgentSchedule
+	agentScheduleRuns         map[string]managedagents.AgentScheduleInvocation
+	agentScheduleRunStatuses  map[string]string
 	workspaceToolPolicies     map[string]managedagents.WorkspaceToolPermissionPolicy
 }
 
@@ -106,6 +110,7 @@ func newTestStore() *testStore {
 		traceSpanIndexes:          make(map[string][]managedagents.TraceSpanIndexEntry),
 		objectRefs:                make(map[string]managedagents.ObjectRef),
 		sessionArtifacts:          make(map[string][]managedagents.SessionArtifact),
+		achievementLibrary:        make(map[string]managedagents.AchievementLibraryItem),
 		workers:                   make(map[string]managedagents.Worker),
 		workerWork:                make(map[string]managedagents.WorkerWork),
 		subscribers:               make(map[string]map[chan struct{}]struct{}),
@@ -126,6 +131,8 @@ func newTestStore() *testStore {
 		mcpRegistryVersions:       make(map[string][]mcpregistry.Version),
 		runIdempotency:            make(map[string]map[string]testRunIdempotency),
 		agentSchedules:            make(map[string]managedagents.AgentSchedule),
+		agentScheduleRuns:         make(map[string]managedagents.AgentScheduleInvocation),
+		agentScheduleRunStatuses:  make(map[string]string),
 		workspaceToolPolicies:     make(map[string]managedagents.WorkspaceToolPermissionPolicy),
 	}
 	now := time.Now().UTC()
@@ -3362,6 +3369,11 @@ func (s *testStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, e
 			}
 		}
 	}
+	for _, item := range s.achievementLibrary {
+		if item.ObjectRefID == objectRefID {
+			count++
+		}
+	}
 	return count, nil
 }
 
@@ -3480,6 +3492,85 @@ func (s *testStore) ListSessionArtifacts(sessionID string) ([]managedagents.Sess
 		return artifacts[i].CreatedAt.Before(artifacts[j].CreatedAt)
 	})
 	return artifacts, nil
+}
+
+func (s *testStore) CreateAchievementLibraryItemContext(_ context.Context, input managedagents.CreateAchievementLibraryItemInput) (managedagents.AchievementLibraryItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	object, ok := s.objectRefs[input.ObjectRefID]
+	if !ok {
+		return managedagents.AchievementLibraryItem{}, managedagents.ErrNotFound
+	}
+	workspaceID := input.WorkspaceID
+	if workspaceID == "" {
+		workspaceID = object.WorkspaceID
+	}
+	if workspaceID != object.WorkspaceID || strings.TrimSpace(input.Name) == "" {
+		return managedagents.AchievementLibraryItem{}, managedagents.ErrInvalid
+	}
+	s.nextAchievementID++
+	now := time.Now().UTC()
+	item := managedagents.AchievementLibraryItem{
+		ID: fmt.Sprintf("ach_%06d", s.nextAchievementID), WorkspaceID: workspaceID, ObjectRefID: input.ObjectRefID,
+		SourceSessionID: input.SourceSessionID, SourceArtifactID: input.SourceArtifactID,
+		Name: strings.TrimSpace(input.Name), Description: strings.TrimSpace(input.Description), Directory: strings.Trim(strings.TrimSpace(input.Directory), "/"),
+		Tags: append([]string(nil), input.Tags...), CreatedBy: input.CreatedBy, CreatedAt: now, UpdatedAt: now,
+	}
+	s.achievementLibrary[item.ID] = item
+	return item, nil
+}
+
+func (s *testStore) GetAchievementLibraryItemContext(_ context.Context, workspaceID, id string) (managedagents.AchievementLibraryItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.achievementLibrary[id]
+	if !ok || workspaceID != "" && item.WorkspaceID != workspaceID {
+		return managedagents.AchievementLibraryItem{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) ListAchievementLibraryItemsContext(_ context.Context, workspaceID string) ([]managedagents.AchievementLibraryItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := []managedagents.AchievementLibraryItem{}
+	for _, item := range s.achievementLibrary {
+		if workspaceID == "" || item.WorkspaceID == workspaceID {
+			items = append(items, item)
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	return items, nil
+}
+
+func (s *testStore) UpdateAchievementLibraryItemContext(_ context.Context, id string, input managedagents.UpdateAchievementLibraryItemInput) (managedagents.AchievementLibraryItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.achievementLibrary[id]
+	if !ok || input.WorkspaceID != "" && item.WorkspaceID != input.WorkspaceID {
+		return managedagents.AchievementLibraryItem{}, managedagents.ErrNotFound
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return managedagents.AchievementLibraryItem{}, managedagents.ErrInvalid
+	}
+	item.Name = strings.TrimSpace(input.Name)
+	item.Description = strings.TrimSpace(input.Description)
+	item.Directory = strings.Trim(strings.TrimSpace(input.Directory), "/")
+	item.Tags = append([]string(nil), input.Tags...)
+	item.UpdatedAt = time.Now().UTC()
+	s.achievementLibrary[id] = item
+	return item, nil
+}
+
+func (s *testStore) DeleteAchievementLibraryItemContext(_ context.Context, workspaceID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.achievementLibrary[id]
+	if !ok || workspaceID != "" && item.WorkspaceID != workspaceID {
+		return managedagents.ErrNotFound
+	}
+	delete(s.achievementLibrary, id)
+	return nil
 }
 
 func (s *testStore) RegisterWorker(input managedagents.RegisterWorkerInput) (managedagents.Worker, error) {

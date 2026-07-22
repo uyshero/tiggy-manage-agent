@@ -76,154 +76,160 @@ func traceSpanCatalogParameters() []contractParameter {
 }
 
 var coreContracts = map[string]routeContract{
-	"get /v2/agent/discussion-strategies":                                      {ResponseSchema: "AgentDiscussionStrategyList"},
-	"get /v2/agent/task-group-templates":                                       {ResponseSchema: "AgentTaskGroupTemplateList"},
-	"get /v2/agents/default":                                                   {ResponseSchema: "Agent"},
-	"post /v2/agents/import":                                                   {RequestSchema: "AgentImportRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"post /v2/agents":                                                          {RequestSchema: "CreateAgentRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"get /v2/agents":                                                           {ResponseSchema: "AgentList"},
-	"get /v2/agents/{agent_id}":                                                {ResponseSchema: "Agent"},
-	"patch /v2/agents/{agent_id}":                                              {RequestSchema: "UpdateAgentRequest", RequestRequired: true, ResponseSchema: "Agent"},
-	"get /v2/agents/{agent_id}/config-versions":                                {ResponseSchema: "AgentConfigVersionList"},
-	"post /v2/agents/{agent_id}/config-versions":                               {RequestSchema: "CreateAgentConfigVersionRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"post /v2/agents/{agent_id}/config-versions/{version}/rollback":            {ResponseSchema: "AgentConfigRollbackResponse", SuccessStatuses: []string{"201"}, IntegerPathParameters: map[string]bool{"version": true}},
-	"get /v2/agents/{agent_id}/export":                                         {ResponseSchema: "AgentExportDocument"},
-	"post /v2/agents/{agent_id}/tooling-health":                                {RequestSchema: "ToolingHealthRequest", ResponseSchema: "ToolingHealthResponse"},
-	"get /v2/agents/{agent_id}/schedules":                                      {ResponseSchema: "AgentScheduleList"},
-	"post /v2/agents/{agent_id}/schedules":                                     {RequestSchema: "CreateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule", SuccessStatuses: []string{"201"}},
-	"get /v2/agents/{agent_id}/schedules/{schedule_id}":                        {ResponseSchema: "AgentSchedule"},
-	"patch /v2/agents/{agent_id}/schedules/{schedule_id}":                      {RequestSchema: "UpdateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule"},
-	"delete /v2/agents/{agent_id}/schedules/{schedule_id}":                     {SuccessStatuses: []string{"204"}},
-	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                   {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201"}},
-	"get /v2/auth/config":                                                      {ResponseSchema: "AuthClientConfiguration"},
-	"get /v2/auth/me":                                                          {ResponseSchema: "AuthState"},
-	"get /v2/environment-variables":                                            {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"put /v2/environment-variables/{name}":                                     {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"delete /v2/environment-variables/{name}":                                  {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/workspaces/{workspace_id}/tool-permissions":                       {ResponseSchema: "WorkspaceToolPermissionPolicy"},
-	"put /v2/workspaces/{workspace_id}/tool-permissions":                       {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":             {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
-	"post /v2/environments":                                                    {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
-	"get /v2/llm-providers":                                                    {ResponseSchema: "LLMProviderList"},
-	"post /v2/llm-providers":                                                   {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
-	"get /v2/llm-providers/{provider_id}":                                      {ResponseSchema: "LLMProvider"},
-	"patch /v2/llm-providers/{provider_id}":                                    {RequestSchema: "UpdateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/enable":                              {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/disable":                             {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/test":                                {ResponseSchema: "LLMDiagnosticResult"},
-	"delete /v2/llm-providers/{provider_id}":                                   {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/llm-models":                                                       {ResponseSchema: "LLMModelList", Parameters: []contractParameter{{Name: "provider_id", In: "query"}}},
-	"post /v2/llm-models":                                                      {RequestSchema: "PutLLMModelRequest", RequestRequired: true, ResponseSchema: "LLMModel", SuccessStatuses: []string{"200", "201"}, Parameters: []contractParameter{optionalIfMatchParameter, ifNoneMatchParameter}},
-	"post /v2/llm-models/{provider_id}/{model}/test":                           {ResponseSchema: "LLMDiagnosticResult"},
-	"delete /v2/llm-models/{provider_id}/{model}":                              {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/llm-usage":                                                        {ResponseSchema: "LLMUsageAggregateReport"},
-	"get /v2/mcp-servers":                                                      {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/mcp-servers":                                                     {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
-	"get /v2/mcp-servers/runtime-status":                                       {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/mcp-servers/{server_id}":                                          {ResponseSchema: "MCPServer"},
-	"patch /v2/mcp-servers/{server_id}":                                        {RequestSchema: "UpdateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer"},
-	"delete /v2/mcp-servers/{server_id}":                                       {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/enable":                                  {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/disable":                                 {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/test":                                    {ResponseSchema: "MCPServerTestResult"},
-	"get /v2/mcp-servers/{server_id}/versions":                                 {ResponseSchema: "MCPServerVersionList"},
-	"post /v2/mcp-servers/{server_id}/versions/{version}/restore":              {ResponseSchema: "MCPRestoreResult", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/object-refs":                                                     {RequestSchema: "CreateObjectRefRequest", RequestRequired: true, ResponseSchema: "ObjectRef", SuccessStatuses: []string{"201"}},
-	"get /v2/object-refs/{object_ref_id}":                                      {ResponseSchema: "ObjectRef"},
-	"delete /v2/object-refs/{object_ref_id}":                                   {SuccessStatuses: []string{"204"}},
-	"get /v2/object-refs/{object_ref_id}/download":                             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "session_id", In: "query"}}},
-	"get /v2/observability/status":                                             {ResponseSchema: "ObservabilityStatus"},
-	"post /v2/observability/retry":                                             {ResponseSchema: "ObservabilityRetryResult"},
-	"get /v2/observability/security-audit/integrity-keys":                      {ResponseSchema: "SecurityAuditIntegrityKeyStatus"},
-	"post /v2/observability/security-audit/replay":                             {ResponseSchema: "SecurityAuditReplayResult", Parameters: []contractParameter{{Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/operator-audit":                                                   {ResponseSchema: "OperatorAuditList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "session_id", In: "query"}, {Name: "principal_id", In: "query"}, {Name: "action", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills":                                                          {RequestSchema: "CreateSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
-	"get /v2/skills":                                                           {ResponseSchema: "SkillList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"get /v2/skills/marketplace/discover":                                      {ResponseSchema: "MarketplaceDiscoverResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "repository", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills/marketplace/preview":                                      {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
-	"post /v2/skills/marketplace/install":                                      {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/marketplace/internal":                                      {ResponseSchema: "MarketplaceInternalResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "category", In: "query"}, {Name: "tag", In: "query", Array: true, Description: "Repeat tag to filter by multiple catalog tags."}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills/marketplace/internal/preview":                             {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
-	"post /v2/skills/marketplace/internal/install":                             {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
-	"post /v2/skills/resolve-preview":                                          {RequestSchema: "ResolveSkillsPreviewRequest", RequestRequired: true, ResponseSchema: "ResolveSkillsResult"},
-	"get /v2/skills/{skill_id}":                                                {ResponseSchema: "Skill"},
-	"post /v2/skills/{skill_id}/archive":                                       {ResponseSchema: "Skill"},
-	"post /v2/skills/{skill_id}/enable":                                        {RequestSchema: "MarketplaceEnableRequest", RequestRequired: true, ResponseSchema: "MarketplaceEnableResult", SuccessStatuses: []string{"200", "201"}},
-	"post /v2/skills/{skill_id}/disable":                                       {RequestSchema: "MarketplaceDisableRequest", RequestRequired: true, ResponseSchema: "MarketplaceDisableResult", SuccessStatuses: []string{"200", "201"}},
-	"post /v2/skills/{skill_id}/versions":                                      {RequestSchema: "CreateSkillVersionRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/{skill_id}/draft":                                          {ResponseSchema: "SkillDraft"},
-	"put /v2/skills/{skill_id}/draft":                                          {RequestSchema: "PutSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillDraft"},
-	"post /v2/skills/{skill_id}/draft/publish":                                 {RequestSchema: "PublishSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
-	"post /v2/skills/{skill_id}/fork":                                          {RequestSchema: "ForkSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/{skill_id}/versions":                                       {ResponseSchema: "SkillVersionList"},
-	"get /v2/skills/{skill_id}/versions/{version}":                             {ResponseSchema: "SkillVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"get /v2/skills/{skill_id}/versions/{version}/package":                     {ResponseSchema: "BinaryContent", ContentType: "application/zip", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/skill-packages/backfill":                                         {RequestSchema: "SkillPackageBackfillRequest", RequestRequired: true, ResponseSchema: "SkillPackageBackfillResult"},
-	"get /v2/skill-asset-retention/effective":                                  {ResponseSchema: "EffectiveSkillRetentionPolicy", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/skill-asset-retention/policies":                                  {RequestSchema: "CreateSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-asset-retention/policies":                                   {ResponseSchema: "SkillRetentionPolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"get /v2/skill-asset-retention/policies/{policy_id}":                       {ResponseSchema: "SkillRetentionPolicyResult"},
-	"post /v2/skill-asset-retention/policies/{policy_id}/versions":             {RequestSchema: "PublishSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-asset-retention/policies/{policy_id}/versions/{version}":    {ResponseSchema: "SkillRetentionPolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/skill-asset-retention/policies/{policy_id}/archive":              {ResponseSchema: "SkillRetentionPolicy"},
-	"post /v2/skill-asset-gc/preview":                                          {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCPreview"},
-	"post /v2/skill-asset-gc/run":                                              {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCRunResult"},
-	"get /v2/skill-asset-gc/runs":                                              {ResponseSchema: "SkillAssetGCRunList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/skill-asset-gc/runs/{run_id}":                                     {ResponseSchema: "SkillAssetGCRunResult"},
-	"get /v2/skill-asset-gc/tombstones":                                        {ResponseSchema: "SkillAssetGCTombstoneList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/skill-marketplace-entries":                                        {ResponseSchema: "MarketplaceEntryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "include_withdrawn", In: "query", Type: "boolean"}}},
-	"post /v2/skill-marketplace-entries":                                       {RequestSchema: "CreateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-entries/{entry_id}":                             {ResponseSchema: "MarketplaceEntry", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"patch /v2/skill-marketplace-entries/{entry_id}":                           {RequestSchema: "UpdateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/submit":                     {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/publish":                    {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/withdraw":                   {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"get /v2/skill-marketplace-policies":                                       {ResponseSchema: "MarketplacePolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"post /v2/skill-marketplace-policies":                                      {RequestSchema: "CreateMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-policies/{policy_id}":                           {ResponseSchema: "MarketplacePolicyResult"},
-	"post /v2/skill-marketplace-policies/{policy_id}/archive":                  {ResponseSchema: "MarketplacePolicy"},
-	"post /v2/skill-marketplace-policies/{policy_id}/versions":                 {RequestSchema: "PublishMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-policies/{policy_id}/versions/{version}":        {ResponseSchema: "MarketplacePolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/sessions":                                                        {RequestSchema: "CreateSessionRequest", RequestRequired: true, ResponseSchema: "Session", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions":                                                         {ResponseSchema: "SessionList"},
-	"get /v2/session-comparisons":                                              {ResponseSchema: "SessionComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}}},
-	"get /v2/sessions/{session_id}":                                            {ResponseSchema: "Session"},
-	"patch /v2/sessions/{session_id}":                                          {RequestSchema: "UpdateSessionMetadataRequest", RequestRequired: true, ResponseSchema: "Session"},
-	"delete /v2/sessions/{session_id}":                                         {SuccessStatuses: []string{"204"}},
-	"post /v2/sessions/{session_id}/archive":                                   {ResponseSchema: "Session"},
-	"post /v2/sessions/{session_id}/restore":                                   {ResponseSchema: "Session"},
-	"post /v2/sessions/{session_id}/rerun":                                     {RequestSchema: "RerunSessionRequest", ResponseSchema: "RerunSessionResponse", SuccessStatuses: []string{"201"}},
-	"patch /v2/sessions/{session_id}/runtime-settings":                         {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session", Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/sessions/{session_id}/runtime-config":                             {ResponseSchema: "AgentRuntimeConfig"},
-	"get /v2/sessions/{session_id}/runtime-capabilities":                       {ResponseSchema: "SessionRuntimeCapabilities"},
-	"post /v2/sessions/{session_id}/config/upgrade":                            {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
-	"get /v2/sessions/{session_id}/summary":                                    {ResponseSchema: "SessionSummary"},
-	"put /v2/sessions/{session_id}/summary":                                    {RequestSchema: "UpsertSessionSummaryRequest", RequestRequired: true, ResponseSchema: "SessionSummary"},
-	"get /v2/sessions/{session_id}/task-plan":                                  {ResponseSchema: "SessionTaskPlanCurrent"},
-	"get /v2/sessions/{session_id}/task-plans":                                 {ResponseSchema: "SessionTaskPlanList"},
-	"get /v2/sessions/{session_id}/usage":                                      {ResponseSchema: "SessionUsage"},
-	"get /v2/sessions/{session_id}/trace":                                      {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
-	"get /v2/sessions/{session_id}/operator-audit":                             {ResponseSchema: "OperatorAuditList"},
-	"get /v2/sessions/{session_id}/tool-permission-audit":                      {ResponseSchema: "ToolPermissionAuditList", Parameters: []contractParameter{{Name: "decision", In: "query"}, {Name: "tool", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}, {Name: "cursor", In: "query"}}},
-	"get /v2/sessions/{session_id}/skill-usages":                               {ResponseSchema: "SkillUsageList", Parameters: []contractParameter{{Name: "turn_id", In: "query"}}},
-	"get /v2/sessions/{session_id}/interventions":                              {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve": {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject":  {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond": {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel":  {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/events":                                    {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
-	"get /v2/sessions/{session_id}/events":                                     {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
-	"get /v2/sessions/{session_id}/events/stream":                              {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
-	"get /v2/sessions/{session_id}/live/stream":                                {ResponseSchema: "LiveEventStream", ContentType: "text/event-stream"},
-	"post /v2/sessions/{session_id}/artifacts":                                 {RequestSchema: "CreateArtifactRequest", RequestRequired: true, ResponseSchema: "Artifact", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions/{session_id}/artifacts":                                  {ResponseSchema: "ArtifactList"},
-	"post /v2/sessions/{session_id}/artifacts/upload":                          {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/download":           {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream"},
-	"delete /v2/sessions/{session_id}/artifacts/{artifact_id}":                 {SuccessStatuses: []string{"204"}},
-	"get /v2/sessions/{session_id}/deliberations":                              {ResponseSchema: "AgentDeliberationList"},
-	"get /v2/sessions/{session_id}/deliberations/{deliberation_id}":            {ResponseSchema: "AgentDeliberationResponse"},
-	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/cancel":    {RequestSchema: "CancelAgentDeliberationRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse"},
+	"get /v2/agent/discussion-strategies":                                        {ResponseSchema: "AgentDiscussionStrategyList"},
+	"get /v2/agent/task-group-templates":                                         {ResponseSchema: "AgentTaskGroupTemplateList"},
+	"get /v2/agents/default":                                                     {ResponseSchema: "Agent"},
+	"post /v2/agents/import":                                                     {RequestSchema: "AgentImportRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"post /v2/agents":                                                            {RequestSchema: "CreateAgentRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"get /v2/agents":                                                             {ResponseSchema: "AgentList"},
+	"get /v2/agents/{agent_id}":                                                  {ResponseSchema: "Agent"},
+	"patch /v2/agents/{agent_id}":                                                {RequestSchema: "UpdateAgentRequest", RequestRequired: true, ResponseSchema: "Agent"},
+	"get /v2/agents/{agent_id}/config-versions":                                  {ResponseSchema: "AgentConfigVersionList"},
+	"post /v2/agents/{agent_id}/config-versions":                                 {RequestSchema: "CreateAgentConfigVersionRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"post /v2/agents/{agent_id}/config-versions/{version}/rollback":              {ResponseSchema: "AgentConfigRollbackResponse", SuccessStatuses: []string{"201"}, IntegerPathParameters: map[string]bool{"version": true}},
+	"get /v2/agents/{agent_id}/export":                                           {ResponseSchema: "AgentExportDocument"},
+	"post /v2/agents/{agent_id}/tooling-health":                                  {RequestSchema: "ToolingHealthRequest", ResponseSchema: "ToolingHealthResponse"},
+	"get /v2/agents/{agent_id}/schedules":                                        {ResponseSchema: "AgentScheduleList"},
+	"post /v2/agents/{agent_id}/schedules":                                       {RequestSchema: "CreateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule", SuccessStatuses: []string{"201"}},
+	"get /v2/agents/{agent_id}/schedules/{schedule_id}":                          {ResponseSchema: "AgentSchedule"},
+	"patch /v2/agents/{agent_id}/schedules/{schedule_id}":                        {RequestSchema: "UpdateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule"},
+	"delete /v2/agents/{agent_id}/schedules/{schedule_id}":                       {SuccessStatuses: []string{"204"}},
+	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                     {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201", "202"}},
+	"get /v2/auth/config":                                                        {ResponseSchema: "AuthClientConfiguration"},
+	"get /v2/auth/me":                                                            {ResponseSchema: "AuthState"},
+	"get /v2/environment-variables":                                              {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"put /v2/environment-variables/{name}":                                       {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"delete /v2/environment-variables/{name}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/workspaces/{workspace_id}/tool-permissions":                         {ResponseSchema: "WorkspaceToolPermissionPolicy"},
+	"put /v2/workspaces/{workspace_id}/tool-permissions":                         {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":               {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
+	"post /v2/environments":                                                      {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
+	"get /v2/llm-providers":                                                      {ResponseSchema: "LLMProviderList"},
+	"post /v2/llm-providers":                                                     {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
+	"get /v2/llm-providers/{provider_id}":                                        {ResponseSchema: "LLMProvider"},
+	"patch /v2/llm-providers/{provider_id}":                                      {RequestSchema: "UpdateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/enable":                                {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/disable":                               {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/test":                                  {ResponseSchema: "LLMDiagnosticResult"},
+	"delete /v2/llm-providers/{provider_id}":                                     {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/llm-models":                                                         {ResponseSchema: "LLMModelList", Parameters: []contractParameter{{Name: "provider_id", In: "query"}}},
+	"post /v2/llm-models":                                                        {RequestSchema: "PutLLMModelRequest", RequestRequired: true, ResponseSchema: "LLMModel", SuccessStatuses: []string{"200", "201"}, Parameters: []contractParameter{optionalIfMatchParameter, ifNoneMatchParameter}},
+	"post /v2/llm-models/{provider_id}/{model}/test":                             {ResponseSchema: "LLMDiagnosticResult"},
+	"delete /v2/llm-models/{provider_id}/{model}":                                {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/llm-usage":                                                          {ResponseSchema: "LLMUsageAggregateReport"},
+	"get /v2/mcp-servers":                                                        {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/mcp-servers":                                                       {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
+	"get /v2/mcp-servers/runtime-status":                                         {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/mcp-servers/{server_id}":                                            {ResponseSchema: "MCPServer"},
+	"patch /v2/mcp-servers/{server_id}":                                          {RequestSchema: "UpdateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer"},
+	"delete /v2/mcp-servers/{server_id}":                                         {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/enable":                                    {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/disable":                                   {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/test":                                      {ResponseSchema: "MCPServerTestResult"},
+	"get /v2/mcp-servers/{server_id}/versions":                                   {ResponseSchema: "MCPServerVersionList"},
+	"post /v2/mcp-servers/{server_id}/versions/{version}/restore":                {ResponseSchema: "MCPRestoreResult", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/object-refs":                                                       {RequestSchema: "CreateObjectRefRequest", RequestRequired: true, ResponseSchema: "ObjectRef", SuccessStatuses: []string{"201"}},
+	"get /v2/achievement-library":                                                {ResponseSchema: "AchievementLibraryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"patch /v2/achievement-library/{item_id}":                                    {RequestSchema: "UpdateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem"},
+	"delete /v2/achievement-library/{item_id}":                                   {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/achievement-library/{item_id}/download":                             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/achievement-library/{item_id}/reference":                           {RequestSchema: "ReferenceAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryReference", SuccessStatuses: []string{"201"}},
+	"get /v2/object-refs/{object_ref_id}":                                        {ResponseSchema: "ObjectRef"},
+	"delete /v2/object-refs/{object_ref_id}":                                     {SuccessStatuses: []string{"204"}},
+	"get /v2/object-refs/{object_ref_id}/download":                               {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "session_id", In: "query"}}},
+	"get /v2/observability/status":                                               {ResponseSchema: "ObservabilityStatus"},
+	"post /v2/observability/retry":                                               {ResponseSchema: "ObservabilityRetryResult"},
+	"get /v2/observability/security-audit/integrity-keys":                        {ResponseSchema: "SecurityAuditIntegrityKeyStatus"},
+	"post /v2/observability/security-audit/replay":                               {ResponseSchema: "SecurityAuditReplayResult", Parameters: []contractParameter{{Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/operator-audit":                                                     {ResponseSchema: "OperatorAuditList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "session_id", In: "query"}, {Name: "principal_id", In: "query"}, {Name: "action", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills":                                                            {RequestSchema: "CreateSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
+	"get /v2/skills":                                                             {ResponseSchema: "SkillList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
+	"get /v2/skills/marketplace/discover":                                        {ResponseSchema: "MarketplaceDiscoverResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "repository", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills/marketplace/preview":                                        {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
+	"post /v2/skills/marketplace/install":                                        {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/marketplace/internal":                                        {ResponseSchema: "MarketplaceInternalResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "category", In: "query"}, {Name: "tag", In: "query", Array: true, Description: "Repeat tag to filter by multiple catalog tags."}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills/marketplace/internal/preview":                               {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
+	"post /v2/skills/marketplace/internal/install":                               {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
+	"post /v2/skills/resolve-preview":                                            {RequestSchema: "ResolveSkillsPreviewRequest", RequestRequired: true, ResponseSchema: "ResolveSkillsResult"},
+	"get /v2/skills/{skill_id}":                                                  {ResponseSchema: "Skill"},
+	"post /v2/skills/{skill_id}/archive":                                         {ResponseSchema: "Skill"},
+	"post /v2/skills/{skill_id}/enable":                                          {RequestSchema: "MarketplaceEnableRequest", RequestRequired: true, ResponseSchema: "MarketplaceEnableResult", SuccessStatuses: []string{"200", "201"}},
+	"post /v2/skills/{skill_id}/disable":                                         {RequestSchema: "MarketplaceDisableRequest", RequestRequired: true, ResponseSchema: "MarketplaceDisableResult", SuccessStatuses: []string{"200", "201"}},
+	"post /v2/skills/{skill_id}/versions":                                        {RequestSchema: "CreateSkillVersionRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/{skill_id}/draft":                                            {ResponseSchema: "SkillDraft"},
+	"put /v2/skills/{skill_id}/draft":                                            {RequestSchema: "PutSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillDraft"},
+	"post /v2/skills/{skill_id}/draft/publish":                                   {RequestSchema: "PublishSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"post /v2/skills/{skill_id}/fork":                                            {RequestSchema: "ForkSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/{skill_id}/versions":                                         {ResponseSchema: "SkillVersionList"},
+	"get /v2/skills/{skill_id}/versions/{version}":                               {ResponseSchema: "SkillVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"get /v2/skills/{skill_id}/versions/{version}/package":                       {ResponseSchema: "BinaryContent", ContentType: "application/zip", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/skill-packages/backfill":                                           {RequestSchema: "SkillPackageBackfillRequest", RequestRequired: true, ResponseSchema: "SkillPackageBackfillResult"},
+	"get /v2/skill-asset-retention/effective":                                    {ResponseSchema: "EffectiveSkillRetentionPolicy", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/skill-asset-retention/policies":                                    {RequestSchema: "CreateSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-asset-retention/policies":                                     {ResponseSchema: "SkillRetentionPolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
+	"get /v2/skill-asset-retention/policies/{policy_id}":                         {ResponseSchema: "SkillRetentionPolicyResult"},
+	"post /v2/skill-asset-retention/policies/{policy_id}/versions":               {RequestSchema: "PublishSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-asset-retention/policies/{policy_id}/versions/{version}":      {ResponseSchema: "SkillRetentionPolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/skill-asset-retention/policies/{policy_id}/archive":                {ResponseSchema: "SkillRetentionPolicy"},
+	"post /v2/skill-asset-gc/preview":                                            {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCPreview"},
+	"post /v2/skill-asset-gc/run":                                                {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCRunResult"},
+	"get /v2/skill-asset-gc/runs":                                                {ResponseSchema: "SkillAssetGCRunList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/skill-asset-gc/runs/{run_id}":                                       {ResponseSchema: "SkillAssetGCRunResult"},
+	"get /v2/skill-asset-gc/tombstones":                                          {ResponseSchema: "SkillAssetGCTombstoneList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/skill-marketplace-entries":                                          {ResponseSchema: "MarketplaceEntryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "include_withdrawn", In: "query", Type: "boolean"}}},
+	"post /v2/skill-marketplace-entries":                                         {RequestSchema: "CreateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-entries/{entry_id}":                               {ResponseSchema: "MarketplaceEntry", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"patch /v2/skill-marketplace-entries/{entry_id}":                             {RequestSchema: "UpdateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/submit":                       {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/publish":                      {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/withdraw":                     {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"get /v2/skill-marketplace-policies":                                         {ResponseSchema: "MarketplacePolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
+	"post /v2/skill-marketplace-policies":                                        {RequestSchema: "CreateMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-policies/{policy_id}":                             {ResponseSchema: "MarketplacePolicyResult"},
+	"post /v2/skill-marketplace-policies/{policy_id}/archive":                    {ResponseSchema: "MarketplacePolicy"},
+	"post /v2/skill-marketplace-policies/{policy_id}/versions":                   {RequestSchema: "PublishMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-policies/{policy_id}/versions/{version}":          {ResponseSchema: "MarketplacePolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/sessions":                                                          {RequestSchema: "CreateSessionRequest", RequestRequired: true, ResponseSchema: "Session", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions":                                                           {ResponseSchema: "SessionList"},
+	"get /v2/session-comparisons":                                                {ResponseSchema: "SessionComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}}},
+	"get /v2/sessions/{session_id}":                                              {ResponseSchema: "Session"},
+	"patch /v2/sessions/{session_id}":                                            {RequestSchema: "UpdateSessionMetadataRequest", RequestRequired: true, ResponseSchema: "Session"},
+	"delete /v2/sessions/{session_id}":                                           {SuccessStatuses: []string{"204"}},
+	"post /v2/sessions/{session_id}/archive":                                     {ResponseSchema: "Session"},
+	"post /v2/sessions/{session_id}/restore":                                     {ResponseSchema: "Session"},
+	"post /v2/sessions/{session_id}/rerun":                                       {RequestSchema: "RerunSessionRequest", ResponseSchema: "RerunSessionResponse", SuccessStatuses: []string{"201"}},
+	"patch /v2/sessions/{session_id}/runtime-settings":                           {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session", Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/sessions/{session_id}/runtime-config":                               {ResponseSchema: "AgentRuntimeConfig"},
+	"get /v2/sessions/{session_id}/runtime-capabilities":                         {ResponseSchema: "SessionRuntimeCapabilities"},
+	"post /v2/sessions/{session_id}/config/upgrade":                              {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
+	"get /v2/sessions/{session_id}/summary":                                      {ResponseSchema: "SessionSummary"},
+	"put /v2/sessions/{session_id}/summary":                                      {RequestSchema: "UpsertSessionSummaryRequest", RequestRequired: true, ResponseSchema: "SessionSummary"},
+	"get /v2/sessions/{session_id}/task-plan":                                    {ResponseSchema: "SessionTaskPlanCurrent"},
+	"get /v2/sessions/{session_id}/task-plans":                                   {ResponseSchema: "SessionTaskPlanList"},
+	"get /v2/sessions/{session_id}/usage":                                        {ResponseSchema: "SessionUsage"},
+	"get /v2/sessions/{session_id}/trace":                                        {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
+	"get /v2/sessions/{session_id}/operator-audit":                               {ResponseSchema: "OperatorAuditList"},
+	"get /v2/sessions/{session_id}/tool-permission-audit":                        {ResponseSchema: "ToolPermissionAuditList", Parameters: []contractParameter{{Name: "decision", In: "query"}, {Name: "tool", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}, {Name: "cursor", In: "query"}}},
+	"get /v2/sessions/{session_id}/skill-usages":                                 {ResponseSchema: "SkillUsageList", Parameters: []contractParameter{{Name: "turn_id", In: "query"}}},
+	"get /v2/sessions/{session_id}/interventions":                                {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve":   {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond":   {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip":      {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/events":                                      {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
+	"get /v2/sessions/{session_id}/events":                                       {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
+	"get /v2/sessions/{session_id}/events/stream":                                {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
+	"get /v2/sessions/{session_id}/live/stream":                                  {ResponseSchema: "LiveEventStream", ContentType: "text/event-stream"},
+	"post /v2/sessions/{session_id}/artifacts":                                   {RequestSchema: "CreateArtifactRequest", RequestRequired: true, ResponseSchema: "Artifact", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions/{session_id}/artifacts":                                    {ResponseSchema: "ArtifactList"},
+	"post /v2/sessions/{session_id}/artifacts/upload":                            {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
+	"post /v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library": {RequestSchema: "CreateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/download":             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream"},
+	"delete /v2/sessions/{session_id}/artifacts/{artifact_id}":                   {SuccessStatuses: []string{"204"}},
+	"get /v2/sessions/{session_id}/deliberations":                                {ResponseSchema: "AgentDeliberationList"},
+	"get /v2/sessions/{session_id}/deliberations/{deliberation_id}":              {ResponseSchema: "AgentDeliberationResponse"},
+	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/cancel":      {RequestSchema: "CancelAgentDeliberationRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse"},
 	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/participants/{participant_index}/retry": {RequestSchema: "RetryAgentDeliberationParticipantRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse", IntegerPathParameters: map[string]bool{"participant_index": true}},
 	"post /v2/sessions/{session_id}/runs":                                            {RequestSchema: "StartRunRequest", RequestRequired: true, ResponseSchema: "StartRunResponse", SuccessStatuses: []string{"200", "201"}},
 	"get /v2/sessions/{session_id}/runs":                                             {ResponseSchema: "RunList"},
@@ -478,13 +484,16 @@ paths:
         created_at: {type: string, format: date-time}
     AgentSchedule:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, environment_id, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
+      required: [id, workspace_id, owner_id, agent_id, environment_id, session_mode, approval_mode, name, prompt, cron_expression, timezone, enabled, created_by, created_at, updated_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
         agent_id: {type: string}
         environment_id: {type: string}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -493,7 +502,7 @@ paths:
         next_run_at: {type: string, format: date-time, nullable: true}
         last_run_at: {type: string, format: date-time, nullable: true}
         last_session_id: {type: string}
-        last_run_status: {type: string, enum: [pending, dispatched, failed]}
+        last_run_status: {type: string, enum: [pending, waiting_session, dispatching, dispatched, failed]}
         last_error: {type: string}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
@@ -508,6 +517,9 @@ paths:
       required: [name, prompt, cron_expression]
       properties:
         environment_id: {type: string}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -521,13 +533,17 @@ paths:
         cron_expression: {type: string}
         timezone: {type: string}
         enabled: {type: boolean}
+        session_mode: {type: string, enum: [new_session, existing_session]}
+        target_session_id: {type: string}
+        approval_mode: {type: string, enum: [approve_for_me, full_access]}
     RunAgentScheduleResponse:
       type: object
-      required: [schedule, run_id, session]
+      required: [schedule, run_id, status]
       properties:
         schedule: {$ref: "#/components/schemas/AgentSchedule"}
         run_id: {type: string}
-        session: {$ref: "#/components/schemas/Session"}
+        status: {type: string, enum: [waiting_session, dispatched]}
+        session: {$ref: "#/components/schemas/Session", nullable: true}
     PortableAgentConfig:
       type: object
       required: [name, llm_provider, llm_model, system]
@@ -1249,6 +1265,56 @@ paths:
       properties:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
+        workspace_path: {type: string}
+    AchievementLibraryItem:
+      type: object
+      required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        object_ref_id: {type: string}
+        source_session_id: {type: string}
+        source_artifact_id: {type: string}
+        name: {type: string, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AchievementLibraryList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/AchievementLibraryItem"}}
+    CreateAchievementLibraryItemRequest:
+      type: object
+      properties:
+        name: {type: string, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+    UpdateAchievementLibraryItemRequest:
+      type: object
+      required: [name]
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 512}
+        description: {type: string, maxLength: 2000}
+        directory: {type: string, maxLength: 512}
+        tags: {type: array, maxItems: 20, items: {type: string, maxLength: 64}}
+    ReferenceAchievementLibraryItemRequest:
+      type: object
+      required: [session_id]
+      properties:
+        session_id: {type: string}
+    AchievementLibraryReference:
+      type: object
+      required: [item, artifact, object_ref, workspace_path]
+      properties:
+        item: {$ref: "#/components/schemas/AchievementLibraryItem"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
         workspace_path: {type: string}
     SubagentTaskGroup:
       type: object

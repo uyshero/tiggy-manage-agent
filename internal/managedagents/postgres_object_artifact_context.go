@@ -128,7 +128,9 @@ func (s *PostgresStore) CountSessionArtifactsByObjectRefContext(ctx context.Cont
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM session_artifacts WHERE object_ref_id = $1 AND workspace_id = $2
+		SELECT
+			(SELECT COUNT(*) FROM session_artifacts WHERE object_ref_id = $1 AND workspace_id = $2) +
+			(SELECT COUNT(*) FROM achievement_library_items WHERE object_ref_id = $1 AND workspace_id = $2)
 	`, objectRefID, scope.WorkspaceID).Scan(&count); err != nil {
 		return 0, err
 	}

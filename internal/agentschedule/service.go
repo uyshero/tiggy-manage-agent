@@ -3,6 +3,7 @@ package agentschedule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,11 @@ type Service struct {
 	Limit  int
 }
 
+type DispatchResult struct {
+	Session *managedagents.Session `json:"session,omitempty"`
+	Status  string                 `json:"status"`
+}
+
 func (s Service) RunOnce(ctx context.Context, now time.Time) (int, error) {
 	if s.Store == nil || s.State == nil || s.Runner == nil {
 		return 0, fmt.Errorf("agent schedule store, state store, and runner are required")
@@ -28,7 +34,14 @@ func (s Service) RunOnce(ctx context.Context, now time.Time) (int, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	invocations, err := s.Store.ClaimDueAgentSchedules(ctx, now, limit)
+	if _, err := s.Store.ReconcileInvalidAgentScheduleRuns(ctx, now); err != nil {
+		return 0, err
+	}
+	enqueued, err := s.Store.ClaimDueAgentSchedules(ctx, now, limit)
+	if err != nil {
+		return 0, err
+	}
+	invocations, err := s.Store.ClaimRunnableAgentScheduleRuns(ctx, now, limit, time.Minute)
 	if err != nil {
 		return 0, err
 	}
@@ -37,47 +50,89 @@ func (s Service) RunOnce(ctx context.Context, now time.Time) (int, error) {
 			s.logger().Error("agent schedule dispatch failed", "schedule_id", invocation.Schedule.ID, "run_id", invocation.RunID, "error", err)
 		}
 	}
-	return len(invocations), nil
+	return len(enqueued), nil
 }
 
-func (s Service) Dispatch(ctx context.Context, invocation managedagents.AgentScheduleInvocation) (managedagents.Session, error) {
+func (s Service) TryDispatchRun(ctx context.Context, invocation managedagents.AgentScheduleInvocation) (DispatchResult, error) {
+	claimed, ready, err := s.Store.ClaimAgentScheduleRun(ctx, invocation.RunID, time.Now().UTC(), time.Minute)
+	if err != nil {
+		return DispatchResult{}, err
+	}
+	if !ready {
+		if err := s.Store.DeferAgentScheduleRun(ctx, invocation.RunID, invocation.Schedule.ID); err != nil && !errors.Is(err, managedagents.ErrNotFound) {
+			return DispatchResult{}, err
+		}
+		return DispatchResult{Status: managedagents.AgentScheduleRunWaitingSession}, nil
+	}
+	return s.Dispatch(ctx, claimed)
+}
+
+func (s Service) Dispatch(ctx context.Context, invocation managedagents.AgentScheduleInvocation) (DispatchResult, error) {
 	schedule := invocation.Schedule
 	scopedCtx, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{
 		WorkspaceID: schedule.WorkspaceID,
 		OwnerID:     schedule.OwnerID,
 	})
 	if err != nil {
-		return managedagents.Session{}, err
+		return DispatchResult{}, err
 	}
-	fail := func(cause error, sessionID string) (managedagents.Session, error) {
+	fail := func(cause error, sessionID string) (DispatchResult, error) {
 		_ = s.Store.CompleteAgentScheduleRun(scopedCtx, managedagents.CompleteAgentScheduleRunInput{
 			RunID: invocation.RunID, ScheduleID: schedule.ID, SessionID: sessionID,
 			Status: managedagents.AgentScheduleRunFailed, Error: cause.Error(),
 		})
-		return managedagents.Session{}, cause
+		return DispatchResult{}, cause
 	}
-	title := strings.TrimSpace(schedule.Name)
-	if title == "" {
-		title = "Scheduled agent task"
-	}
-	session, err := managedagents.CreateSessionWithContext(scopedCtx, s.State, managedagents.CreateSessionInput{
-		WorkspaceID: schedule.WorkspaceID, OwnerID: schedule.OwnerID, AgentID: schedule.AgentID,
-		EnvironmentID: schedule.EnvironmentID, Title: title, CreatedBy: schedule.CreatedBy,
-	})
-	if err != nil {
-		return fail(err, "")
+	var session managedagents.Session
+	createdSession := false
+	if schedule.SessionMode == managedagents.AgentScheduleSessionExisting {
+		session, err = managedagents.GetSessionWithContext(scopedCtx, s.State, schedule.TargetSessionID)
+		if err != nil {
+			return fail(err, "")
+		}
+		if session.Status != managedagents.SessionStatusIdle || session.ArchivedAt != nil {
+			if err := s.Store.DeferAgentScheduleRun(scopedCtx, invocation.RunID, schedule.ID); err != nil {
+				return DispatchResult{}, err
+			}
+			return DispatchResult{Status: managedagents.AgentScheduleRunWaitingSession}, nil
+		}
+	} else {
+		title := strings.TrimSpace(schedule.Name)
+		if title == "" {
+			title = "Scheduled agent task"
+		}
+		session, err = managedagents.CreateSessionWithContext(scopedCtx, s.State, managedagents.CreateSessionInput{
+			WorkspaceID: schedule.WorkspaceID, OwnerID: schedule.OwnerID, AgentID: schedule.AgentID,
+			EnvironmentID: schedule.EnvironmentID, Title: title, CreatedBy: schedule.CreatedBy,
+		})
+		if err != nil {
+			return fail(err, "")
+		}
+		createdSession = true
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"content":         []map[string]string{{"type": "text", "text": schedule.Prompt}},
 		"schedule_id":     schedule.ID,
 		"schedule_run_id": invocation.RunID,
 		"scheduled_for":   invocation.ScheduledFor.Format(time.RFC3339),
+		"runtime_settings_override": map[string]any{
+			"intervention_mode": schedule.ApprovalMode,
+			"human_interaction": map[string]any{"enabled": false, "fallback": "fail"},
+		},
 	})
 	events, err := managedagents.AppendEventsWithContext(scopedCtx, s.State, session.ID, []managedagents.AppendEventInput{{
 		Type: managedagents.EventUserMessage, Payload: payload,
 	}})
 	if err != nil {
-		_ = managedagents.DeleteSessionWithContext(scopedCtx, s.State, session.ID)
+		if schedule.SessionMode == managedagents.AgentScheduleSessionExisting && errors.Is(err, managedagents.ErrSessionBusy) {
+			if deferErr := s.Store.DeferAgentScheduleRun(scopedCtx, invocation.RunID, schedule.ID); deferErr != nil {
+				return DispatchResult{}, deferErr
+			}
+			return DispatchResult{Status: managedagents.AgentScheduleRunWaitingSession}, nil
+		}
+		if createdSession {
+			_ = managedagents.DeleteSessionWithContext(scopedCtx, s.State, session.ID)
+		}
 		return fail(err, "")
 	}
 	var startEvent managedagents.Event
@@ -103,10 +158,10 @@ func (s Service) Dispatch(ctx context.Context, invocation managedagents.AgentSch
 		RunID: invocation.RunID, ScheduleID: schedule.ID, SessionID: session.ID,
 		Status: managedagents.AgentScheduleRunDispatched,
 	}); err != nil {
-		return managedagents.Session{}, err
+		return DispatchResult{}, err
 	}
 	s.logger().Info("agent schedule dispatched", "schedule_id", schedule.ID, "run_id", invocation.RunID, "session_id", session.ID)
-	return session, nil
+	return DispatchResult{Session: &session, Status: managedagents.AgentScheduleRunDispatched}, nil
 }
 
 func Start(ctx context.Context, service Service, interval time.Duration) func() {

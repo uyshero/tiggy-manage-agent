@@ -4,6 +4,70 @@
  */
 
 export interface paths {
+    "/v2/achievement-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_achievement_library"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/achievement-library/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_v2_achievement_library_by_item_id"];
+        options?: never;
+        head?: never;
+        patch: operations["patch_v2_achievement_library_by_item_id"];
+        trace?: never;
+    };
+    "/v2/achievement-library/{item_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_achievement_library_by_item_id_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/achievement-library/{item_id}/reference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_achievement_library_by_item_id_reference"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/agent/discussion-strategies": {
         parameters: {
             query?: never;
@@ -799,6 +863,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["delete_v2_sessions_by_session_id_artifacts_by_artifact_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_sessions_by_session_id_artifacts_by_artifact_id_achievement_library"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2496,6 +2576,11 @@ export interface components {
             owner_id: string;
             agent_id: string;
             environment_id: string;
+            /** @enum {string} */
+            session_mode: "new_session" | "existing_session";
+            target_session_id?: string;
+            /** @enum {string} */
+            approval_mode: "approve_for_me" | "full_access";
             name: string;
             prompt: string;
             cron_expression: string;
@@ -2507,7 +2592,7 @@ export interface components {
             last_run_at?: string | null;
             last_session_id?: string;
             /** @enum {string} */
-            last_run_status?: "pending" | "dispatched" | "failed";
+            last_run_status?: "pending" | "waiting_session" | "dispatching" | "dispatched" | "failed";
             last_error?: string;
             created_by: string;
             /** Format: date-time */
@@ -2520,6 +2605,11 @@ export interface components {
         };
         CreateAgentScheduleRequest: {
             environment_id?: string;
+            /** @enum {string} */
+            session_mode?: "new_session" | "existing_session";
+            target_session_id?: string;
+            /** @enum {string} */
+            approval_mode?: "approve_for_me" | "full_access";
             name: string;
             prompt: string;
             cron_expression: string;
@@ -2532,11 +2622,18 @@ export interface components {
             cron_expression?: string;
             timezone?: string;
             enabled?: boolean;
+            /** @enum {string} */
+            session_mode?: "new_session" | "existing_session";
+            target_session_id?: string;
+            /** @enum {string} */
+            approval_mode?: "approve_for_me" | "full_access";
         };
         RunAgentScheduleResponse: {
             schedule: components["schemas"]["AgentSchedule"];
             run_id: string;
-            session: components["schemas"]["Session"];
+            /** @enum {string} */
+            status: "waiting_session" | "dispatched";
+            session?: components["schemas"]["Session"];
         };
         PortableAgentConfig: {
             name: string;
@@ -3306,6 +3403,47 @@ export interface components {
             object_ref: components["schemas"]["ObjectRef"];
             artifact: components["schemas"]["Artifact"];
             workspace_path?: string;
+        };
+        AchievementLibraryItem: {
+            id: string;
+            workspace_id: string;
+            object_ref_id: string;
+            source_session_id?: string;
+            source_artifact_id?: string;
+            name: string;
+            description?: string;
+            directory?: string;
+            tags: string[];
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        AchievementLibraryList: {
+            items: components["schemas"]["AchievementLibraryItem"][];
+        };
+        CreateAchievementLibraryItemRequest: {
+            name?: string;
+            description?: string;
+            directory?: string;
+            tags?: string[];
+        };
+        UpdateAchievementLibraryItemRequest: {
+            workspace_id?: string;
+            name: string;
+            description?: string;
+            directory?: string;
+            tags?: string[];
+        };
+        ReferenceAchievementLibraryItemRequest: {
+            session_id: string;
+        };
+        AchievementLibraryReference: {
+            item: components["schemas"]["AchievementLibraryItem"];
+            artifact: components["schemas"]["Artifact"];
+            object_ref: components["schemas"]["ObjectRef"];
+            workspace_path: string;
         };
         SubagentTaskGroup: {
             id: string;
@@ -5330,6 +5468,171 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_v2_achievement_library: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AchievementLibraryList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_achievement_library_by_item_id: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    patch_v2_achievement_library_by_item_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAchievementLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AchievementLibraryItem"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_achievement_library_by_item_id_download: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": components["schemas"]["BinaryContent"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_achievement_library_by_item_id_reference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReferenceAchievementLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AchievementLibraryReference"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     get_v2_agent_discussion_strategies: {
         parameters: {
             query?: never;
@@ -5885,6 +6188,15 @@ export interface operations {
         responses: {
             /** @description Successful response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunAgentScheduleResponse"];
+                };
+            };
+            /** @description Successful response */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7528,6 +7840,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_sessions_by_session_id_artifacts_by_artifact_id_achievement_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAchievementLibraryItemRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AchievementLibraryItem"];
+                };
             };
             /** @description API error */
             default: {

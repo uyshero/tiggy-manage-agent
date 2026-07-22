@@ -101,6 +101,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, err
 	}
+	config.RuntimeSettings = runtimeSettingsForTurn(config.RuntimeSettings, request.UserPayload)
 	taskPlanContext, err := e.resolveTaskPlanContext(ctx, request.SessionID)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)

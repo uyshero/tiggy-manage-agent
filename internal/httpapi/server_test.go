@@ -4014,6 +4014,53 @@ func TestUploadSessionArtifactUsesObjectStore(t *testing.T) {
 	}
 }
 
+func TestAchievementLibraryCollectsAndReferencesArtifactsAcrossSessions(t *testing.T) {
+	store := newTestStore()
+	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{"name":"Library Agent","model":"fake-demo"}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"default-cloud","config":{"type":"cloud"}}`)
+	sourceSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`","environment_id":"`+environment.ID+`"}`)
+	targetSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`","environment_id":"`+environment.ID+`"}`)
+	object := postJSONWithStatus[managedagents.ObjectRef](t, server, http.MethodPost, "/v1/object-refs", `{
+		"bucket":"tma-artifacts","object_key":"wksp_default/report.md","content_type":"text/markdown","size_bytes":12
+	}`, http.StatusCreated)
+	artifact := postJSONWithStatus[managedagents.SessionArtifact](t, server, http.MethodPost, "/v1/sessions/"+sourceSession.ID+"/artifacts", `{
+		"object_ref_id":"`+object.ID+`","name":"report.md","artifact_type":"file"
+	}`, http.StatusCreated)
+	item := postJSONWithStatus[managedagents.AchievementLibraryItem](t, server, http.MethodPost, "/v1/sessions/"+sourceSession.ID+"/artifacts/"+artifact.ID+"/achievement-library", `{
+		"directory":"客户交付/季度报告","tags":["已审核","Q3"],"description":"最终报告"
+	}`, http.StatusCreated)
+	if item.Name != artifact.Name || item.ObjectRefID != object.ID || item.Directory != "客户交付/季度报告" || !slices.Equal(item.Tags, []string{"已审核", "Q3"}) {
+		t.Fatalf("unexpected achievement item: %+v", item)
+	}
+
+	listed := getJSON[struct {
+		Items []managedagents.AchievementLibraryItem `json:"items"`
+	}](t, server, "/v1/achievement-library?workspace_id="+sourceSession.WorkspaceID)
+	if len(listed.Items) != 1 || listed.Items[0].ID != item.ID {
+		t.Fatalf("unexpected achievement library: %+v", listed.Items)
+	}
+
+	updated := postJSONWithStatus[managedagents.AchievementLibraryItem](t, server, http.MethodPatch, "/v1/achievement-library/"+item.ID, `{
+		"workspace_id":"`+sourceSession.WorkspaceID+`","name":"final-report.md","directory":"归档","tags":["final"]
+	}`, http.StatusOK)
+	if updated.Name != "final-report.md" || updated.Directory != "归档" || !slices.Equal(updated.Tags, []string{"final"}) {
+		t.Fatalf("unexpected updated achievement: %+v", updated)
+	}
+
+	referenced := postJSONWithStatus[struct {
+		Artifact  managedagents.SessionArtifact `json:"artifact"`
+		ObjectRef managedagents.ObjectRef       `json:"object_ref"`
+	}](t, server, http.MethodPost, "/v1/achievement-library/"+item.ID+"/reference", `{"session_id":"`+targetSession.ID+`"}`, http.StatusCreated)
+	if referenced.Artifact.SessionID != targetSession.ID || referenced.Artifact.ObjectRefID != object.ID || referenced.Artifact.Name != updated.Name || referenced.ObjectRef.ID != object.ID {
+		t.Fatalf("unexpected referenced achievement: %+v", referenced)
+	}
+	targetArtifacts, err := store.ListSessionArtifacts(targetSession.ID)
+	if err != nil || len(targetArtifacts) != 1 || targetArtifacts[0].ID != referenced.Artifact.ID {
+		t.Fatalf("target session artifact was not created: artifacts=%+v err=%v", targetArtifacts, err)
+	}
+}
+
 func TestUploadSessionArtifactWithoutObjectStoreReturnsUnavailable(t *testing.T) {
 	server := newTestServer()
 	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{

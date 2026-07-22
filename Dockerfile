@@ -57,5 +57,5 @@ USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/tma"]
 
 FROM ${POSTGRES_BASE_IMAGE} AS migrate
-COPY sql/baselines/000085_baseline.sql /opt/tma/sql/000085_baseline.sql
+COPY sql/baselines/000087_baseline.sql /opt/tma/sql/000087_baseline.sql
 COPY deploy/postgres/runtime-grants.sql /opt/tma/sql/runtime-grants.sql

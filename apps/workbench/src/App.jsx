@@ -1173,6 +1173,224 @@ function ToolPickerModal({ loading, error, sections, selectedKeys, onToggle, onC
   );
 }
 
+function achievementTags(value) {
+  return [...new Set(String(value || "").split(/[,，\n]/).map((tag) => tag.trim()).filter(Boolean))].slice(0, 20);
+}
+
+function AchievementIncludeModal({ artifact, sessionID, onClose, onSaved }) {
+  const [name, setName] = useState(artifactName(artifact));
+  const [directory, setDirectory] = useState("");
+  const [tags, setTags] = useState("");
+  const [description, setDescription] = useState(artifact?.description || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const item = await api.includeArtifactInAchievementLibrary(sessionID, artifact.id, {
+        name: name.trim(),
+        directory: directory.trim(),
+        tags: achievementTags(tags),
+        description: description.trim()
+      });
+      onSaved(item);
+    } catch (submitError) {
+      setError(submitError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="tool-picker-backdrop" role="presentation" onClick={onClose}>
+      <form className="achievement-include-modal" role="dialog" aria-modal="true" aria-label="纳入成果库" onClick={(event) => event.stopPropagation()} onSubmit={submit}>
+        <header className="tool-picker-header">
+          <div><h2>纳入成果库</h2><div className="subtle">{artifactName(artifact)}</div></div>
+          <button className="icon-button secondary" type="button" title="关闭" aria-label="关闭" onClick={onClose}><CloseIcon /></button>
+        </header>
+        {error ? <div className="artifact-preview-error">{error}</div> : null}
+        <div className="achievement-form-grid">
+          <label><span>名称</span><input autoFocus required maxLength={512} value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label><span>目录</span><input maxLength={512} value={directory} onChange={(event) => setDirectory(event.target.value)} placeholder="例如：客户交付/季度报告" /></label>
+          <label className="wide"><span>标签</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="多个标签用逗号分隔" /><small>最多 20 个标签</small></label>
+          <label className="wide"><span>说明</span><textarea maxLength={2000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="可选" /></label>
+        </div>
+        <footer className="task-metadata-actions">
+          <button className="secondary" type="button" disabled={busy} onClick={onClose}>取消</button>
+          <button type="submit" disabled={busy || !name.trim()}>{busy ? "正在保存..." : "纳入成果库"}</button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function AchievementLibraryPickerModal({ workspaceID, selectedIDs, onChange, onClose }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [directory, setDirectory] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    api.achievementLibrary(workspaceID).then((response) => {
+      if (active) setItems(response.items || []);
+    }).catch((loadError) => {
+      if (active) setError(loadError.message);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [workspaceID]);
+
+  const directories = [...new Set(items.map((item) => item.directory || "").filter(Boolean))].sort();
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleItems = items.filter((item) => {
+    if (directory && item.directory !== directory) return false;
+    if (!normalizedQuery) return true;
+    return [item.name, item.directory, item.description, ...(item.tags || [])].some((value) => String(value || "").toLowerCase().includes(normalizedQuery));
+  });
+
+  function toggle(item) {
+    onChange(selectedIDs.includes(item.id) ? selectedIDs.filter((id) => id !== item.id) : [...selectedIDs, item.id], items);
+  }
+
+  return (
+    <div className="tool-picker-backdrop" role="presentation" onClick={onClose}>
+      <section className="achievement-picker-modal" role="dialog" aria-modal="true" aria-label="引用成果库文件" onClick={(event) => event.stopPropagation()}>
+        <header className="tool-picker-header">
+          <div><h2>引用成果库文件</h2><div className="subtle">已选择 {selectedIDs.length} 个文件</div></div>
+          <button className="secondary" type="button" onClick={onClose}>完成</button>
+        </header>
+        <div className="achievement-picker-toolbar">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件、目录或标签" />
+          <select value={directory} onChange={(event) => setDirectory(event.target.value)}><option value="">全部目录</option>{directories.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+        </div>
+        {loading ? <Empty>正在加载成果库...</Empty> : error ? <div className="artifact-preview-error">{error}</div> : visibleItems.length ? (
+          <div className="achievement-picker-list">
+            {visibleItems.map((item) => (
+              <label className={`achievement-picker-item ${selectedIDs.includes(item.id) ? "selected" : ""}`} key={item.id}>
+                <input type="checkbox" checked={selectedIDs.includes(item.id)} onChange={() => toggle(item)} />
+                <FileIcon />
+                <span><strong>{item.name}</strong><small>{item.directory || "未分类"}{item.tags?.length ? ` · ${item.tags.join(" · ")}` : ""}</small></span>
+              </label>
+            ))}
+          </div>
+        ) : <Empty>没有匹配的成果文件。</Empty>}
+      </section>
+    </div>
+  );
+}
+
+function AchievementLibrarySettings({ workspaceID }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [directory, setDirectory] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await api.achievementLibrary(workspaceID);
+      setItems(response.items || []);
+    } catch (loadError) {
+      setError(loadError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [workspaceID]);
+  const directories = [...new Set(items.map((item) => item.directory || "").filter(Boolean))].sort();
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleItems = items.filter((item) => (!directory || item.directory === directory) && (!normalizedQuery || [item.name, item.directory, item.description, ...(item.tags || [])].some((value) => String(value || "").toLowerCase().includes(normalizedQuery))));
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    setBusy(`edit:${editing.id}`);
+    setError("");
+    try {
+      const updated = await api.updateAchievementLibraryItem(editing.id, {
+        workspace_id: workspaceID, name: editing.name.trim(), description: editing.description.trim(), directory: editing.directory.trim(), tags: achievementTags(editing.tagsText)
+      });
+      setItems((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setEditing(null);
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function remove(item) {
+    const confirmed = await workbenchDialogService.confirm({ title: "移出成果库", description: `确定移出“${item.name}”吗？原会话文件不会删除。`, confirmLabel: "移出", cancelLabel: "取消", tone: "danger" });
+    if (!confirmed) return;
+    setBusy(`delete:${item.id}`);
+    try {
+      await api.deleteAchievementLibraryItem(item.id, workspaceID);
+      setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="settings-content-stack achievement-library-settings">
+      <div className="settings-hero-card achievement-library-hero">
+        <div><strong>成果库</strong><div className="subtle">集中保存可复用文件，通过目录和标签管理，并在任意会话中直接引用。</div></div>
+        <div className="achievement-library-summary"><strong>{items.length}</strong><span>个成果文件</span></div>
+      </div>
+      <div className="settings-card achievement-library-browser">
+        <div className="achievement-library-toolbar">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索文件、目录或标签" />
+          <select value={directory} onChange={(event) => setDirectory(event.target.value)}><option value="">全部目录</option>{directories.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <button className="icon-button secondary" type="button" title="刷新" aria-label="刷新成果库" disabled={loading} onClick={load}><RefreshIcon /></button>
+        </div>
+        {error ? <div className="artifact-preview-error">{error}</div> : null}
+        {loading ? <Empty>正在加载成果库...</Empty> : visibleItems.length ? (
+          <div className="achievement-library-list">
+            {visibleItems.map((item) => (
+              <article className="achievement-library-row" key={item.id}>
+                <span className="achievement-library-file-icon"><FileIcon /></span>
+                <div className="achievement-library-copy"><strong>{item.name}</strong><span><FolderIcon /> {item.directory || "未分类"}</span>{item.description ? <p>{item.description}</p> : null}<div className="achievement-tags">{(item.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div></div>
+                <div className="achievement-library-meta"><span>{formatTime(item.updated_at)}</span><small>{item.source_session_id || "工作区文件"}</small></div>
+                <div className="achievement-library-actions">
+                  <a className="secondary" href={api.achievementLibraryDownloadPath(item.id, workspaceID)} target="_blank" rel="noreferrer">下载</a>
+                  <button className="secondary" type="button" onClick={() => setEditing({ ...item, tagsText: (item.tags || []).join(", ") })}>编辑</button>
+                  <button className="icon-button danger" type="button" title="移出成果库" aria-label={`移出 ${item.name}`} disabled={busy === `delete:${item.id}`} onClick={() => remove(item)}><DeleteIcon /></button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : <Empty>成果库中还没有文件。在会话结果文件右侧点击“纳入成果库”。</Empty>}
+      </div>
+      {editing ? (
+        <div className="tool-picker-backdrop" role="presentation" onClick={() => setEditing(null)}>
+          <form className="achievement-include-modal" role="dialog" aria-modal="true" aria-label="编辑成果" onClick={(event) => event.stopPropagation()} onSubmit={saveEdit}>
+            <header className="tool-picker-header"><div><h2>编辑成果</h2><div className="subtle">调整名称、目录和标签</div></div><button className="icon-button secondary" type="button" title="关闭" aria-label="关闭" onClick={() => setEditing(null)}><CloseIcon /></button></header>
+            <div className="achievement-form-grid">
+              <label><span>名称</span><input required value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} /></label>
+              <label><span>目录</span><input value={editing.directory || ""} onChange={(event) => setEditing({ ...editing, directory: event.target.value })} /></label>
+              <label className="wide"><span>标签</span><input value={editing.tagsText} onChange={(event) => setEditing({ ...editing, tagsText: event.target.value })} /></label>
+              <label className="wide"><span>说明</span><textarea rows={3} value={editing.description || ""} onChange={(event) => setEditing({ ...editing, description: event.target.value })} /></label>
+            </div>
+            <footer className="task-metadata-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>取消</button><button type="submit" disabled={busy === `edit:${editing.id}` || !editing.name.trim()}>{busy === `edit:${editing.id}` ? "保存中..." : "保存"}</button></footer>
+          </form>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TaskTemplateModal({ onClose, onSelect, templates }) {
   return (
     <div className="tool-picker-backdrop" role="presentation" onClick={onClose}>
@@ -2707,18 +2925,23 @@ function newScheduleDraft() {
     prompt: "",
     cron_expression: schedulePresets[0].value,
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+    session_mode: "new_session",
+    target_session_id: "",
+    approval_mode: "approve_for_me",
     enabled: true
   };
 }
 
 function AgentScheduleManager({ agent, onOpenSession }) {
   const [schedules, setSchedules] = useState([]);
+	const [sessions, setSessions] = useState([]);
   const [draft, setDraft] = useState(newScheduleDraft);
   const [editingID, setEditingID] = useState("");
   const [deleteID, setDeleteID] = useState("");
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+	const [message, setMessage] = useState("");
 
   async function loadSchedules() {
     if (!agent?.id) {
@@ -2742,6 +2965,9 @@ function AgentScheduleManager({ agent, onOpenSession }) {
     setEditingID("");
     setDeleteID("");
     loadSchedules();
+		api.sessions({ limit: 100 }).then((response) => {
+			setSessions((response.sessions || []).filter((session) => session.agent_id === agent?.id && !session.archived_at && session.status !== "terminated"));
+		}).catch((loadError) => setError(loadError.message));
   }, [agent?.id]);
 
   function editSchedule(schedule) {
@@ -2752,6 +2978,9 @@ function AgentScheduleManager({ agent, onOpenSession }) {
       prompt: schedule.prompt,
       cron_expression: schedule.cron_expression,
       timezone: schedule.timezone || "UTC",
+		session_mode: schedule.session_mode || "new_session",
+		target_session_id: schedule.target_session_id || "",
+		approval_mode: schedule.approval_mode || "approve_for_me",
       enabled: schedule.enabled !== false
     });
   }
@@ -2761,6 +2990,7 @@ function AgentScheduleManager({ agent, onOpenSession }) {
     if (!agent?.id || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim()) return;
     setBusy(editingID || "create");
     setError("");
+		setMessage("");
     try {
       if (editingID) {
         await api.updateAgentSchedule(agent.id, editingID, draft);
@@ -2793,10 +3023,12 @@ function AgentScheduleManager({ agent, onOpenSession }) {
   async function runSchedule(schedule) {
     setBusy(`run:${schedule.id}`);
     setError("");
+		setMessage("");
     try {
       const result = await api.runAgentSchedule(agent.id, schedule.id);
       await loadSchedules();
       if (result.session) onOpenSession(result.session);
+		else if (result.status === "waiting_session") setMessage(`“${schedule.name}”已进入执行队列`);
     } catch (runError) {
       setError(runError.message);
     } finally {
@@ -2853,13 +3085,34 @@ function AgentScheduleManager({ agent, onOpenSession }) {
           <span>时区</span>
           <input value={draft.timezone} onChange={(event) => setDraft((current) => ({ ...current, timezone: event.target.value }))} placeholder="Asia/Shanghai" />
         </label>
+		<label className="agent-editor-field">
+			<span>审批方式</span>
+			<select value={draft.approval_mode} onChange={(event) => setDraft((current) => ({ ...current, approval_mode: event.target.value }))}>
+				<option value="approve_for_me">替我审批</option>
+				<option value="full_access">完全访问</option>
+			</select>
+		</label>
+		<label className="agent-editor-field">
+			<span>Session 方式</span>
+			<select value={draft.session_mode} onChange={(event) => setDraft((current) => ({ ...current, session_mode: event.target.value, target_session_id: event.target.value === "existing_session" ? current.target_session_id : "" }))}>
+				<option value="new_session">每次新建</option>
+				<option value="existing_session">绑定已有</option>
+			</select>
+		</label>
+		{draft.session_mode === "existing_session" ? <label className="agent-editor-field agent-schedule-wide">
+			<span>绑定 Session</span>
+			<select required value={draft.target_session_id} onChange={(event) => setDraft((current) => ({ ...current, target_session_id: event.target.value }))}>
+				<option value="">请选择 Session</option>
+				{sessions.map((session) => <option key={session.id} value={session.id}>{session.title || session.id} · {session.status === "idle" ? "空闲" : "执行中，将排队"}</option>)}
+			</select>
+		</label> : null}
         <label className="agent-schedule-enabled">
           <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
           <span>创建后启用</span>
         </label>
         <div className="agent-schedule-form-actions">
           {editingID ? <button className="secondary" type="button" onClick={() => { setEditingID(""); setDraft(newScheduleDraft()); }}>取消</button> : null}
-          <button type="submit" disabled={Boolean(busy) || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim()}>{busy === (editingID || "create") ? "保存中..." : editingID ? "保存修改" : "创建任务"}</button>
+			<button type="submit" disabled={Boolean(busy) || !draft.name.trim() || !draft.prompt.trim() || !draft.cron_expression.trim() || (draft.session_mode === "existing_session" && !draft.target_session_id)}>{busy === (editingID || "create") ? "保存中..." : editingID ? "保存修改" : "创建任务"}</button>
         </div>
       </form>
       <section className="settings-card agent-schedule-list">
@@ -2868,6 +3121,7 @@ function AgentScheduleManager({ agent, onOpenSession }) {
           <button className="icon-button secondary" type="button" title="刷新" aria-label="刷新定时任务" disabled={loading} onClick={loadSchedules}><RefreshIcon /></button>
         </div>
         {error ? <div className="agent-version-error">{error}</div> : null}
+		{message ? <div className="environment-message">{message}</div> : null}
         {loading && !schedules.length ? <Empty>正在加载定时任务...</Empty> : null}
         {!loading && !schedules.length ? <Empty>当前 Agent 还没有定时任务。</Empty> : null}
         {schedules.map((schedule) => (
@@ -2878,6 +3132,7 @@ function AgentScheduleManager({ agent, onOpenSession }) {
                 <Pill value={schedule.enabled ? "enabled" : "disabled"} />
               </div>
               <div className="agent-schedule-cron"><code>{schedule.cron_expression}</code><span>{schedule.timezone}</span></div>
+				<div className="agent-schedule-meta"><span>{schedule.session_mode === "existing_session" ? "绑定已有 Session" : "每次新建 Session"}</span><span>{schedule.approval_mode === "full_access" ? "完全访问" : "替我审批"}</span></div>
               <p>{schedule.prompt}</p>
               <div className="agent-schedule-meta">
                 <span>下次 {schedule.next_run_at ? formatTime(schedule.next_run_at) : "未安排"}</span>
@@ -3375,6 +3630,8 @@ function SettingsPage({
             workspaceID={currentSession?.workspace_id || selectedAgent?.workspace_id || ""}
           />
         );
+      case "achievements":
+        return <AchievementLibrarySettings workspaceID={workspaceID} />;
       case "mcp":
         return (
           <div className="settings-content-stack">
@@ -4425,7 +4682,7 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
   return null;
 }
 
-function MessageArtifacts({ artifacts, sessionID, onPreview }) {
+function MessageArtifacts({ artifacts, sessionID, onPreview, onInclude = null }) {
   if (!artifacts.length) return null;
   return (
     <div className="message-artifacts">
@@ -4438,7 +4695,10 @@ function MessageArtifacts({ artifacts, sessionID, onPreview }) {
               <FileIcon />
               <span>{artifactName(artifact)}</span>
             </button>
-            <a className="message-artifact-download" href={href} target="_blank" rel="noreferrer">下载</a>
+            <div className="message-artifact-actions">
+              <a className="message-artifact-download" href={href} target="_blank" rel="noreferrer">下载</a>
+              {onInclude ? <button type="button" onClick={() => onInclude(artifact)}>纳入成果库</button> : null}
+            </div>
           </div>
         );
       })}
@@ -5174,10 +5434,10 @@ function ProcessEventCard({
   );
 }
 
-function MessageBody({ event, artifacts = [], sessionID = "", onPreview = () => {} }) {
+function MessageBody({ event, artifacts = [], sessionID = "", onPreview = () => {}, onInclude = null }) {
   const text = eventText(event);
   if (event.type === "agent.message") {
-    return <AgentMessageBody artifacts={artifacts} onPreview={onPreview} sessionID={sessionID} text={text} />;
+    return <AgentMessageBody artifacts={artifacts} onPreview={onPreview} onInclude={onInclude} sessionID={sessionID} text={text} />;
   }
   const parts = [{ type: "text", text }];
   if (!parts.length || (parts.length === 1 && parts[0].type === "text" && !parts[0].text)) {
@@ -5192,24 +5452,24 @@ function MessageBody({ event, artifacts = [], sessionID = "", onPreview = () => 
           <div className="message-text" key={`text-${index}`}>{part.text}</div>
         )
       ))}
-      <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} />
+      <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} onInclude={onInclude} />
     </div>
   );
 }
 
-function AgentMessageBody({ text, artifacts = [], sessionID = "", onPreview = () => {}, streaming = false }) {
+function AgentMessageBody({ text, artifacts = [], sessionID = "", onPreview = () => {}, onInclude = null, streaming = false }) {
   const markdown = streaming
     ? String(text || "")
     : agentMessageWithArtifactLinks(cleanMessageText(text), artifacts.length > 0);
   if (!markdown) {
     return artifacts.length
-      ? <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} />
+      ? <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} onInclude={onInclude} />
       : <div className="message-text">（空消息）</div>;
   }
   return (
     <div className="message-body">
       <MarkdownMessage text={markdown} streaming={streaming} />
-      <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} />
+      <MessageArtifacts artifacts={artifacts} sessionID={sessionID} onPreview={onPreview} onInclude={onInclude} />
     </div>
   );
 }
@@ -5352,6 +5612,10 @@ function WorkbenchApp() {
   const [sessionID, setSessionID] = useState("");
   const [task, setTask] = useState("");
   const [composerFiles, setComposerFiles] = useState([]);
+  const [composerLibraryItems, setComposerLibraryItems] = useState([]);
+  const [composerAttachMenuOpen, setComposerAttachMenuOpen] = useState(false);
+  const [achievementPickerOpen, setAchievementPickerOpen] = useState(false);
+  const [achievementIncludeArtifact, setAchievementIncludeArtifact] = useState(null);
   const [composerDragActive, setComposerDragActive] = useState(false);
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = useState("");
@@ -5834,6 +6098,7 @@ function WorkbenchApp() {
     const sections = [
       { key: "environment", title: "环境变量", description: "工具与 Skills 认证配置", keywords: "environment env secret key token credential 环境变量 密钥 认证" },
       { key: "models", title: "模型", description: "Provider、凭证与模型目录", keywords: "model provider llm api 模型 服务商 上下文" },
+      { key: "achievements", title: "成果库", description: "跨会话复用文件", keywords: "achievement library file result 成果库 文件 目录 标签 引用" },
       { key: "skills", title: "Skills", description: "技能安装、启用与状态", keywords: "skills 技能 install enable disable 停用" },
       { key: "mcp", title: "MCP", description: "MCP 服务与可用性", keywords: "mcp server tool" },
       { key: "agent", title: "Agent", description: "智能体列表与当前配置", keywords: "agent 智能体 model config" },
@@ -6425,7 +6690,7 @@ function WorkbenchApp() {
       for (const file of incoming) {
         const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
         if (known.has(fingerprint)) continue;
-        if (next.length >= maxComposerFiles) {
+        if (next.length + composerLibraryItems.length >= maxComposerFiles) {
           rejected.push(`最多上传 ${maxComposerFiles} 个文件`);
           break;
         }
@@ -6484,6 +6749,28 @@ function WorkbenchApp() {
     }
   }
 
+  async function referenceComposerLibraryItems(nextSessionID) {
+    const completed = [];
+    for (const item of composerLibraryItems) {
+      const referenced = await api.referenceAchievementLibraryItem(item.id, nextSessionID);
+      if (referenced.artifact) {
+        setArtifactResponse((current) => ({
+          ...current,
+          artifacts: [...(current.artifacts || []).filter((artifact) => artifact.id !== referenced.artifact.id), referenced.artifact]
+        }));
+      }
+      completed.push({
+        artifact_id: referenced.artifact?.id || "",
+        object_ref_id: referenced.object_ref?.id || item.object_ref_id || "",
+        name: referenced.artifact?.name || item.name,
+        content_type: referenced.object_ref?.content_type || "application/octet-stream",
+        size_bytes: referenced.object_ref?.size_bytes || 0,
+        workspace_path: referenced.workspace_path || ""
+      });
+    }
+    return completed;
+  }
+
   function handleComposerDrop(event) {
     event.preventDefault();
     setComposerDragActive(false);
@@ -6532,7 +6819,7 @@ function WorkbenchApp() {
     const session = await api.createSession({
       agent_id: agent.id,
       environment_id: environment.id,
-      title: task.trim() ? task.trim().slice(0, 80) : (composerFiles[0]?.file.name || "New workbench task")
+      title: task.trim() ? task.trim().slice(0, 80) : (composerFiles[0]?.file.name || composerLibraryItems[0]?.name || "New workbench task")
     });
     setAgentID(agent.id);
     setEnvironmentID(environment.id);
@@ -6559,7 +6846,7 @@ function WorkbenchApp() {
       setSessionMeta(updatedSession);
       await loadSessionSettings(session.id, updatedSession);
     }
-    if (task.trim() || composerFiles.length) {
+    if (task.trim() || composerFiles.length || composerLibraryItems.length) {
       if (workflowMode && selectedTaskTemplate?.workflow_steps?.length) {
         await startWorkflow(session.id, selectedTaskTemplate, task.trim());
       } else {
@@ -6574,7 +6861,7 @@ function WorkbenchApp() {
     const value = String(nextSessionID || "").trim();
     const text = String(options.text ?? task).trim();
     const guidanceItems = options.guidanceItems || selectedGuidanceItems;
-    const attachmentItems = options.attachments?.length ? options.attachments : composerFiles;
+    const attachmentItems = options.attachments?.length ? options.attachments : [...composerFiles, ...composerLibraryItems];
     const guidedText = buildGuidedTaskMessage(defaultComposerTask(text, attachmentItems), guidanceItems);
     if (!value) {
       setStatus("session required");
@@ -6585,13 +6872,16 @@ function WorkbenchApp() {
       setStatus(visionError);
       return;
     }
-    if (!text && !composerFiles.length && !options.attachments?.length) {
+    if (!text && !composerFiles.length && !composerLibraryItems.length && !options.attachments?.length) {
       setStatus("task required");
       return;
     }
     const queued = Boolean(waitingForReply || effectiveSessionStatus === "running" || effectiveSessionStatus === "interrupting");
-    setStatus(composerFiles.length ? "uploading files" : (queued ? "queued message" : "sending task"));
-    const attachments = options.attachments || await uploadComposerFiles(value);
+    setStatus(composerFiles.length || composerLibraryItems.length ? "preparing files" : (queued ? "queued message" : "sending task"));
+    const attachments = options.attachments || [
+      ...await uploadComposerFiles(value),
+      ...await referenceComposerLibraryItems(value)
+    ];
     setStatus(queued ? "queued message" : "sending task");
     const response = await api.sendSessionMessage(value, guidedText, {
       preferLatest: false,
@@ -6607,6 +6897,7 @@ function WorkbenchApp() {
     if (isCurrentSession(value) && options.clearTask !== false) {
       setTask("");
       setComposerFiles([]);
+      setComposerLibraryItems([]);
     }
     if (isCurrentSession(value)) {
       setWaitingForReply(true);
@@ -7255,6 +7546,7 @@ function WorkbenchApp() {
     setStatus("loading chat");
     clearArtifactPreview();
     setComposerFiles([]);
+    setComposerLibraryItems([]);
     setToolPickerOpen(false);
     setLiveReply(sessionLiveRepliesRef.current.get(session.id) || null);
     setWaitingForReply(["provisioning", "running", "interrupting"].includes(String(session.status || "")));
@@ -7273,6 +7565,7 @@ function WorkbenchApp() {
     sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
     setComposerFiles([]);
+    setComposerLibraryItems([]);
     setComposerDragActive(false);
     setToolPickerOpen(false);
     setAgentID((current) => current || defaultAgentConfig?.id || "");
@@ -7339,6 +7632,7 @@ function WorkbenchApp() {
     sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
     setComposerFiles([]);
+    setComposerLibraryItems([]);
     setToolPickerOpen(false);
     sessionIDRef.current = "";
     setSessionID("");
@@ -7406,7 +7700,7 @@ function WorkbenchApp() {
       sessionStatus === "interrupting"
     )
   );
-  const hasComposerContent = Boolean(task.trim() || composerFiles.length);
+  const hasComposerContent = Boolean(task.trim() || composerFiles.length || composerLibraryItems.length);
   const primaryAction = !sessionID
     ? {
         className: "composer-primary-button",
@@ -7979,6 +8273,7 @@ function WorkbenchApp() {
 						    text={eventText(event)}
 						    streaming={streaming}
 						    onPreview={(artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message))}
+						    onInclude={setAchievementIncludeArtifact}
 						  />
 						) : (
 						  <MessageBody
@@ -8077,7 +8372,7 @@ function WorkbenchApp() {
                       event.target.value = "";
                     }}
                   />
-                  {composerFiles.length ? (
+                  {composerFiles.length || composerLibraryItems.length ? (
                     <div className="composer-attachments" aria-label="待上传文件">
                       {composerFiles.map((item) => {
                         const extension = item.file.name.includes(".") ? item.file.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
@@ -8089,6 +8384,16 @@ function WorkbenchApp() {
                               <span>{item.status === "uploading" ? "上传中..." : item.status === "uploaded" ? "已上传" : item.status === "error" ? "上传失败，发送时重试" : formatFileSize(item.file.size)}</span>
                             </div>
                             <button className="icon-button" type="button" disabled={uploadingFiles} onClick={() => removeComposerFile(item.id)} title="移除文件" aria-label={`移除 ${item.file.name}`}><CloseIcon /></button>
+                          </div>
+                        );
+                      })}
+                      {composerLibraryItems.map((item) => {
+                        const extension = item.name.includes(".") ? item.name.split(".").pop().slice(0, 5).toUpperCase() : "FILE";
+                        return (
+                          <div className="composer-attachment library" key={`library:${item.id}`} title={item.name}>
+                            <div className="composer-attachment-icon"><FileIcon /><span>{extension}</span></div>
+                            <div className="composer-attachment-copy"><strong>{item.name}</strong><span>成果库 · {item.directory || "未分类"}</span></div>
+                            <button className="icon-button" type="button" disabled={uploadingFiles} onClick={() => setComposerLibraryItems((current) => current.filter((entry) => entry.id !== item.id))} title="移除文件" aria-label={`移除 ${item.name}`}><CloseIcon /></button>
                           </div>
                         );
                       })}
@@ -8108,15 +8413,24 @@ function WorkbenchApp() {
                     placeholder="让 TMA 帮你构建、检查、修改或执行某项工作... 回车发送，Shift+Enter 换行。"
                   />
                   <div className="composer-input-actions">
-                    <button
-                      className="icon-button composer-attach-button"
-                      type="button"
-                      disabled={uploadingFiles || composerFiles.length >= maxComposerFiles}
-                      onClick={() => composerFileInputRef.current?.click()}
-                      aria-label="上传文件"
-                    >
-                      <span aria-hidden="true">+</span>
-                    </button>
+                    <div className="composer-attach-control">
+                      <button
+                        className="icon-button composer-attach-button"
+                        type="button"
+                        disabled={uploadingFiles || composerFiles.length + composerLibraryItems.length >= maxComposerFiles}
+                        onClick={() => setComposerAttachMenuOpen((current) => !current)}
+                        aria-label="添加文件"
+                        aria-expanded={composerAttachMenuOpen}
+                      >
+                        <span aria-hidden="true">+</span>
+                      </button>
+                      {composerAttachMenuOpen ? (
+                        <div className="composer-attach-menu">
+                          <button type="button" onClick={() => { setComposerAttachMenuOpen(false); composerFileInputRef.current?.click(); }}><FileIcon /><span><strong>上传本地文件</strong><small>从设备选择文件</small></span></button>
+                          <button type="button" onClick={() => { setComposerAttachMenuOpen(false); setAchievementPickerOpen(true); }}><FolderIcon /><span><strong>引用成果库文件</strong><small>跨会话复用已有成果</small></span></button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   {selectedTaskTemplate ? (
                     <div className="composer-template-selection">
@@ -8338,6 +8652,32 @@ function WorkbenchApp() {
           onClose={() => setMetadataSession(null)}
           saving={savingMetadata || sessionAction === `pin:${metadataSession.id}`}
           onTogglePin={() => toggleTaskPin(metadataSession).catch((error) => setStatus(error.message))}
+        />
+      ) : null}
+      {achievementIncludeArtifact ? (
+        <AchievementIncludeModal
+          artifact={achievementIncludeArtifact}
+          sessionID={sessionID}
+          onClose={() => setAchievementIncludeArtifact(null)}
+          onSaved={(item) => {
+            setAchievementIncludeArtifact(null);
+            setStatus(`已纳入成果库：${item.name}`);
+            workbenchNotificationService.show({ level: "success", title: "已纳入成果库", message: item.directory ? `${item.directory} / ${item.name}` : item.name, dedupeKey: `achievement.included.${item.id}` });
+          }}
+        />
+      ) : null}
+      {achievementPickerOpen ? (
+        <AchievementLibraryPickerModal
+          workspaceID={toolingWorkspaceID}
+          selectedIDs={composerLibraryItems.map((item) => item.id)}
+          onChange={(ids, availableItems) => {
+            const availableSlots = Math.max(0, maxComposerFiles - composerFiles.length);
+            const limitedIDs = ids.slice(0, availableSlots);
+            if (ids.length > limitedIDs.length) setStatus(`最多添加 ${maxComposerFiles} 个文件`);
+            const byID = new Map(availableItems.map((item) => [item.id, item]));
+            setComposerLibraryItems(limitedIDs.map((id) => byID.get(id)).filter(Boolean));
+          }}
+          onClose={() => setAchievementPickerOpen(false)}
         />
       ) : null}
       {approvalsOpen ? (

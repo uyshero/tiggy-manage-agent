@@ -2998,7 +2998,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
-		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, environments, managed_environment_variables,
+		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
 		session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
@@ -3021,7 +3021,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		t.Fatalf("grant Session turn access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
-		GRANT USAGE ON SEQUENCE tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
+		GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
 		tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
 			tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,

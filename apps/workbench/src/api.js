@@ -63,7 +63,9 @@ async function responseErrorMessage(response) {
   const text = await response.text();
   try {
     const payload = JSON.parse(text);
-    return payload?.error || text || `HTTP ${response.status}`;
+    if (typeof payload?.error === "string") return payload.error;
+    if (typeof payload?.error?.message === "string") return payload.error.message;
+    return text || `HTTP ${response.status}`;
   } catch {
     return text || `HTTP ${response.status}`;
   }
@@ -599,6 +601,33 @@ export function downloadArtifact(sessionId, artifactId, options = {}) {
 
 export function artifactDownloadPath(sessionId, artifactId) {
   return `/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
+}
+
+export function achievementLibrary(workspaceId) {
+  const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
+  return getJSON(`/v2/achievement-library${query}`);
+}
+
+export function includeArtifactInAchievementLibrary(sessionId, artifactId, body) {
+  return postJSON(`/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/achievement-library`, body);
+}
+
+export function updateAchievementLibraryItem(itemId, body) {
+  return patchJSON(`/v2/achievement-library/${encodeURIComponent(itemId)}`, body);
+}
+
+export function deleteAchievementLibraryItem(itemId, workspaceId) {
+  const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
+  return deleteRequest(`/v2/achievement-library/${encodeURIComponent(itemId)}${query}`);
+}
+
+export function referenceAchievementLibraryItem(itemId, sessionId) {
+  return postJSON(`/v2/achievement-library/${encodeURIComponent(itemId)}/reference`, { session_id: sessionId });
+}
+
+export function achievementLibraryDownloadPath(itemId, workspaceId) {
+  const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
+  return `/v2/achievement-library/${encodeURIComponent(itemId)}/download${query}`;
 }
 
 export function objectRefDownloadPath(objectRefId, sessionId) {

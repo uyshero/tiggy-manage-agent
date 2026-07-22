@@ -416,6 +416,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	rows, err := s.db.QueryContext(ctx, `
 		WITH required(table_name, policy_name) AS (
 			VALUES
+				('achievement_library_items', 'achievement_library_items_isolation'),
 				('agent_deliberation_contributions', 'agent_deliberation_contributions_parent_isolation'),
 				('agent_deliberation_participants', 'agent_deliberation_participants_parent_isolation'),
 				('agent_deliberation_rounds', 'agent_deliberation_rounds_parent_isolation'),
@@ -514,13 +515,14 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 50 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000085")
+	if checked != 51 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000087")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
 		WITH required(sequence_name) AS (
 			VALUES
+				('tma_achievement_library_item_id_seq'),
 				('tma_agent_id_seq'),
 				('tma_agent_deliberation_id_seq'),
 				('tma_agent_schedule_id_seq'),
@@ -581,8 +583,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 31 {
-		return errors.New("tenant resource sequences are missing; apply migrations through 000081")
+	if checked != 32 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000087")
 	}
 	return nil
 }

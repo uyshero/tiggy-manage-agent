@@ -57,7 +57,15 @@ func (s *Server) createAgentSchedule(w http.ResponseWriter, r *http.Request) {
 	if input.CreatedBy == "" {
 		input.CreatedBy = "agent-scheduler"
 	}
-	if strings.TrimSpace(input.EnvironmentID) == "" {
+	sessionMode, targetSessionID, approvalMode, err := managedagents.NormalizeAgentScheduleModes(input.SessionMode, input.TargetSessionID, input.ApprovalMode)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	input.SessionMode = sessionMode
+	input.TargetSessionID = targetSessionID
+	input.ApprovalMode = approvalMode
+	if input.SessionMode == managedagents.AgentScheduleSessionNew && strings.TrimSpace(input.EnvironmentID) == "" {
 		environment, createErr := store.EnsureAgentScheduleEnvironment(ctx, agent.WorkspaceID)
 		if createErr != nil {
 			writeError(w, createErr)
@@ -203,10 +211,22 @@ func (s *Server) runAgentScheduleNow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	session, err := (agentschedule.Service{Store: store, State: s.store, Runner: s.runner, Logger: s.logger}).Dispatch(ctx, invocation)
+	result, err := (agentschedule.Service{Store: store, State: s.store, Runner: s.runner, Logger: s.logger}).TryDispatchRun(ctx, invocation)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"schedule": invocation.Schedule, "run_id": invocation.RunID, "session": session})
+	status := http.StatusCreated
+	if result.Status == managedagents.AgentScheduleRunWaitingSession {
+		status = http.StatusAccepted
+	}
+	response := map[string]any{
+		"schedule": invocation.Schedule,
+		"run_id":   invocation.RunID,
+		"status":   result.Status,
+	}
+	if result.Session != nil {
+		response["session"] = result.Session
+	}
+	writeJSON(w, status, response)
 }
