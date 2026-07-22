@@ -4128,24 +4128,6 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
   return compacted;
 }
 
-function resolvedSkillsByTurn(sourceEvents) {
-  const byTurn = new Map();
-  for (const event of sourceEvents || []) {
-    if (!["runtime.skills_resolved", "runtime.skills_truncated"].includes(event.type)) continue;
-    const turnID = String(payload(event).turn_id || "").trim();
-    if (!turnID) continue;
-    const current = byTurn.get(turnID) || new Map();
-    for (const skill of Array.isArray(eventData(event).skills) ? eventData(event).skills : []) {
-      const identifier = String(skill?.identifier || "").trim();
-      if (!identifier) continue;
-      const version = Number(skill?.version || 0);
-      current.set(`${identifier}:${version}`, { identifier, version });
-    }
-    byTurn.set(turnID, current);
-  }
-  return new Map([...byTurn].map(([turnID, skills]) => [turnID, [...skills.values()]]));
-}
-
 function activityView(event) {
   const data = eventData(event);
   switch (event?.type) {
@@ -4708,8 +4690,7 @@ function ProcessEventCard({
   sessionConfigVersion = 0,
   skillEnableBusy = "",
   skillDisableBusy = "",
-  skillEnableDisabled = false,
-  turnSkills = []
+  skillEnableDisabled = false
 }) {
   const data = eventData(event);
   const error = objectValue(data.error);
@@ -4868,14 +4849,12 @@ function ProcessEventCard({
     contextItems = [
       { label: identifier === "skills" ? "Skill 工具" : "工具", value: summary.label },
       { label: "操作", value: summary.title },
-      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : []),
-      ...(turnSkills.length ? [{ label: "本轮技能", value: turnSkills.map((skill) => `${skill.identifier}${skill.version ? ` v${skill.version}` : ""}`).join("、") }] : [])
+      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : [])
     ];
     detailObject = {
       tool: summary.label,
       operation: summary.title,
       target: summary.detail || undefined,
-      resolved_skills: turnSkills.length ? turnSkills : undefined,
       call_id: data.id || requiredData.id || undefined,
       risk: approvalRequest.risk || undefined,
       approval_reason: data.reason || requiredData.reason || undefined,
@@ -4899,14 +4878,12 @@ function ProcessEventCard({
     contextItems = [
       { label: identifier === "skills" ? "Skill 工具" : "工具", value: summary.label },
       { label: "操作", value: summary.title },
-      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : []),
-      ...(turnSkills.length ? [{ label: "本轮技能", value: turnSkills.map((skill) => `${skill.identifier}${skill.version ? ` v${skill.version}` : ""}`).join("、") }] : [])
+      ...(summary.detail ? [{ label: "目标", value: summary.detail }] : [])
     ];
     detailObject = {
       tool: summary.label,
       operation: summary.title,
       target: summary.detail || undefined,
-      resolved_skills: turnSkills.length ? turnSkills : undefined,
       call_id: data.id || requiredData.id || undefined,
       risk: approvalRequest.risk || undefined,
       approval_reason: data.reason || requiredData.reason || undefined,
@@ -5621,7 +5598,6 @@ function WorkbenchApp() {
   const events = eventsResponse.events || [];
   const currentTaskPlan = useMemo(() => latestTaskPlan(events, taskPlanResponse.plan), [events, taskPlanResponse.plan]);
   const toolCallLifecycles = useMemo(() => buildToolCallLifecycles(events), [events]);
-  const turnSkillsByID = useMemo(() => resolvedSkillsByTurn(events), [events]);
   const conversationEvents = useMemo(() => events
     .filter((event) => event.type === "user.message" || event.type === "agent.message")
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
@@ -8024,7 +8000,6 @@ function WorkbenchApp() {
                       skillDisableBusy={requestingSkillDisable}
                       skillEnableDisabled={Boolean(applyingSessionConfigVersion || waitingForReply || hasPendingApprovals || ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus))}
                       toolLifecycle={toolLifecycle}
-                      turnSkills={turnSkillsByID.get(String(payload(event).turn_id || "")) || []}
                     />
                   );
                 }) : (
