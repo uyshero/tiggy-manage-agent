@@ -4012,6 +4012,14 @@ const chatTimelineStatusEventTypes = new Set([
   "runtime.completion_blocked",
   "runtime.completion_validation_failed",
   "runtime.completed",
+  "runtime.tool_intervention_required",
+  "runtime.tool_intervention_approved",
+  "runtime.tool_intervention_rejected",
+  "runtime.human_input_required",
+  "runtime.human_input_submitted",
+  "runtime.human_input_skipped",
+  "runtime.human_input_canceled",
+  "runtime.plan_approval_approved",
   "model.requested",
   "model.responded",
   "completion.started",
@@ -4023,6 +4031,83 @@ const chatTimelineStatusEventTypes = new Set([
   "intervention.required",
   "intervention.resolved"
 ]);
+
+const chatTimelineInternalEventTypes = new Set([
+  "session.status_provisioning",
+  "session.status_running",
+  "session.status_compacting",
+  "session.status_idle",
+  "runtime.started",
+  "runtime.llm_request",
+  "runtime.llm_response",
+  "runtime.skills_resolving",
+  "runtime.skills_resolved",
+  "runtime.turn_completing",
+  "runtime.completion_validated",
+  "model.requested",
+  "model.responded",
+  "completion.started",
+  "completion.validated",
+  "tool.batch_planned",
+  "tool.batch_completed",
+  "tool.call_started",
+  "tool.call_result",
+  "intervention.required",
+  "intervention.resolved"
+]);
+
+function compactChatTimelineEvents(sourceEvents) {
+  const sorted = [...(sourceEvents || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
+  const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
+  const compacted = [];
+  let internalEvents = [];
+
+  function flushInternalEvents() {
+    if (!internalEvents.length) return;
+    if (compacted.at(-1)?.type === "runtime.thinking") {
+      internalEvents = [];
+      return;
+    }
+    const first = internalEvents[0];
+    compacted.push({
+      ...first,
+      type: "runtime.thinking",
+      seq: `thinking-${first.seq}-${internalEvents.at(-1).seq}`,
+      payload: {
+        ...payload(first),
+        data: {
+          ...eventData(first),
+          text: "正在分析请求并准备下一步。"
+        }
+      }
+    });
+    internalEvents = [];
+  }
+
+  for (const event of sorted) {
+    const callID = toolCallID(event);
+    if (chatTimelineInternalEventTypes.has(event.type)) {
+      internalEvents.push(event);
+      continue;
+    }
+    if (event.type === "runtime.thinking") {
+      internalEvents = [];
+      compacted.push(event);
+      continue;
+    }
+    if (event.type === "runtime.tool_result" && toolCallIDs.has(callID)) {
+      const data = eventData(event);
+      const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      if (data.success !== false && !artifacts.length && data.identifier !== "skills") continue;
+    }
+    if (event.type.startsWith("runtime.tool_intervention_") && toolCallIDs.has(callID)) continue;
+    if (event.type.startsWith("runtime.human_input_") && toolCallIDs.has(callID)) continue;
+    flushInternalEvents();
+    compacted.push(event);
+  }
+  flushInternalEvents();
+  return compacted;
+}
 
 function isActivityEvent(event) {
   return Boolean(event?.type) && (event.type.startsWith("runtime.") || event.type.startsWith("session.status_"));
@@ -4646,8 +4731,8 @@ function ProcessEventCard({
     statusLabel = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
     defaultExpanded = status === "running";
   } else if (event.type === "runtime.thinking") {
-    title = "处理请求";
-    metaLabel = "运行状态";
+    title = active ? "思考中" : "思考";
+    metaLabel = "思考";
     preview = turnActivityLabel(event) || "正在准备下一步。";
     tone = "tool";
     status = active ? "running" : "completed";
@@ -4788,6 +4873,53 @@ function ProcessEventCard({
     status = "warning";
     statusLabel = "需修改";
     defaultExpanded = true;
+  } else if (event.type === "runtime.plan_approval_approved") {
+    title = "计划已批准";
+    metaLabel = "计划审批";
+    preview = data.decision_reason || "智能体将按计划继续执行。";
+    tone = "ok";
+    statusLabel = "已通过";
+  } else if (event.type === "runtime.human_input_required") {
+    title = "需要补充信息";
+    metaLabel = "人工输入";
+    preview = objectValue(data.request).question || objectValue(args).question || "请补充任务所需信息。";
+    tone = "warn";
+    status = "warning";
+    statusLabel = "待输入";
+    defaultExpanded = true;
+  } else if (event.type === "runtime.human_input_submitted") {
+    title = "补充信息已提交";
+    metaLabel = "人工输入";
+    preview = "智能体将继续执行任务。";
+    tone = "ok";
+    statusLabel = "已提交";
+  } else if (event.type === "runtime.human_input_skipped" || event.type === "runtime.human_input_canceled") {
+    title = event.type === "runtime.human_input_skipped" ? "已跳过补充信息" : "补充信息已取消";
+    metaLabel = "人工输入";
+    preview = data.decision_reason || "任务将根据现有信息继续。";
+    tone = event.type === "runtime.human_input_skipped" ? "warn" : "error";
+    status = event.type === "runtime.human_input_skipped" ? "warning" : "error";
+    statusLabel = event.type === "runtime.human_input_skipped" ? "已跳过" : "已取消";
+  } else if (event.type === "runtime.completed") {
+    title = "任务完成";
+    metaLabel = "执行结果";
+    preview = "本轮任务已完成。";
+    tone = "ok";
+    statusLabel = "完成";
+  } else if (event.type === "runtime.completion_blocked") {
+    title = "继续执行任务";
+    metaLabel = "完成校验";
+    preview = data.reason || "候选回复尚未满足完成条件。";
+    tone = "warn";
+    status = "warning";
+    statusLabel = "继续";
+  } else if (event.type === "runtime.completion_validation_failed") {
+    title = "完成校验失败";
+    metaLabel = "完成校验";
+    preview = data.reason || "任务尚未通过完成校验。";
+    tone = "error";
+    status = "error";
+    statusLabel = "失败";
   } else if (event.type === "runtime.failed") {
     title = "任务失败";
     metaLabel = "执行错误";
@@ -5425,8 +5557,7 @@ function WorkbenchApp() {
   const conversationEvents = useMemo(() => events
     .filter((event) => event.type === "user.message" || event.type === "agent.message")
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
-  const chatTimelineEvents = useMemo(() => [...events]
-    .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0))
+  const chatTimelineEvents = useMemo(() => compactChatTimelineEvents([...events]
     .filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
@@ -5443,8 +5574,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-    })
-    , [events]);
+    })), [events]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
     const event = [...events].reverse().find((item) => {
       const data = eventData(item);
