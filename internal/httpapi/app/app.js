@@ -37413,6 +37413,23 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
   flushInternalEvents();
   return compacted;
 }
+function resolvedSkillsByTurn(sourceEvents) {
+  const byTurn = /* @__PURE__ */ new Map();
+  for (const event of sourceEvents || []) {
+    if (!["runtime.skills_resolved", "runtime.skills_truncated"].includes(event.type)) continue;
+    const turnID = String(payload(event).turn_id || "").trim();
+    if (!turnID) continue;
+    const current = byTurn.get(turnID) || /* @__PURE__ */ new Map();
+    for (const skill of Array.isArray(eventData(event).skills) ? eventData(event).skills : []) {
+      const identifier = String((skill == null ? void 0 : skill.identifier) || "").trim();
+      if (!identifier) continue;
+      const version2 = Number((skill == null ? void 0 : skill.version) || 0);
+      current.set(`${identifier}:${version2}`, { identifier, version: version2 });
+    }
+    byTurn.set(turnID, current);
+  }
+  return new Map([...byTurn].map(([turnID, skills2]) => [turnID, [...skills2.values()]]));
+}
 function isActivityEvent(event) {
   return Boolean(event == null ? void 0 : event.type) && (event.type.startsWith("runtime.") || event.type.startsWith("session.status_"));
 }
@@ -37925,7 +37942,8 @@ function ProcessEventCard({
   sessionConfigVersion = 0,
   skillEnableBusy = "",
   skillDisableBusy = "",
-  skillEnableDisabled = false
+  skillEnableDisabled = false,
+  turnSkills = []
 }) {
   var _a2, _b;
   const data = eventData(event);
@@ -37937,6 +37955,7 @@ function ProcessEventCard({
   let metaLabel = event.type;
   let preview = "";
   let detailObject = null;
+  let contextItems = [];
   let tone = "muted";
   let status = "completed";
   let statusLabel = "完成";
@@ -38069,40 +38088,64 @@ function ProcessEventCard({
       defaultExpanded = false;
     }
   } else if (event.type === "runtime.tool_intervention_approved") {
-    const approvalArgs = Object.keys(args).length ? args : objectValue(requiredData.arguments);
-    const identifier = data.identifier || requiredData.identifier;
-    const apiName = data.api_name || requiredData.api_name;
+    const approvalRequest = Object.keys(objectValue(data.request)).length ? objectValue(data.request) : objectValue(requiredData.request);
+    const approvalArgs = Object.keys(args).length ? args : Object.keys(objectValue(requiredData.arguments)).length ? objectValue(requiredData.arguments) : objectValue(approvalRequest.arguments);
+    const requestedTool = String(approvalRequest.tool || "");
+    const requestParts = normalizeToolParts(requestedTool);
+    const identifier = data.identifier || requiredData.identifier || requestParts.identifier;
+    const apiName = data.api_name || requiredData.api_name || requestParts.apiName;
     const summary = toolSummary({ identifier, apiName, args: approvalArgs });
     const decisionReason = meaningfulApprovalReason(data.decision_reason);
     title = `已批准：${summary.title}`;
-    metaLabel = `审批 · ${summary.label}`;
+    metaLabel = `工具 · ${summary.label}`;
     preview = processPreview(identifier, apiName, approvalArgs) || summary.detail || data.reason || requiredData.reason || "该工具调用可以继续执行。";
+    contextItems = [
+      { label: identifier === "skills" ? "Skill 工具" : "工具", value: summary.label },
+      { label: "操作", value: summary.title },
+      ...summary.detail ? [{ label: "目标", value: summary.detail }] : [],
+      ...turnSkills.length ? [{ label: "本轮技能", value: turnSkills.map((skill) => `${skill.identifier}${skill.version ? ` v${skill.version}` : ""}`).join("、") }] : []
+    ];
     detailObject = {
+      tool: summary.label,
+      operation: summary.title,
+      target: summary.detail || void 0,
+      resolved_skills: turnSkills.length ? turnSkills : void 0,
       call_id: data.id || requiredData.id || void 0,
+      risk: approvalRequest.risk || void 0,
       approval_reason: data.reason || requiredData.reason || void 0,
       decision_reason: decisionReason || void 0,
-      approval_source: data.approval_source || void 0,
-      arguments: Object.keys(approvalArgs).length ? approvalArgs : void 0,
-      request: Object.keys(objectValue(data.request || requiredData.request)).length ? objectValue(data.request || requiredData.request) : void 0
+      approval_source: data.approval_source || void 0
     };
     tone = "ok";
     statusLabel = "已通过";
   } else if (event.type === "runtime.tool_intervention_rejected") {
-    const approvalArgs = Object.keys(args).length ? args : objectValue(requiredData.arguments);
-    const identifier = data.identifier || requiredData.identifier;
-    const apiName = data.api_name || requiredData.api_name;
+    const approvalRequest = Object.keys(objectValue(data.request)).length ? objectValue(data.request) : objectValue(requiredData.request);
+    const approvalArgs = Object.keys(args).length ? args : Object.keys(objectValue(requiredData.arguments)).length ? objectValue(requiredData.arguments) : objectValue(approvalRequest.arguments);
+    const requestedTool = String(approvalRequest.tool || "");
+    const requestParts = normalizeToolParts(requestedTool);
+    const identifier = data.identifier || requiredData.identifier || requestParts.identifier;
+    const apiName = data.api_name || requiredData.api_name || requestParts.apiName;
     const summary = toolSummary({ identifier, apiName, args: approvalArgs });
     const decisionReason = meaningfulApprovalReason(data.decision_reason);
     title = `已拒绝：${summary.title}`;
-    metaLabel = `审批 · ${summary.label}`;
+    metaLabel = `工具 · ${summary.label}`;
     preview = decisionReason || processPreview(identifier, apiName, approvalArgs) || summary.detail || data.reason || requiredData.reason || "该工具调用已停止。";
+    contextItems = [
+      { label: identifier === "skills" ? "Skill 工具" : "工具", value: summary.label },
+      { label: "操作", value: summary.title },
+      ...summary.detail ? [{ label: "目标", value: summary.detail }] : [],
+      ...turnSkills.length ? [{ label: "本轮技能", value: turnSkills.map((skill) => `${skill.identifier}${skill.version ? ` v${skill.version}` : ""}`).join("、") }] : []
+    ];
     detailObject = {
+      tool: summary.label,
+      operation: summary.title,
+      target: summary.detail || void 0,
+      resolved_skills: turnSkills.length ? turnSkills : void 0,
       call_id: data.id || requiredData.id || void 0,
+      risk: approvalRequest.risk || void 0,
       approval_reason: data.reason || requiredData.reason || void 0,
       decision_reason: decisionReason || void 0,
-      approval_source: data.approval_source || void 0,
-      arguments: Object.keys(approvalArgs).length ? approvalArgs : void 0,
-      request: Object.keys(objectValue(data.request || requiredData.request)).length ? objectValue(data.request || requiredData.request) : void 0
+      approval_source: data.approval_source || void 0
     };
     tone = "error";
     status = "error";
@@ -38249,6 +38292,10 @@ function ProcessEventCard({
     expanded ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-body", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-summary", children: [
         preview ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "process-card-preview", children: preview }) : null,
+        contextItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("dl", { className: "process-card-context", children: contextItems.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: item.label }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: item.value })
+        ] }, `${item.label}-${item.value}`)) }) : null,
         data.tool_source ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "process-card-source", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "来源" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `source-chip ${toolSource(data.identifier, data.tool_source, data.manifest_type)}`, children: toolSourceLabel(toolSource(data.identifier, data.tool_source, data.manifest_type)) })
@@ -38723,6 +38770,7 @@ function WorkbenchApp() {
   const events$1 = eventsResponse.events || [];
   const currentTaskPlan = reactExports.useMemo(() => latestTaskPlan(events$1, taskPlanResponse.plan), [events$1, taskPlanResponse.plan]);
   const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(events$1), [events$1]);
+  const turnSkillsByID = reactExports.useMemo(() => resolvedSkillsByTurn(events$1), [events$1]);
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
   const chatTimelineEvents = reactExports.useMemo(() => {
     const timelineStatus = latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status);
@@ -41030,7 +41078,8 @@ function WorkbenchApp() {
                     skillEnableBusy: requestingSkillEnable,
                     skillDisableBusy: requestingSkillDisable,
                     skillEnableDisabled: Boolean(applyingSessionConfigVersion || waitingForReply || hasPendingApprovals || ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus)),
-                    toolLifecycle
+                    toolLifecycle,
+                    turnSkills: turnSkillsByID.get(String(payload(event).turn_id || "")) || []
                   },
                   `${event.seq}-${event.type}`
                 );
