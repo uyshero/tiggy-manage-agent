@@ -21,11 +21,14 @@ import {
   isPreviewCancelledError
 } from "./workbench/relatedResourceService.js";
 import {
+  MAX_ARTIFACT_PREVIEW_BYTES,
+  MAX_ARTIFACT_PREVIEW_CHARACTERS,
   artifactToResourceRef,
   createSessionArtifactProvider,
   htmlPreviewDocument,
   isHTMLResource,
-  isMarkdownResource
+  isMarkdownResource,
+  previewKindForResource
 } from "./workbench/sessionArtifactAdapter.js";
 import PluginRouteHost from "./workbench/PluginRouteHost.jsx";
 import { createPermissionService } from "./workbench/permissionService.js";
@@ -1293,6 +1296,76 @@ function AchievementLibrarySettings({ workspaceID }) {
   const [directory, setDirectory] = useState("");
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [previewMode, setPreviewMode] = useState("preview");
+  const previewRequestRef = useRef({ sequence: 0, controller: null });
+
+  function closePreview() {
+    previewRequestRef.current.controller?.abort();
+    previewRequestRef.current = { sequence: previewRequestRef.current.sequence + 1, controller: null };
+    setPreview((current) => {
+      current?.dispose?.();
+      return null;
+    });
+  }
+
+  useEffect(() => () => {
+    preview?.dispose?.();
+  }, [preview]);
+
+  useEffect(() => () => {
+    previewRequestRef.current.controller?.abort();
+  }, []);
+
+  async function openPreview(item) {
+    closePreview();
+    const controller = new AbortController();
+    const sequence = previewRequestRef.current.sequence + 1;
+    previewRequestRef.current = { sequence, controller };
+    const isCurrentRequest = () => previewRequestRef.current.sequence === sequence && !controller.signal.aborted;
+    const resource = { id: item.id, type: "file", title: item.name, mimeType: "" };
+    setPreviewMode("preview");
+    setPreview({ resource, status: "loading" });
+    try {
+      const response = await api.downloadAchievementLibraryItem(item.id, workspaceID, { signal: controller.signal });
+      if (!isCurrentRequest()) return;
+      const contentType = response.headers.get("Content-Type") || "";
+      const contentLength = Number(response.headers.get("Content-Length") || 0);
+      resource.mimeType = contentType;
+      const kind = previewKindForResource(resource, contentType);
+      if (kind === "image") {
+        const objectUrl = URL.createObjectURL(await response.blob());
+        if (!isCurrentRequest()) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setPreview({ resource, status: "ready", kind, contentType, objectUrl, dispose: () => URL.revokeObjectURL(objectUrl) });
+        return;
+      }
+      if (kind === "text") {
+        if (contentLength > MAX_ARTIFACT_PREVIEW_BYTES) {
+          setPreview({ resource, status: "ready", kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" });
+          return;
+        }
+        let text = await response.text();
+        if (!isCurrentRequest()) return;
+        if (contentType.toLowerCase().includes("json")) {
+          try { text = JSON.stringify(JSON.parse(text), null, 2); } catch {}
+        }
+        if (text.length > MAX_ARTIFACT_PREVIEW_CHARACTERS) text = `${text.slice(0, MAX_ARTIFACT_PREVIEW_CHARACTERS)}\n\n[预览已截断]`;
+        setPreview({ resource, status: "ready", kind, contentType, text });
+        return;
+      }
+      setPreview({ resource, status: "ready", kind: "download", contentType, message: "暂不支持此文件类型的内联预览，请下载后查看。" });
+    } catch (previewError) {
+      if (previewError?.name === "AbortError" || !isCurrentRequest()) return;
+      setPreview({ resource, status: "error", error: previewError.message });
+    } finally {
+      if (previewRequestRef.current.sequence === sequence) {
+        previewRequestRef.current = { sequence, controller: null };
+      }
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -1360,8 +1433,10 @@ function AchievementLibrarySettings({ workspaceID }) {
           <div className="achievement-library-list">
             {visibleItems.map((item) => (
               <article className="achievement-library-row" key={item.id}>
-                <span className="achievement-library-file-icon"><FileIcon /></span>
-                <div className="achievement-library-copy"><strong>{item.name}</strong><span><FolderIcon /> {item.directory || "未分类"}</span>{item.description ? <p>{item.description}</p> : null}<div className="achievement-tags">{(item.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div></div>
+                <button className="achievement-library-open" type="button" title={`预览 ${item.name}`} onClick={() => openPreview(item)}>
+                  <span className="achievement-library-file-icon"><FileIcon /></span>
+                  <div className="achievement-library-copy"><strong>{item.name}</strong><span><FolderIcon /> {item.directory || "未分类"}</span>{item.description ? <p>{item.description}</p> : null}<div className="achievement-tags">{(item.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div></div>
+                </button>
                 <div className="achievement-library-meta"><span>{formatTime(item.updated_at)}</span><small>{item.source_session_id || "工作区文件"}</small></div>
                 <div className="achievement-library-actions">
                   <a className="secondary" href={api.achievementLibraryDownloadPath(item.id, workspaceID)} target="_blank" rel="noreferrer">下载</a>
@@ -1385,6 +1460,24 @@ function AchievementLibrarySettings({ workspaceID }) {
             </div>
             <footer className="task-metadata-actions"><button className="secondary" type="button" onClick={() => setEditing(null)}>取消</button><button type="submit" disabled={busy === `edit:${editing.id}` || !editing.name.trim()}>{busy === `edit:${editing.id}` ? "保存中..." : "保存"}</button></footer>
           </form>
+        </div>
+      ) : null}
+      {preview ? (
+        <div className="tool-picker-backdrop" role="presentation" onClick={closePreview}>
+          <section className="achievement-preview-modal" role="dialog" aria-modal="true" aria-label={`预览 ${preview.resource.title}`} onClick={(event) => event.stopPropagation()}>
+            <header className="artifact-preview-pane-header">
+              <div><div className="artifact-preview-pane-label">成果预览</div><strong>{preview.resource.title}</strong><span>{preview.contentType || preview.resource.mimeType || "文件"}</span></div>
+              <div className="artifact-preview-pane-actions">
+                <a className="secondary icon-button" href={api.achievementLibraryDownloadPath(preview.resource.id, workspaceID)} target="_blank" rel="noreferrer" title="下载" aria-label="下载">↓</a>
+                <button className="icon-button" type="button" title="关闭预览" aria-label="关闭预览" onClick={closePreview}><CloseIcon /></button>
+              </div>
+              <div className="artifact-preview-mode-tabs" role="tablist" aria-label="成果查看方式">
+                <button className={previewMode === "preview" ? "active" : ""} type="button" role="tab" aria-selected={previewMode === "preview"} onClick={() => setPreviewMode("preview")}>预览</button>
+                <button className={previewMode === "source" ? "active" : ""} type="button" role="tab" aria-selected={previewMode === "source"} disabled={!isMarkdownResource(preview.resource, preview.contentType) && !isHTMLResource(preview.resource, preview.contentType)} onClick={() => setPreviewMode("source")}>源码</button>
+              </div>
+            </header>
+            <div className="artifact-preview-pane-body"><ArtifactPreviewContent preview={preview} mode={previewMode} /></div>
+          </section>
         </div>
       ) : null}
     </div>
@@ -4607,7 +4700,7 @@ function buildArtifactTree(artifacts) {
   return root;
 }
 
-function ArtifactTreeNode({ name, node, depth, selectedArtifactID, onPreview }) {
+function ArtifactTreeNode({ name, node, depth, selectedArtifactID, onPreview, onInclude }) {
   const [open, setOpen] = useState(true);
   const folders = Array.from(node.folders.entries()).sort(([left], [right]) => left.localeCompare(right));
   const files = [...node.files].sort((left, right) => left.label.localeCompare(right.label));
@@ -4623,21 +4716,23 @@ function ArtifactTreeNode({ name, node, depth, selectedArtifactID, onPreview }) 
       {open ? (
         <div>
           {folders.map(([folderName, folderNode]) => (
-            <ArtifactTreeNode key={`${depth}-${folderName}`} name={folderName} node={folderNode} depth={depth + 1} selectedArtifactID={selectedArtifactID} onPreview={onPreview} />
+            <ArtifactTreeNode key={`${depth}-${folderName}`} name={folderName} node={folderNode} depth={depth + 1} selectedArtifactID={selectedArtifactID} onPreview={onPreview} onInclude={onInclude} />
           ))}
           {files.map(({ artifact, label }) => {
             return (
-              <button
-                className={`artifact-tree-file ${artifact.id === selectedArtifactID ? "active" : ""}`}
-                key={artifact.id}
-                style={{ "--tree-depth": depth + (name ? 1 : 0) }}
-                title={`打开 ${artifactName(artifact)}`}
-                type="button"
-                onClick={() => onPreview(artifact)}
-              >
-                <FileIcon />
-                <span>{label}</span>
-              </button>
+              <div className={`artifact-tree-file-row ${artifact.id === selectedArtifactID ? "active" : ""}`} key={artifact.id}>
+                <button
+                  className="artifact-tree-file"
+                  style={{ "--tree-depth": depth + (name ? 1 : 0) }}
+                  title={`打开 ${artifactName(artifact)}`}
+                  type="button"
+                  onClick={() => onPreview(artifact)}
+                >
+                  <FileIcon />
+                  <span>{label}</span>
+                </button>
+                {onInclude ? <button className="artifact-tree-include" type="button" title={`将 ${artifactName(artifact)} 纳入成果库`} onClick={() => onInclude(artifact)}>纳入成果库</button> : null}
+              </div>
             );
           })}
         </div>
@@ -8600,7 +8695,13 @@ function WorkbenchApp() {
           >
             {resultFiles.length ? (
               <div className="artifact-tree" role="tree" aria-label="结果文件目录">
-                <ArtifactTreeNode node={artifactTree} depth={0} selectedArtifactID={artifactPreview?.resource?.id || ""} onPreview={(artifact) => { setMobileResultsOpen(false); previewArtifact(artifact).catch((error) => setStatus(error.message)); }} />
+                <ArtifactTreeNode
+                  node={artifactTree}
+                  depth={0}
+                  selectedArtifactID={artifactPreview?.resource?.id || ""}
+                  onPreview={(artifact) => { setMobileResultsOpen(false); previewArtifact(artifact).catch((error) => setStatus(error.message)); }}
+                  onInclude={(artifact) => { setMobileResultsOpen(false); setAchievementIncludeArtifact(artifact); }}
+                />
               </div>
             ) : <Empty>还没有生成结果文件。</Empty>}
           </Panel>

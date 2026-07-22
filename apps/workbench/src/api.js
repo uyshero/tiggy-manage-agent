@@ -630,6 +630,10 @@ export function achievementLibraryDownloadPath(itemId, workspaceId) {
   return `/v2/achievement-library/${encodeURIComponent(itemId)}/download${query}`;
 }
 
+export function downloadAchievementLibraryItem(itemId, workspaceId, options = {}) {
+  return getBlob(achievementLibraryDownloadPath(itemId, workspaceId), { signal: options.signal });
+}
+
 export function objectRefDownloadPath(objectRefId, sessionId) {
   const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
   return `/v2/object-refs/${encodeURIComponent(objectRefId)}/download${query}`;

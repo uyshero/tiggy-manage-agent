@@ -27064,6 +27064,11 @@ async function deleteRequest(path2) {
   if (!response.ok) throw new Error(await responseErrorMessage(response));
   return true;
 }
+async function getBlob(path2, options = {}) {
+  const response = await fetch(path2, options);
+  if (!response.ok) throw new Error(await response.text());
+  return response;
+}
 function createAgent(body, options = {}) {
   return coreSDK.agents.create(body, options.signal);
 }
@@ -27452,6 +27457,9 @@ function referenceAchievementLibraryItem(itemId, sessionId) {
 function achievementLibraryDownloadPath(itemId, workspaceId) {
   const query = workspaceId ? `?workspace_id=${encodeURIComponent(workspaceId)}` : "";
   return `/v2/achievement-library/${encodeURIComponent(itemId)}/download${query}`;
+}
+function downloadAchievementLibraryItem(itemId, workspaceId, options = {}) {
+  return getBlob(achievementLibraryDownloadPath(itemId, workspaceId), { signal: options.signal });
 }
 function objectRefDownloadPath(objectRefId, sessionId) {
   const query = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
@@ -34519,6 +34527,81 @@ function AchievementLibrarySettings({ workspaceID }) {
   const [directory, setDirectory] = reactExports.useState("");
   const [editing, setEditing] = reactExports.useState(null);
   const [busy, setBusy] = reactExports.useState("");
+  const [preview, setPreview] = reactExports.useState(null);
+  const [previewMode, setPreviewMode] = reactExports.useState("preview");
+  const previewRequestRef = reactExports.useRef({ sequence: 0, controller: null });
+  function closePreview() {
+    var _a2;
+    (_a2 = previewRequestRef.current.controller) == null ? void 0 : _a2.abort();
+    previewRequestRef.current = { sequence: previewRequestRef.current.sequence + 1, controller: null };
+    setPreview((current) => {
+      var _a3;
+      (_a3 = current == null ? void 0 : current.dispose) == null ? void 0 : _a3.call(current);
+      return null;
+    });
+  }
+  reactExports.useEffect(() => () => {
+    var _a2;
+    (_a2 = preview == null ? void 0 : preview.dispose) == null ? void 0 : _a2.call(preview);
+  }, [preview]);
+  reactExports.useEffect(() => () => {
+    var _a2;
+    (_a2 = previewRequestRef.current.controller) == null ? void 0 : _a2.abort();
+  }, []);
+  async function openPreview(item) {
+    closePreview();
+    const controller = new AbortController();
+    const sequence = previewRequestRef.current.sequence + 1;
+    previewRequestRef.current = { sequence, controller };
+    const isCurrentRequest = () => previewRequestRef.current.sequence === sequence && !controller.signal.aborted;
+    const resource = { id: item.id, type: "file", title: item.name, mimeType: "" };
+    setPreviewMode("preview");
+    setPreview({ resource, status: "loading" });
+    try {
+      const response = await downloadAchievementLibraryItem(item.id, workspaceID, { signal: controller.signal });
+      if (!isCurrentRequest()) return;
+      const contentType = response.headers.get("Content-Type") || "";
+      const contentLength = Number(response.headers.get("Content-Length") || 0);
+      resource.mimeType = contentType;
+      const kind = previewKindForResource(resource, contentType);
+      if (kind === "image") {
+        const objectUrl = URL.createObjectURL(await response.blob());
+        if (!isCurrentRequest()) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setPreview({ resource, status: "ready", kind, contentType, objectUrl, dispose: () => URL.revokeObjectURL(objectUrl) });
+        return;
+      }
+      if (kind === "text") {
+        if (contentLength > MAX_ARTIFACT_PREVIEW_BYTES) {
+          setPreview({ resource, status: "ready", kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" });
+          return;
+        }
+        let text2 = await response.text();
+        if (!isCurrentRequest()) return;
+        if (contentType.toLowerCase().includes("json")) {
+          try {
+            text2 = JSON.stringify(JSON.parse(text2), null, 2);
+          } catch {
+          }
+        }
+        if (text2.length > MAX_ARTIFACT_PREVIEW_CHARACTERS) text2 = `${text2.slice(0, MAX_ARTIFACT_PREVIEW_CHARACTERS)}
+
+[预览已截断]`;
+        setPreview({ resource, status: "ready", kind, contentType, text: text2 });
+        return;
+      }
+      setPreview({ resource, status: "ready", kind: "download", contentType, message: "暂不支持此文件类型的内联预览，请下载后查看。" });
+    } catch (previewError) {
+      if ((previewError == null ? void 0 : previewError.name) === "AbortError" || !isCurrentRequest()) return;
+      setPreview({ resource, status: "error", error: previewError.message });
+    } finally {
+      if (previewRequestRef.current.sequence === sequence) {
+        previewRequestRef.current = { sequence, controller: null };
+      }
+    }
+  }
   async function load() {
     setLoading(true);
     setError("");
@@ -34592,16 +34675,18 @@ function AchievementLibrarySettings({ workspaceID }) {
       ] }),
       error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-error", children: error }) : null,
       loading ? /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "正在加载成果库..." }) : visibleItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "achievement-library-list", children: visibleItems.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "achievement-library-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "achievement-library-file-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "achievement-library-copy", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.name }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(FolderIcon, {}),
-            " ",
-            item.directory || "未分类"
-          ] }),
-          item.description ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: item.description }) : null,
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "achievement-tags", children: (item.tags || []).map((tag) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: tag }, tag)) })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "achievement-library-open", type: "button", title: `预览 ${item.name}`, onClick: () => openPreview(item), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "achievement-library-file-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "achievement-library-copy", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.name }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(FolderIcon, {}),
+              " ",
+              item.directory || "未分类"
+            ] }),
+            item.description ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: item.description }) : null,
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "achievement-tags", children: (item.tags || []).map((tag) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: tag }, tag)) })
+          ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "achievement-library-meta", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatTime(item.updated_at) }),
@@ -34644,6 +34729,24 @@ function AchievementLibrarySettings({ workspaceID }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => setEditing(null), children: "取消" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: busy === `edit:${editing.id}` || !editing.name.trim(), children: busy === `edit:${editing.id}` ? "保存中..." : "保存" })
       ] })
+    ] }) }) : null,
+    preview ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "tool-picker-backdrop", role: "presentation", onClick: closePreview, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "achievement-preview-modal", role: "dialog", "aria-modal": "true", "aria-label": `预览 ${preview.resource.title}`, onClick: (event) => event.stopPropagation(), children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "artifact-preview-pane-header", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-pane-label", children: "成果预览" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: preview.resource.title }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: preview.contentType || preview.resource.mimeType || "文件" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-preview-pane-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "secondary icon-button", href: achievementLibraryDownloadPath(preview.resource.id, workspaceID), target: "_blank", rel: "noreferrer", title: "下载", "aria-label": "下载", children: "↓" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", title: "关闭预览", "aria-label": "关闭预览", onClick: closePreview, children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-preview-mode-tabs", role: "tablist", "aria-label": "成果查看方式", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "preview" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "preview", onClick: () => setPreviewMode("preview"), children: "预览" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "source" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "source", disabled: !isMarkdownResource(preview.resource, preview.contentType) && !isHTMLResource(preview.resource, preview.contentType), onClick: () => setPreviewMode("source"), children: "源码" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-pane-body", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreviewContent, { preview, mode: previewMode }) })
     ] }) }) : null
   ] });
 }
@@ -38104,7 +38207,7 @@ function buildArtifactTree(artifacts2) {
   }
   return root2;
 }
-function ArtifactTreeNode({ name: name2, node: node2, depth, selectedArtifactID, onPreview }) {
+function ArtifactTreeNode({ name: name2, node: node2, depth, selectedArtifactID, onPreview, onInclude }) {
   const [open, setOpen] = reactExports.useState(true);
   const folders = Array.from(node2.folders.entries()).sort(([left], [right]) => left.localeCompare(right));
   const files = [...node2.files].sort((left, right) => left.label.localeCompare(right.label));
@@ -38115,23 +38218,25 @@ function ArtifactTreeNode({ name: name2, node: node2, depth, selectedArtifactID,
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: name2 })
     ] }) : null,
     open ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-      folders.map(([folderName, folderNode]) => /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { name: folderName, node: folderNode, depth: depth + 1, selectedArtifactID, onPreview }, `${depth}-${folderName}`)),
+      folders.map(([folderName, folderNode]) => /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { name: folderName, node: folderNode, depth: depth + 1, selectedArtifactID, onPreview, onInclude }, `${depth}-${folderName}`)),
       files.map(({ artifact, label }) => {
-        return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "button",
-          {
-            className: `artifact-tree-file ${artifact.id === selectedArtifactID ? "active" : ""}`,
-            style: { "--tree-depth": depth + (name2 ? 1 : 0) },
-            title: `打开 ${artifactName(artifact)}`,
-            type: "button",
-            onClick: () => onPreview(artifact),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label })
-            ]
-          },
-          artifact.id
-        );
+        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `artifact-tree-file-row ${artifact.id === selectedArtifactID ? "active" : ""}`, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: "artifact-tree-file",
+              style: { "--tree-depth": depth + (name2 ? 1 : 0) },
+              title: `打开 ${artifactName(artifact)}`,
+              type: "button",
+              onClick: () => onPreview(artifact),
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(FileIcon, {}),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label })
+              ]
+            }
+          ),
+          onInclude ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "artifact-tree-include", type: "button", title: `将 ${artifactName(artifact)} 纳入成果库`, onClick: () => onInclude(artifact), children: "纳入成果库" }) : null
+        ] }, artifact.id);
       })
     ] }) : null
   ] });
@@ -41898,10 +42003,22 @@ function WorkbenchApp() {
               {
                 className: "right-tab-panel",
                 title: `结果${resultFiles.length ? ` (${resultFiles.length})` : ""}`,
-                children: resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactTreeNode, { node: artifactTree, depth: 0, selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "", onPreview: (artifact) => {
-                  setMobileResultsOpen(false);
-                  previewArtifact(artifact).catch((error) => setStatus(error.message));
-                } }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" })
+                children: resultFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-tree", role: "tree", "aria-label": "结果文件目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  ArtifactTreeNode,
+                  {
+                    node: artifactTree,
+                    depth: 0,
+                    selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "",
+                    onPreview: (artifact) => {
+                      setMobileResultsOpen(false);
+                      previewArtifact(artifact).catch((error) => setStatus(error.message));
+                    },
+                    onInclude: (artifact) => {
+                      setMobileResultsOpen(false);
+                      setAchievementIncludeArtifact(artifact);
+                    }
+                  }
+                ) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "还没有生成结果文件。" })
               }
             )
           ] }) : null
