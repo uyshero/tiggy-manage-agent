@@ -150,7 +150,6 @@ const sessionSyncEventTypes = new Set([
 ]);
 const liveReplyTerminalEventTypes = new Set([
   "agent.message",
-  "runtime.progress_message",
   "runtime.tool_call",
   "runtime.tool_intervention_required",
   "runtime.human_input_required",
@@ -5622,6 +5621,12 @@ function WorkbenchApp() {
 	const streamingReply = liveReply?.sessionID === sessionID ? liveReply : null;
 	const renderedChatTimelineEvents = useMemo(() => {
 		if (!streamingReply) return chatTimelineEvents;
+		const hasDurableReply = chatTimelineEvents.some((event) => (
+			event.type === "agent.message" &&
+			payload(event).turn_id === streamingReply.turnID &&
+			hasVisibleAgentText(event)
+		));
+		if (hasDurableReply) return chatTimelineEvents;
 		return [...chatTimelineEvents, {
 			type: "agent.streaming",
 			seq: `stream-${streamingReply.turnID || "current"}`,
