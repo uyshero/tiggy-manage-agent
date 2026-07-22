@@ -37344,7 +37344,7 @@ const chatTimelineInternalEventTypes = /* @__PURE__ */ new Set([
   "intervention.required",
   "intervention.resolved"
 ]);
-function compactChatTimelineEvents(sourceEvents) {
+function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}) {
   const sorted = [...sourceEvents || []].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -37352,6 +37352,10 @@ function compactChatTimelineEvents(sourceEvents) {
   function flushInternalEvents() {
     var _a2;
     if (!internalEvents.length) return;
+    if (!includeThinking) {
+      internalEvents = [];
+      return;
+    }
     if (((_a2 = compacted.at(-1)) == null ? void 0 : _a2.type) === "runtime.thinking") {
       internalEvents = [];
       return;
@@ -37379,7 +37383,12 @@ function compactChatTimelineEvents(sourceEvents) {
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
+      if (!includeThinking) continue;
       compacted.push(event);
+      continue;
+    }
+    if (event.type === "runtime.completed") {
+      internalEvents = [];
       continue;
     }
     if (event.type === "runtime.tool_result" && toolCallIDs.has(callID)) {
@@ -38675,23 +38684,27 @@ function WorkbenchApp() {
   const currentTaskPlan = reactExports.useMemo(() => latestTaskPlan(events$1, taskPlanResponse.plan), [events$1, taskPlanResponse.plan]);
   const toolCallLifecycles = reactExports.useMemo(() => buildToolCallLifecycles(events$1), [events$1]);
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
-  const chatTimelineEvents = reactExports.useMemo(() => compactChatTimelineEvents([...events$1].filter((event) => {
-    if (event.type === "user.message") return true;
-    if (event.type === "agent.message") return hasVisibleAgentText(event);
-    if (chatTimelineStatusEventTypes.has(event.type)) return true;
-    return [
-      "runtime.thinking",
-      "runtime.progress_message",
-      "runtime.tool_call",
-      "runtime.tool_result",
-      "runtime.tool_intervention_required",
-      "runtime.human_input_required",
-      "runtime.tool_intervention_rejected",
-      "runtime.plan_approval_required",
-      "runtime.plan_approval_rejected",
-      "runtime.failed"
-    ].includes(event.type);
-  })), [events$1]);
+  const chatTimelineEvents = reactExports.useMemo(() => {
+    const timelineStatus = latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status);
+    const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    return compactChatTimelineEvents([...events$1].filter((event) => {
+      if (event.type === "user.message") return true;
+      if (event.type === "agent.message") return hasVisibleAgentText(event);
+      if (chatTimelineStatusEventTypes.has(event.type)) return true;
+      return [
+        "runtime.thinking",
+        "runtime.progress_message",
+        "runtime.tool_call",
+        "runtime.tool_result",
+        "runtime.tool_intervention_required",
+        "runtime.human_input_required",
+        "runtime.tool_intervention_rejected",
+        "runtime.plan_approval_required",
+        "runtime.plan_approval_rejected",
+        "runtime.failed"
+      ].includes(event.type);
+    }), { includeThinking });
+  }, [events$1, sessionMeta == null ? void 0 : sessionMeta.status]);
   const latestSuccessfulSkillInstallSeq = reactExports.useMemo(() => {
     const event = [...events$1].reverse().find((item) => {
       const data = eventData(item);

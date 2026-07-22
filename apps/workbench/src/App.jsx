@@ -4056,7 +4056,7 @@ const chatTimelineInternalEventTypes = new Set([
   "intervention.resolved"
 ]);
 
-function compactChatTimelineEvents(sourceEvents) {
+function compactChatTimelineEvents(sourceEvents, { includeThinking = true } = {}) {
   const sorted = [...(sourceEvents || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -4064,6 +4064,10 @@ function compactChatTimelineEvents(sourceEvents) {
 
   function flushInternalEvents() {
     if (!internalEvents.length) return;
+    if (!includeThinking) {
+      internalEvents = [];
+      return;
+    }
     if (compacted.at(-1)?.type === "runtime.thinking") {
       internalEvents = [];
       return;
@@ -4092,7 +4096,12 @@ function compactChatTimelineEvents(sourceEvents) {
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
+      if (!includeThinking) continue;
       compacted.push(event);
+      continue;
+    }
+    if (event.type === "runtime.completed") {
+      internalEvents = [];
       continue;
     }
     if (event.type === "runtime.tool_result" && toolCallIDs.has(callID)) {
@@ -5557,8 +5566,11 @@ function WorkbenchApp() {
   const conversationEvents = useMemo(() => events
     .filter((event) => event.type === "user.message" || event.type === "agent.message")
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
-  const chatTimelineEvents = useMemo(() => compactChatTimelineEvents([...events]
-    .filter((event) => {
+  const chatTimelineEvents = useMemo(() => {
+    const timelineStatus = latestSessionStatus(events, sessionMeta?.status);
+    const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    return compactChatTimelineEvents([...events]
+      .filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
       if (chatTimelineStatusEventTypes.has(event.type)) return true;
@@ -5574,7 +5586,8 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-    })), [events]);
+      }), { includeThinking });
+  }, [events, sessionMeta?.status]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
     const event = [...events].reverse().find((item) => {
       const data = eventData(item);
