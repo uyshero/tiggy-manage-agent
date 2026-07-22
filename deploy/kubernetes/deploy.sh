@@ -38,7 +38,7 @@ Options:
   --host HOST                       Public HTTPS host.
   --ingress-class NAME              Default: nginx.
   --tls-secret NAME                 Default: tma-tls.
-  --init-db                         Apply the 000080 baseline Job once.
+  --init-db                         Apply the 000085 baseline Job once.
   --keep-migration-secret           Keep owner Secret after successful Job.
   --skip-worker                     Deploy control plane without Worker.
   --timeout DURATION                Rollout/Job timeout (default: 10m).
@@ -180,17 +180,17 @@ kubectl apply -f "$TMP_DIR/runtime-secret.yaml"
 
 if [[ "$INIT_DB" -eq 1 ]]; then
   kubectl apply -f "$TMP_DIR/migration-secret.yaml"
-  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000080 >/dev/null 2>&1; then
-    complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000080 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
+  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000085 >/dev/null 2>&1; then
+    complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000085 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
     [[ "$complete" == 'True' ]] || { echo 'existing baseline Job is not complete; inspect it before retrying' >&2; exit 1; }
     echo 'database baseline Job already completed; skipping reinitialization'
   else
     kubectl apply -f "$TMP_DIR/migration-job.yaml"
-    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000080 --timeout="$TIMEOUT"; then
-      kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000080 --all-containers=true >&2 || true
+    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000085 --timeout="$TIMEOUT"; then
+      kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000085 --all-containers=true >&2 || true
       exit 1
     fi
-    kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000080 --all-containers=true
+    kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000085 --all-containers=true
   fi
   if [[ "$KEEP_MIGRATION_SECRET" -eq 0 ]]; then
     kubectl -n "$NAMESPACE" delete secret tma-migration-secrets --ignore-not-found

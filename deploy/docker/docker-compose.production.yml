@@ -9,7 +9,7 @@ services:
       TMA_RUNTIME_DB_PASSWORD: ${TMA_RUNTIME_DB_PASSWORD:?set TMA_RUNTIME_DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ../../sql/baselines/000080_baseline.sql:/docker-entrypoint-initdb.d/010-baseline.sql:ro
+      - ../../sql/baselines/000085_baseline.sql:/docker-entrypoint-initdb.d/010-baseline.sql:ro
       - ../postgres/runtime-grants.sql:/opt/tma/sql/runtime-grants.sql:ro
       - ./postgres-init/020-runtime-role.sh:/docker-entrypoint-initdb.d/020-runtime-role.sh:ro
     healthcheck:

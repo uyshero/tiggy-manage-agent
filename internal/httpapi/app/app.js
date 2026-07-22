@@ -37284,6 +37284,35 @@ function shortText(value, maxLength = 180) {
 function maxSeq(events2) {
   return (events2 || []).reduce((maximum, event) => Math.max(maximum, Number(event.seq || 0)), 0);
 }
+const chatTimelineStatusEventTypes = /* @__PURE__ */ new Set([
+  "session.status_provisioning",
+  "session.status_running",
+  "session.status_interrupting",
+  "session.status_compacting",
+  "session.status_idle",
+  "session.status_failed",
+  "session.status_terminated",
+  "runtime.started",
+  "runtime.llm_request",
+  "runtime.llm_response",
+  "runtime.skills_resolving",
+  "runtime.skills_resolved",
+  "runtime.turn_completing",
+  "runtime.completion_validated",
+  "runtime.completion_blocked",
+  "runtime.completion_validation_failed",
+  "runtime.completed",
+  "model.requested",
+  "model.responded",
+  "completion.started",
+  "completion.validated",
+  "tool.batch_planned",
+  "tool.batch_completed",
+  "tool.call_started",
+  "tool.call_result",
+  "intervention.required",
+  "intervention.resolved"
+]);
 function isActivityEvent(event) {
   return Boolean(event == null ? void 0 : event.type) && (event.type.startsWith("runtime.") || event.type.startsWith("session.status_"));
 }
@@ -37322,6 +37351,10 @@ function activityView(event) {
       return { title: "智能体已回复", detail: shortText(cleanMessageText(eventText(event)) || "已准备工具动作。", 180), kind: "ok" };
     case "runtime.started":
       return { title: "开始处理", detail: "正在准备本轮任务。", kind: "running" };
+    case "session.status_provisioning":
+      return { title: "准备任务", detail: "正在初始化任务运行环境。", kind: "running" };
+    case "session.status_compacting":
+      return { title: "整理上下文", detail: "正在压缩历史上下文后继续任务。", kind: "running" };
     case "runtime.thinking":
       return { title: "正在处理", detail: "正在准备下一步。", kind: "running" };
     case "runtime.llm_request":
@@ -37802,7 +37835,17 @@ function ProcessEventCard({
   const lifecycleResultData = eventData(lifecycleResult);
   const lifecycleRejected = ((_a2 = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _a2.type) === "runtime.tool_intervention_rejected";
   const lifecycleApproved = ((_b = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _b.type) === "runtime.tool_intervention_approved";
-  if (event.type === "runtime.thinking") {
+  if (event.type.startsWith("session.status_")) {
+    const sessionStatus = sessionStatusFromEvent(event);
+    const activity = activityView(event);
+    title = activity.title;
+    metaLabel = "运行状态";
+    preview = activity.detail;
+    tone = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warn" : sessionStatus === "idle" || sessionStatus === "terminated" ? "ok" : "tool";
+    status = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warning" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "running" : "completed";
+    statusLabel = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
+    defaultExpanded = status === "running";
+  } else if (event.type === "runtime.thinking") {
     title = "处理请求";
     metaLabel = "运行状态";
     preview = turnActivityLabel(event) || "正在准备下一步。";
@@ -38332,6 +38375,12 @@ function WorkbenchApp() {
   const workflowAdvancingRef = reactExports.useRef(false);
   const composerFileInputRef = reactExports.useRef(null);
   const taskMenuButtonRefs = reactExports.useRef(/* @__PURE__ */ new Map());
+  const sessionLoadRequestRef = reactExports.useRef(0);
+  const sessionIDRef = reactExports.useRef("");
+  const sessionEventCursorsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const sessionLiveRepliesRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const sessionStreamsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  sessionIDRef.current = sessionID;
   reactExports.useEffect(() => {
     let active = true;
     currentPrincipal().then((response) => {
@@ -38481,6 +38530,7 @@ function WorkbenchApp() {
     () => [...events$1].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)).filter((event) => {
       if (event.type === "user.message") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
+      if (chatTimelineStatusEventTypes.has(event.type)) return true;
       return [
         "runtime.thinking",
         "runtime.progress_message",
@@ -38700,6 +38750,8 @@ function WorkbenchApp() {
     });
   }, [availableAgents, selectedAgent == null ? void 0 : selectedAgent.id]);
   async function loadSession(value) {
+    const requestID = sessionLoadRequestRef.current + 1;
+    sessionLoadRequestRef.current = requestID;
     const [nextSession, nextEvents, nextTaskPlan, nextInterventions, nextArtifacts] = await Promise.all([
       session(value).catch((error) => ({ error: String(error), id: value })),
       events(value).catch((error) => ({ events: [], error: String(error) })),
@@ -38707,12 +38759,15 @@ function WorkbenchApp() {
       interventions(value, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       artifacts(value).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
+    if (requestID !== sessionLoadRequestRef.current) return { stale: true };
+    if (nextEvents.error) throw new Error(nextEvents.error);
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
       setEnvironmentID(nextSession.environment_id || "");
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
+    sessionEventCursorsRef.current.set(value, eventStreamCursorRef.current);
     setEventsResponse(nextEvents);
     setTaskPlanResponse(nextTaskPlan);
     setInterventionResponse(nextInterventions);
@@ -38721,6 +38776,7 @@ function WorkbenchApp() {
       setRecentSessions((current) => [nextSession, ...current.filter((item) => item.id !== nextSession.id)]);
     }
     return {
+      stale: false,
       session: nextSession,
       events: nextEvents.events || [],
       interventions: nextInterventions.interventions || []
@@ -38906,96 +38962,115 @@ function WorkbenchApp() {
     };
   }, [sessionID]);
   reactExports.useEffect(() => {
+    const activeStatuses = /* @__PURE__ */ new Set(["provisioning", "running", "interrupting"]);
+    const targets = new Map(
+      recentSessions.filter((session2) => activeStatuses.has(String(session2.status || ""))).map((session2) => [session2.id, session2])
+    );
     const currentSessionID = String(sessionID || "").trim();
-    if (!currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.id) !== currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.error)) return void 0;
-    const afterSeq = Number(eventStreamCursorRef.current || 0);
-    const controller = new AbortController();
-    let active = true;
-    function queueSessionSync() {
-      if (sessionSyncTimerRef.current) {
-        window.clearTimeout(sessionSyncTimerRef.current);
+    if (currentSessionID) targets.set(currentSessionID, sessionMeta || { id: currentSessionID, status: "running" });
+    function finishStream(sessionKey, stream) {
+      stream.eventDone = stream.eventDone || false;
+      stream.liveDone = stream.liveDone || false;
+      if (stream.eventDone && stream.liveDone && sessionStreamsRef.current.get(sessionKey) === stream) {
+        sessionStreamsRef.current.delete(sessionKey);
       }
-      sessionSyncTimerRef.current = window.setTimeout(() => {
-        sessionSyncTimerRef.current = null;
-        syncSession(currentSessionID).catch((error) => {
-          if (active) setStatus(error.message);
-        });
-      }, 150);
     }
-    function applyStreamEvent(event) {
-      if (!active || !event) return;
-      eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, Number(event.seq || 0));
-      setEventsResponse((current) => ({
-        ...current,
-        events: mergeEvents(current.events, [event])
-      }));
-      if (liveReplyTerminalEventTypes.has(event.type)) {
-        const turnID = String(event.turn_id || payload(event).turn_id || "");
-        setLiveReply((current) => !current || turnID && current.turnID !== turnID ? current : null);
+    function applyBackgroundEvent(sessionKey, event) {
+      if (!event) return;
+      const nextSeq = Number(event.seq || 0);
+      sessionEventCursorsRef.current.set(sessionKey, Math.max(sessionEventCursorsRef.current.get(sessionKey) || 0, nextSeq));
+      const isCurrent = sessionIDRef.current === sessionKey;
+      if (isCurrent) {
+        eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, nextSeq);
+        setEventsResponse((current) => ({ ...current, events: mergeEvents(current.events, [event]) }));
       }
       const streamedStatus = sessionStatusFromEvent(event);
       if (streamedStatus) {
-        mergeSessionStatus(currentSessionID, streamedStatus);
-      }
-      if (sessionSyncEventTypes.has(event.type)) {
-        queueSessionSync();
-      }
-    }
-    async function consumeEvents() {
-      try {
-        for await (const event of streamSessionEvents(currentSessionID, {
-          afterSeq,
-          signal: controller.signal
-        })) {
-          applyStreamEvent(event);
+        setRecentSessions((current) => current.map((session2) => session2.id === sessionKey ? { ...session2, status: streamedStatus } : session2));
+        if (isCurrent) {
+          setSessionMeta((current) => (current == null ? void 0 : current.id) === sessionKey ? { ...current, status: streamedStatus } : current);
         }
-      } catch (error) {
-        if (active && (error == null ? void 0 : error.name) !== "AbortError") setStatus(error.message);
+      }
+      if (liveReplyTerminalEventTypes.has(event.type)) {
+        const turnID = String(event.turn_id || payload(event).turn_id || "");
+        const currentReply = sessionLiveRepliesRef.current.get(sessionKey);
+        if (!turnID || !currentReply || currentReply.turnID === turnID) {
+          sessionLiveRepliesRef.current.delete(sessionKey);
+          if (isCurrent) setLiveReply(null);
+        }
+      }
+      if (isCurrent && sessionSyncEventTypes.has(event.type)) {
+        if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
+        sessionSyncTimerRef.current = window.setTimeout(() => {
+          sessionSyncTimerRef.current = null;
+          syncSession(sessionKey).catch((error) => setStatus(error.message));
+        }, 150);
       }
     }
-    consumeEvents();
-    return () => {
-      active = false;
-      controller.abort();
-      if (sessionSyncTimerRef.current) {
-        window.clearTimeout(sessionSyncTimerRef.current);
-        sessionSyncTimerRef.current = null;
-      }
-    };
-  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id, streamReconnectVersion]);
-  reactExports.useEffect(() => {
-    const currentSessionID = String(sessionID || "").trim();
-    if (!currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.id) !== currentSessionID || (sessionMeta == null ? void 0 : sessionMeta.error)) return void 0;
-    const controller = new AbortController();
-    let active = true;
-    async function consumeLiveEvents() {
-      try {
-        for await (const event of streamSessionLiveEvents(currentSessionID, { signal: controller.signal })) {
-          if (!active || event.type !== "llm.text" || !event.text) continue;
-          setLiveReply((current) => {
+    function startSessionStreams(sessionKey) {
+      if (sessionStreamsRef.current.has(sessionKey)) return;
+      const stream = {
+        eventController: new AbortController(),
+        liveController: new AbortController(),
+        eventDone: false,
+        liveDone: false
+      };
+      sessionStreamsRef.current.set(sessionKey, stream);
+      const afterSeq = Number(sessionEventCursorsRef.current.get(sessionKey) || 0);
+      (async () => {
+        try {
+          for await (const event of streamSessionEvents(sessionKey, { afterSeq, signal: stream.eventController.signal })) {
+            applyBackgroundEvent(sessionKey, event);
+          }
+        } catch (error) {
+          if ((error == null ? void 0 : error.name) !== "AbortError" && sessionIDRef.current === sessionKey) setStatus(error.message);
+        } finally {
+          stream.eventDone = true;
+          finishStream(sessionKey, stream);
+        }
+      })();
+      (async () => {
+        try {
+          for await (const event of streamSessionLiveEvents(sessionKey, { signal: stream.liveController.signal })) {
+            if (event.type !== "llm.text" || !event.text) continue;
+            const current = sessionLiveRepliesRef.current.get(sessionKey);
             const sameStream = (current == null ? void 0 : current.turnID) === event.turn_id && (current == null ? void 0 : current.toolRound) === Number(event.tool_round || 0);
-            if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) return current;
-            return {
-              sessionID: currentSessionID,
+            if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) continue;
+            const next = {
+              sessionID: sessionKey,
               turnID: event.turn_id,
               toolRound: Number(event.tool_round || 0),
               streamSeq: Number(event.stream_seq || 0),
               createdAt: sameStream ? current.createdAt : event.created_at,
               text: sameStream ? `${current.text}${event.text}` : event.text
             };
-          });
+            sessionLiveRepliesRef.current.set(sessionKey, next);
+            if (sessionIDRef.current === sessionKey) setLiveReply(next);
+          }
+        } catch (error) {
+          if ((error == null ? void 0 : error.name) !== "AbortError" && sessionIDRef.current === sessionKey) setStatus(error.message);
+        } finally {
+          stream.liveDone = true;
+          finishStream(sessionKey, stream);
         }
-      } catch (error) {
-        if (active && (error == null ? void 0 : error.name) === "AbortError") return;
-      }
+      })();
     }
-    consumeLiveEvents();
-    return () => {
-      active = false;
-      controller.abort();
-      setLiveReply((current) => (current == null ? void 0 : current.sessionID) === currentSessionID ? null : current);
-    };
-  }, [sessionID, sessionMeta == null ? void 0 : sessionMeta.id, streamReconnectVersion]);
+    for (const sessionKey of targets.keys()) startSessionStreams(sessionKey);
+    for (const [sessionKey, stream] of sessionStreamsRef.current) {
+      if (targets.has(sessionKey)) continue;
+      stream.eventController.abort();
+      stream.liveController.abort();
+      sessionStreamsRef.current.delete(sessionKey);
+      sessionLiveRepliesRef.current.delete(sessionKey);
+    }
+  }, [recentSessions, sessionID, sessionMeta == null ? void 0 : sessionMeta.id, sessionMeta == null ? void 0 : sessionMeta.status, streamReconnectVersion]);
+  reactExports.useEffect(() => () => {
+    for (const stream of sessionStreamsRef.current.values()) {
+      stream.eventController.abort();
+      stream.liveController.abort();
+    }
+    sessionStreamsRef.current.clear();
+  }, []);
   reactExports.useEffect(() => {
     if (!waitingForReply) return;
     if (effectiveSessionStatus === "interrupting") {
@@ -39153,7 +39228,8 @@ function WorkbenchApp() {
       return;
     }
     setStatus("refreshing");
-    await loadSession(value);
+    const loaded = await loadSession(value);
+    if (loaded == null ? void 0 : loaded.stale) return;
     await loadSessionSettings(value);
     rememberSession(value);
     setStatus("synced");
@@ -39994,11 +40070,14 @@ function WorkbenchApp() {
     clearArtifactPreview();
     setComposerFiles([]);
     setToolPickerOpen(false);
+    setLiveReply(sessionLiveRepliesRef.current.get(session2.id) || null);
+    setWaitingForReply(["provisioning", "running", "interrupting"].includes(String(session2.status || "")));
     setSessionID(session2.id);
     setAgentID(session2.agent_id || "");
     setEnvironmentID(session2.environment_id || "");
     rememberSession(session2.id);
-    await loadSession(session2.id);
+    const loaded = await loadSession(session2.id);
+    if (loaded == null ? void 0 : loaded.stale) return;
     await loadSessionSettings(session2.id, session2);
     setStatus("history restored");
   }

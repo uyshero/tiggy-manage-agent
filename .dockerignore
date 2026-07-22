@@ -13,3 +13,9 @@ node_modules
 .tma-browser-node
 .verify-*
 sdk/typescript/.schema.check.*
+
+# Server and migration builds only need the current baseline. Keep historical
+# migrations in the repository for upgrade history, but out of the image context.
+sql/migrations
+sql/baselines/*
+!sql/baselines/000085_baseline.sql
