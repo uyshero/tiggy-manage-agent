@@ -41603,7 +41603,6 @@ function WorkbenchApp() {
             "aria-controls": "mobile-results-sidebar",
             onClick: () => {
               setMobileNavigationPanel("");
-              setRightPanelTab("results");
               setMobileResultsOpen((current) => !current);
             },
             children: [
