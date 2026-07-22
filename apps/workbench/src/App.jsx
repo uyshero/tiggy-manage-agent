@@ -3989,6 +3989,17 @@ function shortText(value, maxLength = 180) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
+function meaningfulApprovalReason(value) {
+  const reason = String(value || "").trim();
+  if (!reason) return "";
+  const genericReasons = new Set([
+    "approved from app",
+    "approved from inspector",
+    "plan approved from app"
+  ]);
+  return genericReasons.has(reason.toLowerCase()) ? "" : reason;
+}
+
 function maxSeq(events) {
   return (events || []).reduce((maximum, event) => Math.max(maximum, Number(event.seq || 0)), 0);
 }
@@ -4201,10 +4212,14 @@ function activityView(event) {
       });
       return { title: `需要审批：${summary.title}`, detail: summary.detail || data.reason || "请先审批再继续。", kind: "warn" };
     }
-    case "runtime.tool_intervention_approved":
-      return { title: "审批已通过", detail: data.decision_reason || "正在继续任务。", kind: "ok" };
-    case "runtime.tool_intervention_rejected":
-      return { title: "审批被拒绝", detail: data.decision_reason || "该工具调用未被允许。", kind: "error" };
+    case "runtime.tool_intervention_approved": {
+      const summary = toolSummary({ identifier: data.identifier, apiName: data.api_name, args: objectValue(data.arguments) });
+      return { title: `已批准：${summary.title}`, detail: processPreview(data.identifier, data.api_name, objectValue(data.arguments)) || data.reason || "正在继续任务。", kind: "ok" };
+    }
+    case "runtime.tool_intervention_rejected": {
+      const summary = toolSummary({ identifier: data.identifier, apiName: data.api_name, args: objectValue(data.arguments) });
+      return { title: `已拒绝：${summary.title}`, detail: meaningfulApprovalReason(data.decision_reason) || data.reason || "该工具调用未被允许。", kind: "error" };
+    }
     case "runtime.human_input_required":
       return { title: "需要补充信息", detail: objectValue(data.request).question || objectValue(data.arguments).question || "等待用户输入。", kind: "warn" };
     case "runtime.human_input_submitted":
@@ -4727,6 +4742,7 @@ function ProcessEventCard({
   const lifecycleResultData = eventData(lifecycleResult);
   const lifecycleRejected = toolLifecycle?.decision?.type === "runtime.tool_intervention_rejected";
   const lifecycleApproved = toolLifecycle?.decision?.type === "runtime.tool_intervention_approved";
+  const requiredData = eventData(toolLifecycle?.required);
 
   if (event.type.startsWith("session.status_")) {
     const sessionStatus = sessionStatusFromEvent(event);
@@ -4851,15 +4867,41 @@ function ProcessEventCard({
       defaultExpanded = false;
     }
   } else if (event.type === "runtime.tool_intervention_approved") {
-    title = "审批已通过";
-    metaLabel = "审批";
-    preview = data.decision_reason || "该工具调用可以继续执行。";
+    const approvalArgs = Object.keys(args).length ? args : objectValue(requiredData.arguments);
+    const identifier = data.identifier || requiredData.identifier;
+    const apiName = data.api_name || requiredData.api_name;
+    const summary = toolSummary({ identifier, apiName, args: approvalArgs });
+    const decisionReason = meaningfulApprovalReason(data.decision_reason);
+    title = `已批准：${summary.title}`;
+    metaLabel = `审批 · ${summary.label}`;
+    preview = processPreview(identifier, apiName, approvalArgs) || summary.detail || data.reason || requiredData.reason || "该工具调用可以继续执行。";
+    detailObject = {
+      call_id: data.id || requiredData.id || undefined,
+      approval_reason: data.reason || requiredData.reason || undefined,
+      decision_reason: decisionReason || undefined,
+      approval_source: data.approval_source || undefined,
+      arguments: Object.keys(approvalArgs).length ? approvalArgs : undefined,
+      request: Object.keys(objectValue(data.request || requiredData.request)).length ? objectValue(data.request || requiredData.request) : undefined
+    };
     tone = "ok";
     statusLabel = "已通过";
   } else if (event.type === "runtime.tool_intervention_rejected") {
-    title = "审批被拒绝";
-    metaLabel = "审批";
-    preview = data.decision_reason || "该工具调用已停止。";
+    const approvalArgs = Object.keys(args).length ? args : objectValue(requiredData.arguments);
+    const identifier = data.identifier || requiredData.identifier;
+    const apiName = data.api_name || requiredData.api_name;
+    const summary = toolSummary({ identifier, apiName, args: approvalArgs });
+    const decisionReason = meaningfulApprovalReason(data.decision_reason);
+    title = `已拒绝：${summary.title}`;
+    metaLabel = `审批 · ${summary.label}`;
+    preview = decisionReason || processPreview(identifier, apiName, approvalArgs) || summary.detail || data.reason || requiredData.reason || "该工具调用已停止。";
+    detailObject = {
+      call_id: data.id || requiredData.id || undefined,
+      approval_reason: data.reason || requiredData.reason || undefined,
+      decision_reason: decisionReason || undefined,
+      approval_source: data.approval_source || undefined,
+      arguments: Object.keys(approvalArgs).length ? approvalArgs : undefined,
+      request: Object.keys(objectValue(data.request || requiredData.request)).length ? objectValue(data.request || requiredData.request) : undefined
+    };
     tone = "error";
     status = "error";
     statusLabel = "已拒绝";
@@ -7014,7 +7056,9 @@ function WorkbenchApp() {
     setStatus("approving");
     try {
       const isPlanApproval = intervention.kind === "plan_approval";
-      const response = await api.approveIntervention(sessionID, intervention.turn_id, intervention.call_id, { reason: isPlanApproval ? "plan approved from app" : "approved from app" });
+      const response = await api.approveIntervention(sessionID, intervention.turn_id, intervention.call_id, {
+        reason: isPlanApproval ? "用户在工作台批准执行计划" : "用户在工作台批准工具调用"
+      });
       mergeCurrentSessionEvents(sessionID, response.events || []);
       if (isCurrentSession(sessionID)) {
         setInterventionResponse((current) => ({
