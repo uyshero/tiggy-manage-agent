@@ -1637,11 +1637,43 @@ func openAITools(tools []Tool) []openAITool {
 			Function: openAIToolFunction{
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,
-				Parameters:  tool.Function.Parameters,
+				Parameters:  openAICompatibleToolParameters(tool.Function.Parameters),
 			},
 		})
 	}
 	return result
+}
+
+func openAICompatibleToolParameters(parameters json.RawMessage) json.RawMessage {
+	if len(parameters) == 0 {
+		return parameters
+	}
+	var schema any
+	if err := json.Unmarshal(parameters, &schema); err != nil {
+		return parameters
+	}
+	stripUnsupportedToolSchemaKeywords(schema)
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return parameters
+	}
+	return encoded
+}
+
+func stripUnsupportedToolSchemaKeywords(value any) {
+	switch current := value.(type) {
+	case map[string]any:
+		for _, keyword := range []string{"anyOf", "oneOf", "allOf", "if", "then", "else", "const"} {
+			delete(current, keyword)
+		}
+		for _, child := range current {
+			stripUnsupportedToolSchemaKeywords(child)
+		}
+	case []any:
+		for _, child := range current {
+			stripUnsupportedToolSchemaKeywords(child)
+		}
+	}
 }
 
 func openAIToolCalls(calls []ToolCall) []openAIToolCall {

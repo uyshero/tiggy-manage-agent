@@ -1327,6 +1327,32 @@ func TestOpenAICompatibleClientDoesNotRetryAfterStreamStarts(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleToolParametersStripUnsupportedCombinatorsRecursively(t *testing.T) {
+	raw := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"source":{
+				"type":"object",
+				"properties":{"provider":{"type":"string","const":"catalog"}},
+				"allOf":[{"if":{"required":["provider"]},"then":{"required":["catalog_entry_id"]}}]
+			}
+		},
+		"anyOf":[{"required":["source"]}],
+		"oneOf":[{"required":["source"]}]
+	}`)
+	compatible := openAICompatibleToolParameters(raw)
+	for _, keyword := range []string{`"anyOf"`, `"oneOf"`, `"allOf"`, `"if"`, `"then"`, `"else"`, `"const"`} {
+		if strings.Contains(string(compatible), keyword) {
+			t.Fatalf("compatible schema retained %s: %s", keyword, compatible)
+		}
+	}
+	for _, preserved := range []string{`"type":"object"`, `"properties"`, `"provider"`} {
+		if !strings.Contains(string(compatible), preserved) {
+			t.Fatalf("compatible schema lost %s: %s", preserved, compatible)
+		}
+	}
+}
+
 func TestParseProviderRetryAfter(t *testing.T) {
 	now := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
 	if got, ok := parseProviderRetryAfter("3", now); !ok || got != 3*time.Second {
