@@ -422,7 +422,7 @@ func (s skillsToolService) ReadAsset(ctx context.Context, request tools.SkillsRe
 		}, nil
 	}
 	if file.Binary {
-		return tools.SkillsReadAssetResponse{}, fmt.Errorf("%w: binary asset %q cannot be returned by skills.read_asset; use its controlled object download", managedagents.ErrForbidden, request.Path)
+		return tools.SkillsReadAssetResponse{}, fmt.Errorf("%w: binary asset %q cannot be returned by skills_read_asset; use its controlled object download", managedagents.ErrForbidden, request.Path)
 	}
 	return tools.SkillsReadAssetResponse{SkillIdentifier: identifier, SkillVersion: version.Version, Found: true, File: file}, nil
 }

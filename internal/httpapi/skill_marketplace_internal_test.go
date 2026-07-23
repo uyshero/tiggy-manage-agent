@@ -100,7 +100,7 @@ func TestInternalMarketplaceHTTPBrowsePreviewAndInstall(t *testing.T) {
 	})
 	if err != nil || discovered.Provider != skillmarketplace.CatalogProvider || discovered.SearchMode != "organization_catalog" ||
 		len(discovered.Items) != 1 || discovered.Items[0].CatalogEntryID != entry.ID || discovered.Items[0].CatalogSkillID != publisherSkill.ID {
-		t.Fatalf("unexpected skills.discover internal catalog result: result=%#v err=%v", discovered, err)
+		t.Fatalf("unexpected skills_discover internal catalog result: result=%#v err=%v", discovered, err)
 	}
 
 	browse := getJSON[struct {

@@ -13,7 +13,7 @@ SUFFIX="$(date +%Y%m%d%H%M%S)"
 AGENT_NAME="attach-web-search-agent-$SUFFIX"
 ENV_NAME="attach-web-search-env-$SUFFIX"
 SESSION_TITLE="Attach web search $SUFFIX"
-SYSTEM_PROMPT="You are a verification agent. When the user asks for latest news or explicitly asks to use web.search, call web.search first and then answer briefly."
+SYSTEM_PROMPT="You are a verification agent. When the user asks for latest news or explicitly asks to use web_search, call web_search first and then answer briefly."
 
 json_field() {
   python3 - "$1" "$2" <<'PY'
@@ -66,7 +66,7 @@ echo "agent_id=$agent_id"
 echo "env_id=$env_id"
 echo
 echo "Suggested prompt inside attach:"
-echo "Use the web.search tool to search for $QUERY, then briefly summarize the top 3 freshest results."
+echo "Use the web_search tool to search for $QUERY, then briefly summarize the top 3 freshest results."
 echo
 echo "Starting session attach"
 exec "$CLI" session attach --session "$session_id" --after 0

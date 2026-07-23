@@ -776,7 +776,7 @@ func TestSkillsToolServicePersistsControlledBinaryAssets(t *testing.T) {
 		SessionID: session.ID, Identifier: installed.Skill.Identifier, Version: installed.Version.Version, Path: "assets/logo.png",
 	})
 	if !errors.Is(err, managedagents.ErrForbidden) {
-		t.Fatalf("expected binary skills.read_asset rejection, got %v", err)
+		t.Fatalf("expected binary skills_read_asset rejection, got %v", err)
 	}
 	inspected, err := service.Inspect(t.Context(), tools.SkillsInspectRequest{SessionID: session.ID, Identifier: installed.Skill.Identifier})
 	if err != nil {

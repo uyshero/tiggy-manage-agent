@@ -451,7 +451,7 @@ TMA_APPROVAL_TEST_DECISION=manual|approve|reject
 
 ### Web Search / Crawl 验收
 
-验证 `web.search` / `web.crawl` 工具注入、执行、结果回传：
+验证 `web_search` / `web_crawl` 工具注入、执行、结果回传：
 
 ```bash
 make verify-web-search-crawl
@@ -462,8 +462,8 @@ make verify-web-search-crawl
 - 构建 `bin/tma-server` 和 `bin/tma`
 - 启动 Postgres 并执行迁移
 - 启动 Docker Compose 中的 SearXNG，并探测 `/healthz` 和 `format=json`
-- 启动本地 HTML fixture，验证 Agent 调用 `web.crawl`
-- 启动本地 SearXNG-compatible mock，验证 Agent 调用 `web.search`
+- 启动本地 HTML fixture，验证 Agent 调用 `web_crawl`
+- 启动本地 SearXNG-compatible mock，验证 Agent 调用 `web_search`
 - 检查事件中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message` 和 `session.status_idle`
 
 通过时会输出类似：
