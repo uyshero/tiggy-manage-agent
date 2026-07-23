@@ -579,7 +579,7 @@ func resolveTaskEvidenceRefsTx(ctx context.Context, tx *sql.Tx, sessionID string
 		}
 		refs = append(refs, TaskEvidenceRef{
 			Kind: TaskEvidenceKindToolResult, TurnID: turnID, ToolCallID: input.ToolCallID,
-			Tool: strings.Trim(strings.TrimSpace(identifier)+"."+strings.TrimSpace(apiName), "."), ArtifactIDs: artifactIDs,
+			Tool: strings.Trim(strings.TrimSpace(identifier)+"_"+strings.TrimSpace(apiName), "_"), ArtifactIDs: artifactIDs,
 		})
 	}
 	return refs, nil
