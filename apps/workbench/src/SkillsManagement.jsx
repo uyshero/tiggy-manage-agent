@@ -362,8 +362,8 @@ function InstalledSkillsView({
         text: response.changed === false
           ? `Agent 已经使用 ${skill.identifier} v${latest.version} 的相同配置。`
           : response.requires_session_upgrade
-          ? `已写入 Agent 配置版本 #${response.new_config_version}；当前任务需升级配置后生效。`
-          : `已为当前 Agent 启用 ${skill.identifier}。`
+          ? `已写入 Agent 配置版本 #${response.new_config_version}；当前 Session 已固定配置，需要手动升级。`
+          : `已为当前 Agent 启用 ${skill.identifier}；下一条消息自动生效。`
       });
     } catch (error) {
       setMessage({ tone: "danger", text: error.message });
@@ -394,8 +394,8 @@ function InstalledSkillsView({
         text: response.changed === false
           ? `${skill.identifier} v${version.version} 的 binding 没有变化，未创建新配置版本。`
           : response.requires_session_upgrade
-          ? `已写入 Agent 配置版本 #${response.new_config_version}；当前任务需升级配置后生效。`
-          : `已为当前 Agent 启用 ${skill.identifier} v${version.version}。`
+          ? `已写入 Agent 配置版本 #${response.new_config_version}；当前 Session 已固定配置，需要手动升级。`
+          : `已为当前 Agent 启用 ${skill.identifier} v${version.version}；下一条消息自动生效。`
       });
     } catch (error) {
       setMessage({ tone: "danger", text: error.message });
@@ -419,7 +419,7 @@ function InstalledSkillsView({
       setMessage({
         tone: "ok",
         text: response.removed
-          ? `已从 Agent 最新配置停用 ${skill.identifier}；${response.requires_session_upgrade ? "当前任务仍需应用新配置。" : "当前任务已同步。"}`
+          ? `已从 Agent 最新配置停用 ${skill.identifier}；${response.requires_session_upgrade ? "当前 Session 已固定配置，需要手动升级。" : "下一条消息自动生效。"}`
           : `${skill.identifier} 已经处于停用状态。`
       });
     } catch (error) {

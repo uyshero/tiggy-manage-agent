@@ -2696,7 +2696,7 @@ paths:
         current_session_version: {type: integer, format: int32}
         binding: {$ref: "#/components/schemas/EnabledSkill"}
         changed: {type: boolean}
-        requires_session_upgrade: {type: boolean}
+        requires_session_upgrade: {type: boolean, description: True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.}
     MarketplaceDisableResult:
       type: object
       required: [agent_id, previous_config_version, new_config_version, current_session_version, binding, removed, requires_session_upgrade]
@@ -2707,7 +2707,7 @@ paths:
         current_session_version: {type: integer, format: int32}
         binding: {$ref: "#/components/schemas/EnabledSkill"}
         removed: {type: boolean}
-        requires_session_upgrade: {type: boolean}
+        requires_session_upgrade: {type: boolean, description: True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.}
     MarketplaceEntry:
       type: object
       required: [id, workspace_id, skill_id, skill_version, skill_identifier, skill_title, skill_status, version_checksum_sha256, package_format, tags, status, created_by, created_at, updated_by, updated_at]

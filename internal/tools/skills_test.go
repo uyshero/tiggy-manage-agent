@@ -64,7 +64,7 @@ func (s *stubSkillsToolService) Enable(_ context.Context, request SkillsEnableRe
 	s.enableRequest = request
 	return SkillsEnableResponse{
 		AgentID: "agt_1", NewConfigVersion: 2, CurrentSessionVersion: 1,
-		Binding: skillspkg.EnabledSkill{Skill: request.Identifier, Version: 1}, RequiresSessionUpgrade: true,
+		Binding: skillspkg.EnabledSkill{Skill: request.Identifier, Version: 1}, RequiresSessionUpgrade: false,
 	}, nil
 }
 
@@ -160,7 +160,7 @@ func TestSkillsRuntimeManifestAndExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute enable: %v", err)
 	}
-	if enable.Content == "" || service.enableRequest.Identifier != "code-review" || service.enableRequest.SessionID != "sesn_1" {
+	if !strings.Contains(enable.Content, "next user turn") || strings.Contains(enable.Content, "cannot use") || service.enableRequest.Identifier != "code-review" || service.enableRequest.SessionID != "sesn_1" {
 		t.Fatalf("unexpected enable execution: result=%#v request=%#v", enable, service.enableRequest)
 	}
 
@@ -171,7 +171,7 @@ func TestSkillsRuntimeManifestAndExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execute disable: %v", err)
 	}
-	if disable.Content == "" || service.disableRequest.Identifier != "code-review" || service.disableRequest.SessionID != "sesn_1" || service.disableRequest.TurnID != "turn_1" {
+	if !strings.Contains(disable.Content, "requires a manual config upgrade") || service.disableRequest.Identifier != "code-review" || service.disableRequest.SessionID != "sesn_1" || service.disableRequest.TurnID != "turn_1" {
 		t.Fatalf("unexpected disable execution: result=%#v request=%#v", disable, service.disableRequest)
 	}
 }

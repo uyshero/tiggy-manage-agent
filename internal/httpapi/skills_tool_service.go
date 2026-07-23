@@ -1076,10 +1076,14 @@ func (s skillsToolService) Enable(ctx context.Context, request tools.SkillsEnabl
 			return tools.SkillsEnableResponse{}, err
 		}
 	}
+	requiresSessionUpgrade, err := requiresManualSessionConfigUpgrade(session, agent.CurrentConfigVersion)
+	if err != nil {
+		return tools.SkillsEnableResponse{}, err
+	}
 	return tools.SkillsEnableResponse{
 		AgentID: agent.ID, PreviousConfigVersion: previousVersion, NewConfigVersion: agent.CurrentConfigVersion,
 		CurrentSessionVersion: session.AgentConfigVersion, Binding: binding, Changed: !unchanged,
-		RequiresSessionUpgrade: session.AgentConfigVersion != agent.CurrentConfigVersion,
+		RequiresSessionUpgrade: requiresSessionUpgrade,
 	}, nil
 }
 
@@ -1144,11 +1148,26 @@ func (s skillsToolService) Disable(ctx context.Context, request tools.SkillsDisa
 			return tools.SkillsDisableResponse{}, err
 		}
 	}
+	requiresSessionUpgrade, err := requiresManualSessionConfigUpgrade(session, agent.CurrentConfigVersion)
+	if err != nil {
+		return tools.SkillsDisableResponse{}, err
+	}
 	return tools.SkillsDisableResponse{
 		AgentID: agent.ID, PreviousConfigVersion: previousVersion, NewConfigVersion: agent.CurrentConfigVersion,
 		CurrentSessionVersion: session.AgentConfigVersion, Binding: binding, Removed: removed,
-		RequiresSessionUpgrade: session.AgentConfigVersion != agent.CurrentConfigVersion,
+		RequiresSessionUpgrade: requiresSessionUpgrade,
 	}, nil
+}
+
+func requiresManualSessionConfigUpgrade(session managedagents.Session, targetVersion int) (bool, error) {
+	if session.AgentConfigVersion >= targetVersion {
+		return false, nil
+	}
+	policy, err := managedagents.AgentConfigUpdatePolicy(session.RuntimeSettings)
+	if err != nil {
+		return false, err
+	}
+	return policy == managedagents.AgentConfigUpdatePinned, nil
 }
 
 func (s skillsToolService) registry() (skillspkg.Registry, error) {

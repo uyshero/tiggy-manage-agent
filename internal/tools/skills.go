@@ -260,7 +260,7 @@ func (SkillsRuntime) Manifest() Manifest {
 			Title:       "Skills Registry",
 			Description: "Search, inspect, discover, preview, install, read package assets, enable, and disable versioned skills in the current workspace.",
 		},
-		SystemRole:     "Use skills_search for installed skills and skills_discover for installable skills. When an enabled skill summary says its full instructions are available on demand, call skills_inspect with the exact identifier and frozen version before applying those details. skills_discover defaults to the organization-local catalog and does not access the network; use provider github only when the user explicitly requests GitHub and external network access is allowed. Use the returned catalog_entry_id as source.catalog_entry_id with provider catalog for skills_preview and skills_install. Preview before installing or upgrading, inspect before enabling, and use skills_read_asset when an enabled skill references a package file. Never guess asset paths: read only SKILL.md or an exact path listed in the version assets; an empty assets list means there are no additional package assets. For a user-uploaded offline Skill ZIP, use source provider artifact with the exact current Session artifact_id supplied in attachment context; never use workspace_path, a host filesystem path, bucket/key, or arbitrary URL. Preview is read-only and returns source, license, warnings, asset index, version differences, package attestation, static security findings, and policy checks. Do not install when policy.allowed is false or install_state is blocked/unchanged. For install_state=upgrade set upgrade_existing=true; otherwise leave it false. Pass preview policy_id, policy_version, and policy_revision unchanged to skills_install. Installing publishes content to the workspace registry and requires write approval. After successful installation, clearly offer to enable that exact version, but do not call skills_enable until the user requests it. Enabling and disabling require separate write approval, create a new Agent config version when the binding changes, and do not change the running Session immediately; report requires_session_upgrade explicitly. Disabling removes only the selected binding and does not archive or uninstall the Skill. Enabled frozen Skill packages are materialized under the runtime package directory in cloud_sandbox. Executable assets still require a separate approved default_* execution call. When a package expects a desktop browser unavailable in the sandbox, use registered browser_* tools instead of searching host or server directories.",
+		SystemRole:     "Use skills_search for installed skills and skills_discover for installable skills. When an enabled skill summary says its full instructions are available on demand, call skills_inspect with the exact identifier and frozen version before applying those details. skills_discover defaults to the organization-local catalog and does not access the network; use provider github only when the user explicitly requests GitHub and external network access is allowed. Use the returned catalog_entry_id as source.catalog_entry_id with provider catalog for skills_preview and skills_install. Preview before installing or upgrading, inspect before enabling, and use skills_read_asset when an enabled skill references a package file. Never guess asset paths: read only SKILL.md or an exact path listed in the version assets; an empty assets list means there are no additional package assets. For a user-uploaded offline Skill ZIP, use source provider artifact with the exact current Session artifact_id supplied in attachment context; never use workspace_path, a host filesystem path, bucket/key, or arbitrary URL. Preview is read-only and returns source, license, warnings, asset index, version differences, package attestation, static security findings, and policy checks. Do not install when policy.allowed is false or install_state is blocked/unchanged. For install_state=upgrade set upgrade_existing=true; otherwise leave it false. Pass preview policy_id, policy_version, and policy_revision unchanged to skills_install. Installing publishes content to the workspace registry and requires write approval. After successful installation, clearly offer to enable that exact version, but do not call skills_enable until the user requests it. Enabling and disabling require separate write approval and create a new Agent config version when the binding changes. The current running turn keeps its frozen config. When requires_session_upgrade is false and the versions differ, the same Session automatically follows the new config on the next user turn; say that the Skill is available from the next message, never that the Session cannot use it. Only requires_session_upgrade=true means the Session is explicitly pinned and needs a manual config upgrade. Disabling removes only the selected binding and does not archive or uninstall the Skill. Enabled frozen Skill packages are materialized under the runtime package directory in cloud_sandbox. Executable assets still require a separate approved default_* execution call. When a package expects a desktop browser unavailable in the sandbox, use registered browser_* tools instead of searching host or server directories.",
 		Executors:      []string{ExecutorServer},
 		ApprovalPolicy: ApprovalPolicyNever,
 		API: []API{
@@ -436,7 +436,15 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 		if err != nil {
 			return ExecutionResult{}, err
 		}
-		return skillsToolResult(call, response, fmt.Sprintf("Enabled skill %s version %d in Agent config version %d. The running Session remains pinned to version %d.", response.Binding.Skill, response.Binding.Version, response.NewConfigVersion, response.CurrentSessionVersion))
+		content := fmt.Sprintf("Enabled skill %s version %d in Agent config version %d.", response.Binding.Skill, response.Binding.Version, response.NewConfigVersion)
+		if response.CurrentSessionVersion < response.NewConfigVersion {
+			if response.RequiresSessionUpgrade {
+				content += fmt.Sprintf(" The Session is explicitly pinned to version %d and requires a manual config upgrade.", response.CurrentSessionVersion)
+			} else {
+				content += fmt.Sprintf(" The current turn keeps version %d; the next user turn in this Session automatically uses version %d, so the skill is available from the next message.", response.CurrentSessionVersion, response.NewConfigVersion)
+			}
+		}
+		return skillsToolResult(call, response, content)
 	case "disable":
 		var request SkillsDisableRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
@@ -452,7 +460,15 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 		if !response.Removed {
 			return skillsToolResult(call, response, fmt.Sprintf("Skill %s was already disabled in Agent config version %d.", request.Identifier, response.NewConfigVersion))
 		}
-		return skillsToolResult(call, response, fmt.Sprintf("Disabled skill %s version %d in Agent config version %d. The running Session remains pinned to version %d.", response.Binding.Skill, response.Binding.Version, response.NewConfigVersion, response.CurrentSessionVersion))
+		content := fmt.Sprintf("Disabled skill %s version %d in Agent config version %d.", response.Binding.Skill, response.Binding.Version, response.NewConfigVersion)
+		if response.CurrentSessionVersion < response.NewConfigVersion {
+			if response.RequiresSessionUpgrade {
+				content += fmt.Sprintf(" The Session is explicitly pinned to version %d and requires a manual config upgrade.", response.CurrentSessionVersion)
+			} else {
+				content += fmt.Sprintf(" The current turn keeps version %d; the next user turn in this Session automatically uses version %d, so the skill is disabled from the next message.", response.CurrentSessionVersion, response.NewConfigVersion)
+			}
+		}
+		return skillsToolResult(call, response, content)
 	default:
 		return ExecutionResult{}, fmt.Errorf("unsupported skills API %q", call.APIName)
 	}

@@ -207,7 +207,7 @@ func TestSkillsToolServiceInstallSearchInspectAndEnable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enable skill: %v", err)
 	}
-	if !enabled.Changed || enabled.PreviousConfigVersion != 1 || enabled.NewConfigVersion != 2 || !enabled.RequiresSessionUpgrade || enabled.Binding.Version != 1 {
+	if !enabled.Changed || enabled.PreviousConfigVersion != 1 || enabled.NewConfigVersion != 2 || enabled.RequiresSessionUpgrade || enabled.Binding.Version != 1 {
 		t.Fatalf("unexpected enable response: %#v", enabled)
 	}
 	updatedAgent, err := store.GetAgent(agent.ID)
@@ -233,11 +233,20 @@ func TestSkillsToolServiceInstallSearchInspectAndEnable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install second skill: %v", err)
 	}
-	if _, err := service.Enable(t.Context(), tools.SkillsEnableRequest{
+	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
+		RuntimeSettings: json.RawMessage(`{"agent_config_update_policy":"pinned"}`), ExpectedRevision: session.RuntimeSettingsRevision,
+	}); err != nil {
+		t.Fatalf("pin session config: %v", err)
+	}
+	secondEnabled, err := service.Enable(t.Context(), tools.SkillsEnableRequest{
 		SessionID: session.ID, TurnID: "turn_enable_second", Identifier: secondInstalled.Skill.Identifier,
 		Inputs: json.RawMessage(`{"scope":"all","checks":{"dependencies":true,"secrets":false}}`),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("enable second skill: %v", err)
+	}
+	if !secondEnabled.RequiresSessionUpgrade {
+		t.Fatalf("expected pinned Session to require a manual config upgrade: %#v", secondEnabled)
 	}
 	unchangedSecond, err := service.Enable(t.Context(), tools.SkillsEnableRequest{
 		SessionID: session.ID, TurnID: "turn_enable_second_unchanged", Identifier: secondInstalled.Skill.Identifier,

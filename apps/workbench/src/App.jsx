@@ -820,13 +820,14 @@ function processPreview(identifier, apiName, args = {}, result = {}, source = ""
     }
     if (parts.apiName === "enable") {
       const binding = objectValue(state.binding);
-      return `${binding.skill || args.identifier || "Skill"} v${binding.version || args.version || 1} 已写入 Agent 配置${state.requires_session_upgrade ? "；当前 Session 仍固定旧配置，需要升级或新建 Session" : ""}。`;
+      const pending = Number(state.current_session_version || 0) < Number(state.new_config_version || 0);
+      return `${binding.skill || args.identifier || "Skill"} v${binding.version || args.version || 1} 已写入 Agent 配置${state.requires_session_upgrade ? "；当前 Session 已固定配置，需要手动升级" : pending ? "；下一条消息自动生效" : ""}。`;
     }
     if (parts.apiName === "disable") {
       const binding = objectValue(state.binding);
       return state.removed === false
         ? `${binding.skill || args.identifier || "Skill"} 已处于停用状态。`
-        : `${binding.skill || args.identifier || "Skill"} 已从 Agent 配置移除${state.requires_session_upgrade ? "；当前 Session 仍固定旧配置，需要应用新版本" : ""}。`;
+        : `${binding.skill || args.identifier || "Skill"} 已从 Agent 配置移除${state.requires_session_upgrade ? "；当前 Session 已固定配置，需要手动升级" : Number(state.current_session_version || 0) < Number(state.new_config_version || 0) ? "；下一条消息自动生效" : ""}。`;
     }
   }
 
@@ -5421,6 +5422,7 @@ function ProcessEventCard({
         targetConfigVersion: enabledConfigVersion,
         operation: "enable",
         isLatest: enableIsLatest,
+        requiresSessionUpgrade: state.requires_session_upgrade === true,
         status: !enableIsLatest
           ? "superseded"
           : activeSkillKeys.has(enabledSkillKey) || currentSessionConfigVersion === enabledConfigVersion
@@ -5443,6 +5445,7 @@ function ProcessEventCard({
         operation: "disable",
         removed: state.removed !== false,
         isLatest: disableIsLatest,
+        requiresSessionUpgrade: state.requires_session_upgrade === true,
         status: !disableIsLatest
           ? "superseded"
           : currentSessionConfigVersion === disabledConfigVersion || (currentSessionConfigVersion > disabledConfigVersion && !disabledStillActive)
@@ -5507,7 +5510,9 @@ function ProcessEventCard({
                       ? skillEnableAction.isLatest
                         ? `当前 Session 已使用更高的 Agent 配置 v${currentSessionConfigVersion}，请在 Agent 设置中确认该 Skill 是否仍启用。`
                         : "该启用结果已被后续 Skill 配置操作取代。"
-                      : `当前 Session 仍是 Agent 配置 v${currentSessionConfigVersion || "?"}，应用 v${skillEnableAction.targetConfigVersion} 后生效。`}
+                      : skillEnableAction.requiresSessionUpgrade
+                        ? `当前 Session 已固定在 Agent 配置 v${currentSessionConfigVersion || "?"}，需要手动应用 v${skillEnableAction.targetConfigVersion}。`
+                        : `当前轮次仍使用 Agent 配置 v${currentSessionConfigVersion || "?"}；下一条消息会自动应用 v${skillEnableAction.targetConfigVersion}，也可现在应用。`}
                 </span>
               </div>
               {skillEnableAction.status === "pending" ? (
@@ -5541,7 +5546,9 @@ function ProcessEventCard({
                       ? skillDisableAction.isLatest
                         ? `当前 Session 已使用更高的 Agent 配置 v${currentSessionConfigVersion}，请确认该 Skill 当前是否启用。`
                         : "该停用结果已被后续 Skill 配置操作取代。"
-                      : `当前 Session 仍是 Agent 配置 v${currentSessionConfigVersion || "?"}，应用 v${skillDisableAction.targetConfigVersion} 后停用。`}
+                      : skillDisableAction.requiresSessionUpgrade
+                        ? `当前 Session 已固定在 Agent 配置 v${currentSessionConfigVersion || "?"}，需要手动应用 v${skillDisableAction.targetConfigVersion}。`
+                        : `当前轮次仍使用 Agent 配置 v${currentSessionConfigVersion || "?"}；下一条消息会自动应用 v${skillDisableAction.targetConfigVersion}。`}
                 </span>
               </div>
               {skillDisableAction.status === "pending" ? (
@@ -7739,7 +7746,7 @@ function WorkbenchApp() {
     setStatus("requesting skill enable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批；完成后明确说明 requires_session_upgrade，以及当前 Session 是否仍固定在旧 Agent 配置。`,
+        text: `请调用 skills.enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -7758,7 +7765,7 @@ function WorkbenchApp() {
     setStatus("requesting skill disable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批；完成后明确说明 requires_session_upgrade，以及当前 Session 是否仍固定在旧 Agent 配置。`,
+        text: `请调用 skills.disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
