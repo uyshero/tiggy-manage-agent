@@ -180,9 +180,9 @@ const (
 
 // Defines values for EvaluateWorkspaceToolPermissionRequestTool.
 const (
-	EvaluateWorkspaceToolPermissionRequestToolDefaultEditFile  EvaluateWorkspaceToolPermissionRequestTool = "default.edit_file"
-	EvaluateWorkspaceToolPermissionRequestToolDefaultReadFile  EvaluateWorkspaceToolPermissionRequestTool = "default.read_file"
-	EvaluateWorkspaceToolPermissionRequestToolDefaultWriteFile EvaluateWorkspaceToolPermissionRequestTool = "default.write_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultEditFile  EvaluateWorkspaceToolPermissionRequestTool = "default_edit_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultReadFile  EvaluateWorkspaceToolPermissionRequestTool = "default_read_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultWriteFile EvaluateWorkspaceToolPermissionRequestTool = "default_write_file"
 )
 
 // Defines values for EvaluateWorkspaceToolPermissionResultApprovalPolicy.
@@ -437,9 +437,9 @@ const (
 
 // Defines values for PermissionRuleTool.
 const (
-	PermissionRuleToolDefaultEditFile  PermissionRuleTool = "default.edit_file"
-	PermissionRuleToolDefaultReadFile  PermissionRuleTool = "default.read_file"
-	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default.write_file"
+	PermissionRuleToolDefaultEditFile  PermissionRuleTool = "default_edit_file"
+	PermissionRuleToolDefaultReadFile  PermissionRuleTool = "default_read_file"
+	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default_write_file"
 )
 
 // Defines values for PrincipalAuthType.
@@ -692,9 +692,9 @@ const (
 
 // Defines values for WorkspacePermissionRuleTool.
 const (
-	DefaultEditFile  WorkspacePermissionRuleTool = "default.edit_file"
-	DefaultReadFile  WorkspacePermissionRuleTool = "default.read_file"
-	DefaultWriteFile WorkspacePermissionRuleTool = "default.write_file"
+	DefaultEditFile  WorkspacePermissionRuleTool = "default_edit_file"
+	DefaultReadFile  WorkspacePermissionRuleTool = "default_read_file"
+	DefaultWriteFile WorkspacePermissionRuleTool = "default_write_file"
 )
 
 // APIError defines model for APIError.
@@ -2077,13 +2077,15 @@ type MarketplaceDisableRequest struct {
 
 // MarketplaceDisableResult defines model for MarketplaceDisableResult.
 type MarketplaceDisableResult struct {
-	AgentId                string       `json:"agent_id"`
-	Binding                EnabledSkill `json:"binding"`
-	CurrentSessionVersion  int32        `json:"current_session_version"`
-	NewConfigVersion       int32        `json:"new_config_version"`
-	PreviousConfigVersion  int32        `json:"previous_config_version"`
-	Removed                bool         `json:"removed"`
-	RequiresSessionUpgrade bool         `json:"requires_session_upgrade"`
+	AgentId               string       `json:"agent_id"`
+	Binding               EnabledSkill `json:"binding"`
+	CurrentSessionVersion int32        `json:"current_session_version"`
+	NewConfigVersion      int32        `json:"new_config_version"`
+	PreviousConfigVersion int32        `json:"previous_config_version"`
+	Removed               bool         `json:"removed"`
+
+	// RequiresSessionUpgrade True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.
+	RequiresSessionUpgrade bool `json:"requires_session_upgrade"`
 }
 
 // MarketplaceDiscoverResult defines model for MarketplaceDiscoverResult.
@@ -2108,13 +2110,15 @@ type MarketplaceEnableRequestMode string
 
 // MarketplaceEnableResult defines model for MarketplaceEnableResult.
 type MarketplaceEnableResult struct {
-	AgentId                string       `json:"agent_id"`
-	Binding                EnabledSkill `json:"binding"`
-	Changed                bool         `json:"changed"`
-	CurrentSessionVersion  int32        `json:"current_session_version"`
-	NewConfigVersion       int32        `json:"new_config_version"`
-	PreviousConfigVersion  int32        `json:"previous_config_version"`
-	RequiresSessionUpgrade bool         `json:"requires_session_upgrade"`
+	AgentId               string       `json:"agent_id"`
+	Binding               EnabledSkill `json:"binding"`
+	Changed               bool         `json:"changed"`
+	CurrentSessionVersion int32        `json:"current_session_version"`
+	NewConfigVersion      int32        `json:"new_config_version"`
+	PreviousConfigVersion int32        `json:"previous_config_version"`
+
+	// RequiresSessionUpgrade True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.
+	RequiresSessionUpgrade bool `json:"requires_session_upgrade"`
 }
 
 // MarketplaceEntry defines model for MarketplaceEntry.

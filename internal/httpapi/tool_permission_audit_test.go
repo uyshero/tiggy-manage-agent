@@ -35,7 +35,7 @@ func TestListToolPermissionAuditUsesStableCursor(t *testing.T) {
 	for index := 0; index < 3; index++ {
 		callID := "call_" + string(rune('a'+index))
 		plan := agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{{
-			Call:            model.ToolCall{ID: callID, Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
+			Call:            model.ToolCall{ID: callID, Name: "default_edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
 			Disposition:     agentcore.ToolDispositionExecute,
 			ValidationState: agentcore.ToolValidationValid,
 			ApprovalState:   agentcore.ToolApprovalNotRequired,
@@ -86,7 +86,7 @@ func getToolPermissionAuditPage(t *testing.T, server *Server, target string) too
 func TestProjectToolPermissionAuditCombinesPlanApprovalAndResult(t *testing.T) {
 	now := time.Now().UTC()
 	plan := agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{{
-		Call:            model.ToolCall{ID: "call_ask", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
+		Call:            model.ToolCall{ID: "call_ask", Name: "default_edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
 		Disposition:     agentcore.ToolDispositionExecute,
 		ValidationState: agentcore.ToolValidationValid,
 		ApprovalState:   agentcore.ToolApprovalPending,
@@ -97,7 +97,7 @@ func TestProjectToolPermissionAuditCombinesPlanApprovalAndResult(t *testing.T) {
 			MatchedRuleID: "ask-src", RuleSource: "session",
 		},
 	}, {
-		Call:            model.ToolCall{ID: "call_deny", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/secrets/token"}`)},
+		Call:            model.ToolCall{ID: "call_deny", Name: "default_edit_file", Arguments: json.RawMessage(`{"path":"/workspace/secrets/token"}`)},
 		Disposition:     agentcore.ToolDispositionDenied,
 		ValidationState: agentcore.ToolValidationValid,
 		ApprovalState:   agentcore.ToolApprovalNotRequired,
@@ -106,8 +106,8 @@ func TestProjectToolPermissionAuditCombinesPlanApprovalAndResult(t *testing.T) {
 			Reason: "workspace_boundary", Risk: "write", MatchedRuleID: "deny-secrets", RuleSource: "workspace",
 		},
 	}}}
-	result := agentcore.ToolCallJournalEntry{CallID: "call_ask", Name: "default.edit_file", Status: agentcore.ToolCallSucceeded}
-	deniedResult := agentcore.ToolCallJournalEntry{CallID: "call_deny", Name: "default.edit_file", Status: agentcore.ToolCallFailed}
+	result := agentcore.ToolCallJournalEntry{CallID: "call_ask", Name: "default_edit_file", Status: agentcore.ToolCallSucceeded}
+	deniedResult := agentcore.ToolCallJournalEntry{CallID: "call_deny", Name: "default_edit_file", Status: agentcore.ToolCallFailed}
 	events := []managedagents.Event{
 		auditTestEvent(t, "session_1", "turn_1", string(agentcore.EventToolBatchPlanned), plan, now),
 		auditTestEvent(t, "session_1", "turn_1", string(agentcore.EventInterventionResolved), []agentcore.InteractionDecision{{InteractionID: "tool_approval:call_ask", Status: "approved"}}, now.Add(time.Second)),

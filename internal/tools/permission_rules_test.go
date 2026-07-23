@@ -9,8 +9,8 @@ import (
 func TestParsePermissionRulesValidatesFileRules(t *testing.T) {
 	rules, err := ParsePermissionRules(json.RawMessage(`{
 		"permission_rules":[
-			{"id":"source-edit","tool":"default.edit_file","argument":"path","pattern":"/workspace/src/**","behavior":"allow"},
-			{"id":"config-edit","tool":"default.edit_file","argument":"path","pattern":"/workspace/config/**","behavior":"ask"}
+			{"id":"source-edit","tool":"default_edit_file","argument":"path","pattern":"/workspace/src/**","behavior":"allow"},
+			{"id":"config-edit","tool":"default_edit_file","argument":"path","pattern":"/workspace/config/**","behavior":"ask"}
 		]
 	}`))
 	if err != nil {
@@ -23,8 +23,8 @@ func TestParsePermissionRulesValidatesFileRules(t *testing.T) {
 
 func TestPermissionRulePrecedenceAndRecursivePathMatch(t *testing.T) {
 	policy := InterventionPolicy{Mode: InterventionModeRequestApproval, Rules: []PermissionRule{
-		{ID: "allow-source", Tool: "default.edit_file", Argument: "path", Pattern: "/workspace/src/**", Behavior: PermissionRuleAllow, Source: "session"},
-		{ID: "deny-secrets", Tool: "default.edit_file", Argument: "path", Pattern: "/workspace/src/secrets/**", Behavior: PermissionRuleDeny, Source: "workspace"},
+		{ID: "allow-source", Tool: "default_edit_file", Argument: "path", Pattern: "/workspace/src/**", Behavior: PermissionRuleAllow, Source: "session"},
+		{ID: "deny-secrets", Tool: "default_edit_file", Argument: "path", Pattern: "/workspace/src/secrets/**", Behavior: PermissionRuleDeny, Source: "workspace"},
 	}}
 	manifest := Manifest{ApprovalPolicy: ApprovalPolicyAlways, ApprovalReason: InterventionReasonFilesystemWrite}
 	api := API{Name: "edit_file", Risk: ToolRiskWrite}
@@ -42,9 +42,9 @@ func TestPermissionRulePrecedenceAndRecursivePathMatch(t *testing.T) {
 
 func TestResolvePermissionRulesAppliesScopePrecedence(t *testing.T) {
 	rules, err := ResolvePermissionRules(
-		json.RawMessage(`{"permission_rules":[{"id":"session-allow","tool":"default.edit_file","argument":"path","pattern":"/workspace/src/**","behavior":"allow"}]}`),
-		json.RawMessage(`{"permission_rules":[{"id":"agent-deny","tool":"default.edit_file","argument":"path","pattern":"/workspace/**","behavior":"deny"}]}`),
-		json.RawMessage(`{"permission_rules":[{"id":"workspace-deny","tool":"default.edit_file","argument":"path","pattern":"/workspace/src/secrets/**","behavior":"deny"}]}`),
+		json.RawMessage(`{"permission_rules":[{"id":"session-allow","tool":"default_edit_file","argument":"path","pattern":"/workspace/src/**","behavior":"allow"}]}`),
+		json.RawMessage(`{"permission_rules":[{"id":"agent-deny","tool":"default_edit_file","argument":"path","pattern":"/workspace/**","behavior":"deny"}]}`),
+		json.RawMessage(`{"permission_rules":[{"id":"workspace-deny","tool":"default_edit_file","argument":"path","pattern":"/workspace/src/secrets/**","behavior":"deny"}]}`),
 	)
 	if err != nil {
 		t.Fatalf("resolve rules: %v", err)
@@ -65,7 +65,7 @@ func TestResolvePermissionRulesAppliesScopePrecedence(t *testing.T) {
 
 func TestWorkspacePermissionRulesRejectNonDenyBehavior(t *testing.T) {
 	_, err := ResolvePermissionRules(nil, nil, json.RawMessage(`{"permission_rules":[{
-		"id":"workspace-allow","tool":"default.read_file","argument":"path","pattern":"/workspace/**","behavior":"allow"
+		"id":"workspace-allow","tool":"default_read_file","argument":"path","pattern":"/workspace/**","behavior":"allow"
 	}]}`))
 	if err == nil || !strings.Contains(err.Error(), "behavior must be deny") {
 		t.Fatalf("unexpected error: %v", err)
@@ -74,7 +74,7 @@ func TestWorkspacePermissionRulesRejectNonDenyBehavior(t *testing.T) {
 
 func TestPermissionAskRuleHonorsInterventionMode(t *testing.T) {
 	rule := PermissionRule{
-		ID: "ask-config", Tool: "default.write_file", Argument: "path",
+		ID: "ask-config", Tool: "default_write_file", Argument: "path",
 		Pattern: "/workspace/config/**", Behavior: PermissionRuleAsk, Source: "session",
 	}
 	manifest := Manifest{ApprovalPolicy: ApprovalPolicyNever}
@@ -97,7 +97,7 @@ func TestPermissionAskRuleHonorsInterventionMode(t *testing.T) {
 
 func TestPermissionRulesRejectUnsupportedTargets(t *testing.T) {
 	_, err := ParsePermissionRules(json.RawMessage(`{"permission_rules":[{
-		"id":"bash","tool":"default.run_command","argument":"command","pattern":"rm *","behavior":"deny"
+		"id":"bash","tool":"default_run_command","argument":"command","pattern":"rm *","behavior":"deny"
 	}]}`))
 	if err == nil || !strings.Contains(err.Error(), "not a supported file tool") {
 		t.Fatalf("unexpected error: %v", err)
@@ -106,7 +106,7 @@ func TestPermissionRulesRejectUnsupportedTargets(t *testing.T) {
 
 func TestPermissionRulesRejectUnknownFields(t *testing.T) {
 	_, err := ParsePermissionRules(json.RawMessage(`{"permission_rules":[{
-		"id":"source","tool":"default.edit_file","argument":"path",
+		"id":"source","tool":"default_edit_file","argument":"path",
 		"pattern":"src/**","behaviour":"allow"
 	}]}`))
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
@@ -118,7 +118,7 @@ func TestSuggestedPermissionRulesUseParentDirectoryAndExplicitScopes(t *testing.
 	t.Parallel()
 
 	suggestions := SuggestedPermissionRules(Call{
-		Name:      "default.edit_file",
+		Name:      "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/src/config/app.go","old_string":"old","new_string":"new"}`),
 	})
 	if len(suggestions) != 2 {
@@ -128,7 +128,7 @@ func TestSuggestedPermissionRulesUseParentDirectoryAndExplicitScopes(t *testing.
 		t.Fatalf("suggestion scopes = %+v", suggestions)
 	}
 	for _, suggestion := range suggestions {
-		if suggestion.Rule.Tool != "default.edit_file" || suggestion.Rule.Argument != "path" ||
+		if suggestion.Rule.Tool != "default_edit_file" || suggestion.Rule.Argument != "path" ||
 			suggestion.Rule.Pattern != "/workspace/src/config/**" || suggestion.Rule.Behavior != PermissionRuleAllow || suggestion.Rule.ID == "" {
 			t.Fatalf("suggestion = %+v", suggestion)
 		}

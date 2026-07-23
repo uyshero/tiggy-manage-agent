@@ -214,7 +214,7 @@ if [ -z "$PROVIDER" ] || [ -z "$MODEL" ]; then
 fi
 
 verify_database_outage() {
-  system_prompt='When the user says DATABASE_OUTAGE_TOOL, call default.run_command exactly once with command "sh" and args ["-c","sleep 300; printf DATABASE_TOOL_COMPLETED"]. Do not answer before calling the tool. After receiving the tool result, explain whether execution was confirmed and do not call more tools.'
+  system_prompt='When the user says DATABASE_OUTAGE_TOOL, call default_run_command exactly once with command "sh" and args ["-c","sleep 300; printf DATABASE_TOOL_COMPLETED"]. Do not answer before calling the tool. After receiving the tool result, explain whether execution was confirmed and do not call more tools.'
   session_id="$(create_session agent-core-database-outage "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" session runtime update --session "$session_id" --intervention-mode full_access >/dev/null
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text DATABASE_OUTAGE_TOOL >/dev/null

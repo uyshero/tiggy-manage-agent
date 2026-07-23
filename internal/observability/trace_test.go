@@ -53,10 +53,10 @@ func TestProjectTurnTraceBuildsToolSummary(t *testing.T) {
 	if len(trace.Steps) != 3 {
 		t.Fatalf("expected 3 trace steps, got %+v", trace.Steps)
 	}
-	if !strings.Contains(trace.Summary, "approval rejected: default.edit_file reason=unsafe") {
+	if !strings.Contains(trace.Summary, "approval rejected: default_edit_file reason=unsafe") {
 		t.Fatalf("expected rejection summary, got %q", trace.Summary)
 	}
-	if !strings.Contains(trace.Summary, "tool result: default.edit_file error reason=unsafe artifacts=1 artifact_error") {
+	if !strings.Contains(trace.Summary, "tool result: default_edit_file error reason=unsafe artifacts=1 artifact_error") {
 		t.Fatalf("expected tool result summary, got %q", trace.Summary)
 	}
 	if len(trace.Steps[2].Artifacts) != 1 || trace.Steps[2].Artifacts[0].ArtifactID != "art_000001" {

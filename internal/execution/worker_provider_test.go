@@ -33,7 +33,7 @@ func TestWorkerBackedProviderEditFileRunsThroughWorkerRuntime(t *testing.T) {
 		workers: []managedagents.Worker{{
 			ID: "wrk_edit", WorkspaceID: "wksp_edit", Status: managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
-				"namespaces": []string{"default"}, "apis": []string{"default.edit_file"},
+				"namespaces": []string{"default"}, "apis": []string{"default_edit_file"},
 				"runtimes":     []string{"local_system"},
 				"capabilities": []string{"filesystem.read", "filesystem.write"},
 			}),
@@ -91,7 +91,7 @@ func TestWorkerBackedProviderReadFileEnqueuesAndDecodesResult(t *testing.T) {
 			Status:      managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
 				"namespaces":   []string{"default"},
-				"apis":         []string{"default.read_file"},
+				"apis":         []string{"default_read_file"},
 				"runtimes":     []string{"local_system"},
 				"capabilities": []string{"filesystem.read"},
 			}),
@@ -181,7 +181,7 @@ func TestWorkerBackedProviderSearchFileEnqueuesAndDecodesResult(t *testing.T) {
 		workers: []managedagents.Worker{{
 			ID: "wrk_search", WorkspaceID: "wksp_search", Status: managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
-				"namespaces": []string{"default"}, "apis": []string{"default.search_file"},
+				"namespaces": []string{"default"}, "apis": []string{"default_search_file"},
 				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
 			}),
 		}},
@@ -256,7 +256,7 @@ func workerProviderForFilesystemResult(t *testing.T, api string, state json.RawM
 		workers: []managedagents.Worker{{
 			ID: "wrk_files", WorkspaceID: "wksp_files", Status: managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
-				"namespaces": []string{"default"}, "apis": []string{"default." + api},
+				"namespaces": []string{"default"}, "apis": []string{tools.ModelToolName("default", api)},
 				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
 			}),
 		}},
@@ -297,7 +297,7 @@ func TestWorkerBackedProviderPreservesStructuredFileReadError(t *testing.T) {
 		workers: []managedagents.Worker{{
 			ID: "wrk_read_error", WorkspaceID: "wksp_read_error", Status: managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
-				"namespaces": []string{"default"}, "apis": []string{"default.read_file"},
+				"namespaces": []string{"default"}, "apis": []string{"default_read_file"},
 				"runtimes": []string{"local_system"}, "capabilities": []string{"filesystem.read"},
 			}),
 		}},
@@ -344,7 +344,7 @@ func TestWorkerBackedProviderRunCommandDecodesExportedArtifacts(t *testing.T) {
 			Status:      managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
 				"namespaces":   []string{"default"},
-				"apis":         []string{"default.run_command"},
+				"apis":         []string{"default_run_command"},
 				"runtimes":     []string{"local_system"},
 				"capabilities": []string{"exec"},
 			}),
@@ -418,7 +418,7 @@ func TestWorkerBackedProviderRunCommandDecodesUploadedArtifactRefs(t *testing.T)
 			Status:      managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, map[string]any{
 				"namespaces":   []string{"default"},
-				"apis":         []string{"default.run_command"},
+				"apis":         []string{"default_run_command"},
 				"runtimes":     []string{"local_system"},
 				"capabilities": []string{"exec"},
 			}),
@@ -467,7 +467,7 @@ func TestWorkerBackedProviderExecutesArbitraryWorkerTool(t *testing.T) {
 			Status:      managedagents.WorkerStatusOnline,
 			Capabilities: rawWorkerCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"robot"},
-				APIs:         []string{"robot.get_state"},
+				APIs:         []string{"robot_get_state"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"robot.state"},
 				Manifests:    []tools.Manifest{robotManifest()},

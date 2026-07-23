@@ -984,7 +984,7 @@ func TestOpenAICompatibleClientStreamsToolCallFragments(t *testing.T) {
 			t.Fatalf("decode request: %v", err)
 		}
 		body := strings.Join([]string{
-			`data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"default.read_file","arguments":"{"}}]}}]}`,
+			`data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"default_read_file","arguments":"{"}}]}}]}`,
 			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
 			`data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":5,"total_tokens":13}}`,
 			`data: [DONE]`,
@@ -1013,7 +1013,7 @@ func TestOpenAICompatibleClientStreamsToolCallFragments(t *testing.T) {
 		Tools: []Tool{{
 			Type: "function",
 			Function: ToolFunction{
-				Name:       "default.read_file",
+				Name:       "default_read_file",
 				Parameters: json.RawMessage(`{"type":"object"}`),
 			},
 		}},
@@ -1031,7 +1031,7 @@ func TestOpenAICompatibleClientStreamsToolCallFragments(t *testing.T) {
 		t.Fatalf("expected one streamed tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_1" || call.Function.Name != "default.read_file" {
+	if call.ID != "call_1" || call.Function.Name != "default_read_file" {
 		t.Fatalf("unexpected streamed tool call: %#v", call)
 	}
 	var arguments map[string]any
@@ -1047,7 +1047,7 @@ func TestOpenAICompatibleClientStreamsToolCallFragments(t *testing.T) {
 	if len(deltas) != 4 || deltas[0].Kind != DeltaKindToolCall || deltas[1].Kind != DeltaKindToolCall || deltas[2].Kind != DeltaKindStop || deltas[3].Kind != DeltaKindUsage {
 		t.Fatalf("unexpected typed tool stream deltas: %#v", deltas)
 	}
-	if deltas[0].ToolCall == nil || deltas[0].ToolCall.ID != "call_1" || deltas[0].ToolCall.Name != "default.read_file" || deltas[0].ToolCall.Arguments != "{" {
+	if deltas[0].ToolCall == nil || deltas[0].ToolCall.ID != "call_1" || deltas[0].ToolCall.Name != "default_read_file" || deltas[0].ToolCall.Arguments != "{" {
 		t.Fatalf("unexpected first tool call delta: %#v", deltas[0])
 	}
 	if deltas[1].ToolCall == nil || deltas[1].ToolCall.Arguments != "}" || deltas[2].FinishReason != "tool_calls" {

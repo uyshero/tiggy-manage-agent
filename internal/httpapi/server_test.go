@@ -891,7 +891,7 @@ func TestWorkerRegistryLifecycle(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.read_file"],
+			"apis": ["default_read_file"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -968,7 +968,7 @@ func TestWorkerDiagnoseAPI(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -979,7 +979,7 @@ func TestWorkerDiagnoseAPI(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1189,7 +1189,7 @@ func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1372,7 +1372,7 @@ func TestWorkerWorkLifecycle(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1679,7 +1679,7 @@ func TestWorkerWorkRejectsToolExecutionWithoutMatchingWorker(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.read_file"],
+			"apis": ["default_read_file"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -1705,7 +1705,7 @@ func TestWorkerWorkRejectsToolExecutionWithoutMatchingWorker(t *testing.T) {
 		t.Fatalf("unexpected diagnostics summary: %+v", response)
 	}
 	diagnosis := response.Diagnostics[0]
-	if diagnosis.Name != "reader-only" || diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing api default.run_command") || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
+	if diagnosis.Name != "reader-only" || diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing api default_run_command") || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
 		t.Fatalf("unexpected worker diagnosis: %+v", diagnosis)
 	}
 }
@@ -2486,7 +2486,7 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 		t.Fatalf("start turn: %v", err)
 	}
 	turnID := payloadString(startEvents[1].Payload, "turn_id")
-	continuation := json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"README.md"}}}]}]`)
+	continuation := json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default_read_file","arguments":{"path":"README.md"}}}]}]`)
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:            turnID,
 		CallID:            "call_read",
@@ -2713,7 +2713,7 @@ func TestSessionClarificationResponseResumesTurn(t *testing.T) {
 	}
 	turnID := payloadString(events[1].Payload, "turn_id")
 	request := json.RawMessage(`{"question":"Deployment?","mode":"select","choices":[{"id":"private","label":"Private"},{"id":"saas","label":"SaaS"}]}`)
-	continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_ask","type":"function","function":{"name":"interaction.ask_user","arguments":{"question":"Deployment?","mode":"select"}}}]}]`)
+	continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_ask","type":"function","function":{"name":"interaction_ask_user","arguments":{"question":"Deployment?","mode":"select"}}}]}]`)
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID: turnID, CallID: "call_ask", ToolIdentifier: "interaction", APIName: "ask_user",
 		Kind: managedagents.InterventionKindClarification, Request: request, Arguments: request,
@@ -2770,7 +2770,7 @@ func TestSessionPlanApprovalDecisionResumesTurn(t *testing.T) {
 			}
 			turnID := payloadString(events[1].Payload, "turn_id")
 			request := json.RawMessage(`{"plan":{"id":"plan_000001","goal":"Ship safely","handling_mode":"planned","status":"active","items":[{"id":"item_1","index":0,"description":"Prepare","status":"pending"}]}}`)
-			continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_plan","type":"function","function":{"name":"interaction.request_plan_approval","arguments":{"plan_id":"plan_000001"}}}]}]`)
+			continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_plan","type":"function","function":{"name":"interaction_request_plan_approval","arguments":{"plan_id":"plan_000001"}}}]}]`)
 			if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 				TurnID: turnID, CallID: "call_plan", ToolIdentifier: "interaction", APIName: "request_plan_approval",
 				Kind: managedagents.InterventionKindPlanApproval, Request: request, Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`),
@@ -2831,7 +2831,7 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 		InterventionMode: "request_approval",
 		Reason:           "optional",
-		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default_edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}
@@ -2964,7 +2964,7 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	if len(trace.Turns) != 1 || trace.Turns[0].TurnID != turnID || trace.Turns[0].Status != managedagents.TurnStatusCompleted {
 		t.Fatalf("expected projected turn catalog, got %+v", trace.Turns)
 	}
-	if !strings.Contains(trace.Summary, "tool result: default.read_file success") {
+	if !strings.Contains(trace.Summary, "tool result: default_read_file success") {
 		t.Fatalf("expected projected summary to mention tool result, got %q", trace.Summary)
 	}
 	if len(trace.Steps) < 4 {
@@ -3671,7 +3671,7 @@ func TestSessionInterventionDecisionUsesRunnerLifecycleContext(t *testing.T) {
 		APIName:          "edit_file",
 		Arguments:        json.RawMessage(`{"path":"README.md"}`),
 		InterventionMode: "request_approval",
-		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default_edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}

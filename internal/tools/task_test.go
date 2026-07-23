@@ -105,7 +105,7 @@ func TestTaskRuntimeHidesMissingServiceAsToolError(t *testing.T) {
 }
 
 func TestIsTaskCallNormalizesQualifiedName(t *testing.T) {
-	if !IsTaskCall(Call{Name: "task.update_items"}) || IsTaskCall(Call{Name: "default.edit_file"}) {
+	if !IsTaskCall(Call{Name: "task_update_items"}) || IsTaskCall(Call{Name: "default_edit_file"}) {
 		t.Fatal("expected only task.* calls to use the internal state path")
 	}
 }

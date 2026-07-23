@@ -19,7 +19,7 @@ func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
 	server := &Server{store: store}
 
 	rules := []tools.PermissionRule{{
-		ID: "source-edit", Tool: "default.edit_file", Argument: "path",
+		ID: "source-edit", Tool: "default_edit_file", Argument: "path",
 		Pattern: "/workspace/src/**", Behavior: tools.PermissionRuleAllow,
 	}}
 	updated, err := server.applySessionRuntimeSettingsPatch(t.Context(), session, sessionRuntimeSettingsRequest{PermissionRules: &rules})
@@ -32,7 +32,7 @@ func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
 	}
 
 	invalid := []tools.PermissionRule{{
-		ID: "bash", Tool: "default.run_command", Argument: "command",
+		ID: "bash", Tool: "default_run_command", Argument: "command",
 		Pattern: "rm *", Behavior: tools.PermissionRuleDeny,
 	}}
 	if _, err := server.applySessionRuntimeSettingsPatch(t.Context(), updated, sessionRuntimeSettingsRequest{PermissionRules: &invalid}); err == nil {

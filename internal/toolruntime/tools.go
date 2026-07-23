@@ -411,7 +411,7 @@ func unsupportedToolError(registry tools.Registry, call tools.Call) *tools.Execu
 	if _, ok := registry.Get(call.Identifier); !ok {
 		return &tools.ExecutionError{Type: "unsupported_tool", Message: fmt.Sprintf("unsupported tool %q", call.Identifier)}
 	}
-	return &tools.ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", call.Identifier+"."+call.APIName)}
+	return &tools.ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", tools.ModelToolName(call.Identifier, call.APIName))}
 }
 
 func recoverableToolResult(call coremodel.ToolCall, normalized tools.Call, executionError *tools.ExecutionError) coremodel.ToolResult {

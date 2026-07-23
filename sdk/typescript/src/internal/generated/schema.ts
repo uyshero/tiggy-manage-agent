@@ -4855,6 +4855,7 @@ export interface components {
             current_session_version: number;
             binding: components["schemas"]["EnabledSkill"];
             changed: boolean;
+            /** @description True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn. */
             requires_session_upgrade: boolean;
         };
         MarketplaceDisableResult: {
@@ -4867,6 +4868,7 @@ export interface components {
             current_session_version: number;
             binding: components["schemas"]["EnabledSkill"];
             removed: boolean;
+            /** @description True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn. */
             requires_session_upgrade: boolean;
         };
         MarketplaceEntry: {
@@ -5046,7 +5048,7 @@ export interface components {
         PermissionRule: {
             id: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             /** @enum {string} */
             argument: "path";
             pattern: string;
@@ -5057,7 +5059,7 @@ export interface components {
         WorkspacePermissionRule: {
             id: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             /** @enum {string} */
             argument: "path";
             pattern: string;
@@ -5081,7 +5083,7 @@ export interface components {
             agent_id?: string;
             session_id?: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             path: string;
             /** @enum {string} */
             intervention_mode?: "request_approval" | "approve_for_me" | "full_access";

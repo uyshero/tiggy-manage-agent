@@ -34,6 +34,11 @@ const catalogPageSize = 20;
 const artifactPreviewTextLimit = 10240;
 const inspectorManualMarkdown = __INSPECTOR_MANUAL_MARKDOWN__;
 
+function modelToolName(identifier, apiName) {
+  const normalize = (value) => String(value || "").trim().replace(/[^a-zA-Z0-9_]/g, "_");
+  return [normalize(identifier), normalize(apiName)].filter(Boolean).join("_");
+}
+
 function isAbortError(error) {
   return error?.name === "AbortError";
 }
@@ -185,7 +190,7 @@ function MCPProtocol({ operations }) {
       </Meta>
       <div className="mcp-operation-list">
         {operations.map((operation) => {
-          const toolName = [operation.identifier, operation.api_name].filter(Boolean).join(".") || "unpaired MCP operation";
+          const toolName = modelToolName(operation.identifier, operation.api_name) || "unpaired MCP operation";
           return (
             <article className={`mcp-operation ${operation.status}`} key={operation.key}>
               <div className="mcp-operation-head">

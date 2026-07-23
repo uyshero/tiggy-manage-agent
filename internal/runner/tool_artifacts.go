@@ -86,14 +86,14 @@ func artifactName(call tools.Call) string {
 }
 
 func toolArtifactDescription(call tools.Call) string {
-	return fmt.Sprintf("Tool output for %s.%s", call.Identifier, call.APIName)
+	return fmt.Sprintf("Tool output for %s", tools.ModelToolName(call.Identifier, call.APIName))
 }
 
 func exportedArtifactDescription(call tools.Call, export tools.ArtifactExport) string {
 	if description := strings.TrimSpace(export.Description); description != "" {
 		return description
 	}
-	return fmt.Sprintf("Exported file from %s.%s", call.Identifier, call.APIName)
+	return fmt.Sprintf("Exported file from %s", tools.ModelToolName(call.Identifier, call.APIName))
 }
 
 func sanitizeObjectName(value string) string {
@@ -147,8 +147,8 @@ func (r ToolArtifactRecorder) recordStructuredToolResult(ctx context.Context, se
 		toolName = "tool_result"
 	}
 	objectKey := path.Join(session.WorkspaceID, sessionID, "tool-results", fmt.Sprintf("%s-%s.json", toolName, time.Now().UTC().Format("20060102T150405.000000000Z07")))
-	objectRef, artifact, err := r.persistArtifactObject(ctx, session, bucket, objectKey, encoded, "application/json", managedagents.ArtifactTypeAsset, artifactName(call), toolArtifactDescription(call), call, sessionID, turnID, json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.tool_artifact.v1","tool":"%s.%s"}`,
-		call.Identifier, call.APIName)))
+	objectRef, artifact, err := r.persistArtifactObject(ctx, session, bucket, objectKey, encoded, "application/json", managedagents.ArtifactTypeAsset, artifactName(call), toolArtifactDescription(call), call, sessionID, turnID, json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.tool_artifact.v1","tool":%q}`,
+		tools.ModelToolName(call.Identifier, call.APIName))))
 	if err != nil {
 		return tools.ArtifactRef{}, err
 	}
@@ -189,8 +189,8 @@ func (r ToolArtifactRecorder) recordExportedFiles(ctx context.Context, session m
 			artifactType = managedagents.ArtifactTypeFile
 		}
 		objectKey := path.Join(session.WorkspaceID, sessionID, "tool-exports", sanitizeObjectName(call.Identifier+"_"+call.APIName), fmt.Sprintf("%s-%02d-%s", time.Now().UTC().Format("20060102T150405.000000000Z07"), index+1, name))
-		metadata := json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.tool_export.v1","tool":"%s.%s","path":%q}`,
-			call.Identifier, call.APIName, export.Path))
+		metadata := json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.tool_export.v1","tool":%q,"path":%q}`,
+			tools.ModelToolName(call.Identifier, call.APIName), export.Path))
 		objectRef, artifact, err := r.persistArtifactObject(ctx, session, bucket, objectKey, file.Content, contentType, artifactType, name, exportedArtifactDescription(call, export), call, sessionID, turnID, metadata)
 		if err != nil {
 			return nil, err
@@ -240,7 +240,7 @@ func (r ToolArtifactRecorder) persistArtifactObject(ctx context.Context, session
 			"session_id": sessionID,
 			"turn_id":    turnID,
 			"call_id":    call.ID,
-			"tool":       call.Identifier + "." + call.APIName,
+			"tool":       tools.ModelToolName(call.Identifier, call.APIName),
 		},
 	})
 	if err != nil {

@@ -118,7 +118,7 @@ func TestAgentRuntimeTurnExecutorResumesRejectedCoreTool(t *testing.T) {
 	client := &sequenceLLMClient{responses: []llm.Response{
 		{
 			Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "requesting write"}}, ToolCalls: []llm.ToolCall{{
-				ID: "call_write", Type: "function", Function: llm.ToolCallFunction{Name: "default.write_file", Arguments: []byte(`{"path":"report.txt","content":"blocked"}`)},
+				ID: "call_write", Type: "function", Function: llm.ToolCallFunction{Name: "default_write_file", Arguments: []byte(`{"path":"report.txt","content":"blocked"}`)},
 			}}},
 		},
 		{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "write was rejected"}}}},

@@ -136,10 +136,9 @@ func (s Selector) SelectWorkerIDContext(ctx context.Context, input Request) (str
 		}
 	}
 	return "", fmt.Errorf(
-		"%w: no online worker matches tool invocation %s.%s runtime %s",
+		"%w: no online worker matches tool invocation %s runtime %s",
 		managedagents.ErrConflict,
-		input.Invocation.Namespace,
-		input.Invocation.API,
+		tools.ModelToolName(input.Invocation.Namespace, input.Invocation.API),
 		input.Invocation.Runtime,
 	)
 }
@@ -215,8 +214,9 @@ func invocationMismatchReasons(capabilities tools.WorkerCapabilities, invocation
 	if !containsString(capabilities.Namespaces, namespace) {
 		reasons = append(reasons, "missing namespace "+namespace)
 	}
-	if !containsString(capabilities.APIs, namespace+"."+apiName) {
-		reasons = append(reasons, "missing api "+namespace+"."+apiName)
+	canonicalName := tools.ModelToolName(namespace, apiName)
+	if !containsString(capabilities.APIs, canonicalName) {
+		reasons = append(reasons, "missing api "+canonicalName)
 	}
 	runtime, ok := tools.NormalizeToolRuntime(invocation.Runtime)
 	if !ok {
@@ -247,7 +247,7 @@ func capabilitySetMatches(capabilities tools.WorkerCapabilities, namespace strin
 	if !containsString(capabilities.Namespaces, namespace) {
 		return false
 	}
-	if !containsString(capabilities.APIs, namespace+"."+apiName) {
+	if !containsString(capabilities.APIs, tools.ModelToolName(namespace, apiName)) {
 		return false
 	}
 	runtime, ok := tools.NormalizeToolRuntime(runtimeValue)

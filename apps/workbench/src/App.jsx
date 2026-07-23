@@ -332,7 +332,7 @@ function defaultComposerTask(text, attachments) {
   if (requested) return requested;
   const files = Array.isArray(attachments) ? attachments : [];
   if (files.length === 1 && isSkillZIPAttachment(files[0])) {
-    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills.preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills.install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills.enable。";
+    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills_preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills_install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills_enable。";
   }
   return "请处理我上传的文件。";
 }
@@ -400,38 +400,43 @@ function toolSourceLabel(source) {
   }
 }
 
+function modelToolName(identifier, apiName) {
+  const normalize = (value) => String(value || "").trim().replace(/[^a-zA-Z0-9_]/g, "_");
+  return [normalize(identifier), normalize(apiName)].filter(Boolean).join("_");
+}
+
 function toolTitle(identifier, apiName, source = "") {
-  const key = [identifier, apiName].filter(Boolean).join(".");
+  const key = modelToolName(identifier, apiName);
   const titles = {
-    "default.run_command": "执行命令",
-    "default.execute_code": "执行代码",
-    "default.read_file": "读取文件",
-    "default.write_file": "写入文件",
-    "default.edit_file": "编辑文件",
-    "web.search": "搜索网页",
-    "web.crawl": "读取网页",
-    "browser.open": "打开浏览器",
-    "browser.click": "浏览器点击",
-    "browser.type": "浏览器输入",
-    "browser.takeover": "接管浏览器",
-    "computer.get_state": "检查桌面",
-    "computer.screenshot": "截取屏幕",
-    "computer.click": "桌面点击",
-    "computer.type_text": "桌面输入",
-    "computer.hotkey": "按下快捷键",
-    "computer.launch_app": "启动应用",
-    "computer.open_url": "打开网址",
-    "computer.search_web": "浏览器内搜索",
-    "skills.search": "查找 Skill",
-    "skills.inspect": "检查 Skill",
-    "skills.discover": "发现 Skill",
-    "skills.preview": "安全预览 Skill",
-    "skills.read_asset": "读取 Skill 资产",
-    "skills.install": "安装 Skill",
-    "skills.enable": "启用 Skill",
-    "skills.disable": "停用 Skill"
+    default_run_command: "执行命令",
+    default_execute_code: "执行代码",
+    default_read_file: "读取文件",
+    default_write_file: "写入文件",
+    default_edit_file: "编辑文件",
+    web_search: "搜索网页",
+    web_crawl: "读取网页",
+    browser_open: "打开浏览器",
+    browser_click: "浏览器点击",
+    browser_type: "浏览器输入",
+    browser_takeover: "接管浏览器",
+    computer_get_state: "检查桌面",
+    computer_screenshot: "截取屏幕",
+    computer_click: "桌面点击",
+    computer_type_text: "桌面输入",
+    computer_hotkey: "按下快捷键",
+    computer_launch_app: "启动应用",
+    computer_open_url: "打开网址",
+    computer_search_web: "浏览器内搜索",
+    skills_search: "查找 Skill",
+    skills_inspect: "检查 Skill",
+    skills_discover: "发现 Skill",
+    skills_preview: "安全预览 Skill",
+    skills_read_asset: "读取 Skill 资产",
+    skills_install: "安装 Skill",
+    skills_enable: "启用 Skill",
+    skills_disable: "停用 Skill"
   };
-  if (titles[key] || titles[`${identifier}.${apiName}`]) return titles[key] || titles[`${identifier}.${apiName}`];
+  if (titles[key]) return titles[key];
   if (String(source || "").trim().toLowerCase() === "mcp") return humanizeToolName(apiName) || humanizeToolName(key) || "MCP 工具";
   return key || "调用工具";
 }
@@ -496,13 +501,6 @@ function normalizeToolParts(identifier = "", apiName = "") {
     edit_file: { identifier: "default", apiName: "edit_file" }
   };
   if (aliases[normalized]) return aliases[normalized];
-  const dotIndex = rawIdentifier.indexOf(".");
-  if (dotIndex > 0) {
-    return {
-      identifier: rawIdentifier.slice(0, dotIndex),
-      apiName: rawIdentifier.slice(dotIndex + 1)
-    };
-  }
   return { identifier: rawIdentifier, apiName: rawApiName };
 }
 
@@ -515,7 +513,7 @@ function toolSummary({ identifier, apiName, args = {}, reason = "", success, sou
   const status = success === true ? "Completed" : success === false ? "Failed" : "";
   return {
     detail,
-    label: [parts.identifier, parts.apiName].filter(Boolean).join(".") || "tool",
+	label: modelToolName(parts.identifier, parts.apiName) || "tool",
     source: resolvedSource,
     sourceLabel: toolSourceLabel(resolvedSource),
     risk,
@@ -614,7 +612,7 @@ function parseMCPServers(raw) {
 
 function toolNamespaceEnabled(namespace, policy) {
   if (!policy.explicit) return true;
-  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}.`));
+	return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}_`));
 }
 
 function runtimeSupportsToolItem(identifier, runtime) {
@@ -1073,7 +1071,7 @@ function UploadRequestCard({ sessionID, intervention, onRespond, onSkip, onCance
       const artifacts = [];
       for (const file of selectedFiles) {
         const upload = await api.uploadSessionArtifact(sessionID, file, {
-          description: `Uploaded for ${intervention.api_name || "interaction.request_upload"} ${intervention.call_id || ""}`.trim()
+		  description: `Uploaded for ${intervention.api_name || "interaction_request_upload"} ${intervention.call_id || ""}`.trim()
         });
         artifacts.push({
           artifact_id: upload.artifact?.id || "",
@@ -3278,15 +3276,15 @@ function AgentScheduleManager({ agent, onOpenSession }) {
 }
 
 const permissionRuleTools = [
-  { value: "default.read_file", label: "读取文件" },
-  { value: "default.write_file", label: "写入文件" },
-  { value: "default.edit_file", label: "编辑文件" }
+	{ value: "default_read_file", label: "读取文件" },
+	{ value: "default_write_file", label: "写入文件" },
+	{ value: "default_edit_file", label: "编辑文件" }
 ];
 
 function newPermissionRule(scope, index) {
   return {
     id: `${scope}-${Date.now()}-${index + 1}`,
-    tool: "default.edit_file",
+	tool: "default_edit_file",
     argument: "path",
     pattern: "",
     behavior: scope === "workspace" ? "deny" : "ask",
@@ -3304,7 +3302,7 @@ function PermissionRuleEditor({ disabled, rules, scope, onChange }) {
         {rules.map((rule, index) => (
           <div className="permission-rule-row" key={`${rule.id || scope}-${index}`}>
             <label><span>规则 ID</span><input disabled={disabled} value={rule.id || ""} onChange={(event) => updateRule(index, { id: event.target.value })} /></label>
-            <label><span>工具</span><select disabled={disabled} value={rule.tool || "default.edit_file"} onChange={(event) => updateRule(index, { tool: event.target.value })}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+			<label><span>工具</span><select disabled={disabled} value={rule.tool || "default_edit_file"} onChange={(event) => updateRule(index, { tool: event.target.value })}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label className="permission-rule-pattern"><span>路径模式</span><input disabled={disabled} value={rule.pattern || ""} onChange={(event) => updateRule(index, { pattern: event.target.value })} placeholder="/workspace/src/**" /></label>
             <label><span>行为</span><select disabled={disabled || scope === "workspace"} value={scope === "workspace" ? "deny" : rule.behavior || "ask"} onChange={(event) => updateRule(index, { behavior: event.target.value })}>{scope === "workspace" ? <option value="deny">拒绝</option> : <><option value="allow">允许</option><option value="ask">询问</option><option value="deny">拒绝</option></>}</select></label>
             <label className="permission-rule-reason"><span>原因</span><input disabled={disabled} value={rule.reason || ""} onChange={(event) => updateRule(index, { reason: event.target.value })} /></label>
@@ -3399,7 +3397,7 @@ function SettingsPage({
   const [workspacePermissionLoading, setWorkspacePermissionLoading] = useState(false);
   const [workspacePermissionBusy, setWorkspacePermissionBusy] = useState(false);
   const [permissionPreviewContext, setPermissionPreviewContext] = useState("agent");
-  const [permissionPreviewTool, setPermissionPreviewTool] = useState("default.edit_file");
+	const [permissionPreviewTool, setPermissionPreviewTool] = useState("default_edit_file");
   const [permissionPreviewPath, setPermissionPreviewPath] = useState("/workspace/src/main.go");
   const [permissionPreviewMode, setPermissionPreviewMode] = useState("request_approval");
   const [permissionPreviewBusy, setPermissionPreviewBusy] = useState(false);
@@ -4099,7 +4097,7 @@ function SettingsPage({
                   </header>
                   <form className="permission-audit-filters" onSubmit={filterPermissionAudit}>
                     <label><span>决策</span><select disabled={!currentSession || permissionAuditLoading} value={permissionAuditDecision} onChange={(event) => setPermissionAuditDecision(event.target.value)}><option value="">全部决策</option><option value="allow">允许</option><option value="ask">需审批</option><option value="deny">拒绝</option></select></label>
-                    <label><span>工具</span><input disabled={!currentSession || permissionAuditLoading} value={permissionAuditToolInput} onChange={(event) => setPermissionAuditToolInput(event.target.value)} placeholder="default.edit_file" /></label>
+					<label><span>工具</span><input disabled={!currentSession || permissionAuditLoading} value={permissionAuditToolInput} onChange={(event) => setPermissionAuditToolInput(event.target.value)} placeholder="default_edit_file" /></label>
                     <button className="secondary" type="submit" disabled={!currentSession || permissionAuditLoading}>{permissionAuditLoading ? "加载中..." : "筛选"}</button>
                   </form>
                   {permissionAuditError ? <div className="agent-version-error">{permissionAuditError}</div> : null}
@@ -7724,7 +7722,7 @@ function WorkbenchApp() {
     setStatus("requesting skill enable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -7743,7 +7741,7 @@ function WorkbenchApp() {
     setStatus("requesting skill disable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []

@@ -15,7 +15,7 @@ import (
 func TestWorkspaceToolPermissionsRoundTrip(t *testing.T) {
 	handler := newTestServer()
 	body := []byte(`{"permission_rules":[{
-		"id":"deny-secrets","tool":"default.edit_file","argument":"path",
+		"id":"deny-secrets","tool":"default_edit_file","argument":"path",
 		"pattern":"/workspace/secrets/**","behavior":"deny","reason":"protected"
 	}]}`)
 	request := httptest.NewRequest(http.MethodPut, "/v2/workspaces/wksp_default/tool-permissions", bytes.NewReader(body))
@@ -56,7 +56,7 @@ func TestWorkspaceToolPermissionsRoundTrip(t *testing.T) {
 func TestWorkspaceToolPermissionsRejectAllowRule(t *testing.T) {
 	handler := newTestServer()
 	body := []byte(`{"permission_rules":[{
-		"id":"allow-source","tool":"default.edit_file","argument":"path",
+		"id":"allow-source","tool":"default_edit_file","argument":"path",
 		"pattern":"/workspace/src/**","behavior":"allow"
 	}]}`)
 	request := httptest.NewRequest(http.MethodPut, "/v2/workspaces/wksp_default/tool-permissions", bytes.NewReader(body))
@@ -74,14 +74,14 @@ func TestEvaluateWorkspaceToolPermissionWorkspaceDenyCannotBeBypassed(t *testing
 	store.workspaceToolPolicies[managedagents.DefaultWorkspaceID] = managedagents.WorkspaceToolPermissionPolicy{
 		WorkspaceID: managedagents.DefaultWorkspaceID,
 		Policy: json.RawMessage(`{"permission_rules":[{
-			"id":"workspace-secrets","tool":"default.edit_file","argument":"path",
+			"id":"workspace-secrets","tool":"default_edit_file","argument":"path",
 			"pattern":"/workspace/secrets/**","behavior":"deny","reason":"workspace_boundary"
 		}]}`),
 		Revision: 2, UpdatedBy: "operator", UpdatedAt: time.Now().UTC(),
 	}
 	handler := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, 0, nil), nil)
 	response := evaluateToolPermission(t, handler, managedagents.DefaultWorkspaceID, map[string]any{
-		"tool": "default.edit_file", "path": "/workspace/secrets/token.txt", "intervention_mode": "full_access",
+		"tool": "default_edit_file", "path": "/workspace/secrets/token.txt", "intervention_mode": "full_access",
 	})
 	if response.Decision != "deny" || response.Allowed || response.Required {
 		t.Fatalf("unexpected decision: %#v", response)
@@ -97,7 +97,7 @@ func TestEvaluateWorkspaceToolPermissionSessionOverridesAgentRule(t *testing.T) 
 		WorkspaceID: managedagents.DefaultWorkspaceID, Name: "permission-preview",
 		LLMProvider: "fake", LLMModel: "fake-demo", System: "You are helpful.",
 		Tools: json.RawMessage(`{"permission_rules":[{
-			"id":"agent-deny-src","tool":"default.edit_file","argument":"path",
+			"id":"agent-deny-src","tool":"default_edit_file","argument":"path",
 			"pattern":"/workspace/src/**","behavior":"deny"
 		}]}`),
 	})
@@ -108,7 +108,7 @@ func TestEvaluateWorkspaceToolPermissionSessionOverridesAgentRule(t *testing.T) 
 	session := mustCreateSessionForSubagentTest(t, store, agent.ID, environment.ID, "Permission preview")
 	if _, err := store.UpdateSessionRuntimeSettings(session.ID, managedagents.UpdateSessionRuntimeSettingsInput{
 		RuntimeSettings: json.RawMessage(`{"intervention_mode":"request_approval","permission_rules":[{
-			"id":"session-allow-src","tool":"default.edit_file","argument":"path",
+			"id":"session-allow-src","tool":"default_edit_file","argument":"path",
 			"pattern":"/workspace/src/**","behavior":"allow"
 		}]}`),
 		ExpectedRevision: session.RuntimeSettingsRevision,
@@ -117,7 +117,7 @@ func TestEvaluateWorkspaceToolPermissionSessionOverridesAgentRule(t *testing.T) 
 	}
 	handler := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, 0, nil), nil)
 	response := evaluateToolPermission(t, handler, managedagents.DefaultWorkspaceID, map[string]any{
-		"session_id": session.ID, "tool": "default.edit_file", "path": "/workspace/src/main.go",
+		"session_id": session.ID, "tool": "default_edit_file", "path": "/workspace/src/main.go",
 	})
 	if response.Decision != "allow" || !response.Allowed || response.Required {
 		t.Fatalf("unexpected decision: %#v", response)
@@ -130,13 +130,13 @@ func TestEvaluateWorkspaceToolPermissionSessionOverridesAgentRule(t *testing.T) 
 func TestEvaluateWorkspaceToolPermissionUsesManifestFallback(t *testing.T) {
 	handler := newTestServer()
 	response := evaluateToolPermission(t, handler, managedagents.DefaultWorkspaceID, map[string]any{
-		"tool": "default.read_file", "path": "/workspace/README.md",
+		"tool": "default_read_file", "path": "/workspace/README.md",
 	})
 	if response.Decision != "allow" || !response.Allowed || response.Required || response.ApprovalPolicy != "never" {
 		t.Fatalf("unexpected manifest fallback: %#v", response)
 	}
 	autoApproved := evaluateToolPermission(t, handler, managedagents.DefaultWorkspaceID, map[string]any{
-		"tool": "default.edit_file", "path": "/workspace/README.md", "intervention_mode": "approve_for_me",
+		"tool": "default_edit_file", "path": "/workspace/README.md", "intervention_mode": "approve_for_me",
 	})
 	if autoApproved.Decision != "allow" || !autoApproved.Allowed || !autoApproved.Required || autoApproved.ApprovalPolicy != "conditional" {
 		t.Fatalf("unexpected auto-approved fallback: %#v", autoApproved)
@@ -154,7 +154,7 @@ func TestEvaluateWorkspaceToolPermissionRejectsCrossWorkspaceAgent(t *testing.T)
 	}
 	handler := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, 0, nil), nil)
 	body, _ := json.Marshal(map[string]any{
-		"agent_id": agent.ID, "tool": "default.edit_file", "path": "/workspace/src/main.go",
+		"agent_id": agent.ID, "tool": "default_edit_file", "path": "/workspace/src/main.go",
 	})
 	request := httptest.NewRequest(http.MethodPost, "/v2/workspaces/"+managedagents.DefaultWorkspaceID+"/tool-permissions/evaluate", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

@@ -198,9 +198,9 @@ func TestEngineCombinesToolPlanStartsAndBatchesOnlySafeReadResults(t *testing.T)
 
 	state := initialState(100)
 	calls := []model.ToolCall{
-		{ID: "read_1", Name: "read.first", Arguments: json.RawMessage(`{}`)},
-		{ID: "read_2", Name: "read.second", Arguments: json.RawMessage(`{}`)},
-		{ID: "write_1", Name: "write.unsafe", Arguments: json.RawMessage(`{}`)},
+		{ID: "read_1", Name: "read_first", Arguments: json.RawMessage(`{}`)},
+		{ID: "read_2", Name: "read_second", Arguments: json.RawMessage(`{}`)},
+		{ID: "write_1", Name: "write_unsafe", Arguments: json.RawMessage(`{}`)},
 	}
 	modelPort := modeltest.NewScriptedModel(
 		modeltest.ModelStep{Response: toolResponse("assistant_tools", calls)},
@@ -737,8 +737,8 @@ func TestEngineRecoversPartiallyCompletedToolBatch(t *testing.T) {
 
 	state := initialState(100)
 	calls := []model.ToolCall{
-		{ID: "call_completed", Name: "read.completed", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_interrupted", Name: "read.interrupted", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_completed", Name: "read_completed", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_interrupted", Name: "read_interrupted", Arguments: json.RawMessage(`{}`)},
 	}
 	planned := make([]agentcore.PlannedToolCall, len(calls))
 	for index, call := range calls {
@@ -908,7 +908,7 @@ func TestEnginePreservesCodedToolPreflightFailure(t *testing.T) {
 	t.Parallel()
 
 	state := initialState(100)
-	call := model.ToolCall{ID: "call_1", Name: "broken.inspect", Arguments: json.RawMessage(`{}`)}
+	call := model.ToolCall{ID: "call_1", Name: "broken_inspect", Arguments: json.RawMessage(`{}`)}
 	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: toolResponse("assistant_tools", []model.ToolCall{call})})
 	toolsPort := &modeltest.ScriptedTools{PreflightFunc: func(context.Context, agentcore.State, []model.ToolCall) (agentcore.ToolBatchPlan, error) {
 		return agentcore.ToolBatchPlan{}, fmt.Errorf("snapshot validation: %w", toolpkg.NewToolContractError(
@@ -1522,7 +1522,7 @@ func initialState(maxOutputTokens int64) agentcore.State {
 
 func executingToolState(idempotency string) (agentcore.State, agentcore.PlannedToolCall) {
 	state := initialState(100)
-	call := model.ToolCall{ID: "call_recovery", Name: "recover.write", Arguments: json.RawMessage(`{"value":"once"}`)}
+	call := model.ToolCall{ID: "call_recovery", Name: "recover_write", Arguments: json.RawMessage(`{"value":"once"}`)}
 	executionMode := "sequential"
 	if idempotency == "safe" {
 		executionMode = "parallel"

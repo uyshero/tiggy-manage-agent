@@ -249,7 +249,7 @@ func TestRunWorkerProcessesConcurrentWork(t *testing.T) {
 		},
 		DeclaredCapabilities: &tools.WorkerCapabilities{
 			Namespaces:   []string{"default"},
-			APIs:         []string{"default.run_command"},
+			APIs:         []string{"default_run_command"},
 			Runtimes:     []string{"local_system"},
 			Capabilities: []string{"exec"},
 		},
@@ -497,7 +497,7 @@ func TestRunWorkerRegistersExecutorDeclaredCapabilities(t *testing.T) {
 
 	declared := tools.WorkerCapabilities{
 		Namespaces:   []string{"artifact"},
-		APIs:         []string{"artifact.write"},
+		APIs:         []string{"artifact_write"},
 		Runtimes:     []string{"local_system"},
 		Capabilities: []string{"artifact.write"},
 	}

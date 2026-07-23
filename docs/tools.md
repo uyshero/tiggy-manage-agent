@@ -2,7 +2,7 @@
 
 ## 契约
 
-工具名使用 `<namespace>.<api>`，例如 `default.read_file`。Manifest 至少定义 identifier、
+工具名使用 `<namespace>_<api>`，例如 `default_read_file`。Manifest 内部仍分别定义 identifier、
 version、API、input schema、capabilities、risk、runtime 和审批元数据。模型看到的 schema、
 preflight 和 execute 必须来自同一不可变 Snapshot。
 

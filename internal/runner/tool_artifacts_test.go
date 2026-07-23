@@ -92,7 +92,7 @@ func TestRegistryExecutorAttachesArtifactRefs(t *testing.T) {
 		return []tools.ArtifactRef{{ArtifactID: "art_000001", ObjectRefID: "obj_000001", Name: "tool_result.json", ArtifactType: managedagents.ArtifactTypeAsset, DownloadPath: "/v1/sessions/sesn_000001/artifacts/art_000001/download"}}, nil
 	})
 	executor := tools.RegistryExecutor{Registry: tools.NewRegistry(testArtifactRuntime{})}
-	result, err := executor.Execute(context.Background(), tools.Call{ID: "call_1", Name: "artifact.test.run"}, tools.ExecutionContext{ArtifactRecorder: recorder})
+	result, err := executor.Execute(context.Background(), tools.Call{ID: "call_1", Name: "artifact_test_run"}, tools.ExecutionContext{ArtifactRecorder: recorder})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}

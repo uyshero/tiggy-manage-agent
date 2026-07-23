@@ -25,7 +25,7 @@ func (r ManifestRuntime) Manifest() Manifest {
 func (r ManifestRuntime) Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
 	provider, ok := executionContext.Provider.(WorkerToolProvider)
 	if !ok || provider == nil {
-		return ExecutionResult{}, fmt.Errorf("worker-backed provider is required for tool %s.%s", call.Identifier, call.APIName)
+		return ExecutionResult{}, fmt.Errorf("worker-backed provider is required for tool %s", ModelToolName(call.Identifier, call.APIName))
 	}
 	manifest := r.Manifest()
 	for _, api := range manifest.API {

@@ -47,7 +47,7 @@ func TestResolveToolExecutionHidesHumanInteractionFromSubagents(t *testing.T) {
 		TurnID: "turn_000001",
 	})
 	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); ok {
-		t.Fatal("expected interaction.ask_user to be hidden from subagents")
+		t.Fatal("expected interaction_ask_user to be hidden from subagents")
 	}
 }
 
@@ -63,10 +63,10 @@ func TestResolveToolExecutionHidesHumanInteractionWhenDisabled(t *testing.T) {
 		TurnID: "turn_000001",
 	})
 	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); ok {
-		t.Fatal("expected interaction.ask_user to be hidden for non-interactive sessions")
+		t.Fatal("expected interaction_ask_user to be hidden for non-interactive sessions")
 	}
 	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIRequestPlanApproval); ok {
-		t.Fatal("expected interaction.request_plan_approval to be hidden for non-interactive sessions")
+		t.Fatal("expected interaction_request_plan_approval to be hidden for non-interactive sessions")
 	}
 }
 
@@ -79,7 +79,7 @@ func TestResolveToolExecutionKeepsHumanInteractionEnabledByDefault(t *testing.T)
 		TurnID: "turn_000001",
 	})
 	if _, _, ok := resolved.Registry.GetAPI(tools.InteractionIdentifier, tools.InteractionAPIAskUser); !ok {
-		t.Fatal("expected interaction.ask_user to remain visible by default")
+		t.Fatal("expected interaction_ask_user to remain visible by default")
 	}
 }
 
@@ -117,7 +117,7 @@ func TestResolveToolExecutionUsesWorkerBackedProviderForMatchingWorker(t *testin
 		LeaseExpiresAt: &expiresAt,
 		Capabilities: rawWorkerCapabilities(t, tools.WorkerCapabilities{
 			Namespaces:   []string{"default"},
-			APIs:         []string{"default.run_command"},
+			APIs:         []string{"default_run_command"},
 			Runtimes:     []string{"local_system"},
 			Capabilities: []string{"exec"},
 		}),
@@ -159,7 +159,7 @@ func TestResolveToolExecutionExposesWorkerPluginManifest(t *testing.T) {
 		LeaseExpiresAt: &expiresAt,
 		Capabilities: rawWorkerCapabilities(t, tools.WorkerCapabilities{
 			Namespaces:   []string{"robot"},
-			APIs:         []string{"robot.get_state"},
+			APIs:         []string{"robot_get_state"},
 			Runtimes:     []string{"local_system"},
 			Capabilities: []string{"robot.state"},
 			Manifests:    []tools.Manifest{robotManifest()},

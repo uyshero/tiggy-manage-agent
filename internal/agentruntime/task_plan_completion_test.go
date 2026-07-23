@@ -118,7 +118,7 @@ func (state *taskPlanCompletionState) UpdateItems(_ context.Context, _ string, i
 				state.plan.Items[index].EvidenceRefs = make([]managedagents.TaskEvidenceRef, 0, len(update.EvidenceRefs))
 				for _, ref := range update.EvidenceRefs {
 					state.plan.Items[index].EvidenceRefs = append(state.plan.Items[index].EvidenceRefs, managedagents.TaskEvidenceRef{
-						Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn", ToolCallID: ref.ToolCallID, Tool: "verify.check",
+						Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn", ToolCallID: ref.ToolCallID, Tool: "verify_check",
 					})
 				}
 			}
@@ -149,11 +149,11 @@ func (client *taskPlanCompletionClient) Generate(_ context.Context, request llm.
 	case 1:
 		return textResponse("premature final response"), nil
 	case 2:
-		return taskPlanToolResponse("call_verify", "verify.check", `{}`), nil
+		return taskPlanToolResponse("call_verify", tools.ModelToolName("verify", "check"), `{}`), nil
 	case 3:
-		return taskPlanToolResponse("call_update", tools.TaskIdentifier+"."+tools.TaskAPIUpdateItems, `{"items":[{"item_id":"item_loop","status":"completed","evidence":"verification tool passed","evidence_refs":[{"tool_call_id":"call_verify"}]}]}`), nil
+		return taskPlanToolResponse("call_update", tools.ModelToolName(tools.TaskIdentifier, tools.TaskAPIUpdateItems), `{"items":[{"item_id":"item_loop","status":"completed","evidence":"verification tool passed","evidence_refs":[{"tool_call_id":"call_verify"}]}]}`), nil
 	case 4:
-		return taskPlanToolResponse("call_complete", tools.TaskAPICompletePlan, `{"plan_id":"plan_loop"}`), nil
+		return taskPlanToolResponse("call_complete", tools.ModelToolName(tools.TaskIdentifier, tools.TaskAPICompletePlan), `{"plan_id":"plan_loop"}`), nil
 	default:
 		return textResponse("verified final response"), nil
 	}
@@ -162,9 +162,6 @@ func (client *taskPlanCompletionClient) Generate(_ context.Context, request llm.
 func (client *taskPlanCompletionClient) Provider() string { return llm.ProviderFake }
 
 func taskPlanToolResponse(id, apiName, arguments string) llm.Response {
-	if !strings.Contains(apiName, ".") {
-		apiName = tools.TaskIdentifier + "." + apiName
-	}
 	return llm.Response{Message: llm.Message{
 		Role: "assistant",
 		ToolCalls: []llm.ToolCall{{
@@ -191,5 +188,5 @@ func (taskPlanEvidenceRuntime) Execute(context.Context, tools.Call, tools.Execut
 }
 
 func verifiedTestEvidenceRefs() []managedagents.TaskEvidenceRef {
-	return []managedagents.TaskEvidenceRef{{Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn", ToolCallID: "call_verify", Tool: "verify.check"}}
+	return []managedagents.TaskEvidenceRef{{Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn", ToolCallID: "call_verify", Tool: "verify_check"}}
 }

@@ -18,7 +18,7 @@ func TestAgentLoopProgressMessageDataPersistsToolRoundText(t *testing.T) {
 			Content: []model.Content{
 				{Type: model.ContentThinking, Thinking: &model.ThinkingBlock{Text: "private reasoning"}},
 				{Type: model.ContentText, Text: "I will inspect the current files."},
-				{Type: model.ContentToolCall, ToolCall: &model.ToolCall{ID: "call_1", Name: "filesystem.read", Arguments: json.RawMessage(`{"path":"App.jsx"}`)}},
+				{Type: model.ContentToolCall, ToolCall: &model.ToolCall{ID: "call_1", Name: "filesystem_read", Arguments: json.RawMessage(`{"path":"App.jsx"}`)}},
 			},
 		}},
 	}
@@ -46,7 +46,7 @@ func TestAgentLoopProgressMessageDataSkipsFinalAndToolOnlyResponses(t *testing.T
 		},
 		{
 			ID: "tool_only", Role: model.RoleAssistant, Visibility: model.VisibilityInternal,
-			Content: []model.Content{{Type: model.ContentToolCall, ToolCall: &model.ToolCall{ID: "call_1", Name: "filesystem.read", Arguments: json.RawMessage(`{}`)}}},
+			Content: []model.Content{{Type: model.ContentToolCall, ToolCall: &model.ToolCall{ID: "call_1", Name: "filesystem_read", Arguments: json.RawMessage(`{}`)}}},
 		},
 	}
 	for _, message := range tests {

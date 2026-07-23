@@ -175,7 +175,7 @@ var webIntentSignals = []string{
 }
 
 var webToolSignals = []string{
-	"web_search", "web.search", "web_crawl", "web.crawl", "联网", "网页搜索", "search the web",
+	"web_search", "web_crawl", "联网", "网页搜索", "search the web",
 }
 
 var skillIntentSignals = []string{

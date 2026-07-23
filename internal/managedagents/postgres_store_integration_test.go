@@ -197,7 +197,7 @@ func TestPostgresWorkspaceToolPermissionPolicyRevisionAndRuntimeResolution(t *te
 	if initial.Revision != 1 || string(initial.Policy) != `{"permission_rules": []}` && string(initial.Policy) != `{"permission_rules":[]}` {
 		t.Fatalf("unexpected default policy: %+v policy=%s", initial, initial.Policy)
 	}
-	policyJSON := json.RawMessage(`{"permission_rules":[{"id":"deny-secrets","tool":"default.edit_file","argument":"path","pattern":"/workspace/secrets/**","behavior":"deny"}]}`)
+	policyJSON := json.RawMessage(`{"permission_rules":[{"id":"deny-secrets","tool":"default_edit_file","argument":"path","pattern":"/workspace/secrets/**","behavior":"deny"}]}`)
 	updated, err := store.UpdateWorkspaceToolPermissionPolicyContext(ctx, UpdateWorkspaceToolPermissionPolicyInput{
 		WorkspaceID: workspaceID, Policy: policyJSON, ExpectedRevision: initial.Revision, UpdatedBy: "integration-test",
 	})
@@ -1633,7 +1633,7 @@ func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
 		t.Fatalf("expected complete items in task plan history: %+v", history)
 	}
 	ref := history[0].Items[0].EvidenceRefs[0]
-	if ref.Kind != TaskEvidenceKindToolResult || ref.TurnID != turnID || ref.ToolCallID != "call_verify_plan" || ref.Tool != "default.run_command" || len(ref.ArtifactIDs) != 1 || ref.ArtifactIDs[0] != "art_plan_verification" {
+	if ref.Kind != TaskEvidenceKindToolResult || ref.TurnID != turnID || ref.ToolCallID != "call_verify_plan" || ref.Tool != "default_run_command" || len(ref.ArtifactIDs) != 1 || ref.ArtifactIDs[0] != "art_plan_verification" {
 		t.Fatalf("unexpected canonical task evidence ref: %+v", ref)
 	}
 }

@@ -36,7 +36,7 @@ func (r ToolRuntime) buildDurableEditPreview(ctx context.Context, call coremodel
 func (r ToolRuntime) previewEditCall(ctx context.Context, call coremodel.ToolCall, receipt persistedFileReceipt) (capability.EditFilePreview, error) {
 	normalized := tools.NormalizeCall(tools.Call{Name: call.Name, Arguments: call.Arguments})
 	if normalized.Identifier != tools.DefaultIdentifier || normalized.APIName != "edit_file" {
-		return capability.EditFilePreview{}, errors.New("edit preview requires default.edit_file")
+		return capability.EditFilePreview{}, errors.New("edit preview requires default_edit_file")
 	}
 	previewer, ok := r.ExecutionContext.Provider.(capability.EditPreviewProvider)
 	if !ok || previewer == nil {

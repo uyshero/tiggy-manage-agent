@@ -31,7 +31,7 @@ func TestOpenAICompatibleStreamAgentCoreReturnsRecoverableToolErrors(t *testing.
 		finishReason  string
 		wantErrorType string
 	}{
-		{name: "unknown tool", callID: "call_unknown", toolName: "missing.inspect", arguments: `{}`, finishReason: "tool_calls", wantErrorType: "unsupported_tool"},
+		{name: "unknown tool", callID: "call_unknown", toolName: "missing_inspect", arguments: `{}`, finishReason: "tool_calls", wantErrorType: "unsupported_tool"},
 		{name: "malformed JSON", callID: "call_malformed", toolName: "read_inspect", arguments: `{"path":`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
 		{name: "schema mismatch", callID: "call_schema", toolName: "read_inspect", arguments: `{"unexpected":true}`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
 		{name: "truncated response", callID: "call_truncated", toolName: "read_inspect", arguments: `{}`, finishReason: "length", wantErrorType: "invalid_tool_arguments"},
@@ -99,9 +99,39 @@ func TestOpenAICompatibleStreamExecutesCanonicalUnderscoreToolName(t *testing.T)
 	}
 }
 
+func TestOpenAICompatibleStreamCanonicalizesDottedToolAliasBeforeReplay(t *testing.T) {
+	t.Parallel()
+
+	harness := &openAIStreamHarness{fixture: openAIStreamFixture{
+		callID: "call_read", toolName: "read_inspect", arguments: `{}`, finishReason: "tool_calls",
+	}}
+	server := httptest.NewServer(http.HandlerFunc(harness.serveHTTP))
+	defer server.Close()
+
+	executor := &countingExecutor{}
+	outcome := runOpenAIStreamAgentCore(t, tools.NewRegistry(readRuntime{}), executor, server.URL)
+	if outcome.Status != agentcore.OutcomeCompleted || executor.calls != 1 {
+		t.Fatalf("outcome=%+v executor calls=%d", outcome, executor.calls)
+	}
+	if len(outcome.State.ToolJournal) != 1 || outcome.State.ToolJournal[0].Name != "read_inspect" {
+		t.Fatalf("tool journal=%+v", outcome.State.ToolJournal)
+	}
+	records, err := harness.snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("provider requests=%d", len(records))
+	}
+	second := string(records[1].body)
+	if !strings.Contains(second, `"name":"read_inspect"`) || strings.Contains(second, "read.inspect") {
+		t.Fatalf("second provider body=%s", second)
+	}
+}
+
 func TestOpenAICompatibleStreamAgentCoreFailsForInvalidRegisteredSchema(t *testing.T) {
 	harness := &openAIStreamHarness{fixture: openAIStreamFixture{
-		callID: "call_broken", toolName: "broken.inspect", arguments: `{}`, finishReason: "tool_calls",
+		callID: "call_broken", toolName: "broken_inspect", arguments: `{}`, finishReason: "tool_calls",
 	}}
 	server := httptest.NewServer(http.HandlerFunc(harness.serveHTTP))
 	defer server.Close()

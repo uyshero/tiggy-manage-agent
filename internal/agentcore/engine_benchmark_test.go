@@ -106,7 +106,7 @@ func benchmarkToolCalls(count int) []model.ToolCall {
 	for index := range calls {
 		calls[index] = model.ToolCall{
 			ID:        fmt.Sprintf("call_%02d", index+1),
-			Name:      "benchmark.tool",
+			Name:      "benchmark_tool",
 			Arguments: json.RawMessage(`{"value":"benchmark"}`),
 		}
 	}

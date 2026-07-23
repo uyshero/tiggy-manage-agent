@@ -974,7 +974,7 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
     const runtime = await updateSessionRuntimeSettings("session/source", 7, {
       intervention_mode: "request_approval", tool_runtime: "cloud_sandbox", cloud_sandbox_allow_network: false,
       permission_rules: [{
-        id: "session-src", tool: "default.edit_file", argument: "path",
+		id: "session-src", tool: "default_edit_file", argument: "path",
         pattern: "/workspace/src/**", behavior: "allow"
       }]
     }, { signal: controller.signal });
@@ -1009,7 +1009,7 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
   assert.equal(requests[5].body.cloud_sandbox_allow_network, false);
   assert.equal(requests[5].headers.get("If-Match"), `"7"`);
   assert.deepEqual(requests[5].body.permission_rules, [{
-    id: "session-src", tool: "default.edit_file", argument: "path",
+	id: "session-src", tool: "default_edit_file", argument: "path",
     pattern: "/workspace/src/**", behavior: "allow"
   }]);
   assert.deepEqual(requests[6].body, { to_version: 3, updated_by: "workbench" });
@@ -1084,12 +1084,12 @@ test("Workspace tool permissions use the typed v2 SDK and encode workspace ids",
     requests.push({ url: String(path), method: options.method, body, headers: new Headers(options.headers) });
     return response({ workspace_id: "workspace/1", permission_rules: body?.permission_rules || [], revision: body ? 4 : 3, updated_by: "operator", updated_at: "2026-07-21T00:00:00Z" });
   };
-  const rules = [{ id: "deny-secrets", tool: "default.edit_file", argument: "path", pattern: "/workspace/secrets/**", behavior: "deny" }];
+  const rules = [{ id: "deny-secrets", tool: "default_edit_file", argument: "path", pattern: "/workspace/secrets/**", behavior: "deny" }];
   try {
     await workspaceToolPermissions("workspace/1");
     const updated = await updateWorkspaceToolPermissions("workspace/1", rules, 3);
     await evaluateWorkspaceToolPermission("workspace/1", {
-      agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+	  agent_id: "agent/1", tool: "default_edit_file", path: "/workspace/src/main.go",
       intervention_mode: "request_approval"
     });
     assert.deepEqual(updated.permission_rules, rules);
@@ -1104,7 +1104,7 @@ test("Workspace tool permissions use the typed v2 SDK and encode workspace ids",
   assert.deepEqual(requests[1].body, { permission_rules: rules });
   assert.equal(requests[1].headers.get("If-Match"), `"3"`);
   assert.deepEqual(requests[2].body, {
-    agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+	agent_id: "agent/1", tool: "default_edit_file", path: "/workspace/src/main.go",
     intervention_mode: "request_approval"
   });
 });
@@ -1119,7 +1119,7 @@ test("Session tool permission audit uses the typed v2 SDK and encodes filters", 
   try {
     const page = await sessionToolPermissionAudit("session/1", {
       decision: "ask",
-      tool: "default.edit_file",
+	  tool: "default_edit_file",
       limit: 20,
       cursor: "cursor/1"
     });
@@ -1129,6 +1129,6 @@ test("Session tool permission audit uses the typed v2 SDK and encodes filters", 
   }
   assert.deepEqual(requests, [{
     method: "GET",
-    url: "http://localhost/v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default.edit_file&limit=20&cursor=cursor%2F1"
+	url: "http://localhost/v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default_edit_file&limit=20&cursor=cursor%2F1"
   }]);
 });

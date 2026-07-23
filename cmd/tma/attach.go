@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/sdk/tma"
 )
 
@@ -267,7 +268,7 @@ func announcePendingInterventions(output io.Writer, state *interactiveSessionSta
 		if !state.setPendingIfChanged(event) {
 			continue
 		}
-		if _, err := fmt.Fprintf(output, "pending approval recovered: %s.%s call=%s\n", event.Identifier, event.APIName, event.CallID); err != nil {
+		if _, err := fmt.Fprintf(output, "pending approval recovered: %s call=%s\n", tools.ModelToolName(event.Identifier, event.APIName), event.CallID); err != nil {
 			return fmt.Errorf("write pending approval output: %w", err)
 		}
 		if _, err := fmt.Fprintln(output, "approval action: a=approve, r [reason]=reject, s=skip"); err != nil {

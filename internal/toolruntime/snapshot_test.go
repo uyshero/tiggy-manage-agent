@@ -26,7 +26,7 @@ func TestSnapshotPolicyRevisionIncludesRuleSource(t *testing.T) {
 	t.Parallel()
 
 	rule := tools.PermissionRule{
-		ID: "deny-config", Tool: "default.write_file", Argument: "path", Pattern: "/workspace/config/**",
+		ID: "deny-config", Tool: "default_write_file", Argument: "path", Pattern: "/workspace/config/**",
 		Behavior: tools.PermissionRuleDeny, Source: tools.PermissionRuleSourceSession,
 	}
 	left := mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{

@@ -175,7 +175,7 @@ func TestAnnouncePendingInterventionsRecoversApproval(t *testing.T) {
 		t.Fatalf("expected recovered pending approval, got %#v ok=%v", pending, ok)
 	}
 	text := output.String()
-	if !strings.Contains(text, "pending approval recovered: default.edit_file call=call_123") {
+	if !strings.Contains(text, "pending approval recovered: default_edit_file call=call_123") {
 		t.Fatalf("expected recovered approval output, got %q", text)
 	}
 	if !strings.Contains(text, "approval action: a=approve") {

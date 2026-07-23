@@ -18,7 +18,7 @@ func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 			"session_id":"sesn_1",
 			"turn_id":"turn_1",
 			"status":"completed",
-			"summary":"user: please read\ntool result: default.read_file success artifacts=1",
+			"summary":"user: please read\ntool result: default_read_file success artifacts=1",
 			"stats":{"duration_ms":120,"step_count":2,"span_count":2,"tool_calls":1},
 			"graph":{"root_span_ids":["span_root"],"edges":[{"parent_span_id":"span_root","child_span_id":"span_tool"}],"critical_span_ids":["span_root","span_tool"],"critical_path_duration_ms":190,"max_depth":1},
 			"spans":[
@@ -63,7 +63,7 @@ func TestCommandTraceShowPrintsTimeline(t *testing.T) {
 		!strings.Contains(text, "timeline:") {
 		t.Fatalf("expected span graph details, got %q", text)
 	}
-	if !strings.Contains(text, "runtime.tool_result default.read_file outcome=success") {
+	if !strings.Contains(text, "runtime.tool_result default_read_file outcome=success") {
 		t.Fatalf("expected tool result line, got %q", text)
 	}
 	if !strings.Contains(text, "art_000001 read_file.json [asset] download: /v1/sessions/sesn_1/artifacts/art_000001/download") {

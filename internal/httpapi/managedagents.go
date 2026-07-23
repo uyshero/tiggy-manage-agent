@@ -3437,7 +3437,7 @@ func approvalReminderPayload(pending []managedagents.SessionIntervention) json.R
 			}
 			lines = append(lines, fmt.Sprintf("- Question: %s (call=%s)", question, intervention.CallID))
 		} else {
-			lines = append(lines, fmt.Sprintf("- Approval: %s.%s call=%s", intervention.ToolIdentifier, intervention.APIName, intervention.CallID))
+			lines = append(lines, fmt.Sprintf("- Approval: %s call=%s", tools.ModelToolName(intervention.ToolIdentifier, intervention.APIName), intervention.CallID))
 		}
 	}
 	payload, err := json.Marshal(map[string]any{

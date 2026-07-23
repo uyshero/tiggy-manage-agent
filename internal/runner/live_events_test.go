@@ -74,13 +74,13 @@ func TestAgentCoreToolProgressPublishesTransientLiveEvent(t *testing.T) {
 	defer cancel()
 	executionContext := agentCoreToolExecutionContext(tools.ExecutionContext{}, broker, "session", "turn")
 	executionContext.Progress(context.Background(), tools.ToolProgress{
-		CallID: "call_1", Tool: "default.run_command", Index: 2, ToolRound: 3,
+		CallID: "call_1", Tool: "default_run_command", Index: 2, ToolRound: 3,
 		Stage: "running", Message: "Installing dependencies", Percent: 40,
 	})
 	select {
 	case event := <-events:
 		if event.Type != LiveEventToolProgress || event.Operation != "update" || event.ContentFormat != "text" ||
-			event.CallID != "call_1" || event.Tool != "default.run_command" || event.Stage != "running" ||
+			event.CallID != "call_1" || event.Tool != "default_run_command" || event.Stage != "running" ||
 			event.Percent != 40 || event.Index != 2 || event.ToolRound != 3 || event.Text != "Installing dependencies" {
 			t.Fatalf("live progress event = %+v", event)
 		}

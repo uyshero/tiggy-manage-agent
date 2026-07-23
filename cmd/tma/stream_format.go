@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/sdk/tma"
 )
 
@@ -573,11 +574,7 @@ func writeSeqTurnCallTool(builder *strings.Builder, seq int64, turnID string, ca
 	}
 	if identifier != "" || apiName != "" {
 		builder.WriteString("  tool: ")
-		builder.WriteString(identifier)
-		if apiName != "" {
-			builder.WriteString(".")
-			builder.WriteString(apiName)
-		}
+		builder.WriteString(tools.ModelToolName(identifier, apiName))
 		builder.WriteString("\n")
 	}
 }

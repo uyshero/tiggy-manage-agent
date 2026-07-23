@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/observability"
+	"tiggy-manage-agent/internal/tools"
 	"tiggy-manage-agent/sdk/tma"
 )
 
@@ -196,7 +197,7 @@ func printTrace(trace turnTraceResponse, output io.Writer) error {
 	for _, step := range trace.Steps {
 		line := fmt.Sprintf("- seq=%d %s", step.Seq, step.Type)
 		if step.Identifier != "" || step.APIName != "" {
-			line += fmt.Sprintf(" %s.%s", defaultLabel(step.Identifier, "default"), step.APIName)
+			line += " " + tools.ModelToolName(defaultLabel(step.Identifier, tools.NamespaceDefault), step.APIName)
 		}
 		if step.Outcome != "" {
 			line += " outcome=" + step.Outcome

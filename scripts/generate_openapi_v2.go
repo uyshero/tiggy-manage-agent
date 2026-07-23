@@ -2902,7 +2902,7 @@ paths:
       additionalProperties: false
       properties:
         id: {type: string, minLength: 1, maxLength: 120}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         argument: {type: string, enum: [path]}
         pattern: {type: string, minLength: 1, maxLength: 2048}
         behavior: {type: string, enum: [allow, ask, deny]}
@@ -2913,7 +2913,7 @@ paths:
       additionalProperties: false
       properties:
         id: {type: string, minLength: 1, maxLength: 120}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         argument: {type: string, enum: [path]}
         pattern: {type: string, minLength: 1, maxLength: 2048}
         behavior: {type: string, enum: [deny]}
@@ -2946,7 +2946,7 @@ paths:
       properties:
         agent_id: {type: string}
         session_id: {type: string}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         path: {type: string, minLength: 1, maxLength: 4096}
         intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
     EvaluateWorkspaceToolPermissionResult:

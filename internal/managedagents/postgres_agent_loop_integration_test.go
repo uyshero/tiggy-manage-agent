@@ -75,7 +75,7 @@ func TestPostgresToolPermissionAuditProjectsAndPaginatesDurableEvents(t *testing
 	state.Phase = agentcore.PhaseAwaitingModel
 	plan := agentcore.ToolBatchPlan{Calls: []agentcore.PlannedToolCall{
 		{
-			Call:            model.ToolCall{ID: "call_ask", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
+			Call:            model.ToolCall{ID: "call_ask", Name: "default_edit_file", Arguments: json.RawMessage(`{"path":"/workspace/src/main.go"}`)},
 			Disposition:     agentcore.ToolDispositionExecute,
 			ValidationState: agentcore.ToolValidationValid,
 			ApprovalState:   agentcore.ToolApprovalPending,
@@ -86,7 +86,7 @@ func TestPostgresToolPermissionAuditProjectsAndPaginatesDurableEvents(t *testing
 			},
 		},
 		{
-			Call:            model.ToolCall{ID: "call_deny", Name: "default.edit_file", Arguments: json.RawMessage(`{"path":"/workspace/secrets/token"}`)},
+			Call:            model.ToolCall{ID: "call_deny", Name: "default_edit_file", Arguments: json.RawMessage(`{"path":"/workspace/secrets/token"}`)},
 			Disposition:     agentcore.ToolDispositionDenied,
 			ValidationState: agentcore.ToolValidationValid,
 			ApprovalState:   agentcore.ToolApprovalNotRequired,
@@ -161,7 +161,7 @@ func TestPostgresAgentLoopParksAndResumesThroughIntervention(t *testing.T) {
 	}
 	fence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-park")
 	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
-	call := model.ToolCall{ID: "call_write", Name: "default.write_file", Arguments: json.RawMessage(`{"path":"report.txt"}`)}
+	call := model.ToolCall{ID: "call_write", Name: "default_write_file", Arguments: json.RawMessage(`{"path":"report.txt"}`)}
 	modelPort := modeltest.NewScriptedModel(
 		modeltest.ModelStep{Response: model.Response{
 			Message:    model.Message{ID: "tool_request", Content: []model.Content{{Type: model.ContentToolCall, ToolCall: &call}}},
@@ -492,7 +492,7 @@ func TestPostgresAgentLoopRecoversStartedToolsByIdempotency(t *testing.T) {
 			if err != nil {
 				t.Fatalf("commit awaiting model: %v", err)
 			}
-			call := model.ToolCall{ID: "call_once", Name: "integration.write_once", Arguments: json.RawMessage(`{"value":"once"}`)}
+			call := model.ToolCall{ID: "call_once", Name: "integration_write_once", Arguments: json.RawMessage(`{"value":"once"}`)}
 			planned := agentcore.PlannedToolCall{
 				Call: call, ExecutionMode: "sequential", SideEffect: "write", Idempotency: test.idempotency,
 				IdempotencyKey: agentcore.StableToolIdempotencyKey(session.ID, started.Run.ID, call),
@@ -618,8 +618,8 @@ func TestPostgresAgentLoopRecoversPartiallyCompletedToolBatch(t *testing.T) {
 	}
 
 	calls := []model.ToolCall{
-		{ID: "call_completed", Name: "integration.read_completed", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_interrupted", Name: "integration.read_interrupted", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_completed", Name: "integration_read_completed", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_interrupted", Name: "integration_read_interrupted", Arguments: json.RawMessage(`{}`)},
 	}
 	planned := make([]agentcore.PlannedToolCall, len(calls))
 	for index, call := range calls {
@@ -738,7 +738,7 @@ func TestPostgresAgentLoopRejectsLateToolResultAfterLeaseLoss(t *testing.T) {
 		t.Fatalf("commit awaiting model: %v", err)
 	}
 
-	call := model.ToolCall{ID: "call_fenced", Name: "integration.fenced_read", Arguments: json.RawMessage(`{}`)}
+	call := model.ToolCall{ID: "call_fenced", Name: "integration_fenced_read", Arguments: json.RawMessage(`{}`)}
 	planned := agentcore.PlannedToolCall{
 		Call: call, ExecutionMode: "parallel", SideEffect: "none", Idempotency: "safe",
 		IdempotencyKey: agentcore.StableToolIdempotencyKey(session.ID, started.Run.ID, call),
