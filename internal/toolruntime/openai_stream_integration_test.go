@@ -32,9 +32,9 @@ func TestOpenAICompatibleStreamAgentCoreReturnsRecoverableToolErrors(t *testing.
 		wantErrorType string
 	}{
 		{name: "unknown tool", callID: "call_unknown", toolName: "missing.inspect", arguments: `{}`, finishReason: "tool_calls", wantErrorType: "unsupported_tool"},
-		{name: "malformed JSON", callID: "call_malformed", toolName: "read.inspect", arguments: `{"path":`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
-		{name: "schema mismatch", callID: "call_schema", toolName: "read.inspect", arguments: `{"unexpected":true}`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
-		{name: "truncated response", callID: "call_truncated", toolName: "read.inspect", arguments: `{}`, finishReason: "length", wantErrorType: "invalid_tool_arguments"},
+		{name: "malformed JSON", callID: "call_malformed", toolName: "read_inspect", arguments: `{"path":`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
+		{name: "schema mismatch", callID: "call_schema", toolName: "read_inspect", arguments: `{"unexpected":true}`, finishReason: "tool_calls", wantErrorType: "invalid_tool_arguments"},
+		{name: "truncated response", callID: "call_truncated", toolName: "read_inspect", arguments: `{}`, finishReason: "length", wantErrorType: "invalid_tool_arguments"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			harness := &openAIStreamHarness{fixture: openAIStreamFixture{
@@ -70,6 +70,32 @@ func TestOpenAICompatibleStreamAgentCoreReturnsRecoverableToolErrors(t *testing.
 				t.Fatalf("second provider request does not contain the recoverable Tool Result: %s", second)
 			}
 		})
+	}
+}
+
+func TestOpenAICompatibleStreamExecutesCanonicalUnderscoreToolName(t *testing.T) {
+	t.Parallel()
+
+	harness := &openAIStreamHarness{fixture: openAIStreamFixture{
+		callID: "call_read", toolName: "read_inspect", arguments: `{}`, finishReason: "tool_calls",
+	}}
+	server := httptest.NewServer(http.HandlerFunc(harness.serveHTTP))
+	defer server.Close()
+
+	executor := &countingExecutor{}
+	outcome := runOpenAIStreamAgentCore(t, tools.NewRegistry(readRuntime{}), executor, server.URL)
+	if outcome.Status != agentcore.OutcomeCompleted || executor.calls != 1 {
+		t.Fatalf("outcome=%+v executor calls=%d", outcome, executor.calls)
+	}
+	records, err := harness.snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("provider requests=%d", len(records))
+	}
+	if !strings.Contains(string(records[0].body), `"name":"read_inspect"`) || strings.Contains(string(records[0].body), "read.inspect") {
+		t.Fatalf("first provider body=%s", records[0].body)
 	}
 }
 

@@ -7,7 +7,10 @@ import (
 	"time"
 )
 
-const LiveEventLLMText = "llm.text"
+const (
+	LiveEventLLMText      = "llm.text"
+	LiveEventToolProgress = "tool.call_progress"
+)
 
 var ErrLiveEventsUnavailable = errors.New("live event stream unavailable")
 
@@ -20,6 +23,10 @@ type LiveEvent struct {
 	Type          string    `json:"type"`
 	Index         int       `json:"index,omitempty"`
 	ToolRound     int       `json:"tool_round,omitempty"`
+	CallID        string    `json:"call_id,omitempty"`
+	Tool          string    `json:"tool,omitempty"`
+	Stage         string    `json:"stage,omitempty"`
+	Percent       int       `json:"percent,omitempty"`
 	Operation     string    `json:"operation"`
 	ContentFormat string    `json:"content_format"`
 	Text          string    `json:"text"`

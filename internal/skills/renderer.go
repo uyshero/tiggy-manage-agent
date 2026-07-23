@@ -37,7 +37,7 @@ func RenderVersion(skill Skill, version Version, mode string, inputs json.RawMes
 		fmt.Fprintf(&builder, "\n%s\n", strings.TrimSpace(version.ContentText))
 	}
 	if mode == ModeSummary && strings.TrimSpace(version.ContentText) != "" {
-		fmt.Fprintf(&builder, "\nFull SKILL.md instructions are available on demand. Call skills.inspect with identifier %q and version %d before applying details not covered by this summary.\n", skill.Identifier, version.Version)
+		fmt.Fprintf(&builder, "\nFull SKILL.md instructions are available on demand. Call skills_inspect with identifier %q and version %d before applying details not covered by this summary.\n", skill.Identifier, version.Version)
 	}
 	for _, block := range manifest.Blocks {
 		if !includeBlock(mode, block.Type) {
@@ -54,7 +54,7 @@ func RenderVersion(skill Skill, version Version, mode string, inputs json.RawMes
 		}
 	}
 	if bundle, err := DecodeAssetBundle(version.Assets); err == nil && len(bundle.Files) > 0 {
-		fmt.Fprintln(&builder, "\nPackage assets available through skills.read_asset:")
+		fmt.Fprintln(&builder, "\nPackage assets available through skills_read_asset:")
 		for _, file := range bundle.Files {
 			if file.Executable {
 				fmt.Fprintf(&builder, "- %s (%d bytes; executable package script, requires a separate approved execution call)\n", file.Path, file.Size)

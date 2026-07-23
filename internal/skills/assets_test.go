@@ -61,7 +61,7 @@ func TestRenderVersionListsAssetsWithoutInliningContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render version: %v", err)
 	}
-	if !strings.Contains(rendered, "skills.read_asset") || !strings.Contains(rendered, "REFERENCE.md") || !strings.Contains(rendered, "requires a separate approved execution call") {
+	if !strings.Contains(rendered, "skills_read_asset") || !strings.Contains(rendered, "REFERENCE.md") || !strings.Contains(rendered, "requires a separate approved execution call") {
 		t.Fatalf("expected asset index, got %s", rendered)
 	}
 	if strings.Contains(rendered, "private reference body") || strings.Contains(rendered, "print('check')") {

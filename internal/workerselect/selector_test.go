@@ -190,7 +190,7 @@ func TestAvailableRegistryFromWorkersRequiresSingleWorkerToMatchAPI(t *testing.T
 	}, tools.ToolRuntimeLocalSystem, now)
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 1 || modelTools[0].Function.Name != "default.read_file" {
+	if len(modelTools) != 1 || modelTools[0].Function.Name != "default_read_file" {
 		t.Fatalf("expected only read_file to be executable by one worker, got %#v", modelTools)
 	}
 	if _, _, ok := registry.GetAPI("default", "run_command"); ok {

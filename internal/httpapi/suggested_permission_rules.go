@@ -35,7 +35,14 @@ func (s *Server) applySelectedPermissionRule(ctx context.Context, sessionID, tur
 	case tools.PermissionRuleSourceSession:
 		return applySessionPermissionRule(ctx, s.store, intervention.SessionID, suggestion.Rule)
 	case tools.PermissionRuleSourceAgent:
-		return applyAgentPermissionRule(ctx, s.store, intervention.SessionID, suggestion.Rule)
+		if err := applyAgentPermissionRule(ctx, s.store, intervention.SessionID, suggestion.Rule); err != nil {
+			return err
+		}
+		// Sessions are pinned to an immutable Agent config version. Mirror the
+		// selected rule into the current Session so "allow this Agent" takes
+		// effect immediately without upgrading unrelated Agent configuration
+		// while a turn is paused for approval.
+		return applySessionPermissionRule(ctx, s.store, intervention.SessionID, suggestion.Rule)
 	default:
 		return fmt.Errorf("%w: unsupported suggested permission rule scope %q", managedagents.ErrInvalid, suggestion.Scope)
 	}

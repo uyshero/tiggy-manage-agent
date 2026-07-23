@@ -31,7 +31,7 @@ func TestLLMModelConvertsStreamingRequestAndResponse(t *testing.T) {
 			Role:    "assistant",
 			Content: []llm.ContentPart{{Type: "text", Text: "checking"}},
 			ToolCalls: []llm.ToolCall{{ID: "call_1", Type: "function", Function: llm.ToolCallFunction{
-				Name: "default.read_file", Arguments: json.RawMessage(`{"path":"README.md"}`),
+				Name: "default_read_file", Arguments: json.RawMessage(`{"path":"README.md"}`),
 			}}},
 		},
 		Usage: llm.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 14},
@@ -60,7 +60,7 @@ func TestLLMModelConvertsStreamingRequestAndResponse(t *testing.T) {
 	if response.StopReason != coremodel.StopReasonToolCall || response.Usage.Source != coremodel.UsageSourceProvider || response.Usage.TotalTokens != 14 {
 		t.Fatalf("response = %+v", response)
 	}
-	if len(response.Message.Content) != 2 || response.Message.Content[1].ToolCall == nil || response.Message.Content[1].ToolCall.Name != "default.read_file" {
+	if len(response.Message.Content) != 2 || response.Message.Content[1].ToolCall == nil || response.Message.Content[1].ToolCall.Name != "default_read_file" {
 		t.Fatalf("response content = %+v", response.Message.Content)
 	}
 	if len(deltas) != 2 || deltas[1].StopReason != coremodel.StopReasonToolCall {
@@ -90,7 +90,7 @@ func TestLLMModelNormalizesUnsafeToolArguments(t *testing.T) {
 			t.Parallel()
 			legacy := &recordingStreamingClient{
 				response: llm.Response{Message: llm.Message{ToolCalls: []llm.ToolCall{{
-					ID: "call_1", Type: "function", Function: llm.ToolCallFunction{Name: "default.read_file", Arguments: test.arguments},
+					ID: "call_1", Type: "function", Function: llm.ToolCallFunction{Name: "default_read_file", Arguments: test.arguments},
 				}}}},
 				deltas: []llm.Delta{{Kind: llm.DeltaKindStop, FinishReason: "tool_calls"}},
 			}
@@ -356,7 +356,7 @@ func stateWithPersistedFileRead(t *testing.T, path string) agentcore.State {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read := coremodel.ToolCall{ID: "read_receipt", Name: "default.read_file", Arguments: mustRawJSON(t, map[string]any{"path": path})}
+	read := coremodel.ToolCall{ID: "read_receipt", Name: "default_read_file", Arguments: mustRawJSON(t, map[string]any{"path": path})}
 	result := coremodel.ToolResult{
 		CallID: read.ID, Name: read.Name, State: readState,
 		Content: []coremodel.Content{{Type: coremodel.ContentText, Text: string(readResult.Content)}},
@@ -606,6 +606,109 @@ func TestToolRuntimePassesStableIdempotencyKeyToExecutor(t *testing.T) {
 	}
 }
 
+func TestToolRuntimeStreamsScopedRedactedProgress(t *testing.T) {
+	t.Parallel()
+
+	progressEvents := make([]tools.ToolProgress, 0, 3)
+	adapter := toolruntime.ToolRuntime{
+		Snapshot: fullAccessSnapshot(t, tools.NewRegistry(batchRuntime{})),
+		Executor: progressExecutor{},
+		ExecutionContext: tools.ExecutionContext{
+			Environment: map[string]string{"API_TOKEN": "secret-token"},
+			Progress: func(_ context.Context, progress tools.ToolProgress) {
+				progressEvents = append(progressEvents, progress)
+			},
+		},
+	}
+	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1", Round: 4}
+	call := coremodel.ToolCall{ID: "call_progress", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := adapter.Execute(t.Context(), state, plan)
+	if err != nil || len(result.Results) != 1 || result.Results[0].IsError {
+		t.Fatalf("Execute() result=%+v err=%v", result, err)
+	}
+	if len(progressEvents) != 3 {
+		t.Fatalf("progress events = %+v", progressEvents)
+	}
+	for index, progress := range progressEvents {
+		if progress.CallID != call.ID || progress.Tool != call.Name || progress.Index != index+1 || progress.ToolRound != state.Round {
+			t.Fatalf("progress[%d] = %+v", index, progress)
+		}
+	}
+	if progressEvents[0].Stage != "started" || progressEvents[1].Stage != "running" || progressEvents[2].Stage != "completed" || progressEvents[2].Percent != 100 {
+		t.Fatalf("progress stages = %+v", progressEvents)
+	}
+	if strings.Contains(progressEvents[1].Message, "secret-token") || !strings.Contains(progressEvents[1].Message, "REDACTED_ENV:API_TOKEN") {
+		t.Fatalf("progress was not redacted: %+v", progressEvents[1])
+	}
+}
+
+func TestToolRuntimeExecutesVersionedMiddlewareInDeclaredOrder(t *testing.T) {
+	t.Parallel()
+
+	order := make([]string, 0, 5)
+	snapshot, err := toolruntime.NewSnapshotWithMiddleware(
+		tools.NewRegistry(batchRuntime{}), tools.InterventionPolicy{Mode: tools.InterventionModeFullAccess},
+		[]toolruntime.ToolMiddleware{
+			recordingMiddleware{descriptor: toolruntime.MiddlewareDescriptor{ID: "audit", Version: "1"}, order: &order},
+			recordingMiddleware{descriptor: toolruntime.MiddlewareDescriptor{ID: "guard", Version: "3"}, order: &order},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := toolruntime.ToolRuntime{Snapshot: snapshot, Executor: orderedExecutor{order: &order}}
+	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
+	call := coremodel.ToolCall{ID: "call_middleware", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.MiddlewareRevision != snapshot.MiddlewareRevision() || plan.MiddlewareRevision == "" {
+		t.Fatalf("middleware revision = %q", plan.MiddlewareRevision)
+	}
+	if _, err := adapter.Execute(t.Context(), state, plan); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"audit.before", "guard.before", "executor", "guard.after", "audit.after"}
+	if !reflect.DeepEqual(order, want) {
+		t.Fatalf("middleware order = %v want %v", order, want)
+	}
+}
+
+func TestToolRuntimeRejectsMiddlewareDriftBeforeExecution(t *testing.T) {
+	t.Parallel()
+
+	registry := tools.NewRegistry(batchRuntime{})
+	oldSnapshot, err := toolruntime.NewSnapshotWithMiddleware(registry, tools.InterventionPolicy{Mode: tools.InterventionModeFullAccess}, []toolruntime.ToolMiddleware{
+		recordingMiddleware{descriptor: toolruntime.MiddlewareDescriptor{ID: "guard", Version: "1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
+	call := coremodel.ToolCall{ID: "call_drift", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	plan, err := (toolruntime.ToolRuntime{Snapshot: oldSnapshot}).Preflight(t.Context(), state, []coremodel.ToolCall{call})
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentSnapshot, err := toolruntime.NewSnapshotWithMiddleware(registry, tools.InterventionPolicy{Mode: tools.InterventionModeFullAccess}, []toolruntime.ToolMiddleware{
+		recordingMiddleware{descriptor: toolruntime.MiddlewareDescriptor{ID: "guard", Version: "2"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &countingExecutor{}
+	_, err = (toolruntime.ToolRuntime{Snapshot: currentSnapshot, Executor: executor}).Execute(t.Context(), state, plan)
+	var fatal *agentcore.ToolFatalError
+	if !errors.As(err, &fatal) || fatal.ErrorCode() != "tool_middleware_changed" || executor.calls != 0 {
+		t.Fatalf("Execute() error=%T %v calls=%d", err, err, executor.calls)
+	}
+}
+
 func TestToolRuntimeReplaysPersistedSegmentEditByBusinessIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -734,7 +837,7 @@ func TestToolRuntimeInjectsPersistedReadReceiptIntoEdit(t *testing.T) {
 	t.Parallel()
 
 	contentHash := strings.Repeat("b", 64)
-	read := coremodel.ToolCall{ID: "read_1", Name: "default.read_file", Arguments: json.RawMessage(`{"path":"/workspace/note.txt"}`)}
+	read := coremodel.ToolCall{ID: "read_1", Name: "default_read_file", Arguments: json.RawMessage(`{"path":"/workspace/note.txt"}`)}
 	readState, _ := json.Marshal(capability.FileResult{
 		Path: "/workspace/note.txt", FileRevision: "stat-v1:read", ContentSHA256: contentHash,
 	})
@@ -784,7 +887,7 @@ func TestToolRuntimeRejectsEditWhenFileChangesAfterPersistedRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	readState, _ := json.Marshal(readResult)
-	read := coremodel.ToolCall{ID: "read_1", Name: "default.read_file", Arguments: mustRawJSON(t, map[string]any{"path": path})}
+	read := coremodel.ToolCall{ID: "read_1", Name: "default_read_file", Arguments: mustRawJSON(t, map[string]any{"path": path})}
 	persistedResult := coremodel.ToolResult{
 		CallID: read.ID, Name: read.Name, State: readState,
 		Content: []coremodel.Content{{Type: coremodel.ContentText, Text: string(readResult.Content)}},
@@ -909,7 +1012,7 @@ func TestFixedContextAndCompletionGateAdapters(t *testing.T) {
 	}
 	state := agentcore.State{Messages: []coremodel.Message{{ID: "user_1", Role: coremodel.RoleUser, Visibility: coremodel.VisibilityPublic, Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "hello"}}}}}
 	request, err := fixed.Build(context.Background(), state)
-	if err != nil || len(request.Tools) != 1 || request.Tools[0].Name != "danger.write" {
+	if err != nil || len(request.Tools) != 1 || request.Tools[0].Name != "danger_write" {
 		t.Fatalf("Build() request = %+v err = %v", request, err)
 	}
 	request.Tools[0].InputSchema[0] = 'X'
@@ -1007,7 +1110,10 @@ func TestSessionControlsMapsSteerFollowUpAndCancel(t *testing.T) {
 	if len(commands) != 3 || commands[0].Mode != agentcore.ControlSteer || commands[1].Mode != agentcore.ControlFollowUp || commands[2].Mode != agentcore.ControlCancel {
 		t.Fatalf("control commands = %+v", commands)
 	}
-	if commands[0].Message == nil || commands[0].Message.Content[0].Text != "focus on correctness" || commands[1].Message == nil || commands[1].Message.Content[0].Text != "also provide tests" {
+	if commands[0].Message == nil || len(commands[0].Message.Content) != 2 ||
+		!strings.Contains(commands[0].Message.Content[0].Text, "[Steering update for the active turn]") ||
+		commands[0].Message.Content[1].Text != "focus on correctness" ||
+		commands[1].Message == nil || commands[1].Message.Content[0].Text != "also provide tests" {
 		t.Fatalf("control messages = %+v", commands)
 	}
 }
@@ -1019,7 +1125,7 @@ func validModelRequest() coremodel.Request {
 			ProviderInstanceID: "provider_1", ProviderConfigVersion: 2, ModelID: "model_1", CatalogRevision: "catalog_1", CredentialRef: "credential_1", Parameters: json.RawMessage(`{"temperature":0}`),
 		},
 		Messages:        []coremodel.Message{{ID: "user_1", Role: coremodel.RoleUser, Visibility: coremodel.VisibilityPublic, Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "hello"}}}},
-		Tools:           []coremodel.ToolDefinition{{Name: "default.read_file", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		Tools:           []coremodel.ToolDefinition{{Name: "default_read_file", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		MaxOutputTokens: 128, SessionID: "session_1", TurnID: "turn_1", AttemptID: "attempt_1",
 	}
 }
@@ -1135,6 +1241,41 @@ func (partialFailureExecutor) Execute(_ context.Context, call tools.Call, _ tool
 
 type idempotencyCaptureExecutor struct{ captured chan<- string }
 
+type progressExecutor struct{}
+
+type orderedExecutor struct{ order *[]string }
+
+type middlewareExecutorFunc func(context.Context, tools.Call, tools.ExecutionContext) (tools.ExecutionResult, error)
+
+type recordingMiddleware struct {
+	descriptor toolruntime.MiddlewareDescriptor
+	order      *[]string
+}
+
+func (m recordingMiddleware) Descriptor() toolruntime.MiddlewareDescriptor { return m.descriptor }
+
+func (m recordingMiddleware) Wrap(next tools.Executor) tools.Executor {
+	return middlewareExecutorFunc(func(ctx context.Context, call tools.Call, executionContext tools.ExecutionContext) (tools.ExecutionResult, error) {
+		if m.order != nil {
+			*m.order = append(*m.order, m.descriptor.ID+".before")
+		}
+		result, err := next.Execute(ctx, call, executionContext)
+		if m.order != nil {
+			*m.order = append(*m.order, m.descriptor.ID+".after")
+		}
+		return result, err
+	})
+}
+
+func (f middlewareExecutorFunc) Execute(ctx context.Context, call tools.Call, executionContext tools.ExecutionContext) (tools.ExecutionResult, error) {
+	return f(ctx, call, executionContext)
+}
+
+func (e orderedExecutor) Execute(_ context.Context, call tools.Call, _ tools.ExecutionContext) (tools.ExecutionResult, error) {
+	*e.order = append(*e.order, "executor")
+	return tools.ExecutionResult{ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: "ok"}, nil
+}
+
 type countingExecutor struct{ calls int }
 
 type receiptCaptureExecutor struct {
@@ -1157,6 +1298,13 @@ func (e *countingExecutor) Execute(_ context.Context, call tools.Call, _ tools.E
 
 func (e idempotencyCaptureExecutor) Execute(_ context.Context, call tools.Call, executionContext tools.ExecutionContext) (tools.ExecutionResult, error) {
 	e.captured <- executionContext.IdempotencyKey
+	return tools.ExecutionResult{ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: "ok"}, nil
+}
+
+func (progressExecutor) Execute(ctx context.Context, call tools.Call, executionContext tools.ExecutionContext) (tools.ExecutionResult, error) {
+	if executionContext.Progress != nil {
+		executionContext.Progress(ctx, tools.ToolProgress{Stage: "running", Message: "Using secret-token", Percent: 50})
+	}
 	return tools.ExecutionResult{ID: call.ID, Identifier: call.Identifier, APIName: call.APIName, Content: "ok"}, nil
 }
 

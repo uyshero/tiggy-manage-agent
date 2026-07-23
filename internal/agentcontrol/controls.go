@@ -15,6 +15,11 @@ type SessionControls struct {
 	Reader managedagents.SessionControlReader
 }
 
+const steeringContextPreamble = `[Steering update for the active turn]
+This instruction adjusts how to continue the task already in progress. Preserve the original objective, accepted plan, completed work, and unrelated remaining steps unless the user explicitly cancels or replaces them. Apply the steering instruction at the next safe point. Do not apologize merely because the execution direction changed.
+
+User steering instruction:`
+
 var _ agentcore.ControlPort = SessionControls{}
 
 func (c SessionControls) Drain(ctx context.Context, state agentcore.State, _ agentcore.ControlPoint) ([]agentcore.ControlCommand, error) {
@@ -74,8 +79,13 @@ func controlMessage(event managedagents.Event) (coremodel.Message, error) {
 	if len(content) == 0 && strings.TrimSpace(payload.Text) != "" {
 		content = append(content, coremodel.Content{Type: coremodel.ContentText, Text: strings.TrimSpace(payload.Text)})
 	}
+	metadata := json.RawMessage(nil)
+	if event.Type == managedagents.EventUserSteer {
+		content = append([]coremodel.Content{{Type: coremodel.ContentText, Text: steeringContextPreamble}}, content...)
+		metadata = json.RawMessage(`{"control_mode":"steer"}`)
+	}
 	message := coremodel.Message{
-		ID: "control_" + event.ID, Role: coremodel.RoleUser, Visibility: coremodel.VisibilityPublic, Content: content,
+		ID: "control_" + event.ID, Role: coremodel.RoleUser, Visibility: coremodel.VisibilityPublic, Content: content, Metadata: metadata,
 	}
 	if err := message.Validate(); err != nil {
 		return coremodel.Message{}, fmt.Errorf("invalid %s control message: %w", event.Type, err)

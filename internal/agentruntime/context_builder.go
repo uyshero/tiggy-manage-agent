@@ -137,9 +137,11 @@ type historyContextGroup struct {
 }
 
 const latestUserMessagePolicy = `Latest user message policy:
-- Treat the newest user message as the highest-priority instruction for this turn.
-- If it changes the goal or asks a separate question, stop following earlier unfinished plans and respond to the newest request instead.
-- Do not continue prior desktop, browser, file, or tool actions unless the newest user message clearly asks you to continue them.`
+- Treat the newest ordinary user message as the highest-priority instruction for this turn.
+- A message beginning with "[Steering update for the active turn]" is an in-turn execution adjustment, not an ordinary replacement request. Apply it while preserving the original objective, accepted plan, completed work, and unrelated remaining steps.
+- Do not apologize merely because steering changes the next action. Replace or cancel the original goal only when the steering instruction explicitly asks for that.
+- If an ordinary user message changes the goal or asks a separate question, stop following earlier unfinished plans and respond to the newest request instead.
+- Do not continue prior desktop, browser, file, or tool actions after an ordinary replacement request unless the newest user message clearly asks you to continue them.`
 
 const turnProgressPolicy = `Turn progress policy:
 - During multi-step work, provide a brief user-facing progress update before relevant tool calls when you learn something important, complete a meaningful phase, or change direction.
@@ -492,7 +494,7 @@ func uploadedAttachmentContext(payload json.RawMessage) string {
 	}
 	if len(skillZIPArtifacts) > 0 {
 		lines = append(lines,
-			"For an uploaded ZIP that the user wants to preview, install, or upgrade as a Skill, call skills.preview with source.provider=artifact and the matching artifact_id above. Never pass workspace_path, a host filesystem path, bucket/key, or URL as a Skill install source. Continue to skills.install only when Preview allows it; preserve policy pins and set upgrade_existing=true only for install_state=upgrade.",
+			"For an uploaded ZIP that the user wants to preview, install, or upgrade as a Skill, call skills_preview with source.provider=artifact and the matching artifact_id above. Never pass workspace_path, a host filesystem path, bucket/key, or URL as a Skill install source. Continue to skills_install only when Preview allows it; preserve policy pins and set upgrade_existing=true only for install_state=upgrade.",
 		)
 	}
 	return strings.Join(lines, "\n")

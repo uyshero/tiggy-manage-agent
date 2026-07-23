@@ -37,7 +37,7 @@ func TestTaskPlanCompletionGateBlocksIncompletePlanWithActionableFeedback(t *tes
 	if err != nil || verdict.Outcome != CompletionOutcomeRetry {
 		t.Fatalf("unexpected verdict=%#v err=%v", verdict, err)
 	}
-	for _, expected := range []string{"plan_1", "item_work", "status=in_progress", "item_evidence", "missing evidence", "task.update_items"} {
+	for _, expected := range []string{"plan_1", "item_work", "status=in_progress", "item_evidence", "missing evidence", "task_update_items"} {
 		if !strings.Contains(verdict.Feedback, expected) {
 			t.Fatalf("feedback missing %q: %s", expected, verdict.Feedback)
 		}
@@ -57,7 +57,7 @@ func TestTaskPlanCompletionGateRequiresExplicitPlanCompletion(t *testing.T) {
 	if err != nil || verdict.Outcome != CompletionOutcomeRetry {
 		t.Fatalf("unexpected verdict=%#v err=%v", verdict, err)
 	}
-	if !strings.Contains(verdict.Feedback, "task.complete_plan") || verdict.Evidence["ready_to_complete"] != true {
+	if !strings.Contains(verdict.Feedback, "task_complete_plan") || verdict.Evidence["ready_to_complete"] != true {
 		t.Fatalf("expected explicit completion guidance, got %#v", verdict)
 	}
 }

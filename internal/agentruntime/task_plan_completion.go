@@ -70,7 +70,7 @@ func (gate TaskPlanCompletionGate) Validate(ctx context.Context, candidate Compl
 			Validator: taskPlanCompletionValidator,
 			Reason:    "all task items have evidence but the task plan is still active",
 			Feedback: fmt.Sprintf(
-				"Completion is blocked because task plan %s is still active. All items have completion evidence. Call task.complete_plan with plan_id %q, then provide the final response only after that tool succeeds.",
+				"Completion is blocked because task plan %s is still active. All items have completion evidence. Call task_complete_plan with plan_id %q, then provide the final response only after that tool succeeds.",
 				plan.ID, plan.ID,
 			),
 			Evidence: evidence,
@@ -79,7 +79,7 @@ func (gate TaskPlanCompletionGate) Validate(ctx context.Context, candidate Compl
 
 	remainingState := make([]any, 0, len(remaining))
 	var feedback strings.Builder
-	fmt.Fprintf(&feedback, "Completion is blocked because task plan %s still has %d unfinished or unverified item(s). Continue the work and update the plan with task.update_items. Completed items must include concrete execution or verification evidence.\n", plan.ID, len(remaining))
+	fmt.Fprintf(&feedback, "Completion is blocked because task plan %s still has %d unfinished or unverified item(s). Continue the work and update the plan with task_update_items. Completed items must include concrete execution or verification evidence.\n", plan.ID, len(remaining))
 	for _, item := range remaining {
 		state := map[string]any{"item_id": item.ID, "status": item.Status}
 		issue := "not completed"
@@ -92,7 +92,7 @@ func (gate TaskPlanCompletionGate) Validate(ctx context.Context, candidate Compl
 		remainingState = append(remainingState, state)
 		fmt.Fprintf(&feedback, "- item_id=%s status=%s: %s (%s)\n", item.ID, item.Status, item.Description, issue)
 	}
-	feedback.WriteString("Do not provide a final answer while the plan remains incomplete. If the goal was abandoned, explicitly call task.cancel_plan with a reason.")
+	feedback.WriteString("Do not provide a final answer while the plan remains incomplete. If the goal was abandoned, explicitly call task_cancel_plan with a reason.")
 	evidence["remaining_items"] = remainingState
 
 	return CompletionVerdict{

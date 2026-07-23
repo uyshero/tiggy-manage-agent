@@ -5782,6 +5782,7 @@ function WorkbenchApp() {
   const [taskSearch, setTaskSearch] = useState("");
   const [eventsResponse, setEventsResponse] = useState({ events: [] });
   const [liveReply, setLiveReply] = useState(null);
+  const [liveToolProgress, setLiveToolProgress] = useState(null);
   const [taskPlanResponse, setTaskPlanResponse] = useState({ plan: null });
   const [interventionResponse, setInterventionResponse] = useState({ interventions: [] });
   const [artifactResponse, setArtifactResponse] = useState({ artifacts: [] });
@@ -6112,6 +6113,7 @@ function WorkbenchApp() {
     `${binding.skill}:${Number(binding.version || 1)}`
   ))), [runtimeConfig?.skills]);
 	const streamingReply = liveReply?.sessionID === sessionID ? liveReply : null;
+	const activeToolProgress = liveToolProgress?.sessionID === sessionID ? liveToolProgress : null;
 	const renderedChatTimelineEvents = useMemo(() => {
 		if (!streamingReply) return chatTimelineEvents;
 		const hasDurableReply = chatTimelineEvents.some((event) => (
@@ -6570,6 +6572,9 @@ function WorkbenchApp() {
           if (isCurrent) setLiveReply(null);
         }
       }
+      if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
+        setLiveToolProgress(null);
+      }
       if (isCurrent && sessionSyncEventTypes.has(event.type)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = window.setTimeout(() => {
@@ -6606,7 +6611,22 @@ function WorkbenchApp() {
       (async () => {
         try {
           for await (const event of api.streamSessionLiveEvents(sessionKey, { signal: stream.liveController.signal })) {
+            if (event.type === "tool.call_progress" && event.text) {
+              if (sessionIDRef.current === sessionKey) {
+                setLiveToolProgress({
+                  sessionID: sessionKey,
+                  turnID: event.turn_id,
+                  callID: event.call_id,
+                  tool: event.tool,
+                  stage: event.stage,
+                  percent: Number(event.percent || 0),
+                  text: event.text
+                });
+              }
+              continue;
+            }
             if (event.type !== "llm.text" || !event.text) continue;
+            if (sessionIDRef.current === sessionKey) setLiveToolProgress(null);
             const current = sessionLiveRepliesRef.current.get(sessionKey);
             const sameStream = current?.turnID === event.turn_id && current?.toolRound === Number(event.tool_round || 0);
             if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) continue;
@@ -8636,7 +8656,13 @@ function WorkbenchApp() {
 				{!streamingReply && waitingForReply ? (
                   <article className="message agent pending">
                     <Meta><strong>通用智能体</strong></Meta>
-                    <div className="message-text">正在处理并生成回复…</div>
+                    {activeToolProgress ? (
+                      <div className="live-tool-progress">
+                        <strong>{activeToolProgress.tool || "工具执行"}</strong>
+                        <span>{activeToolProgress.text}</span>
+                        {activeToolProgress.percent > 0 ? <progress max="100" value={activeToolProgress.percent} /> : null}
+                      </div>
+                    ) : <div className="message-text">正在处理并生成回复…</div>}
                   </article>
 				) : null}
               </section>

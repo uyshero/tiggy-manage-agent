@@ -56,7 +56,7 @@ func TestFakeClientGeneratesToolVerificationCall(t *testing.T) {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_tool" || call.Function.Name != "default.run_command" {
+	if call.ID != "call_verify_tool" || call.Function.Name != "default_run_command" {
 		t.Fatalf("unexpected tool call: %#v", call)
 	}
 }
@@ -124,7 +124,7 @@ func TestFakeClientGeneratesMCPVerificationCall(t *testing.T) {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_mcp_tool" || call.Function.Name != "filesystem.read_file" {
+	if call.ID != "call_verify_mcp_tool" || call.Function.Name != "filesystem_read_file" {
 		t.Fatalf("unexpected mcp tool call: %#v", call)
 	}
 }
@@ -165,7 +165,7 @@ func TestFakeClientGeneratesUploadedFileVerificationCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed generate: %v", err)
 	}
-	if len(seedResponse.Message.ToolCalls) != 1 || seedResponse.Message.ToolCalls[0].Function.Name != "default.run_command" {
+	if len(seedResponse.Message.ToolCalls) != 1 || seedResponse.Message.ToolCalls[0].Function.Name != "default_run_command" {
 		t.Fatalf("unexpected seed tool call: %#v", seedResponse.Message.ToolCalls)
 	}
 
@@ -181,7 +181,7 @@ func TestFakeClientGeneratesUploadedFileVerificationCalls(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generate: %v", err)
 	}
-	if len(readResponse.Message.ToolCalls) != 1 || readResponse.Message.ToolCalls[0].Function.Name != "default.run_command" {
+	if len(readResponse.Message.ToolCalls) != 1 || readResponse.Message.ToolCalls[0].Function.Name != "default_run_command" {
 		t.Fatalf("unexpected read tool call: %#v", readResponse.Message.ToolCalls)
 	}
 }
@@ -205,7 +205,7 @@ func TestFakeClientGeneratesWebCrawlVerificationCall(t *testing.T) {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_web_crawl" || call.Function.Name != "web.crawl" {
+	if call.ID != "call_verify_web_crawl" || call.Function.Name != "web_crawl" {
 		t.Fatalf("unexpected web crawl tool call: %#v", call)
 	}
 	if !strings.Contains(string(call.Function.Arguments), "http://127.0.0.1:18084/fixture.html") {
@@ -232,7 +232,7 @@ func TestFakeClientGeneratesWebSearchVerificationCall(t *testing.T) {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_web_search" || call.Function.Name != "web.search" {
+	if call.ID != "call_verify_web_search" || call.Function.Name != "web_search" {
 		t.Fatalf("unexpected web search tool call: %#v", call)
 	}
 	if !strings.Contains(string(call.Function.Arguments), "tma-web-search-ok") {
@@ -262,7 +262,7 @@ func TestFakeClientGeneratesBrowserFlowVerificationCalls(t *testing.T) {
 	for _, call := range response.Message.ToolCalls {
 		names[call.Function.Name] = true
 	}
-	for _, expected := range []string{"browser.open", "browser.screenshot", "browser.type", "browser.click"} {
+	for _, expected := range []string{"browser_open", "browser_screenshot", "browser_type", "browser_click"} {
 		if !names[expected] {
 			t.Fatalf("missing %s in browser tool calls: %#v", expected, response.Message.ToolCalls)
 		}
@@ -288,7 +288,7 @@ func TestFakeClientGeneratesBrowserTakeoverVerificationCall(t *testing.T) {
 		t.Fatalf("expected one browser takeover tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_browser_takeover" || call.Function.Name != "browser.takeover" {
+	if call.ID != "call_verify_browser_takeover" || call.Function.Name != "browser_takeover" {
 		t.Fatalf("unexpected browser takeover tool call: %#v", call)
 	}
 	if !strings.Contains(string(call.Function.Arguments), "data:text/html,takeover") {
@@ -315,7 +315,7 @@ func TestFakeClientGeneratesBrowserCloseVerificationCall(t *testing.T) {
 		t.Fatalf("expected one browser close tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_browser_close" || call.Function.Name != "browser.close" {
+	if call.ID != "call_verify_browser_close" || call.Function.Name != "browser_close" {
 		t.Fatalf("unexpected browser close tool call: %#v", call)
 	}
 }
@@ -339,7 +339,7 @@ func TestFakeClientGeneratesComputerPluginVerificationCall(t *testing.T) {
 		t.Fatalf("expected one computer tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_computer_plugin" || call.Function.Name != "computer.get_state" {
+	if call.ID != "call_verify_computer_plugin" || call.Function.Name != "computer_get_state" {
 		t.Fatalf("unexpected computer tool call: %#v", call)
 	}
 	if !strings.Contains(string(call.Function.Arguments), `"capture_mode":"ax"`) {
@@ -366,7 +366,7 @@ func TestFakeClientGeneratesComputerPluginScreenshotVerificationCall(t *testing.
 		t.Fatalf("expected one computer screenshot tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_computer_plugin_screenshot" || call.Function.Name != "computer.screenshot" {
+	if call.ID != "call_verify_computer_plugin_screenshot" || call.Function.Name != "computer_screenshot" {
 		t.Fatalf("unexpected computer screenshot tool call: %#v", call)
 	}
 }
@@ -390,7 +390,7 @@ func TestFakeClientGeneratesNetworkDownloadVerificationCall(t *testing.T) {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_verify_network_download" || call.Function.Name != "default.execute_code" {
+	if call.ID != "call_verify_network_download" || call.Function.Name != "default_execute_code" {
 		t.Fatalf("unexpected network download tool call: %#v", call)
 	}
 	arguments := string(call.Function.Arguments)
@@ -763,7 +763,7 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 							"id":"call_1",
 							"type":"function",
 							"function":{
-								"name":"default.run_command",
+								"name":"default_run_command",
 								"arguments":"{\"command\":\"sh\",\"args\":[\"-c\",\"pwd\"]}"
 							}
 						}]
@@ -785,7 +785,7 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 		Tools: []Tool{{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "default.run_command",
+				Name:        "default_run_command",
 				Description: "Run a command.",
 				Parameters:  json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}}}`),
 			},
@@ -795,14 +795,14 @@ func TestOpenAICompatibleClientSendsToolsAndParsesToolCalls(t *testing.T) {
 		t.Fatalf("generate: %v", err)
 	}
 
-	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "default.run_command" {
+	if len(captured.Tools) != 1 || captured.Tools[0].Function.Name != "default_run_command" {
 		t.Fatalf("unexpected captured tools: %#v", captured.Tools)
 	}
 	if len(response.Message.ToolCalls) != 1 {
 		t.Fatalf("expected one tool call, got %#v", response.Message.ToolCalls)
 	}
 	call := response.Message.ToolCalls[0]
-	if call.ID != "call_1" || call.Function.Name != "default.run_command" {
+	if call.ID != "call_1" || call.Function.Name != "default_run_command" {
 		t.Fatalf("unexpected tool call: %#v", call)
 	}
 	var args map[string]any

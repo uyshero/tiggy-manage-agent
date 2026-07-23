@@ -295,7 +295,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+".run_command"] || names[DefaultIdentifier+".execute_code"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] || names[DefaultIdentifier+".search_file"] || !names[DefaultIdentifier+".edit_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || names[NamespaceBrowser+".open"] || !names[AgentIdentifier+".spawn"] || !names[AgentIdentifier+".wait"] || !names[AgentIdentifier+".collect_result"] || !names[AgentIdentifier+".stream_events"] || !names[AgentIdentifier+".approve_tool"] || !names[AgentIdentifier+".reject_tool"] || !names[AgentIdentifier+".cancel_start"] || !names[AgentIdentifier+".run_group"] || !names[AgentIdentifier+".list_group_templates"] || !names[AgentIdentifier+".get_group"] || !names[AgentIdentifier+".wait_group"] || !names[AgentIdentifier+".collect_group"] || !names[AgentIdentifier+".cancel_group"] || !names[AgentIdentifier+".retry_group_item"] || !names[AgentIdentifier+".retry_group"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || names[NamespaceBrowser+"_open"] || !names[AgentIdentifier+"_spawn"] || !names[AgentIdentifier+"_wait"] || !names[AgentIdentifier+"_collect_result"] || !names[AgentIdentifier+"_stream_events"] || !names[AgentIdentifier+"_approve_tool"] || !names[AgentIdentifier+"_reject_tool"] || !names[AgentIdentifier+"_cancel_start"] || !names[AgentIdentifier+"_run_group"] || !names[AgentIdentifier+"_list_group_templates"] || !names[AgentIdentifier+"_get_group"] || !names[AgentIdentifier+"_wait_group"] || !names[AgentIdentifier+"_collect_group"] || !names[AgentIdentifier+"_cancel_group"] || !names[AgentIdentifier+"_retry_group_item"] || !names[AgentIdentifier+"_retry_group"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }
@@ -303,8 +303,8 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 func TestFileMutationModelToolsDeclareProactiveContentLimits(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
 	wanted := map[string]string{
-		DefaultIdentifier + ".write_file": "content",
-		DefaultIdentifier + ".edit_file":  "new_string",
+		DefaultIdentifier + "_write_file": "content",
+		DefaultIdentifier + "_edit_file":  "new_string",
 	}
 	for _, modelTool := range modelTools {
 		field, ok := wanted[modelTool.Function.Name]
@@ -347,7 +347,7 @@ func TestInterventionPolicyAddsNetworkApprovalLayer(t *testing.T) {
 		t.Fatal("expected run_command api")
 	}
 	call := Call{
-		APIName:   "default.run_command",
+		APIName:   "default_run_command",
 		Arguments: json.RawMessage(`{"command":"python3","args":["download.py"]}`),
 	}
 	context := ExecutionContext{Provider: capability.OnlyboxesProvider{}}
@@ -368,7 +368,7 @@ func TestInterventionPolicyAddsNetworkApprovalLayer(t *testing.T) {
 	}
 
 	codeCall := Call{
-		APIName:   "default.execute_code",
+		APIName:   "default_execute_code",
 		Arguments: json.RawMessage(`{"language":"python3","code":"import urllib.request; urllib.request.urlopen('https://example.com')"}`),
 	}
 	codeManifest, codeAPI, ok := DefaultRegistry().GetAPI(DefaultIdentifier, "execute_code")
@@ -406,7 +406,7 @@ func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
 
 func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
 	registry, policy := DefaultRegistry().Configured(json.RawMessage(`{
-		"tools": ["default.read_file", "default.edit_file"],
+		"tools": ["default_read_file", "default_edit_file"],
 		"runtime": "local_system"
 	}`))
 
@@ -421,7 +421,7 @@ func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if !names[DefaultIdentifier+".read_file"] || !names[DefaultIdentifier+".edit_file"] || names[DefaultIdentifier+".run_command"] {
+	if !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_edit_file"] || names[DefaultIdentifier+"_run_command"] {
 		t.Fatalf("unexpected configured tool names: %#v", names)
 	}
 }
@@ -431,13 +431,13 @@ func TestRegistryCompatibilityAPIsAreHiddenUnlessExplicitlyConfigured(t *testing
 	for _, modelTool := range DefaultRegistry().ModelTools() {
 		names[modelTool.Function.Name] = true
 	}
-	if names[DefaultIdentifier+".search_file"] || names[DefaultIdentifier+".execute_code"] || !names[DefaultIdentifier+".run_command"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] {
+	if names[DefaultIdentifier+"_search_file"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_run_command"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] {
 		t.Fatalf("unexpected default filesystem tools: %#v", names)
 	}
 	for _, apiName := range []string{"search_file", "execute_code"} {
-		registry, _ := DefaultRegistry().Configured(json.RawMessage(`{"tools":["default.` + apiName + `"]}`))
+		registry, _ := DefaultRegistry().Configured(json.RawMessage(`{"tools":["default_` + apiName + `"]}`))
 		modelTools := registry.ModelTools()
-		if len(modelTools) != 1 || modelTools[0].Function.Name != DefaultIdentifier+"."+apiName {
+		if len(modelTools) != 1 || modelTools[0].Function.Name != DefaultIdentifier+"_"+apiName {
 			t.Fatalf("explicit %s configuration was not preserved: %#v", apiName, modelTools)
 		}
 	}
@@ -454,7 +454,7 @@ func TestRegistryAvailableFiltersByCapabilities(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 21 || !names[DefaultIdentifier+".read_file"] || !names[DefaultIdentifier+".find_files"] || !names[DefaultIdentifier+".search_files"] || names[DefaultIdentifier+".search_file"] || !names[WebIdentifier+".search"] || !names[WebIdentifier+".crawl"] || !names[InteractionIdentifier+".ask_user"] || !names[InteractionIdentifier+".request_upload"] || !names[InteractionIdentifier+".request_plan_approval"] || !names[TaskIdentifier+".create_plan"] || !names[TaskIdentifier+".update_items"] || !names[TaskIdentifier+".get_plan"] || !names[TaskIdentifier+".complete_plan"] || !names[TaskIdentifier+".cancel_plan"] || !names[SkillsIdentifier+".search"] || !names[SkillsIdentifier+".inspect"] || !names[SkillsIdentifier+".discover"] || !names[SkillsIdentifier+".preview"] || !names[SkillsIdentifier+".read_asset"] || !names[SkillsIdentifier+".install"] || !names[SkillsIdentifier+".enable"] || !names[SkillsIdentifier+".disable"] {
+	if len(modelTools) != 21 || !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[TaskIdentifier+"_create_plan"] || !names[TaskIdentifier+"_update_items"] || !names[TaskIdentifier+"_get_plan"] || !names[TaskIdentifier+"_complete_plan"] || !names[TaskIdentifier+"_cancel_plan"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
 		t.Fatalf("expected read_file plus server builtin interaction, task, web, and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := registry.GetAPI(DefaultIdentifier, "run_command"); ok {
@@ -481,16 +481,16 @@ func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if !names[DefaultIdentifier+".run_command"] || names[DefaultIdentifier+".execute_code"] {
+	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] {
 		t.Fatalf("expected run_command visible and execute_code hidden by default, got %#v", modelTools)
 	}
 	for _, name := range []string{"ask_user", "request_upload", "request_plan_approval"} {
-		if !names[InteractionIdentifier+"."+name] {
+		if !names[InteractionIdentifier+"_"+name] {
 			t.Fatalf("expected server builtin interaction.%s to remain available, got %#v", name, modelTools)
 		}
 	}
 	for _, name := range []string{"search", "inspect", "discover", "preview", "read_asset", "install", "enable", "disable"} {
-		if !names[SkillsIdentifier+"."+name] {
+		if !names[SkillsIdentifier+"_"+name] {
 			t.Fatalf("expected server builtin skills.%s to remain available, got %#v", name, modelTools)
 		}
 	}
@@ -653,7 +653,7 @@ func TestCloudSandboxRejectsTemporaryDeliverableOutputPaths(t *testing.T) {
 
 func TestNormalizeCallSplitsDefaultFunctionName(t *testing.T) {
 	call := NormalizeCall(Call{
-		APIName: "default.run_command",
+		APIName: "default_run_command",
 	})
 
 	if call.Identifier != DefaultIdentifier || call.APIName != "run_command" {

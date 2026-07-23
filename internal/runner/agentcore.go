@@ -68,7 +68,7 @@ func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
 			return TurnResult{}, fmt.Errorf("load tool permission policy: %w", err)
 		}
 	}
-	snapshot, err := toolruntime.NewSnapshot(toolExecution.Registry, interventionPolicy)
+	snapshot, err := toolruntime.NewSnapshotWithMiddleware(toolExecution.Registry, interventionPolicy, e.ToolMiddlewares)
 	if err != nil {
 		return TurnResult{}, fmt.Errorf("build tool runtime snapshot: %w", err)
 	}
@@ -118,7 +118,7 @@ func (e AgentRuntimeTurnExecutor) runAgentCoreTurn(
 	toolPort := toolruntime.ToolRuntime{
 		Snapshot:         snapshot,
 		Executor:         runtimeRequest.Config.ToolExecutor,
-		ExecutionContext: toolExecution.Context,
+		ExecutionContext: agentCoreToolExecutionContext(toolExecution.Context, e.LiveEvents, request.SessionID, request.TurnID),
 	}
 	var controlPort agentcore.ControlPort
 	if reader, ok := e.Store.(managedagents.SessionControlReader); ok {
@@ -566,4 +566,23 @@ func (p agentCoreLivePort) Publish(_ context.Context, delta coremodel.LiveDelta)
 		Index: delta.Index, ToolRound: delta.Attempt, Operation: delta.Operation, ContentFormat: "markdown", Text: delta.Text,
 	})
 	return nil
+}
+
+func agentCoreToolExecutionContext(executionContext tools.ExecutionContext, broker *LiveEventBroker, sessionID, turnID string) tools.ExecutionContext {
+	upstream := executionContext.Progress
+	executionContext.Progress = func(ctx context.Context, progress tools.ToolProgress) {
+		if upstream != nil {
+			upstream(ctx, progress)
+		}
+		if broker == nil {
+			return
+		}
+		broker.Publish(LiveEvent{
+			SessionID: sessionID, TurnID: turnID, Type: LiveEventToolProgress,
+			Index: progress.Index, ToolRound: progress.ToolRound,
+			CallID: progress.CallID, Tool: progress.Tool, Stage: progress.Stage, Percent: progress.Percent,
+			Operation: "update", ContentFormat: "text", Text: progress.Message,
+		})
+	}
+	return executionContext
 }

@@ -155,7 +155,7 @@ func TestDefaultContextBuilderAddsOfflineSkillZIPCoordinates(t *testing.T) {
 		t.Fatalf("expected one user message, got %#v", result.Messages)
 	}
 	assertMessageContains(t, result.Messages[0], "user", "artifact_id=art_skill_zip")
-	assertMessageContains(t, result.Messages[0], "user", "call skills.preview with source.provider=artifact")
+	assertMessageContains(t, result.Messages[0], "user", "call skills_preview with source.provider=artifact")
 	assertMessageContains(t, result.Messages[0], "user", "Never pass workspace_path")
 }
 
@@ -331,7 +331,7 @@ func TestDefaultContextBuilderInjectsToolsAndSkillsBeforeHistory(t *testing.T) {
 	assertMessageContains(t, result.Messages[0], "system", "Latest user message policy:")
 	assertMessageContains(t, result.Messages[1], "system", "Available tools:\n")
 	assertMessageContains(t, result.Messages[1], "system", "\"identifier\": \"default\"")
-	assertMessageContains(t, result.Messages[1], "system", "\"name\": \"tool namespace plus api name, for example default.run_command\"")
+	assertMessageContains(t, result.Messages[1], "system", "\"name\": \"tool namespace plus api name separated by an underscore, for example default_run_command\"")
 	assertMessage(t, result.Messages[2], "system", "Available skills:\n[\n  \"code-review\",\n  \"search\"\n]")
 	assertMessage(t, result.Messages[3], "assistant", "history")
 	assertMessage(t, result.Messages[4], "user", "current")
@@ -432,6 +432,15 @@ func TestBuildSystemPromptAppendsLatestMessagePolicyOnce(t *testing.T) {
 	prompt := buildSystemPrompt(system)
 	if !strings.Contains(prompt, system) || !strings.Contains(prompt, "Latest user message policy:") || !strings.Contains(prompt, "Turn progress policy:") {
 		t.Fatalf("expected appended policy, got %q", prompt)
+	}
+	for _, expected := range []string{
+		"[Steering update for the active turn]",
+		"preserving the original objective",
+		"Do not apologize merely because steering changes the next action",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected steering continuity policy %q, got %q", expected, prompt)
+		}
 	}
 
 	again := buildSystemPrompt(prompt)

@@ -52,6 +52,19 @@ describe("SSE", () => {
     expect(event.value).toMatchObject({ stream_seq: 7, type: "llm.text", text: "hello" });
   });
 
+  it("streams transient tool progress without treating it as durable history", async () => {
+    server = await startServer((request, response) => {
+      expect(request.url).toBe("/v2/sessions/sesn_1/live/stream");
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: {"stream_seq":8,"session_id":"sesn_1","turn_id":"turn_1","type":"tool.call_progress","call_id":"call_1","tool":"default.run_command","stage":"running","percent":40,"operation":"update","content_format":"text","text":"Installing dependencies","created_at":"2026-07-15T00:00:00Z"}\n\n`);
+    });
+    const client = new TMAClient(server.baseURL);
+    const stream = client.sessions.liveEvents("sesn_1", { retryInitialMs: 1 });
+    const event = await stream.next();
+    await stream.return(undefined);
+    expect(event.value).toMatchObject({ stream_seq: 8, type: "tool.call_progress", call_id: "call_1", percent: 40 });
+  });
+
   it("rejects durable events on the transient live stream", async () => {
     server = await startServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });

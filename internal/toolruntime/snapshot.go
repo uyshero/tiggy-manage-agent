@@ -16,16 +16,23 @@ import (
 // freezes model definitions, registry manifests, and permission policy before
 // the first model request.
 type Snapshot struct {
-	registry         tools.Registry
-	registryRevision string
-	policy           tools.InterventionPolicy
-	policyRevision   string
-	definitions      []coremodel.ToolDefinition
-	modelContext     json.RawMessage
-	modelTools       []llm.Tool
+	registry           tools.Registry
+	registryRevision   string
+	policy             tools.InterventionPolicy
+	policyRevision     string
+	middlewares        []ToolMiddleware
+	middleware         []MiddlewareDescriptor
+	middlewareRevision string
+	definitions        []coremodel.ToolDefinition
+	modelContext       json.RawMessage
+	modelTools         []llm.Tool
 }
 
 func NewSnapshot(registry tools.Registry, policy tools.InterventionPolicy) (Snapshot, error) {
+	return NewSnapshotWithMiddleware(registry, policy, nil)
+}
+
+func NewSnapshotWithMiddleware(registry tools.Registry, policy tools.InterventionPolicy, middlewares []ToolMiddleware) (Snapshot, error) {
 	frozenRegistry, registryRevision, err := registry.Snapshot()
 	if err != nil {
 		return Snapshot{}, err
@@ -34,9 +41,15 @@ func NewSnapshot(registry tools.Registry, policy tools.InterventionPolicy) (Snap
 	if err != nil {
 		return Snapshot{}, err
 	}
+	frozenMiddleware, middleware, middlewareRevision, err := freezeMiddleware(middlewares)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	return Snapshot{
 		registry: frozenRegistry, registryRevision: registryRevision,
-		policy: frozenPolicy, policyRevision: policyRevision, definitions: toolDefinitions(frozenRegistry),
+		policy: frozenPolicy, policyRevision: policyRevision,
+		middlewares: frozenMiddleware, middleware: middleware, middlewareRevision: middlewareRevision,
+		definitions:  toolDefinitions(frozenRegistry),
 		modelContext: frozenRegistry.ModelContext(), modelTools: frozenRegistry.ModelTools(),
 	}, nil
 }
@@ -67,6 +80,14 @@ func (s Snapshot) RegistryRevision() string {
 
 func (s Snapshot) PolicyRevision() string {
 	return s.policyRevision
+}
+
+func (s Snapshot) MiddlewareRevision() string {
+	return s.middlewareRevision
+}
+
+func (s Snapshot) Middleware() []MiddlewareDescriptor {
+	return append([]MiddlewareDescriptor(nil), s.middleware...)
 }
 
 func freezePolicy(policy tools.InterventionPolicy) (tools.InterventionPolicy, string, error) {

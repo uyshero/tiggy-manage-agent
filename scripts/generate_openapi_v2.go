@@ -392,11 +392,15 @@ paths:
         stream_seq: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
         session_id: {type: string}
         turn_id: {type: string}
-        type: {type: string, enum: [llm.text]}
+        type: {type: string, enum: [llm.text, tool.call_progress]}
         index: {type: integer, format: int32}
         tool_round: {type: integer, format: int32}
-        operation: {type: string, enum: [append]}
-        content_format: {type: string, enum: [markdown]}
+        call_id: {type: string}
+        tool: {type: string}
+        stage: {type: string}
+        percent: {type: integer, format: int32, minimum: 0, maximum: 100}
+        operation: {type: string, enum: [append, update]}
+        content_format: {type: string, enum: [markdown, text]}
         text: {type: string}
         created_at: {type: string, format: date-time}
     AgentTaskGroupItemTemplate:

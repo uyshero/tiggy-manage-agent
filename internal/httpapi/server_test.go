@@ -2611,6 +2611,14 @@ func TestSessionInterventionApprovalAppliesValidatedSuggestedPermissionRule(t *t
 				if err != nil || len(rules) != 1 || rules[0].ID != selected.Rule.ID || updated.CurrentConfigVersion != agent.CurrentConfigVersion+1 {
 					t.Fatalf("Agent rules=%+v version=%d err=%v", rules, updated.CurrentConfigVersion, err)
 				}
+				updatedSession, err := store.GetSession(session.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sessionRules, err := tools.ParsePermissionRulesForSource(updatedSession.RuntimeSettings, tools.PermissionRuleSourceSession)
+				if err != nil || len(sessionRules) != 1 || sessionRules[0].ID != selected.Rule.ID || updatedSession.RuntimeSettingsRevision != session.RuntimeSettingsRevision+1 {
+					t.Fatalf("current Session rules=%+v revision=%d err=%v", sessionRules, updatedSession.RuntimeSettingsRevision, err)
+				}
 			}
 		})
 	}

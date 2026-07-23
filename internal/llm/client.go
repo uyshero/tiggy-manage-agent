@@ -544,7 +544,7 @@ func fakeToolCallResponse() Response {
 				ID:   "call_verify_tool",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","pwd && printf '\\n' && printf tma-session-tool-ok"],"work_dir":"."}`),
 				},
 			}},
@@ -564,7 +564,7 @@ func fakeUploadedFileSeedResponse() Response {
 				ID:   "call_verify_upload_seed",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; printf tma-session-data-seeded > /mnt/data/state.txt; cat /mnt/data/state.txt"],"work_dir":"."}`),
 				},
 			}},
@@ -584,7 +584,7 @@ func fakeUploadedFileReadResponse() Response {
 				ID:   "call_verify_upload_read",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf '\\n'; cat /mnt/data/state.txt; printf '\\n'; printf tma-session-data-persisted"],"work_dir":"."}`),
 				},
 			}},
@@ -604,7 +604,7 @@ func fakeUploadedFileExportResponse() Response {
 				ID:   "call_verify_upload_export",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","mkdir -p /workspace/outputs && { for f in /workspace/uploads/*/*; do [ -f \"$f\" ] && cat \"$f\"; done; printf 'tma-session-output-exported\\n'; } > /workspace/outputs/export.txt && cat /workspace/outputs/export.txt"],"work_dir":".","output_paths":["/workspace/outputs/export.txt"]}`),
 				},
 			}},
@@ -624,7 +624,7 @@ func fakeWorkerExportResponse() Response {
 				ID:   "call_verify_worker_export",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf tma-worker-export-ok > worker-export.txt && cat worker-export.txt"],"work_dir":".","output_paths":["worker-export.txt"]}`),
 				},
 			}},
@@ -644,7 +644,7 @@ func fakeWorkerLargeExportResponse() Response {
 				ID:   "call_verify_worker_large_export",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.run_command",
+					Name:      "default_run_command",
 					Arguments: json.RawMessage(`{"command":"sh","args":["-c","printf 'tma-worker-large-export-ok\n' > worker-large-export.txt && dd if=/dev/zero bs=1048576 count=9 >> worker-large-export.txt 2>/dev/null && printf tma-worker-large-export-ok"],"work_dir":".","output_paths":["worker-large-export.txt"]}`),
 				},
 			}},
@@ -664,7 +664,7 @@ func fakeWorkerPluginToolResponse() Response {
 				ID:   "call_verify_worker_plugin",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "robot.get_state",
+					Name:      "robot_get_state",
 					Arguments: json.RawMessage(`{}`),
 				},
 			}},
@@ -684,7 +684,7 @@ func fakeMCPToolResponse() Response {
 				ID:   "call_verify_mcp_tool",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "filesystem.read_file",
+					Name:      "filesystem_read_file",
 					Arguments: json.RawMessage(`{"path":"README.md"}`),
 				},
 			}},
@@ -704,7 +704,7 @@ func fakeComputerPluginToolResponse() Response {
 				ID:   "call_verify_computer_plugin",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "computer.get_state",
+					Name:      "computer_get_state",
 					Arguments: json.RawMessage(`{"capture_mode":"ax"}`),
 				},
 			}},
@@ -724,7 +724,7 @@ func fakeComputerPluginScreenshotResponse() Response {
 				ID:   "call_verify_computer_plugin_screenshot",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "computer.screenshot",
+					Name:      "computer_screenshot",
 					Arguments: json.RawMessage(`{}`),
 				},
 			}},
@@ -754,7 +754,7 @@ func fakeWebCrawlResponse(userText string) Response {
 				ID:   "call_verify_web_crawl",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "web.crawl",
+					Name:      "web_crawl",
 					Arguments: arguments,
 				},
 			}},
@@ -785,7 +785,7 @@ func fakeWebSearchResponse(userText string) Response {
 				ID:   "call_verify_web_search",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "web.search",
+					Name:      "web_search",
 					Arguments: arguments,
 				},
 			}},
@@ -836,7 +836,7 @@ func fakeBrowserFlowResponse(userText string) Response {
 					ID:   "call_verify_browser_open",
 					Type: "function",
 					Function: ToolCallFunction{
-						Name:      "browser.open",
+						Name:      "browser_open",
 						Arguments: openArguments,
 					},
 				},
@@ -844,7 +844,7 @@ func fakeBrowserFlowResponse(userText string) Response {
 					ID:   "call_verify_browser_screenshot",
 					Type: "function",
 					Function: ToolCallFunction{
-						Name:      "browser.screenshot",
+						Name:      "browser_screenshot",
 						Arguments: screenshotArguments,
 					},
 				},
@@ -852,7 +852,7 @@ func fakeBrowserFlowResponse(userText string) Response {
 					ID:   "call_verify_browser_type",
 					Type: "function",
 					Function: ToolCallFunction{
-						Name:      "browser.type",
+						Name:      "browser_type",
 						Arguments: typeArguments,
 					},
 				},
@@ -860,7 +860,7 @@ func fakeBrowserFlowResponse(userText string) Response {
 					ID:   "call_verify_browser_click",
 					Type: "function",
 					Function: ToolCallFunction{
-						Name:      "browser.click",
+						Name:      "browser_click",
 						Arguments: clickArguments,
 					},
 				},
@@ -897,7 +897,7 @@ func fakeBrowserTakeoverResponse(userText string) Response {
 				ID:   "call_verify_browser_takeover",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "browser.takeover",
+					Name:      "browser_takeover",
 					Arguments: arguments,
 				},
 			}},
@@ -920,7 +920,7 @@ func fakeBrowserCloseResponse() Response {
 				ID:   "call_verify_browser_close",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "browser.close",
+					Name:      "browser_close",
 					Arguments: arguments,
 				},
 			}},
@@ -960,7 +960,7 @@ with urllib.request.urlopen(url, timeout=10) as response:
 				ID:   "call_verify_network_download",
 				Type: "function",
 				Function: ToolCallFunction{
-					Name:      "default.execute_code",
+					Name:      "default_execute_code",
 					Arguments: arguments,
 				},
 			}},

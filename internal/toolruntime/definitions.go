@@ -12,7 +12,7 @@ func toolDefinitions(registry tools.Registry) []coremodel.ToolDefinition {
 	modelTools := registry.ModelTools()
 	definitions := make([]coremodel.ToolDefinition, 0, len(modelTools))
 	for _, tool := range modelTools {
-		call := tools.NormalizeCall(tools.Call{Name: tool.Function.Name})
+		call := registry.ResolveCall(tools.Call{Name: tool.Function.Name})
 		_, api, _ := registry.GetAPI(call.Identifier, call.APIName)
 		concurrencyClass := toolExecutionMode(api)
 		definitions = append(definitions, coremodel.ToolDefinition{

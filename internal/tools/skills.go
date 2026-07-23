@@ -260,7 +260,7 @@ func (SkillsRuntime) Manifest() Manifest {
 			Title:       "Skills Registry",
 			Description: "Search, inspect, discover, preview, install, read package assets, enable, and disable versioned skills in the current workspace.",
 		},
-		SystemRole:     "Use skills.search for installed skills and skills.discover for installable skills. When an enabled skill summary says its full instructions are available on demand, call skills.inspect with the exact identifier and frozen version before applying those details. skills.discover defaults to the organization-local catalog and does not access the network; use provider github only when the user explicitly requests GitHub and external network access is allowed. Use the returned catalog_entry_id as source.catalog_entry_id with provider catalog for skills.preview and skills.install. Preview before installing or upgrading, inspect before enabling, and use skills.read_asset when an enabled skill references a package file. Never guess asset paths: read only SKILL.md or an exact path listed in the version assets; an empty assets list means there are no additional package assets. For a user-uploaded offline Skill ZIP, use source provider artifact with the exact current Session artifact_id supplied in attachment context; never use workspace_path, a host filesystem path, bucket/key, or arbitrary URL. Preview is read-only and returns source, license, warnings, asset index, version differences, package attestation, static security findings, and policy checks. Do not install when policy.allowed is false or install_state is blocked/unchanged. For install_state=upgrade set upgrade_existing=true; otherwise leave it false. Pass preview policy_id, policy_version, and policy_revision unchanged to skills.install. Installing publishes content to the workspace registry and requires write approval. After successful installation, clearly offer to enable that exact version, but do not call skills.enable until the user requests it. Enabling and disabling require separate write approval, create a new Agent config version when the binding changes, and do not change the running Session immediately; report requires_session_upgrade explicitly. Disabling removes only the selected binding and does not archive or uninstall the Skill. Enabled frozen Skill packages are materialized under the runtime package directory in cloud_sandbox. Executable assets still require a separate approved default.* execution call. When a package expects a desktop browser unavailable in the sandbox, use registered browser.* tools instead of searching host or server directories.",
+		SystemRole:     "Use skills_search for installed skills and skills_discover for installable skills. When an enabled skill summary says its full instructions are available on demand, call skills_inspect with the exact identifier and frozen version before applying those details. skills_discover defaults to the organization-local catalog and does not access the network; use provider github only when the user explicitly requests GitHub and external network access is allowed. Use the returned catalog_entry_id as source.catalog_entry_id with provider catalog for skills_preview and skills_install. Preview before installing or upgrading, inspect before enabling, and use skills_read_asset when an enabled skill references a package file. Never guess asset paths: read only SKILL.md or an exact path listed in the version assets; an empty assets list means there are no additional package assets. For a user-uploaded offline Skill ZIP, use source provider artifact with the exact current Session artifact_id supplied in attachment context; never use workspace_path, a host filesystem path, bucket/key, or arbitrary URL. Preview is read-only and returns source, license, warnings, asset index, version differences, package attestation, static security findings, and policy checks. Do not install when policy.allowed is false or install_state is blocked/unchanged. For install_state=upgrade set upgrade_existing=true; otherwise leave it false. Pass preview policy_id, policy_version, and policy_revision unchanged to skills_install. Installing publishes content to the workspace registry and requires write approval. After successful installation, clearly offer to enable that exact version, but do not call skills_enable until the user requests it. Enabling and disabling require separate write approval, create a new Agent config version when the binding changes, and do not change the running Session immediately; report requires_session_upgrade explicitly. Disabling removes only the selected binding and does not archive or uninstall the Skill. Enabled frozen Skill packages are materialized under the runtime package directory in cloud_sandbox. Executable assets still require a separate approved default_* execution call. When a package expects a desktop browser unavailable in the sandbox, use registered browser_* tools instead of searching host or server directories.",
 		Executors:      []string{ExecutorServer},
 		ApprovalPolicy: ApprovalPolicyNever,
 		API: []API{
@@ -285,7 +285,7 @@ func (SkillsRuntime) Manifest() Manifest {
 			{
 				Name: "preview", Namespace: NamespaceSkills, APIName: "preview",
 				Description: "Preview an internal catalog, GitHub, or current-Session artifact ZIP skill package without installing it, including provenance, license, asset index, security policy, and version differences.",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string","description":"Optional install identifier override"},"source":{"type":"object","properties":{"provider":{"type":"string","enum":["catalog","github","artifact"]},"repository":{"type":"string","description":"GitHub owner/repo coordinate"},"ref":{"type":"string"},"path":{"type":"string"},"artifact_id":{"type":"string","description":"ZIP artifact attached to the current Session"},"catalog_entry_id":{"type":"string","description":"Published entry returned by skills.discover"}},"required":["provider"],"allOf":[{"if":{"properties":{"provider":{"const":"catalog"}}},"then":{"required":["catalog_entry_id"]}},{"if":{"properties":{"provider":{"const":"github"}}},"then":{"required":["repository"]}},{"if":{"properties":{"provider":{"const":"artifact"}}},"then":{"required":["artifact_id"]}}]}},"required":["source"]}`),
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string","description":"Optional install identifier override"},"source":{"type":"object","properties":{"provider":{"type":"string","enum":["catalog","github","artifact"]},"repository":{"type":"string","description":"GitHub owner/repo coordinate"},"ref":{"type":"string"},"path":{"type":"string"},"artifact_id":{"type":"string","description":"ZIP artifact attached to the current Session"},"catalog_entry_id":{"type":"string","description":"Published entry returned by skills_discover"}},"required":["provider"],"allOf":[{"if":{"properties":{"provider":{"const":"catalog"}}},"then":{"required":["catalog_entry_id"]}},{"if":{"properties":{"provider":{"const":"github"}}},"then":{"required":["repository"]}},{"if":{"properties":{"provider":{"const":"artifact"}}},"then":{"required":["artifact_id"]}}]}},"required":["source"]}`),
 				Risk:        ToolRiskRead, Runtime: runtimePolicy, Implementation: ToolImplementationServerBuiltin,
 			},
 			{
@@ -297,7 +297,7 @@ func (SkillsRuntime) Manifest() Manifest {
 			{
 				Name: "install", Namespace: NamespaceSkills, APIName: "install",
 				Description:    "Install an inline skill, internal catalog package, GitHub SKILL.md source, or current-Session artifact ZIP into the workspace, or publish a new version when upgrade_existing is true.",
-				Parameters:     json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"content_format":{"type":"string","enum":["markdown","json","hybrid"]},"manifest":{"type":"object"},"content_text":{"type":"string"},"assets":{},"source":{"type":"object","properties":{"provider":{"type":"string","enum":["catalog","github","artifact"]},"repository":{"type":"string","description":"GitHub owner/repo coordinate"},"ref":{"type":"string"},"path":{"type":"string"},"artifact_id":{"type":"string","description":"ZIP artifact attached to the current Session"},"catalog_entry_id":{"type":"string","description":"Published entry returned by skills.discover"}},"required":["provider"],"allOf":[{"if":{"properties":{"provider":{"const":"catalog"}}},"then":{"required":["catalog_entry_id"]}},{"if":{"properties":{"provider":{"const":"github"}}},"then":{"required":["repository"]}},{"if":{"properties":{"provider":{"const":"artifact"}}},"then":{"required":["artifact_id"]}}]},"policy_id":{"type":"string"},"policy_version":{"type":"integer","minimum":1},"policy_revision":{"type":"string"},"upgrade_existing":{"type":"boolean"}},"anyOf":[{"required":["identifier","title","content_text"]},{"required":["source"]}]}`),
+				Parameters:     json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string"},"title":{"type":"string"},"description":{"type":"string"},"content_format":{"type":"string","enum":["markdown","json","hybrid"]},"manifest":{"type":"object"},"content_text":{"type":"string"},"assets":{},"source":{"type":"object","properties":{"provider":{"type":"string","enum":["catalog","github","artifact"]},"repository":{"type":"string","description":"GitHub owner/repo coordinate"},"ref":{"type":"string"},"path":{"type":"string"},"artifact_id":{"type":"string","description":"ZIP artifact attached to the current Session"},"catalog_entry_id":{"type":"string","description":"Published entry returned by skills_discover"}},"required":["provider"],"allOf":[{"if":{"properties":{"provider":{"const":"catalog"}}},"then":{"required":["catalog_entry_id"]}},{"if":{"properties":{"provider":{"const":"github"}}},"then":{"required":["repository"]}},{"if":{"properties":{"provider":{"const":"artifact"}}},"then":{"required":["artifact_id"]}}]},"policy_id":{"type":"string"},"policy_version":{"type":"integer","minimum":1},"policy_revision":{"type":"string"},"upgrade_existing":{"type":"boolean"}},"anyOf":[{"required":["identifier","title","content_text"]},{"required":["source"]}]}`),
 				ApprovalPolicy: ApprovalPolicyAlways,
 				ApprovalReason: InterventionReasonSkillRegistry,
 				Risk:           ToolRiskWrite, Runtime: runtimePolicy, Implementation: ToolImplementationServerBuiltin,
@@ -334,7 +334,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "search":
 		var request SkillsSearchRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.search arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_search arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -346,7 +346,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "inspect":
 		var request SkillsInspectRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.inspect arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_inspect arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -361,13 +361,13 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 			content += "\n\n" + response.Version.ContentText
 		}
 		if response.HasMore {
-			content += fmt.Sprintf("\n\n[More instructions available. Call skills.inspect again with content_offset=%d and the same identifier/version.]", response.NextOffset)
+			content += fmt.Sprintf("\n\n[More instructions available. Call skills_inspect again with content_offset=%d and the same identifier/version.]", response.NextOffset)
 		}
 		return skillsToolResult(call, state, content)
 	case "discover":
 		var request SkillsDiscoverRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.discover arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_discover arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -379,7 +379,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "preview":
 		var request SkillsPreviewRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.preview arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_preview arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -391,7 +391,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "read_asset":
 		var request SkillsReadAssetRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.read_asset arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_read_asset arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -410,7 +410,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "install":
 		var request SkillsInstallRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.install arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_install arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -427,7 +427,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "enable":
 		var request SkillsEnableRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.enable arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_enable arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID
@@ -440,7 +440,7 @@ func (runtime SkillsRuntime) Execute(ctx context.Context, call Call, executionCo
 	case "disable":
 		var request SkillsDisableRequest
 		if err := json.Unmarshal(call.Arguments, &request); err != nil {
-			return ExecutionResult{}, fmt.Errorf("decode skills.disable arguments: %w", err)
+			return ExecutionResult{}, fmt.Errorf("decode skills_disable arguments: %w", err)
 		}
 		request.WorkspaceID = executionContext.WorkspaceID
 		request.SessionID = executionContext.SessionID

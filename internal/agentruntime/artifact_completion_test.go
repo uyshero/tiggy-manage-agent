@@ -19,7 +19,7 @@ func TestArtifactCompletionGateBlocksUnregisteredWorkspaceFile(t *testing.T) {
 	if err != nil || verdict.Outcome != CompletionOutcomeRetry {
 		t.Fatalf("unexpected verdict=%#v err=%v", verdict, err)
 	}
-	for _, expected := range []string{"/workspace/generated_pig.png", "output_paths", "default.run_command"} {
+	for _, expected := range []string{"/workspace/generated_pig.png", "output_paths", "default_run_command"} {
 		if !strings.Contains(verdict.Feedback, expected) {
 			t.Fatalf("feedback missing %q: %s", expected, verdict.Feedback)
 		}

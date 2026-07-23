@@ -163,9 +163,13 @@ function decodeLiveEvent(data: string): LiveEvent {
   }
   if (!decoded || typeof decoded !== "object") throw new SSESchemaError("Live SSE event must be an object");
   const event = decoded as Partial<LiveEvent>;
-  if (!Number.isSafeInteger(event.stream_seq) || typeof event.session_id !== "string" || typeof event.turn_id !== "string" ||
-      event.type !== "llm.text" || event.operation !== "append" || event.content_format !== "markdown" ||
-      typeof event.text !== "string" || typeof event.created_at !== "string") {
+  const validBase = Number.isSafeInteger(event.stream_seq) && typeof event.session_id === "string" &&
+    typeof event.turn_id === "string" && typeof event.text === "string" && typeof event.created_at === "string";
+  const validLLMText = event.type === "llm.text" && event.operation === "append" && event.content_format === "markdown";
+  const progress = event as Partial<LiveEvent> & { call_id?: string; tool?: string; stage?: string };
+  const validToolProgress = event.type === "tool.call_progress" && event.operation === "update" && event.content_format === "text" &&
+    typeof progress.call_id === "string" && typeof progress.tool === "string" && typeof progress.stage === "string";
+  if (!validBase || (!validLLMText && !validToolProgress)) {
     throw new SSESchemaError("Live SSE event is missing required transient stream fields");
   }
   return event as LiveEvent;

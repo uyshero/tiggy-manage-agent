@@ -2472,15 +2472,20 @@ export interface components {
             session_id: string;
             turn_id: string;
             /** @enum {string} */
-            type: "llm.text";
+            type: "llm.text" | "tool.call_progress";
             /** Format: int32 */
             index?: number;
             /** Format: int32 */
             tool_round?: number;
+            call_id?: string;
+            tool?: string;
+            stage?: string;
+            /** Format: int32 */
+            percent?: number;
             /** @enum {string} */
-            operation: "append";
+            operation: "append" | "update";
             /** @enum {string} */
-            content_format: "markdown";
+            content_format: "markdown" | "text";
             text: string;
             /** Format: date-time */
             created_at: string;

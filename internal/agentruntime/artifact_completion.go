@@ -60,7 +60,7 @@ func (gate ArtifactCompletionGate) Validate(ctx context.Context, candidate Compl
 		Validator: artifactCompletionValidator,
 		Reason:    fmt.Sprintf("%d referenced workspace file(s) are not persisted as session artifacts", len(missing)),
 		Feedback: fmt.Sprintf(
-			"Completion is blocked because these final files are referenced but are not registered as Session artifacts: %s. Verify that each file exists, then call default.run_command with output_paths containing these exact /workspace paths (a no-op verification command is sufficient). Provide the final response only after the tool result includes the exported artifacts.",
+			"Completion is blocked because these final files are referenced but are not registered as Session artifacts: %s. Verify that each file exists, then call default_run_command with output_paths containing these exact /workspace paths (a no-op verification command is sufficient). Provide the final response only after the tool result includes the exported artifacts.",
 			strings.Join(missing, ", "),
 		),
 		Evidence: map[string]any{

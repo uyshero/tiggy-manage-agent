@@ -17,7 +17,7 @@ import (
 const (
 	ExecutorServer               = "server"
 	ManifestProtocolVersion      = "tma.tools.manifest.v1"
-	ToolCallProtocolVersion      = "tma.tool_call.v1"
+	ToolCallProtocolVersion      = "tma.tool_call.v2"
 	ToolResultProtocolVersion    = "tma.tool_result.v1"
 	MaxTransportedArtifactBytes  = 8 << 20
 	DefaultResultContextMaxChars = 12000
@@ -87,7 +87,21 @@ type ExecutionContext struct {
 	ExpectedFileContentSHA256 string
 	TaskService               TaskToolService
 	CapabilityTransport       bool
+	Progress                  ToolProgressSink
 }
+
+type ToolProgress struct {
+	CallID    string          `json:"call_id"`
+	Tool      string          `json:"tool"`
+	Index     int             `json:"index"`
+	ToolRound int             `json:"tool_round,omitempty"`
+	Stage     string          `json:"stage"`
+	Message   string          `json:"message"`
+	Percent   int             `json:"percent,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+}
+
+type ToolProgressSink func(context.Context, ToolProgress)
 
 func mergeManagedEnvironment(request map[string]string, managed map[string]string) map[string]string {
 	if len(managed) == 0 {
@@ -308,7 +322,8 @@ func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
 			enabledTools[pattern] = true
 			continue
 		}
-		identifier, apiName := splitFunctionName(pattern)
+		resolved := r.ResolveCall(Call{Name: pattern})
+		identifier, apiName := resolved.Identifier, resolved.APIName
 		if identifier == "" || apiName == "" {
 			continue
 		}
@@ -546,7 +561,7 @@ func (r Registry) ModelTools() []llm.Tool {
 			modelTools = append(modelTools, llm.Tool{
 				Type: "function",
 				Function: llm.ToolFunction{
-					Name:        manifest.Identifier + "." + api.Name,
+					Name:        ModelToolName(manifest.Identifier, api.Name),
 					Description: api.Description,
 					Parameters:  parameters,
 				},
@@ -570,7 +585,7 @@ func (r Registry) ModelContext() json.RawMessage {
 					"id":   "optional stable call id",
 					"type": "function",
 					"function": map[string]any{
-						"name":      "tool namespace plus api name, for example default.run_command",
+						"name":      "tool namespace plus api name separated by an underscore, for example default_run_command",
 						"arguments": "JSON object matching the API parameters",
 					},
 				}},
@@ -623,8 +638,8 @@ func NewDefaultExecutor() RegistryExecutor {
 }
 
 func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
-	call = NormalizeCall(call)
 	registry := e.Registry
+	call = registry.ResolveCall(call)
 	if err := registry.ValidateIntegrity(); err != nil {
 		return ExecutionResult{}, err
 	}
@@ -765,9 +780,78 @@ func NormalizeCall(call Call) Call {
 		call.Identifier, call.APIName = splitFunctionName(call.APIName)
 	}
 	if call.Identifier == "" {
+		call.Identifier, call.APIName = splitBuiltinModelToolName(call.APIName)
+	}
+	if call.Identifier == "" {
 		call.Identifier = DefaultIdentifier
 	}
 	return call
+}
+
+// ResolveCall resolves the canonical namespace_api model name against the
+// registry. Registry lookup avoids ambiguity when a namespace or API itself
+// contains underscores. Legacy namespace.api names remain accepted.
+func (r Registry) ResolveCall(call Call) Call {
+	if call.APIName == "" {
+		call.APIName = call.Name
+	}
+	if call.Identifier != "" || strings.Contains(call.APIName, ".") {
+		return NormalizeCall(call)
+	}
+	name := strings.TrimSpace(call.APIName)
+	matchedIdentifier := ""
+	matchedAPI := ""
+	for _, manifest := range r.Manifests() {
+		for _, api := range manifest.API {
+			if ModelToolName(manifest.Identifier, api.Name) != name {
+				continue
+			}
+			if matchedIdentifier != "" {
+				return NormalizeCall(call)
+			}
+			matchedIdentifier = manifest.Identifier
+			matchedAPI = api.Name
+		}
+	}
+	if matchedIdentifier != "" {
+		call.Identifier = matchedIdentifier
+		call.APIName = matchedAPI
+		return call
+	}
+	return NormalizeCall(call)
+}
+
+// ModelToolName is the canonical function name exposed to every model.
+// Keeping the provider-facing alphabet to letters, digits, and underscores
+// avoids stricter function-name validation across model vendors.
+func ModelToolName(identifier string, apiName string) string {
+	return modelToolNamePart(identifier) + "_" + modelToolNamePart(apiName)
+}
+
+func modelToolNamePart(value string) string {
+	var name strings.Builder
+	for _, char := range strings.TrimSpace(value) {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '_':
+			name.WriteRune(char)
+		default:
+			name.WriteByte('_')
+		}
+	}
+	return name.String()
+}
+
+func splitBuiltinModelToolName(name string) (string, string) {
+	for _, identifier := range []string{
+		NamespaceInteraction, NamespaceArtifact, NamespaceBrowser, NamespaceDefault,
+		NamespaceSkills, NamespaceAgent, NamespaceTask, NamespaceWeb,
+	} {
+		prefix := identifier + "_"
+		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {
+			return identifier, strings.TrimPrefix(name, prefix)
+		}
+	}
+	return "", name
 }
 
 func splitFunctionName(name string) (string, string) {

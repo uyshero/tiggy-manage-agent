@@ -176,7 +176,7 @@ func loadMCPRuntimeWithLookupHostsGuard(ctx context.Context, config mcppkg.Serve
 			Description: mcpFirstNonEmptyString(config.Description, initialized.ServerInfo.Name, "MCP server "+config.Identifier),
 		},
 		Metadata:       mcpManifestMetadata(config, initialized, len(toolsList)),
-		SystemRole:     "Use " + config.Identifier + ".* tools only when they are the best fit for the user's request.",
+		SystemRole:     "Use " + modelToolNamePart(config.Identifier) + "_* tools only when they are the best fit for the user's request.",
 		ApprovalPolicy: ApprovalPolicyNever,
 	}
 

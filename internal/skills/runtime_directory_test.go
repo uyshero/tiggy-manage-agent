@@ -34,7 +34,7 @@ func TestBindRuntimeDirectoriesAdaptsDesktopBrowserSkills(t *testing.T) {
 		t.Fatalf("bind runtime directories: %v", err)
 	}
 	content := string(bound.Rendered)
-	if !strings.Contains(content, "Use the registered browser.* tools") || !strings.Contains(content, "Do not run host-browser discovery") {
+	if !strings.Contains(content, "Use the registered browser_* tools") || !strings.Contains(content, "Do not run host-browser discovery") {
 		t.Fatalf("expected native browser compatibility instructions, got %s", content)
 	}
 }

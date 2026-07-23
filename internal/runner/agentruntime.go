@@ -28,6 +28,7 @@ import (
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/skills"
 	"tiggy-manage-agent/internal/tokenestimate"
+	"tiggy-manage-agent/internal/toolruntime"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -47,6 +48,7 @@ type AgentRuntimeTurnExecutor struct {
 	MCPHTTPHost        *mcp.StreamableHTTPHost
 	MCPRuntimeGuard    *mcp.RuntimeGuard
 	LiveEvents         *LiveEventBroker
+	ToolMiddlewares    []toolruntime.ToolMiddleware
 }
 
 func (e AgentRuntimeTurnExecutor) MCPHostStats() mcp.StdioHostStats {
@@ -478,7 +480,7 @@ func (e AgentRuntimeTurnExecutor) resolveTaskPlanContext(ctx context.Context, se
 		return "", fmt.Errorf("resolve current task plan: %w", err)
 	}
 	lines := []string{
-		"Current task plan (protected execution state; update only through task.*):",
+		"Current task plan (protected execution state; update only through task_*):",
 		fmt.Sprintf("Plan: %s [%s, %s]", plan.ID, plan.HandlingMode, plan.Status),
 		"Goal: " + plan.Goal,
 	}

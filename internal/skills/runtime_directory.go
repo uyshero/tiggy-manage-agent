@@ -29,7 +29,7 @@ func BindRuntimeDirectories(result ResolveResult, directories map[string]string)
 			)
 			runtimeNote := ""
 			if requiresNativeBrowserAdapter(resolved.Version.ContentText) {
-				runtimeNote = "TMA browser compatibility: this sandbox has no desktop Chrome/Edge binary. Do not run host-browser discovery or CDP proxy scripts and do not search ~/.claude or server directories. Use the registered browser.* tools for browser navigation, reading, interaction, and capture; use web.* tools for search and crawl.\n"
+				runtimeNote = "TMA browser compatibility: this sandbox has no desktop Chrome/Edge binary. Do not run host-browser discovery or CDP proxy scripts and do not search ~/.claude or server directories. Use the registered browser_* tools for browser navigation, reading, interaction, and capture; use web_* tools for search and crawl.\n"
 			}
 			resolved.Rendered = fmt.Sprintf(
 				"%s\nRuntime package directory: %s\nUse this exact directory for package files; do not search server or home directories.\n%s",

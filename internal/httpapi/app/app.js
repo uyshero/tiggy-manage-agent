@@ -26170,7 +26170,11 @@ function decodeLiveEvent(data) {
   if (!decoded || typeof decoded !== "object")
     throw new SSESchemaError("Live SSE event must be an object");
   const event = decoded;
-  if (!Number.isSafeInteger(event.stream_seq) || typeof event.session_id !== "string" || typeof event.turn_id !== "string" || event.type !== "llm.text" || event.operation !== "append" || event.content_format !== "markdown" || typeof event.text !== "string" || typeof event.created_at !== "string") {
+  const validBase = Number.isSafeInteger(event.stream_seq) && typeof event.session_id === "string" && typeof event.turn_id === "string" && typeof event.text === "string" && typeof event.created_at === "string";
+  const validLLMText = event.type === "llm.text" && event.operation === "append" && event.content_format === "markdown";
+  const progress = event;
+  const validToolProgress = event.type === "tool.call_progress" && event.operation === "update" && event.content_format === "text" && typeof progress.call_id === "string" && typeof progress.tool === "string" && typeof progress.stage === "string";
+  if (!validBase || !validLLMText && !validToolProgress) {
     throw new SSESchemaError("Live SSE event is missing required transient stream fields");
   }
   return event;
@@ -39181,6 +39185,7 @@ function WorkbenchApp() {
   const [taskSearch, setTaskSearch] = reactExports.useState("");
   const [eventsResponse, setEventsResponse] = reactExports.useState({ events: [] });
   const [liveReply, setLiveReply] = reactExports.useState(null);
+  const [liveToolProgress, setLiveToolProgress] = reactExports.useState(null);
   const [taskPlanResponse, setTaskPlanResponse] = reactExports.useState({ plan: null });
   const [interventionResponse, setInterventionResponse] = reactExports.useState({ interventions: [] });
   const [artifactResponse, setArtifactResponse] = reactExports.useState({ artifacts: [] });
@@ -39492,6 +39497,7 @@ function WorkbenchApp() {
   }, [events$1]);
   const activeSkillKeys = reactExports.useMemo(() => new Set(parseSkillsConfig(runtimeConfig == null ? void 0 : runtimeConfig.skills).enabled.map((binding) => `${binding.skill}:${Number(binding.version || 1)}`)), [runtimeConfig == null ? void 0 : runtimeConfig.skills]);
   const streamingReply = (liveReply == null ? void 0 : liveReply.sessionID) === sessionID ? liveReply : null;
+  const activeToolProgress = (liveToolProgress == null ? void 0 : liveToolProgress.sessionID) === sessionID ? liveToolProgress : null;
   const renderedChatTimelineEvents = reactExports.useMemo(() => {
     if (!streamingReply) return chatTimelineEvents;
     const hasDurableReply = chatTimelineEvents.some((event) => payload(event).turn_id === streamingReply.turnID && (event.type === "agent.message" && hasVisibleAgentText(event) || event.type === "runtime.progress_message" && Number(eventData(event).tool_round || 0) === Number(streamingReply.toolRound || 0)));
@@ -39918,6 +39924,9 @@ function WorkbenchApp() {
           if (isCurrent) setLiveReply(null);
         }
       }
+      if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
+        setLiveToolProgress(null);
+      }
       if (isCurrent && sessionSyncEventTypes.has(event.type)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = window.setTimeout(() => {
@@ -39951,7 +39960,22 @@ function WorkbenchApp() {
       (async () => {
         try {
           for await (const event of streamSessionLiveEvents(sessionKey, { signal: stream.liveController.signal })) {
+            if (event.type === "tool.call_progress" && event.text) {
+              if (sessionIDRef.current === sessionKey) {
+                setLiveToolProgress({
+                  sessionID: sessionKey,
+                  turnID: event.turn_id,
+                  callID: event.call_id,
+                  tool: event.tool,
+                  stage: event.stage,
+                  percent: Number(event.percent || 0),
+                  text: event.text
+                });
+              }
+              continue;
+            }
             if (event.type !== "llm.text" || !event.text) continue;
+            if (sessionIDRef.current === sessionKey) setLiveToolProgress(null);
             const current = sessionLiveRepliesRef.current.get(sessionKey);
             const sameStream = (current == null ? void 0 : current.turnID) === event.turn_id && (current == null ? void 0 : current.toolRound) === Number(event.tool_round || 0);
             if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) continue;
@@ -41916,7 +41940,11 @@ function WorkbenchApp() {
               ] }),
               !streamingReply && waitingForReply ? /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "message agent pending", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(Meta, { children: /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "通用智能体" }) }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-text", children: "正在处理并生成回复…" })
+                activeToolProgress ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "live-tool-progress", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: activeToolProgress.tool || "工具执行" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: activeToolProgress.text }),
+                  activeToolProgress.percent > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("progress", { max: "100", value: activeToolProgress.percent }) : null
+                ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "message-text", children: "正在处理并生成回复…" })
               ] }) : null
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(TaskPlanPrompt, { plan: currentTaskPlan }),

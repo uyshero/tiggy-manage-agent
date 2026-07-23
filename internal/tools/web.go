@@ -163,7 +163,7 @@ func (WebRuntime) Manifest() Manifest {
 			Title:       "Web Tools",
 			Description: "Search the web and crawl pages with layered provider and fetch fallbacks.",
 		},
-		SystemRole:     "Use web.search to find fresh public web results, then use web.crawl to read specific pages. Prefer search before crawling unknown URLs, and keep crawls focused to the pages you actually need.",
+		SystemRole:     "Use web_search to find fresh public web results, then use web_crawl to read specific pages. Prefer search before crawling unknown URLs, and keep crawls focused to the pages you actually need.",
 		Executors:      []string{ExecutorServer},
 		ApprovalPolicy: ApprovalPolicyAlways,
 		ApprovalReason: InterventionReasonNetworkAccess,

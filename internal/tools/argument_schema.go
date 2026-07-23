@@ -73,6 +73,9 @@ func (r Registry) Snapshot() (Registry, string, error) {
 		manifests = append(manifests, manifest)
 		frozen.runtimes[identifier] = snapshotRuntime{manifest: manifest, inner: runtime}
 	}
+	if err := validateModelToolNames(manifests); err != nil {
+		return Registry{}, "", err
+	}
 	revision, err := registryRevision(manifests)
 	if err != nil {
 		return Registry{}, "", err
@@ -81,7 +84,10 @@ func (r Registry) Snapshot() (Registry, string, error) {
 }
 
 func registryRevision(manifests []Manifest) (string, error) {
-	encoded, err := json.Marshal(manifests)
+	encoded, err := json.Marshal(struct {
+		ToolCallProtocolVersion string     `json:"tool_call_protocol_version"`
+		Manifests               []Manifest `json:"manifests"`
+	}{ToolCallProtocolVersion: ToolCallProtocolVersion, Manifests: manifests})
 	if err != nil {
 		return "", newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: encode manifest snapshot: %w", err)
 	}
@@ -110,7 +116,32 @@ func (r Registry) integritySnapshot() ([]Manifest, error) {
 		}
 		manifests = append(manifests, manifest)
 	}
+	if err := validateModelToolNames(manifests); err != nil {
+		return nil, err
+	}
 	return manifests, nil
+}
+
+func validateModelToolNames(manifests []Manifest) error {
+	const maxModelToolNameLength = 64
+	seen := make(map[string]string)
+	for _, manifest := range manifests {
+		for _, api := range manifest.API {
+			if api.HiddenFromModel {
+				continue
+			}
+			name := ModelToolName(manifest.Identifier, api.Name)
+			internalName := manifest.Identifier + "." + api.Name
+			if name == "_" || len(name) > maxModelToolNameLength {
+				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: model tool name %q for %s must contain at most %d characters", name, internalName, maxModelToolNameLength)
+			}
+			if previous, exists := seen[name]; exists && previous != internalName {
+				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tools %s and %s map to the same model name %q", previous, internalName, name)
+			}
+			seen[name] = internalName
+		}
+	}
+	return nil
 }
 
 func validateManifestIntegrity(identifier string, manifest Manifest) error {
@@ -141,7 +172,7 @@ func validateManifestIntegrity(identifier string, manifest Manifest) error {
 // reaches policy evaluation or an executor. Validation errors describe schema
 // locations without including argument values.
 func (r Registry) ValidateCallArguments(call Call) *ExecutionError {
-	call = NormalizeCall(call)
+	call = r.ResolveCall(call)
 	_, api, ok := r.GetAPI(call.Identifier, call.APIName)
 	if !ok {
 		return &ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", call.Identifier+"."+call.APIName)}

@@ -183,7 +183,7 @@ func TestResolveToolExecutionExposesWorkerPluginManifest(t *testing.T) {
 		t.Fatal("expected plugin tool to use worker-backed provider")
 	}
 	modelTools := resolved.Registry.ModelTools()
-	if len(modelTools) != 1 || modelTools[0].Function.Name != "robot.get_state" {
+	if len(modelTools) != 1 || modelTools[0].Function.Name != "robot_get_state" {
 		t.Fatalf("expected plugin model tool, got %#v", modelTools)
 	}
 	if _, ok := resolved.Registry.Get("robot"); !ok {
@@ -245,7 +245,7 @@ func TestResolveToolExecutionLoadsMCPToolsFromConfig(t *testing.T) {
 	for _, tool := range modelTools {
 		names = append(names, tool.Function.Name)
 	}
-	if !containsToolName(names, "filesystem.read_file") {
+	if !containsToolName(names, "filesystem_read_file") {
 		t.Fatalf("expected MCP tool to be exposed, got %#v", names)
 	}
 }
