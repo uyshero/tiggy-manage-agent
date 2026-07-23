@@ -49,7 +49,7 @@ func TestCommandWorkerList(t *testing.T) {
 		if got := r.URL.Query().Get("status"); got != "online" {
 			t.Fatalf("unexpected status query %q", got)
 		}
-		return jsonResponse(`{"workers":[{"id":"wrk_000001","workspace_id":"wksp_default","name":"viito-mac","worker_type":"local","status":"online","last_seen_at":"2026-07-08T00:00:00Z","lease_expires_at":"2026-07-08T00:01:00Z","capabilities":{"namespaces":["default","robot"],"apis":["default.run_command","robot.get_state"],"runtimes":["local_system"],"capabilities":["exec","robot.state"],"manifests":[{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot plugin."},"api":[{"name":"get_state","description":"Read robot state.","capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}]}}]}`), nil
+		return jsonResponse(`{"workers":[{"id":"wrk_000001","workspace_id":"wksp_default","name":"viito-mac","worker_type":"local","status":"online","last_seen_at":"2026-07-08T00:00:00Z","lease_expires_at":"2026-07-08T00:01:00Z","capabilities":{"namespaces":["default","robot"],"apis":["default_run_command","robot_get_state"],"runtimes":["local_system"],"capabilities":["exec","robot.state"],"manifests":[{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot plugin."},"api":[{"name":"get_state","description":"Read robot state.","capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}]}}]}`), nil
 	})
 
 	stdout := captureStdout(t, func() {
@@ -63,7 +63,7 @@ func TestCommandWorkerList(t *testing.T) {
 		"workspace: wksp_default",
 		"lease_expires: 2026-07-08T00:01:00Z",
 		"runtimes: local_system",
-		"apis: default.run_command, robot.get_state",
+		"apis: default_run_command, robot_get_state",
 		"capabilities: exec, robot.state",
 		"tool_manifests: robot(get_state)",
 	} {
@@ -93,8 +93,8 @@ func TestCommandWorkerDiagnose(t *testing.T) {
 			"invocation":{"protocol_version":"tma.work.v1","namespace":"default","api":"run_command","runtime":"local_system","capabilities":["exec"],"input":{}},
 			"matches":1,
 			"diagnostics":[
-				{"worker_id":"wrk_missing","workspace_id":"wksp_default","name":"missing","worker_type":"local","status":"online","match":false,"reasons":["missing capability exec"],"runtimes":["local_system"],"apis":["default.run_command"],"capabilities":["filesystem.read"]},
-				{"worker_id":"wrk_match","workspace_id":"wksp_default","name":"match","worker_type":"local","status":"online","match":true,"runtimes":["local_system"],"apis":["default.run_command"],"capabilities":["exec"]}
+				{"worker_id":"wrk_missing","workspace_id":"wksp_default","name":"missing","worker_type":"local","status":"online","match":false,"reasons":["missing capability exec"],"runtimes":["local_system"],"apis":["default_run_command"],"capabilities":["filesystem.read"]},
+				{"worker_id":"wrk_match","workspace_id":"wksp_default","name":"match","worker_type":"local","status":"online","match":true,"runtimes":["local_system"],"apis":["default_run_command"],"capabilities":["exec"]}
 			]
 		}`), nil
 	})
@@ -111,7 +111,7 @@ func TestCommandWorkerDiagnose(t *testing.T) {
 		}
 	})
 	for _, expected := range []string{
-		"diagnose default.run_command runtime=local_system capabilities=exec",
+		"diagnose default_run_command runtime=local_system capabilities=exec",
 		"wrk_missing missing [local/online] match=no",
 		"reasons: missing capability exec",
 		"wrk_match match [local/online] match=yes",

@@ -573,17 +573,20 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 	if _, err := setDatabaseAccessScope(ctx, tx, workspaceID); err != nil {
 		return Agent{}, err
 	}
+	if err := validateAgentEnvironmentTx(ctx, tx, workspaceID, input.EnvironmentID); err != nil {
+		return Agent{}, err
+	}
 
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx, `
 			INSERT INTO agents (
 				id, workspace_id, owner_type, owner_id, visibility, agent_kind,
-				name, current_config_version, created_at
+				name, environment_id, current_config_version, created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
 			ON CONFLICT (id) DO NOTHING
 		`, input.ID, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
-		input.Name, now)
+		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), now)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -620,6 +623,27 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 
 func (s *PostgresStore) CreateAgent(input CreateAgentInput) (Agent, error) {
 	return s.createAgentContext(context.Background(), input)
+}
+
+func validateAgentEnvironmentTx(ctx context.Context, tx *sql.Tx, workspaceID string, environmentID string) error {
+	environmentID = strings.TrimSpace(environmentID)
+	if environmentID == "" {
+		return nil
+	}
+	var environmentWorkspaceID string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT workspace_id
+		FROM environments
+		WHERE id = $1 AND archived_at IS NULL
+	`, environmentID).Scan(&environmentWorkspaceID); err == sql.ErrNoRows {
+		return fmt.Errorf("%w: environment %s", ErrNotFound, environmentID)
+	} else if err != nil {
+		return err
+	}
+	if environmentWorkspaceID != workspaceID {
+		return fmt.Errorf("%w: Agent environment workspace mismatch", ErrInvalid)
+	}
+	return nil
 }
 
 func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgentInput) (Agent, error) {
@@ -666,6 +690,9 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	if _, err := setDatabaseAccessScope(ctx, tx, workspaceID); err != nil {
 		return Agent{}, err
 	}
+	if err := validateAgentEnvironmentTx(ctx, tx, workspaceID, input.EnvironmentID); err != nil {
+		return Agent{}, err
+	}
 
 	id, err := nextSequenceID(ctx, tx, "agt", "tma_agent_id_seq")
 	if err != nil {
@@ -677,11 +704,11 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO agents (
 			id, workspace_id, owner_type, owner_id, visibility, agent_kind,
-			name, current_config_version, created_at
+			name, environment_id, current_config_version, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, id, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
-		input.Name, 1, now)
+		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), 1, now)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -701,6 +728,7 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	return Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		EnvironmentID:        strings.TrimSpace(input.EnvironmentID),
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
 		Visibility:           ownership.Visibility,
@@ -769,6 +797,7 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 	var mcp []byte
 	var skills []byte
 	var archivedAt sql.NullTime
+	var environmentID sql.NullString
 	err := q.QueryRowContext(ctx, `
 			SELECT
 				a.id,
@@ -778,6 +807,7 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 				a.visibility,
 				a.agent_kind,
 				a.name,
+				a.environment_id,
 			a.current_config_version,
 			a.archived_at,
 			a.created_at,
@@ -803,6 +833,7 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 		&agent.Visibility,
 		&agent.AgentKind,
 		&agent.Name,
+		&environmentID,
 		&agent.CurrentConfigVersion,
 		&archivedAt,
 		&agent.CreatedAt,
@@ -824,6 +855,7 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 	if archivedAt.Valid {
 		agent.ArchivedAt = &archivedAt.Time
 	}
+	agent.EnvironmentID = environmentID.String
 	agent.ConfigVersion.Tools = cloneRaw(tools)
 	agent.ConfigVersion.MCP = cloneRaw(mcp)
 	agent.ConfigVersion.Skills = cloneRaw(skills)
@@ -881,6 +913,7 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 				a.visibility,
 				a.agent_kind,
 				a.name,
+				a.environment_id,
 			a.current_config_version,
 			a.created_at,
 			av.version,
@@ -910,6 +943,7 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 		var tools []byte
 		var mcp []byte
 		var skills []byte
+		var environmentID sql.NullString
 		if err := rows.Scan(
 			&agent.ID,
 			&agent.WorkspaceID,
@@ -918,6 +952,7 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 			&agent.Visibility,
 			&agent.AgentKind,
 			&agent.Name,
+			&environmentID,
 			&agent.CurrentConfigVersion,
 			&agent.CreatedAt,
 			&agent.ConfigVersion.Version,
@@ -932,6 +967,7 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 			return nil, err
 		}
 		agent.ConfigVersion.Tools = cloneRaw(tools)
+		agent.EnvironmentID = environmentID.String
 		agent.ConfigVersion.MCP = cloneRaw(mcp)
 		agent.ConfigVersion.Skills = cloneRaw(skills)
 		agents = append(agents, agent)
@@ -959,6 +995,13 @@ func (s *PostgresStore) updateAgentContext(ctx context.Context, input UpdateAgen
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		name = current.Name
+	}
+	environmentID := current.EnvironmentID
+	if input.EnvironmentID != nil {
+		environmentID = strings.TrimSpace(*input.EnvironmentID)
+		if environmentID == "" {
+			return Agent{}, fmt.Errorf("%w: environment_id is required", ErrInvalid)
+		}
 	}
 
 	nextConfig := current.ConfigVersion
@@ -1012,12 +1055,17 @@ func (s *PostgresStore) updateAgentContext(ctx context.Context, input UpdateAgen
 	if _, err := setDatabaseAccessScope(ctx, tx, current.WorkspaceID); err != nil {
 		return Agent{}, err
 	}
+	if input.EnvironmentID != nil {
+		if err := validateAgentEnvironmentTx(ctx, tx, current.WorkspaceID, environmentID); err != nil {
+			return Agent{}, err
+		}
+	}
 
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE agents
-		SET name = $2
+		SET name = $2, environment_id = $3
 		WHERE id = $1 AND archived_at IS NULL
-	`, input.AgentID, name); err != nil {
+	`, input.AgentID, name, nullableString(environmentID)); err != nil {
 		return Agent{}, err
 	}
 
@@ -2544,18 +2592,16 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 	if agentID == "" {
 		return Session{}, fmt.Errorf("%w: agent_id is required", ErrInvalid)
 	}
-	if input.EnvironmentID == "" {
-		return Session{}, fmt.Errorf("%w: environment_id is required", ErrInvalid)
-	}
 	if input.SpawnDepth < 0 {
 		return Session{}, fmt.Errorf("%w: spawn_depth must be non-negative", ErrInvalid)
 	}
 
 	var agentWorkspaceID string
 	var agentConfigVersion int
+	var agentEnvironmentID sql.NullString
 	err := tx.QueryRowContext(ctx, `
-		SELECT workspace_id, current_config_version FROM agents WHERE id = $1 AND archived_at IS NULL
-	`, agentID).Scan(&agentWorkspaceID, &agentConfigVersion)
+		SELECT workspace_id, current_config_version, environment_id FROM agents WHERE id = $1 AND archived_at IS NULL
+	`, agentID).Scan(&agentWorkspaceID, &agentConfigVersion, &agentEnvironmentID)
 	if err == sql.ErrNoRows {
 		return Session{}, fmt.Errorf("%w: agent %s", ErrNotFound, agentID)
 	}
@@ -2575,6 +2621,16 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 			return Session{}, fmt.Errorf("%w: agent config version %s#%d", ErrNotFound, agentID, input.AgentConfigVersion)
 		}
 		agentConfigVersion = input.AgentConfigVersion
+	}
+	input.EnvironmentID = strings.TrimSpace(input.EnvironmentID)
+	if agentEnvironmentID.String != "" {
+		if input.EnvironmentID != "" && input.EnvironmentID != agentEnvironmentID.String {
+			return Session{}, fmt.Errorf("%w: environment_id must match Agent environment %s", ErrInvalid, agentEnvironmentID.String)
+		}
+		input.EnvironmentID = agentEnvironmentID.String
+	}
+	if input.EnvironmentID == "" {
+		return Session{}, fmt.Errorf("%w: environment_id is required for an unbound Agent", ErrInvalid)
 	}
 
 	var environmentWorkspaceID string

@@ -172,7 +172,7 @@ func (e *Engine) Fail(ctx context.Context, initial State, failure Failure) (Outc
 	if strings.TrimSpace(failure.Code) == "" || strings.TrimSpace(failure.Message) == "" {
 		return Outcome{}, fmt.Errorf("failure code and message are required")
 	}
-	return e.fail(ctx, state, failure.Code, failure.Message, failure.Retryable)
+	return e.failFailure(ctx, state, failure)
 }
 
 func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, error) {
@@ -251,8 +251,12 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 	}
 
 	deltaCount := 0
+	var streamedText strings.Builder
 	response, modelErr := e.ports.Model.Generate(ctx, request, func(delta model.Delta) error {
 		deltaCount++
+		if delta.Type == model.DeltaText {
+			streamedText.WriteString(delta.Text)
+		}
 		e.publishLive(ctx, attempt, delta)
 		return nil
 	})
@@ -265,7 +269,7 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 			return State{}, &canceled, cancelErr
 		}
 		failure := failureFromError(modelErr)
-		failed, failErr := e.fail(ctx, state, failure.Code, failure.Message, failure.Retryable)
+		failed, failErr := e.failFailure(ctx, state, failure)
 		return State{}, &failed, failErr
 	}
 	switch response.StopReason {
@@ -306,6 +310,15 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 	next.Usage = next.Usage.Add(response.Usage)
 	next.Budget.AddUsage(response.Usage)
 	calls := toolCalls(message)
+	if streamedText.Len() > 0 {
+		finalText := messageText(message)
+		if streamedText.String() != finalText {
+			e.publishReset(ctx, attempt)
+			if finalText != "" {
+				e.publishLive(ctx, attempt, model.Delta{Type: model.DeltaText, Index: deltaCount + 1, Text: finalText})
+			}
+		}
+	}
 	if err := next.Budget.CheckAfterUsage(); err != nil {
 		failed, failErr := e.failFrom(ctx, state, next, "budget_exhausted", err.Error(), false)
 		return State{}, &failed, failErr
@@ -387,7 +400,13 @@ func (e *Engine) compactContext(ctx context.Context, state State) (State, *Outco
 			canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
 			return State{}, &canceled, cancelErr
 		}
-		failed, failErr := e.fail(ctx, state, "context_compaction_failed", "agent context compaction failed", true)
+		failure := failureFromError(compactErr)
+		failure.Code = "context_compaction_failed"
+		failure.Message = "context compaction failed: " + failure.Message
+		if failure.ProviderError == nil {
+			failure.Retryable = true
+		}
+		failed, failErr := e.failFailure(ctx, state, failure)
 		return State{}, &failed, failErr
 	}
 	result.Summary = strings.TrimSpace(result.Summary)
@@ -1386,18 +1405,25 @@ func (e *Engine) complete(ctx context.Context, current, next State, finalMessage
 }
 
 func (e *Engine) fail(ctx context.Context, current State, code, message string, retryable bool) (Outcome, error) {
-	return e.failFrom(ctx, current, current, code, message, retryable)
+	return e.failFailure(ctx, current, Failure{Code: code, Message: message, Retryable: retryable})
+}
+
+func (e *Engine) failFailure(ctx context.Context, current State, failure Failure) (Outcome, error) {
+	return e.failFromFailure(ctx, current, current, failure)
 }
 
 func (e *Engine) failFrom(ctx context.Context, current, basis State, code, message string, retryable bool, events ...RuntimeEvent) (Outcome, error) {
-	failure := Failure{Code: code, Message: message, Retryable: retryable}
+	return e.failFromFailure(ctx, current, basis, Failure{Code: code, Message: message, Retryable: retryable}, events...)
+}
+
+func (e *Engine) failFromFailure(ctx context.Context, current, basis State, failure Failure, events ...RuntimeEvent) (Outcome, error) {
 	next := terminalState(basis, PhaseFailed, failure)
 	next.Revision = current.Revision
 	if err := ValidatePhaseTransition(current.Phase, next.Phase); err != nil {
 		return Outcome{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
 	events = runtimeStartEvents(current, events...)
-	events = append(events, RuntimeEvent{Type: EventRuntimeFailed, Message: "Agent runtime failed.", Payload: failure})
+	events = append(events, RuntimeEvent{Type: EventRuntimeFailed, Message: failure.Message, Payload: failure})
 	committed, err := e.ports.Durability.Fail(ctx, TerminalTransition{
 		Transition: Transition{
 			ExpectedRevision: current.Revision,
@@ -1593,6 +1619,16 @@ func finalPublicAssistantMessage(messages []model.Message) (model.Message, bool)
 	return model.Message{}, false
 }
 
+func messageText(message model.Message) string {
+	var text strings.Builder
+	for _, content := range message.Content {
+		if content.Type == model.ContentText {
+			text.WriteString(content.Text)
+		}
+	}
+	return text.String()
+}
+
 func (e *Engine) publishLive(ctx context.Context, attempt PendingModelAttempt, delta model.Delta) {
 	if e.ports.Live == nil || (delta.Type != model.DeltaText && delta.Type != model.DeltaThinking) {
 		return
@@ -1624,7 +1660,16 @@ func (e *Engine) publishReset(ctx context.Context, attempt PendingModelAttempt) 
 func failureFromError(err error) Failure {
 	var providerError *model.ProviderError
 	if errors.As(err, &providerError) {
-		return Failure{Code: defaultString(providerError.Code, string(providerError.Class)), Message: providerError.Error(), Retryable: providerError.Retryable}
+		return Failure{
+			Code:      defaultString(providerError.Code, string(providerError.Class)),
+			Message:   providerError.Error(),
+			Retryable: providerError.Retryable,
+			ProviderError: &FailureProviderError{
+				Class: string(providerError.Class), Code: providerError.Code,
+				Retryable: providerError.Retryable, RetryAfterMS: providerError.RetryAfter.Milliseconds(),
+				Attempts: providerError.Attempt, RequestID: providerError.RequestID, Message: providerError.SafeDetail,
+			},
+		}
 	}
 	var budgetError *BudgetExceededError
 	if errors.As(err, &budgetError) {

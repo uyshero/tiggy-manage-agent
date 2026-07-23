@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"tiggy-manage-agent/internal/agentcore"
@@ -83,7 +85,7 @@ func (a LLMModel) Generate(ctx context.Context, request coremodel.Request, sink 
 	if err != nil {
 		return coremodel.Response{}, fromLLMError(err)
 	}
-	return fromLLMResponse(request.AttemptID, response, finishReason), nil
+	return fromLLMResponse(request.AttemptID, response, finishReason, request.Tools), nil
 }
 
 func toLLMRequest(request coremodel.Request, route ResolvedRoute) (llm.Request, error) {
@@ -185,8 +187,9 @@ func flattenModelContent(content []coremodel.Content) string {
 	return strings.Join(parts, "\n")
 }
 
-func fromLLMResponse(attemptID string, response llm.Response, finishReason string) coremodel.Response {
-	content := make([]coremodel.Content, 0, len(response.Reasoning)+len(response.Message.Content)+len(response.Message.ToolCalls))
+func fromLLMResponse(attemptID string, response llm.Response, finishReason string, activeTools []coremodel.ToolDefinition) coremodel.Response {
+	toolCalls := append([]llm.ToolCall(nil), response.Message.ToolCalls...)
+	content := make([]coremodel.Content, 0, len(response.Reasoning)+len(response.Message.Content)+len(toolCalls))
 	for _, reasoning := range response.Reasoning {
 		if reasoning.Text != "" {
 			content = append(content, coremodel.Content{Type: coremodel.ContentThinking, Thinking: &coremodel.ThinkingBlock{Text: reasoning.Text}})
@@ -195,8 +198,15 @@ func fromLLMResponse(attemptID string, response llm.Response, finishReason strin
 	for _, part := range response.Message.Content {
 		switch part.Type {
 		case "text", "":
-			if part.Text != "" {
-				content = append(content, coremodel.Content{Type: coremodel.ContentText, Text: part.Text})
+			text := part.Text
+			if len(response.Message.ToolCalls) == 0 {
+				if remaining, parsed, ok := parseSeedTextToolCalls(text); ok {
+					text = remaining
+					toolCalls = append(toolCalls, parsed...)
+				}
+			}
+			if text != "" {
+				content = append(content, coremodel.Content{Type: coremodel.ContentText, Text: text})
 			}
 		case "image_url":
 			if part.ImageURL != nil && part.ImageURL.URL != "" {
@@ -204,7 +214,7 @@ func fromLLMResponse(attemptID string, response llm.Response, finishReason strin
 			}
 		}
 	}
-	for index, call := range response.Message.ToolCalls {
+	for index, call := range toolCalls {
 		id := strings.TrimSpace(call.ID)
 		if id == "" {
 			id = fmt.Sprintf("%s_tool_%d", defaultAdapterString(attemptID, "attempt"), index+1)
@@ -212,7 +222,7 @@ func fromLLMResponse(attemptID string, response llm.Response, finishReason strin
 		arguments, argumentsError := normalizeToolCallArguments(call.Function.Arguments)
 		content = append(content, coremodel.Content{Type: coremodel.ContentToolCall, ToolCall: &coremodel.ToolCall{
 			ID:             id,
-			Name:           call.Function.Name,
+			Name:           canonicalActiveToolName(call.Function.Name, activeTools),
 			Arguments:      arguments,
 			ArgumentsError: argumentsError,
 		}})
@@ -223,9 +233,139 @@ func fromLLMResponse(attemptID string, response llm.Response, finishReason strin
 			Visibility: coremodel.VisibilityInternal,
 			Content:    content,
 		},
-		StopReason: normalizedStopReason(finishReason, len(response.Message.ToolCalls) > 0),
+		StopReason: normalizedStopReason(finishReason, len(toolCalls) > 0),
 		Usage:      fromLLMUsage(response.Usage),
 	}
+}
+
+const (
+	seedToolCallOpen  = "<seed:tool_call>"
+	seedToolCallClose = "</seed:tool_call>"
+)
+
+type seedTextToolCall struct {
+	Function seedTextFunction `xml:"function"`
+}
+
+type seedTextFunction struct {
+	Name       string              `xml:"name,attr"`
+	Parameters []seedTextParameter `xml:"parameter"`
+}
+
+type seedTextParameter struct {
+	Name   string `xml:"name,attr"`
+	String string `xml:"string,attr"`
+	Value  string `xml:",chardata"`
+}
+
+// Some Ark Agent Plan responses serialize a tool call into assistant text
+// instead of the OpenAI-compatible tool_calls field. Decode only complete,
+// structurally valid blocks; malformed text remains ordinary model output.
+func parseSeedTextToolCalls(text string) (string, []llm.ToolCall, bool) {
+	if !strings.Contains(text, seedToolCallOpen) {
+		return text, nil, false
+	}
+	rest := text
+	var visible strings.Builder
+	calls := make([]llm.ToolCall, 0, 1)
+	for {
+		start := strings.Index(rest, seedToolCallOpen)
+		if start < 0 {
+			visible.WriteString(rest)
+			break
+		}
+		visible.WriteString(rest[:start])
+		closeOffset := strings.Index(rest[start+len(seedToolCallOpen):], seedToolCallClose)
+		if closeOffset < 0 {
+			return text, nil, false
+		}
+		end := start + len(seedToolCallOpen) + closeOffset + len(seedToolCallClose)
+		block := rest[start:end]
+		call, err := decodeSeedTextToolCall(block)
+		if err != nil {
+			return text, nil, false
+		}
+		calls = append(calls, call)
+		rest = rest[end:]
+	}
+	if len(calls) == 0 {
+		return text, nil, false
+	}
+	return strings.TrimSpace(visible.String()), calls, true
+}
+
+func decodeSeedTextToolCall(block string) (llm.ToolCall, error) {
+	var decoded seedTextToolCall
+	if err := xml.Unmarshal([]byte(block), &decoded); err != nil {
+		return llm.ToolCall{}, err
+	}
+	name := strings.TrimSpace(decoded.Function.Name)
+	if name == "" {
+		return llm.ToolCall{}, errors.New("seed tool call function name is required")
+	}
+	arguments := make(map[string]json.RawMessage, len(decoded.Function.Parameters))
+	for _, parameter := range decoded.Function.Parameters {
+		parameterName := strings.TrimSpace(parameter.Name)
+		if parameterName == "" {
+			return llm.ToolCall{}, errors.New("seed tool call parameter name is required")
+		}
+		if _, exists := arguments[parameterName]; exists {
+			return llm.ToolCall{}, fmt.Errorf("duplicate seed tool call parameter %q", parameterName)
+		}
+		value := strings.TrimSpace(parameter.Value)
+		isString, err := strconv.ParseBool(strings.TrimSpace(parameter.String))
+		if err != nil && strings.TrimSpace(parameter.String) != "" {
+			return llm.ToolCall{}, fmt.Errorf("invalid seed tool call string flag for %q", parameterName)
+		}
+		if isString || strings.TrimSpace(parameter.String) == "" && !json.Valid([]byte(value)) {
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return llm.ToolCall{}, err
+			}
+			arguments[parameterName] = encoded
+			continue
+		}
+		if !json.Valid([]byte(value)) {
+			return llm.ToolCall{}, fmt.Errorf("seed tool call parameter %q is not valid JSON", parameterName)
+		}
+		arguments[parameterName] = json.RawMessage(value)
+	}
+	encodedArguments, err := json.Marshal(arguments)
+	if err != nil {
+		return llm.ToolCall{}, err
+	}
+	return llm.ToolCall{
+		Type: "function",
+		Function: llm.ToolCallFunction{
+			Name:      name,
+			Arguments: encodedArguments,
+		},
+	}, nil
+}
+
+func canonicalActiveToolName(name string, activeTools []coremodel.ToolDefinition) string {
+	trimmed := strings.TrimSpace(name)
+	for _, tool := range activeTools {
+		if tool.Name == trimmed {
+			return trimmed
+		}
+	}
+	var compatible strings.Builder
+	for _, char := range trimmed {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9', char == '_':
+			compatible.WriteRune(char)
+		default:
+			compatible.WriteByte('_')
+		}
+	}
+	candidate := compatible.String()
+	for _, tool := range activeTools {
+		if tool.Name == candidate {
+			return candidate
+		}
+	}
+	return trimmed
 }
 
 func normalizeToolCallArguments(raw json.RawMessage) (json.RawMessage, string) {

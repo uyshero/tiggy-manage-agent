@@ -21,3 +21,4 @@ deploy/kubernetes/release.production.env
 *.pid
 __pycache__/
 *.py[cod]
+image-to-editable-ppt-tma-*.zip

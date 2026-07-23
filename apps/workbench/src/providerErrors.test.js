@@ -22,3 +22,13 @@ test("uses a useful fallback without discarding an unknown error", () => {
   assert.equal(result.description, "模型请求失败，请根据原始错误排查。");
   assert.equal(result.original, "connection reset by peer");
 });
+
+test("derives the HTTP status from normalized provider error codes", () => {
+  const result = providerErrorPresentation({
+    class: "invalid_request",
+    code: "http_400",
+    message: "invalid request"
+  });
+
+  assert.match(result.detail, /HTTP 400/);
+});

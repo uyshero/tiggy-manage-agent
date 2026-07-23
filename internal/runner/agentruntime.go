@@ -114,6 +114,17 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, err
 	}
+	continuationContext, err := e.resolveContinuationContext(ctx, request)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, err
+	}
+	if continuationContext != "" {
+		if taskPlanContext != "" {
+			taskPlanContext += "\n\n"
+		}
+		taskPlanContext += continuationContext
+	}
 	selectionHistory = conversationHistoryAfterSeq(selectionHistory, config.SummarySourceUntilSeq)
 	var history []managedagents.ConversationMessage
 	if request.ResumeIntervention == nil {

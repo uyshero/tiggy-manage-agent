@@ -379,7 +379,7 @@ func (r MCPRuntime) Execute(ctx context.Context, call Call, _ ExecutionContext) 
 		if failure, ok := mcpRuntimeFailureResult(r.Config.Identifier, call, err); ok {
 			return failure, nil
 		}
-		return ExecutionResult{}, fmt.Errorf("mcp tool %s.%s failed: %w", r.Config.Identifier, toolName, err)
+		return ExecutionResult{}, fmt.Errorf("mcp tool %s failed: %w", ModelToolName(r.Config.Identifier, toolName), err)
 	}
 	content := summarizeMCPContent(result.Content)
 	state, stateErr := encodeMCPResultState(toolName, result)

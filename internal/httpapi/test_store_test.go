@@ -24,26 +24,32 @@ import (
 type testStore struct {
 	mu sync.Mutex
 
-	nextAgentID         int64
-	nextEnvironmentID   int64
-	nextSessionID       int64
-	nextEventID         int64
-	nextObjectID        int64
-	nextArtifactID      int64
-	nextAchievementID   int64
-	nextWorkerID        int64
-	nextWorkID          int64
-	nextExporterRunID   int64
-	nextStartRequestID  int64
-	nextOperatorAuditID int64
-	nextDeliberationID  int64
-	nextSkillID         int64
-	nextSkillVersionID  int64
-	nextPolicyID        int64
-	nextPolicyVersionID int64
-	nextMCPRegistryID   int64
-	nextScheduleID      int64
-	nextScheduleRunID   int64
+	nextAgentID          int64
+	nextEnvironmentID    int64
+	nextSessionID        int64
+	nextEventID          int64
+	nextObjectID         int64
+	nextArtifactID       int64
+	nextAchievementID    int64
+	nextWorkerID         int64
+	nextWorkID           int64
+	nextExporterRunID    int64
+	nextStartRequestID   int64
+	nextOperatorAuditID  int64
+	nextDeliberationID   int64
+	nextSkillID          int64
+	nextSkillVersionID   int64
+	nextPolicyID         int64
+	nextPolicyVersionID  int64
+	nextMCPRegistryID    int64
+	nextScheduleID       int64
+	nextScheduleRunID    int64
+	nextRubricID         int64
+	nextEvaluationID     int64
+	nextDatasetID        int64
+	nextDatasetItemID    int64
+	nextExperimentID     int64
+	nextExperimentItemID int64
 
 	agents                    map[string]managedagents.Agent
 	agentConfigVersions       map[string][]managedagents.AgentConfigVersion
@@ -87,6 +93,10 @@ type testStore struct {
 	agentScheduleRuns         map[string]managedagents.AgentScheduleInvocation
 	agentScheduleRunStatuses  map[string]string
 	workspaceToolPolicies     map[string]managedagents.WorkspaceToolPermissionPolicy
+	evaluationRubrics         map[string]managedagents.EvaluationRubric
+	runEvaluations            []managedagents.RunEvaluation
+	evaluationDatasets        map[string]managedagents.EvaluationDataset
+	evaluationExperiments     map[string]managedagents.EvaluationExperiment
 }
 
 type testRunIdempotency struct {
@@ -134,6 +144,9 @@ func newTestStore() *testStore {
 		agentScheduleRuns:         make(map[string]managedagents.AgentScheduleInvocation),
 		agentScheduleRunStatuses:  make(map[string]string),
 		workspaceToolPolicies:     make(map[string]managedagents.WorkspaceToolPermissionPolicy),
+		evaluationRubrics:         make(map[string]managedagents.EvaluationRubric),
+		evaluationDatasets:        make(map[string]managedagents.EvaluationDataset),
+		evaluationExperiments:     make(map[string]managedagents.EvaluationExperiment),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -1102,6 +1115,15 @@ func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedag
 
 	now := time.Now().UTC()
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	if input.EnvironmentID != "" {
+		environment, ok := s.environments[input.EnvironmentID]
+		if !ok {
+			return managedagents.Agent{}, fmt.Errorf("%w: environment %s", managedagents.ErrNotFound, input.EnvironmentID)
+		}
+		if environment.WorkspaceID != workspaceID {
+			return managedagents.Agent{}, fmt.Errorf("%w: Agent environment workspace mismatch", managedagents.ErrInvalid)
+		}
+	}
 	ownership, err := managedagents.NormalizeAgentOwnership(workspaceID, managedagents.AgentOwnership{
 		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
 	})
@@ -1111,6 +1133,7 @@ func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedag
 	agent := managedagents.Agent{
 		ID:                   input.ID,
 		WorkspaceID:          workspaceID,
+		EnvironmentID:        input.EnvironmentID,
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
 		Visibility:           ownership.Visibility,
@@ -1166,6 +1189,15 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 	now := time.Now().UTC()
 	id := s.nextID("agt", &s.nextAgentID)
 	workspaceID := defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID)
+	if input.EnvironmentID != "" {
+		environment, ok := s.environments[input.EnvironmentID]
+		if !ok {
+			return managedagents.Agent{}, fmt.Errorf("%w: environment %s", managedagents.ErrNotFound, input.EnvironmentID)
+		}
+		if environment.WorkspaceID != workspaceID {
+			return managedagents.Agent{}, fmt.Errorf("%w: Agent environment workspace mismatch", managedagents.ErrInvalid)
+		}
+	}
 	ownership, err := managedagents.NormalizeAgentOwnership(workspaceID, managedagents.AgentOwnership{
 		OwnerType: input.OwnerType, OwnerID: input.OwnerID, Visibility: input.Visibility, AgentKind: input.AgentKind,
 	})
@@ -1175,6 +1207,7 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 	agent := managedagents.Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		EnvironmentID:        input.EnvironmentID,
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
 		Visibility:           ownership.Visibility,
@@ -1276,6 +1309,20 @@ func (s *testStore) UpdateAgent(input managedagents.UpdateAgentInput) (managedag
 	}
 	if strings.TrimSpace(input.Name) != "" {
 		agent.Name = strings.TrimSpace(input.Name)
+	}
+	if input.EnvironmentID != nil {
+		environmentID := strings.TrimSpace(*input.EnvironmentID)
+		if environmentID == "" {
+			return managedagents.Agent{}, fmt.Errorf("%w: environment_id is required", managedagents.ErrInvalid)
+		}
+		environment, ok := s.environments[environmentID]
+		if !ok || environment.ArchivedAt != nil {
+			return managedagents.Agent{}, fmt.Errorf("%w: environment %s", managedagents.ErrNotFound, environmentID)
+		}
+		if environment.WorkspaceID != agent.WorkspaceID {
+			return managedagents.Agent{}, fmt.Errorf("%w: Agent environment workspace mismatch", managedagents.ErrInvalid)
+		}
+		agent.EnvironmentID = environmentID
 	}
 	if strings.TrimSpace(input.LLMProvider) != "" || strings.TrimSpace(input.LLMModel) != "" || input.System != "" || input.Tools != nil || input.MCP != nil || input.Skills != nil {
 		next := agent.ConfigVersion
@@ -1396,6 +1443,83 @@ func (s *testStore) CreateEnvironment(input managedagents.CreateEnvironmentInput
 	}
 	s.environments[id] = environment
 	return environment, nil
+}
+
+func (s *testStore) CreateEnvironmentContext(ctx context.Context, input managedagents.CreateEnvironmentInput) (managedagents.Environment, error) {
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+		if input.WorkspaceID != "" && input.WorkspaceID != scope.WorkspaceID {
+			return managedagents.Environment{}, managedagents.ErrForbidden
+		}
+		input.WorkspaceID = scope.WorkspaceID
+	}
+	return s.CreateEnvironment(input)
+}
+
+func (s *testStore) GetEnvironment(id string) (managedagents.Environment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	environment, ok := s.environments[id]
+	if !ok {
+		return managedagents.Environment{}, managedagents.ErrNotFound
+	}
+	return environment, nil
+}
+
+func (s *testStore) GetEnvironmentContext(ctx context.Context, id string) (managedagents.Environment, error) {
+	environment, err := s.GetEnvironment(id)
+	if err != nil {
+		return managedagents.Environment{}, err
+	}
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && environment.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Environment{}, managedagents.ErrForbidden
+	}
+	return environment, nil
+}
+
+func (s *testStore) GetEnvironmentScoped(id string, scope managedagents.AccessScope) (managedagents.Environment, error) {
+	environment, err := s.GetEnvironment(id)
+	if err != nil {
+		return managedagents.Environment{}, err
+	}
+	if environment.WorkspaceID != scope.WorkspaceID {
+		return managedagents.Environment{}, managedagents.ErrForbidden
+	}
+	return environment, nil
+}
+
+func (s *testStore) ListEnvironments() ([]managedagents.Environment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	environments := make([]managedagents.Environment, 0, len(s.environments))
+	for _, environment := range s.environments {
+		if environment.ArchivedAt == nil {
+			environments = append(environments, environment)
+		}
+	}
+	sort.Slice(environments, func(i, j int) bool {
+		if environments[i].Name == environments[j].Name {
+			return environments[i].ID < environments[j].ID
+		}
+		return environments[i].Name < environments[j].Name
+	})
+	return environments, nil
+}
+
+func (s *testStore) ListEnvironmentsContext(ctx context.Context) ([]managedagents.Environment, error) {
+	environments, err := s.ListEnvironments()
+	if err != nil {
+		return nil, err
+	}
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok {
+		filtered := environments[:0]
+		for _, environment := range environments {
+			if environment.WorkspaceID == scope.WorkspaceID {
+				filtered = append(filtered, environment)
+			}
+		}
+		environments = filtered
+	}
+	return environments, nil
 }
 
 func (s *testStore) CreateSession(input managedagents.CreateSessionInput) (managedagents.Session, error) {
@@ -1846,10 +1970,6 @@ func (s *testStore) createSessionLocked(input managedagents.CreateSessionInput) 
 	if agentID == "" {
 		return managedagents.Session{}, fmt.Errorf("%w: agent_id is required", managedagents.ErrInvalid)
 	}
-	if input.EnvironmentID == "" {
-		return managedagents.Session{}, fmt.Errorf("%w: environment_id is required", managedagents.ErrInvalid)
-	}
-
 	agent, ok := s.agents[agentID]
 	if !ok {
 		return managedagents.Session{}, fmt.Errorf("%w: agent %s", managedagents.ErrNotFound, agentID)
@@ -1867,6 +1987,16 @@ func (s *testStore) createSessionLocked(input managedagents.CreateSessionInput) 
 			return managedagents.Session{}, fmt.Errorf("%w: agent config version %s#%d", managedagents.ErrNotFound, agentID, input.AgentConfigVersion)
 		}
 		agentConfigVersion = input.AgentConfigVersion
+	}
+	input.EnvironmentID = strings.TrimSpace(input.EnvironmentID)
+	if agent.EnvironmentID != "" {
+		if input.EnvironmentID != "" && input.EnvironmentID != agent.EnvironmentID {
+			return managedagents.Session{}, fmt.Errorf("%w: environment_id must match Agent environment %s", managedagents.ErrInvalid, agent.EnvironmentID)
+		}
+		input.EnvironmentID = agent.EnvironmentID
+	}
+	if input.EnvironmentID == "" {
+		return managedagents.Session{}, fmt.Errorf("%w: environment_id is required for an unbound Agent", managedagents.ErrInvalid)
 	}
 	environment, ok := s.environments[input.EnvironmentID]
 	if !ok {
@@ -4366,6 +4496,302 @@ func (s *testStore) ListSessionRunEventsContext(_ context.Context, sessionID str
 		}
 	}
 	return events, nil
+}
+
+func (s *testStore) CreateEvaluationRubricContext(_ context.Context, input managedagents.CreateEvaluationRubricInput) (managedagents.EvaluationRubric, error) {
+	criteria, err := managedagents.ValidateEvaluationCriteria(input.Criteria)
+	if err != nil {
+		return managedagents.EvaluationRubric{}, err
+	}
+	if strings.TrimSpace(input.WorkspaceID) == "" || strings.TrimSpace(input.Name) == "" {
+		return managedagents.EvaluationRubric{}, managedagents.ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextRubricID++
+	now := time.Now().UTC()
+	rubric := managedagents.EvaluationRubric{
+		ID: fmt.Sprintf("erub_%06d", s.nextRubricID), WorkspaceID: strings.TrimSpace(input.WorkspaceID),
+		Name: strings.TrimSpace(input.Name), Description: strings.TrimSpace(input.Description),
+		Criteria: criteria, Revision: 1, CreatedBy: input.CreatedBy, UpdatedBy: input.CreatedBy,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	s.evaluationRubrics[rubric.ID] = rubric
+	return rubric, nil
+}
+
+func (s *testStore) GetEvaluationRubricContext(_ context.Context, id string) (managedagents.EvaluationRubric, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rubric, ok := s.evaluationRubrics[id]
+	if !ok {
+		return managedagents.EvaluationRubric{}, managedagents.ErrNotFound
+	}
+	return rubric, nil
+}
+
+func (s *testStore) ListEvaluationRubricsContext(_ context.Context, workspaceID string) ([]managedagents.EvaluationRubric, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rubrics := []managedagents.EvaluationRubric{}
+	for _, rubric := range s.evaluationRubrics {
+		if rubric.WorkspaceID == workspaceID {
+			rubrics = append(rubrics, rubric)
+		}
+	}
+	sort.Slice(rubrics, func(i, j int) bool { return rubrics[i].ID < rubrics[j].ID })
+	return rubrics, nil
+}
+
+func (s *testStore) CreateRunEvaluationContext(_ context.Context, input managedagents.CreateRunEvaluationInput) (managedagents.RunEvaluation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	leftSession, leftOK := s.sessions[input.LeftSessionID]
+	rightSession, rightOK := s.sessions[input.RightSessionID]
+	if !leftOK || !rightOK {
+		return managedagents.RunEvaluation{}, managedagents.ErrNotFound
+	}
+	if leftSession.WorkspaceID != rightSession.WorkspaceID {
+		return managedagents.RunEvaluation{}, managedagents.ErrInvalid
+	}
+	if _, ok := s.sessionRunLocked(input.LeftSessionID, input.LeftTurnID); !ok {
+		return managedagents.RunEvaluation{}, managedagents.ErrNotFound
+	}
+	if _, ok := s.sessionRunLocked(input.RightSessionID, input.RightTurnID); !ok {
+		return managedagents.RunEvaluation{}, managedagents.ErrNotFound
+	}
+	rubric, ok := s.evaluationRubrics[input.RubricID]
+	if !ok {
+		return managedagents.RunEvaluation{}, managedagents.ErrNotFound
+	}
+	scores, err := managedagents.ValidateEvaluationScores(rubric.Criteria, input.Scores)
+	if err != nil {
+		return managedagents.RunEvaluation{}, err
+	}
+	conclusion, err := managedagents.ValidateEvaluationConclusion(input.Conclusion)
+	if err != nil {
+		return managedagents.RunEvaluation{}, err
+	}
+	evaluationType := strings.TrimSpace(input.EvaluationType)
+	if evaluationType == "" {
+		evaluationType = managedagents.EvaluationTypeManual
+	}
+	if evaluationType != managedagents.EvaluationTypeManual && evaluationType != managedagents.EvaluationTypeAuto {
+		return managedagents.RunEvaluation{}, managedagents.ErrInvalid
+	}
+	s.nextEvaluationID++
+	evaluation := managedagents.RunEvaluation{
+		ID: fmt.Sprintf("reval_%06d", s.nextEvaluationID), WorkspaceID: leftSession.WorkspaceID,
+		LeftSessionID: input.LeftSessionID, LeftTurnID: input.LeftTurnID,
+		RightSessionID: input.RightSessionID, RightTurnID: input.RightTurnID,
+		RubricID: rubric.ID, RubricSnapshot: managedagents.EvaluationRubricSnapshot{
+			RubricID: rubric.ID, Name: rubric.Name, Description: rubric.Description,
+			Revision: rubric.Revision, Criteria: append([]managedagents.EvaluationCriterion(nil), rubric.Criteria...),
+		},
+		Scores: scores, Conclusion: conclusion, Notes: strings.TrimSpace(input.Notes), EvaluationType: evaluationType,
+		JudgeProvider: input.JudgeProvider, JudgeModel: input.JudgeModel, JudgeReasoning: input.JudgeReasoning,
+		CreatedBy: input.CreatedBy, CreatedAt: time.Now().UTC(),
+	}
+	s.runEvaluations = append(s.runEvaluations, evaluation)
+	return evaluation, nil
+}
+
+func (s *testStore) ListRunEvaluationsContext(_ context.Context, input managedagents.ListRunEvaluationsInput) ([]managedagents.RunEvaluation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	limit := input.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	evaluations := []managedagents.RunEvaluation{}
+	for index := len(s.runEvaluations) - 1; index >= 0 && len(evaluations) < limit; index-- {
+		evaluation := s.runEvaluations[index]
+		if evaluation.LeftSessionID == input.LeftSessionID && evaluation.LeftTurnID == input.LeftTurnID &&
+			evaluation.RightSessionID == input.RightSessionID && evaluation.RightTurnID == input.RightTurnID {
+			evaluations = append(evaluations, evaluation)
+		}
+	}
+	return evaluations, nil
+}
+
+func (s *testStore) CreateEvaluationDatasetContext(_ context.Context, input managedagents.CreateEvaluationDatasetInput) (managedagents.EvaluationDataset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	input.WorkspaceID = strings.TrimSpace(input.WorkspaceID)
+	input.Name = strings.TrimSpace(input.Name)
+	if input.WorkspaceID == "" || input.Name == "" {
+		return managedagents.EvaluationDataset{}, managedagents.ErrInvalid
+	}
+	items, err := managedagents.ValidateEvaluationDatasetItems(input.Items)
+	if err != nil {
+		return managedagents.EvaluationDataset{}, err
+	}
+	s.nextDatasetID++
+	now := time.Now().UTC()
+	dataset := managedagents.EvaluationDataset{
+		ID: fmt.Sprintf("edset_%06d", s.nextDatasetID), WorkspaceID: input.WorkspaceID,
+		Name: input.Name, Description: strings.TrimSpace(input.Description),
+		Items: []managedagents.EvaluationDatasetItem{}, CreatedBy: strings.TrimSpace(input.CreatedBy),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	for index, inputItem := range items {
+		s.nextDatasetItemID++
+		dataset.Items = append(dataset.Items, managedagents.EvaluationDatasetItem{
+			ID: fmt.Sprintf("editem_%06d", s.nextDatasetItemID), DatasetID: dataset.ID,
+			ItemIndex: index, Prompt: inputItem.Prompt, ExpectedOutput: inputItem.ExpectedOutput,
+			Tags: append([]string(nil), inputItem.Tags...), CreatedAt: now,
+		})
+	}
+	s.evaluationDatasets[dataset.ID] = dataset
+	return dataset, nil
+}
+
+func (s *testStore) GetEvaluationDatasetContext(_ context.Context, id string) (managedagents.EvaluationDataset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dataset, ok := s.evaluationDatasets[strings.TrimSpace(id)]
+	if !ok {
+		return managedagents.EvaluationDataset{}, managedagents.ErrNotFound
+	}
+	return dataset, nil
+}
+
+func (s *testStore) ListEvaluationDatasetsContext(_ context.Context, workspaceID string) ([]managedagents.EvaluationDataset, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	datasets := []managedagents.EvaluationDataset{}
+	for _, dataset := range s.evaluationDatasets {
+		if dataset.WorkspaceID == strings.TrimSpace(workspaceID) {
+			datasets = append(datasets, dataset)
+		}
+	}
+	sort.Slice(datasets, func(i, j int) bool { return datasets[i].UpdatedAt.After(datasets[j].UpdatedAt) })
+	return datasets, nil
+}
+
+func (s *testStore) CreateEvaluationExperimentContext(_ context.Context, input managedagents.CreateEvaluationExperimentInput) (managedagents.EvaluationExperiment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	dataset, datasetOK := s.evaluationDatasets[strings.TrimSpace(input.DatasetID)]
+	rubric, rubricOK := s.evaluationRubrics[strings.TrimSpace(input.RubricID)]
+	left, leftOK := s.sessions[strings.TrimSpace(input.LeftTemplateSessionID)]
+	right, rightOK := s.sessions[strings.TrimSpace(input.RightTemplateSessionID)]
+	workspaceID := strings.TrimSpace(input.WorkspaceID)
+	if !datasetOK || !rubricOK || !leftOK || !rightOK {
+		return managedagents.EvaluationExperiment{}, managedagents.ErrNotFound
+	}
+	if workspaceID == "" || strings.TrimSpace(input.Name) == "" || left.ID == right.ID ||
+		dataset.WorkspaceID != workspaceID || rubric.WorkspaceID != workspaceID || left.WorkspaceID != workspaceID || right.WorkspaceID != workspaceID {
+		return managedagents.EvaluationExperiment{}, managedagents.ErrInvalid
+	}
+	s.nextExperimentID++
+	now := time.Now().UTC()
+	experiment := managedagents.EvaluationExperiment{
+		ID: fmt.Sprintf("eexp_%06d", s.nextExperimentID), WorkspaceID: workspaceID,
+		Name: strings.TrimSpace(input.Name), DatasetID: dataset.ID, RubricID: rubric.ID,
+		LeftTemplateSessionID: left.ID, RightTemplateSessionID: right.ID,
+		Status: managedagents.EvaluationExperimentStatusRunning,
+		Items:  []managedagents.EvaluationExperimentItem{}, CreatedBy: strings.TrimSpace(input.CreatedBy),
+		CreatedAt: now, UpdatedAt: now,
+	}
+	for _, datasetItem := range dataset.Items {
+		s.nextExperimentItemID++
+		experiment.Items = append(experiment.Items, managedagents.EvaluationExperimentItem{
+			ID: fmt.Sprintf("eexpi_%06d", s.nextExperimentItemID), ExperimentID: experiment.ID,
+			DatasetItemID: datasetItem.ID, ItemIndex: datasetItem.ItemIndex,
+			Prompt: datasetItem.Prompt, ExpectedOutput: datasetItem.ExpectedOutput,
+			Tags:   append([]string(nil), datasetItem.Tags...),
+			Status: managedagents.EvaluationExperimentItemStatusQueued, CreatedAt: now, UpdatedAt: now,
+		})
+	}
+	experiment.Summary = managedagents.SummarizeEvaluationExperiment(experiment.Items)
+	s.evaluationExperiments[experiment.ID] = experiment
+	return experiment, nil
+}
+
+func (s *testStore) GetEvaluationExperimentContext(_ context.Context, id string) (managedagents.EvaluationExperiment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	experiment, ok := s.evaluationExperiments[strings.TrimSpace(id)]
+	if !ok {
+		return managedagents.EvaluationExperiment{}, managedagents.ErrNotFound
+	}
+	return experiment, nil
+}
+
+func (s *testStore) ListEvaluationExperimentsContext(_ context.Context, workspaceID string, limit int) ([]managedagents.EvaluationExperiment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	experiments := []managedagents.EvaluationExperiment{}
+	for _, experiment := range s.evaluationExperiments {
+		if experiment.WorkspaceID == strings.TrimSpace(workspaceID) {
+			experiments = append(experiments, experiment)
+		}
+	}
+	sort.Slice(experiments, func(i, j int) bool { return experiments[i].UpdatedAt.After(experiments[j].UpdatedAt) })
+	if len(experiments) > limit {
+		experiments = experiments[:limit]
+	}
+	return experiments, nil
+}
+
+func (s *testStore) UpdateEvaluationExperimentItemContext(_ context.Context, input managedagents.UpdateEvaluationExperimentItemInput) (managedagents.EvaluationExperiment, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	experiment, ok := s.evaluationExperiments[strings.TrimSpace(input.ExperimentID)]
+	if !ok {
+		return managedagents.EvaluationExperiment{}, managedagents.ErrNotFound
+	}
+	updated := false
+	for index := range experiment.Items {
+		item := &experiment.Items[index]
+		if item.ID != strings.TrimSpace(input.ItemID) {
+			continue
+		}
+		if input.LeftSessionID != "" {
+			item.LeftSessionID = strings.TrimSpace(input.LeftSessionID)
+		}
+		if input.LeftTurnID != "" {
+			item.LeftTurnID = strings.TrimSpace(input.LeftTurnID)
+		}
+		if input.RightSessionID != "" {
+			item.RightSessionID = strings.TrimSpace(input.RightSessionID)
+		}
+		if input.RightTurnID != "" {
+			item.RightTurnID = strings.TrimSpace(input.RightTurnID)
+		}
+		if input.EvaluationID != "" {
+			item.EvaluationID = strings.TrimSpace(input.EvaluationID)
+		}
+		item.Status = strings.TrimSpace(input.Status)
+		item.Conclusion = strings.TrimSpace(input.Conclusion)
+		item.LeftAverage = input.LeftAverage
+		item.RightAverage = input.RightAverage
+		item.ErrorMessage = strings.TrimSpace(input.ErrorMessage)
+		item.UpdatedAt = time.Now().UTC()
+		updated = true
+		break
+	}
+	if !updated {
+		return managedagents.EvaluationExperiment{}, managedagents.ErrNotFound
+	}
+	experiment.Summary = managedagents.SummarizeEvaluationExperiment(experiment.Items)
+	experiment.Status = managedagents.EvaluationExperimentStatusRunning
+	if experiment.Summary.Total > 0 && experiment.Summary.Completed == experiment.Summary.Total {
+		experiment.Status = managedagents.EvaluationExperimentStatusCompleted
+		now := time.Now().UTC()
+		experiment.CompletedAt = &now
+	} else if experiment.Summary.Total > 0 && experiment.Summary.Queued == 0 && experiment.Summary.Running == 0 && experiment.Summary.Failed > 0 {
+		experiment.Status = managedagents.EvaluationExperimentStatusFailed
+		now := time.Now().UTC()
+		experiment.CompletedAt = &now
+	}
+	experiment.UpdatedAt = time.Now().UTC()
+	s.evaluationExperiments[experiment.ID] = experiment
+	return experiment, nil
 }
 
 func (s *testStore) ListSessionTurnControlEventsContext(_ context.Context, sessionID string, turnID string, afterSeq int64) ([]managedagents.Event, error) {

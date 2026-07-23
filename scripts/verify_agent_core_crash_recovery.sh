@@ -167,7 +167,7 @@ verify_model_crash() {
 }
 
 verify_tool_crash() {
-  system_prompt='When the user says CRASH_TOOL, call default.run_command exactly once with command "sh" and args ["-c","sleep 300; printf TOOL_CRASH_COMPLETED"]. Do not answer before calling the tool. After receiving the tool result, explain whether execution was confirmed and do not call more tools.'
+  system_prompt='When the user says CRASH_TOOL, call default_run_command exactly once with command "sh" and args ["-c","sleep 300; printf TOOL_CRASH_COMPLETED"]. Do not answer before calling the tool. After receiving the tool result, explain whether execution was confirmed and do not call more tools.'
   session_id="$(create_session agent-core-tool-crash "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" session runtime update --session "$session_id" --intervention-mode full_access >/dev/null
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text CRASH_TOOL >/dev/null

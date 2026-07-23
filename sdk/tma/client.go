@@ -31,6 +31,7 @@ type Client struct {
 	Agents               *AgentsService
 	Environments         *EnvironmentsService
 	Sessions             *SessionsService
+	Evaluations          *EvaluationsService
 	Runs                 *RunsService
 	Interventions        *InterventionsService
 	Artifacts            *ArtifactsService
@@ -132,6 +133,7 @@ func (c *Client) initializeServices() {
 	c.Agents = &AgentsService{client: c}
 	c.Environments = &EnvironmentsService{client: c}
 	c.Sessions = &SessionsService{client: c}
+	c.Evaluations = &EvaluationsService{client: c}
 	c.Runs = &RunsService{client: c}
 	c.Interventions = &InterventionsService{client: c}
 	c.Artifacts = &ArtifactsService{client: c}

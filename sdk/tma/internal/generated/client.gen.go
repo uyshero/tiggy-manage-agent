@@ -121,6 +121,14 @@ const (
 	CreateMarketplacePolicyRequestScopeTypeWorkspace    CreateMarketplacePolicyRequestScopeType = "workspace"
 )
 
+// Defines values for CreateRunEvaluationRequestConclusion.
+const (
+	CreateRunEvaluationRequestConclusionInconclusive CreateRunEvaluationRequestConclusion = "inconclusive"
+	CreateRunEvaluationRequestConclusionLeft         CreateRunEvaluationRequestConclusion = "left"
+	CreateRunEvaluationRequestConclusionRight        CreateRunEvaluationRequestConclusion = "right"
+	CreateRunEvaluationRequestConclusionTie          CreateRunEvaluationRequestConclusion = "tie"
+)
+
 // Defines values for CreateSkillRequestOwnerType.
 const (
 	CreateSkillRequestOwnerTypeBuiltin   CreateSkillRequestOwnerType = "builtin"
@@ -180,9 +188,9 @@ const (
 
 // Defines values for EvaluateWorkspaceToolPermissionRequestTool.
 const (
-	EvaluateWorkspaceToolPermissionRequestToolDefaultEditFile  EvaluateWorkspaceToolPermissionRequestTool = "default.edit_file"
-	EvaluateWorkspaceToolPermissionRequestToolDefaultReadFile  EvaluateWorkspaceToolPermissionRequestTool = "default.read_file"
-	EvaluateWorkspaceToolPermissionRequestToolDefaultWriteFile EvaluateWorkspaceToolPermissionRequestTool = "default.write_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultEditFile  EvaluateWorkspaceToolPermissionRequestTool = "default_edit_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultReadFile  EvaluateWorkspaceToolPermissionRequestTool = "default_read_file"
+	EvaluateWorkspaceToolPermissionRequestToolDefaultWriteFile EvaluateWorkspaceToolPermissionRequestTool = "default_write_file"
 )
 
 // Defines values for EvaluateWorkspaceToolPermissionResultApprovalPolicy.
@@ -211,6 +219,29 @@ const (
 	EvaluateWorkspaceToolPermissionResultRuleSourceAgent     EvaluateWorkspaceToolPermissionResultRuleSource = "agent"
 	EvaluateWorkspaceToolPermissionResultRuleSourceSession   EvaluateWorkspaceToolPermissionResultRuleSource = "session"
 	EvaluateWorkspaceToolPermissionResultRuleSourceWorkspace EvaluateWorkspaceToolPermissionResultRuleSource = "workspace"
+)
+
+// Defines values for EvaluationExperimentStatus.
+const (
+	EvaluationExperimentStatusCompleted EvaluationExperimentStatus = "completed"
+	EvaluationExperimentStatusFailed    EvaluationExperimentStatus = "failed"
+	EvaluationExperimentStatusRunning   EvaluationExperimentStatus = "running"
+)
+
+// Defines values for EvaluationExperimentItemConclusion.
+const (
+	EvaluationExperimentItemConclusionInconclusive EvaluationExperimentItemConclusion = "inconclusive"
+	EvaluationExperimentItemConclusionLeft         EvaluationExperimentItemConclusion = "left"
+	EvaluationExperimentItemConclusionRight        EvaluationExperimentItemConclusion = "right"
+	EvaluationExperimentItemConclusionTie          EvaluationExperimentItemConclusion = "tie"
+)
+
+// Defines values for EvaluationExperimentItemStatus.
+const (
+	EvaluationExperimentItemStatusCompleted EvaluationExperimentItemStatus = "completed"
+	EvaluationExperimentItemStatusFailed    EvaluationExperimentItemStatus = "failed"
+	EvaluationExperimentItemStatusQueued    EvaluationExperimentItemStatus = "queued"
+	EvaluationExperimentItemStatusRunning   EvaluationExperimentItemStatus = "running"
 )
 
 // Defines values for HumanInteractionRuntimeSettingsFallback.
@@ -437,9 +468,9 @@ const (
 
 // Defines values for PermissionRuleTool.
 const (
-	PermissionRuleToolDefaultEditFile  PermissionRuleTool = "default.edit_file"
-	PermissionRuleToolDefaultReadFile  PermissionRuleTool = "default.read_file"
-	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default.write_file"
+	PermissionRuleToolDefaultEditFile  PermissionRuleTool = "default_edit_file"
+	PermissionRuleToolDefaultReadFile  PermissionRuleTool = "default_read_file"
+	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default_write_file"
 )
 
 // Defines values for PrincipalAuthType.
@@ -501,6 +532,20 @@ const (
 const (
 	Dispatched     RunAgentScheduleResponseStatus = "dispatched"
 	WaitingSession RunAgentScheduleResponseStatus = "waiting_session"
+)
+
+// Defines values for RunEvaluationConclusion.
+const (
+	Inconclusive RunEvaluationConclusion = "inconclusive"
+	Left         RunEvaluationConclusion = "left"
+	Right        RunEvaluationConclusion = "right"
+	Tie          RunEvaluationConclusion = "tie"
+)
+
+// Defines values for RunEvaluationEvaluationType.
+const (
+	Auto   RunEvaluationEvaluationType = "auto"
+	Manual RunEvaluationEvaluationType = "manual"
 )
 
 // Defines values for SessionTaskItemStatus.
@@ -692,9 +737,9 @@ const (
 
 // Defines values for WorkspacePermissionRuleTool.
 const (
-	DefaultEditFile  WorkspacePermissionRuleTool = "default.edit_file"
-	DefaultReadFile  WorkspacePermissionRuleTool = "default.read_file"
-	DefaultWriteFile WorkspacePermissionRuleTool = "default.write_file"
+	DefaultEditFile  WorkspacePermissionRuleTool = "default_edit_file"
+	DefaultReadFile  WorkspacePermissionRuleTool = "default_read_file"
+	DefaultWriteFile WorkspacePermissionRuleTool = "default_write_file"
 )
 
 // APIError defines model for APIError.
@@ -744,6 +789,7 @@ type Agent struct {
 	ConfigVersion        AgentConfigVersion `json:"config_version"`
 	CreatedAt            time.Time          `json:"created_at"`
 	CurrentConfigVersion int32              `json:"current_config_version"`
+	EnvironmentId        *string            `json:"environment_id,omitempty"`
 	Id                   string             `json:"id"`
 	Name                 string             `json:"name"`
 	OwnerId              string             `json:"owner_id"`
@@ -1184,6 +1230,15 @@ type AuthState struct {
 	Principal     *Principal `json:"principal,omitempty"`
 }
 
+// AutoRunEvaluationRequest defines model for AutoRunEvaluationRequest.
+type AutoRunEvaluationRequest struct {
+	LeftSessionId  string `json:"left_session_id"`
+	LeftTurnId     string `json:"left_turn_id"`
+	RightSessionId string `json:"right_session_id"`
+	RightTurnId    string `json:"right_turn_id"`
+	RubricId       string `json:"rubric_id"`
+}
+
 // BinaryContent defines model for BinaryContent.
 type BinaryContent = openapi_types.File
 
@@ -1221,10 +1276,11 @@ type CreateAgentConfigVersionRequest = UpdateAgentRequest
 
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
-	AgentKind   *CreateAgentRequestAgentKind `json:"agent_kind,omitempty"`
-	LlmModel    *string                      `json:"llm_model,omitempty"`
-	LlmProvider *string                      `json:"llm_provider,omitempty"`
-	Mcp         *map[string]interface{}      `json:"mcp,omitempty"`
+	AgentKind     *CreateAgentRequestAgentKind `json:"agent_kind,omitempty"`
+	EnvironmentId *string                      `json:"environment_id,omitempty"`
+	LlmModel      *string                      `json:"llm_model,omitempty"`
+	LlmProvider   *string                      `json:"llm_provider,omitempty"`
+	Mcp           *map[string]interface{}      `json:"mcp,omitempty"`
 	// Deprecated:
 	Model       *string                       `json:"model,omitempty"`
 	Name        string                        `json:"name"`
@@ -1285,6 +1341,39 @@ type CreateEnvironmentRequest struct {
 	WorkspaceId *string                `json:"workspace_id,omitempty"`
 }
 
+// CreateEvaluationDatasetItemRequest defines model for CreateEvaluationDatasetItemRequest.
+type CreateEvaluationDatasetItemRequest struct {
+	ExpectedOutput *string   `json:"expected_output,omitempty"`
+	Prompt         string    `json:"prompt"`
+	Tags           *[]string `json:"tags,omitempty"`
+}
+
+// CreateEvaluationDatasetRequest defines model for CreateEvaluationDatasetRequest.
+type CreateEvaluationDatasetRequest struct {
+	Description *string                              `json:"description,omitempty"`
+	Items       []CreateEvaluationDatasetItemRequest `json:"items"`
+	Name        string                               `json:"name"`
+	WorkspaceId *string                              `json:"workspace_id,omitempty"`
+}
+
+// CreateEvaluationExperimentRequest defines model for CreateEvaluationExperimentRequest.
+type CreateEvaluationExperimentRequest struct {
+	DatasetId              string  `json:"dataset_id"`
+	LeftTemplateSessionId  string  `json:"left_template_session_id"`
+	Name                   string  `json:"name"`
+	RightTemplateSessionId string  `json:"right_template_session_id"`
+	RubricId               string  `json:"rubric_id"`
+	WorkspaceId            *string `json:"workspace_id,omitempty"`
+}
+
+// CreateEvaluationRubricRequest defines model for CreateEvaluationRubricRequest.
+type CreateEvaluationRubricRequest struct {
+	Criteria    []EvaluationCriterion `json:"criteria"`
+	Description *string               `json:"description,omitempty"`
+	Name        string                `json:"name"`
+	WorkspaceId *string               `json:"workspace_id,omitempty"`
+}
+
 // CreateLLMProviderRequest defines model for CreateLLMProviderRequest.
 type CreateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -1340,11 +1429,26 @@ type CreateObjectRefRequest struct {
 	WorkspaceId     *string                 `json:"workspace_id,omitempty"`
 }
 
+// CreateRunEvaluationRequest defines model for CreateRunEvaluationRequest.
+type CreateRunEvaluationRequest struct {
+	Conclusion     CreateRunEvaluationRequestConclusion `json:"conclusion"`
+	LeftSessionId  string                               `json:"left_session_id"`
+	LeftTurnId     string                               `json:"left_turn_id"`
+	Notes          *string                              `json:"notes,omitempty"`
+	RightSessionId string                               `json:"right_session_id"`
+	RightTurnId    string                               `json:"right_turn_id"`
+	RubricId       string                               `json:"rubric_id"`
+	Scores         []EvaluationCriterionScore           `json:"scores"`
+}
+
+// CreateRunEvaluationRequestConclusion defines model for CreateRunEvaluationRequest.Conclusion.
+type CreateRunEvaluationRequestConclusion string
+
 // CreateSessionRequest defines model for CreateSessionRequest.
 type CreateSessionRequest struct {
 	AgentId         *string `json:"agent_id,omitempty"`
 	CreatedBy       *string `json:"created_by,omitempty"`
-	EnvironmentId   string  `json:"environment_id"`
+	EnvironmentId   *string `json:"environment_id,omitempty"`
 	OwnerId         *string `json:"owner_id,omitempty"`
 	ParentSessionId *string `json:"parent_session_id,omitempty"`
 	ParentTurnId    *string `json:"parent_turn_id,omitempty"`
@@ -1447,6 +1551,11 @@ type Environment struct {
 	WorkspaceId string                 `json:"workspace_id"`
 }
 
+// EnvironmentList defines model for EnvironmentList.
+type EnvironmentList struct {
+	Environments []Environment `json:"environments"`
+}
+
 // EnvironmentVariable defines model for EnvironmentVariable.
 type EnvironmentVariable struct {
 	Configured bool                     `json:"configured"`
@@ -1514,6 +1623,146 @@ type EvaluateWorkspaceToolPermissionResultInterventionMode string
 
 // EvaluateWorkspaceToolPermissionResultRuleSource defines model for EvaluateWorkspaceToolPermissionResult.RuleSource.
 type EvaluateWorkspaceToolPermissionResultRuleSource string
+
+// EvaluationCriterion defines model for EvaluationCriterion.
+type EvaluationCriterion struct {
+	Description *string `json:"description,omitempty"`
+	Id          string  `json:"id"`
+	Name        string  `json:"name"`
+}
+
+// EvaluationCriterionScore defines model for EvaluationCriterionScore.
+type EvaluationCriterionScore struct {
+	CriterionId string `json:"criterion_id"`
+	LeftScore   int32  `json:"left_score"`
+	RightScore  int32  `json:"right_score"`
+}
+
+// EvaluationDataset defines model for EvaluationDataset.
+type EvaluationDataset struct {
+	CreatedAt   time.Time               `json:"created_at"`
+	CreatedBy   *string                 `json:"created_by,omitempty"`
+	Description *string                 `json:"description,omitempty"`
+	Id          string                  `json:"id"`
+	Items       []EvaluationDatasetItem `json:"items"`
+	Name        string                  `json:"name"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+	WorkspaceId string                  `json:"workspace_id"`
+}
+
+// EvaluationDatasetItem defines model for EvaluationDatasetItem.
+type EvaluationDatasetItem struct {
+	CreatedAt      time.Time `json:"created_at"`
+	DatasetId      string    `json:"dataset_id"`
+	ExpectedOutput *string   `json:"expected_output,omitempty"`
+	Id             string    `json:"id"`
+	ItemIndex      int32     `json:"item_index"`
+	Prompt         string    `json:"prompt"`
+	Tags           []string  `json:"tags"`
+}
+
+// EvaluationDatasetList defines model for EvaluationDatasetList.
+type EvaluationDatasetList struct {
+	Datasets []EvaluationDataset `json:"datasets"`
+}
+
+// EvaluationExperiment defines model for EvaluationExperiment.
+type EvaluationExperiment struct {
+	CompletedAt            *time.Time                  `json:"completed_at,omitempty"`
+	CreatedAt              time.Time                   `json:"created_at"`
+	CreatedBy              *string                     `json:"created_by,omitempty"`
+	DatasetId              *string                     `json:"dataset_id,omitempty"`
+	Id                     string                      `json:"id"`
+	Items                  []EvaluationExperimentItem  `json:"items"`
+	LeftTemplateSessionId  *string                     `json:"left_template_session_id,omitempty"`
+	Name                   string                      `json:"name"`
+	RightTemplateSessionId *string                     `json:"right_template_session_id,omitempty"`
+	RubricId               *string                     `json:"rubric_id,omitempty"`
+	Status                 EvaluationExperimentStatus  `json:"status"`
+	Summary                EvaluationExperimentSummary `json:"summary"`
+	UpdatedAt              time.Time                   `json:"updated_at"`
+	WorkspaceId            string                      `json:"workspace_id"`
+}
+
+// EvaluationExperimentStatus defines model for EvaluationExperiment.Status.
+type EvaluationExperimentStatus string
+
+// EvaluationExperimentItem defines model for EvaluationExperimentItem.
+type EvaluationExperimentItem struct {
+	Conclusion     *EvaluationExperimentItemConclusion `json:"conclusion,omitempty"`
+	CreatedAt      time.Time                           `json:"created_at"`
+	DatasetItemId  *string                             `json:"dataset_item_id,omitempty"`
+	ErrorMessage   *string                             `json:"error_message,omitempty"`
+	EvaluationId   *string                             `json:"evaluation_id,omitempty"`
+	ExpectedOutput *string                             `json:"expected_output,omitempty"`
+	ExperimentId   string                              `json:"experiment_id"`
+	Id             string                              `json:"id"`
+	ItemIndex      int32                               `json:"item_index"`
+	LeftAverage    float64                             `json:"left_average"`
+	LeftSessionId  *string                             `json:"left_session_id,omitempty"`
+	LeftTurnId     *string                             `json:"left_turn_id,omitempty"`
+	Prompt         string                              `json:"prompt"`
+	RightAverage   float64                             `json:"right_average"`
+	RightSessionId *string                             `json:"right_session_id,omitempty"`
+	RightTurnId    *string                             `json:"right_turn_id,omitempty"`
+	Status         EvaluationExperimentItemStatus      `json:"status"`
+	Tags           []string                            `json:"tags"`
+	UpdatedAt      time.Time                           `json:"updated_at"`
+}
+
+// EvaluationExperimentItemConclusion defines model for EvaluationExperimentItem.Conclusion.
+type EvaluationExperimentItemConclusion string
+
+// EvaluationExperimentItemStatus defines model for EvaluationExperimentItem.Status.
+type EvaluationExperimentItemStatus string
+
+// EvaluationExperimentList defines model for EvaluationExperimentList.
+type EvaluationExperimentList struct {
+	Experiments []EvaluationExperiment `json:"experiments"`
+}
+
+// EvaluationExperimentSummary defines model for EvaluationExperimentSummary.
+type EvaluationExperimentSummary struct {
+	Completed    int32   `json:"completed"`
+	Failed       int32   `json:"failed"`
+	Inconclusive int32   `json:"inconclusive"`
+	LeftAverage  float64 `json:"left_average"`
+	LeftWins     int32   `json:"left_wins"`
+	Queued       int32   `json:"queued"`
+	RightAverage float64 `json:"right_average"`
+	RightWins    int32   `json:"right_wins"`
+	Running      int32   `json:"running"`
+	Ties         int32   `json:"ties"`
+	Total        int32   `json:"total"`
+}
+
+// EvaluationRubric defines model for EvaluationRubric.
+type EvaluationRubric struct {
+	CreatedAt   time.Time             `json:"created_at"`
+	CreatedBy   *string               `json:"created_by,omitempty"`
+	Criteria    []EvaluationCriterion `json:"criteria"`
+	Description *string               `json:"description,omitempty"`
+	Id          string                `json:"id"`
+	Name        string                `json:"name"`
+	Revision    int64                 `json:"revision"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+	UpdatedBy   *string               `json:"updated_by,omitempty"`
+	WorkspaceId string                `json:"workspace_id"`
+}
+
+// EvaluationRubricList defines model for EvaluationRubricList.
+type EvaluationRubricList struct {
+	Rubrics []EvaluationRubric `json:"rubrics"`
+}
+
+// EvaluationRubricSnapshot defines model for EvaluationRubricSnapshot.
+type EvaluationRubricSnapshot struct {
+	Criteria    []EvaluationCriterion `json:"criteria"`
+	Description *string               `json:"description,omitempty"`
+	Name        string                `json:"name"`
+	Revision    int64                 `json:"revision"`
+	RubricId    string                `json:"rubric_id"`
+}
 
 // Event defines model for Event.
 type Event struct {
@@ -2077,13 +2326,15 @@ type MarketplaceDisableRequest struct {
 
 // MarketplaceDisableResult defines model for MarketplaceDisableResult.
 type MarketplaceDisableResult struct {
-	AgentId                string       `json:"agent_id"`
-	Binding                EnabledSkill `json:"binding"`
-	CurrentSessionVersion  int32        `json:"current_session_version"`
-	NewConfigVersion       int32        `json:"new_config_version"`
-	PreviousConfigVersion  int32        `json:"previous_config_version"`
-	Removed                bool         `json:"removed"`
-	RequiresSessionUpgrade bool         `json:"requires_session_upgrade"`
+	AgentId               string       `json:"agent_id"`
+	Binding               EnabledSkill `json:"binding"`
+	CurrentSessionVersion int32        `json:"current_session_version"`
+	NewConfigVersion      int32        `json:"new_config_version"`
+	PreviousConfigVersion int32        `json:"previous_config_version"`
+	Removed               bool         `json:"removed"`
+
+	// RequiresSessionUpgrade True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.
+	RequiresSessionUpgrade bool `json:"requires_session_upgrade"`
 }
 
 // MarketplaceDiscoverResult defines model for MarketplaceDiscoverResult.
@@ -2108,13 +2359,15 @@ type MarketplaceEnableRequestMode string
 
 // MarketplaceEnableResult defines model for MarketplaceEnableResult.
 type MarketplaceEnableResult struct {
-	AgentId                string       `json:"agent_id"`
-	Binding                EnabledSkill `json:"binding"`
-	Changed                bool         `json:"changed"`
-	CurrentSessionVersion  int32        `json:"current_session_version"`
-	NewConfigVersion       int32        `json:"new_config_version"`
-	PreviousConfigVersion  int32        `json:"previous_config_version"`
-	RequiresSessionUpgrade bool         `json:"requires_session_upgrade"`
+	AgentId               string       `json:"agent_id"`
+	Binding               EnabledSkill `json:"binding"`
+	Changed               bool         `json:"changed"`
+	CurrentSessionVersion int32        `json:"current_session_version"`
+	NewConfigVersion      int32        `json:"new_config_version"`
+	PreviousConfigVersion int32        `json:"previous_config_version"`
+
+	// RequiresSessionUpgrade True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn.
+	RequiresSessionUpgrade bool `json:"requires_session_upgrade"`
 }
 
 // MarketplaceEntry defines model for MarketplaceEntry.
@@ -2711,7 +2964,6 @@ type RerunSessionRequest struct {
 	MessageSeq               *int64                                      `json:"message_seq,omitempty"`
 	PermissionRules          *[]PermissionRule                           `json:"permission_rules,omitempty"`
 	Title                    *string                                     `json:"title,omitempty"`
-	ToolRuntime              *string                                     `json:"tool_runtime,omitempty"`
 }
 
 // RerunSessionRequestAgentConfigUpdatePolicy Defaults to follow_latest.
@@ -2795,6 +3047,44 @@ type RunAgentScheduleResponse struct {
 // RunAgentScheduleResponseStatus defines model for RunAgentScheduleResponse.Status.
 type RunAgentScheduleResponseStatus string
 
+// RunComparison defines model for RunComparison.
+type RunComparison struct {
+	Left  SessionComparisonSide `json:"left"`
+	Right SessionComparisonSide `json:"right"`
+}
+
+// RunEvaluation defines model for RunEvaluation.
+type RunEvaluation struct {
+	Conclusion     RunEvaluationConclusion     `json:"conclusion"`
+	CreatedAt      time.Time                   `json:"created_at"`
+	CreatedBy      *string                     `json:"created_by,omitempty"`
+	EvaluationType RunEvaluationEvaluationType `json:"evaluation_type"`
+	Id             string                      `json:"id"`
+	JudgeModel     *string                     `json:"judge_model,omitempty"`
+	JudgeProvider  *string                     `json:"judge_provider,omitempty"`
+	JudgeReasoning *string                     `json:"judge_reasoning,omitempty"`
+	LeftSessionId  string                      `json:"left_session_id"`
+	LeftTurnId     string                      `json:"left_turn_id"`
+	Notes          *string                     `json:"notes,omitempty"`
+	RightSessionId string                      `json:"right_session_id"`
+	RightTurnId    string                      `json:"right_turn_id"`
+	RubricId       *string                     `json:"rubric_id,omitempty"`
+	RubricSnapshot EvaluationRubricSnapshot    `json:"rubric_snapshot"`
+	Scores         []EvaluationCriterionScore  `json:"scores"`
+	WorkspaceId    string                      `json:"workspace_id"`
+}
+
+// RunEvaluationConclusion defines model for RunEvaluation.Conclusion.
+type RunEvaluationConclusion string
+
+// RunEvaluationEvaluationType defines model for RunEvaluation.EvaluationType.
+type RunEvaluationEvaluationType string
+
+// RunEvaluationList defines model for RunEvaluationList.
+type RunEvaluationList struct {
+	Evaluations []RunEvaluation `json:"evaluations"`
+}
+
 // RunList defines model for RunList.
 type RunList struct {
 	Runs []Run `json:"runs"`
@@ -2873,7 +3163,9 @@ type SessionComparisonSide struct {
 	LlmProvider string     `json:"llm_provider"`
 	Prompt      string     `json:"prompt"`
 	Result      string     `json:"result"`
+	Run         *Run       `json:"run,omitempty"`
 	Session     Session    `json:"session"`
+	Trace       *TurnTrace `json:"trace,omitempty"`
 	Usage       struct {
 		Records   []LLMUsageRecord `json:"records"`
 		SessionId string           `json:"session_id"`
@@ -3777,9 +4069,10 @@ type UpdateAchievementLibraryItemRequest struct {
 
 // UpdateAgentRequest defines model for UpdateAgentRequest.
 type UpdateAgentRequest struct {
-	LlmModel    *string                 `json:"llm_model,omitempty"`
-	LlmProvider *string                 `json:"llm_provider,omitempty"`
-	Mcp         *map[string]interface{} `json:"mcp,omitempty"`
+	EnvironmentId *string                 `json:"environment_id,omitempty"`
+	LlmModel      *string                 `json:"llm_model,omitempty"`
+	LlmProvider   *string                 `json:"llm_provider,omitempty"`
+	Mcp           *map[string]interface{} `json:"mcp,omitempty"`
 	// Deprecated:
 	Model  *string                 `json:"model,omitempty"`
 	Name   *string                 `json:"name,omitempty"`
@@ -3848,7 +4141,6 @@ type UpdateSessionRuntimeSettingsRequest struct {
 	LlmModel                 *string                                                     `json:"llm_model,omitempty"`
 	LlmProvider              *string                                                     `json:"llm_provider,omitempty"`
 	PermissionRules          *[]PermissionRule                                           `json:"permission_rules,omitempty"`
-	ToolRuntime              *string                                                     `json:"tool_runtime,omitempty"`
 }
 
 // UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy Defaults to follow_latest.
@@ -4047,6 +4339,22 @@ type PutV2EnvironmentVariablesByNameParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 }
 
+// GetV2EvaluationDatasetsParams defines parameters for GetV2EvaluationDatasets.
+type GetV2EvaluationDatasetsParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
+// GetV2EvaluationExperimentsParams defines parameters for GetV2EvaluationExperiments.
+type GetV2EvaluationExperimentsParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	Limit       *int32  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetV2EvaluationRubricsParams defines parameters for GetV2EvaluationRubrics.
+type GetV2EvaluationRubricsParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
 // GetV2LlmModelsParams defines parameters for GetV2LlmModels.
 type GetV2LlmModelsParams struct {
 	ProviderId *string `form:"provider_id,omitempty" json:"provider_id,omitempty"`
@@ -4118,6 +4426,23 @@ type GetV2OperatorAuditParams struct {
 	PrincipalId *string `form:"principal_id,omitempty" json:"principal_id,omitempty"`
 	Action      *string `form:"action,omitempty" json:"action,omitempty"`
 	Limit       *int32  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetV2RunComparisonsParams defines parameters for GetV2RunComparisons.
+type GetV2RunComparisonsParams struct {
+	LeftSessionId  string `form:"left_session_id" json:"left_session_id"`
+	LeftTurnId     string `form:"left_turn_id" json:"left_turn_id"`
+	RightSessionId string `form:"right_session_id" json:"right_session_id"`
+	RightTurnId    string `form:"right_turn_id" json:"right_turn_id"`
+}
+
+// GetV2RunEvaluationsParams defines parameters for GetV2RunEvaluations.
+type GetV2RunEvaluationsParams struct {
+	LeftSessionId  string `form:"left_session_id" json:"left_session_id"`
+	LeftTurnId     string `form:"left_turn_id" json:"left_turn_id"`
+	RightSessionId string `form:"right_session_id" json:"right_session_id"`
+	RightTurnId    string `form:"right_turn_id" json:"right_turn_id"`
+	Limit          *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetV2SessionComparisonsParams defines parameters for GetV2SessionComparisons.
@@ -4333,6 +4658,15 @@ type PutV2EnvironmentVariablesByNameJSONRequestBody = PutEnvironmentVariableRequ
 // PostV2EnvironmentsJSONRequestBody defines body for PostV2Environments for application/json ContentType.
 type PostV2EnvironmentsJSONRequestBody = CreateEnvironmentRequest
 
+// PostV2EvaluationDatasetsJSONRequestBody defines body for PostV2EvaluationDatasets for application/json ContentType.
+type PostV2EvaluationDatasetsJSONRequestBody = CreateEvaluationDatasetRequest
+
+// PostV2EvaluationExperimentsJSONRequestBody defines body for PostV2EvaluationExperiments for application/json ContentType.
+type PostV2EvaluationExperimentsJSONRequestBody = CreateEvaluationExperimentRequest
+
+// PostV2EvaluationRubricsJSONRequestBody defines body for PostV2EvaluationRubrics for application/json ContentType.
+type PostV2EvaluationRubricsJSONRequestBody = CreateEvaluationRubricRequest
+
 // PostV2LlmModelsJSONRequestBody defines body for PostV2LlmModels for application/json ContentType.
 type PostV2LlmModelsJSONRequestBody = PutLLMModelRequest
 
@@ -4350,6 +4684,12 @@ type PatchV2McpServersByServerIdJSONRequestBody = UpdateMCPServerRequest
 
 // PostV2ObjectRefsJSONRequestBody defines body for PostV2ObjectRefs for application/json ContentType.
 type PostV2ObjectRefsJSONRequestBody = CreateObjectRefRequest
+
+// PostV2RunEvaluationsJSONRequestBody defines body for PostV2RunEvaluations for application/json ContentType.
+type PostV2RunEvaluationsJSONRequestBody = CreateRunEvaluationRequest
+
+// PostV2RunEvaluationsAutoJSONRequestBody defines body for PostV2RunEvaluationsAuto for application/json ContentType.
+type PostV2RunEvaluationsAutoJSONRequestBody = AutoRunEvaluationRequest
 
 // PostV2SessionsJSONRequestBody defines body for PostV2Sessions for application/json ContentType.
 type PostV2SessionsJSONRequestBody = CreateSessionRequest
@@ -4873,10 +5213,52 @@ type ClientInterface interface {
 
 	PutV2EnvironmentVariablesByName(ctx context.Context, name string, params *PutV2EnvironmentVariablesByNameParams, body PutV2EnvironmentVariablesByNameJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2Environments request
+	GetV2Environments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostV2EnvironmentsWithBody request with any body
 	PostV2EnvironmentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostV2Environments(ctx context.Context, body PostV2EnvironmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EnvironmentsByEnvironmentId request
+	GetV2EnvironmentsByEnvironmentId(ctx context.Context, environmentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationDatasets request
+	GetV2EvaluationDatasets(ctx context.Context, params *GetV2EvaluationDatasetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EvaluationDatasetsWithBody request with any body
+	PostV2EvaluationDatasetsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2EvaluationDatasets(ctx context.Context, body PostV2EvaluationDatasetsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationDatasetsByDatasetId request
+	GetV2EvaluationDatasetsByDatasetId(ctx context.Context, datasetId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationExperiments request
+	GetV2EvaluationExperiments(ctx context.Context, params *GetV2EvaluationExperimentsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EvaluationExperimentsWithBody request with any body
+	PostV2EvaluationExperimentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2EvaluationExperiments(ctx context.Context, body PostV2EvaluationExperimentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationExperimentsByExperimentId request
+	GetV2EvaluationExperimentsByExperimentId(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EvaluationExperimentsByExperimentIdReconcile request
+	PostV2EvaluationExperimentsByExperimentIdReconcile(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationRubrics request
+	GetV2EvaluationRubrics(ctx context.Context, params *GetV2EvaluationRubricsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EvaluationRubricsWithBody request with any body
+	PostV2EvaluationRubricsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2EvaluationRubrics(ctx context.Context, body PostV2EvaluationRubricsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EvaluationRubricsByRubricId request
+	GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2LlmModels request
 	GetV2LlmModels(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -4988,6 +5370,22 @@ type ClientInterface interface {
 
 	// GetV2OperatorAudit request
 	GetV2OperatorAudit(ctx context.Context, params *GetV2OperatorAuditParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RunComparisons request
+	GetV2RunComparisons(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RunEvaluations request
+	GetV2RunEvaluations(ctx context.Context, params *GetV2RunEvaluationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2RunEvaluationsWithBody request with any body
+	PostV2RunEvaluationsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2RunEvaluations(ctx context.Context, body PostV2RunEvaluationsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2RunEvaluationsAutoWithBody request with any body
+	PostV2RunEvaluationsAutoWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2RunEvaluationsAuto(ctx context.Context, body PostV2RunEvaluationsAutoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2SessionComparisons request
 	GetV2SessionComparisons(ctx context.Context, params *GetV2SessionComparisonsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5920,6 +6318,18 @@ func (c *Client) PutV2EnvironmentVariablesByName(ctx context.Context, name strin
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetV2Environments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EnvironmentsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PostV2EnvironmentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2EnvironmentsRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -5934,6 +6344,174 @@ func (c *Client) PostV2EnvironmentsWithBody(ctx context.Context, contentType str
 
 func (c *Client) PostV2Environments(ctx context.Context, body PostV2EnvironmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2EnvironmentsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EnvironmentsByEnvironmentId(ctx context.Context, environmentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EnvironmentsByEnvironmentIdRequest(c.Server, environmentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationDatasets(ctx context.Context, params *GetV2EvaluationDatasetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationDatasetsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationDatasetsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationDatasetsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationDatasets(ctx context.Context, body PostV2EvaluationDatasetsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationDatasetsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationDatasetsByDatasetId(ctx context.Context, datasetId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationDatasetsByDatasetIdRequest(c.Server, datasetId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationExperiments(ctx context.Context, params *GetV2EvaluationExperimentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationExperimentsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationExperimentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationExperimentsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationExperiments(ctx context.Context, body PostV2EvaluationExperimentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationExperimentsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationExperimentsByExperimentId(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationExperimentsByExperimentIdRequest(c.Server, experimentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationExperimentsByExperimentIdReconcile(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationExperimentsByExperimentIdReconcileRequest(c.Server, experimentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationRubrics(ctx context.Context, params *GetV2EvaluationRubricsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationRubricsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationRubricsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationRubricsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EvaluationRubrics(ctx context.Context, body PostV2EvaluationRubricsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EvaluationRubricsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EvaluationRubricsByRubricIdRequest(c.Server, rubricId)
 	if err != nil {
 		return nil, err
 	}
@@ -6402,6 +6980,78 @@ func (c *Client) GetV2ObservabilityStatus(ctx context.Context, reqEditors ...Req
 
 func (c *Client) GetV2OperatorAudit(ctx context.Context, params *GetV2OperatorAuditParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2OperatorAuditRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RunComparisons(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RunComparisonsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RunEvaluations(ctx context.Context, params *GetV2RunEvaluationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RunEvaluationsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RunEvaluationsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RunEvaluationsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RunEvaluations(ctx context.Context, body PostV2RunEvaluationsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RunEvaluationsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RunEvaluationsAutoWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RunEvaluationsAutoRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RunEvaluationsAuto(ctx context.Context, body PostV2RunEvaluationsAutoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RunEvaluationsAutoRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -9677,6 +10327,33 @@ func NewPutV2EnvironmentVariablesByNameRequestWithBody(server string, name strin
 	return req, nil
 }
 
+// NewGetV2EnvironmentsRequest generates requests for GetV2Environments
+func NewGetV2EnvironmentsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/environments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPostV2EnvironmentsRequest calls the generic PostV2Environments builder with application/json body
 func NewPostV2EnvironmentsRequest(server string, body PostV2EnvironmentsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -9713,6 +10390,459 @@ func NewPostV2EnvironmentsRequestWithBody(server string, contentType string, bod
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EnvironmentsByEnvironmentIdRequest generates requests for GetV2EnvironmentsByEnvironmentId
+func NewGetV2EnvironmentsByEnvironmentIdRequest(server string, environmentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "environment_id", runtime.ParamLocationPath, environmentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/environments/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2EvaluationDatasetsRequest generates requests for GetV2EvaluationDatasets
+func NewGetV2EvaluationDatasetsRequest(server string, params *GetV2EvaluationDatasetsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-datasets")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EvaluationDatasetsRequest calls the generic PostV2EvaluationDatasets builder with application/json body
+func NewPostV2EvaluationDatasetsRequest(server string, body PostV2EvaluationDatasetsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2EvaluationDatasetsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2EvaluationDatasetsRequestWithBody generates requests for PostV2EvaluationDatasets with any type of body
+func NewPostV2EvaluationDatasetsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-datasets")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EvaluationDatasetsByDatasetIdRequest generates requests for GetV2EvaluationDatasetsByDatasetId
+func NewGetV2EvaluationDatasetsByDatasetIdRequest(server string, datasetId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "dataset_id", runtime.ParamLocationPath, datasetId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-datasets/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2EvaluationExperimentsRequest generates requests for GetV2EvaluationExperiments
+func NewGetV2EvaluationExperimentsRequest(server string, params *GetV2EvaluationExperimentsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-experiments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EvaluationExperimentsRequest calls the generic PostV2EvaluationExperiments builder with application/json body
+func NewPostV2EvaluationExperimentsRequest(server string, body PostV2EvaluationExperimentsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2EvaluationExperimentsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2EvaluationExperimentsRequestWithBody generates requests for PostV2EvaluationExperiments with any type of body
+func NewPostV2EvaluationExperimentsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-experiments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EvaluationExperimentsByExperimentIdRequest generates requests for GetV2EvaluationExperimentsByExperimentId
+func NewGetV2EvaluationExperimentsByExperimentIdRequest(server string, experimentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "experiment_id", runtime.ParamLocationPath, experimentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-experiments/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EvaluationExperimentsByExperimentIdReconcileRequest generates requests for PostV2EvaluationExperimentsByExperimentIdReconcile
+func NewPostV2EvaluationExperimentsByExperimentIdReconcileRequest(server string, experimentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "experiment_id", runtime.ParamLocationPath, experimentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-experiments/%s/reconcile", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2EvaluationRubricsRequest generates requests for GetV2EvaluationRubrics
+func NewGetV2EvaluationRubricsRequest(server string, params *GetV2EvaluationRubricsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-rubrics")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EvaluationRubricsRequest calls the generic PostV2EvaluationRubrics builder with application/json body
+func NewPostV2EvaluationRubricsRequest(server string, body PostV2EvaluationRubricsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2EvaluationRubricsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2EvaluationRubricsRequestWithBody generates requests for PostV2EvaluationRubrics with any type of body
+func NewPostV2EvaluationRubricsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-rubrics")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EvaluationRubricsByRubricIdRequest generates requests for GetV2EvaluationRubricsByRubricId
+func NewGetV2EvaluationRubricsByRubricIdRequest(server string, rubricId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "rubric_id", runtime.ParamLocationPath, rubricId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/evaluation-rubrics/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -11123,6 +12253,264 @@ func NewGetV2OperatorAuditRequest(server string, params *GetV2OperatorAuditParam
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewGetV2RunComparisonsRequest generates requests for GetV2RunComparisons
+func NewGetV2RunComparisonsRequest(server string, params *GetV2RunComparisonsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/run-comparisons")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "left_session_id", runtime.ParamLocationQuery, params.LeftSessionId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "left_turn_id", runtime.ParamLocationQuery, params.LeftTurnId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "right_session_id", runtime.ParamLocationQuery, params.RightSessionId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "right_turn_id", runtime.ParamLocationQuery, params.RightTurnId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2RunEvaluationsRequest generates requests for GetV2RunEvaluations
+func NewGetV2RunEvaluationsRequest(server string, params *GetV2RunEvaluationsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/run-evaluations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "left_session_id", runtime.ParamLocationQuery, params.LeftSessionId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "left_turn_id", runtime.ParamLocationQuery, params.LeftTurnId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "right_session_id", runtime.ParamLocationQuery, params.RightSessionId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "right_turn_id", runtime.ParamLocationQuery, params.RightTurnId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2RunEvaluationsRequest calls the generic PostV2RunEvaluations builder with application/json body
+func NewPostV2RunEvaluationsRequest(server string, body PostV2RunEvaluationsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2RunEvaluationsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2RunEvaluationsRequestWithBody generates requests for PostV2RunEvaluations with any type of body
+func NewPostV2RunEvaluationsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/run-evaluations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2RunEvaluationsAutoRequest calls the generic PostV2RunEvaluationsAuto builder with application/json body
+func NewPostV2RunEvaluationsAutoRequest(server string, body PostV2RunEvaluationsAutoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2RunEvaluationsAutoRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2RunEvaluationsAutoRequestWithBody generates requests for PostV2RunEvaluationsAuto with any type of body
+func NewPostV2RunEvaluationsAutoRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/run-evaluations/auto")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -17225,10 +18613,52 @@ type ClientWithResponsesInterface interface {
 
 	PutV2EnvironmentVariablesByNameWithResponse(ctx context.Context, name string, params *PutV2EnvironmentVariablesByNameParams, body PutV2EnvironmentVariablesByNameJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2EnvironmentVariablesByNameResponse, error)
 
+	// GetV2EnvironmentsWithResponse request
+	GetV2EnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error)
+
 	// PostV2EnvironmentsWithBodyWithResponse request with any body
 	PostV2EnvironmentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EnvironmentsResponse, error)
 
 	PostV2EnvironmentsWithResponse(ctx context.Context, body PostV2EnvironmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EnvironmentsResponse, error)
+
+	// GetV2EnvironmentsByEnvironmentIdWithResponse request
+	GetV2EnvironmentsByEnvironmentIdWithResponse(ctx context.Context, environmentId string, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsByEnvironmentIdResponse, error)
+
+	// GetV2EvaluationDatasetsWithResponse request
+	GetV2EvaluationDatasetsWithResponse(ctx context.Context, params *GetV2EvaluationDatasetsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationDatasetsResponse, error)
+
+	// PostV2EvaluationDatasetsWithBodyWithResponse request with any body
+	PostV2EvaluationDatasetsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationDatasetsResponse, error)
+
+	PostV2EvaluationDatasetsWithResponse(ctx context.Context, body PostV2EvaluationDatasetsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationDatasetsResponse, error)
+
+	// GetV2EvaluationDatasetsByDatasetIdWithResponse request
+	GetV2EvaluationDatasetsByDatasetIdWithResponse(ctx context.Context, datasetId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationDatasetsByDatasetIdResponse, error)
+
+	// GetV2EvaluationExperimentsWithResponse request
+	GetV2EvaluationExperimentsWithResponse(ctx context.Context, params *GetV2EvaluationExperimentsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationExperimentsResponse, error)
+
+	// PostV2EvaluationExperimentsWithBodyWithResponse request with any body
+	PostV2EvaluationExperimentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsResponse, error)
+
+	PostV2EvaluationExperimentsWithResponse(ctx context.Context, body PostV2EvaluationExperimentsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsResponse, error)
+
+	// GetV2EvaluationExperimentsByExperimentIdWithResponse request
+	GetV2EvaluationExperimentsByExperimentIdWithResponse(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationExperimentsByExperimentIdResponse, error)
+
+	// PostV2EvaluationExperimentsByExperimentIdReconcileWithResponse request
+	PostV2EvaluationExperimentsByExperimentIdReconcileWithResponse(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsByExperimentIdReconcileResponse, error)
+
+	// GetV2EvaluationRubricsWithResponse request
+	GetV2EvaluationRubricsWithResponse(ctx context.Context, params *GetV2EvaluationRubricsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsResponse, error)
+
+	// PostV2EvaluationRubricsWithBodyWithResponse request with any body
+	PostV2EvaluationRubricsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationRubricsResponse, error)
+
+	PostV2EvaluationRubricsWithResponse(ctx context.Context, body PostV2EvaluationRubricsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationRubricsResponse, error)
+
+	// GetV2EvaluationRubricsByRubricIdWithResponse request
+	GetV2EvaluationRubricsByRubricIdWithResponse(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsByRubricIdResponse, error)
 
 	// GetV2LlmModelsWithResponse request
 	GetV2LlmModelsWithResponse(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*GetV2LlmModelsResponse, error)
@@ -17340,6 +18770,22 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2OperatorAuditWithResponse request
 	GetV2OperatorAuditWithResponse(ctx context.Context, params *GetV2OperatorAuditParams, reqEditors ...RequestEditorFn) (*GetV2OperatorAuditResponse, error)
+
+	// GetV2RunComparisonsWithResponse request
+	GetV2RunComparisonsWithResponse(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*GetV2RunComparisonsResponse, error)
+
+	// GetV2RunEvaluationsWithResponse request
+	GetV2RunEvaluationsWithResponse(ctx context.Context, params *GetV2RunEvaluationsParams, reqEditors ...RequestEditorFn) (*GetV2RunEvaluationsResponse, error)
+
+	// PostV2RunEvaluationsWithBodyWithResponse request with any body
+	PostV2RunEvaluationsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsResponse, error)
+
+	PostV2RunEvaluationsWithResponse(ctx context.Context, body PostV2RunEvaluationsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsResponse, error)
+
+	// PostV2RunEvaluationsAutoWithBodyWithResponse request with any body
+	PostV2RunEvaluationsAutoWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsAutoResponse, error)
+
+	PostV2RunEvaluationsAutoWithResponse(ctx context.Context, body PostV2RunEvaluationsAutoJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsAutoResponse, error)
 
 	// GetV2SessionComparisonsWithResponse request
 	GetV2SessionComparisonsWithResponse(ctx context.Context, params *GetV2SessionComparisonsParams, reqEditors ...RequestEditorFn) (*GetV2SessionComparisonsResponse, error)
@@ -18468,6 +19914,29 @@ func (r PutV2EnvironmentVariablesByNameResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2EnvironmentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EnvironmentList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EnvironmentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EnvironmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2EnvironmentsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -18485,6 +19954,259 @@ func (r PostV2EnvironmentsResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2EnvironmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EnvironmentsByEnvironmentIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Environment
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EnvironmentsByEnvironmentIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EnvironmentsByEnvironmentIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationDatasetsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationDatasetList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationDatasetsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationDatasetsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EvaluationDatasetsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *EvaluationDataset
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EvaluationDatasetsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EvaluationDatasetsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationDatasetsByDatasetIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationDataset
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationDatasetsByDatasetIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationDatasetsByDatasetIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationExperimentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationExperimentList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationExperimentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationExperimentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EvaluationExperimentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *EvaluationExperiment
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EvaluationExperimentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EvaluationExperimentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationExperimentsByExperimentIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationExperiment
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationExperimentsByExperimentIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationExperimentsByExperimentIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EvaluationExperimentsByExperimentIdReconcileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationExperiment
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EvaluationExperimentsByExperimentIdReconcileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EvaluationExperimentsByExperimentIdReconcileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationRubricsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationRubricList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationRubricsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationRubricsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EvaluationRubricsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *EvaluationRubric
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EvaluationRubricsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EvaluationRubricsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EvaluationRubricsByRubricIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EvaluationRubric
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EvaluationRubricsByRubricIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EvaluationRubricsByRubricIdResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -19241,6 +20963,98 @@ func (r GetV2OperatorAuditResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2OperatorAuditResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RunComparisonsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RunComparison
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RunComparisonsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RunComparisonsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RunEvaluationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RunEvaluationList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RunEvaluationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RunEvaluationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2RunEvaluationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *RunEvaluation
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2RunEvaluationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2RunEvaluationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2RunEvaluationsAutoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *RunEvaluation
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2RunEvaluationsAutoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2RunEvaluationsAutoResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -22345,6 +24159,15 @@ func (c *ClientWithResponses) PutV2EnvironmentVariablesByNameWithResponse(ctx co
 	return ParsePutV2EnvironmentVariablesByNameResponse(rsp)
 }
 
+// GetV2EnvironmentsWithResponse request returning *GetV2EnvironmentsResponse
+func (c *ClientWithResponses) GetV2EnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error) {
+	rsp, err := c.GetV2Environments(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EnvironmentsResponse(rsp)
+}
+
 // PostV2EnvironmentsWithBodyWithResponse request with arbitrary body returning *PostV2EnvironmentsResponse
 func (c *ClientWithResponses) PostV2EnvironmentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EnvironmentsResponse, error) {
 	rsp, err := c.PostV2EnvironmentsWithBody(ctx, contentType, body, reqEditors...)
@@ -22360,6 +24183,129 @@ func (c *ClientWithResponses) PostV2EnvironmentsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParsePostV2EnvironmentsResponse(rsp)
+}
+
+// GetV2EnvironmentsByEnvironmentIdWithResponse request returning *GetV2EnvironmentsByEnvironmentIdResponse
+func (c *ClientWithResponses) GetV2EnvironmentsByEnvironmentIdWithResponse(ctx context.Context, environmentId string, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsByEnvironmentIdResponse, error) {
+	rsp, err := c.GetV2EnvironmentsByEnvironmentId(ctx, environmentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EnvironmentsByEnvironmentIdResponse(rsp)
+}
+
+// GetV2EvaluationDatasetsWithResponse request returning *GetV2EvaluationDatasetsResponse
+func (c *ClientWithResponses) GetV2EvaluationDatasetsWithResponse(ctx context.Context, params *GetV2EvaluationDatasetsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationDatasetsResponse, error) {
+	rsp, err := c.GetV2EvaluationDatasets(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationDatasetsResponse(rsp)
+}
+
+// PostV2EvaluationDatasetsWithBodyWithResponse request with arbitrary body returning *PostV2EvaluationDatasetsResponse
+func (c *ClientWithResponses) PostV2EvaluationDatasetsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationDatasetsResponse, error) {
+	rsp, err := c.PostV2EvaluationDatasetsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationDatasetsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2EvaluationDatasetsWithResponse(ctx context.Context, body PostV2EvaluationDatasetsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationDatasetsResponse, error) {
+	rsp, err := c.PostV2EvaluationDatasets(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationDatasetsResponse(rsp)
+}
+
+// GetV2EvaluationDatasetsByDatasetIdWithResponse request returning *GetV2EvaluationDatasetsByDatasetIdResponse
+func (c *ClientWithResponses) GetV2EvaluationDatasetsByDatasetIdWithResponse(ctx context.Context, datasetId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationDatasetsByDatasetIdResponse, error) {
+	rsp, err := c.GetV2EvaluationDatasetsByDatasetId(ctx, datasetId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationDatasetsByDatasetIdResponse(rsp)
+}
+
+// GetV2EvaluationExperimentsWithResponse request returning *GetV2EvaluationExperimentsResponse
+func (c *ClientWithResponses) GetV2EvaluationExperimentsWithResponse(ctx context.Context, params *GetV2EvaluationExperimentsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationExperimentsResponse, error) {
+	rsp, err := c.GetV2EvaluationExperiments(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationExperimentsResponse(rsp)
+}
+
+// PostV2EvaluationExperimentsWithBodyWithResponse request with arbitrary body returning *PostV2EvaluationExperimentsResponse
+func (c *ClientWithResponses) PostV2EvaluationExperimentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsResponse, error) {
+	rsp, err := c.PostV2EvaluationExperimentsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationExperimentsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2EvaluationExperimentsWithResponse(ctx context.Context, body PostV2EvaluationExperimentsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsResponse, error) {
+	rsp, err := c.PostV2EvaluationExperiments(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationExperimentsResponse(rsp)
+}
+
+// GetV2EvaluationExperimentsByExperimentIdWithResponse request returning *GetV2EvaluationExperimentsByExperimentIdResponse
+func (c *ClientWithResponses) GetV2EvaluationExperimentsByExperimentIdWithResponse(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationExperimentsByExperimentIdResponse, error) {
+	rsp, err := c.GetV2EvaluationExperimentsByExperimentId(ctx, experimentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationExperimentsByExperimentIdResponse(rsp)
+}
+
+// PostV2EvaluationExperimentsByExperimentIdReconcileWithResponse request returning *PostV2EvaluationExperimentsByExperimentIdReconcileResponse
+func (c *ClientWithResponses) PostV2EvaluationExperimentsByExperimentIdReconcileWithResponse(ctx context.Context, experimentId string, reqEditors ...RequestEditorFn) (*PostV2EvaluationExperimentsByExperimentIdReconcileResponse, error) {
+	rsp, err := c.PostV2EvaluationExperimentsByExperimentIdReconcile(ctx, experimentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationExperimentsByExperimentIdReconcileResponse(rsp)
+}
+
+// GetV2EvaluationRubricsWithResponse request returning *GetV2EvaluationRubricsResponse
+func (c *ClientWithResponses) GetV2EvaluationRubricsWithResponse(ctx context.Context, params *GetV2EvaluationRubricsParams, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsResponse, error) {
+	rsp, err := c.GetV2EvaluationRubrics(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationRubricsResponse(rsp)
+}
+
+// PostV2EvaluationRubricsWithBodyWithResponse request with arbitrary body returning *PostV2EvaluationRubricsResponse
+func (c *ClientWithResponses) PostV2EvaluationRubricsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EvaluationRubricsResponse, error) {
+	rsp, err := c.PostV2EvaluationRubricsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationRubricsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2EvaluationRubricsWithResponse(ctx context.Context, body PostV2EvaluationRubricsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EvaluationRubricsResponse, error) {
+	rsp, err := c.PostV2EvaluationRubrics(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EvaluationRubricsResponse(rsp)
+}
+
+// GetV2EvaluationRubricsByRubricIdWithResponse request returning *GetV2EvaluationRubricsByRubricIdResponse
+func (c *ClientWithResponses) GetV2EvaluationRubricsByRubricIdWithResponse(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsByRubricIdResponse, error) {
+	rsp, err := c.GetV2EvaluationRubricsByRubricId(ctx, rubricId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EvaluationRubricsByRubricIdResponse(rsp)
 }
 
 // GetV2LlmModelsWithResponse request returning *GetV2LlmModelsResponse
@@ -22705,6 +24651,58 @@ func (c *ClientWithResponses) GetV2OperatorAuditWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseGetV2OperatorAuditResponse(rsp)
+}
+
+// GetV2RunComparisonsWithResponse request returning *GetV2RunComparisonsResponse
+func (c *ClientWithResponses) GetV2RunComparisonsWithResponse(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*GetV2RunComparisonsResponse, error) {
+	rsp, err := c.GetV2RunComparisons(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RunComparisonsResponse(rsp)
+}
+
+// GetV2RunEvaluationsWithResponse request returning *GetV2RunEvaluationsResponse
+func (c *ClientWithResponses) GetV2RunEvaluationsWithResponse(ctx context.Context, params *GetV2RunEvaluationsParams, reqEditors ...RequestEditorFn) (*GetV2RunEvaluationsResponse, error) {
+	rsp, err := c.GetV2RunEvaluations(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RunEvaluationsResponse(rsp)
+}
+
+// PostV2RunEvaluationsWithBodyWithResponse request with arbitrary body returning *PostV2RunEvaluationsResponse
+func (c *ClientWithResponses) PostV2RunEvaluationsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsResponse, error) {
+	rsp, err := c.PostV2RunEvaluationsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RunEvaluationsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2RunEvaluationsWithResponse(ctx context.Context, body PostV2RunEvaluationsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsResponse, error) {
+	rsp, err := c.PostV2RunEvaluations(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RunEvaluationsResponse(rsp)
+}
+
+// PostV2RunEvaluationsAutoWithBodyWithResponse request with arbitrary body returning *PostV2RunEvaluationsAutoResponse
+func (c *ClientWithResponses) PostV2RunEvaluationsAutoWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsAutoResponse, error) {
+	rsp, err := c.PostV2RunEvaluationsAutoWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RunEvaluationsAutoResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2RunEvaluationsAutoWithResponse(ctx context.Context, body PostV2RunEvaluationsAutoJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RunEvaluationsAutoResponse, error) {
+	rsp, err := c.PostV2RunEvaluationsAuto(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RunEvaluationsAutoResponse(rsp)
 }
 
 // GetV2SessionComparisonsWithResponse request returning *GetV2SessionComparisonsResponse
@@ -25131,6 +27129,39 @@ func ParsePutV2EnvironmentVariablesByNameResponse(rsp *http.Response) (*PutV2Env
 	return response, nil
 }
 
+// ParseGetV2EnvironmentsResponse parses an HTTP response from a GetV2EnvironmentsWithResponse call
+func ParseGetV2EnvironmentsResponse(rsp *http.Response) (*GetV2EnvironmentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EnvironmentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnvironmentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostV2EnvironmentsResponse parses an HTTP response from a PostV2EnvironmentsWithResponse call
 func ParsePostV2EnvironmentsResponse(rsp *http.Response) (*PostV2EnvironmentsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -25151,6 +27182,369 @@ func ParsePostV2EnvironmentsResponse(rsp *http.Response) (*PostV2EnvironmentsRes
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EnvironmentsByEnvironmentIdResponse parses an HTTP response from a GetV2EnvironmentsByEnvironmentIdWithResponse call
+func ParseGetV2EnvironmentsByEnvironmentIdResponse(rsp *http.Response) (*GetV2EnvironmentsByEnvironmentIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EnvironmentsByEnvironmentIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Environment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationDatasetsResponse parses an HTTP response from a GetV2EvaluationDatasetsWithResponse call
+func ParseGetV2EvaluationDatasetsResponse(rsp *http.Response) (*GetV2EvaluationDatasetsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationDatasetsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationDatasetList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EvaluationDatasetsResponse parses an HTTP response from a PostV2EvaluationDatasetsWithResponse call
+func ParsePostV2EvaluationDatasetsResponse(rsp *http.Response) (*PostV2EvaluationDatasetsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EvaluationDatasetsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EvaluationDataset
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationDatasetsByDatasetIdResponse parses an HTTP response from a GetV2EvaluationDatasetsByDatasetIdWithResponse call
+func ParseGetV2EvaluationDatasetsByDatasetIdResponse(rsp *http.Response) (*GetV2EvaluationDatasetsByDatasetIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationDatasetsByDatasetIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationDataset
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationExperimentsResponse parses an HTTP response from a GetV2EvaluationExperimentsWithResponse call
+func ParseGetV2EvaluationExperimentsResponse(rsp *http.Response) (*GetV2EvaluationExperimentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationExperimentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationExperimentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EvaluationExperimentsResponse parses an HTTP response from a PostV2EvaluationExperimentsWithResponse call
+func ParsePostV2EvaluationExperimentsResponse(rsp *http.Response) (*PostV2EvaluationExperimentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EvaluationExperimentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EvaluationExperiment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationExperimentsByExperimentIdResponse parses an HTTP response from a GetV2EvaluationExperimentsByExperimentIdWithResponse call
+func ParseGetV2EvaluationExperimentsByExperimentIdResponse(rsp *http.Response) (*GetV2EvaluationExperimentsByExperimentIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationExperimentsByExperimentIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationExperiment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EvaluationExperimentsByExperimentIdReconcileResponse parses an HTTP response from a PostV2EvaluationExperimentsByExperimentIdReconcileWithResponse call
+func ParsePostV2EvaluationExperimentsByExperimentIdReconcileResponse(rsp *http.Response) (*PostV2EvaluationExperimentsByExperimentIdReconcileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EvaluationExperimentsByExperimentIdReconcileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationExperiment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationRubricsResponse parses an HTTP response from a GetV2EvaluationRubricsWithResponse call
+func ParseGetV2EvaluationRubricsResponse(rsp *http.Response) (*GetV2EvaluationRubricsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationRubricsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationRubricList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EvaluationRubricsResponse parses an HTTP response from a PostV2EvaluationRubricsWithResponse call
+func ParsePostV2EvaluationRubricsResponse(rsp *http.Response) (*PostV2EvaluationRubricsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EvaluationRubricsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest EvaluationRubric
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EvaluationRubricsByRubricIdResponse parses an HTTP response from a GetV2EvaluationRubricsByRubricIdWithResponse call
+func ParseGetV2EvaluationRubricsByRubricIdResponse(rsp *http.Response) (*GetV2EvaluationRubricsByRubricIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EvaluationRubricsByRubricIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EvaluationRubric
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -26219,6 +28613,138 @@ func ParseGetV2OperatorAuditResponse(rsp *http.Response) (*GetV2OperatorAuditRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RunComparisonsResponse parses an HTTP response from a GetV2RunComparisonsWithResponse call
+func ParseGetV2RunComparisonsResponse(rsp *http.Response) (*GetV2RunComparisonsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RunComparisonsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunComparison
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RunEvaluationsResponse parses an HTTP response from a GetV2RunEvaluationsWithResponse call
+func ParseGetV2RunEvaluationsResponse(rsp *http.Response) (*GetV2RunEvaluationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RunEvaluationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunEvaluationList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2RunEvaluationsResponse parses an HTTP response from a PostV2RunEvaluationsWithResponse call
+func ParsePostV2RunEvaluationsResponse(rsp *http.Response) (*PostV2RunEvaluationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2RunEvaluationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RunEvaluation
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2RunEvaluationsAutoResponse parses an HTTP response from a PostV2RunEvaluationsAutoWithResponse call
+func ParsePostV2RunEvaluationsAutoResponse(rsp *http.Response) (*PostV2RunEvaluationsAutoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2RunEvaluationsAutoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RunEvaluation
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope

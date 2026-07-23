@@ -159,7 +159,7 @@ func TestPostgresInternalMarketplaceHTTPPreviewAndInstallLocalFS(t *testing.T) {
 		SessionID: session.ID, Query: "review", Category: "engineering", Tags: []string{"LOCAL"}, Limit: 10,
 	})
 	if err != nil || discovered.Provider != skillmarketplace.CatalogProvider || len(discovered.Items) != 1 || discovered.Items[0].CatalogEntryID != entry.ID {
-		t.Fatalf("unexpected Postgres skills.discover catalog result: result=%#v err=%v", discovered, err)
+		t.Fatalf("unexpected Postgres skills_discover catalog result: result=%#v err=%v", discovered, err)
 	}
 	browse := getJSON[struct {
 		Provider string `json:"provider"`

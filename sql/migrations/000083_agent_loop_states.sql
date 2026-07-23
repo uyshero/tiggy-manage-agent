@@ -35,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_loop_states_workspace_phase
 ALTER TABLE agent_loop_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_loop_states FORCE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS agent_loop_states_session_isolation ON agent_loop_states;
 CREATE POLICY agent_loop_states_session_isolation
   ON agent_loop_states
   FOR ALL

@@ -7,6 +7,7 @@ import { AuditService, EnvironmentVariablesService, ObservabilityService } from 
 import { ArtifactsService } from "./services/artifacts.js";
 import { AuthService } from "./services/auth.js";
 import { EnvironmentsService } from "./services/environments.js";
+import { EvaluationsService } from "./services/evaluations.js";
 import { InterventionsService } from "./services/interventions.js";
 import { LLMService } from "./services/llm.js";
 import { MCPService } from "./services/mcp.js";
@@ -28,6 +29,7 @@ export class TMAClient {
   readonly agents: AgentsService;
   readonly environments: EnvironmentsService;
   readonly sessions: SessionsService;
+  readonly evaluations: EvaluationsService;
   readonly runs: RunsService;
   readonly interventions: InterventionsService;
   readonly artifacts: ArtifactsService;
@@ -52,6 +54,7 @@ export class TMAClient {
     this.agents = new AgentsService(transport);
     this.environments = new EnvironmentsService(transport);
     this.sessions = new SessionsService(transport);
+    this.evaluations = new EvaluationsService(transport);
     this.interventions = new InterventionsService(transport);
     this.runs = new RunsService(transport, this.interventions);
     this.artifacts = new ArtifactsService(transport);

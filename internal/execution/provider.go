@@ -51,6 +51,14 @@ type scopedSessionStore interface {
 	GetSessionScoped(id string, scope managedagents.AccessScope) (managedagents.Session, error)
 }
 
+type environmentStore interface {
+	GetEnvironment(id string) (managedagents.Environment, error)
+}
+
+type scopedEnvironmentStore interface {
+	GetEnvironmentScoped(id string, scope managedagents.AccessScope) (managedagents.Environment, error)
+}
+
 type SessionProviderResolver struct {
 	Store                      SessionStore
 	SessionDataStore           capability.SessionDataStore
@@ -70,6 +78,8 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 	settings := r.defaultRuntimeSettings()
 	workspaceID := strings.TrimSpace(request.WorkspaceID)
 	ownerID := strings.TrimSpace(request.OwnerID)
+	environmentID := strings.TrimSpace(request.EnvironmentID)
+	var sessionRuntimeSettings json.RawMessage
 	if r.Store != nil && request.SessionID != "" {
 		var session managedagents.Session
 		var err error
@@ -79,11 +89,25 @@ func (r SessionProviderResolver) ResolveProvider(request ProviderRequest) capabi
 			session, err = r.Store.GetSession(request.SessionID)
 		}
 		if err == nil {
-			settings = MergeRuntimeSettings(settings, session.RuntimeSettings)
 			workspaceID = strings.TrimSpace(session.WorkspaceID)
 			ownerID = strings.TrimSpace(session.OwnerID)
+			environmentID = strings.TrimSpace(session.EnvironmentID)
+			sessionRuntimeSettings = session.RuntimeSettings
 		}
 	}
+	if r.Store != nil && environmentID != "" {
+		var environment managedagents.Environment
+		var err error
+		if scoped, ok := r.Store.(scopedEnvironmentStore); ok && workspaceID != "" {
+			environment, err = scoped.GetEnvironmentScoped(environmentID, managedagents.AccessScope{WorkspaceID: workspaceID, OwnerID: ownerID})
+		} else if reader, ok := r.Store.(environmentStore); ok {
+			environment, err = reader.GetEnvironment(environmentID)
+		}
+		if err == nil {
+			settings = MergeEnvironmentRuntimeSettings(settings, environment.Config)
+		}
+	}
+	settings = MergeRuntimeSettings(settings, sessionRuntimeSettings)
 	settings = MergeRuntimePolicy(settings, RuntimePolicy{Runtime: request.ToolRuntime})
 	if settings.Runtime == ToolRuntimeLocalSystem {
 		if !r.AllowLocalSystem {
@@ -168,6 +192,23 @@ func ParseRuntimeSettings(raw json.RawMessage) RuntimeSettings {
 }
 
 func MergeRuntimeSettings(base RuntimeSettings, raw json.RawMessage) RuntimeSettings {
+	return mergeRuntimeSettings(base, raw, false)
+}
+
+func MergeEnvironmentRuntimeSettings(base RuntimeSettings, raw json.RawMessage) RuntimeSettings {
+	if len(raw) == 0 || string(raw) == "null" {
+		return base
+	}
+	var config struct {
+		RuntimeSettings json.RawMessage `json:"runtime_settings"`
+	}
+	if err := json.Unmarshal(raw, &config); err != nil || len(config.RuntimeSettings) == 0 {
+		return base
+	}
+	return mergeRuntimeSettings(base, config.RuntimeSettings, true)
+}
+
+func mergeRuntimeSettings(base RuntimeSettings, raw json.RawMessage, allowRuntime bool) RuntimeSettings {
 	settings := base
 	if settings.Runtime == "" {
 		settings.Runtime = ToolRuntimeCloudSandbox
@@ -184,7 +225,7 @@ func MergeRuntimeSettings(base RuntimeSettings, raw json.RawMessage) RuntimeSett
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return settings
 	}
-	if decoded.Runtime != nil {
+	if allowRuntime && decoded.Runtime != nil {
 		if runtime, ok := tools.NormalizeToolRuntime(*decoded.Runtime); ok {
 			settings.Runtime = runtime
 			if settings.Runtime == ToolRuntimeAuto {

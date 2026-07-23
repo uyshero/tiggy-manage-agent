@@ -28,6 +28,7 @@ ALTER TABLE sessions
 ALTER TABLE workspace_tool_permission_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspace_tool_permission_policies FORCE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS workspace_tool_permission_policies_isolation ON workspace_tool_permission_policies;
 CREATE POLICY workspace_tool_permission_policies_isolation
   ON workspace_tool_permission_policies
   FOR ALL

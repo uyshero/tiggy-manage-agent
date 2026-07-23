@@ -82,9 +82,20 @@ type ContextState struct {
 }
 
 type Failure struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable,omitempty"`
+	Code          string                `json:"code"`
+	Message       string                `json:"message"`
+	Retryable     bool                  `json:"retryable,omitempty"`
+	ProviderError *FailureProviderError `json:"provider_error,omitempty"`
+}
+
+type FailureProviderError struct {
+	Class        string `json:"class"`
+	Code         string `json:"code,omitempty"`
+	Retryable    bool   `json:"retryable,omitempty"`
+	RetryAfterMS int64  `json:"retry_after_ms,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
+	RequestID    string `json:"request_id,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 func NewState(sessionID, turnID string, budget Budget) State {
@@ -395,5 +406,9 @@ func cloneFailure(value *Failure) *Failure {
 		return nil
 	}
 	cloned := *value
+	if value.ProviderError != nil {
+		providerError := *value.ProviderError
+		cloned.ProviderError = &providerError
+	}
 	return &cloned
 }

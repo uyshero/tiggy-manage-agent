@@ -52,6 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_schedule_runs_schedule
 
 ALTER TABLE agent_schedules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_schedules FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agent_schedules_workspace_isolation ON agent_schedules;
 CREATE POLICY agent_schedules_workspace_isolation ON agent_schedules
   FOR ALL
   USING (
@@ -67,6 +68,7 @@ CREATE POLICY agent_schedules_workspace_isolation ON agent_schedules
 
 ALTER TABLE agent_schedule_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_schedule_runs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agent_schedule_runs_workspace_isolation ON agent_schedule_runs;
 CREATE POLICY agent_schedule_runs_workspace_isolation ON agent_schedule_runs
   FOR ALL
   USING (

@@ -24,6 +24,8 @@ type AgentContextStore interface {
 
 type EnvironmentContextStore interface {
 	CreateEnvironmentContext(ctx context.Context, input CreateEnvironmentInput) (Environment, error)
+	GetEnvironmentContext(ctx context.Context, id string) (Environment, error)
+	ListEnvironmentsContext(ctx context.Context) ([]Environment, error)
 }
 
 type SessionContextStore interface {

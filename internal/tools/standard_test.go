@@ -98,7 +98,7 @@ func TestRegistryWorkInvocationUsesManifestMetadata(t *testing.T) {
 func TestDecodeWorkerCapabilities(t *testing.T) {
 	capabilities, err := DecodeWorkerCapabilities(json.RawMessage(`{
 		"namespaces": ["default"],
-		"apis": ["default.read_file"],
+		"apis": ["default_read_file"],
 		"runtimes": ["local_system"],
 		"capabilities": ["filesystem.read"],
 		"constraints": {"network": "disabled"}
@@ -109,7 +109,7 @@ func TestDecodeWorkerCapabilities(t *testing.T) {
 	if len(capabilities.Namespaces) != 1 || capabilities.Namespaces[0] != NamespaceDefault {
 		t.Fatalf("unexpected namespaces: %#v", capabilities.Namespaces)
 	}
-	if len(capabilities.APIs) != 1 || capabilities.APIs[0] != "default.read_file" {
+	if len(capabilities.APIs) != 1 || capabilities.APIs[0] != "default_read_file" {
 		t.Fatalf("unexpected apis: %#v", capabilities.APIs)
 	}
 	if len(capabilities.Runtimes) != 1 || capabilities.Runtimes[0] != ToolRuntimeLocalSystem {

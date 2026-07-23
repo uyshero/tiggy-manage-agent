@@ -1,4 +1,4 @@
-CREATE TABLE achievement_library_items (
+CREATE TABLE IF NOT EXISTS achievement_library_items (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   object_ref_id TEXT NOT NULL REFERENCES object_refs(id) ON DELETE RESTRICT,
@@ -16,20 +16,21 @@ CREATE TABLE achievement_library_items (
   CONSTRAINT achievement_library_tags_check CHECK (jsonb_typeof(tags_json) = 'array')
 );
 
-CREATE INDEX achievement_library_workspace_updated_idx
+CREATE INDEX IF NOT EXISTS achievement_library_workspace_updated_idx
   ON achievement_library_items (workspace_id, updated_at DESC, id DESC);
 
-CREATE INDEX achievement_library_workspace_directory_idx
+CREATE INDEX IF NOT EXISTS achievement_library_workspace_directory_idx
   ON achievement_library_items (workspace_id, directory, updated_at DESC);
 
-CREATE INDEX achievement_library_object_ref_idx
+CREATE INDEX IF NOT EXISTS achievement_library_object_ref_idx
   ON achievement_library_items (object_ref_id);
 
-CREATE SEQUENCE tma_achievement_library_item_id_seq;
+CREATE SEQUENCE IF NOT EXISTS tma_achievement_library_item_id_seq;
 
 ALTER TABLE achievement_library_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE achievement_library_items FORCE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS achievement_library_items_isolation ON achievement_library_items;
 CREATE POLICY achievement_library_items_isolation
   ON achievement_library_items
   FOR ALL

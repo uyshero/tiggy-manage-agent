@@ -186,6 +186,7 @@ type AccessScope struct {
 type Agent struct {
 	ID                   string             `json:"id"`
 	WorkspaceID          string             `json:"workspace_id"`
+	EnvironmentID        string             `json:"environment_id,omitempty"`
 	OwnerType            string             `json:"owner_type"`
 	OwnerID              string             `json:"owner_id"`
 	Visibility           string             `json:"visibility"`
@@ -1039,35 +1040,37 @@ type RecordLLMUsageInput struct {
 }
 
 type CreateAgentInput struct {
-	WorkspaceID string          `json:"workspace_id,omitempty"`
-	OwnerType   string          `json:"owner_type,omitempty"`
-	OwnerID     string          `json:"owner_id,omitempty"`
-	Visibility  string          `json:"visibility,omitempty"`
-	AgentKind   string          `json:"agent_kind,omitempty"`
-	Name        string          `json:"name"`
-	LLMProvider string          `json:"llm_provider,omitempty"`
-	LLMModel    string          `json:"llm_model,omitempty"`
-	Model       string          `json:"model,omitempty"`
-	System      string          `json:"system"`
-	Tools       json.RawMessage `json:"tools,omitempty"`
-	MCP         json.RawMessage `json:"mcp,omitempty"`
-	Skills      json.RawMessage `json:"skills,omitempty"`
+	WorkspaceID   string          `json:"workspace_id,omitempty"`
+	EnvironmentID string          `json:"environment_id,omitempty"`
+	OwnerType     string          `json:"owner_type,omitempty"`
+	OwnerID       string          `json:"owner_id,omitempty"`
+	Visibility    string          `json:"visibility,omitempty"`
+	AgentKind     string          `json:"agent_kind,omitempty"`
+	Name          string          `json:"name"`
+	LLMProvider   string          `json:"llm_provider,omitempty"`
+	LLMModel      string          `json:"llm_model,omitempty"`
+	Model         string          `json:"model,omitempty"`
+	System        string          `json:"system"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	MCP           json.RawMessage `json:"mcp,omitempty"`
+	Skills        json.RawMessage `json:"skills,omitempty"`
 }
 
 type EnsureAgentInput struct {
-	ID          string
-	WorkspaceID string
-	OwnerType   string
-	OwnerID     string
-	Visibility  string
-	AgentKind   string
-	Name        string
-	LLMProvider string
-	LLMModel    string
-	System      string
-	Tools       json.RawMessage
-	MCP         json.RawMessage
-	Skills      json.RawMessage
+	ID            string
+	WorkspaceID   string
+	EnvironmentID string
+	OwnerType     string
+	OwnerID       string
+	Visibility    string
+	AgentKind     string
+	Name          string
+	LLMProvider   string
+	LLMModel      string
+	System        string
+	Tools         json.RawMessage
+	MCP           json.RawMessage
+	Skills        json.RawMessage
 }
 
 type CreateAgentConfigVersionInput struct {
@@ -1082,14 +1085,15 @@ type CreateAgentConfigVersionInput struct {
 }
 
 type UpdateAgentInput struct {
-	AgentID     string          `json:"agent_id,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	LLMProvider string          `json:"llm_provider,omitempty"`
-	LLMModel    string          `json:"llm_model,omitempty"`
-	System      string          `json:"system,omitempty"`
-	Tools       json.RawMessage `json:"tools,omitempty"`
-	MCP         json.RawMessage `json:"mcp,omitempty"`
-	Skills      json.RawMessage `json:"skills,omitempty"`
+	AgentID       string          `json:"agent_id,omitempty"`
+	EnvironmentID *string         `json:"environment_id,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	LLMProvider   string          `json:"llm_provider,omitempty"`
+	LLMModel      string          `json:"llm_model,omitempty"`
+	System        string          `json:"system,omitempty"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	MCP           json.RawMessage `json:"mcp,omitempty"`
+	Skills        json.RawMessage `json:"skills,omitempty"`
 }
 
 type UpdateSessionRuntimeSettingsInput struct {
@@ -1162,7 +1166,7 @@ type CreateSessionInput struct {
 	AgentID            string `json:"agent_id,omitempty"`
 	Agent              string `json:"agent,omitempty"`
 	AgentConfigVersion int    `json:"agent_config_version,omitempty"`
-	EnvironmentID      string `json:"environment_id"`
+	EnvironmentID      string `json:"environment_id,omitempty"`
 	ParentSessionID    string `json:"parent_session_id,omitempty"`
 	ParentTurnID       string `json:"parent_turn_id,omitempty"`
 	SpawnDepth         int    `json:"spawn_depth,omitempty"`

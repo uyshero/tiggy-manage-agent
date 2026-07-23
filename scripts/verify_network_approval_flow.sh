@@ -109,7 +109,7 @@ if not any(
     and event.get("payload", {}).get("data", {}).get("api_name") == "execute_code"
     for event in tool_calls
 ):
-    print("missing default.execute_code network download tool call", file=sys.stderr)
+    print("missing default_execute_code network download tool call", file=sys.stderr)
     raise SystemExit(2)
 
 tool_results = [

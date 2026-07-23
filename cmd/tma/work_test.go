@@ -126,11 +126,11 @@ func TestCommandWorkEnqueuePrintsWorkerDiagnosticsOnConflict(t *testing.T) {
 			Status:     "409 Conflict",
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
 			Body: io.NopCloser(strings.NewReader(`{
-				"error":"conflict: no online worker matches tool invocation default.run_command runtime local_system",
+				"error":"conflict: no online worker matches tool invocation default_run_command runtime local_system",
 				"invocation":{"protocol_version":"tma.work.v1","namespace":"default","api":"run_command","runtime":"local_system","capabilities":["exec"],"input":{}},
 				"matches":0,
 				"diagnostics":[
-					{"worker_id":"wrk_reader","workspace_id":"wksp_default","name":"reader","worker_type":"local","status":"online","match":false,"reasons":["missing capability exec"],"runtimes":["local_system"],"apis":["default.run_command"],"capabilities":["filesystem.read"]}
+					{"worker_id":"wrk_reader","workspace_id":"wksp_default","name":"reader","worker_type":"local","status":"online","match":false,"reasons":["missing capability exec"],"runtimes":["local_system"],"apis":["default_run_command"],"capabilities":["filesystem.read"]}
 				]
 			}`)),
 		}, nil
@@ -150,7 +150,7 @@ func TestCommandWorkEnqueuePrintsWorkerDiagnosticsOnConflict(t *testing.T) {
 	})
 	for _, expected := range []string{
 		"worker selection failed:",
-		"diagnose default.run_command runtime=local_system capabilities=exec",
+		"diagnose default_run_command runtime=local_system capabilities=exec",
 		"wrk_reader reader [local/online] match=no",
 		"reasons: missing capability exec",
 	} {

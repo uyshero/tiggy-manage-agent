@@ -22,6 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_workspace_snapshots_session_latest
 
 ALTER TABLE workspace_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE workspace_snapshots FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS workspace_snapshots_session_isolation ON workspace_snapshots;
 CREATE POLICY workspace_snapshots_session_isolation
   ON workspace_snapshots
   FOR ALL

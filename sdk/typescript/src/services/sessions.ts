@@ -8,6 +8,7 @@ import type {
   LiveEvent,
   RerunSessionRequest,
   RerunSessionResponse,
+  RunComparison,
   Session,
   SessionComparison,
   SessionRuntimeCapabilities,
@@ -75,6 +76,16 @@ export class SessionsService extends ServiceBase {
 
   compare(leftSessionId: string, rightSessionId: string, signal?: AbortSignal): Promise<SessionComparison> {
     const path = withQuery("/v2/session-comparisons", { left_session_id: leftSessionId, right_session_id: rightSessionId });
+    return this.transport.requestJSON("GET", path, undefined, signal ? { signal } : {});
+  }
+
+  compareRuns(leftSessionId: string, leftTurnId: string, rightSessionId: string, rightTurnId: string, signal?: AbortSignal): Promise<RunComparison> {
+    const path = withQuery("/v2/run-comparisons", {
+      left_session_id: leftSessionId,
+      left_turn_id: leftTurnId,
+      right_session_id: rightSessionId,
+      right_turn_id: rightTurnId,
+    });
     return this.transport.requestJSON("GET", path, undefined, signal ? { signal } : {});
   }
 

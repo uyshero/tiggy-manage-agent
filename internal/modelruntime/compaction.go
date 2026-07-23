@@ -79,11 +79,47 @@ func (c LLMCompactor) Compact(ctx context.Context, state agentcore.State, attemp
 }
 
 func estimateCoreMessages(messages []coremodel.Message) int {
-	raw, err := json.Marshal(messages)
-	if err != nil {
+	total := 0
+	for _, message := range messages {
+		// Keep this aligned with the text the model sees. Marshaling the whole
+		// message slice counts JSON transport escaping as prompt content and can
+		// trigger compaction far too early for JSON-heavy tool manifests.
+		total += 4
+		for _, content := range message.Content {
+			total += estimateCoreContent(content)
+		}
+	}
+	return total
+}
+
+func estimateCoreContent(content coremodel.Content) int {
+	switch content.Type {
+	case coremodel.ContentText:
+		return tokenestimate.Text(content.Text)
+	case coremodel.ContentImage:
+		return 256
+	case coremodel.ContentThinking:
+		if content.Thinking == nil {
+			return 0
+		}
+		return tokenestimate.Text(content.Thinking.Text) + tokenestimate.Text(content.Thinking.Signature)
+	case coremodel.ContentToolCall:
+		if content.ToolCall == nil {
+			return 0
+		}
+		return 8 + tokenestimate.Text(content.ToolCall.Name) + tokenestimate.Text(string(content.ToolCall.Arguments))
+	case coremodel.ContentToolResult:
+		if content.ToolResult == nil {
+			return 0
+		}
+		total := 8 + tokenestimate.Text(content.ToolResult.Name) + tokenestimate.Text(string(content.ToolResult.State))
+		for _, nested := range content.ToolResult.Content {
+			total += estimateCoreContent(nested)
+		}
+		return total
+	default:
 		return 0
 	}
-	return tokenestimate.Text(string(raw))
 }
 
 func containsToolCall(message coremodel.Message) bool {

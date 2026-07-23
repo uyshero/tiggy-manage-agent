@@ -39,6 +39,7 @@ type Session struct {
 type Agent struct {
 	ID                   string             `json:"id"`
 	WorkspaceID          string             `json:"workspace_id"`
+	EnvironmentID        string             `json:"environment_id,omitempty"`
 	OwnerType            string             `json:"owner_type"`
 	OwnerID              string             `json:"owner_id"`
 	Visibility           string             `json:"visibility"`
@@ -62,32 +63,34 @@ type AgentConfigVersion struct {
 }
 
 type CreateAgentRequest struct {
-	WorkspaceID string          `json:"workspace_id,omitempty"`
-	OwnerType   string          `json:"owner_type,omitempty"`
-	OwnerID     string          `json:"owner_id,omitempty"`
-	Visibility  string          `json:"visibility,omitempty"`
-	AgentKind   string          `json:"agent_kind,omitempty"`
-	Name        string          `json:"name"`
-	LLMProvider string          `json:"llm_provider,omitempty"`
-	LLMModel    string          `json:"llm_model,omitempty"`
-	Model       string          `json:"model,omitempty"`
-	System      string          `json:"system"`
-	Tools       json.RawMessage `json:"tools,omitempty"`
-	MCP         json.RawMessage `json:"mcp,omitempty"`
-	Skills      json.RawMessage `json:"skills,omitempty"`
+	WorkspaceID   string          `json:"workspace_id,omitempty"`
+	EnvironmentID string          `json:"environment_id,omitempty"`
+	OwnerType     string          `json:"owner_type,omitempty"`
+	OwnerID       string          `json:"owner_id,omitempty"`
+	Visibility    string          `json:"visibility,omitempty"`
+	AgentKind     string          `json:"agent_kind,omitempty"`
+	Name          string          `json:"name"`
+	LLMProvider   string          `json:"llm_provider,omitempty"`
+	LLMModel      string          `json:"llm_model,omitempty"`
+	Model         string          `json:"model,omitempty"`
+	System        string          `json:"system"`
+	Tools         json.RawMessage `json:"tools,omitempty"`
+	MCP           json.RawMessage `json:"mcp,omitempty"`
+	Skills        json.RawMessage `json:"skills,omitempty"`
 }
 
 // UpdateAgentRequest uses pointers so an omitted field is distinct from an
 // explicitly empty value.
 type UpdateAgentRequest struct {
-	Name        *string          `json:"name,omitempty"`
-	LLMProvider *string          `json:"llm_provider,omitempty"`
-	LLMModel    *string          `json:"llm_model,omitempty"`
-	Model       *string          `json:"model,omitempty"`
-	System      *string          `json:"system,omitempty"`
-	Tools       *json.RawMessage `json:"tools,omitempty"`
-	MCP         *json.RawMessage `json:"mcp,omitempty"`
-	Skills      *json.RawMessage `json:"skills,omitempty"`
+	EnvironmentID *string          `json:"environment_id,omitempty"`
+	Name          *string          `json:"name,omitempty"`
+	LLMProvider   *string          `json:"llm_provider,omitempty"`
+	LLMModel      *string          `json:"llm_model,omitempty"`
+	Model         *string          `json:"model,omitempty"`
+	System        *string          `json:"system,omitempty"`
+	Tools         *json.RawMessage `json:"tools,omitempty"`
+	MCP           *json.RawMessage `json:"mcp,omitempty"`
+	Skills        *json.RawMessage `json:"skills,omitempty"`
 }
 
 type CreateAgentConfigVersionRequest struct {
@@ -237,7 +240,6 @@ type UpdateSessionRuntimeSettingsRequest struct {
 	LLMProvider             *string                          `json:"llm_provider,omitempty"`
 	LLMModel                *string                          `json:"llm_model,omitempty"`
 	InterventionMode        *string                          `json:"intervention_mode,omitempty"`
-	ToolRuntime             *string                          `json:"tool_runtime,omitempty"`
 	CloudSandboxRoot        *string                          `json:"cloud_sandbox_root,omitempty"`
 	CloudSandboxImage       *string                          `json:"cloud_sandbox_image,omitempty"`
 	AllowNetwork            *bool                            `json:"cloud_sandbox_allow_network,omitempty"`

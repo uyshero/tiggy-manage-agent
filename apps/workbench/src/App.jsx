@@ -9,7 +9,7 @@ import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
 import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
-import { providerErrorPresentation } from "./providerErrors.js";
+import { runtimeFailurePresentation } from "./runtimeFailures.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
@@ -332,7 +332,7 @@ function defaultComposerTask(text, attachments) {
   if (requested) return requested;
   const files = Array.isArray(attachments) ? attachments : [];
   if (files.length === 1 && isSkillZIPAttachment(files[0])) {
-    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills.preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills.install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills.enable。";
+    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills_preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills_install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills_enable。";
   }
   return "请处理我上传的文件。";
 }
@@ -400,38 +400,43 @@ function toolSourceLabel(source) {
   }
 }
 
+function modelToolName(identifier, apiName) {
+  const normalize = (value) => String(value || "").trim().replace(/[^a-zA-Z0-9_]/g, "_");
+  return [normalize(identifier), normalize(apiName)].filter(Boolean).join("_");
+}
+
 function toolTitle(identifier, apiName, source = "") {
-  const key = [identifier, apiName].filter(Boolean).join(".");
+  const key = modelToolName(identifier, apiName);
   const titles = {
-    "default.run_command": "执行命令",
-    "default.execute_code": "执行代码",
-    "default.read_file": "读取文件",
-    "default.write_file": "写入文件",
-    "default.edit_file": "编辑文件",
-    "web.search": "搜索网页",
-    "web.crawl": "读取网页",
-    "browser.open": "打开浏览器",
-    "browser.click": "浏览器点击",
-    "browser.type": "浏览器输入",
-    "browser.takeover": "接管浏览器",
-    "computer.get_state": "检查桌面",
-    "computer.screenshot": "截取屏幕",
-    "computer.click": "桌面点击",
-    "computer.type_text": "桌面输入",
-    "computer.hotkey": "按下快捷键",
-    "computer.launch_app": "启动应用",
-    "computer.open_url": "打开网址",
-    "computer.search_web": "浏览器内搜索",
-    "skills.search": "查找 Skill",
-    "skills.inspect": "检查 Skill",
-    "skills.discover": "发现 Skill",
-    "skills.preview": "安全预览 Skill",
-    "skills.read_asset": "读取 Skill 资产",
-    "skills.install": "安装 Skill",
-    "skills.enable": "启用 Skill",
-    "skills.disable": "停用 Skill"
+    default_run_command: "执行命令",
+    default_execute_code: "执行代码",
+    default_read_file: "读取文件",
+    default_write_file: "写入文件",
+    default_edit_file: "编辑文件",
+    web_search: "搜索网页",
+    web_crawl: "读取网页",
+    browser_open: "打开浏览器",
+    browser_click: "浏览器点击",
+    browser_type: "浏览器输入",
+    browser_takeover: "接管浏览器",
+    computer_get_state: "检查桌面",
+    computer_screenshot: "截取屏幕",
+    computer_click: "桌面点击",
+    computer_type_text: "桌面输入",
+    computer_hotkey: "按下快捷键",
+    computer_launch_app: "启动应用",
+    computer_open_url: "打开网址",
+    computer_search_web: "浏览器内搜索",
+    skills_search: "查找 Skill",
+    skills_inspect: "检查 Skill",
+    skills_discover: "发现 Skill",
+    skills_preview: "安全预览 Skill",
+    skills_read_asset: "读取 Skill 资产",
+    skills_install: "安装 Skill",
+    skills_enable: "启用 Skill",
+    skills_disable: "停用 Skill"
   };
-  if (titles[key] || titles[`${identifier}.${apiName}`]) return titles[key] || titles[`${identifier}.${apiName}`];
+  if (titles[key]) return titles[key];
   if (String(source || "").trim().toLowerCase() === "mcp") return humanizeToolName(apiName) || humanizeToolName(key) || "MCP 工具";
   return key || "调用工具";
 }
@@ -496,13 +501,6 @@ function normalizeToolParts(identifier = "", apiName = "") {
     edit_file: { identifier: "default", apiName: "edit_file" }
   };
   if (aliases[normalized]) return aliases[normalized];
-  const dotIndex = rawIdentifier.indexOf(".");
-  if (dotIndex > 0) {
-    return {
-      identifier: rawIdentifier.slice(0, dotIndex),
-      apiName: rawIdentifier.slice(dotIndex + 1)
-    };
-  }
   return { identifier: rawIdentifier, apiName: rawApiName };
 }
 
@@ -515,7 +513,7 @@ function toolSummary({ identifier, apiName, args = {}, reason = "", success, sou
   const status = success === true ? "Completed" : success === false ? "Failed" : "";
   return {
     detail,
-    label: [parts.identifier, parts.apiName].filter(Boolean).join(".") || "tool",
+    label: modelToolName(parts.identifier, parts.apiName) || "tool",
     source: resolvedSource,
     sourceLabel: toolSourceLabel(resolvedSource),
     risk,
@@ -567,8 +565,12 @@ function parseSkillsConfig(raw) {
       .map((item) => {
         if (!item || typeof item !== "object") return null;
         return {
+          ...(item.skill_id ? { skill_id: String(item.skill_id).trim() } : {}),
           skill: String(item.skill || "").trim(),
-          version: Number(item.version || 0) || 0
+          version: Number(item.version || 0) || 0,
+          ...(item.mode ? { mode: String(item.mode).trim() } : {}),
+          ...(Number(item.priority || 0) ? { priority: Number(item.priority) } : {}),
+          ...(item.inputs && typeof item.inputs === "object" ? { inputs: item.inputs } : {})
         };
       })
       .filter((item) => item?.skill)
@@ -614,12 +616,12 @@ function parseMCPServers(raw) {
 
 function toolNamespaceEnabled(namespace, policy) {
   if (!policy.explicit) return true;
-  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}.`));
+  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}_`));
 }
 
 function runtimeSupportsToolItem(identifier, runtime) {
   const normalizedRuntime = String(runtime || "").trim() || "cloud_sandbox";
-  if (identifier === "browser.takeover" || identifier === "browser.close") {
+  if (identifier === "browser_takeover" || identifier === "browser_close") {
     return normalizedRuntime === "local_system";
   }
   return true;
@@ -1073,7 +1075,7 @@ function UploadRequestCard({ sessionID, intervention, onRespond, onSkip, onCance
       const artifacts = [];
       for (const file of selectedFiles) {
         const upload = await api.uploadSessionArtifact(sessionID, file, {
-          description: `Uploaded for ${intervention.api_name || "interaction.request_upload"} ${intervention.call_id || ""}`.trim()
+          description: `Uploaded for ${intervention.api_name || "interaction_request_upload"} ${intervention.call_id || ""}`.trim()
         });
         artifacts.push({
           artifact_id: upload.artifact?.id || "",
@@ -1769,6 +1771,7 @@ function agentEditorDraft(agent) {
     : builtinToolNamespaces.map((item) => item.key);
   const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
   return {
+    environmentID: agent?.environment_id || "",
     llmModel: config.llm_model || "",
     llmProvider: config.llm_provider || "",
 		mcpBindings: editableMCPBindings(config.mcp),
@@ -1783,6 +1786,10 @@ function agentEditorDraft(agent) {
   };
 }
 
+function userSelectableEnvironments(response) {
+  return (response?.environments || []).filter((environment) => !environment?.config?.managed_by);
+}
+
 function agentConfigVersionMetrics(version) {
   const toolPolicy = parseToolPolicy(version?.tools);
   return {
@@ -1792,15 +1799,43 @@ function agentConfigVersionMetrics(version) {
   };
 }
 
-function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRollback, onSave, rollingBackVersion, saving, skills }) {
+function AgentConfigEditor({ agent, environments = [], mcpRegistryServers = [], modelOptions, onRollback, onSave, rollingBackVersion, saving, skills }) {
   const [draft, setDraft] = useState(() => agentEditorDraft(agent));
   const [rollbackCandidate, setRollbackCandidate] = useState(0);
+  const [saveError, setSaveError] = useState("");
+  const [skillLatestVersions, setSkillLatestVersions] = useState({});
+  const [skillVersionLoading, setSkillVersionLoading] = useState(false);
   const [versionError, setVersionError] = useState("");
   const [versionLoading, setVersionLoading] = useState(false);
   const [versions, setVersions] = useState([]);
   useEffect(() => {
     setDraft(agentEditorDraft(agent));
+    setSaveError("");
   }, [agent?.id, agent?.current_config_version]);
+  useEffect(() => {
+    let active = true;
+    const availableSkills = skills.filter((skill) => skill.status !== "archived");
+    setSkillLatestVersions({});
+    if (!availableSkills.length) {
+      setSkillVersionLoading(false);
+      return () => { active = false; };
+    }
+    setSkillVersionLoading(true);
+    Promise.all(availableSkills.map(async (skill) => {
+      try {
+        const response = await api.skillVersions(skill.id);
+        const latest = Math.max(0, ...(response.versions || []).map((version) => Number(version.version || 0)));
+        return [skill.identifier, latest];
+      } catch {
+        return [skill.identifier, 0];
+      }
+    })).then((entries) => {
+      if (active) setSkillLatestVersions(Object.fromEntries(entries));
+    }).finally(() => {
+      if (active) setSkillVersionLoading(false);
+    });
+    return () => { active = false; };
+  }, [skills]);
   useEffect(() => {
     let active = true;
     setRollbackCandidate(0);
@@ -1820,11 +1855,18 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
   }, [agent?.id, agent?.current_config_version]);
 
   if (!agent) return <Empty>请先选择一个智能体。</Empty>;
+  const configuredSkillBindings = new Map(parseSkillsConfig(agent.config_version?.skills).enabled.map((binding) => [binding.skill, binding]));
+  const configuredSkillVersions = new Map([...configuredSkillBindings].map(([identifier, binding]) => [identifier, binding.version]));
+  const environmentOptions = environments.some((environment) => environment.id === draft.environmentID) || !draft.environmentID
+    ? environments
+    : [{ id: draft.environmentID, name: draft.environmentID }, ...environments];
   const installedSkillIDs = new Set(skills.map((skill) => skill.identifier));
   const skillOptions = [
     ...skills.map((skill) => ({
-      description: skill.description || "工作区技能",
-      disabled: skill.status === "archived",
+      description: configuredSkillVersions.get(skill.identifier)
+        ? `${skill.description || "工作区技能"} · 已固定 v${configuredSkillVersions.get(skill.identifier)}`
+        : `${skill.description || "工作区技能"}${skillLatestVersions[skill.identifier] ? ` · 最新 v${skillLatestVersions[skill.identifier]}` : ""}`,
+      disabled: skill.status === "archived" || (!configuredSkillVersions.get(skill.identifier) && !skillLatestVersions[skill.identifier]),
       identifier: skill.identifier,
       title: skill.title || skill.identifier
     })),
@@ -1837,6 +1879,7 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
   ];
 
   function toggleListValue(key, value) {
+    setSaveError("");
     setDraft((current) => ({
       ...current,
       [key]: current[key].includes(value) ? current[key].filter((item) => item !== value) : [...current[key], value]
@@ -1871,7 +1914,39 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
     }));
   }
 
-  const canSave = Boolean(draft.name.trim() && draft.llmProvider && draft.llmModel && !saving);
+  const selectedSkillsHaveVersions = draft.selectedSkills.every((identifier) => Number(configuredSkillVersions.get(identifier) || skillLatestVersions[identifier] || 0) > 0);
+  const canSave = Boolean(draft.name.trim() && draft.environmentID && draft.llmProvider && draft.llmModel && selectedSkillsHaveVersions && !skillVersionLoading && !saving);
+
+  async function saveAgentConfig() {
+    setSaveError("");
+    const enabledSkills = draft.selectedSkills.map((skill) => ({
+      ...configuredSkillBindings.get(skill),
+      skill,
+      version: Number(configuredSkillVersions.get(skill) || skillLatestVersions[skill] || 0)
+    }));
+    if (enabledSkills.some((binding) => binding.version < 1)) {
+      setSaveError("所选 Skill 缺少可绑定的已发布版本");
+      return;
+    }
+    try {
+      await onSave({
+        environment_id: draft.environmentID,
+        name: draft.name.trim(),
+        llm_provider: draft.llmProvider,
+        llm_model: draft.llmModel,
+        system: draft.system,
+        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...(draft.toolRuntime ? { runtime: draft.toolRuntime } : {}) },
+        skills: { enabled: enabledSkills },
+        mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
+          const identifier = String(server.identifier || server.id || server.name || "").trim();
+          return identifier && ((server.transport || "stdio") === "streamable_http" ? String(server.url || "").trim() : String(server.command || "").trim());
+        }) }
+      });
+    } catch (error) {
+      setSaveError(error.message || "Agent 配置保存失败");
+    }
+  }
+
   return (
     <div className="agent-editor">
       <div className="agent-editor-grid">
@@ -1897,6 +1972,16 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
           </select>
         </label>
       </div>
+      <label className="agent-editor-field agent-runtime-field">
+        <span>运行环境</span>
+        <select value={draft.environmentID} onChange={(event) => {
+          setSaveError("");
+          setDraft((current) => ({ ...current, environmentID: event.target.value }));
+        }}>
+          {!environmentOptions.length ? <option value="">尚未配置运行环境</option> : null}
+          {environmentOptions.map((environment) => <option key={environment.id} value={environment.id}>{environment.name}</option>)}
+        </select>
+      </label>
       <label className="agent-editor-field">
         <span>System prompt</span>
         <textarea rows="7" value={draft.system} onChange={(event) => setDraft((current) => ({ ...current, system: event.target.value }))} placeholder="定义智能体的角色、边界和工作方式" />
@@ -1906,6 +1991,15 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
           <div><strong>Tools</strong><div className="subtle">控制该 Agent 默认可调用的工具命名空间。</div></div>
           <span className="agent-editor-count">{draft.selectedTools.length}/{builtinToolNamespaces.length}</span>
         </div>
+        <label className="agent-editor-field agent-runtime-field">
+          <span>工具运行时覆盖</span>
+          <select value={draft.toolRuntime} onChange={(event) => setDraft((current) => ({ ...current, toolRuntime: event.target.value }))}>
+            <option value="">继承 Environment</option>
+            <option value="auto">服务器默认</option>
+            <option value="cloud_sandbox">Sandbox</option>
+            <option value="local_system">Local</option>
+          </select>
+        </label>
         <div className="agent-option-grid">
           {builtinToolNamespaces.map((item) => (
             <label className="agent-option" key={item.key}>
@@ -2005,20 +2099,10 @@ function AgentConfigEditor({ agent, mcpRegistryServers = [], modelOptions, onRol
           </div>
         ) : <Empty>尚未配置 MCP 服务。</Empty>}
       </section>
+      {saveError ? <div className="agent-version-error">{saveError}</div> : null}
       <div className="agent-editor-footer">
         <div className="subtle">保存会创建配置版本 #{Number(agent.current_config_version || 0) + 1}，已有会话继续使用原版本。</div>
-        <button type="button" disabled={!canSave} onClick={() => onSave({
-          name: draft.name.trim(),
-          llm_provider: draft.llmProvider,
-          llm_model: draft.llmModel,
-          system: draft.system,
-          tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...(draft.toolRuntime ? { runtime: draft.toolRuntime } : {}) },
-          skills: { enabled: draft.selectedSkills.map((skill) => ({ skill })) },
-          mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
-            const identifier = String(server.identifier || server.id || server.name || "").trim();
-            return identifier && ((server.transport || "stdio") === "streamable_http" ? String(server.url || "").trim() : String(server.command || "").trim());
-          }) }
-        })}>{saving ? "保存中..." : "保存配置"}</button>
+        <button type="button" disabled={!canSave} onClick={saveAgentConfig}>{saving ? "保存中..." : (skillVersionLoading ? "加载 Skill 版本..." : "保存配置")}</button>
       </div>
       <section className="agent-editor-section agent-version-history">
         <div className="agent-editor-section-head">
@@ -3278,15 +3362,15 @@ function AgentScheduleManager({ agent, onOpenSession }) {
 }
 
 const permissionRuleTools = [
-  { value: "default.read_file", label: "读取文件" },
-  { value: "default.write_file", label: "写入文件" },
-  { value: "default.edit_file", label: "编辑文件" }
+  { value: "default_read_file", label: "读取文件" },
+  { value: "default_write_file", label: "写入文件" },
+  { value: "default_edit_file", label: "编辑文件" }
 ];
 
 function newPermissionRule(scope, index) {
   return {
     id: `${scope}-${Date.now()}-${index + 1}`,
-    tool: "default.edit_file",
+    tool: "default_edit_file",
     argument: "path",
     pattern: "",
     behavior: scope === "workspace" ? "deny" : "ask",
@@ -3304,7 +3388,7 @@ function PermissionRuleEditor({ disabled, rules, scope, onChange }) {
         {rules.map((rule, index) => (
           <div className="permission-rule-row" key={`${rule.id || scope}-${index}`}>
             <label><span>规则 ID</span><input disabled={disabled} value={rule.id || ""} onChange={(event) => updateRule(index, { id: event.target.value })} /></label>
-            <label><span>工具</span><select disabled={disabled} value={rule.tool || "default.edit_file"} onChange={(event) => updateRule(index, { tool: event.target.value })}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+            <label><span>工具</span><select disabled={disabled} value={rule.tool || "default_edit_file"} onChange={(event) => updateRule(index, { tool: event.target.value })}>{permissionRuleTools.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label className="permission-rule-pattern"><span>路径模式</span><input disabled={disabled} value={rule.pattern || ""} onChange={(event) => updateRule(index, { pattern: event.target.value })} placeholder="/workspace/src/**" /></label>
             <label><span>行为</span><select disabled={disabled || scope === "workspace"} value={scope === "workspace" ? "deny" : rule.behavior || "ask"} onChange={(event) => updateRule(index, { behavior: event.target.value })}>{scope === "workspace" ? <option value="deny">拒绝</option> : <><option value="allow">允许</option><option value="ask">询问</option><option value="deny">拒绝</option></>}</select></label>
             <label className="permission-rule-reason"><span>原因</span><input disabled={disabled} value={rule.reason || ""} onChange={(event) => updateRule(index, { reason: event.target.value })} /></label>
@@ -3387,8 +3471,11 @@ function SettingsPage({
   const [agentCreateOpen, setAgentCreateOpen] = useState(false);
   const [agentCreateName, setAgentCreateName] = useState("");
   const [agentCreateModel, setAgentCreateModel] = useState("");
+  const [agentCreateEnvironment, setAgentCreateEnvironment] = useState("");
   const [agentCreateBusy, setAgentCreateBusy] = useState(false);
   const [agentCreateError, setAgentCreateError] = useState("");
+  const [availableEnvironments, setAvailableEnvironments] = useState([]);
+  const [environmentCreateBusy, setEnvironmentCreateBusy] = useState(false);
   const [agentManagementView, setAgentManagementView] = useState("config");
   const [agentPermissionBusy, setAgentPermissionBusy] = useState("");
   const [agentPermissionError, setAgentPermissionError] = useState("");
@@ -3399,7 +3486,7 @@ function SettingsPage({
   const [workspacePermissionLoading, setWorkspacePermissionLoading] = useState(false);
   const [workspacePermissionBusy, setWorkspacePermissionBusy] = useState(false);
   const [permissionPreviewContext, setPermissionPreviewContext] = useState("agent");
-  const [permissionPreviewTool, setPermissionPreviewTool] = useState("default.edit_file");
+  const [permissionPreviewTool, setPermissionPreviewTool] = useState("default_edit_file");
   const [permissionPreviewPath, setPermissionPreviewPath] = useState("/workspace/src/main.go");
   const [permissionPreviewMode, setPermissionPreviewMode] = useState("request_approval");
   const [permissionPreviewBusy, setPermissionPreviewBusy] = useState(false);
@@ -3437,6 +3524,11 @@ function SettingsPage({
     ? selectedAgentModel
     : (modelOptions[0] ? `${modelOptions[0].llmProvider}::${modelOptions[0].llmModel}` : "");
   const agentCreateModelValue = agentCreateModel || defaultCreateModel;
+  const defaultCreateEnvironment = availableEnvironments.some((environment) => environment.id === selectedAgent?.environment_id)
+    ? selectedAgent.environment_id
+    : (availableEnvironments[0]?.id || "");
+  const agentCreateEnvironmentValue = agentCreateEnvironment || defaultCreateEnvironment;
+  const environmentsByID = new Map(availableEnvironments.map((environment) => [environment.id, environment]));
   const healthItems = [...(healthReport.mcp || []), ...(healthReport.skills || [])];
   const healthyCount = healthItems.filter((item) => item.status === "online").length;
   const unhealthyCount = healthItems.filter((item) => item.status !== "online").length;
@@ -3447,6 +3539,17 @@ function SettingsPage({
   useEffect(() => {
     setAgentPathRules(parseToolPolicy(selectedAgent?.config_version?.tools).permissionRules);
   }, [selectedAgent?.id, selectedAgent?.current_config_version]);
+
+  useEffect(() => {
+    let active = true;
+    if (activeSection !== "agent") return () => { active = false; };
+    api.environments().then((response) => {
+      if (active) setAvailableEnvironments(userSelectableEnvironments(response));
+    }).catch((error) => {
+      if (active) setAgentCreateError(error.message);
+    });
+    return () => { active = false; };
+  }, [activeSection]);
 
   useEffect(() => {
     const settings = currentSession?.runtime_settings;
@@ -3908,6 +4011,7 @@ function SettingsPage({
                   setAgentCreateOpen((current) => !current);
                   setAgentCreateName("");
                   setAgentCreateModel(defaultCreateModel);
+                  setAgentCreateEnvironment(defaultCreateEnvironment);
                   setAgentCreateError("");
                 }}>{agentCreateOpen ? "关闭新建" : "新建 Agent"}</button>
                 <button className="secondary" type="button" disabled={Boolean(agentPortabilityBusy)} onClick={() => importAgentInputRef.current?.click()}>{agentPortabilityBusy === "import" ? "导入中..." : "导入 Agent"}</button>
@@ -3930,18 +4034,20 @@ function SettingsPage({
               <form className="settings-card agent-create-panel" onSubmit={async (event) => {
                 event.preventDefault();
                 const model = modelOptions.find((option) => `${option.llmProvider}::${option.llmModel}` === agentCreateModelValue);
-                if (!agentCreateName.trim() || !model) return;
+                if (!agentCreateName.trim() || !model || !agentCreateEnvironmentValue) return;
                 setAgentCreateBusy(true);
                 setAgentCreateError("");
                 try {
                   await onCreateAgent({
                     name: agentCreateName.trim(),
                     llm_provider: model.llmProvider,
-                    llm_model: model.llmModel
+                    llm_model: model.llmModel,
+                    environment_id: agentCreateEnvironmentValue
                   });
                   setAgentCreateOpen(false);
                   setAgentCreateName("");
                   setAgentCreateModel("");
+                  setAgentCreateEnvironment("");
                 } catch (error) {
                   setAgentCreateError(error.message);
                 } finally {
@@ -3963,14 +4069,42 @@ function SettingsPage({
                     ))}
                   </select>
                 </label>
+                <label className="agent-editor-field">
+                  <span>运行环境</span>
+                  <select value={agentCreateEnvironmentValue} onChange={(event) => setAgentCreateEnvironment(event.target.value)}>
+                    {!availableEnvironments.length ? <option value="">尚未配置运行环境</option> : null}
+                    {availableEnvironments.map((environment) => (
+                      <option key={environment.id} value={environment.id}>{environment.name}</option>
+                    ))}
+                  </select>
+                </label>
+                {!availableEnvironments.length ? (
+                  <button className="secondary" type="button" disabled={environmentCreateBusy} onClick={async () => {
+                    setEnvironmentCreateBusy(true);
+                    setAgentCreateError("");
+                    try {
+                      const environment = await api.createEnvironment({
+                        name: "通用 Sandbox",
+                        config: { runtime_settings: { tool_runtime: "cloud_sandbox" } }
+                      });
+                      setAvailableEnvironments([environment]);
+                      setAgentCreateEnvironment(environment.id);
+                    } catch (error) {
+                      setAgentCreateError(error.message);
+                    } finally {
+                      setEnvironmentCreateBusy(false);
+                    }
+                  }}>{environmentCreateBusy ? "创建中..." : "创建通用 Sandbox"}</button>
+                ) : null}
                 <div className="agent-create-actions">
                   <button className="secondary" type="button" disabled={agentCreateBusy} onClick={() => {
                     setAgentCreateOpen(false);
                     setAgentCreateName("");
                     setAgentCreateModel("");
+                    setAgentCreateEnvironment("");
                     setAgentCreateError("");
                   }}>取消</button>
-                  <button type="submit" disabled={agentCreateBusy || !agentCreateName.trim() || !agentCreateModelValue}>{agentCreateBusy ? "创建中..." : "创建 Agent"}</button>
+                  <button type="submit" disabled={agentCreateBusy || !agentCreateName.trim() || !agentCreateModelValue || !agentCreateEnvironmentValue}>{agentCreateBusy ? "创建中..." : "创建 Agent"}</button>
                 </div>
               </form>
             ) : null}
@@ -3991,6 +4125,7 @@ function SettingsPage({
                           <div>
                             <strong>{agent.name || agent.id}</strong>
                             <div className="subtle">{agent.config_version?.llm_provider || "-"} / {agent.config_version?.llm_model || "-"}</div>
+                            <div className="subtle">运行环境：{environmentsByID.get(agent.environment_id)?.name || (agent.environment_id ? agent.environment_id : "未绑定")}</div>
                             <div className="subtle">配置版本 #{agent.current_config_version || agent.config_version?.version || 1}</div>
                           </div>
                           <div className="settings-row-actions">
@@ -4004,7 +4139,7 @@ function SettingsPage({
               </div>
               <div className="settings-card agent-management-editor">
                 <div className="settings-card-title">当前 Agent 配置</div>
-                <AgentConfigEditor agent={selectedAgent} mcpRegistryServers={mcpRegistryServers} modelOptions={modelOptions} onRollback={onRollbackAgent} onSave={onSaveAgent} rollingBackVersion={rollingBackVersion} saving={savingAgent} skills={skills} />
+                <AgentConfigEditor agent={selectedAgent} environments={availableEnvironments} mcpRegistryServers={mcpRegistryServers} modelOptions={modelOptions} onRollback={onRollbackAgent} onSave={onSaveAgent} rollingBackVersion={rollingBackVersion} saving={savingAgent} skills={skills} />
               </div>
             </div> : null}
             {agentManagementView === "permissions" ? (
@@ -4099,7 +4234,7 @@ function SettingsPage({
                   </header>
                   <form className="permission-audit-filters" onSubmit={filterPermissionAudit}>
                     <label><span>决策</span><select disabled={!currentSession || permissionAuditLoading} value={permissionAuditDecision} onChange={(event) => setPermissionAuditDecision(event.target.value)}><option value="">全部决策</option><option value="allow">允许</option><option value="ask">需审批</option><option value="deny">拒绝</option></select></label>
-                    <label><span>工具</span><input disabled={!currentSession || permissionAuditLoading} value={permissionAuditToolInput} onChange={(event) => setPermissionAuditToolInput(event.target.value)} placeholder="default.edit_file" /></label>
+                    <label><span>工具</span><input disabled={!currentSession || permissionAuditLoading} value={permissionAuditToolInput} onChange={(event) => setPermissionAuditToolInput(event.target.value)} placeholder="default_edit_file" /></label>
                     <button className="secondary" type="submit" disabled={!currentSession || permissionAuditLoading}>{permissionAuditLoading ? "加载中..." : "筛选"}</button>
                   </form>
                   {permissionAuditError ? <div className="agent-version-error">{permissionAuditError}</div> : null}
@@ -4246,7 +4381,14 @@ function SettingsPage({
         <button className="settings-back-button" type="button" onClick={onClose}>← 返回应用</button>
         <input className="settings-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索设置..." />
         <div className="settings-nav">
-          {sections.length ? sections.map((section) => (
+          {sections.length ? sections.map((section) => section.href ? (
+            <a className="settings-nav-item" href={section.href} key={section.key}>
+              <div>
+                <strong>{section.title}</strong>
+                <div>{section.description}</div>
+              </div>
+            </a>
+          ) : (
             <button
               className={`settings-nav-item ${section.key === activeSection ? "active" : ""}`}
               type="button"
@@ -4606,12 +4748,8 @@ function activityView(event) {
       return { title: "任务空闲", detail: payload(event).last_turn_status === "failed" ? payload(event).reason || "上一轮执行失败。" : "等待下一条消息。", kind: payload(event).last_turn_status === "failed" ? "error" : "ok" };
     case "runtime.failed":
     case "session.status_failed": {
-      const original = payload(event).reason || payload(event).message || "执行过程中出现失败。";
-      const providerError = objectValue(data.provider_error);
-      const detail = Object.keys(providerError).length
-        ? providerErrorPresentation(providerError, original).detail
-        : original;
-      return { title: "任务失败", detail: shortText(detail, 260), kind: "error" };
+      const failure = runtimeFailurePresentation(payload(event));
+      return { title: "任务失败", detail: shortText(failure.detail, 260), kind: "error" };
     }
     case "session.status_running":
       return { title: "执行中", detail: "智能体正在处理任务。", kind: "running" };
@@ -4923,11 +5061,11 @@ function turnSignal(events, options = {}) {
     };
   }
   if (failureEvent) {
-    const reason = payload(failureEvent).reason || payload(failureEvent).message || eventText(failureEvent) || "Turn failed.";
+    const failure = runtimeFailurePresentation(payload(failureEvent));
     return {
       kind: "error",
       title: "本轮失败",
-      detail: reason
+      detail: failure.detail
     };
   }
   if (latestAgentMessage && includeSuccess) {
@@ -5354,15 +5492,15 @@ function ProcessEventCard({
   } else if (event.type === "runtime.failed") {
     title = "任务失败";
     metaLabel = "执行错误";
-    const original = payload(event).reason || payload(event).message || eventText(event) || "执行过程中出现错误。";
-    const providerError = objectValue(data.provider_error);
-    const presentation = Object.keys(providerError).length
-      ? providerErrorPresentation(providerError, original)
-      : null;
-    preview = presentation?.detail || original;
-    detailObject = presentation
-      ? { description: presentation.description, original_error: presentation.original, provider_error: providerError }
-      : Object.keys(error).length ? { error } : null;
+    const presentation = runtimeFailurePresentation(payload(event));
+    preview = presentation.detail;
+    detailObject = {
+      error_code: presentation.code,
+      description: presentation.description,
+      original_error: presentation.original,
+      ...(Object.keys(presentation.providerError).length ? { provider_error: presentation.providerError } : {}),
+      ...(Object.keys(error).length ? { error } : {})
+    };
     tone = "error";
     status = "error";
     statusLabel = "失败";
@@ -5689,7 +5827,6 @@ function parseSessionRuntimeSettings(raw) {
     interventionMode: typeof raw.intervention_mode === "string" ? raw.intervention_mode : "",
     llmModel: typeof raw.llm_model === "string" ? raw.llm_model : "",
     llmProvider: typeof raw.llm_provider === "string" ? raw.llm_provider : "",
-    toolRuntime: typeof raw.tool_runtime === "string" ? raw.tool_runtime : "",
     humanInteractionEnabled: humanInteraction.enabled !== false
   };
 }
@@ -5748,7 +5885,6 @@ function WorkbenchApp() {
   const [status, setStatus] = useState("ready");
   const [principal, setPrincipal] = useState(null);
   const [agentID, setAgentID] = useState("");
-  const [environmentID, setEnvironmentID] = useState("");
   const [sessionID, setSessionID] = useState("");
   const [task, setTask] = useState("");
   const [composerFiles, setComposerFiles] = useState([]);
@@ -5780,7 +5916,6 @@ function WorkbenchApp() {
   const [artifactPreviewMode, setArtifactPreviewMode] = useState("preview");
   const [artifactPreviewWidth, setArtifactPreviewWidth] = useState(480);
   const [runtimeConfig, setRuntimeConfig] = useState(null);
-  const [runtimeCapabilities, setRuntimeCapabilities] = useState({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
   const [modelOptions, setModelOptions] = useState([]);
   const [defaultAgentConfig, setDefaultAgentConfig] = useState(null);
   const [availableAgents, setAvailableAgents] = useState([]);
@@ -5967,7 +6102,6 @@ function WorkbenchApp() {
       sessionIDRef.current = selected.id;
       setSessionID(selected.id);
       setAgentID(selected.agent_id || "");
-      setEnvironmentID(selected.environment_id || "");
       rememberSession(selected.id);
       await loadSession(selected.id);
       await defaultsPromise;
@@ -6030,7 +6164,7 @@ function WorkbenchApp() {
       ...current,
       llmModel: current.llmModel || defaultAgent.config_version?.llm_model || "",
       llmProvider: current.llmProvider || defaultAgent.config_version?.llm_provider || "",
-      toolRuntime: current.toolRuntime || "cloud_sandbox"
+      toolRuntime: parseToolPolicy(defaultAgent.config_version?.tools).runtime || "cloud_sandbox"
     }));
   }
 
@@ -6170,14 +6304,6 @@ function WorkbenchApp() {
     return filteredTaskSessions.slice(0, visibleTaskCount);
   }, [filteredTaskSessions, visibleTaskCount]);
   const hasMoreTasks = filteredTaskSessions.length > visibleTaskCount;
-  const runtimeOptions = useMemo(() => {
-    const available = new Set(runtimeCapabilities.available_runtimes || ["cloud_sandbox"]);
-    const options = [{ value: "cloud_sandbox", label: "Sandbox" }];
-    if (available.has("local_system") || settingsDraft.toolRuntime === "local_system") {
-      options.push({ value: "local_system", label: "Local" });
-    }
-    return options;
-  }, [runtimeCapabilities.available_runtimes, settingsDraft.toolRuntime]);
   const selectedModelValue = settingsDraft.llmProvider && settingsDraft.llmModel ? `${settingsDraft.llmProvider}::${settingsDraft.llmModel}` : "";
   const selectedAgentValue = agentID || defaultAgentConfig?.id || "";
   const selectedAgent = availableAgents.find((agent) => agent.id === selectedAgentValue) || defaultAgentConfig;
@@ -6268,6 +6394,7 @@ function WorkbenchApp() {
       { key: "mcp", title: "MCP", description: "MCP 服务与可用性", keywords: "mcp server tool" },
       { key: "agent", title: "Agent", description: "智能体列表与当前配置", keywords: "agent 智能体 model config" },
       { key: "work", title: "Work", description: "任务与会话状态", keywords: "work task session" },
+      { key: "space", title: "LLM Space", description: "运行对比、数据集与批量评测", keywords: "space llm evaluation experiment dataset compare 评测 实验 数据集 对比", href: "/space" },
       { key: "inspector", title: "Inspector", description: "调试与观察入口", keywords: "inspector trace debug" }
     ];
     const query = settingsSearch.trim().toLowerCase();
@@ -6302,7 +6429,6 @@ function WorkbenchApp() {
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
-      setEnvironmentID(nextSession.environment_id || "");
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
     sessionEventCursorsRef.current.set(value, eventStreamCursorRef.current);
@@ -6326,7 +6452,6 @@ function WorkbenchApp() {
     if (!nextSessionID) {
       setRuntimeConfig(null);
       setModelOptions([]);
-      setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
       setSettingsDraft({
         humanInteractionEnabled: true,
         interventionMode: "request_approval",
@@ -6353,10 +6478,9 @@ function WorkbenchApp() {
       }))
     ));
     setRuntimeConfig(config);
-    setRuntimeCapabilities(capabilities);
     setModelOptions(options);
     const parsedSettings = parseSessionRuntimeSettings(sessionValue?.runtime_settings || {});
-    const preferredRuntime = parsedSettings.toolRuntime || capabilities.default_runtime || "cloud_sandbox";
+    const preferredRuntime = parseToolPolicy(config.tools).runtime || capabilities.default_runtime || "cloud_sandbox";
     setSettingsDraft({
       humanInteractionEnabled: parsedSettings.humanInteractionEnabled !== false,
       interventionMode: parsedSettings.interventionMode || "request_approval",
@@ -6391,7 +6515,6 @@ function WorkbenchApp() {
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
-      setEnvironmentID(nextSession.environment_id || "");
       setRecentSessions((current) => [nextSession, ...current.filter((item) => item.id !== nextSession.id)]);
     }
     setTaskPlanResponse(nextTaskPlan);
@@ -6610,11 +6733,17 @@ function WorkbenchApp() {
               }
               continue;
             }
-            if (event.type !== "llm.text" || !event.text) continue;
+            if (event.type !== "llm.text") continue;
             if (sessionIDRef.current === sessionKey) setLiveToolProgress(null);
             const current = sessionLiveRepliesRef.current.get(sessionKey);
             const sameStream = current?.turnID === event.turn_id && current?.toolRound === Number(event.tool_round || 0);
             if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) continue;
+            if (event.operation === "reset") {
+              sessionLiveRepliesRef.current.delete(sessionKey);
+              if (sessionIDRef.current === sessionKey) setLiveReply(null);
+              continue;
+            }
+            if (!event.text) continue;
             const next = {
               sessionID: sessionKey,
               turnID: event.turn_id,
@@ -6994,18 +7123,25 @@ function WorkbenchApp() {
       return;
     }
     setStatus("creating session");
-    const agent = agentID.trim() ? { id: agentID.trim() } : (defaultAgentConfig || await api.defaultAgent());
-    const environment = environmentID.trim() ? { id: environmentID.trim() } : await api.createEnvironment({
-      name: "Workbench Environment",
-      config: { type: "cloud" }
-    });
+    const requestedAgentID = agentID.trim();
+    const agent = requestedAgentID
+      ? (availableAgents.find((item) => item.id === requestedAgentID) || await api.agent(requestedAgentID))
+      : (defaultAgentConfig || await api.defaultAgent());
+    let legacyEnvironmentID = "";
+    if (!agent.environment_id) {
+      const response = await api.environments();
+      const environment = userSelectableEnvironments(response)[0] || await api.createEnvironment({
+        name: "Workbench Environment",
+        config: { type: "cloud" }
+      });
+      legacyEnvironmentID = environment.id;
+    }
     const session = await api.createSession({
       agent_id: agent.id,
-      environment_id: environment.id,
+      ...(legacyEnvironmentID ? { environment_id: legacyEnvironmentID } : {}),
       title: task.trim() ? task.trim().slice(0, 80) : (composerFiles[0]?.file.name || composerLibraryItems[0]?.name || "New workbench task")
     });
     setAgentID(agent.id);
-    setEnvironmentID(environment.id);
     sessionLoadRequestRef.current += 1;
     sessionIDRef.current = session.id;
     setSessionID(session.id);
@@ -7014,7 +7150,6 @@ function WorkbenchApp() {
     setRecentSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     const shouldApplyInitialSettings = Boolean(
       settingsDraft.interventionMode ||
-      settingsDraft.toolRuntime ||
       settingsDraft.llmProvider ||
       settingsDraft.llmModel
     );
@@ -7023,8 +7158,7 @@ function WorkbenchApp() {
         human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
         llm_model: settingsDraft.llmModel || agent.config_version?.llm_model || "",
-        llm_provider: settingsDraft.llmProvider || agent.config_version?.llm_provider || "",
-        tool_runtime: settingsDraft.toolRuntime || "cloud_sandbox"
+        llm_provider: settingsDraft.llmProvider || agent.config_version?.llm_provider || ""
       });
       setSessionMeta(updatedSession);
       await loadSessionSettings(session.id, updatedSession);
@@ -7724,7 +7858,7 @@ function WorkbenchApp() {
     setStatus("requesting skill enable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -7743,7 +7877,7 @@ function WorkbenchApp() {
     setStatus("requesting skill disable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -7840,7 +7974,6 @@ function WorkbenchApp() {
     sessionIDRef.current = session.id;
     setSessionID(session.id);
     setAgentID(session.agent_id || "");
-    setEnvironmentID(session.environment_id || "");
     rememberSession(session.id);
     const loaded = await loadSession(session.id);
     if (loaded?.stale) return;
@@ -7856,7 +7989,6 @@ function WorkbenchApp() {
     setComposerDragActive(false);
     setToolPickerOpen(false);
     setAgentID((current) => current || defaultAgentConfig?.id || "");
-    setEnvironmentID("");
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
@@ -7867,13 +7999,12 @@ function WorkbenchApp() {
     setWaitingForReply(false);
     setSteeringQueueID("");
     setRuntimeConfig(null);
-    setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
     setSettingsDraft({
       humanInteractionEnabled: true,
       interventionMode: "request_approval",
       llmModel: defaultAgentConfig?.config_version?.llm_model || "",
       llmProvider: defaultAgentConfig?.config_version?.llm_provider || "",
-      toolRuntime: "cloud_sandbox"
+      toolRuntime: parseToolPolicy(defaultAgentConfig?.config_version?.tools).runtime || "cloud_sandbox"
     });
     setApprovalsOpen(false);
     setTemplatePickerOpen(false);
@@ -7925,7 +8056,6 @@ function WorkbenchApp() {
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
-    setEnvironmentID("");
     setEventsResponse({ events: [] });
     setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
@@ -7941,7 +8071,8 @@ function WorkbenchApp() {
       setSettingsDraft((current) => ({
         ...current,
         llmProvider: agent.config_version.llm_provider || current.llmProvider || "",
-        llmModel: agent.config_version.llm_model || current.llmModel || ""
+        llmModel: agent.config_version.llm_model || current.llmModel || "",
+        toolRuntime: parseToolPolicy(agent.config_version.tools).runtime || "cloud_sandbox"
       }));
     }
   }
@@ -7957,8 +8088,7 @@ function WorkbenchApp() {
         human_interaction: humanInteractionRuntimeSettings(nextDraft.humanInteractionEnabled),
         intervention_mode: nextDraft.interventionMode,
         llm_model: nextDraft.llmModel,
-        llm_provider: nextDraft.llmProvider,
-        tool_runtime: nextDraft.toolRuntime
+        llm_provider: nextDraft.llmProvider
       });
       setSessionMeta(updatedSession);
       await loadSessionSettings(sessionID, updatedSession);
@@ -8141,6 +8271,9 @@ function WorkbenchApp() {
         }));
       }
       setStatus("Agent 配置已保存");
+    } catch (error) {
+      setStatus(error.message || "Agent 配置保存失败");
+      throw error;
     } finally {
       setSavingAgentConfig(false);
     }
@@ -8203,7 +8336,6 @@ function WorkbenchApp() {
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
-    setEnvironmentID("");
     setEventsResponse({ events: [] });
     setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
@@ -8272,7 +8404,7 @@ function WorkbenchApp() {
         onOpenSession={openArchivedSessionFromSettings}
         onRestoreSession={(session) => restoreTask(session).catch((error) => setStatus(error.message))}
         onRollbackAgent={rollbackAgentFromSettings}
-        onSaveAgent={(body) => saveAgentFromSettings(body).catch((error) => setStatus(error.message))}
+        onSaveAgent={saveAgentFromSettings}
         onSelectAgent={selectAgentFromSettings}
         onUpdateAgentPermissions={updateAgentPermissionsFromSettings}
         onUpdateSessionPermissions={updateSessionPermissionsFromSettings}
@@ -8634,7 +8766,7 @@ function WorkbenchApp() {
                     </div>
                     <div className="welcome-note">
                       <strong>提示</strong>
-                      <span>你可以在任务开始前预先选择模型、审批模式和运行环境。</span>
+                      <span>你可以在任务开始前预先选择模型和审批模式。</span>
                     </div>
                   </div>
                 )}
@@ -8805,18 +8937,6 @@ function WorkbenchApp() {
                               <option value="request_approval">先审批</option>
                               <option value="approve_for_me">替我审批</option>
                               <option value="full_access">完全访问</option>
-                            </select>
-                          </label>
-                          <label className="composer-setting">
-                            <span>运行环境</span>
-                            <select
-                              disabled={savingSettings}
-                              value={settingsDraft.toolRuntime}
-                              onChange={(event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message))}
-                            >
-                              {runtimeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
                             </select>
                           </label>
                           <label className="composer-setting composer-setting-model">

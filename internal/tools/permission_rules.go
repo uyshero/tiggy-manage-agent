@@ -23,9 +23,9 @@ const (
 )
 
 var filePermissionRuleTools = map[string]bool{
-	NamespaceDefault + ".read_file":  true,
-	NamespaceDefault + ".write_file": true,
-	NamespaceDefault + ".edit_file":  true,
+	ModelToolName(NamespaceDefault, "read_file"):  true,
+	ModelToolName(NamespaceDefault, "write_file"): true,
+	ModelToolName(NamespaceDefault, "edit_file"):  true,
 }
 
 // PermissionRule controls one file tool by matching its path argument.
@@ -51,7 +51,7 @@ type PermissionRuleSuggestion struct {
 // from approving the current tool call.
 func SuggestedPermissionRules(call Call) []PermissionRuleSuggestion {
 	call = NormalizeCall(call)
-	tool := call.Identifier + "." + call.APIName
+	tool := ModelToolName(call.Identifier, call.APIName)
 	if !filePermissionRuleTools[tool] {
 		return nil
 	}
@@ -233,7 +233,7 @@ func validatePermissionPathPattern(pattern string) error {
 
 func matchingPermissionRule(rules []PermissionRule, call Call) (PermissionRule, bool) {
 	call = NormalizeCall(call)
-	tool := call.Identifier + "." + call.APIName
+	tool := ModelToolName(call.Identifier, call.APIName)
 	var arguments map[string]any
 	if json.Unmarshal(call.Arguments, &arguments) != nil {
 		return PermissionRule{}, false

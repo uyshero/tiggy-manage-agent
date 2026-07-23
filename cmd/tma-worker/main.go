@@ -434,7 +434,7 @@ func doctorDiagnoseRequest(workspaceID string, capabilities tools.WorkerCapabili
 	namespace := tools.NamespaceDefault
 	apiName := "run_command"
 	if len(capabilities.APIs) > 0 {
-		namespace, apiName = splitQualifiedAPI(capabilities.APIs[0])
+		namespace, apiName = resolveCanonicalAPI(capabilities.APIs[0], capabilities.Manifests)
 	}
 	runtime := tools.ToolRuntimeLocalSystem
 	if len(capabilities.Runtimes) > 0 {
@@ -450,12 +450,16 @@ func doctorDiagnoseRequest(workspaceID string, capabilities tools.WorkerCapabili
 	}
 }
 
-func splitQualifiedAPI(value string) (string, string) {
-	namespace, apiName, ok := strings.Cut(value, ".")
-	if !ok || strings.TrimSpace(namespace) == "" || strings.TrimSpace(apiName) == "" {
-		return tools.NamespaceDefault, value
+func resolveCanonicalAPI(value string, manifests []tools.Manifest) (string, string) {
+	value = strings.TrimSpace(value)
+	for _, manifest := range manifests {
+		for _, api := range manifest.API {
+			if tools.ModelToolName(manifest.Identifier, api.Name) == value {
+				return manifest.Identifier, api.Name
+			}
+		}
 	}
-	return namespace, apiName
+	return tools.NamespaceDefault, value
 }
 
 func diagnosisContainsWorker(response workerDiagnoseResponse, workerID string) bool {

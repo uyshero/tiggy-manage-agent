@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tools"
 )
 
 type TurnTrace struct {
@@ -1380,24 +1381,24 @@ func BuildTurnSummary(trace TurnTrace) string {
 			}
 		case managedagents.EventRuntimeToolCall:
 			interesting = true
-			lines = append(lines, fmt.Sprintf("tool requested: %s.%s", defaultString(step.Identifier, "default"), step.APIName))
+			lines = append(lines, "tool requested: "+tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName))
 		case managedagents.EventRuntimeToolInterventionApproved:
 			interesting = true
-			line := fmt.Sprintf("approval approved: %s.%s", defaultString(step.Identifier, "default"), step.APIName)
+			line := "approval approved: " + tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName)
 			if step.ApprovalSource != "" {
 				line += " (" + step.ApprovalSource + ")"
 			}
 			lines = append(lines, line)
 		case managedagents.EventRuntimeToolInterventionRejected:
 			interesting = true
-			line := fmt.Sprintf("approval rejected: %s.%s", defaultString(step.Identifier, "default"), step.APIName)
+			line := "approval rejected: " + tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName)
 			if step.DecisionReason != "" {
 				line += " reason=" + step.DecisionReason
 			}
 			lines = append(lines, line)
 		case managedagents.EventRuntimeToolResult:
 			interesting = true
-			line := fmt.Sprintf("tool result: %s.%s %s", defaultString(step.Identifier, "default"), step.APIName, defaultString(step.Outcome, "unknown"))
+			line := fmt.Sprintf("tool result: %s %s", tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName), defaultString(step.Outcome, "unknown"))
 			if step.DecisionReason != "" {
 				line += " reason=" + step.DecisionReason
 			}
@@ -1484,7 +1485,7 @@ func projectStep(event managedagents.Event) TraceStep {
 		step.Identifier = payloadDataString(event.Payload, "identifier")
 		step.APIName = payloadDataString(event.Payload, "api_name")
 		if event.Type == managedagents.EventRuntimeToolCall {
-			step.Summary = fmt.Sprintf("%s.%s requested", defaultString(step.Identifier, "default"), step.APIName)
+			step.Summary = tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName) + " requested"
 		} else {
 			step.Summary = "approval requested"
 		}
@@ -1524,7 +1525,7 @@ func projectStep(event managedagents.Event) TraceStep {
 		case payloadDataBoolPtr(event.Payload, "success") != nil:
 			step.Outcome = "error"
 		}
-		step.Summary = fmt.Sprintf("%s.%s %s", defaultString(step.Identifier, "default"), step.APIName, defaultString(step.Outcome, "result"))
+		step.Summary = fmt.Sprintf("%s %s", tools.ModelToolName(defaultString(step.Identifier, tools.NamespaceDefault), step.APIName), defaultString(step.Outcome, "result"))
 	case managedagents.EventSessionStatusIdle:
 		step.Summary = payloadString(event.Payload, "last_turn_status")
 	}

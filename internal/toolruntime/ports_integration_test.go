@@ -134,7 +134,7 @@ func TestToolRuntimeRequiresApprovalBeforeExecution(t *testing.T) {
 		Snapshot: mustToolSnapshot(t, registry, tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
-	call := coremodel.ToolCall{ID: "call_1", Name: "danger.write", Arguments: json.RawMessage(`{"value":"ok"}`)}
+	call := coremodel.ToolCall{ID: "call_1", Name: "danger_write", Arguments: json.RawMessage(`{"value":"ok"}`)}
 	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -171,7 +171,7 @@ func TestToolRuntimeApprovalIncludesSuggestedFilePermissionRules(t *testing.T) {
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
 	call := coremodel.ToolCall{
-		ID: "write_1", Name: "default.write_file",
+		ID: "write_1", Name: "default_write_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/src/config/app.go","content":"new"}`),
 	}
 	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{call})
@@ -205,7 +205,7 @@ func TestToolRuntimeEditApprovalBindsDurableDiffAndExecutesExactPreview(t *testi
 		ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}, SessionID: state.SessionID, TurnID: state.TurnID},
 	}
 	call := coremodel.ToolCall{
-		ID: "edit_approval", Name: "default.edit_file",
+		ID: "edit_approval", Name: "default_edit_file",
 		Arguments: mustRawJSON(t, map[string]any{"path": path, "old_string": "beta", "new_string": "BETA"}),
 	}
 	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
@@ -292,7 +292,7 @@ func TestToolRuntimeEditApprovalRejectsChangedFileAndTamperedPreview(t *testing.
 				Snapshot:         mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
 				ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}},
 			}
-			call := coremodel.ToolCall{ID: "edit_stale", Name: "default.edit_file", Arguments: mustRawJSON(t, map[string]any{
+			call := coremodel.ToolCall{ID: "edit_stale", Name: "default_edit_file", Arguments: mustRawJSON(t, map[string]any{
 				"path": path, "old_string": "old", "new_string": "new",
 			})}
 			plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
@@ -333,7 +333,7 @@ func TestToolRuntimeDoesNotRequestApprovalForInvalidEditPreview(t *testing.T) {
 		Snapshot:         mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}),
 		ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}},
 	}
-	call := coremodel.ToolCall{ID: "edit_invalid", Name: "default.edit_file", Arguments: mustRawJSON(t, map[string]any{
+	call := coremodel.ToolCall{ID: "edit_invalid", Name: "default_edit_file", Arguments: mustRawJSON(t, map[string]any{
 		"path": path, "old_string": "missing", "new_string": "new",
 	})}
 	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
@@ -379,7 +379,7 @@ func TestToolRuntimeCurrentDenyOverridesOldApproval(t *testing.T) {
 	registry := tools.DefaultRegistry()
 	oldSnapshot := mustToolSnapshot(t, registry, tools.InterventionPolicy{Mode: tools.InterventionModeApproveForMe})
 	call := coremodel.ToolCall{
-		ID: "write_1", Name: "default.write_file",
+		ID: "write_1", Name: "default_write_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/config/app.json","content":"new"}`),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
@@ -392,7 +392,7 @@ func TestToolRuntimeCurrentDenyOverridesOldApproval(t *testing.T) {
 	}
 
 	denyPolicy := tools.InterventionPolicy{Mode: tools.InterventionModeFullAccess, Rules: []tools.PermissionRule{{
-		ID: "deny-config", Tool: "default.write_file", Argument: "path", Pattern: "/workspace/config/**",
+		ID: "deny-config", Tool: "default_write_file", Argument: "path", Pattern: "/workspace/config/**",
 		Behavior: tools.PermissionRuleDeny, Source: tools.PermissionRuleSourceSession,
 	}}}
 	executor := &countingExecutor{}
@@ -412,7 +412,7 @@ func TestToolRuntimeNewAskRejectsOldAutoApproval(t *testing.T) {
 	registry := tools.DefaultRegistry()
 	oldSnapshot := mustToolSnapshot(t, registry, tools.InterventionPolicy{Mode: tools.InterventionModeApproveForMe})
 	call := coremodel.ToolCall{
-		ID: "write_1", Name: "default.write_file",
+		ID: "write_1", Name: "default_write_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/output.txt","content":"new"}`),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
@@ -444,7 +444,7 @@ func TestToolRuntimeAcceptsHumanApprovalWhenCurrentPolicyStillAsks(t *testing.T)
 	registry := tools.DefaultRegistry()
 	requestPolicy := tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}
 	call := coremodel.ToolCall{
-		ID: "write_1", Name: "default.write_file",
+		ID: "write_1", Name: "default_write_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/output.txt","content":"new"}`),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
@@ -458,7 +458,7 @@ func TestToolRuntimeAcceptsHumanApprovalWhenCurrentPolicyStillAsks(t *testing.T)
 		InteractionID: plan.Interactions[0].ID, Status: managedagents.InterventionStatusApproved,
 	}
 	currentPolicy := tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval, Rules: []tools.PermissionRule{{
-		ID: "ask-output", Tool: "default.write_file", Argument: "path", Pattern: "/workspace/**",
+		ID: "ask-output", Tool: "default_write_file", Argument: "path", Pattern: "/workspace/**",
 		Behavior: tools.PermissionRuleAsk, Source: tools.PermissionRuleSourceSession,
 	}}}
 	executor := &countingExecutor{}
@@ -476,14 +476,14 @@ func TestToolRuntimeReturnsRecoverableResultForPermissionDeny(t *testing.T) {
 	t.Parallel()
 
 	policy := tools.InterventionPolicy{Mode: tools.InterventionModeFullAccess, Rules: []tools.PermissionRule{{
-		ID: "deny-config", Tool: "default.edit_file", Argument: "path",
+		ID: "deny-config", Tool: "default_edit_file", Argument: "path",
 		Pattern: "/workspace/config/**", Behavior: tools.PermissionRuleDeny, Source: "session",
 	}}}
 	adapter := toolruntime.ToolRuntime{
 		Snapshot: mustToolSnapshot(t, tools.DefaultRegistry(), policy),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
-	call := coremodel.ToolCall{ID: "call_deny", Name: "default.edit_file", Arguments: json.RawMessage(`{
+	call := coremodel.ToolCall{ID: "call_deny", Name: "default_edit_file", Arguments: json.RawMessage(`{
 		"path":"/workspace/config/app.json","old_string":"old","new_string":"new"
 	}`)}
 	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{call})
@@ -512,7 +512,7 @@ func TestToolRuntimePersistsInvalidArgumentsDuringPreflight(t *testing.T) {
 	registry := tools.NewRegistry(&dangerousRuntime{})
 	adapter := toolruntime.ToolRuntime{Snapshot: fullAccessSnapshot(t, registry)}
 	plan, err := adapter.Preflight(context.Background(), agentcore.State{SessionID: "session_1", TurnID: "turn_1"}, []coremodel.ToolCall{{
-		ID: "call_1", Name: "danger.write", Arguments: json.RawMessage(`{"unexpected":true}`),
+		ID: "call_1", Name: "danger_write", Arguments: json.RawMessage(`{"unexpected":true}`),
 	}})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -535,8 +535,8 @@ func TestToolRuntimeConvertsBusinessFailureAndPreservesPartialResults(t *testing
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
 	calls := []coremodel.ToolCall{
-		{ID: "call_fail", Name: "batch.first", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_ok", Name: "batch.second", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_fail", Name: "batch_first", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_ok", Name: "batch_second", Arguments: json.RawMessage(`{}`)},
 	}
 	plan, err := adapter.Preflight(context.Background(), state, calls)
 	if err != nil {
@@ -565,8 +565,8 @@ func TestToolRuntimeValidatesWholeBatchBeforeExecution(t *testing.T) {
 	runtime := toolruntime.ToolRuntime{Snapshot: fullAccessSnapshot(t, registry), Executor: executor}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
 	plan, err := runtime.Preflight(t.Context(), state, []coremodel.ToolCall{
-		{ID: "call_1", Name: "batch.first", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_2", Name: "batch.second", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_1", Name: "batch_first", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_2", Name: "batch_second", Arguments: json.RawMessage(`{}`)},
 	})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -590,7 +590,7 @@ func TestToolRuntimePassesStableIdempotencyKeyToExecutor(t *testing.T) {
 		Snapshot: fullAccessSnapshot(t, tools.NewRegistry(batchRuntime{})), Executor: idempotencyCaptureExecutor{captured: captured},
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
-	call := coremodel.ToolCall{ID: "call_1", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	call := coremodel.ToolCall{ID: "call_1", Name: "batch_first", Arguments: json.RawMessage(`{}`)}
 	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -621,7 +621,7 @@ func TestToolRuntimeStreamsScopedRedactedProgress(t *testing.T) {
 		},
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1", Round: 4}
-	call := coremodel.ToolCall{ID: "call_progress", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	call := coremodel.ToolCall{ID: "call_progress", Name: "batch_first", Arguments: json.RawMessage(`{}`)}
 	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatal(err)
@@ -662,7 +662,7 @@ func TestToolRuntimeExecutesVersionedMiddlewareInDeclaredOrder(t *testing.T) {
 	}
 	adapter := toolruntime.ToolRuntime{Snapshot: snapshot, Executor: orderedExecutor{order: &order}}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
-	call := coremodel.ToolCall{ID: "call_middleware", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	call := coremodel.ToolCall{ID: "call_middleware", Name: "batch_first", Arguments: json.RawMessage(`{}`)}
 	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatal(err)
@@ -690,7 +690,7 @@ func TestToolRuntimeRejectsMiddlewareDriftBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
-	call := coremodel.ToolCall{ID: "call_drift", Name: "batch.first", Arguments: json.RawMessage(`{}`)}
+	call := coremodel.ToolCall{ID: "call_drift", Name: "batch_first", Arguments: json.RawMessage(`{}`)}
 	plan, err := (toolruntime.ToolRuntime{Snapshot: oldSnapshot}).Preflight(t.Context(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatal(err)
@@ -714,7 +714,7 @@ func TestToolRuntimeReplaysPersistedSegmentEditByBusinessIdentity(t *testing.T) 
 
 	path := "/workspace/report.md"
 	previous := coremodel.ToolCall{
-		ID: "edit_1", Name: "default.edit_file",
+		ID: "edit_1", Name: "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/report.md","old_string":"__TMA_PLACEHOLDER_REPORT_001__","new_string":"complete section","replace_all":false}`),
 	}
 	previousResult := coremodel.ToolResult{
@@ -760,11 +760,11 @@ func TestToolRuntimeInvalidatesPersistedSegmentReplayAfterRewrite(t *testing.T) 
 	t.Parallel()
 
 	edit := coremodel.ToolCall{
-		ID: "edit_1", Name: "default.edit_file",
+		ID: "edit_1", Name: "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/report.md","old_string":"__TMA_PLACEHOLDER_REPORT_001__","new_string":"complete section"}`),
 	}
 	rewrite := coremodel.ToolCall{
-		ID: "write_2", Name: "default.write_file",
+		ID: "write_2", Name: "default_write_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/report.md","content":"new skeleton"}`),
 	}
 	editResult := coremodel.ToolResult{CallID: edit.ID, Name: edit.Name, Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "edited"}}}
@@ -810,7 +810,7 @@ func TestToolRuntimeRequiresPersistedReadReceiptBeforeEdit(t *testing.T) {
 		Snapshot: mustToolSnapshot(t, tools.DefaultRegistry(), tools.InterventionPolicy{Mode: tools.InterventionModeRequestApproval}), Executor: executor,
 	}
 	call := coremodel.ToolCall{
-		ID: "edit_1", Name: "default.edit_file",
+		ID: "edit_1", Name: "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/note.txt","old_string":"old","new_string":"new"}`),
 	}
 	state := agentcore.State{SessionID: "session_1", TurnID: "turn_1"}
@@ -860,7 +860,7 @@ func TestToolRuntimeInjectsPersistedReadReceiptIntoEdit(t *testing.T) {
 		Snapshot: fullAccessSnapshot(t, tools.DefaultRegistry()), Executor: executor,
 	}
 	edit := coremodel.ToolCall{
-		ID: "edit_1", Name: "default.edit_file",
+		ID: "edit_1", Name: "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"/workspace/note.txt","old_string":"old","new_string":"new"}`),
 	}
 	plan, err := adapter.Preflight(context.Background(), state, []coremodel.ToolCall{edit})
@@ -911,7 +911,7 @@ func TestToolRuntimeRejectsEditWhenFileChangesAfterPersistedRead(t *testing.T) {
 		ExecutionContext: tools.ExecutionContext{Provider: capability.LocalSystemProvider{}},
 	}
 	edit := coremodel.ToolCall{
-		ID: "edit_1", Name: "default.edit_file",
+		ID: "edit_1", Name: "default_edit_file",
 		Arguments: mustRawJSON(t, map[string]any{"path": path, "old_string": "old", "new_string": "new"}),
 	}
 	plan, err := adapter.Preflight(t.Context(), state, []coremodel.ToolCall{edit})
@@ -951,7 +951,7 @@ func TestToolRuntimeHonorsManifestExecutionMetadata(t *testing.T) {
 	}
 	adapter := toolruntime.ToolRuntime{Snapshot: snapshot}
 	plan, err := adapter.Preflight(context.Background(), agentcore.State{SessionID: "session_1", TurnID: "turn_1"}, []coremodel.ToolCall{{
-		ID: "call_1", Name: "metadata.write", Arguments: json.RawMessage(`{}`),
+		ID: "call_1", Name: "metadata_write", Arguments: json.RawMessage(`{}`),
 	}})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -968,7 +968,7 @@ func TestToolRuntimeExpandsEditFilePathLockKey(t *testing.T) {
 	snapshot := fullAccessSnapshot(t, registry)
 	adapter := toolruntime.ToolRuntime{Snapshot: snapshot}
 	plan, err := adapter.Preflight(context.Background(), agentcore.State{SessionID: "session_1", TurnID: "turn_1"}, []coremodel.ToolCall{{
-		ID: "call_edit", Name: "default.edit_file",
+		ID: "call_edit", Name: "default_edit_file",
 		Arguments: json.RawMessage(`{"path":"src/../src/app.go","old_string":"old","new_string":"new"}`),
 	}})
 	if err != nil {
@@ -990,7 +990,7 @@ func TestToolRuntimeInfersReadToolsAsSafeAndParallel(t *testing.T) {
 	}
 	adapter := toolruntime.ToolRuntime{Snapshot: snapshot}
 	plan, err := adapter.Preflight(context.Background(), agentcore.State{SessionID: "session_1", TurnID: "turn_1"}, []coremodel.ToolCall{{
-		ID: "call_1", Name: "read.inspect", Arguments: json.RawMessage(`{}`),
+		ID: "call_1", Name: "read_inspect", Arguments: json.RawMessage(`{}`),
 	}})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)

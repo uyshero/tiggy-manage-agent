@@ -346,9 +346,8 @@ func printWorkerPluginManifests(manifests []tools.Manifest, indent string) {
 
 func printWorkerDiagnosis(response workerDiagnoseResponse) {
 	invocation := response.Invocation
-	fmt.Printf("diagnose %s.%s runtime=%s capabilities=%s\n",
-		invocation.Namespace,
-		invocation.API,
+	fmt.Printf("diagnose %s runtime=%s capabilities=%s\n",
+		tools.ModelToolName(invocation.Namespace, invocation.API),
 		invocation.Runtime,
 		strings.Join(invocation.Capabilities, ","),
 	)

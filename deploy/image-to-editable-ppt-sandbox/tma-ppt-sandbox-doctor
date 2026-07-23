@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -gt 0 ]; then
+  echo "usage: tma-ppt-sandbox-doctor" >&2
+  exit 64
+fi
+
+for command in editppt python3 soffice pdftoppm fc-match; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "missing required command: $command" >&2
+    exit 1
+  fi
+done
+
+if [ "${TMA_PPT_SANDBOX:-}" != "1" ]; then
+  echo "TMA_PPT_SANDBOX must be 1" >&2
+  exit 1
+fi
+
+if [ ! -r "${EDITPPT_UPSTREAM_ROOT:-/opt/image-to-editable-ppt}/skills/image-to-editable-ppt/references/page-decision-tree.md" ]; then
+  echo "upstream reconstruction references are missing" >&2
+  exit 1
+fi
+
+editppt doctor --json >/tmp/editppt-doctor.json
+python3 -c 'import json; data=json.load(open("/tmp/editppt-doctor.json", encoding="utf-8")); assert data["ok"], data'
+rm -f /tmp/editppt-doctor.json
+
+font_match=$(fc-match 'Noto Sans CJK SC' | head -n 1)
+if [ -z "$font_match" ]; then
+  echo "Noto Sans CJK font is unavailable" >&2
+  exit 1
+fi
+
+echo "tma-ppt-sandbox: ok"
+echo "editppt: $(command -v editppt)"
+echo "libreoffice: $(soffice --version | head -n 1)"
+echo "cjk-font: $font_match"

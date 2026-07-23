@@ -55,7 +55,10 @@ func NewLiveEventBroker(buffer int) *LiveEventBroker {
 }
 
 func (broker *LiveEventBroker) Publish(event LiveEvent) {
-	if broker == nil || event.SessionID == "" || event.TurnID == "" || event.Type == "" || event.Text == "" {
+	if broker == nil || event.SessionID == "" || event.TurnID == "" || event.Type == "" {
+		return
+	}
+	if event.Operation != "reset" && event.Text == "" {
 		return
 	}
 	event.StreamSeq = broker.sequence.Add(1)

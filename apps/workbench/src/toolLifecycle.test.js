@@ -52,7 +52,7 @@ test("normalizes Agent Core tool events into visible runtime tool lifecycles", (
       seq: 10,
       type: "tool.batch_planned",
       payload: { data: { calls: [{
-        call: { id: "call-core-1", name: "web.search", arguments: { query: "农业新闻", limit: 10 } },
+        call: { id: "call-core-1", name: "web_search", arguments: { query: "农业新闻", limit: 10 } },
         approval_state: "not_required",
         disposition: "execute"
       }] } }
@@ -60,14 +60,14 @@ test("normalizes Agent Core tool events into visible runtime tool lifecycles", (
     {
       seq: 11,
       type: "tool.call_started",
-      payload: { data: { call_id: "call-core-1", name: "web.search", status: "running" } }
+      payload: { data: { call_id: "call-core-1", name: "web_search", status: "running" } }
     },
     {
       seq: 12,
       type: "tool.call_result",
       payload: { data: {
         call_id: "call-core-1",
-        name: "web.search",
+        name: "web_search",
         status: "succeeded",
         started_at: "2026-07-22T06:16:27Z",
         completed_at: "2026-07-22T06:16:47Z",
@@ -81,7 +81,7 @@ test("normalizes Agent Core tool events into visible runtime tool lifecycles", (
   const lifecycle = buildToolCallLifecycles(events).get("call-core-1");
 
   assert.deepEqual(call.payload.data.arguments, { query: "农业新闻", limit: 10 });
-  assert.equal(call.payload.data.identifier, "web.search");
+  assert.equal(call.payload.data.identifier, "web_search");
   assert.equal(result.payload.data.success, true);
   assert.equal(result.payload.data.content, "10 results");
   assert.equal(result.payload.data.duration_ms, 20000);
@@ -94,9 +94,9 @@ test("does not duplicate native runtime tool events", () => {
   const nativeResult = event(3, "runtime.tool_result", "call-native", { success: true });
   const events = normalizeToolTimelineEvents([
     nativeCall,
-    { seq: 2, type: "tool.batch_planned", payload: { data: { calls: [{ call: { id: "call-native", name: "web.search", arguments: {} } }] } } },
+    { seq: 2, type: "tool.batch_planned", payload: { data: { calls: [{ call: { id: "call-native", name: "web_search", arguments: {} } }] } } },
     nativeResult,
-    { seq: 4, type: "tool.call_result", payload: { data: { call_id: "call-native", name: "web.search", status: "succeeded", result: {} } } }
+    { seq: 4, type: "tool.call_result", payload: { data: { call_id: "call-native", name: "web_search", status: "succeeded", result: {} } } }
   ]);
 
   assert.equal(events.filter((item) => item.type === "runtime.tool_call").length, 1);
@@ -105,7 +105,7 @@ test("does not duplicate native runtime tool events", () => {
 
 test("keeps approval state visible after an approved tool finishes", () => {
   const call = event(1, "runtime.tool_call", "call-approved", {
-    identifier: "web.search",
+    identifier: "web_search",
     approval_state: "pending",
     approval_source: "human",
     permission: { required: true, mode: "request_approval", risk: "read", reason: "network_access" }
@@ -126,7 +126,7 @@ test("keeps approval state visible after an approved tool finishes", () => {
 
 test("distinguishes tools that do not require approval", () => {
   const call = event(1, "runtime.tool_call", "call-free", {
-    identifier: "web.search",
+    identifier: "web_search",
     approval_state: "not_required",
     permission: { required: false }
   });

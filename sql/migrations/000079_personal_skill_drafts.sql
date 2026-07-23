@@ -67,6 +67,7 @@ CREATE POLICY skills_workspace_isolation
 
 ALTER TABLE skill_drafts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE skill_drafts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS skill_drafts_skill_isolation ON skill_drafts;
 CREATE POLICY skill_drafts_skill_isolation
   ON skill_drafts
   FOR ALL

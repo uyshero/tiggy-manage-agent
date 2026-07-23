@@ -275,7 +275,7 @@ make verify-worker-backed-local-system
 
 ## Web 搜索与抓取
 
-TMA 将 `web.search` 和 `web.crawl` 作为 Server 内置工具提供，不依赖 `cloud_sandbox` 或 `local_system` Provider。
+TMA 将 `web_search` 和 `web_crawl` 作为 Server 内置工具提供，不依赖 `cloud_sandbox` 或 `local_system` Provider。
 
 本地搜索默认使用 `8180` 端口的 SearXNG：
 

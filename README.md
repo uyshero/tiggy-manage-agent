@@ -303,7 +303,7 @@ make verify-worker-backed-local-system
 
 ## Web Search And Crawl
 
-TMA exposes `web.search` and `web.crawl` as server builtin tools. They do not require the `cloud_sandbox` or `local_system` provider to be available.
+TMA exposes `web_search` and `web_crawl` as server builtin tools. They do not require the `cloud_sandbox` or `local_system` provider to be available.
 
 Local search defaults to SearXNG on port `8180`:
 
@@ -319,7 +319,7 @@ Run the full web tool verification:
 make verify-web-search-crawl
 ```
 
-That target checks the local SearXNG JSON API, then runs AgentRuntime tool-call loops for both `web.crawl` and `web.search`.
+That target checks the local SearXNG JSON API, then runs AgentRuntime tool-call loops for both `web_crawl` and `web_search`.
 
 Verify cloud sandbox outbound network approval behavior with:
 

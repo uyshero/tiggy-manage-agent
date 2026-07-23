@@ -22,7 +22,7 @@ func TestLocalSystemCapabilitiesComeFromToolManifest(t *testing.T) {
 	if !contains(capabilities.Namespaces, tools.NamespaceDefault) {
 		t.Fatalf("expected default namespace, got %#v", capabilities.Namespaces)
 	}
-	if !contains(capabilities.APIs, "default.run_command") || !contains(capabilities.APIs, "default.execute_code") || !contains(capabilities.APIs, "default.read_file") || !contains(capabilities.APIs, "default.find_files") || !contains(capabilities.APIs, "default.search_files") || !contains(capabilities.APIs, "default.search_file") {
+	if !contains(capabilities.APIs, "default_run_command") || !contains(capabilities.APIs, "default_execute_code") || !contains(capabilities.APIs, "default_read_file") || !contains(capabilities.APIs, "default_find_files") || !contains(capabilities.APIs, "default_search_files") || !contains(capabilities.APIs, "default_search_file") {
 		t.Fatalf("expected default APIs, got %#v", capabilities.APIs)
 	}
 	if !contains(capabilities.Capabilities, tools.CapabilityExec) || !contains(capabilities.Capabilities, tools.CapabilityFilesystemRead) {
@@ -213,7 +213,7 @@ func executeFilesystemWorkerTool(t *testing.T, api string, input any) json.RawMe
 func TestExecutorCanDeclareWorkerCapabilities(t *testing.T) {
 	declared := tools.WorkerCapabilities{
 		Namespaces:   []string{tools.NamespaceArtifact},
-		APIs:         []string{"artifact.write"},
+		APIs:         []string{"artifact_write"},
 		Runtimes:     []string{tools.ToolRuntimeLocalSystem},
 		Capabilities: []string{"artifact.write"},
 		Constraints:  map[string]any{"network": "disabled"},
@@ -222,7 +222,7 @@ func TestExecutorCanDeclareWorkerCapabilities(t *testing.T) {
 
 	capabilities := executor.WorkerCapabilities()
 	if !contains(capabilities.Namespaces, tools.NamespaceArtifact) ||
-		!contains(capabilities.APIs, "artifact.write") ||
+		!contains(capabilities.APIs, "artifact_write") ||
 		!contains(capabilities.Capabilities, "artifact.write") ||
 		capabilities.Constraints["network"] != "disabled" {
 		t.Fatalf("unexpected declared capabilities: %#v", capabilities)
@@ -301,7 +301,7 @@ func TestExecutorRunsProcessPluginToolExecution(t *testing.T) {
 	plugin := writeExecutable(t, `#!/bin/sh
 case "$1" in
   manifest)
-    printf '%s' '{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot control plugin."},"system_role":"Use robot.* tools only for robot control tasks.","api":[{"name":"get_state","description":"Read robot state.","parameters":{"type":"object","properties":{}},"capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}'
+    printf '%s' '{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot control plugin."},"system_role":"Use robot_* tools only for robot control tasks.","api":[{"name":"get_state","description":"Read robot state.","parameters":{"type":"object","properties":{}},"capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}'
     ;;
   execute)
     cat >/dev/null
@@ -323,7 +323,7 @@ esac
 
 	capabilities := executor.WorkerCapabilities()
 	if !contains(capabilities.Namespaces, "robot") ||
-		!contains(capabilities.APIs, "robot.get_state") ||
+		!contains(capabilities.APIs, "robot_get_state") ||
 		!contains(capabilities.Capabilities, "robot.state") {
 		t.Fatalf("expected plugin capabilities to be advertised, got %#v", capabilities)
 	}

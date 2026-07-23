@@ -14,9 +14,9 @@
       "flow": "filesystem_tools",
       "max_retries": 1,
       "filesystem": {"prompt": "Find all Go source files without reading their contents.", "files": {"src/main.go": "package main\n", "README.md": "docs\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default.find_files"]},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default_find_files"]},
       "candidates": [
-        {"tool_call": {"id": "call_find", "name": "default.find_files", "arguments": {"pattern": "**/*.go"}}},
+        {"tool_call": {"id": "call_find", "name": "default_find_files", "arguments": {"pattern": "**/*.go"}}},
         {"text": "Found the Go source paths."}
       ]
     },
@@ -26,9 +26,9 @@
       "flow": "filesystem_tools",
       "max_retries": 1,
       "filesystem": {"prompt": "Search Go files for DefaultRegistry and return matching locations.", "files": {"internal/a.go": "func DefaultRegistry() {}\n", "internal/b.go": "package b\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default.search_files"]},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "tool_sequence": ["default_search_files"]},
       "candidates": [
-        {"tool_call": {"id": "call_search", "name": "default.search_files", "arguments": {"query": "DefaultRegistry", "paths": ["internal/**/*.go"]}}},
+        {"tool_call": {"id": "call_search", "name": "default_search_files", "arguments": {"query": "DefaultRegistry", "paths": ["internal/**/*.go"]}}},
         {"text": "Found the matching source location."}
       ]
     },
@@ -38,10 +38,10 @@
       "flow": "filesystem_tools",
       "max_retries": 1,
       "filesystem": {"prompt": "Change old-value to new-value in notes.txt after inspecting the file.", "files": {"notes.txt": "key=old-value\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 2, "tool_sequence": ["default.read_file", "default.edit_file"]},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 2, "tool_sequence": ["default_read_file", "default_edit_file"]},
       "candidates": [
-        {"tool_call": {"id": "call_read", "name": "default.read_file", "arguments": {"path": "notes.txt"}}},
-        {"tool_call": {"id": "call_edit", "name": "default.edit_file", "arguments": {"path": "notes.txt", "old_string": "old-value", "new_string": "new-value"}}},
+        {"tool_call": {"id": "call_read", "name": "default_read_file", "arguments": {"path": "notes.txt"}}},
+        {"tool_call": {"id": "call_edit", "name": "default_edit_file", "arguments": {"path": "notes.txt", "old_string": "old-value", "new_string": "new-value"}}},
         {"text": "Updated the inspected text file."}
       ]
     },
@@ -51,9 +51,9 @@
       "flow": "filesystem_tools",
       "max_retries": 1,
       "filesystem": {"prompt": "Inspect manual.pdf and choose the appropriate next capability.", "files": {"manual.pdf": "%PDF-1.7\nfixture body that must not enter model context\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "binary_routes": 1, "tool_sequence": ["default.read_file"]},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 1, "binary_routes": 1, "tool_sequence": ["default_read_file"]},
       "candidates": [
-        {"tool_call": {"id": "call_pdf", "name": "default.read_file", "arguments": {"path": "manual.pdf"}}},
+        {"tool_call": {"id": "call_pdf", "name": "default_read_file", "arguments": {"path": "manual.pdf"}}},
         {"text": "The PDF should be routed to the document skill."}
       ]
     },
@@ -63,11 +63,11 @@
       "flow": "filesystem_tools",
       "max_retries": 1,
       "filesystem": {"prompt": "Update config.txt safely, reading it before applying the edit.", "files": {"config.txt": "mode=old\n"}},
-      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 3, "tool_errors": ["file_read_required"], "tool_sequence": ["default.edit_file", "default.read_file", "default.edit_file"]},
+      "expected": {"outcome": "pass", "blocked_retries": 0, "tool_executions": 3, "tool_errors": ["file_read_required"], "tool_sequence": ["default_edit_file", "default_read_file", "default_edit_file"]},
       "candidates": [
-        {"tool_call": {"id": "call_blind_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
-        {"tool_call": {"id": "call_restart_read", "name": "default.read_file", "arguments": {"path": "config.txt"}}},
-        {"tool_call": {"id": "call_receipt_edit", "name": "default.edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
+        {"tool_call": {"id": "call_blind_edit", "name": "default_edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
+        {"tool_call": {"id": "call_restart_read", "name": "default_read_file", "arguments": {"path": "config.txt"}}},
+        {"tool_call": {"id": "call_receipt_edit", "name": "default_edit_file", "arguments": {"path": "config.txt", "old_string": "mode=old", "new_string": "mode=new", "replace_all": false}}},
         {"text": "The file was read before the edit was applied."}
       ]
     }

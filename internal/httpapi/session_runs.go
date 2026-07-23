@@ -10,6 +10,7 @@ import (
 
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -28,6 +29,7 @@ type rerunSessionResponse struct {
 
 type sessionComparisonSide struct {
 	Session     managedagents.Session           `json:"session"`
+	Run         *managedagents.SessionRun       `json:"run,omitempty"`
 	LLMProvider string                          `json:"llm_provider"`
 	LLMModel    string                          `json:"llm_model"`
 	Prompt      string                          `json:"prompt"`
@@ -35,6 +37,7 @@ type sessionComparisonSide struct {
 	DurationMS  int64                           `json:"duration_ms"`
 	Usage       managedagents.LLMUsageReport    `json:"usage"`
 	Artifacts   []managedagents.SessionArtifact `json:"artifacts"`
+	Trace       *observability.TurnTrace        `json:"trace,omitempty"`
 }
 
 type sessionComparisonResponse struct {
@@ -156,6 +159,37 @@ func (s *Server) compareSessions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessionComparisonResponse{Left: left, Right: right})
 }
 
+func (s *Server) compareRuns(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	leftSessionID := strings.TrimSpace(query.Get("left_session_id"))
+	leftTurnID := strings.TrimSpace(query.Get("left_turn_id"))
+	rightSessionID := strings.TrimSpace(query.Get("right_session_id"))
+	rightTurnID := strings.TrimSpace(query.Get("right_turn_id"))
+	if leftSessionID == "" || leftTurnID == "" || rightSessionID == "" || rightTurnID == "" {
+		writeError(w, fmt.Errorf("%w: left and right run identities are required", managedagents.ErrInvalid))
+		return
+	}
+	if leftSessionID == rightSessionID && leftTurnID == rightTurnID {
+		writeError(w, fmt.Errorf("%w: comparison runs must be different", managedagents.ErrInvalid))
+		return
+	}
+	left, err := s.runComparisonSnapshot(r, leftSessionID, leftTurnID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	right, err := s.runComparisonSnapshot(r, rightSessionID, rightTurnID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if left.Session.WorkspaceID != right.Session.WorkspaceID {
+		writeError(w, fmt.Errorf("%w: comparison runs must belong to the same workspace", managedagents.ErrInvalid))
+		return
+	}
+	writeJSON(w, http.StatusOK, sessionComparisonResponse{Left: left, Right: right})
+}
+
 func (s *Server) sessionComparisonSnapshot(r *http.Request, sessionID string) (sessionComparisonSide, error) {
 	session, err := s.getSessionForRequest(r, sessionID)
 	if err != nil {
@@ -216,6 +250,108 @@ func (s *Server) sessionComparisonSnapshot(r *http.Request, sessionID string) (s
 	}, nil
 }
 
+func (s *Server) runComparisonSnapshot(r *http.Request, sessionID string, turnID string) (sessionComparisonSide, error) {
+	session, err := s.getSessionForRequest(r, sessionID)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	runStore, ok := s.store.(managedagents.SessionRunStore)
+	if !ok {
+		return sessionComparisonSide{}, fmt.Errorf("%w: run store unavailable", managedagents.ErrInvalid)
+	}
+	run, err := runStore.GetSessionRunContext(r.Context(), sessionID, turnID)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	events, err := runStore.ListSessionRunEventsContext(r.Context(), sessionID, turnID, 0)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	config, err := managedagents.ResolveAgentRuntimeConfigWithContext(r.Context(), s.store, sessionID)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	usage, err := managedagents.GetSessionLLMUsageWithContext(r.Context(), s.store, sessionID)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	usage = usageForTurn(usage, turnID)
+	artifacts, err := managedagents.ListSessionArtifactsWithContext(r.Context(), s.store, sessionID)
+	if err != nil {
+		return sessionComparisonSide{}, err
+	}
+	filteredArtifacts := make([]managedagents.SessionArtifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.TurnID == turnID {
+			filteredArtifacts = append(filteredArtifacts, artifact)
+		}
+	}
+	prompt, result, durationMS := comparisonMessages(events)
+	if run.EndedAt != nil && !run.EndedAt.Before(run.StartedAt) {
+		durationMS = run.EndedAt.Sub(run.StartedAt).Milliseconds()
+	}
+	provider := config.LLMProvider
+	model := config.LLMModel
+	if len(usage.Records) > 0 {
+		provider = usage.Records[0].ProviderID
+		model = usage.Records[0].Model
+	}
+	trace := observability.ProjectTurnTrace(sessionID, turnID, events)
+	return sessionComparisonSide{
+		Session: session, Run: &run, LLMProvider: provider, LLMModel: model,
+		Prompt: prompt, Result: result, DurationMS: durationMS, Usage: usage,
+		Artifacts: filteredArtifacts, Trace: &trace,
+	}, nil
+}
+
+func comparisonMessages(events []managedagents.Event) (string, string, int64) {
+	var prompt string
+	var result string
+	var failure string
+	var startedAt time.Time
+	var endedAt time.Time
+	for _, event := range events {
+		if event.Type == managedagents.EventUserMessage && prompt == "" {
+			prompt = messagePayloadText(event.Payload)
+			startedAt = event.CreatedAt
+		}
+		if event.Type == managedagents.EventAgentMessage {
+			result = messagePayloadText(event.Payload)
+			endedAt = event.CreatedAt
+		}
+		if event.Type == managedagents.EventRuntimeFailed {
+			failure = messagePayloadText(event.Payload)
+			endedAt = event.CreatedAt
+		}
+	}
+	if result == "" && failure != "" {
+		result = "运行失败：" + failure
+	}
+	durationMS := int64(0)
+	if !startedAt.IsZero() && !endedAt.IsZero() && !endedAt.Before(startedAt) {
+		durationMS = endedAt.Sub(startedAt).Milliseconds()
+	}
+	return prompt, result, durationMS
+}
+
+func usageForTurn(report managedagents.LLMUsageReport, turnID string) managedagents.LLMUsageReport {
+	filtered := managedagents.LLMUsageReport{SessionID: report.SessionID, Records: []managedagents.LLMUsageRecord{}}
+	for _, record := range report.Records {
+		if record.TurnID != turnID {
+			continue
+		}
+		filtered.Records = append(filtered.Records, record)
+		filtered.Summary.RecordCount++
+		filtered.Summary.InputTokens += record.InputTokens
+		filtered.Summary.OutputTokens += record.OutputTokens
+		filtered.Summary.TotalTokens += record.TotalTokens
+		filtered.Summary.CachedInputTokens += record.CachedInputTokens
+		filtered.Summary.ReasoningTokens += record.ReasoningTokens
+		filtered.Summary.LatencyMillis += record.LatencyMillis
+	}
+	return filtered
+}
+
 func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session managedagents.Session, request sessionRuntimeSettingsRequest) (managedagents.Session, error) {
 	settings := map[string]any{}
 	if len(session.RuntimeSettings) > 0 && string(session.RuntimeSettings) != "null" {
@@ -223,6 +359,9 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 			return managedagents.Session{}, fmt.Errorf("%w: existing runtime_settings must be valid JSON", managedagents.ErrInvalid)
 		}
 	}
+	// tool_runtime belongs to the Agent's versioned tools policy. Drop legacy
+	// Session overrides whenever runtime settings are rewritten.
+	delete(settings, "tool_runtime")
 	if request.LLMProvider != nil || request.LLMModel != nil || request.Model != nil {
 		currentConfig, err := managedagents.ResolveAgentRuntimeConfigWithContext(ctx, s.store, session.ID)
 		if err != nil {
@@ -278,13 +417,6 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 			return managedagents.Session{}, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
 		}
 		settings["permission_rules"] = *request.PermissionRules
-	}
-	if request.ToolRuntime != nil {
-		runtime, ok := tools.NormalizeToolRuntime(*request.ToolRuntime)
-		if !ok {
-			return managedagents.Session{}, fmt.Errorf("%w: unsupported tool_runtime %q", managedagents.ErrInvalid, *request.ToolRuntime)
-		}
-		settings["tool_runtime"] = runtime
 	}
 	if request.CloudSandboxRoot != nil {
 		settings["cloud_sandbox_root"] = strings.TrimSpace(*request.CloudSandboxRoot)

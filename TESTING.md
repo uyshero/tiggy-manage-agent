@@ -451,7 +451,7 @@ TMA_APPROVAL_TEST_DECISION=manual|approve|reject
 
 ### Web Search / Crawl 验收
 
-验证 `web.search` / `web.crawl` 工具注入、执行、结果回传：
+验证 `web_search` / `web_crawl` 工具注入、执行、结果回传：
 
 ```bash
 make verify-web-search-crawl
@@ -462,8 +462,8 @@ make verify-web-search-crawl
 - 构建 `bin/tma-server` 和 `bin/tma`
 - 启动 Postgres 并执行迁移
 - 启动 Docker Compose 中的 SearXNG，并探测 `/healthz` 和 `format=json`
-- 启动本地 HTML fixture，验证 Agent 调用 `web.crawl`
-- 启动本地 SearXNG-compatible mock，验证 Agent 调用 `web.search`
+- 启动本地 HTML fixture，验证 Agent 调用 `web_crawl`
+- 启动本地 SearXNG-compatible mock，验证 Agent 调用 `web_search`
 - 检查事件中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message` 和 `session.status_idle`
 
 通过时会输出类似：
@@ -766,7 +766,7 @@ approval required
   seq: 12
   turn: turn_000003
   call: call_edit
-  tool: default.edit_file
+  tool: default_edit_file
   mode: request_approval
   message: Tool call requires approval before execution.
   policy: optional
@@ -802,7 +802,7 @@ approval: a=approve, r REASON=reject, s=skip
 启动时会先查询当前 `status=pending` 的审批记录；即使使用了较新的 `--after` 跳过历史 `runtime.tool_intervention_required` 事件，只要 Store 里仍有 pending approval，也会恢复成本地 prompt：
 
 ```text
-pending approval recovered: default.edit_file call=call_edit
+pending approval recovered: default_edit_file call=call_edit
 approval action: a=approve, r [reason]=reject, s=skip
 ```
 
@@ -1287,7 +1287,7 @@ TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes
 
 ```text
 TMA server
-  -> fake LLM 触发 default.run_command
+  -> fake LLM 触发 default_run_command
   -> AgentRuntime tool loop
   -> SessionProviderResolver 默认选择 cloud_sandbox
   -> OnlyboxesProvider
@@ -1331,7 +1331,7 @@ make verify-network-approval
 - build `bin/tma-server` 和 `bin/tma`。
 - 启动 Postgres 并执行迁移。
 - 用 `TMA_TOOL_RUNTIME=cloud_sandbox` 启动临时 TMA server。
-- 让 fake LLM 通过 `tma.verify_network_download` 触发 `default.execute_code`，执行 Python `urllib.request.urlopen(...)` 下载。
+- 让 fake LLM 通过 `tma.verify_network_download` 触发 `default_execute_code`，执行 Python `urllib.request.urlopen(...)` 下载。
 - 验证 `request_approval + cloud_sandbox_allow_network=true` 会产生 pending intervention，reason 为 `network_access`，批准后继续执行。
 - 验证 `approve_for_me + cloud_sandbox_allow_network=true` 会写出 auto approval 事件并执行成功。
 - 验证 `full_access + cloud_sandbox_allow_network=true` 不写审批事件并直接执行成功。
@@ -1367,7 +1367,7 @@ TMA_ONLYBOXES_TEST_IMAGE=busybox:latest make verify-onlyboxes-upload-data
 
 ### 17.6 cloud_sandbox 输出回收验证
 
-这一节验证 `default.run_command` / `default.execute_code` 的 `output_paths` 能把 `/mnt/data` 里生成的文件回收到 session artifact：
+这一节验证 `default_run_command` / `default_execute_code` 的 `output_paths` 能把 `/mnt/data` 里生成的文件回收到 session artifact：
 
 ```bash
 make verify-onlyboxes-export-artifact
@@ -1461,7 +1461,7 @@ make verify-objectstore-s3
 
 ```text
 TMA server
-  -> fake LLM 触发 default.run_command
+  -> fake LLM 触发 default_run_command
   -> AgentRuntime tool loop
   -> local_system worker capability match
   -> WorkerBackedProvider 入队 tma.work.v1 tool_execution
@@ -1484,7 +1484,7 @@ make verify-worker-backed-local-system
 - 创建 agent / environment / session。
 - 将 agent tools 配置为 `{"tools":["default"],"runtime":"local_system"}`。
 - 将 session `intervention_mode` 设置为 `approve_for_me`。
-- 发送 `tma.verify_tool_call`，让 fake LLM 发起 `default.run_command`。
+- 发送 `tma.verify_tool_call`，让 fake LLM 发起 `default_run_command`。
 - 校验事件历史中出现 `runtime.tool_call`、`runtime.tool_result`、`agent.message`。
 - 从 worker 日志中取出 completed `work_id`，再用 `bin/tma work get --work ...` 校验 work 状态和 tool result。
 
@@ -1850,7 +1850,7 @@ make verify-worker-backed-local-export
 - 用 fake LLM 启动临时 TMA server，并配置 `TMA_WORKER_AUTH_TOKEN`。
 - 启动一个本地 `tma-worker`。
 - 创建 agent / environment / session，并将 agent tools 配置为 `{"tools":["default"],"runtime":"local_system"}`。
-- 发送 `tma.verify_worker_export`，让 fake LLM 触发 `default.run_command` 在 worker workspace 里写 `worker-export.txt`，并通过 `output_paths` 请求保存。
+- 发送 `tma.verify_worker_export`，让 fake LLM 触发 `default_run_command` 在 worker workspace 里写 `worker-export.txt`，并通过 `output_paths` 请求保存。
 - 从 `runtime.tool_result.artifacts` 中取出生成的 `file` artifact。
 - 通过 `bin/tma session artifact download` 下载该 artifact，校验内容包含 `tma-worker-export-ok`。
 

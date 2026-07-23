@@ -19,7 +19,7 @@ func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
 	server := &Server{store: store}
 
 	rules := []tools.PermissionRule{{
-		ID: "source-edit", Tool: "default.edit_file", Argument: "path",
+		ID: "source-edit", Tool: "default_edit_file", Argument: "path",
 		Pattern: "/workspace/src/**", Behavior: tools.PermissionRuleAllow,
 	}}
 	updated, err := server.applySessionRuntimeSettingsPatch(t.Context(), session, sessionRuntimeSettingsRequest{PermissionRules: &rules})
@@ -32,7 +32,7 @@ func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
 	}
 
 	invalid := []tools.PermissionRule{{
-		ID: "bash", Tool: "default.run_command", Argument: "command",
+		ID: "bash", Tool: "default_run_command", Argument: "command",
 		Pattern: "rm *", Behavior: tools.PermissionRuleDeny,
 	}}
 	if _, err := server.applySessionRuntimeSettingsPatch(t.Context(), updated, sessionRuntimeSettingsRequest{PermissionRules: &invalid}); err == nil {
@@ -53,7 +53,7 @@ func TestRerunSessionPreservesConfigSnapshotAndAllowsModelOverride(t *testing.T)
 	environment := mustCreateEnvironmentForSubagentTest(t, store)
 	source := mustCreateSessionForSubagentTest(t, store, agent.ID, environment.ID, "Review this change")
 	if _, err := store.UpdateSessionRuntimeSettings(source.ID, managedagents.UpdateSessionRuntimeSettingsInput{
-		RuntimeSettings:  json.RawMessage(`{"intervention_mode":"auto_approve","llm_provider":"fake","llm_model":"fake-v1","tool_runtime":"cloud_sandbox"}`),
+		RuntimeSettings:  json.RawMessage(`{"intervention_mode":"auto_approve","llm_provider":"fake","llm_model":"fake-v1","tool_runtime":"local_system"}`),
 		ExpectedRevision: source.RuntimeSettingsRevision,
 	}); err != nil {
 		t.Fatalf("set source runtime settings: %v", err)
@@ -94,7 +94,6 @@ func TestRerunSessionPreservesConfigSnapshotAndAllowsModelOverride(t *testing.T)
 		"intervention_mode": "auto_approve",
 		"llm_provider":      "fake",
 		"llm_model":         "fake-v2",
-		"tool_runtime":      "cloud_sandbox",
 	})
 
 	deadline := time.Now().Add(time.Second)

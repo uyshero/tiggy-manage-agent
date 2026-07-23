@@ -891,7 +891,7 @@ func TestWorkerRegistryLifecycle(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.read_file"],
+			"apis": ["default_read_file"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -968,7 +968,7 @@ func TestWorkerDiagnoseAPI(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -979,7 +979,7 @@ func TestWorkerDiagnoseAPI(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1189,7 +1189,7 @@ func TestControlAuthProtectsWorkerWorkControlPlaneEndpoints(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1372,7 +1372,7 @@ func TestWorkerWorkLifecycle(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.run_command"],
+			"apis": ["default_run_command"],
 			"runtimes": ["local_system"],
 			"capabilities": ["exec"]
 		},
@@ -1679,7 +1679,7 @@ func TestWorkerWorkRejectsToolExecutionWithoutMatchingWorker(t *testing.T) {
 		"worker_type": "local",
 		"capabilities": {
 			"namespaces": ["default"],
-			"apis": ["default.read_file"],
+			"apis": ["default_read_file"],
 			"runtimes": ["local_system"],
 			"capabilities": ["filesystem.read"]
 		},
@@ -1705,7 +1705,7 @@ func TestWorkerWorkRejectsToolExecutionWithoutMatchingWorker(t *testing.T) {
 		t.Fatalf("unexpected diagnostics summary: %+v", response)
 	}
 	diagnosis := response.Diagnostics[0]
-	if diagnosis.Name != "reader-only" || diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing api default.run_command") || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
+	if diagnosis.Name != "reader-only" || diagnosis.Match || !slices.Contains(diagnosis.Reasons, "missing api default_run_command") || !slices.Contains(diagnosis.Reasons, "missing capability exec") {
 		t.Fatalf("unexpected worker diagnosis: %+v", diagnosis)
 	}
 }
@@ -2418,7 +2418,6 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 
 	updated := patchSessionRuntimeSettings(t, server, session.ID, session.RuntimeSettingsRevision, `{
 		"intervention_mode": "approve_for_me",
-		"tool_runtime": "cloud_sandbox",
 		"cloud_sandbox_root": ".",
 		"cloud_sandbox_allow_network": true,
 		"human_interaction": {"enabled": false, "modes": ["form", "select"], "fallback": "fail"},
@@ -2426,7 +2425,6 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 	}`, http.StatusOK)
 	assertRuntimeSettings(t, updated.RuntimeSettings, map[string]any{
 		"intervention_mode":           "approve_for_me",
-		"tool_runtime":                "cloud_sandbox",
 		"cloud_sandbox_root":          ".",
 		"cloud_sandbox_allow_network": true,
 		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
@@ -2434,12 +2432,11 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 	})
 
 	merged := patchSessionRuntimeSettings(t, server, session.ID, updated.RuntimeSettingsRevision, `{
-		"tool_runtime": "local_system"
+		"cloud_sandbox_root": "/workspace"
 	}`, http.StatusOK)
 	assertRuntimeSettings(t, merged.RuntimeSettings, map[string]any{
 		"intervention_mode":           "approve_for_me",
-		"tool_runtime":                "local_system",
-		"cloud_sandbox_root":          ".",
+		"cloud_sandbox_root":          "/workspace",
 		"cloud_sandbox_allow_network": true,
 		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
 		"completion_gate":             map[string]any{"max_retries": float64(10)},
@@ -2448,13 +2445,15 @@ func TestSessionRuntimeSettingsHotUpdate(t *testing.T) {
 	fetched := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
 	assertRuntimeSettings(t, fetched.RuntimeSettings, map[string]any{
 		"intervention_mode":           "approve_for_me",
-		"tool_runtime":                "local_system",
-		"cloud_sandbox_root":          ".",
+		"cloud_sandbox_root":          "/workspace",
 		"cloud_sandbox_allow_network": true,
 		"human_interaction":           map[string]any{"enabled": false, "modes": []any{"form", "select"}, "fallback": "fail"},
 		"completion_gate":             map[string]any{"max_retries": float64(10)},
 	})
 	capabilities := getJSON[sessionRuntimeCapabilitiesResponse](t, server, "/v1/sessions/"+session.ID+"/runtime-capabilities")
+	if capabilities.DefaultRuntime != tools.ToolRuntimeCloudSandbox {
+		t.Fatalf("unexpected Agent runtime: %q", capabilities.DefaultRuntime)
+	}
 	if capabilities.HumanInteraction.Enabled || capabilities.HumanInteraction.Fallback != "fail" || !containsString(capabilities.HumanInteraction.Modes, "form") {
 		t.Fatalf("unexpected human interaction capabilities: %#v", capabilities.HumanInteraction)
 	}
@@ -2486,7 +2485,7 @@ func TestSessionInterventionApproveRejectAPI(t *testing.T) {
 		t.Fatalf("start turn: %v", err)
 	}
 	turnID := payloadString(startEvents[1].Payload, "turn_id")
-	continuation := json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default.read_file","arguments":{"path":"README.md"}}}]}]`)
+	continuation := json.RawMessage(`[{"role":"user","content":[{"type":"text","text":"please read"}]},{"role":"assistant","content":[{"type":"text","text":""}],"tool_calls":[{"id":"call_read","type":"function","function":{"name":"default_read_file","arguments":{"path":"README.md"}}}]}]`)
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID:            turnID,
 		CallID:            "call_read",
@@ -2713,7 +2712,7 @@ func TestSessionClarificationResponseResumesTurn(t *testing.T) {
 	}
 	turnID := payloadString(events[1].Payload, "turn_id")
 	request := json.RawMessage(`{"question":"Deployment?","mode":"select","choices":[{"id":"private","label":"Private"},{"id":"saas","label":"SaaS"}]}`)
-	continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_ask","type":"function","function":{"name":"interaction.ask_user","arguments":{"question":"Deployment?","mode":"select"}}}]}]`)
+	continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_ask","type":"function","function":{"name":"interaction_ask_user","arguments":{"question":"Deployment?","mode":"select"}}}]}]`)
 	if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 		TurnID: turnID, CallID: "call_ask", ToolIdentifier: "interaction", APIName: "ask_user",
 		Kind: managedagents.InterventionKindClarification, Request: request, Arguments: request,
@@ -2770,7 +2769,7 @@ func TestSessionPlanApprovalDecisionResumesTurn(t *testing.T) {
 			}
 			turnID := payloadString(events[1].Payload, "turn_id")
 			request := json.RawMessage(`{"plan":{"id":"plan_000001","goal":"Ship safely","handling_mode":"planned","status":"active","items":[{"id":"item_1","index":0,"description":"Prepare","status":"pending"}]}}`)
-			continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_plan","type":"function","function":{"name":"interaction.request_plan_approval","arguments":{"plan_id":"plan_000001"}}}]}]`)
+			continuation := json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_plan","type":"function","function":{"name":"interaction_request_plan_approval","arguments":{"plan_id":"plan_000001"}}}]}]`)
 			if _, err := store.SaveSessionIntervention(session.ID, managedagents.SaveSessionInterventionInput{
 				TurnID: turnID, CallID: "call_plan", ToolIdentifier: "interaction", APIName: "request_plan_approval",
 				Kind: managedagents.InterventionKindPlanApproval, Request: request, Arguments: json.RawMessage(`{"plan_id":"plan_000001"}`),
@@ -2831,7 +2830,7 @@ func TestSessionInterventionRejectContinuesTurnWithObservation(t *testing.T) {
 		Arguments:        json.RawMessage(`{"path":"README.md","old_string":"x","new_string":"y"}`),
 		InterventionMode: "request_approval",
 		Reason:           "optional",
-		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default_edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}
@@ -2964,7 +2963,7 @@ func TestGetSessionTraceProjectsTurnTimeline(t *testing.T) {
 	if len(trace.Turns) != 1 || trace.Turns[0].TurnID != turnID || trace.Turns[0].Status != managedagents.TurnStatusCompleted {
 		t.Fatalf("expected projected turn catalog, got %+v", trace.Turns)
 	}
-	if !strings.Contains(trace.Summary, "tool result: default.read_file success") {
+	if !strings.Contains(trace.Summary, "tool result: default_read_file success") {
 		t.Fatalf("expected projected summary to mention tool result, got %q", trace.Summary)
 	}
 	if len(trace.Steps) < 4 {
@@ -3370,6 +3369,8 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "Marketplace Policy") ||
 		!strings.Contains(appJS, "市场管理") ||
 		!strings.Contains(appJS, "提交审核") ||
+		!strings.Contains(appJS, "LLM Space") ||
+		!strings.Contains(appJS, "运行对比、数据集与批量评测") ||
 		!strings.Contains(appJS, "让 TMA 帮你构建、检查、修改或执行某项工作") ||
 		strings.Contains(appJS, "TMA Inspector") ||
 		strings.Contains(appJS, "Trace ID") {
@@ -3489,6 +3490,68 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(styles, ".preview-media") ||
 		!strings.Contains(styles, ".health-line") {
 		t.Fatalf("expected inspector styles, got %q", styles)
+	}
+
+	spaceRequest := httptest.NewRequest(http.MethodGet, "/space", nil)
+	spaceResponse := httptest.NewRecorder()
+	server.ServeHTTP(spaceResponse, spaceRequest)
+	if spaceResponse.Code != http.StatusOK {
+		t.Fatalf("space expected status 200, got %d: %s", spaceResponse.Code, spaceResponse.Body.String())
+	}
+	if contentType := spaceResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "text/html") {
+		t.Fatalf("expected space html content type, got %q", contentType)
+	}
+	if body := spaceResponse.Body.String(); !strings.Contains(body, "TMA Space") ||
+		!strings.Contains(body, `href="/space/assets/styles.css"`) ||
+		!strings.Contains(body, `type="module" crossorigin src="/space/assets/app.js"`) ||
+		!strings.Contains(body, `id="root"`) {
+		t.Fatalf("expected React space shell, got %q", body)
+	}
+
+	spaceJSRequest := httptest.NewRequest(http.MethodGet, "/space/assets/app.js", nil)
+	spaceJSResponse := httptest.NewRecorder()
+	server.ServeHTTP(spaceJSResponse, spaceJSRequest)
+	if spaceJSResponse.Code != http.StatusOK {
+		t.Fatalf("space app.js expected status 200, got %d: %s", spaceJSResponse.Code, spaceJSResponse.Body.String())
+	}
+	if contentType := spaceJSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "javascript") {
+		t.Fatalf("expected space javascript content type, got %q", contentType)
+	}
+	if appJS := spaceJSResponse.Body.String(); !strings.Contains(appJS, "TMASpaceAPI") ||
+		!strings.Contains(appJS, "运行分析") ||
+		!strings.Contains(appJS, "执行证据") ||
+		!strings.Contains(appJS, "评分评估") ||
+		!strings.Contains(appJS, "评估历史") ||
+		!strings.Contains(appJS, "自动评测") ||
+		!strings.Contains(appJS, "批量实验") ||
+		!strings.Contains(appJS, "创建数据集") ||
+		!strings.Contains(appJS, "导入文件") ||
+		!strings.Contains(appJS, "下载模板") ||
+		!strings.Contains(appJS, "导出实验结果") ||
+		!strings.Contains(appJS, "compareRuns") ||
+		!strings.Contains(appJS, "createRunEvaluation") ||
+		!strings.Contains(appJS, "autoEvaluate") ||
+		!strings.Contains(appJS, "createExperiment") {
+		t.Fatalf("expected space analysis behavior, got %q", appJS)
+	}
+
+	spaceCSSRequest := httptest.NewRequest(http.MethodGet, "/space/assets/styles.css", nil)
+	spaceCSSResponse := httptest.NewRecorder()
+	server.ServeHTTP(spaceCSSResponse, spaceCSSRequest)
+	if spaceCSSResponse.Code != http.StatusOK {
+		t.Fatalf("space styles.css expected status 200, got %d: %s", spaceCSSResponse.Code, spaceCSSResponse.Body.String())
+	}
+	if contentType := spaceCSSResponse.Header().Get("Content-Type"); !strings.Contains(contentType, "text/css") {
+		t.Fatalf("expected space css content type, got %q", contentType)
+	}
+	if styles := spaceCSSResponse.Body.String(); !strings.Contains(styles, ".comparison-toolbar") ||
+		!strings.Contains(styles, ".metric-strip") ||
+		!strings.Contains(styles, ".rubric-table") ||
+		!strings.Contains(styles, ".score-control") ||
+		!strings.Contains(styles, ".import-preview") ||
+		!strings.Contains(styles, ".dataset-file-toolbar") ||
+		!strings.Contains(styles, ".experiment-table") {
+		t.Fatalf("expected space styles, got %q", styles)
 	}
 }
 
@@ -3671,7 +3734,7 @@ func TestSessionInterventionDecisionUsesRunnerLifecycleContext(t *testing.T) {
 		APIName:          "edit_file",
 		Arguments:        json.RawMessage(`{"path":"README.md"}`),
 		InterventionMode: "request_approval",
-		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default.edit_file","arguments":{"path":"README.md"}}}]}]`),
+		Continuation:     json.RawMessage(`[{"role":"assistant","tool_calls":[{"id":"call_edit","type":"function","function":{"name":"default_edit_file","arguments":{"path":"README.md"}}}]}]`),
 	}); err != nil {
 		t.Fatalf("save intervention: %v", err)
 	}

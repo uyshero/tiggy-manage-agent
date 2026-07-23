@@ -124,7 +124,6 @@ type RerunSessionRequest struct {
 	LLMProvider              *string                        `json:"llm_provider,omitempty"`
 	LLMModel                 *string                        `json:"llm_model,omitempty"`
 	InterventionMode         *string                        `json:"intervention_mode,omitempty"`
-	ToolRuntime              *string                        `json:"tool_runtime,omitempty"`
 	CloudSandboxRoot         *string                        `json:"cloud_sandbox_root,omitempty"`
 	CloudSandboxImage        *string                        `json:"cloud_sandbox_image,omitempty"`
 	CloudSandboxAllowNetwork *bool                          `json:"cloud_sandbox_allow_network,omitempty"`
@@ -143,8 +142,11 @@ type SessionComparison struct {
 	Right SessionComparisonSide `json:"right"`
 }
 
+type RunComparison = SessionComparison
+
 type SessionComparisonSide struct {
 	Session     Session      `json:"session"`
+	Run         *Run         `json:"run,omitempty"`
 	Prompt      string       `json:"prompt"`
 	Result      string       `json:"result"`
 	LLMProvider string       `json:"llm_provider"`
@@ -152,6 +154,190 @@ type SessionComparisonSide struct {
 	DurationMS  int64        `json:"duration_ms"`
 	Usage       SessionUsage `json:"usage"`
 	Artifacts   []Artifact   `json:"artifacts"`
+	Trace       *TurnTrace   `json:"trace,omitempty"`
+}
+
+type EvaluationCriterion struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type EvaluationRubric struct {
+	ID          string                `json:"id"`
+	WorkspaceID string                `json:"workspace_id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Criteria    []EvaluationCriterion `json:"criteria"`
+	Revision    int64                 `json:"revision"`
+	CreatedBy   string                `json:"created_by,omitempty"`
+	UpdatedBy   string                `json:"updated_by,omitempty"`
+	CreatedAt   time.Time             `json:"created_at"`
+	UpdatedAt   time.Time             `json:"updated_at"`
+}
+
+type CreateEvaluationRubricRequest struct {
+	WorkspaceID string                `json:"workspace_id,omitempty"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Criteria    []EvaluationCriterion `json:"criteria"`
+}
+
+type EvaluationCriterionScore struct {
+	CriterionID string `json:"criterion_id"`
+	LeftScore   int32  `json:"left_score"`
+	RightScore  int32  `json:"right_score"`
+}
+
+type EvaluationRubricSnapshot struct {
+	RubricID    string                `json:"rubric_id"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Revision    int64                 `json:"revision"`
+	Criteria    []EvaluationCriterion `json:"criteria"`
+}
+
+type RunEvaluation struct {
+	ID             string                     `json:"id"`
+	WorkspaceID    string                     `json:"workspace_id"`
+	LeftSessionID  string                     `json:"left_session_id"`
+	LeftTurnID     string                     `json:"left_turn_id"`
+	RightSessionID string                     `json:"right_session_id"`
+	RightTurnID    string                     `json:"right_turn_id"`
+	RubricID       string                     `json:"rubric_id,omitempty"`
+	RubricSnapshot EvaluationRubricSnapshot   `json:"rubric_snapshot"`
+	Scores         []EvaluationCriterionScore `json:"scores"`
+	Conclusion     string                     `json:"conclusion"`
+	Notes          string                     `json:"notes,omitempty"`
+	EvaluationType string                     `json:"evaluation_type"`
+	JudgeProvider  string                     `json:"judge_provider,omitempty"`
+	JudgeModel     string                     `json:"judge_model,omitempty"`
+	JudgeReasoning string                     `json:"judge_reasoning,omitempty"`
+	CreatedBy      string                     `json:"created_by,omitempty"`
+	CreatedAt      time.Time                  `json:"created_at"`
+}
+
+type AutoRunEvaluationRequest struct {
+	LeftSessionID  string `json:"left_session_id"`
+	LeftTurnID     string `json:"left_turn_id"`
+	RightSessionID string `json:"right_session_id"`
+	RightTurnID    string `json:"right_turn_id"`
+	RubricID       string `json:"rubric_id"`
+}
+
+type EvaluationDatasetItem struct {
+	ID             string    `json:"id"`
+	DatasetID      string    `json:"dataset_id"`
+	ItemIndex      int32     `json:"item_index"`
+	Prompt         string    `json:"prompt"`
+	ExpectedOutput string    `json:"expected_output,omitempty"`
+	Tags           []string  `json:"tags"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type EvaluationDataset struct {
+	ID          string                  `json:"id"`
+	WorkspaceID string                  `json:"workspace_id"`
+	Name        string                  `json:"name"`
+	Description string                  `json:"description,omitempty"`
+	Items       []EvaluationDatasetItem `json:"items"`
+	CreatedBy   string                  `json:"created_by,omitempty"`
+	CreatedAt   time.Time               `json:"created_at"`
+	UpdatedAt   time.Time               `json:"updated_at"`
+}
+
+type CreateEvaluationDatasetItemRequest struct {
+	Prompt         string   `json:"prompt"`
+	ExpectedOutput string   `json:"expected_output,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+}
+
+type CreateEvaluationDatasetRequest struct {
+	WorkspaceID string                               `json:"workspace_id,omitempty"`
+	Name        string                               `json:"name"`
+	Description string                               `json:"description,omitempty"`
+	Items       []CreateEvaluationDatasetItemRequest `json:"items"`
+}
+
+type EvaluationExperimentItem struct {
+	ID             string    `json:"id"`
+	ExperimentID   string    `json:"experiment_id"`
+	DatasetItemID  string    `json:"dataset_item_id,omitempty"`
+	ItemIndex      int32     `json:"item_index"`
+	Prompt         string    `json:"prompt"`
+	ExpectedOutput string    `json:"expected_output,omitempty"`
+	Tags           []string  `json:"tags"`
+	LeftSessionID  string    `json:"left_session_id,omitempty"`
+	LeftTurnID     string    `json:"left_turn_id,omitempty"`
+	RightSessionID string    `json:"right_session_id,omitempty"`
+	RightTurnID    string    `json:"right_turn_id,omitempty"`
+	EvaluationID   string    `json:"evaluation_id,omitempty"`
+	Status         string    `json:"status"`
+	Conclusion     string    `json:"conclusion,omitempty"`
+	LeftAverage    float64   `json:"left_average"`
+	RightAverage   float64   `json:"right_average"`
+	ErrorMessage   string    `json:"error_message,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type EvaluationExperimentSummary struct {
+	Total        int32   `json:"total"`
+	Queued       int32   `json:"queued"`
+	Running      int32   `json:"running"`
+	Completed    int32   `json:"completed"`
+	Failed       int32   `json:"failed"`
+	LeftWins     int32   `json:"left_wins"`
+	RightWins    int32   `json:"right_wins"`
+	Ties         int32   `json:"ties"`
+	Inconclusive int32   `json:"inconclusive"`
+	LeftAverage  float64 `json:"left_average"`
+	RightAverage float64 `json:"right_average"`
+}
+
+type EvaluationExperiment struct {
+	ID                     string                      `json:"id"`
+	WorkspaceID            string                      `json:"workspace_id"`
+	Name                   string                      `json:"name"`
+	DatasetID              string                      `json:"dataset_id,omitempty"`
+	RubricID               string                      `json:"rubric_id,omitempty"`
+	LeftTemplateSessionID  string                      `json:"left_template_session_id,omitempty"`
+	RightTemplateSessionID string                      `json:"right_template_session_id,omitempty"`
+	Status                 string                      `json:"status"`
+	Summary                EvaluationExperimentSummary `json:"summary"`
+	Items                  []EvaluationExperimentItem  `json:"items"`
+	CreatedBy              string                      `json:"created_by,omitempty"`
+	CreatedAt              time.Time                   `json:"created_at"`
+	UpdatedAt              time.Time                   `json:"updated_at"`
+	CompletedAt            *time.Time                  `json:"completed_at,omitempty"`
+}
+
+type CreateEvaluationExperimentRequest struct {
+	WorkspaceID            string `json:"workspace_id,omitempty"`
+	Name                   string `json:"name"`
+	DatasetID              string `json:"dataset_id"`
+	RubricID               string `json:"rubric_id"`
+	LeftTemplateSessionID  string `json:"left_template_session_id"`
+	RightTemplateSessionID string `json:"right_template_session_id"`
+}
+
+type CreateRunEvaluationRequest struct {
+	LeftSessionID  string                     `json:"left_session_id"`
+	LeftTurnID     string                     `json:"left_turn_id"`
+	RightSessionID string                     `json:"right_session_id"`
+	RightTurnID    string                     `json:"right_turn_id"`
+	RubricID       string                     `json:"rubric_id"`
+	Scores         []EvaluationCriterionScore `json:"scores"`
+	Conclusion     string                     `json:"conclusion"`
+	Notes          string                     `json:"notes,omitempty"`
+}
+
+type RunEvaluationListQuery struct {
+	LeftSessionID  string
+	LeftTurnID     string
+	RightSessionID string
+	RightTurnID    string
+	Limit          int
 }
 
 type AgentRuntimeConfig struct {

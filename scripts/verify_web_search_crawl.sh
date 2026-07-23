@@ -170,7 +170,7 @@ cat >"$fixture_dir/index.html" <<'HTML'
   <body>
     <main>
       <h1>tma-web-crawl-ok</h1>
-      <p>This local page is intentionally long enough for the crawler success threshold. tma-web-crawl-ok confirms that web.crawl fetched and normalized readable content through the AgentRuntime tool loop.</p>
+      <p>This local page is intentionally long enough for the crawler success threshold. tma-web-crawl-ok confirms that web_crawl fetched and normalized readable content through the AgentRuntime tool loop.</p>
     </main>
   </body>
 </html>

@@ -1,4 +1,4 @@
-CREATE TABLE tool_permission_audit_records (
+CREATE TABLE IF NOT EXISTS tool_permission_audit_records (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   turn_id TEXT NOT NULL,
@@ -33,18 +33,19 @@ CREATE TABLE tool_permission_audit_records (
     CHECK (rule_source IN ('', 'workspace', 'agent', 'session'))
 );
 
-CREATE INDEX tool_permission_audit_session_order_idx
+CREATE INDEX IF NOT EXISTS tool_permission_audit_session_order_idx
   ON tool_permission_audit_records (session_id, created_at DESC, turn_id DESC, call_id DESC);
 
-CREATE INDEX tool_permission_audit_session_decision_order_idx
+CREATE INDEX IF NOT EXISTS tool_permission_audit_session_decision_order_idx
   ON tool_permission_audit_records (session_id, decision, created_at DESC, turn_id DESC, call_id DESC);
 
-CREATE INDEX tool_permission_audit_session_tool_order_idx
+CREATE INDEX IF NOT EXISTS tool_permission_audit_session_tool_order_idx
   ON tool_permission_audit_records (session_id, tool, created_at DESC, turn_id DESC, call_id DESC);
 
 ALTER TABLE tool_permission_audit_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tool_permission_audit_records FORCE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS tool_permission_audit_records_isolation ON tool_permission_audit_records;
 CREATE POLICY tool_permission_audit_records_isolation
   ON tool_permission_audit_records
   FOR ALL

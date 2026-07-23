@@ -245,7 +245,7 @@ func benchmarkAgentLoopToolCalls(runIndex, count int) []model.ToolCall {
 	calls := make([]model.ToolCall, count)
 	for index := range calls {
 		calls[index] = model.ToolCall{
-			ID: fmt.Sprintf("call_%d_%d", runIndex, index), Name: "benchmark.tool",
+			ID: fmt.Sprintf("call_%d_%d", runIndex, index), Name: "benchmark_tool",
 			Arguments: json.RawMessage(`{"value":"benchmark"}`),
 		}
 	}

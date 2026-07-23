@@ -1001,6 +1001,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 	liveEvents := runner.NewLiveEventBroker(256)
 	completionGate := agentruntime.CompletionGateChain{Gates: []agentruntime.CompletionGate{
 		agentruntime.TaskPlanCompletionGate{Reader: taskPlanReader},
+		agentruntime.ToolMarkupCompletionGate{},
 		agentruntime.ArtifactCompletionGate{Reader: store},
 	}}
 	turnExecutor := runner.AgentRuntimeTurnExecutor{

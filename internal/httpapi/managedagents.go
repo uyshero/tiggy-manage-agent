@@ -69,14 +69,15 @@ type agentConfigVersionRequest struct {
 }
 
 type agentUpdateRequest struct {
-	Name        *string          `json:"name"`
-	LLMProvider *string          `json:"llm_provider"`
-	LLMModel    *string          `json:"llm_model"`
-	Model       *string          `json:"model"`
-	System      *string          `json:"system"`
-	Tools       *json.RawMessage `json:"tools"`
-	MCP         *json.RawMessage `json:"mcp"`
-	Skills      *json.RawMessage `json:"skills"`
+	EnvironmentID *string          `json:"environment_id"`
+	Name          *string          `json:"name"`
+	LLMProvider   *string          `json:"llm_provider"`
+	LLMModel      *string          `json:"llm_model"`
+	Model         *string          `json:"model"`
+	System        *string          `json:"system"`
+	Tools         *json.RawMessage `json:"tools"`
+	MCP           *json.RawMessage `json:"mcp"`
+	Skills        *json.RawMessage `json:"skills"`
 }
 
 type agentConfigRollbackResponse struct {
@@ -112,7 +113,6 @@ type sessionRuntimeSettingsRequest struct {
 	Model                              *string                 `json:"model"`
 	InterventionMode                   *string                 `json:"intervention_mode"`
 	PermissionRules                    *[]tools.PermissionRule `json:"permission_rules"`
-	ToolRuntime                        *string                 `json:"tool_runtime"`
 	CloudSandboxRoot                   *string                 `json:"cloud_sandbox_root"`
 	CloudSandboxImage                  *string                 `json:"cloud_sandbox_image"`
 	AllowNetwork                       *bool                   `json:"cloud_sandbox_allow_network"`
@@ -538,26 +538,40 @@ func (s *Server) getSessionRuntimeConfig(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) getSessionRuntimeCapabilities(w http.ResponseWriter, r *http.Request) {
 	sessionID := strings.TrimSpace(r.PathValue("session_id"))
-	session, err := managedagents.GetSessionWithContext(r.Context(), s.store, sessionID)
+	config, err := managedagents.ResolveAgentRuntimeConfigWithContext(r.Context(), s.store, sessionID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	defaultRuntime := tools.ParseConfigPolicy(config.Tools).Runtime
+	if defaultRuntime == "" || defaultRuntime == tools.ToolRuntimeAuto {
+		if environment, environmentErr := managedagents.GetEnvironmentWithContext(r.Context(), s.store, config.EnvironmentID); environmentErr == nil {
+			defaultRuntime = execution.MergeEnvironmentRuntimeSettings(execution.RuntimeSettings{
+				Runtime: execution.ToolRuntimeCloudSandbox,
+			}, environment.Config).Runtime
+		}
+	}
+	if normalized, ok := tools.NormalizeToolRuntime(defaultRuntime); ok {
+		defaultRuntime = normalized
+	}
+	if defaultRuntime == "" || defaultRuntime == tools.ToolRuntimeAuto {
+		defaultRuntime = execution.ToolRuntimeCloudSandbox
+	}
 	available := []string{execution.ToolRuntimeCloudSandbox}
 	localProvider := s.executionProviderForRequest(execution.ProviderRequest{
-		WorkspaceID:   session.WorkspaceID,
-		OwnerID:       session.OwnerID,
+		WorkspaceID:   config.WorkspaceID,
+		OwnerID:       config.OwnerID,
 		SessionID:     sessionID,
-		EnvironmentID: session.EnvironmentID,
+		EnvironmentID: config.EnvironmentID,
 		ToolRuntime:   execution.ToolRuntimeLocalSystem,
 	})
 	if _, unavailable := localProvider.(capability.UnavailableProvider); !unavailable && localProvider != nil {
 		available = append(available, execution.ToolRuntimeLocalSystem)
 	}
 	writeJSON(w, http.StatusOK, sessionRuntimeCapabilitiesResponse{
-		DefaultRuntime:    execution.ToolRuntimeCloudSandbox,
+		DefaultRuntime:    defaultRuntime,
 		AvailableRuntimes: available,
-		HumanInteraction:  humanInteractionCapabilities(session.RuntimeSettings),
+		HumanInteraction:  humanInteractionCapabilities(config.RuntimeSettings),
 	})
 }
 
@@ -1499,6 +1513,20 @@ func (s *Server) getInspector(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) getSpace(w http.ResponseWriter, r *http.Request) {
+	content, err := inspectorAssets.ReadFile("space/index.html")
+	if err != nil {
+		s.logger.Error("space index read failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "space unavailable"})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(content); err != nil {
+		s.logger.Warn("space response write failed", "error", err)
+	}
+}
+
 func (s *Server) getUserApp(w http.ResponseWriter, r *http.Request) {
 	if s.webLogin != nil {
 		if _, err := s.authenticator.authenticate(r); err != nil {
@@ -2383,9 +2411,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := managedagents.UpdateAgentInput{
-		AgentID: r.PathValue("agent_id"),
-		Name:    current.Name,
-		System:  current.ConfigVersion.System,
+		AgentID:       r.PathValue("agent_id"),
+		EnvironmentID: request.EnvironmentID,
+		Name:          current.Name,
+		System:        current.ConfigVersion.System,
 	}
 	if request.Name != nil {
 		input.Name = strings.TrimSpace(*request.Name)
@@ -2682,6 +2711,24 @@ func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, environment)
+}
+
+func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request) {
+	environments, err := managedagents.ListEnvironmentsWithContext(r.Context(), s.store)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"environments": nonNilSlice(environments)})
+}
+
+func (s *Server) getEnvironment(w http.ResponseWriter, r *http.Request) {
+	environment, err := managedagents.GetEnvironmentWithContext(r.Context(), s.store, r.PathValue("environment_id"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, environment)
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -3437,7 +3484,7 @@ func approvalReminderPayload(pending []managedagents.SessionIntervention) json.R
 			}
 			lines = append(lines, fmt.Sprintf("- Question: %s (call=%s)", question, intervention.CallID))
 		} else {
-			lines = append(lines, fmt.Sprintf("- Approval: %s.%s call=%s", intervention.ToolIdentifier, intervention.APIName, intervention.CallID))
+			lines = append(lines, fmt.Sprintf("- Approval: %s call=%s", tools.ModelToolName(intervention.ToolIdentifier, intervention.APIName), intervention.CallID))
 		}
 	}
 	payload, err := json.Marshal(map[string]any{

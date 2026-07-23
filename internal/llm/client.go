@@ -470,6 +470,9 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 
 	text := "Agent runtime received your message."
 	if userText := lastUserText(request.Messages); userText != "" {
+		if strings.Contains(userText, "tma.evaluation_judge") {
+			return fakeEvaluationJudgeResponse(userText), nil
+		}
 		if strings.Contains(userText, "tma.verify_tool_call") {
 			return fakeToolCallResponse(), nil
 		}
@@ -530,6 +533,38 @@ func (FakeClient) Generate(ctx context.Context, request Request) (Response, erro
 			}},
 		},
 	}, nil
+}
+
+func fakeEvaluationJudgeResponse(userText string) Response {
+	type judgePrompt struct {
+		Rubric struct {
+			Criteria []struct {
+				ID string `json:"id"`
+			} `json:"criteria"`
+		} `json:"rubric"`
+	}
+	var prompt judgePrompt
+	if marker := strings.Index(userText, "tma.evaluation_judge"); marker >= 0 {
+		payload := strings.TrimSpace(userText[marker+len("tma.evaluation_judge"):])
+		_ = json.Unmarshal([]byte(payload), &prompt)
+	}
+	scores := make([]map[string]any, 0, len(prompt.Rubric.Criteria))
+	for _, criterion := range prompt.Rubric.Criteria {
+		if strings.TrimSpace(criterion.ID) == "" {
+			continue
+		}
+		scores = append(scores, map[string]any{
+			"criterion_id": criterion.ID,
+			"left_score":   3,
+			"right_score":  3,
+		})
+	}
+	result, _ := json.Marshal(map[string]any{
+		"scores":     scores,
+		"conclusion": "tie",
+		"reasoning":  "两侧运行在当前评分标准下证据相当。",
+	})
+	return Response{Message: Message{Role: "assistant", Content: []ContentPart{{Type: "text", Text: string(result)}}}}
 }
 
 func fakeToolCallResponse() Response {

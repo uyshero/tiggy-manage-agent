@@ -124,21 +124,24 @@ func (r Registry) integritySnapshot() ([]Manifest, error) {
 
 func validateModelToolNames(manifests []Manifest) error {
 	const maxModelToolNameLength = 64
-	seen := make(map[string]string)
+	type source struct {
+		identifier string
+		apiName    string
+	}
+	seen := make(map[string]source)
 	for _, manifest := range manifests {
 		for _, api := range manifest.API {
 			if api.HiddenFromModel {
 				continue
 			}
 			name := ModelToolName(manifest.Identifier, api.Name)
-			internalName := manifest.Identifier + "." + api.Name
 			if name == "_" || len(name) > maxModelToolNameLength {
-				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: model tool name %q for %s must contain at most %d characters", name, internalName, maxModelToolNameLength)
+				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: model tool name %q for identifier %q api %q must contain at most %d characters", name, manifest.Identifier, api.Name, maxModelToolNameLength)
 			}
-			if previous, exists := seen[name]; exists && previous != internalName {
-				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: tools %s and %s map to the same model name %q", previous, internalName, name)
+			if previous, exists := seen[name]; exists && (previous.identifier != manifest.Identifier || previous.apiName != api.Name) {
+				return newToolContractErrorf("invalid_tool_registry", "invalid_tool_registry: identifier %q api %q and identifier %q api %q map to the same model name %q", previous.identifier, previous.apiName, manifest.Identifier, api.Name, name)
 			}
-			seen[name] = internalName
+			seen[name] = source{identifier: manifest.Identifier, apiName: api.Name}
 		}
 	}
 	return nil
@@ -162,7 +165,7 @@ func validateManifestIntegrity(identifier string, manifest Manifest) error {
 		}
 		seenAPIs[name] = struct{}{}
 		if _, err := CompileJSONSchema(api.Parameters); err != nil {
-			return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema is invalid for %s.%s: %w", identifier, name, err)
+			return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema is invalid for %s: %w", ModelToolName(identifier, name), err)
 		}
 	}
 	return nil
@@ -175,7 +178,7 @@ func (r Registry) ValidateCallArguments(call Call) *ExecutionError {
 	call = r.ResolveCall(call)
 	_, api, ok := r.GetAPI(call.Identifier, call.APIName)
 	if !ok {
-		return &ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", call.Identifier+"."+call.APIName)}
+		return &ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", ModelToolName(call.Identifier, call.APIName))}
 	}
 
 	instance, err := decodeToolArguments(call.Arguments)
@@ -184,7 +187,7 @@ func (r Registry) ValidateCallArguments(call Call) *ExecutionError {
 	}
 	schema, err := CompileJSONSchema(api.Parameters)
 	if err != nil {
-		return &ExecutionError{Type: "invalid_tool_schema", Message: fmt.Sprintf("tool argument schema is invalid for %s.%s: %v", call.Identifier, call.APIName, err)}
+		return &ExecutionError{Type: "invalid_tool_schema", Message: fmt.Sprintf("tool argument schema is invalid for %s: %v", ModelToolName(call.Identifier, call.APIName), err)}
 	}
 	if err := schema.Validate(instance); err != nil {
 		return &ExecutionError{Type: "invalid_tool_arguments", Message: schemaValidationMessage(err, "tool arguments")}

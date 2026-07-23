@@ -1,4 +1,4 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
+.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-space-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
@@ -226,13 +226,17 @@ verify-worker-backed-large-local-export: build build-cli build-worker db-up migr
 build:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-server ./cmd/tma-server
 
-build-web-ui: build-inspector-ui build-workbench-ui
+build-web-ui: build-inspector-ui build-workbench-ui build-space-ui
 
 build-workbench-ui: test-typescript-sdk
 	npm --prefix apps/workbench run build
 
 build-inspector-ui: test-typescript-sdk
 	npm --prefix apps/inspector run build
+
+build-space-ui: test-typescript-sdk
+	npm --prefix apps/space test
+	npm --prefix apps/space run build
 
 build-cli:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma ./cmd/tma
@@ -259,7 +263,7 @@ migrate-up:
 	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
 
 generate-sql-baseline:
-	sh scripts/generate_sql_baseline.sh 000088
+	sh scripts/generate_sql_baseline.sh 000091
 
 verify-sql-baseline: generate-sql-baseline
-	sh scripts/verify_sql_baseline.sh sql/baselines/000088_baseline.sql
+	sh scripts/verify_sql_baseline.sh sql/baselines/000091_baseline.sql

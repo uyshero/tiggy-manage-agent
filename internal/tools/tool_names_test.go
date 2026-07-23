@@ -33,6 +33,19 @@ func TestRegistryResolveCallPreservesUnderscoresInNamespaceAndAPI(t *testing.T) 
 	}
 }
 
+func TestRegistryResolveCallRejectsLegacyDottedModelToolName(t *testing.T) {
+	t.Parallel()
+
+	registry := DefaultRegistry()
+	call := registry.ResolveCall(Call{Name: "skills.search", Arguments: json.RawMessage(`{}`)})
+	if call.Identifier == SkillsIdentifier && call.APIName == "search" {
+		t.Fatalf("ResolveCall() accepted legacy dotted tool name: %+v", call)
+	}
+	if _, _, ok := registry.GetAPI(call.Identifier, call.APIName); ok {
+		t.Fatalf("legacy dotted tool name resolved to a registered API: %+v", call)
+	}
+}
+
 func TestRegistryRejectsCollidingCanonicalModelToolNames(t *testing.T) {
 	t.Parallel()
 

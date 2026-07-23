@@ -16,7 +16,7 @@ describe("typed control-plane services", () => {
       };
       json(response, 200, {
         workspace_id: "workspace/1", agent_id: "agent/1",
-        tool: "default.edit_file", path: "/workspace/src/main.go",
+        tool: "default_edit_file", path: "/workspace/src/main.go",
         decision: "ask", allowed: false, required: true,
         intervention_mode: "request_approval", approval_policy: "conditional",
         reason: "filesystem_write", risk: "write",
@@ -24,7 +24,7 @@ describe("typed control-plane services", () => {
     });
     const client = new TMAClient(server.baseURL);
     const result = await client.workspaceToolPermissions.evaluate("workspace/1", {
-      agent_id: "agent/1", tool: "default.edit_file",
+      agent_id: "agent/1", tool: "default_edit_file",
       path: "/workspace/src/main.go", intervention_mode: "request_approval",
     });
 
@@ -33,7 +33,7 @@ describe("typed control-plane services", () => {
       method: "POST",
       url: "/v2/workspaces/workspace%2F1/tool-permissions/evaluate",
       body: {
-        agent_id: "agent/1", tool: "default.edit_file",
+        agent_id: "agent/1", tool: "default_edit_file",
         path: "/workspace/src/main.go", intervention_mode: "request_approval",
       },
     });
@@ -177,7 +177,7 @@ describe("typed control-plane services", () => {
       if (request.url?.includes("tool-permission-audit")) {
         json(response, 200, { records: [{
           session_id: "session/1", turn_id: "turn/1", call_id: "call/1",
-          tool: "default.edit_file", path: "/workspace/src/main.go",
+          tool: "default_edit_file", path: "/workspace/src/main.go",
           decision: "ask", allowed: false, required: true,
           intervention_mode: "request_approval", approval_policy: "conditional",
           approval_status: "approved", execution_status: "succeeded",
@@ -215,7 +215,7 @@ describe("typed control-plane services", () => {
     await client.observability.integrityKeys();
     await client.audit.list({ workspaceId: "workspace/1", sessionId: "session/1", principalId: "user/1", action: "mcp_registry.update", limit: 25 });
     await client.audit.listSession("session/1");
-    const permissionAudit = await client.audit.listToolPermissions("session/1", { decision: "ask", tool: "default.edit_file", limit: 20, cursor: "cursor/1" });
+    const permissionAudit = await client.audit.listToolPermissions("session/1", { decision: "ask", tool: "default_edit_file", limit: 20, cursor: "cursor/1" });
     await client.audit.integrityKeys();
     await client.audit.replayDeadLetters(50);
     await client.environmentVariables.list({ workspaceId: "workspace/1" });
@@ -229,7 +229,7 @@ describe("typed control-plane services", () => {
     expect(permissionAudit).toMatchObject({ next_cursor: "next/cursor", has_more: true });
     expect(requests).toContain("POST /v2/mcp-servers/mcp%2F1/versions/1/restore");
     expect(requests).toContain("GET /v2/operator-audit?workspace_id=workspace%2F1&session_id=session%2F1&principal_id=user%2F1&action=mcp_registry.update&limit=25");
-    expect(requests).toContain("GET /v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default.edit_file&limit=20&cursor=cursor%2F1");
+    expect(requests).toContain("GET /v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default_edit_file&limit=20&cursor=cursor%2F1");
     expect(requests).toContain("PUT /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
     expect(requests).toContain("DELETE /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
   });

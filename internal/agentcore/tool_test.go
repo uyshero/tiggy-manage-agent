@@ -14,7 +14,7 @@ func TestToolBatchPlanValidatesLifecycleCombinations(t *testing.T) {
 
 	validCall := func() agentcore.PlannedToolCall {
 		return agentcore.PlannedToolCall{
-			Call:          model.ToolCall{ID: "call_1", Name: "default.write_file", Arguments: json.RawMessage(`{}`)},
+			Call:          model.ToolCall{ID: "call_1", Name: "default_write_file", Arguments: json.RawMessage(`{}`)},
 			ExecutionMode: "sequential", SideEffect: "write", Idempotency: "keyed", IdempotencyKey: "key_1",
 			Disposition: agentcore.ToolDispositionExecute, ValidationState: agentcore.ToolValidationValid,
 			ApprovalState: agentcore.ToolApprovalNotRequired,
@@ -70,7 +70,7 @@ func TestToolBatchPlanRejectsLegacyApprovalStatus(t *testing.T) {
 	t.Parallel()
 
 	var plan agentcore.ToolBatchPlan
-	err := json.Unmarshal([]byte(`{"calls":[{"call":{"id":"call_1","name":"default.write_file","arguments":{}},"execution_mode":"sequential","side_effect":"write","idempotency":"keyed","idempotency_key":"key_1","approval_status":"approved"}]}`), &plan)
+	err := json.Unmarshal([]byte(`{"calls":[{"call":{"id":"call_1","name":"default_write_file","arguments":{}},"execution_mode":"sequential","side_effect":"write","idempotency":"keyed","idempotency_key":"key_1","approval_status":"approved"}]}`), &plan)
 	if err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}

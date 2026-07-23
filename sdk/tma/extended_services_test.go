@@ -31,19 +31,33 @@ func TestExtendedTypedServices(t *testing.T) {
 		"DELETE /v2/sessions/sesn%2Fdelete":                                               {status: http.StatusNoContent},
 		"POST /v2/sessions/sesn%2F1/rerun":                                                {status: http.StatusCreated, body: `{"session":{"id":"sesn/rerun","status":"active"},"source_session_id":"sesn/1","source_event_seq":4,"events":[]}`},
 		"GET /v2/session-comparisons?left_session_id=left%2F1&right_session_id=right%2F1": {body: `{"left":{"session":{"id":"left/1"},"usage":{"session_id":"left/1","records":[],"summary":{}},"artifacts":[]},"right":{"session":{"id":"right/1"},"usage":{"session_id":"right/1","records":[],"summary":{}},"artifacts":[]}}`},
-		"GET /v2/sessions/sesn%2F1/runtime-config":                                        {body: `{"session_id":"sesn/1","workspace_id":"wksp","owner_id":"user","agent_id":"agt","agent_config_version":1,"environment_id":"env","llm_provider":"fake","llm_model":"fake","llm_capability_type":"text","context_window_tokens":1000,"system":"S","tools":{"custom":{"enabled":true}}}`},
-		"GET /v2/sessions/sesn%2F1/runtime-capabilities":                                  {body: `{"default_runtime":"cloud_sandbox","available_runtimes":["cloud_sandbox","future_runtime"]}`},
-		"GET /v2/sessions/sesn%2F1/deliberations":                                         {body: `{"deliberations":[]}`},
-		"GET /v2/sessions/sesn%2F1/deliberations/del%2F1":                                 {body: deliberationFixture("future_state")},
-		"POST /v2/sessions/sesn%2F1/deliberations/del%2F1/cancel":                         {body: deliberationFixture("canceled")},
-		"POST /v2/sessions/sesn%2F1/deliberations/del%2F1/participants/2/retry":           {body: deliberationFixture("running")},
-		"GET /v2/sessions/sesn%2F1/task-groups":                                           {body: `{"task_groups":[]}`},
-		"GET /v2/sessions/sesn%2F1/task-group-tree":                                       {body: `{"root":{"session":{"id":"sesn/1"},"task_groups":[],"children":[]},"summary":{}}`},
-		"GET /v2/sessions/sesn%2F1/task-groups/grp%2F1":                                   {body: `{"state":{"group":{"id":"grp/1"},"status":"future_state","summary":{},"aggregate":{},"items":[]}}`},
-		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/cancel":                           {body: taskGroupFixture("canceled")},
-		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/retry":                            {body: taskGroupFixture("running")},
-		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/items/3/retry":                    {body: taskGroupFixture("running")},
-		"POST /v2/subagents/reap-orphans":                                                 {body: `{"count":0,"reaped":[]}`},
+		"GET /v2/run-comparisons?left_session_id=left%2F1&left_turn_id=turn%2F1&right_session_id=right%2F1&right_turn_id=turn%2F2": {body: `{"left":{"session":{"id":"left/1"},"run":{"id":"turn/1"},"usage":{"records":[],"summary":{}},"artifacts":[]},"right":{"session":{"id":"right/1"},"run":{"id":"turn/2"},"usage":{"records":[],"summary":{}},"artifacts":[]}}`},
+		"POST /v2/evaluation-rubrics":                      {status: http.StatusCreated, body: `{"id":"rubric/1","workspace_id":"wksp/1","name":"Default","criteria":[{"id":"quality","name":"Quality"},{"id":"safety","name":"Safety"}],"revision":1,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"GET /v2/evaluation-rubrics?workspace_id=wksp%2F1": {body: `{"rubrics":[]}`},
+		"GET /v2/evaluation-rubrics/rubric%2F1":            {body: `{"id":"rubric/1","workspace_id":"wksp/1","name":"Default","criteria":[],"revision":1,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"POST /v2/run-evaluations":                         {status: http.StatusCreated, body: `{"id":"eval/1","workspace_id":"wksp/1","left_session_id":"left/1","left_turn_id":"turn/1","right_session_id":"right/1","right_turn_id":"turn/2","rubric_snapshot":{"rubric_id":"rubric/1","name":"Default","revision":1,"criteria":[]},"scores":[],"conclusion":"right","evaluation_type":"manual","created_at":"2026-07-15T00:00:00Z"}`},
+		"POST /v2/run-evaluations/auto":                    {status: http.StatusCreated, body: `{"id":"eval/2","workspace_id":"wksp/1","left_session_id":"left/1","left_turn_id":"turn/1","right_session_id":"right/1","right_turn_id":"turn/2","rubric_snapshot":{"rubric_id":"rubric/1","name":"Default","revision":1,"criteria":[]},"scores":[],"conclusion":"tie","evaluation_type":"auto","judge_provider":"fake","judge_model":"fake-demo","created_at":"2026-07-15T00:00:00Z"}`},
+		"GET /v2/run-evaluations?left_session_id=left%2F1&left_turn_id=turn%2F1&limit=20&right_session_id=right%2F1&right_turn_id=turn%2F2": {body: `{"evaluations":[]}`},
+		"POST /v2/evaluation-datasets":                                          {status: http.StatusCreated, body: `{"id":"dataset/1","workspace_id":"wksp/1","name":"Regression","items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"GET /v2/evaluation-datasets?workspace_id=wksp%2F1":                     {body: `{"datasets":[]}`},
+		"GET /v2/evaluation-datasets/dataset%2F1":                               {body: `{"id":"dataset/1","workspace_id":"wksp/1","name":"Regression","items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"POST /v2/evaluation-experiments":                                       {status: http.StatusCreated, body: `{"id":"experiment/1","workspace_id":"wksp/1","name":"Nightly","status":"running","summary":{},"items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"GET /v2/evaluation-experiments?limit=10&workspace_id=wksp%2F1":         {body: `{"experiments":[]}`},
+		"GET /v2/evaluation-experiments/experiment%2F1":                         {body: `{"id":"experiment/1","workspace_id":"wksp/1","name":"Nightly","status":"running","summary":{},"items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"POST /v2/evaluation-experiments/experiment%2F1/reconcile":              {body: `{"id":"experiment/1","workspace_id":"wksp/1","name":"Nightly","status":"completed","summary":{},"items":[],"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`},
+		"GET /v2/sessions/sesn%2F1/runtime-config":                              {body: `{"session_id":"sesn/1","workspace_id":"wksp","owner_id":"user","agent_id":"agt","agent_config_version":1,"environment_id":"env","llm_provider":"fake","llm_model":"fake","llm_capability_type":"text","context_window_tokens":1000,"system":"S","tools":{"custom":{"enabled":true}}}`},
+		"GET /v2/sessions/sesn%2F1/runtime-capabilities":                        {body: `{"default_runtime":"cloud_sandbox","available_runtimes":["cloud_sandbox","future_runtime"]}`},
+		"GET /v2/sessions/sesn%2F1/deliberations":                               {body: `{"deliberations":[]}`},
+		"GET /v2/sessions/sesn%2F1/deliberations/del%2F1":                       {body: deliberationFixture("future_state")},
+		"POST /v2/sessions/sesn%2F1/deliberations/del%2F1/cancel":               {body: deliberationFixture("canceled")},
+		"POST /v2/sessions/sesn%2F1/deliberations/del%2F1/participants/2/retry": {body: deliberationFixture("running")},
+		"GET /v2/sessions/sesn%2F1/task-groups":                                 {body: `{"task_groups":[]}`},
+		"GET /v2/sessions/sesn%2F1/task-group-tree":                             {body: `{"root":{"session":{"id":"sesn/1"},"task_groups":[],"children":[]},"summary":{}}`},
+		"GET /v2/sessions/sesn%2F1/task-groups/grp%2F1":                         {body: `{"state":{"group":{"id":"grp/1"},"status":"future_state","summary":{},"aggregate":{},"items":[]}}`},
+		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/cancel":                 {body: taskGroupFixture("canceled")},
+		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/retry":                  {body: taskGroupFixture("running")},
+		"POST /v2/sessions/sesn%2F1/task-groups/grp%2F1/items/3/retry":          {body: taskGroupFixture("running")},
+		"POST /v2/subagents/reap-orphans":                                       {body: `{"count":0,"reaped":[]}`},
 		"GET /v2/traces?cursor=next%2Fcursor&include_archived=true&limit=25&session_id=sesn%2F1&session_status=active&turn_id=turn%2F1&workspace_id=wksp%2F1": {body: `{"items":[{"trace_id":"trace/1","session_id":"sesn/1","turn_id":"turn/1","turn_status":"future_state","duration_ms":1,"step_count":1,"span_count":1,"tool_calls":0,"errors":0}],"next_cursor":"opaque-next","has_more":true}`},
 		"GET /v2/traces/trace%2F1": {body: `{"session_id":"sesn/1","turn_id":"turn/1","trace_id":"trace/1","status":"future_state","steps":[],"spans":[]}`},
 		"GET /v2/spans?critical=true&cursor=span%2Fcursor&include_archived=true&kind=tool&limit=10&max_duration_ms=100&min_duration_ms=5&min_self_duration_ms=2&q=read+file&session_id=sesn%2F1&status=future_state&trace_id=trace%2F1&turn_id=turn%2F1&workspace_id=wksp%2F1": {body: `{"items":[{"trace_id":"trace/1","session_id":"sesn/1","turn_id":"turn/1","span_id":"span/1","name":"read","kind":"tool","status":"future_state","start_time":"2026-07-15T00:00:00Z","duration_ms":10,"event_count":1}],"next_cursor":"","has_more":false}`},
@@ -113,6 +127,66 @@ func TestExtendedTypedServices(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = client.Sessions.Compare(ctx, "left/1", "right/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Sessions.CompareRuns(ctx, "left/1", "turn/1", "right/1", "turn/2"); err != nil {
+		t.Fatal(err)
+	}
+	rubric, err := client.Evaluations.CreateRubric(ctx, CreateEvaluationRubricRequest{
+		WorkspaceID: "wksp/1", Name: "Default",
+		Criteria: []EvaluationCriterion{{ID: "quality", Name: "Quality"}, {ID: "safety", Name: "Safety"}},
+	})
+	if err != nil || rubric.ID != "rubric/1" {
+		t.Fatalf("rubric=%+v err=%v", rubric, err)
+	}
+	if _, err = client.Evaluations.ListRubrics(ctx, "wksp/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.GetRubric(ctx, "rubric/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.CreateRunEvaluation(ctx, CreateRunEvaluationRequest{
+		LeftSessionID: "left/1", LeftTurnID: "turn/1", RightSessionID: "right/1", RightTurnID: "turn/2",
+		RubricID: rubric.ID, Conclusion: "right",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.AutoEvaluate(ctx, AutoRunEvaluationRequest{
+		LeftSessionID: "left/1", LeftTurnID: "turn/1", RightSessionID: "right/1", RightTurnID: "turn/2", RubricID: rubric.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.ListRunEvaluations(ctx, RunEvaluationListQuery{
+		LeftSessionID: "left/1", LeftTurnID: "turn/1", RightSessionID: "right/1", RightTurnID: "turn/2", Limit: 20,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dataset, err := client.Evaluations.CreateDataset(ctx, CreateEvaluationDatasetRequest{
+		WorkspaceID: "wksp/1", Name: "Regression", Items: []CreateEvaluationDatasetItemRequest{{Prompt: "Explain RLS"}},
+	})
+	if err != nil || dataset.ID != "dataset/1" {
+		t.Fatalf("dataset=%+v err=%v", dataset, err)
+	}
+	if _, err = client.Evaluations.ListDatasets(ctx, "wksp/1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.GetDataset(ctx, dataset.ID); err != nil {
+		t.Fatal(err)
+	}
+	experiment, err := client.Evaluations.CreateExperiment(ctx, CreateEvaluationExperimentRequest{
+		Name: "Nightly", DatasetID: dataset.ID, RubricID: rubric.ID,
+		LeftTemplateSessionID: "left/1", RightTemplateSessionID: "right/1",
+	})
+	if err != nil || experiment.ID != "experiment/1" {
+		t.Fatalf("experiment=%+v err=%v", experiment, err)
+	}
+	if _, err = client.Evaluations.ListExperiments(ctx, "wksp/1", 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.GetExperiment(ctx, experiment.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Evaluations.ReconcileExperiment(ctx, experiment.ID); err != nil {
 		t.Fatal(err)
 	}
 	runtimeConfig, err := client.Sessions.RuntimeConfig(ctx, "sesn/1")

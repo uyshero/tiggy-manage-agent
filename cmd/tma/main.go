@@ -366,11 +366,13 @@ func commandAgent(client *apiClient, args []string) error {
 		var llmModel string
 		var model string
 		var system string
+		var environmentID string
 		flags.StringVar(&name, "name", "", "agent name")
 		flags.StringVar(&llmProvider, "llm-provider", "", "llm provider id")
 		flags.StringVar(&llmModel, "llm-model", "", "llm model id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.StringVar(&system, "system", "", "system prompt")
+		flags.StringVar(&environmentID, "env", "", "bound environment id")
 
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -378,8 +380,8 @@ func commandAgent(client *apiClient, args []string) error {
 		if llmModel == "" {
 			llmModel = model
 		}
-		if name == "" || llmModel == "" {
-			return fmt.Errorf("agent create requires --name and --model (or --llm-model)")
+		if name == "" || llmModel == "" || environmentID == "" {
+			return fmt.Errorf("agent create requires --name, --env, and --model (or --llm-model)")
 		}
 
 		sdk, err := client.sdkClient()
@@ -387,7 +389,7 @@ func commandAgent(client *apiClient, args []string) error {
 			return err
 		}
 		agent, err := sdk.Agents.Create(context.Background(), tma.CreateAgentRequest{
-			Name: name, LLMProvider: llmProvider, LLMModel: llmModel, Model: model, System: system,
+			Name: name, EnvironmentID: environmentID, LLMProvider: llmProvider, LLMModel: llmModel, Model: model, System: system,
 		})
 		if err != nil {
 			return err
@@ -594,6 +596,16 @@ func commandEnvironment(client *apiClient, args []string) error {
 	}
 
 	switch args[0] {
+	case "list":
+		sdk, err := client.sdkClient()
+		if err != nil {
+			return err
+		}
+		environments, err := sdk.Environments.List(context.Background())
+		if err != nil {
+			return err
+		}
+		return printJSON(map[string]any{"environments": environments})
 	case "create":
 		flags := flag.NewFlagSet("env create", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
@@ -649,8 +661,8 @@ func commandSession(client *apiClient, args []string) error {
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if agentID == "" || environmentID == "" {
-			return fmt.Errorf("session create requires --agent and --env")
+		if agentID == "" {
+			return fmt.Errorf("session create requires --agent")
 		}
 
 		sdk, err := client.sdkClient()
@@ -856,13 +868,11 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 
 		var sessionID string
 		var interventionMode string
-		var toolRuntime string
 		var cloudSandboxRoot string
 		var cloudSandboxImage string
 		var cloudSandboxAllowNetwork bool
 		flags.StringVar(&sessionID, "session", "", "session id")
 		flags.StringVar(&interventionMode, "intervention-mode", "", "request_approval | approve_for_me | full_access")
-		flags.StringVar(&toolRuntime, "tool-runtime", "", "auto | cloud_sandbox | local_system")
 		flags.StringVar(&cloudSandboxRoot, "cloud-sandbox-root", "", "isolated workspace base path for cloud_sandbox runtime")
 		flags.StringVar(&cloudSandboxImage, "cloud-sandbox-image", "", "Onlyboxes image for cloud_sandbox runtime")
 		flags.BoolVar(&cloudSandboxAllowNetwork, "cloud-sandbox-allow-network", false, "allow full outbound network access for cloud_sandbox")
@@ -872,7 +882,7 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 		if sessionID == "" {
 			return fmt.Errorf("session runtime update requires --session")
 		}
-		if interventionMode == "" && toolRuntime == "" && cloudSandboxRoot == "" && cloudSandboxImage == "" && !flagWasPassed(flags, "cloud-sandbox-allow-network") {
+		if interventionMode == "" && cloudSandboxRoot == "" && cloudSandboxImage == "" && !flagWasPassed(flags, "cloud-sandbox-allow-network") {
 			return fmt.Errorf("session runtime update requires at least one runtime setting flag")
 		}
 
@@ -883,13 +893,6 @@ func commandSessionRuntime(client *apiClient, args []string) error {
 				return fmt.Errorf("unsupported intervention mode %q", interventionMode)
 			}
 			request.InterventionMode = &mode
-		}
-		if toolRuntime != "" {
-			mode, ok := normalizeToolRuntimeArg(toolRuntime)
-			if !ok {
-				return fmt.Errorf("unsupported tool runtime %q", toolRuntime)
-			}
-			request.ToolRuntime = &mode
 		}
 		if cloudSandboxRoot != "" {
 			request.CloudSandboxRoot = &cloudSandboxRoot
@@ -1409,19 +1412,6 @@ func normalizeInterventionModeArg(value string) (string, bool) {
 	}
 }
 
-func normalizeToolRuntimeArg(value string) (string, bool) {
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "auto":
-		return "auto", true
-	case "cloud_sandbox":
-		return "cloud_sandbox", true
-	case "local_system":
-		return "local_system", true
-	default:
-		return "", false
-	}
-}
-
 func normalizeToolReconciliationOutcome(value string) (string, bool) {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case "executed":
@@ -1499,20 +1489,21 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] work ack --worker WORKER_ID --work WORK_ID
   tma [--base-url URL] [--auth-token TOKEN] work heartbeat --worker WORKER_ID --work WORK_ID [--lease-seconds N]
   tma [--base-url URL] [--auth-token TOKEN] work result --worker WORKER_ID --work WORK_ID --success|--failure [--error TEXT] [--result JSON]
-  tma [--base-url URL] [--auth-token TOKEN] agent create --name NAME --model MODEL [--llm-provider PROVIDER] [--system TEXT]
+  tma [--base-url URL] [--auth-token TOKEN] agent create --name NAME --env ENVIRONMENT_ID --model MODEL [--llm-provider PROVIDER] [--system TEXT]
   tma [--base-url URL] [--auth-token TOKEN] agent get --id AGENT_ID
   tma [--base-url URL] [--auth-token TOKEN] agent export --id AGENT_ID [--output FILE]
   tma [--base-url URL] [--auth-token TOKEN] agent import --file FILE [--name NAME] [--workspace WORKSPACE_ID]
   tma [--base-url URL] [--auth-token TOKEN] agent config list --agent AGENT_ID
   tma [--base-url URL] [--auth-token TOKEN] agent config update --agent AGENT_ID [--llm-provider PROVIDER] [--llm-model MODEL] [--system TEXT] [--tools JSON] [--mcp JSON]
+  tma [--base-url URL] [--auth-token TOKEN] env list
   tma [--base-url URL] [--auth-token TOKEN] env create --name NAME [--config JSON]
-  tma [--base-url URL] [--auth-token TOKEN] session create --agent AGENT_ID --env ENV_ID [--title TITLE]
+  tma [--base-url URL] [--auth-token TOKEN] session create --agent AGENT_ID [--env ENV_ID] [--title TITLE]
   tma [--base-url URL] [--auth-token TOKEN] session get --session SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session compare --left SESSION_ID --right SESSION_ID
   tma [--base-url URL] [--auth-token TOKEN] session attach --session SESSION_ID [--after SEQ]
   tma [--base-url URL] [--auth-token TOKEN] session config upgrade --session SESSION_ID (--to-current | --to-version VERSION)
   tma [--base-url URL] [--auth-token TOKEN] session runtime get --session SESSION_ID
-  tma [--base-url URL] [--auth-token TOKEN] session runtime update --session SESSION_ID [--intervention-mode MODE] [--tool-runtime auto|cloud_sandbox|local_system] [--cloud-sandbox-root PATH] [--cloud-sandbox-image IMAGE]
+  tma [--base-url URL] [--auth-token TOKEN] session runtime update --session SESSION_ID [--intervention-mode MODE] [--cloud-sandbox-root PATH] [--cloud-sandbox-image IMAGE]
   tma [--base-url URL] [--auth-token TOKEN] session intervention list --session SESSION_ID [--status STATUS]
   tma [--base-url URL] [--auth-token TOKEN] session intervention approve --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]
   tma [--base-url URL] [--auth-token TOKEN] session intervention reject --session SESSION_ID --turn TURN_ID --call CALL_ID [--reason TEXT]

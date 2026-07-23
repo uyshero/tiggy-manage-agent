@@ -110,7 +110,7 @@ func LocalSystemCapabilities(registry tools.Registry) tools.WorkerCapabilities {
 			namespace := defaultString(api.Namespace, manifest.Identifier)
 			apiName := defaultString(api.APIName, api.Name)
 			appendUnique(&capabilities.Namespaces, seenNamespaces, []string{namespace})
-			appendUnique(&capabilities.APIs, seenAPIs, []string{namespace + "." + apiName})
+			appendUnique(&capabilities.APIs, seenAPIs, []string{tools.ModelToolName(namespace, apiName)})
 			appendUnique(&capabilities.Capabilities, seenCapabilities, api.Capabilities)
 			filteredManifest.API = append(filteredManifest.API, api)
 		}
@@ -156,7 +156,7 @@ func (e Executor) executeToolExecution(ctx context.Context, work managedagents.W
 		return workFailure("unsupported tool namespace: " + invocation.Namespace)
 	}
 	if _, _, ok := registry.GetAPI(invocation.Namespace, invocation.API); !ok {
-		return workFailure("unsupported tool api: " + invocation.Namespace + "." + invocation.API)
+		return workFailure("unsupported tool api: " + tools.ModelToolName(invocation.Namespace, invocation.API))
 	}
 	arguments, editRevision, editContentSHA256, err := workerCapabilityArguments(invocation)
 	if err != nil {

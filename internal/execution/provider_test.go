@@ -9,14 +9,14 @@ import (
 	"tiggy-manage-agent/internal/managedagents"
 )
 
-func TestSessionProviderResolverReturnsUnavailableLocalSystemByDefault(t *testing.T) {
+func TestSessionProviderResolverIgnoresLegacySessionToolRuntime(t *testing.T) {
 	store := fakeSessionStore{session: managedagents.Session{
 		ID:              "sesn_000001",
 		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
 	}}
 	provider := SessionProviderResolver{Store: store}.ResolveProvider(ProviderRequest{SessionID: "sesn_000001"})
-	if unavailable, ok := provider.(capability.UnavailableProvider); !ok || unavailable.Runtime != ToolRuntimeLocalSystem {
-		t.Fatalf("expected unavailable local_system provider, got %#v", provider)
+	if _, ok := provider.(capability.OnlyboxesProvider); !ok {
+		t.Fatalf("expected Agent/default cloud_sandbox provider, got %#v", provider)
 	}
 }
 
@@ -59,6 +59,28 @@ func TestSessionProviderResolverUsesCloudSandboxRuntime(t *testing.T) {
 	}
 	if onlyboxesProvider.ContainerManager != containerManager {
 		t.Fatal("expected shared cloud sandbox container manager")
+	}
+}
+
+func TestSessionProviderResolverUsesBoundEnvironmentProfile(t *testing.T) {
+	store := fakeSessionStore{
+		session: managedagents.Session{
+			ID: "sesn_000001", WorkspaceID: "wksp_one", OwnerID: "owner_one", EnvironmentID: "env_ppt",
+		},
+		environment: managedagents.Environment{
+			ID: "env_ppt", WorkspaceID: "wksp_one",
+			Config: json.RawMessage(`{"runtime_settings":{"tool_runtime":"cloud_sandbox","cloud_sandbox_image":"tma-ppt:local","cloud_sandbox_allow_network":false}}`),
+		},
+	}
+	provider := SessionProviderResolver{Store: store}.ResolveProvider(ProviderRequest{
+		WorkspaceID: "wksp_one", OwnerID: "owner_one", SessionID: "sesn_000001",
+	})
+	cloud, ok := provider.(capability.OnlyboxesProvider)
+	if !ok {
+		t.Fatalf("expected cloud provider, got %T", provider)
+	}
+	if cloud.Image != "tma-ppt:local" || !cloud.DisableNetwork {
+		t.Fatalf("unexpected Environment profile: %#v", cloud)
 	}
 }
 
@@ -121,7 +143,7 @@ func TestSessionProviderResolverUsesDefaultCloudSandboxNetworkDisabledSetting(t 
 	}
 }
 
-func TestSessionProviderResolverAllowsServerLocalSystemWhenExplicitlyEnabled(t *testing.T) {
+func TestSessionProviderResolverDoesNotUseLegacySessionRuntimeWhenLocalIsEnabled(t *testing.T) {
 	store := fakeSessionStore{session: managedagents.Session{
 		ID:              "sesn_000001",
 		RuntimeSettings: json.RawMessage(`{"tool_runtime":"local_system"}`),
@@ -131,8 +153,8 @@ func TestSessionProviderResolverAllowsServerLocalSystemWhenExplicitlyEnabled(t *
 		DefaultRuntime:   "cloud_sandbox",
 		AllowLocalSystem: true,
 	}.ResolveProvider(ProviderRequest{SessionID: "sesn_000001"})
-	if _, ok := provider.(capability.LocalSystemProvider); !ok {
-		t.Fatalf("expected local provider, got %T", provider)
+	if _, ok := provider.(capability.OnlyboxesProvider); !ok {
+		t.Fatalf("expected cloud provider, got %T", provider)
 	}
 }
 
@@ -154,9 +176,14 @@ func TestSessionProviderResolverUsesExplicitToolRuntimePolicy(t *testing.T) {
 }
 
 type fakeSessionStore struct {
-	session managedagents.Session
+	session     managedagents.Session
+	environment managedagents.Environment
 }
 
 func (s fakeSessionStore) GetSession(string) (managedagents.Session, error) {
 	return s.session, nil
+}
+
+func (s fakeSessionStore) GetEnvironment(string) (managedagents.Environment, error) {
+	return s.environment, nil
 }

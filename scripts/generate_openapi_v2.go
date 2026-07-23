@@ -104,6 +104,8 @@ var coreContracts = map[string]routeContract{
 	"put /v2/workspaces/{workspace_id}/tool-permissions":                         {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
 	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":               {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
 	"post /v2/environments":                                                      {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
+	"get /v2/environments":                                                       {ResponseSchema: "EnvironmentList"},
+	"get /v2/environments/{environment_id}":                                      {ResponseSchema: "Environment"},
 	"get /v2/llm-providers":                                                      {ResponseSchema: "LLMProviderList"},
 	"post /v2/llm-providers":                                                     {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
 	"get /v2/llm-providers/{provider_id}":                                        {ResponseSchema: "LLMProvider"},
@@ -192,6 +194,20 @@ var coreContracts = map[string]routeContract{
 	"post /v2/sessions":                                                          {RequestSchema: "CreateSessionRequest", RequestRequired: true, ResponseSchema: "Session", SuccessStatuses: []string{"201"}},
 	"get /v2/sessions":                                                           {ResponseSchema: "SessionList"},
 	"get /v2/session-comparisons":                                                {ResponseSchema: "SessionComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}}},
+	"get /v2/run-comparisons":                                                    {ResponseSchema: "RunComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}}},
+	"post /v2/evaluation-rubrics":                                                {RequestSchema: "CreateEvaluationRubricRequest", RequestRequired: true, ResponseSchema: "EvaluationRubric", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-rubrics":                                                 {ResponseSchema: "EvaluationRubricList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/evaluation-rubrics/{rubric_id}":                                     {ResponseSchema: "EvaluationRubric"},
+	"post /v2/run-evaluations":                                                   {RequestSchema: "CreateRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
+	"post /v2/run-evaluations/auto":                                              {RequestSchema: "AutoRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
+	"get /v2/run-evaluations":                                                    {ResponseSchema: "RunEvaluationList", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/evaluation-datasets":                                               {RequestSchema: "CreateEvaluationDatasetRequest", RequestRequired: true, ResponseSchema: "EvaluationDataset", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-datasets":                                                {ResponseSchema: "EvaluationDatasetList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/evaluation-datasets/{dataset_id}":                                   {ResponseSchema: "EvaluationDataset"},
+	"post /v2/evaluation-experiments":                                            {RequestSchema: "CreateEvaluationExperimentRequest", RequestRequired: true, ResponseSchema: "EvaluationExperiment", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-experiments":                                             {ResponseSchema: "EvaluationExperimentList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/evaluation-experiments/{experiment_id}":                             {ResponseSchema: "EvaluationExperiment"},
+	"post /v2/evaluation-experiments/{experiment_id}/reconcile":                  {ResponseSchema: "EvaluationExperiment"},
 	"get /v2/sessions/{session_id}":                                              {ResponseSchema: "Session"},
 	"patch /v2/sessions/{session_id}":                                            {RequestSchema: "UpdateSessionMetadataRequest", RequestRequired: true, ResponseSchema: "Session"},
 	"delete /v2/sessions/{session_id}":                                           {SuccessStatuses: []string{"204"}},
@@ -477,6 +493,7 @@ paths:
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
         visibility: {type: string, enum: [private, workspace]}
@@ -675,6 +692,7 @@ paths:
       required: [name, system]
       properties:
         workspace_id: {type: string}
+        environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
         visibility: {type: string, enum: [private, workspace]}
@@ -690,6 +708,7 @@ paths:
     UpdateAgentRequest:
       type: object
       properties:
+        environment_id: {type: string}
         name: {type: string}
         llm_provider: {type: string}
         llm_model: {type: string}
@@ -711,6 +730,11 @@ paths:
         config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         archived_at: {type: string, format: date-time, nullable: true}
         created_at: {type: string, format: date-time}
+    EnvironmentList:
+      type: object
+      required: [environments]
+      properties:
+        environments: {type: array, items: {$ref: "#/components/schemas/Environment"}}
     CreateEnvironmentRequest:
       type: object
       required: [name, config]
@@ -903,7 +927,6 @@ paths:
         sessions: {type: array, items: {$ref: "#/components/schemas/Session"}}
     CreateSessionRequest:
       type: object
-      required: [environment_id]
       properties:
         workspace_id: {type: string}
         owner_id: {type: string}
@@ -928,7 +951,6 @@ paths:
           type: array
           maxItems: 100
           items: {$ref: "#/components/schemas/PermissionRule"}
-        tool_runtime: {type: string}
         cloud_sandbox_root: {type: string}
         cloud_sandbox_image: {type: string}
         cloud_sandbox_allow_network: {type: boolean}
@@ -1209,11 +1231,223 @@ paths:
       required: [artifacts]
       properties:
         artifacts: {type: array, items: {$ref: "#/components/schemas/Artifact"}}
+    EvaluationCriterion:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: string, maxLength: 100}
+        name: {type: string, maxLength: 160}
+        description: {type: string, maxLength: 1000}
+    EvaluationRubric:
+      type: object
+      required: [id, workspace_id, name, criteria, revision, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        criteria: {type: array, minItems: 2, maxItems: 6, items: {$ref: "#/components/schemas/EvaluationCriterion"}}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        created_by: {type: string}
+        updated_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateEvaluationRubricRequest:
+      type: object
+      required: [name, criteria]
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, maxLength: 160}
+        description: {type: string, maxLength: 1000}
+        criteria: {type: array, minItems: 2, maxItems: 6, items: {$ref: "#/components/schemas/EvaluationCriterion"}}
+    EvaluationRubricList:
+      type: object
+      required: [rubrics]
+      properties:
+        rubrics: {type: array, items: {$ref: "#/components/schemas/EvaluationRubric"}}
+    EvaluationCriterionScore:
+      type: object
+      required: [criterion_id, left_score, right_score]
+      properties:
+        criterion_id: {type: string}
+        left_score: {type: integer, format: int32, minimum: 1, maximum: 5}
+        right_score: {type: integer, format: int32, minimum: 1, maximum: 5}
+    EvaluationRubricSnapshot:
+      type: object
+      required: [rubric_id, name, revision, criteria]
+      properties:
+        rubric_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        criteria: {type: array, items: {$ref: "#/components/schemas/EvaluationCriterion"}}
+    RunEvaluation:
+      type: object
+      required: [id, workspace_id, left_session_id, left_turn_id, right_session_id, right_turn_id, rubric_snapshot, scores, conclusion, evaluation_type, created_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        left_session_id: {type: string}
+        left_turn_id: {type: string}
+        right_session_id: {type: string}
+        right_turn_id: {type: string}
+        rubric_id: {type: string}
+        rubric_snapshot: {$ref: "#/components/schemas/EvaluationRubricSnapshot"}
+        scores: {type: array, items: {$ref: "#/components/schemas/EvaluationCriterionScore"}}
+        conclusion: {type: string, enum: [left, right, tie, inconclusive]}
+        notes: {type: string, maxLength: 10000}
+        evaluation_type: {type: string, enum: [manual, auto]}
+        judge_provider: {type: string}
+        judge_model: {type: string}
+        judge_reasoning: {type: string, maxLength: 10000}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+    CreateRunEvaluationRequest:
+      type: object
+      required: [left_session_id, left_turn_id, right_session_id, right_turn_id, rubric_id, scores, conclusion]
+      properties:
+        left_session_id: {type: string}
+        left_turn_id: {type: string}
+        right_session_id: {type: string}
+        right_turn_id: {type: string}
+        rubric_id: {type: string}
+        scores: {type: array, items: {$ref: "#/components/schemas/EvaluationCriterionScore"}}
+        conclusion: {type: string, enum: [left, right, tie, inconclusive]}
+        notes: {type: string, maxLength: 10000}
+    AutoRunEvaluationRequest:
+      type: object
+      required: [left_session_id, left_turn_id, right_session_id, right_turn_id, rubric_id]
+      properties:
+        left_session_id: {type: string}
+        left_turn_id: {type: string}
+        right_session_id: {type: string}
+        right_turn_id: {type: string}
+        rubric_id: {type: string}
+    RunEvaluationList:
+      type: object
+      required: [evaluations]
+      properties:
+        evaluations: {type: array, items: {$ref: "#/components/schemas/RunEvaluation"}}
+    EvaluationDatasetItem:
+      type: object
+      required: [id, dataset_id, item_index, prompt, tags, created_at]
+      properties:
+        id: {type: string}
+        dataset_id: {type: string}
+        item_index: {type: integer, format: int32, minimum: 0}
+        prompt: {type: string, maxLength: 20000}
+        expected_output: {type: string, maxLength: 20000}
+        tags: {type: array, items: {type: string}}
+        created_at: {type: string, format: date-time}
+    EvaluationDataset:
+      type: object
+      required: [id, workspace_id, name, items, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        items: {type: array, items: {$ref: "#/components/schemas/EvaluationDatasetItem"}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateEvaluationDatasetItemRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: {type: string, maxLength: 20000}
+        expected_output: {type: string, maxLength: 20000}
+        tags: {type: array, maxItems: 10, items: {type: string, maxLength: 80}}
+    CreateEvaluationDatasetRequest:
+      type: object
+      required: [name, items]
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, maxLength: 160}
+        description: {type: string, maxLength: 2000}
+        items: {type: array, minItems: 1, maxItems: 20, items: {$ref: "#/components/schemas/CreateEvaluationDatasetItemRequest"}}
+    EvaluationDatasetList:
+      type: object
+      required: [datasets]
+      properties:
+        datasets: {type: array, items: {$ref: "#/components/schemas/EvaluationDataset"}}
+    EvaluationExperimentItem:
+      type: object
+      required: [id, experiment_id, item_index, prompt, tags, status, left_average, right_average, created_at, updated_at]
+      properties:
+        id: {type: string}
+        experiment_id: {type: string}
+        dataset_item_id: {type: string}
+        item_index: {type: integer, format: int32, minimum: 0}
+        prompt: {type: string}
+        expected_output: {type: string}
+        tags: {type: array, items: {type: string}}
+        left_session_id: {type: string}
+        left_turn_id: {type: string}
+        right_session_id: {type: string}
+        right_turn_id: {type: string}
+        evaluation_id: {type: string}
+        status: {type: string, enum: [queued, running, completed, failed]}
+        conclusion: {type: string, enum: [left, right, tie, inconclusive]}
+        left_average: {type: number, format: double}
+        right_average: {type: number, format: double}
+        error_message: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EvaluationExperimentSummary:
+      type: object
+      required: [total, queued, running, completed, failed, left_wins, right_wins, ties, inconclusive, left_average, right_average]
+      properties:
+        total: {type: integer, format: int32}
+        queued: {type: integer, format: int32}
+        running: {type: integer, format: int32}
+        completed: {type: integer, format: int32}
+        failed: {type: integer, format: int32}
+        left_wins: {type: integer, format: int32}
+        right_wins: {type: integer, format: int32}
+        ties: {type: integer, format: int32}
+        inconclusive: {type: integer, format: int32}
+        left_average: {type: number, format: double}
+        right_average: {type: number, format: double}
+    EvaluationExperiment:
+      type: object
+      required: [id, workspace_id, name, status, summary, items, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        dataset_id: {type: string}
+        rubric_id: {type: string}
+        left_template_session_id: {type: string}
+        right_template_session_id: {type: string}
+        status: {type: string, enum: [running, completed, failed]}
+        summary: {$ref: "#/components/schemas/EvaluationExperimentSummary"}
+        items: {type: array, items: {$ref: "#/components/schemas/EvaluationExperimentItem"}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+    CreateEvaluationExperimentRequest:
+      type: object
+      required: [name, dataset_id, rubric_id, left_template_session_id, right_template_session_id]
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, maxLength: 160}
+        dataset_id: {type: string}
+        rubric_id: {type: string}
+        left_template_session_id: {type: string}
+        right_template_session_id: {type: string}
+    EvaluationExperimentList:
+      type: object
+      required: [experiments]
+      properties:
+        experiments: {type: array, items: {$ref: "#/components/schemas/EvaluationExperiment"}}
     SessionComparisonSide:
       type: object
       required: [session, llm_provider, llm_model, prompt, result, duration_ms, usage, artifacts]
       properties:
         session: {$ref: "#/components/schemas/Session"}
+        run: {$ref: "#/components/schemas/Run"}
         llm_provider: {type: string}
         llm_model: {type: string}
         prompt: {type: string}
@@ -1227,7 +1461,14 @@ paths:
             summary: {$ref: "#/components/schemas/LLMUsageSummary"}
             records: {type: array, items: {$ref: "#/components/schemas/LLMUsageRecord"}}
         artifacts: {type: array, items: {$ref: "#/components/schemas/Artifact"}}
+        trace: {$ref: "#/components/schemas/TurnTrace"}
     SessionComparison:
+      type: object
+      required: [left, right]
+      properties:
+        left: {$ref: "#/components/schemas/SessionComparisonSide"}
+        right: {$ref: "#/components/schemas/SessionComparisonSide"}
+    RunComparison:
       type: object
       required: [left, right]
       properties:
@@ -2902,7 +3143,7 @@ paths:
       additionalProperties: false
       properties:
         id: {type: string, minLength: 1, maxLength: 120}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         argument: {type: string, enum: [path]}
         pattern: {type: string, minLength: 1, maxLength: 2048}
         behavior: {type: string, enum: [allow, ask, deny]}
@@ -2913,7 +3154,7 @@ paths:
       additionalProperties: false
       properties:
         id: {type: string, minLength: 1, maxLength: 120}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         argument: {type: string, enum: [path]}
         pattern: {type: string, minLength: 1, maxLength: 2048}
         behavior: {type: string, enum: [deny]}
@@ -2946,7 +3187,7 @@ paths:
       properties:
         agent_id: {type: string}
         session_id: {type: string}
-        tool: {type: string, enum: [default.read_file, default.write_file, default.edit_file]}
+        tool: {type: string, enum: [default_read_file, default_write_file, default_edit_file]}
         path: {type: string, minLength: 1, maxLength: 4096}
         intervention_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
     EvaluateWorkspaceToolPermissionResult:

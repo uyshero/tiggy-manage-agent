@@ -427,6 +427,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('agent_schedules', 'agent_schedules_workspace_isolation'),
 				('agents', 'agents_workspace_isolation'),
 				('environments', 'environments_workspace_isolation'),
+				('evaluation_rubrics', 'evaluation_rubrics_workspace_isolation'),
 				('llm_usage_records', 'llm_usage_records_session_isolation'),
 				('managed_environment_variables', 'managed_environment_variables_workspace_isolation'),
 				('mcp_registry_server_versions', 'mcp_registry_server_versions_workspace_isolation'),
@@ -434,6 +435,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('object_refs', 'object_refs_workspace_isolation'),
 				('observability_exporter_runs', 'observability_exporter_runs_session_isolation'),
 				('operator_audit_log', 'operator_audit_log_workspace_isolation'),
+				('run_evaluations', 'run_evaluations_workspace_isolation'),
 				('security_audit_outbox', 'security_audit_outbox_workspace_isolation'),
 				('session_artifacts', 'session_artifacts_workspace_isolation'),
 				('session_event_counters', 'session_event_counters_session_isolation'),
@@ -516,8 +518,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 52 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000088")
+	if checked != 54 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000090")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
@@ -529,6 +531,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_agent_schedule_id_seq'),
 				('tma_agent_schedule_run_id_seq'),
 				('tma_environment_id_seq'),
+				('tma_evaluation_rubric_id_seq'),
 				('tma_event_id_seq'),
 				('tma_llm_usage_id_seq'),
 				('tma_mcp_registry_server_id_seq'),
@@ -536,6 +539,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_object_ref_id_seq'),
 				('tma_observability_exporter_run_id_seq'),
 				('tma_operator_audit_id_seq'),
+				('tma_run_evaluation_id_seq'),
 				('tma_session_artifact_id_seq'),
 				('tma_session_id_seq'),
 				('tma_skill_asset_gc_item_id_seq'),
@@ -584,8 +588,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 32 {
-		return errors.New("tenant resource sequences are missing; apply migrations through 000088")
+	if checked != 34 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000090")
 	}
 	return nil
 }

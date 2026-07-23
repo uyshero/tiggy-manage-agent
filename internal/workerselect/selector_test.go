@@ -15,7 +15,7 @@ func TestMatchesInvocationRequiresNamespaceAPIAndCapabilities(t *testing.T) {
 		ID: "wrk_000001",
 		Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 			Namespaces:   []string{"default"},
-			APIs:         []string{"default.run_command"},
+			APIs:         []string{"default_run_command"},
 			Runtimes:     []string{"local_system"},
 			Capabilities: []string{"exec"},
 		}),
@@ -51,7 +51,7 @@ func TestSelectorSkipsExpiredWorkersAndUsesWorkspaceStatus(t *testing.T) {
 			LeaseExpiresAt: &expired,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),
@@ -63,7 +63,7 @@ func TestSelectorSkipsExpiredWorkersAndUsesWorkspaceStatus(t *testing.T) {
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),
@@ -110,7 +110,7 @@ func TestAvailableFromWorkersAggregatesMatchingWorkerCapabilities(t *testing.T) 
 			LeaseExpiresAt: &expired,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),
@@ -121,7 +121,7 @@ func TestAvailableFromWorkersAggregatesMatchingWorkerCapabilities(t *testing.T) 
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.read_file"},
+				APIs:         []string{"default_read_file"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"filesystem.read"},
 			}),
@@ -132,7 +132,7 @@ func TestAvailableFromWorkersAggregatesMatchingWorkerCapabilities(t *testing.T) 
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.execute_code"},
+				APIs:         []string{"default_execute_code"},
 				Runtimes:     []string{"cloud_sandbox"},
 				Capabilities: []string{"code.execute", "exec"},
 			}),
@@ -142,7 +142,7 @@ func TestAvailableFromWorkersAggregatesMatchingWorkerCapabilities(t *testing.T) 
 	if available.Runtime != tools.ToolRuntimeLocalSystem {
 		t.Fatalf("unexpected runtime: %#v", available)
 	}
-	if len(available.APIs) != 1 || available.APIs[0] != "default.read_file" {
+	if len(available.APIs) != 1 || available.APIs[0] != "default_read_file" {
 		t.Fatalf("expected only local reader API, got %#v", available.APIs)
 	}
 	if len(available.Capabilities) != 1 || available.Capabilities[0] != "filesystem.read" {
@@ -160,7 +160,7 @@ func TestAvailableRegistryFromWorkersRequiresSingleWorkerToMatchAPI(t *testing.T
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"filesystem.read"},
 			}),
@@ -171,7 +171,7 @@ func TestAvailableRegistryFromWorkersRequiresSingleWorkerToMatchAPI(t *testing.T
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.read_file"},
+				APIs:         []string{"default_read_file"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),
@@ -182,7 +182,7 @@ func TestAvailableRegistryFromWorkersRequiresSingleWorkerToMatchAPI(t *testing.T
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.read_file"},
+				APIs:         []string{"default_read_file"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"filesystem.read"},
 			}),
@@ -209,7 +209,7 @@ func TestDiagnoseInvocationExplainsWorkerMismatches(t *testing.T) {
 			LeaseExpiresAt: &expired,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),
@@ -220,7 +220,7 @@ func TestDiagnoseInvocationExplainsWorkerMismatches(t *testing.T) {
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"filesystem.read"},
 			}),
@@ -231,7 +231,7 @@ func TestDiagnoseInvocationExplainsWorkerMismatches(t *testing.T) {
 			LeaseExpiresAt: &valid,
 			Capabilities: rawCapabilities(t, tools.WorkerCapabilities{
 				Namespaces:   []string{"default"},
-				APIs:         []string{"default.run_command"},
+				APIs:         []string{"default_run_command"},
 				Runtimes:     []string{"local_system"},
 				Capabilities: []string{"exec"},
 			}),

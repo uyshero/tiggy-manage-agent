@@ -4,6 +4,7 @@ export { AgentsService } from "./services/agents.js";
 export { ArtifactsService } from "./services/artifacts.js";
 export { AuthService } from "./services/auth.js";
 export { EnvironmentsService } from "./services/environments.js";
+export { EvaluationsService, type RunEvaluationListQuery } from "./services/evaluations.js";
 export { InterventionsService } from "./services/interventions.js";
 export { LLMService } from "./services/llm.js";
 export { MarketplaceService } from "./services/marketplace.js";

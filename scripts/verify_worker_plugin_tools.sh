@@ -38,7 +38,7 @@ set -eu
 
 case "${1:-}" in
   manifest)
-    printf '%s' '{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot verification plugin."},"system_role":"Use robot.* tools only for robot verification tasks.","api":[{"name":"get_state","namespace":"robot","api":"get_state","description":"Read robot state.","parameters":{"type":"object","properties":{}},"capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}'
+    printf '%s' '{"identifier":"robot","type":"process_plugin","meta":{"title":"Robot","description":"Robot verification plugin."},"system_role":"Use robot_* tools only for robot verification tasks.","api":[{"name":"get_state","namespace":"robot","api":"get_state","description":"Read robot state.","parameters":{"type":"object","properties":{}},"capabilities":["robot.state"],"risk":"read","runtime":{"allowed":["local_system"],"preferred":"local_system"},"implementation":"worker_capability"}]}'
     ;;
   execute)
     cat >/dev/null
@@ -77,7 +77,7 @@ for worker in workers:
     manifests = capabilities.get("manifests") or []
     if not any(manifest.get("identifier") == "robot" for manifest in manifests):
         continue
-    if "robot.get_state" not in (capabilities.get("apis") or []):
+    if "robot_get_state" not in (capabilities.get("apis") or []):
         continue
     print(worker.get("id", ""))
     raise SystemExit(0)

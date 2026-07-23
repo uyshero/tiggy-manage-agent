@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -145,18 +146,15 @@ func (s *Server) evaluateWorkspaceToolPermission(w http.ResponseWriter, r *http.
 		return
 	}
 	switch request.Tool {
-	case tools.NamespaceDefault + ".read_file", tools.NamespaceDefault + ".write_file", tools.NamespaceDefault + ".edit_file":
+	case tools.ModelToolName(tools.NamespaceDefault, "read_file"), tools.ModelToolName(tools.NamespaceDefault, "write_file"), tools.ModelToolName(tools.NamespaceDefault, "edit_file"):
 	default:
 		writeError(w, fmt.Errorf("%w: tool %q does not support path permission rules", managedagents.ErrInvalid, request.Tool))
 		return
 	}
-	separator := strings.LastIndexByte(request.Tool, '.')
-	if separator <= 0 || separator == len(request.Tool)-1 {
-		writeError(w, fmt.Errorf("%w: tool must use namespace.api format", managedagents.ErrInvalid))
-		return
-	}
-	identifier, apiName := request.Tool[:separator], request.Tool[separator+1:]
-	manifest, api, ok := tools.DefaultRegistry().GetAPI(identifier, apiName)
+	registry := tools.DefaultRegistry()
+	call := registry.ResolveCall(tools.Call{Name: request.Tool})
+	identifier, apiName := call.Identifier, call.APIName
+	manifest, api, ok := registry.GetAPI(identifier, apiName)
 	if !ok {
 		writeError(w, fmt.Errorf("%w: unknown built-in tool %q", managedagents.ErrInvalid, request.Tool))
 		return
@@ -275,6 +273,20 @@ func validateAgentToolPermissionRules(raw json.RawMessage) error {
 	_, err := tools.ParsePermissionRulesForSource(raw, tools.PermissionRuleSourceAgent)
 	if err != nil {
 		return fmt.Errorf("%w: %v", managedagents.ErrInvalid, err)
+	}
+	var config struct {
+		Runtime *string `json:"runtime"`
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		if err := json.Unmarshal(trimmed, &config); err != nil {
+			return fmt.Errorf("%w: tools must be valid JSON", managedagents.ErrInvalid)
+		}
+		if config.Runtime != nil {
+			if _, ok := tools.NormalizeToolRuntime(*config.Runtime); !ok {
+				return fmt.Errorf("%w: unsupported Agent tools.runtime %q", managedagents.ErrInvalid, *config.Runtime)
+			}
+		}
 	}
 	return nil
 }

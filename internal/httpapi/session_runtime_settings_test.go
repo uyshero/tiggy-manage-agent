@@ -88,6 +88,92 @@ func TestSessionRuntimeSettingsRejectsInvalidAgentCoreValues(t *testing.T) {
 	}
 }
 
+func TestSessionRuntimeSettingsRejectsToolRuntime(t *testing.T) {
+	server := newTestServer()
+	session := createAgentCoreSettingsSession(t, server)
+	request := httptest.NewRequest(http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", bytes.NewBufferString(`{"tool_runtime":"local_system"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", `"1"`)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "unknown field") {
+		t.Fatalf("tool_runtime status = %d, want 400 unknown field: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestSessionRuntimeCapabilitiesUseAgentToolsRuntime(t *testing.T) {
+	server := newTestServer()
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name":"Runtime Agent",
+		"llm_provider":"fake",
+		"llm_model":"fake-demo",
+		"tools":{"runtime":"cloud_sandbox"}
+	}`)
+	request := httptest.NewRequest(http.MethodPatch, "/v1/agents/"+agent.ID, bytes.NewBufferString(`{"tools":{"runtime":"local_system"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("Agent runtime update status = %d, want 200: %s", response.Code, response.Body.String())
+	}
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"Runtime Environment","config":{"type":"cloud"}}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`","environment_id":"`+environment.ID+`"}`)
+	capabilities := getJSON[sessionRuntimeCapabilitiesResponse](t, server, "/v1/sessions/"+session.ID+"/runtime-capabilities")
+	if capabilities.DefaultRuntime != "local_system" {
+		t.Fatalf("default runtime = %q, want Agent runtime local_system", capabilities.DefaultRuntime)
+	}
+}
+
+func TestAgentEnvironmentBindingIsInheritedBySession(t *testing.T) {
+	server := newTestServer()
+	boundEnvironment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"PPT Sandbox","config":{"runtime_settings":{"cloud_sandbox_image":"tma-ppt:local"}}}`)
+	otherEnvironment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{"name":"General Sandbox","config":{"type":"cloud"}}`)
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name":"PPT Agent",
+		"environment_id":"`+boundEnvironment.ID+`",
+		"llm_provider":"fake",
+		"llm_model":"fake-demo"
+	}`)
+	if agent.EnvironmentID != boundEnvironment.ID {
+		t.Fatalf("Agent environment = %q, want %q", agent.EnvironmentID, boundEnvironment.ID)
+	}
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`"}`)
+	if session.EnvironmentID != boundEnvironment.ID {
+		t.Fatalf("Session environment = %q, want inherited %q", session.EnvironmentID, boundEnvironment.ID)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions", bytes.NewBufferString(`{"agent_id":"`+agent.ID+`","environment_id":"`+otherEnvironment.ID+`"}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "must match Agent environment") {
+		t.Fatalf("mismatched environment status = %d, want 400: %s", response.Code, response.Body.String())
+	}
+
+	updatedAgent := postJSONWithStatus[managedagents.Agent](t, server, http.MethodPatch, "/v1/agents/"+agent.ID,
+		`{"environment_id":"`+otherEnvironment.ID+`"}`, http.StatusOK)
+	if updatedAgent.EnvironmentID != otherEnvironment.ID {
+		t.Fatalf("updated Agent environment = %q, want %q", updatedAgent.EnvironmentID, otherEnvironment.ID)
+	}
+	unchangedSession := getJSON[managedagents.Session](t, server, "/v1/sessions/"+session.ID)
+	if unchangedSession.EnvironmentID != boundEnvironment.ID {
+		t.Fatalf("existing Session environment changed to %q, want %q", unchangedSession.EnvironmentID, boundEnvironment.ID)
+	}
+	newSession := postJSON[managedagents.Session](t, server, "/v1/sessions", `{"agent_id":"`+agent.ID+`"}`)
+	if newSession.EnvironmentID != otherEnvironment.ID {
+		t.Fatalf("new Session environment = %q, want inherited %q", newSession.EnvironmentID, otherEnvironment.ID)
+	}
+	postJSONWithStatus[map[string]string](t, server, http.MethodPatch, "/v1/agents/"+agent.ID,
+		`{"environment_id":""}`, http.StatusBadRequest)
+
+	list := getJSON[struct {
+		Environments []managedagents.Environment `json:"environments"`
+	}](t, server, "/v1/environments")
+	if len(list.Environments) != 2 {
+		t.Fatalf("Environment list size = %d, want 2", len(list.Environments))
+	}
+}
+
 func TestSessionRuntimeSettingsRejectsStaleRevision(t *testing.T) {
 	server := newTestServer()
 	session := createAgentCoreSettingsSession(t, server)
@@ -96,7 +182,7 @@ func TestSessionRuntimeSettingsRejectsStaleRevision(t *testing.T) {
 		t.Fatalf("revision = %d, want %d", updated.RuntimeSettingsRevision, session.RuntimeSettingsRevision+1)
 	}
 
-	request := httptest.NewRequest(http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", bytes.NewBufferString(`{"tool_runtime":"local_system"}`))
+	request := httptest.NewRequest(http.MethodPatch, "/v1/sessions/"+session.ID+"/runtime-settings", bytes.NewBufferString(`{"intervention_mode":"full_access"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("If-Match", strconv.Quote(strconv.FormatInt(session.RuntimeSettingsRevision, 10)))
 	response := httptest.NewRecorder()

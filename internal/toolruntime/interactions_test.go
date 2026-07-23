@@ -22,7 +22,7 @@ func TestToolRuntimeReturnsCodedErrorForUninitializedSnapshot(t *testing.T) {
 	t.Parallel()
 
 	_, err := (toolruntime.ToolRuntime{}).Preflight(t.Context(), agentcore.State{}, []coremodel.ToolCall{{
-		ID: "call_1", Name: "read.inspect", Arguments: json.RawMessage(`{}`),
+		ID: "call_1", Name: "read_inspect", Arguments: json.RawMessage(`{}`),
 	}})
 	var contractError *tools.ToolContractError
 	if !errors.As(err, &contractError) || contractError.ErrorCode() != "invalid_tool_runtime_snapshot" {
@@ -36,7 +36,7 @@ func TestToolRuntimeParksAndResolvesAskUser(t *testing.T) {
 	}
 	state := agentcore.NewState("session_1", "turn_1", agentcore.Budget{})
 	call := coremodel.ToolCall{
-		ID: "call_ask", Name: "interaction.ask_user",
+		ID: "call_ask", Name: "interaction_ask_user",
 		Arguments: json.RawMessage(`{"question":"Choose a target","mode":"select","choices":[{"id":"a","label":"A"},{"id":"b","label":"B"}]}`),
 	}
 	plan, err := runtime.Preflight(context.Background(), state, []coremodel.ToolCall{call})
@@ -66,8 +66,8 @@ func TestToolRuntimeRejectsParkingInteractionBatch(t *testing.T) {
 	}
 	state := agentcore.NewState("session_1", "turn_1", agentcore.Budget{})
 	_, err := runtime.Preflight(context.Background(), state, []coremodel.ToolCall{
-		{ID: "call_ask", Name: "interaction.ask_user", Arguments: json.RawMessage(`{"question":"Continue?","mode":"freeform"}`)},
-		{ID: "call_read", Name: "default.read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)},
+		{ID: "call_ask", Name: "interaction_ask_user", Arguments: json.RawMessage(`{"question":"Continue?","mode":"freeform"}`)},
+		{ID: "call_read", Name: "default_read_file", Arguments: json.RawMessage(`{"path":"README.md"}`)},
 	})
 	if err == nil {
 		t.Fatal("Preflight() error = nil")
@@ -80,8 +80,8 @@ func TestToolRuntimeReturnsInvalidArgumentsToModel(t *testing.T) {
 	}
 	state := agentcore.NewState("session_1", "turn_1", agentcore.Budget{})
 	for _, call := range []coremodel.ToolCall{
-		{ID: "call_read", Name: "default.read_file", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_ask", Name: "interaction.ask_user", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_read", Name: "default_read_file", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_ask", Name: "interaction_ask_user", Arguments: json.RawMessage(`{}`)},
 	} {
 		t.Run(call.Name, func(t *testing.T) {
 			plan, err := runtime.Preflight(t.Context(), state, []coremodel.ToolCall{call})
@@ -116,8 +116,8 @@ func TestToolRuntimeReturnsUnknownToolsToModel(t *testing.T) {
 		validationState agentcore.ToolValidationState
 		errorType       string
 	}{
-		{name: "unknown namespace", tool: "missing.inspect", validationState: agentcore.ToolValidationUnsupportedTool, errorType: "unsupported_tool"},
-		{name: "unknown api", tool: "default.missing", validationState: agentcore.ToolValidationUnsupportedToolAPI, errorType: "unsupported_tool_api"},
+		{name: "unknown canonical name", tool: "missing_inspect", validationState: agentcore.ToolValidationUnsupportedToolAPI, errorType: "unsupported_tool_api"},
+		{name: "unknown api", tool: "default_missing", validationState: agentcore.ToolValidationUnsupportedToolAPI, errorType: "unsupported_tool_api"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call := coremodel.ToolCall{ID: "call_missing", Name: test.tool, Arguments: json.RawMessage(`{}`)}
@@ -168,7 +168,7 @@ func TestAgentCoreContinuesAfterUnknownToolResult(t *testing.T) {
 		modeltest.ModelStep{Response: coremodel.Response{
 			Message: coremodel.Message{ID: "assistant_1", Content: []coremodel.Content{{
 				Type:     coremodel.ContentToolCall,
-				ToolCall: &coremodel.ToolCall{ID: "call_missing", Name: "missing.inspect", Arguments: json.RawMessage(`{}`)},
+				ToolCall: &coremodel.ToolCall{ID: "call_missing", Name: "missing_inspect", Arguments: json.RawMessage(`{}`)},
 			}}},
 			StopReason: coremodel.StopReasonToolCall,
 		}},
@@ -176,7 +176,7 @@ func TestAgentCoreContinuesAfterUnknownToolResult(t *testing.T) {
 			Assert: func(request coremodel.Request) error {
 				for _, message := range request.Messages {
 					for _, content := range message.Content {
-						if content.ToolResult != nil && content.ToolResult.CallID == "call_missing" && content.ToolResult.IsError && strings.Contains(content.ToolResult.Content[0].Text, `"type":"unsupported_tool"`) {
+						if content.ToolResult != nil && content.ToolResult.CallID == "call_missing" && content.ToolResult.IsError && strings.Contains(content.ToolResult.Content[0].Text, `"type":"unsupported_tool_api"`) {
 							return nil
 						}
 					}
@@ -235,7 +235,7 @@ func TestAgentCoreContinuesAfterMalformedToolArguments(t *testing.T) {
 	registry := tools.NewRegistry(readRuntime{})
 	snapshot := fullAccessSnapshot(t, registry)
 	definitions := snapshot.Definitions()
-	state.ActiveTools = []string{"read.inspect"}
+	state.ActiveTools = []string{"read_inspect"}
 	executor := &countingExecutor{}
 	client := &malformedThenCompleteClient{}
 	durability := modeltest.NewMemoryDurability(state)
@@ -284,13 +284,13 @@ func TestAgentCoreContinuesAfterTruncatedToolCall(t *testing.T) {
 	registry := tools.NewRegistry(readRuntime{})
 	snapshot := fullAccessSnapshot(t, registry)
 	definitions := snapshot.Definitions()
-	state.ActiveTools = []string{"read.inspect"}
+	state.ActiveTools = []string{"read_inspect"}
 	executor := &countingExecutor{}
 	truncated := coremodel.Response{
 		Message: coremodel.Message{ID: "assistant_1", Content: []coremodel.Content{{
 			Type: coremodel.ContentToolCall,
 			ToolCall: &coremodel.ToolCall{
-				ID: "call_truncated", Name: "read.inspect", Arguments: json.RawMessage(`{}`),
+				ID: "call_truncated", Name: "read_inspect", Arguments: json.RawMessage(`{}`),
 			},
 		}}},
 		StopReason: coremodel.StopReasonLength,
@@ -364,7 +364,7 @@ func TestToolRuntimeSnapshotIgnoresSourceManifestDrift(t *testing.T) {
 		Executor: tools.RegistryExecutor{Registry: registry},
 	}
 	state := agentcore.NewState("session_1", "turn_1", agentcore.Budget{})
-	call := coremodel.ToolCall{ID: "call_mutable", Name: "mutable.inspect", Arguments: json.RawMessage(`{}`)}
+	call := coremodel.ToolCall{ID: "call_mutable", Name: "mutable_inspect", Arguments: json.RawMessage(`{}`)}
 	plan, err := runtime.Preflight(t.Context(), state, []coremodel.ToolCall{call})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v", err)
@@ -429,7 +429,7 @@ func (c *malformedThenCompleteClient) Generate(_ context.Context, request llm.Re
 	if c.calls == 1 {
 		return llm.Response{Message: llm.Message{ToolCalls: []llm.ToolCall{{
 			ID: "call_malformed_1", Type: "function", Function: llm.ToolCallFunction{
-				Name: "read.inspect", Arguments: json.RawMessage(`{"path":"README.md"`),
+				Name: "read_inspect", Arguments: json.RawMessage(`{"path":"README.md"`),
 			},
 		}}}}, nil
 	}
@@ -446,7 +446,7 @@ func (c *malformedThenCompleteClient) Generate(_ context.Context, request llm.Re
 				if c.calls == 2 {
 					return llm.Response{Message: llm.Message{ToolCalls: []llm.ToolCall{{
 						ID: "call_malformed_2", Type: "function", Function: llm.ToolCallFunction{
-							Name: "read.inspect", Arguments: json.RawMessage(`[]`),
+							Name: "read_inspect", Arguments: json.RawMessage(`[]`),
 						},
 					}}}}, nil
 				}

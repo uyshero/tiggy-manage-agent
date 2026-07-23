@@ -79,6 +79,205 @@ func TestPostgresSessionRunIdempotencyAndIndexedEvents(t *testing.T) {
 	}
 }
 
+func TestPostgresAgentEnvironmentUpdateOnlyAffectsNewSessions(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	firstEnvironment, err := store.CreateEnvironment(CreateEnvironmentInput{
+		Name: "agent-update-first-" + suffix, Config: json.RawMessage(`{"type":"integration"}`),
+	})
+	if err != nil {
+		t.Fatalf("create first environment: %v", err)
+	}
+	secondEnvironment, err := store.CreateEnvironment(CreateEnvironmentInput{
+		Name: "agent-update-second-" + suffix, Config: json.RawMessage(`{"type":"integration"}`),
+	})
+	if err != nil {
+		t.Fatalf("create second environment: %v", err)
+	}
+	agent, err := store.CreateAgent(CreateAgentInput{
+		EnvironmentID: firstEnvironment.ID, Name: "agent-environment-update-" + suffix,
+		Model: "test-model", System: "integration test",
+	})
+	if err != nil {
+		t.Fatalf("create bound agent: %v", err)
+	}
+	firstSession, err := store.CreateSession(CreateSessionInput{AgentID: agent.ID, CreatedBy: "integration-test"})
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM sessions WHERE agent_id = $1`, agent.ID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1`, agent.ID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM environments WHERE id IN ($1, $2)`, firstEnvironment.ID, secondEnvironment.ID)
+	})
+
+	updated, err := store.UpdateAgent(UpdateAgentInput{AgentID: agent.ID, EnvironmentID: &secondEnvironment.ID})
+	if err != nil {
+		t.Fatalf("update Agent environment: %v", err)
+	}
+	if updated.EnvironmentID != secondEnvironment.ID {
+		t.Fatalf("updated Agent environment = %q, want %q", updated.EnvironmentID, secondEnvironment.ID)
+	}
+	loadedFirst, err := store.GetSession(firstSession.ID)
+	if err != nil || loadedFirst.EnvironmentID != firstEnvironment.ID {
+		t.Fatalf("existing Session environment = %q, err=%v; want %q", loadedFirst.EnvironmentID, err, firstEnvironment.ID)
+	}
+	secondSession, err := store.CreateSession(CreateSessionInput{AgentID: agent.ID, CreatedBy: "integration-test"})
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	if secondSession.EnvironmentID != secondEnvironment.ID {
+		t.Fatalf("new Session environment = %q, want %q", secondSession.EnvironmentID, secondEnvironment.ID)
+	}
+}
+
+func TestPostgresRunEvaluationSnapshotAndWorkspaceIsolation(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	leftSession := createPostgresIntegrationSession(t, store)
+	rightSession := createPostgresIntegrationSession(t, store)
+	createRun := func(sessionID, prompt string) string {
+		events, err := store.AppendEvents(sessionID, []AppendEventInput{{
+			Type: EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"` + prompt + `"}]}`),
+		}})
+		if err != nil {
+			t.Fatalf("append evaluation Run: %v", err)
+		}
+		turnID := payloadString(events[len(events)-1].Payload, "turn_id")
+		if _, err := store.CompleteSessionTurn(sessionID, turnID, json.RawMessage(`{"content":[{"type":"text","text":"done"}]}`)); err != nil {
+			t.Fatalf("complete evaluation Run: %v", err)
+		}
+		return turnID
+	}
+	leftTurnID := createRun(leftSession.ID, "left")
+	rightTurnID := createRun(rightSession.ID, "right")
+	rubric, err := store.CreateEvaluationRubricContext(t.Context(), CreateEvaluationRubricInput{
+		WorkspaceID: leftSession.WorkspaceID, Name: "Snapshot rubric", CreatedBy: "integration-test",
+		Criteria: []EvaluationCriterion{{ID: "quality", Name: "Quality"}, {ID: "safety", Name: "Safety"}},
+	})
+	if err != nil {
+		t.Fatalf("create evaluation rubric: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM run_evaluations WHERE rubric_id = $1`, rubric.ID)
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM evaluation_rubrics WHERE id = $1`, rubric.ID)
+	})
+	evaluation, err := store.CreateRunEvaluationContext(t.Context(), CreateRunEvaluationInput{
+		LeftSessionID: leftSession.ID, LeftTurnID: leftTurnID,
+		RightSessionID: rightSession.ID, RightTurnID: rightTurnID,
+		RubricID: rubric.ID, Conclusion: EvaluationConclusionRight, CreatedBy: "integration-test",
+		EvaluationType: EvaluationTypeAuto, JudgeProvider: "judge-provider", JudgeModel: "judge-model", JudgeReasoning: "B has stronger evidence.",
+		Scores: []EvaluationCriterionScore{{CriterionID: "quality", LeftScore: 3, RightScore: 5}, {CriterionID: "safety", LeftScore: 4, RightScore: 4}},
+	})
+	if err != nil {
+		t.Fatalf("create Run evaluation: %v", err)
+	}
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE evaluation_rubrics SET name = 'Changed', criteria_json = '[{"id":"changed","name":"Changed"}]'::jsonb, revision = 2 WHERE id = $1`, rubric.ID); err != nil {
+		t.Fatalf("mutate source rubric: %v", err)
+	}
+	history, err := store.ListRunEvaluationsContext(t.Context(), ListRunEvaluationsInput{
+		LeftSessionID: leftSession.ID, LeftTurnID: leftTurnID,
+		RightSessionID: rightSession.ID, RightTurnID: rightTurnID,
+	})
+	if err != nil || len(history) != 1 {
+		t.Fatalf("list Run evaluation history: evaluations=%+v err=%v", history, err)
+	}
+	if history[0].ID != evaluation.ID || history[0].RubricSnapshot.Name != "Snapshot rubric" || history[0].RubricSnapshot.Revision != 1 || history[0].RubricSnapshot.Criteria[0].ID != "quality" {
+		t.Fatalf("evaluation snapshot changed with source rubric: %+v", history[0].RubricSnapshot)
+	}
+	if history[0].EvaluationType != EvaluationTypeAuto || history[0].JudgeProvider != "judge-provider" || history[0].JudgeModel != "judge-model" || history[0].JudgeReasoning != "B has stronger evidence." {
+		t.Fatalf("automatic evaluation metadata did not round-trip: %+v", history[0])
+	}
+
+	otherWorkspace := createPostgresIntegrationWorkspace(t, store, "evaluation-isolation")
+	otherContext, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: otherWorkspace})
+	if err != nil {
+		t.Fatalf("create other workspace context: %v", err)
+	}
+	if _, err := store.ListEvaluationRubricsContext(otherContext, leftSession.WorkspaceID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-workspace rubric list error = %v, want forbidden", err)
+	}
+	if _, err := store.ListRunEvaluationsContext(otherContext, ListRunEvaluationsInput{
+		LeftSessionID: leftSession.ID, LeftTurnID: leftTurnID,
+		RightSessionID: rightSession.ID, RightTurnID: rightTurnID,
+	}); !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-workspace evaluation list error = %v, want isolation", err)
+	}
+}
+
+func TestPostgresEvaluationDatasetExperimentLifecycle(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	leftTemplate := createPostgresIntegrationSession(t, store)
+	rightTemplate := createPostgresIntegrationSession(t, store)
+	rubric, err := store.CreateEvaluationRubricContext(t.Context(), CreateEvaluationRubricInput{
+		WorkspaceID: leftTemplate.WorkspaceID, Name: "Experiment rubric", CreatedBy: "integration-test",
+		Criteria: []EvaluationCriterion{{ID: "quality", Name: "Quality"}, {ID: "safety", Name: "Safety"}},
+	})
+	if err != nil {
+		t.Fatalf("create experiment rubric: %v", err)
+	}
+	dataset, err := store.CreateEvaluationDatasetContext(t.Context(), CreateEvaluationDatasetInput{
+		WorkspaceID: leftTemplate.WorkspaceID, Name: "Regression dataset", Description: "PostgreSQL round-trip",
+		CreatedBy: "integration-test", Items: []CreateEvaluationDatasetItemInput{
+			{Prompt: "Explain RLS", ExpectedOutput: "Tenant isolation", Tags: []string{"security"}},
+			{Prompt: "Explain MVCC", ExpectedOutput: "Snapshot isolation", Tags: []string{"database"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create evaluation dataset: %v", err)
+	}
+	experiment, err := store.CreateEvaluationExperimentContext(t.Context(), CreateEvaluationExperimentInput{
+		WorkspaceID: leftTemplate.WorkspaceID, Name: "Regression experiment",
+		DatasetID: dataset.ID, RubricID: rubric.ID,
+		LeftTemplateSessionID: leftTemplate.ID, RightTemplateSessionID: rightTemplate.ID,
+		CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create evaluation experiment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM evaluation_experiments WHERE id = $1`, experiment.ID)
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM evaluation_datasets WHERE id = $1`, dataset.ID)
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM evaluation_rubrics WHERE id = $1`, rubric.ID)
+	})
+	if len(experiment.Items) != 2 || experiment.Items[0].Prompt != "Explain RLS" || experiment.Summary.Queued != 2 {
+		t.Fatalf("unexpected experiment snapshot: %+v", experiment)
+	}
+	for index, item := range experiment.Items {
+		experiment, err = store.UpdateEvaluationExperimentItemContext(t.Context(), UpdateEvaluationExperimentItemInput{
+			ExperimentID: experiment.ID, ItemID: item.ID,
+			Status: EvaluationExperimentItemStatusCompleted, Conclusion: EvaluationConclusionTie,
+			LeftAverage: float64(3 + index), RightAverage: float64(3 + index),
+		})
+		if err != nil {
+			t.Fatalf("complete experiment item: %v", err)
+		}
+	}
+	if experiment.Status != EvaluationExperimentStatusCompleted || experiment.Summary.Completed != 2 || experiment.Summary.Ties != 2 || experiment.Summary.LeftAverage != 3.5 {
+		t.Fatalf("unexpected completed experiment: %+v", experiment)
+	}
+	datasets, err := store.ListEvaluationDatasetsContext(t.Context(), leftTemplate.WorkspaceID)
+	if err != nil || len(datasets) == 0 || datasets[0].Items[1].ExpectedOutput != "Snapshot isolation" {
+		t.Fatalf("list evaluation datasets: datasets=%+v err=%v", datasets, err)
+	}
+	experiments, err := store.ListEvaluationExperimentsContext(t.Context(), leftTemplate.WorkspaceID, 10)
+	if err != nil || len(experiments) == 0 || experiments[0].ID != experiment.ID {
+		t.Fatalf("list evaluation experiments: experiments=%+v err=%v", experiments, err)
+	}
+
+	otherWorkspace := createPostgresIntegrationWorkspace(t, store, "experiment-isolation")
+	otherContext, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: otherWorkspace})
+	if err != nil {
+		t.Fatalf("create experiment isolation context: %v", err)
+	}
+	if _, err := store.ListEvaluationDatasetsContext(otherContext, leftTemplate.WorkspaceID); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-workspace dataset list error = %v, want forbidden", err)
+	}
+	if _, err := store.GetEvaluationExperimentContext(otherContext, experiment.ID); !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrForbidden) {
+		t.Fatalf("cross-workspace experiment get error = %v, want isolation", err)
+	}
+}
+
 func TestPostgresNewRunFollowsLatestAgentConfigUnlessPinned(t *testing.T) {
 	store := newPostgresIntegrationStore(t)
 
@@ -197,7 +396,7 @@ func TestPostgresWorkspaceToolPermissionPolicyRevisionAndRuntimeResolution(t *te
 	if initial.Revision != 1 || string(initial.Policy) != `{"permission_rules": []}` && string(initial.Policy) != `{"permission_rules":[]}` {
 		t.Fatalf("unexpected default policy: %+v policy=%s", initial, initial.Policy)
 	}
-	policyJSON := json.RawMessage(`{"permission_rules":[{"id":"deny-secrets","tool":"default.edit_file","argument":"path","pattern":"/workspace/secrets/**","behavior":"deny"}]}`)
+	policyJSON := json.RawMessage(`{"permission_rules":[{"id":"deny-secrets","tool":"default_edit_file","argument":"path","pattern":"/workspace/secrets/**","behavior":"deny"}]}`)
 	updated, err := store.UpdateWorkspaceToolPermissionPolicyContext(ctx, UpdateWorkspaceToolPermissionPolicyInput{
 		WorkspaceID: workspaceID, Policy: policyJSON, ExpectedRevision: initial.Revision, UpdatedBy: "integration-test",
 	})
@@ -214,28 +413,31 @@ func TestPostgresWorkspaceToolPermissionPolicyRevisionAndRuntimeResolution(t *te
 	}
 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
-	agent, err := store.CreateAgent(CreateAgentInput{
-		WorkspaceID: workspaceID, Name: "tool-policy-agent-" + suffix, Model: "test-model", System: "integration test",
-	})
-	if err != nil {
-		t.Fatalf("create agent: %v", err)
-	}
 	environment, err := store.CreateEnvironment(CreateEnvironmentInput{
 		WorkspaceID: workspaceID, Name: "tool-policy-env-" + suffix, Config: json.RawMessage(`{"type":"integration"}`),
 	})
 	if err != nil {
 		t.Fatalf("create environment: %v", err)
 	}
+	agent, err := store.CreateAgent(CreateAgentInput{
+		WorkspaceID: workspaceID, EnvironmentID: environment.ID, Name: "tool-policy-agent-" + suffix, Model: "test-model", System: "integration test",
+	})
+	if err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
 	session, err := store.CreateSession(CreateSessionInput{
-		WorkspaceID: workspaceID, AgentID: agent.ID, EnvironmentID: environment.ID, CreatedBy: "integration-test",
+		WorkspaceID: workspaceID, AgentID: agent.ID, CreatedBy: "integration-test",
 	})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
+	if agent.EnvironmentID != environment.ID || session.EnvironmentID != environment.ID {
+		t.Fatalf("environment binding not inherited: agent=%q session=%q want=%q", agent.EnvironmentID, session.EnvironmentID, environment.ID)
+	}
 	t.Cleanup(func() {
 		_, _ = store.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, session.ID)
-		_, _ = store.db.ExecContext(ctx, `DELETE FROM environments WHERE id = $1`, environment.ID)
 		_, _ = store.db.ExecContext(ctx, `DELETE FROM agents WHERE id = $1`, agent.ID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM environments WHERE id = $1`, environment.ID)
 	})
 	runtimeConfig, err := store.ResolveAgentRuntimeConfig(session.ID)
 	if err != nil {
@@ -1633,7 +1835,7 @@ func TestPostgresStorePersistsTaskPlanLifecycle(t *testing.T) {
 		t.Fatalf("expected complete items in task plan history: %+v", history)
 	}
 	ref := history[0].Items[0].EvidenceRefs[0]
-	if ref.Kind != TaskEvidenceKindToolResult || ref.TurnID != turnID || ref.ToolCallID != "call_verify_plan" || ref.Tool != "default.run_command" || len(ref.ArtifactIDs) != 1 || ref.ArtifactIDs[0] != "art_plan_verification" {
+	if ref.Kind != TaskEvidenceKindToolResult || ref.TurnID != turnID || ref.ToolCallID != "call_verify_plan" || ref.Tool != "default_run_command" || len(ref.ArtifactIDs) != 1 || ref.ArtifactIDs[0] != "art_plan_verification" {
 		t.Fatalf("unexpected canonical task evidence ref: %+v", ref)
 	}
 }
@@ -2998,10 +3200,10 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
-		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, managed_environment_variables,
+		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, evaluation_rubrics, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
-		session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
+		run_evaluations, session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
 		skill_marketplace_entries, skill_marketplace_policies, skill_marketplace_policy_versions,
@@ -3021,9 +3223,9 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		t.Fatalf("grant Session turn access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
-		GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
+		GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
 		tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
-			tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq,
+			tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq, tma_run_evaluation_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,
 		tma_skill_asset_gc_run_id_seq, tma_skill_asset_gc_tombstone_id_seq,
 		tma_skill_asset_retention_policy_id_seq, tma_skill_asset_retention_policy_version_id_seq,

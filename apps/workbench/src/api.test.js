@@ -34,6 +34,7 @@ import {
   disableSkill,
   downloadArtifact,
   environmentVariables,
+  environments,
   evaluateWorkspaceToolPermission,
   events,
   enableSkill,
@@ -275,6 +276,7 @@ test("read-only MCP, Skills, environment, and observability queries use v2 SDK s
     if (url.includes("/v2/mcp-servers/runtime-status")) return response({ checked_at: "2026-07-15T00:00:00Z", states: [] });
     if (url.includes("/v2/mcp-servers")) return response({ servers: [{ id: "mcp/1", status: "active" }] });
     if (url.includes("/v2/environment-variables")) return response({ variables: [{ name: "API_KEY", configured: true }] });
+    if (url.endsWith("/v2/environments")) return response({ environments: [{ id: "env/1", name: "PPT Sandbox" }] });
     if (url.endsWith("/versions")) return response({ versions: [{ id: "version/1", version: 1 }] });
     if (url.includes("/v2/skills")) return response({ skills: [{ id: "skill/1", identifier: "review" }] });
     return response({ enabled: true, exporter: { status: "ready" } });
@@ -283,12 +285,14 @@ test("read-only MCP, Skills, environment, and observability queries use v2 SDK s
     const servers = await mcpServers("workspace/1");
     const runtime = await mcpServerRuntimeStatus("workspace/1");
     const variables = await environmentVariables("workspace/1");
+    const environmentList = await environments();
     const skillList = await skills({ workspaceId: "workspace/1", includeArchived: true });
     const versions = await skillVersions("skill/1");
     const observability = await observabilityStatus();
     assert.equal(servers.servers[0].id, "mcp/1");
     assert.equal(runtime.states.length, 0);
     assert.deepEqual(variables.variables[0], { name: "API_KEY", configured: true });
+    assert.equal(environmentList.environments[0].id, "env/1");
     assert.equal(skillList.skills[0].id, "skill/1");
     assert.equal(versions.versions[0].version, 1);
     assert.equal(observability.enabled, true);
@@ -300,6 +304,7 @@ test("read-only MCP, Skills, environment, and observability queries use v2 SDK s
     "http://localhost/v2/mcp-servers?workspace_id=workspace%2F1",
     "http://localhost/v2/mcp-servers/runtime-status?workspace_id=workspace%2F1",
     "http://localhost/v2/environment-variables?workspace_id=workspace%2F1",
+    "http://localhost/v2/environments",
     "http://localhost/v2/skills?workspace_id=workspace%2F1&include_archived=true",
     "http://localhost/v2/skills/skill%2F1/versions",
     "http://localhost/v2/observability/status"
@@ -972,9 +977,9 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
     const rerun = await rerunSession("session/source", { title: "Rerun", message_seq: 4 }, { signal: controller.signal });
     const metadata = await updateSessionMetadata("session/source", { pinned: false, tags: ["qa", "sdk"] }, { signal: controller.signal });
     const runtime = await updateSessionRuntimeSettings("session/source", 7, {
-      intervention_mode: "request_approval", tool_runtime: "cloud_sandbox", cloud_sandbox_allow_network: false,
+      intervention_mode: "request_approval", cloud_sandbox_allow_network: false,
       permission_rules: [{
-        id: "session-src", tool: "default.edit_file", argument: "path",
+        id: "session-src", tool: "default_edit_file", argument: "path",
         pattern: "/workspace/src/**", behavior: "allow"
       }]
     }, { signal: controller.signal });
@@ -1009,7 +1014,7 @@ test("Session lifecycle writes use typed v2 SDK services and preserve request bo
   assert.equal(requests[5].body.cloud_sandbox_allow_network, false);
   assert.equal(requests[5].headers.get("If-Match"), `"7"`);
   assert.deepEqual(requests[5].body.permission_rules, [{
-    id: "session-src", tool: "default.edit_file", argument: "path",
+    id: "session-src", tool: "default_edit_file", argument: "path",
     pattern: "/workspace/src/**", behavior: "allow"
   }]);
   assert.deepEqual(requests[6].body, { to_version: 3, updated_by: "workbench" });
@@ -1084,12 +1089,12 @@ test("Workspace tool permissions use the typed v2 SDK and encode workspace ids",
     requests.push({ url: String(path), method: options.method, body, headers: new Headers(options.headers) });
     return response({ workspace_id: "workspace/1", permission_rules: body?.permission_rules || [], revision: body ? 4 : 3, updated_by: "operator", updated_at: "2026-07-21T00:00:00Z" });
   };
-  const rules = [{ id: "deny-secrets", tool: "default.edit_file", argument: "path", pattern: "/workspace/secrets/**", behavior: "deny" }];
+  const rules = [{ id: "deny-secrets", tool: "default_edit_file", argument: "path", pattern: "/workspace/secrets/**", behavior: "deny" }];
   try {
     await workspaceToolPermissions("workspace/1");
     const updated = await updateWorkspaceToolPermissions("workspace/1", rules, 3);
     await evaluateWorkspaceToolPermission("workspace/1", {
-      agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+      agent_id: "agent/1", tool: "default_edit_file", path: "/workspace/src/main.go",
       intervention_mode: "request_approval"
     });
     assert.deepEqual(updated.permission_rules, rules);
@@ -1104,7 +1109,7 @@ test("Workspace tool permissions use the typed v2 SDK and encode workspace ids",
   assert.deepEqual(requests[1].body, { permission_rules: rules });
   assert.equal(requests[1].headers.get("If-Match"), `"3"`);
   assert.deepEqual(requests[2].body, {
-    agent_id: "agent/1", tool: "default.edit_file", path: "/workspace/src/main.go",
+    agent_id: "agent/1", tool: "default_edit_file", path: "/workspace/src/main.go",
     intervention_mode: "request_approval"
   });
 });
@@ -1119,7 +1124,7 @@ test("Session tool permission audit uses the typed v2 SDK and encodes filters", 
   try {
     const page = await sessionToolPermissionAudit("session/1", {
       decision: "ask",
-      tool: "default.edit_file",
+      tool: "default_edit_file",
       limit: 20,
       cursor: "cursor/1"
     });
@@ -1129,6 +1134,6 @@ test("Session tool permission audit uses the typed v2 SDK and encodes filters", 
   }
   assert.deepEqual(requests, [{
     method: "GET",
-    url: "http://localhost/v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default.edit_file&limit=20&cursor=cursor%2F1"
+    url: "http://localhost/v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default_edit_file&limit=20&cursor=cursor%2F1"
   }]);
 });

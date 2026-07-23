@@ -198,9 +198,9 @@ func TestEngineCombinesToolPlanStartsAndBatchesOnlySafeReadResults(t *testing.T)
 
 	state := initialState(100)
 	calls := []model.ToolCall{
-		{ID: "read_1", Name: "read.first", Arguments: json.RawMessage(`{}`)},
-		{ID: "read_2", Name: "read.second", Arguments: json.RawMessage(`{}`)},
-		{ID: "write_1", Name: "write.unsafe", Arguments: json.RawMessage(`{}`)},
+		{ID: "read_1", Name: "read_first", Arguments: json.RawMessage(`{}`)},
+		{ID: "read_2", Name: "read_second", Arguments: json.RawMessage(`{}`)},
+		{ID: "write_1", Name: "write_unsafe", Arguments: json.RawMessage(`{}`)},
 	}
 	modelPort := modeltest.NewScriptedModel(
 		modeltest.ModelStep{Response: toolResponse("assistant_tools", calls)},
@@ -737,8 +737,8 @@ func TestEngineRecoversPartiallyCompletedToolBatch(t *testing.T) {
 
 	state := initialState(100)
 	calls := []model.ToolCall{
-		{ID: "call_completed", Name: "read.completed", Arguments: json.RawMessage(`{}`)},
-		{ID: "call_interrupted", Name: "read.interrupted", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_completed", Name: "read_completed", Arguments: json.RawMessage(`{}`)},
+		{ID: "call_interrupted", Name: "read_interrupted", Arguments: json.RawMessage(`{}`)},
 	}
 	planned := make([]agentcore.PlannedToolCall, len(calls))
 	for index, call := range calls {
@@ -908,7 +908,7 @@ func TestEnginePreservesCodedToolPreflightFailure(t *testing.T) {
 	t.Parallel()
 
 	state := initialState(100)
-	call := model.ToolCall{ID: "call_1", Name: "broken.inspect", Arguments: json.RawMessage(`{}`)}
+	call := model.ToolCall{ID: "call_1", Name: "broken_inspect", Arguments: json.RawMessage(`{}`)}
 	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: toolResponse("assistant_tools", []model.ToolCall{call})})
 	toolsPort := &modeltest.ScriptedTools{PreflightFunc: func(context.Context, agentcore.State, []model.ToolCall) (agentcore.ToolBatchPlan, error) {
 		return agentcore.ToolBatchPlan{}, fmt.Errorf("snapshot validation: %w", toolpkg.NewToolContractError(
@@ -1259,6 +1259,44 @@ func TestEngineCompactsContextDuringTurn(t *testing.T) {
 	}
 }
 
+func TestEnginePreservesProviderDetailsWhenContextCompactionFails(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	compactor := &scriptedCompactor{err: &model.ProviderError{
+		Class: model.ErrorInvalidRequest, Code: "http_400", Retryable: false,
+		SafeDetail: "request payload is too large",
+	}}
+	durability := modeltest.NewMemoryDurability(state)
+	engine, err := agentcore.NewEngine(agentcore.Ports{
+		Model: modeltest.NewScriptedModel(), Context: testContext(), Compaction: compactor, Durability: durability,
+		Clock: modeltest.FixedClock{Time: testNow}, IDs: modeltest.NewSequenceIDs(),
+	})
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeFailed || outcome.Failure == nil {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+	if outcome.Failure.Code != "context_compaction_failed" || !strings.Contains(outcome.Failure.Message, "request payload is too large") {
+		t.Fatalf("failure = %+v", outcome.Failure)
+	}
+	if outcome.Failure.ProviderError == nil || outcome.Failure.ProviderError.Class != string(model.ErrorInvalidRequest) || outcome.Failure.ProviderError.Code != "http_400" {
+		t.Fatalf("provider failure = %+v", outcome.Failure.ProviderError)
+	}
+
+	events := durability.Events()
+	failedEvent := events[len(events)-1]
+	if failedEvent.Type != agentcore.EventRuntimeFailed || failedEvent.Message != outcome.Failure.Message {
+		t.Fatalf("runtime failure event = %+v", failedEvent)
+	}
+}
+
 func TestEngineRecoversAbandonedCompactionAttempt(t *testing.T) {
 	t.Parallel()
 
@@ -1373,6 +1411,25 @@ func TestEngineResetsPartialLiveStreamOnModelFailure(t *testing.T) {
 	}
 	deltas := live.Deltas()
 	if len(deltas) != 2 || deltas[0].Operation != "append" || deltas[1].Operation != "reset" || deltas[0].StreamID != deltas[1].StreamID {
+		t.Fatalf("live deltas = %+v", deltas)
+	}
+}
+
+func TestEngineResetsStreamWhenAdaptedResponseRemovesSerializedToolText(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	call := model.ToolCall{ID: "call_1", Name: "default_run_command", Arguments: json.RawMessage(`{"command":"true"}`)}
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{
+		Deltas:   []model.Delta{{Type: model.DeltaText, Index: 1, Text: "<seed:tool_call>serialized</seed:tool_call>"}},
+		Response: toolResponse("assistant_tools", []model.ToolCall{call}),
+	})
+	live := &recordingLive{}
+	engine, _ := newEngine(t, state, modelPort, nil, nil, live)
+
+	_, _ = engine.Run(context.Background(), state)
+	deltas := live.Deltas()
+	if len(deltas) < 2 || deltas[0].Operation != "append" || deltas[1].Operation != "reset" || deltas[0].StreamID != deltas[1].StreamID {
 		t.Fatalf("live deltas = %+v", deltas)
 	}
 }
@@ -1522,7 +1579,7 @@ func initialState(maxOutputTokens int64) agentcore.State {
 
 func executingToolState(idempotency string) (agentcore.State, agentcore.PlannedToolCall) {
 	state := initialState(100)
-	call := model.ToolCall{ID: "call_recovery", Name: "recover.write", Arguments: json.RawMessage(`{"value":"once"}`)}
+	call := model.ToolCall{ID: "call_recovery", Name: "recover_write", Arguments: json.RawMessage(`{"value":"once"}`)}
 	executionMode := "sequential"
 	if idempotency == "safe" {
 		executionMode = "parallel"

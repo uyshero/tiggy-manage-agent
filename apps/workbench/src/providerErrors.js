@@ -13,6 +13,13 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
+function providerStatusCode(source) {
+  const explicit = positiveNumber(source.status_code);
+  if (explicit) return explicit;
+  const match = String(source.code || "").trim().match(/^http_(\d+)$/i);
+  return match ? positiveNumber(match[1]) : 0;
+}
+
 export function providerErrorPresentation(error, fallbackMessage = "") {
   const source = error && typeof error === "object" && !Array.isArray(error) ? error : {};
   const errorClass = String(source.class || "unknown").trim().toLowerCase() || "unknown";
@@ -21,7 +28,7 @@ export function providerErrorPresentation(error, fallbackMessage = "") {
     .replace(/\s+/g, " ")
     .trim();
   const metadata = [];
-  const statusCode = positiveNumber(source.status_code);
+  const statusCode = providerStatusCode(source);
   const attempts = positiveNumber(source.attempts);
   const retryAfterMS = positiveNumber(source.retry_after_ms);
   if (statusCode) metadata.push(`HTTP ${statusCode}`);

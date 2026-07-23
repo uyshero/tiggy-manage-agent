@@ -88,7 +88,7 @@ client.sessions.usage("session/1");
 client.sessions.upgradeConfig("session/1", { to_current: true, updated_by: "type-contract" });
 client.sessions.updateRuntimeSettings("session/1", 1, {
   permission_rules: [{
-    id: "session-src", tool: "default.edit_file", argument: "path",
+    id: "session-src", tool: "default_edit_file", argument: "path",
     pattern: "/workspace/src/**", behavior: "allow",
   }],
 });
@@ -96,7 +96,7 @@ client.sessions.appendEvents("session/1", { events: [{ type: "custom.event", pay
 const providerDiagnostic: Promise<LLMDiagnosticResult> = client.llm.testProvider("provider/1");
 const modelDiagnostic: Promise<LLMDiagnosticResult> = client.llm.testModel("provider/1", "model/1");
 client.skills.create(skillRequest);
-client.workspaceToolPermissions.evaluate("workspace/1", { tool: "default.read_file", path: "/workspace/README.md" });
+client.workspaceToolPermissions.evaluate("workspace/1", { tool: "default_read_file", path: "/workspace/README.md" });
 const permissionAudit: Promise<ToolPermissionAuditPage> = client.audit.listToolPermissions("session/1", { decision: "ask", limit: 20, cursor: "next" });
 const handle: Promise<RunHandle> = client.runs.start("session/1", { input: { text: "run" } });
 const rawPaths: paths | undefined = undefined;

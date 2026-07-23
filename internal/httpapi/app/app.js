@@ -26410,6 +26410,32 @@ class EvaluationsService extends ServiceBase {
   createRunEvaluation(request, signal) {
     return this.transport.requestJSON("POST", "/v2/run-evaluations", request, signal ? { signal } : {});
   }
+  autoEvaluate(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/run-evaluations/auto", request, signal ? { signal } : {});
+  }
+  createDataset(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/evaluation-datasets", request, signal ? { signal } : {});
+  }
+  listDatasets(workspaceId, signal) {
+    const path2 = withQuery("/v2/evaluation-datasets", { workspace_id: workspaceId });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.datasets);
+  }
+  getDataset(datasetId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/evaluation-datasets", datasetId), void 0, signal ? { signal } : {});
+  }
+  createExperiment(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/evaluation-experiments", request, signal ? { signal } : {});
+  }
+  listExperiments(workspaceId, limit, signal) {
+    const path2 = withQuery("/v2/evaluation-experiments", { workspace_id: workspaceId, limit });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.experiments);
+  }
+  getExperiment(experimentId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/evaluation-experiments", experimentId), void 0, signal ? { signal } : {});
+  }
+  reconcileExperiment(experimentId, signal) {
+    return this.transport.requestJSON("POST", resourcePath("/v2/evaluation-experiments", experimentId) + "/reconcile", void 0, signal ? { signal } : {});
+  }
   listRunEvaluations(query, signal) {
     const path2 = withQuery("/v2/run-evaluations", {
       left_session_id: query.leftSessionId,
@@ -27208,6 +27234,9 @@ function restoreMCPServerVersion(serverId, version2, options = {}) {
 }
 function createEnvironment(body, options = {}) {
   return coreSDK.environments.create(body, options.signal);
+}
+async function environments(options = {}) {
+  return { environments: await coreSDK.environments.list(options.signal) };
 }
 async function environmentVariables(workspaceId = "") {
   return { variables: await coreSDK.environmentVariables.list(workspaceId ? { workspaceId } : {}) };
@@ -29718,7 +29747,7 @@ function normalizeToolTimelineEvents(events2) {
   for (const event of source) {
     if ((event == null ? void 0 : event.type) !== "tool.batch_planned") continue;
     for (const item of arrayValue((_b = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data) == null ? void 0 : _b.calls)) {
-      const call = objectValue$3(item == null ? void 0 : item.call);
+      const call = objectValue$4(item == null ? void 0 : item.call);
       const callID = String(call.id || "").trim();
       if (callID) plannedCalls.set(callID, { call, item });
     }
@@ -29729,24 +29758,24 @@ function normalizeToolTimelineEvents(events2) {
     if ((event == null ? void 0 : event.type) === "tool.batch_planned") {
       const calls = arrayValue((_d = (_c = event == null ? void 0 : event.payload) == null ? void 0 : _c.data) == null ? void 0 : _d.calls);
       calls.forEach((item, index2) => {
-        const call = objectValue$3(item == null ? void 0 : item.call);
+        const call = objectValue$4(item == null ? void 0 : item.call);
         const callID = String(call.id || "").trim();
         if (!callID || nativeCalls.has(callID)) return;
         normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
           identifier: call.name,
-          arguments: objectValue$3(call.arguments),
+          arguments: objectValue$4(call.arguments),
           approval_state: item.approval_state,
           approval_source: item.approval_source,
           disposition: item.disposition,
           execution_mode: item.execution_mode,
-          permission: objectValue$3(item.permission),
+          permission: objectValue$4(item.permission),
           side_effect: item.side_effect
         }, index2, calls.length));
       });
       continue;
     }
     if ((event == null ? void 0 : event.type) === "tool.call_started") {
-      const data = objectValue$3((_e = event == null ? void 0 : event.payload) == null ? void 0 : _e.data);
+      const data = objectValue$4((_e = event == null ? void 0 : event.payload) == null ? void 0 : _e.data);
       const callID = String(data.call_id || "").trim();
       if (!callID || nativeCalls.has(callID) || plannedCalls.has(callID)) continue;
       normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
@@ -29757,19 +29786,19 @@ function normalizeToolTimelineEvents(events2) {
       continue;
     }
     if ((event == null ? void 0 : event.type) === "tool.call_result") {
-      const data = objectValue$3((_f = event == null ? void 0 : event.payload) == null ? void 0 : _f.data);
-      const result = objectValue$3(data.result);
+      const data = objectValue$4((_f = event == null ? void 0 : event.payload) == null ? void 0 : _f.data);
+      const result = objectValue$4(data.result);
       const callID = String(data.call_id || result.call_id || "").trim();
       if (!callID || nativeResults.has(callID)) continue;
       const planned = ((_g = plannedCalls.get(callID)) == null ? void 0 : _g.call) || {};
       normalized.push(runtimeToolEvent(event, "runtime.tool_result", callID, {
         identifier: data.name || result.name || planned.name,
-        arguments: objectValue$3(planned.arguments),
+        arguments: objectValue$4(planned.arguments),
         success: toolResultSucceeded(data.status, result),
         content: toolResultContent(result.content),
-        state: objectValue$3(result.state),
+        state: objectValue$4(result.state),
         artifacts: arrayValue(result.artifacts),
-        error: objectValue$3(result.error),
+        error: objectValue$4(result.error),
         duration_ms: durationMillis(data.started_at, data.completed_at)
       }));
     }
@@ -29778,11 +29807,11 @@ function normalizeToolTimelineEvents(events2) {
 }
 function toolApprovalPresentation(event, lifecycle) {
   var _a2, _b, _c, _d;
-  const data = objectValue$3((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
+  const data = objectValue$4((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
   const decision = lifecycle == null ? void 0 : lifecycle.decision;
-  const decisionData = objectValue$3((_b = decision == null ? void 0 : decision.payload) == null ? void 0 : _b.data);
-  const requiredData = objectValue$3((_d = (_c = lifecycle == null ? void 0 : lifecycle.required) == null ? void 0 : _c.payload) == null ? void 0 : _d.data);
-  const permission = objectValue$3(data.permission);
+  const decisionData = objectValue$4((_b = decision == null ? void 0 : decision.payload) == null ? void 0 : _b.data);
+  const requiredData = objectValue$4((_d = (_c = lifecycle == null ? void 0 : lifecycle.required) == null ? void 0 : _c.payload) == null ? void 0 : _d.data);
+  const permission = objectValue$4(data.permission);
   const state = String(data.approval_state || "").trim().toLowerCase();
   const source = approvalSourceLabel(decisionData.approval_source || data.approval_source);
   const reason = approvalReason(decisionData.decision_reason || requiredData.reason || permission.reason);
@@ -29862,7 +29891,7 @@ function runtimeToolEvent(source, type, callID, data, index2 = 0, count = 1) {
     type,
     seq: baseSeq + (index2 + 1) / (Math.max(count, 1) + 1),
     payload: {
-      ...objectValue$3(source == null ? void 0 : source.payload),
+      ...objectValue$4(source == null ? void 0 : source.payload),
       data: { id: callID, call_id: callID, ...data }
     }
   };
@@ -29870,14 +29899,14 @@ function runtimeToolEvent(source, type, callID, data, index2 = 0, count = 1) {
 function toolResultSucceeded(status, result) {
   const normalized = String(status || "").trim().toLowerCase();
   if (["failed", "error", "rejected", "canceled", "cancelled"].includes(normalized)) return false;
-  if (Object.keys(objectValue$3(result.error)).length) return false;
+  if (Object.keys(objectValue$4(result.error)).length) return false;
   return true;
 }
 function toolResultContent(content2) {
   if (typeof content2 === "string") return content2;
   return arrayValue(content2).map((item) => {
     if (typeof item === "string") return item;
-    const part = objectValue$3(item);
+    const part = objectValue$4(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
 }
@@ -29899,7 +29928,7 @@ function durationMillis(startedAt, completedAt) {
   const completed = new Date(completedAt || "").getTime();
   return Number.isFinite(started) && Number.isFinite(completed) && completed > started ? completed - started : 0;
 }
-function objectValue$3(value) {
+function objectValue$4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function arrayValue(value) {
@@ -29963,13 +29992,19 @@ function positiveNumber(value) {
   const number2 = Number(value || 0);
   return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
 }
+function providerStatusCode(source) {
+  const explicit = positiveNumber(source.status_code);
+  if (explicit) return explicit;
+  const match = String(source.code || "").trim().match(/^http_(\d+)$/i);
+  return match ? positiveNumber(match[1]) : 0;
+}
 function providerErrorPresentation(error, fallbackMessage = "") {
   const source = error && typeof error === "object" && !Array.isArray(error) ? error : {};
   const errorClass = String(source.class || "unknown").trim().toLowerCase() || "unknown";
   const description2 = providerErrorDescriptions[errorClass] || providerErrorDescriptions.unknown;
   const original = String(source.message || fallbackMessage || "Provider 未返回错误详情。").replace(/\s+/g, " ").trim();
   const metadata = [];
-  const statusCode = positiveNumber(source.status_code);
+  const statusCode = providerStatusCode(source);
   const attempts = positiveNumber(source.attempts);
   const retryAfterMS = positiveNumber(source.retry_after_ms);
   if (statusCode) metadata.push(`HTTP ${statusCode}`);
@@ -29981,6 +30016,56 @@ function providerErrorPresentation(error, fallbackMessage = "") {
     original,
     detail: `${description2} 原始错误：${original}${suffix}`
   };
+}
+const failureDescriptions = Object.freeze({
+  context_compaction_failed: "上下文压缩失败，模型服务未能处理当前对话。请重试；如持续失败，请新建任务或检查模型配置。",
+  context_build_failed: "任务上下文准备失败。请重试；如持续失败，请新建任务。",
+  budget_exhausted: "本轮任务已达到运行预算上限。请缩小任务范围后重试。",
+  runtime_binding_changed: "智能体配置在任务执行期间发生变化。请新建任务后重试。",
+  tool_runtime_failed: "工具运行环境执行失败。请检查 Agent 绑定的运行环境后重试。",
+  model_request_failed: "模型请求失败，请稍后重试或检查模型配置。",
+  invalid_model_request: "模型无法处理当前请求，请检查模型及输入配置。",
+  completion_validator_failed: "任务完成校验失败，请重试。"
+});
+function objectValue$3(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function cleanText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+function inferredProviderError(code2, message) {
+  if (!String(code2 || "").startsWith("http_") && !message.startsWith("provider request failed")) return {};
+  const classMatch = message.match(/provider request failed \(([^/,)]+)/i);
+  const statusMatch = String(code2 || "").match(/^http_(\d+)$/i);
+  return {
+    class: (classMatch == null ? void 0 : classMatch[1]) || "unknown",
+    code: code2,
+    status_code: statusMatch ? Number(statusMatch[1]) : 0,
+    message
+  };
+}
+function runtimeFailurePresentation(value) {
+  const root2 = objectValue$3(value);
+  const data = objectValue$3(root2.data);
+  const nestedError = objectValue$3(data.error);
+  const failure = Object.keys(nestedError).length ? nestedError : data;
+  const code2 = cleanText(failure.code || root2.code);
+  const original = cleanText(failure.message || root2.reason || root2.error_message || root2.message) || "执行过程中出现未知错误。";
+  const structuredProviderError = objectValue$3(failure.provider_error || data.provider_error || root2.provider_error);
+  const providerError = Object.keys(structuredProviderError).length ? structuredProviderError : inferredProviderError(code2, original);
+  const mappedDescription = failureDescriptions[code2] || "";
+  if (Object.keys(providerError).length) {
+    const provider = providerErrorPresentation(providerError, original);
+    const description3 = mappedDescription || provider.description;
+    const codeSuffix2 = code2 ? `（错误代码：${code2}）` : "";
+    return { code: code2, description: description3, original: provider.original, providerError, detail: `${description3} 原始错误：${provider.original}${codeSuffix2}` };
+  }
+  const genericMessages = /* @__PURE__ */ new Set(["agent runtime failed.", "turn failed.", "执行过程中出现失败。"]);
+  const showOriginal = !genericMessages.has(original.toLowerCase()) && original !== mappedDescription;
+  const description2 = mappedDescription || "任务执行失败。请重试；如持续失败，请查看错误代码并联系管理员。";
+  const originalDetail = showOriginal ? ` 原始错误：${original}` : "";
+  const codeSuffix = code2 ? `（错误代码：${code2}）` : "";
+  return { code: code2, description: description2, original, providerError: {}, detail: `${description2}${originalDetail}${codeSuffix}` };
 }
 function objectRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -33826,7 +33911,7 @@ function defaultComposerTask(text2, attachments) {
   if (requested) return requested;
   const files = Array.isArray(attachments) ? attachments : [];
   if (files.length === 1 && isSkillZIPAttachment(files[0])) {
-    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills.preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills.install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills.enable。";
+    return "请将我上传的 ZIP 作为离线 Skill 安装。先调用 skills_preview，使用附件的 Session artifact_id，不要使用 workspace_path、主机路径或 URL。仅当 policy.allowed=true 且 install_state=new_install 或 upgrade 时再调用 skills_install；升级时设置 upgrade_existing=true，并原样携带 Preview 返回的 policy pin。安装完成后不要自动启用，先告诉我可以发起 skills_enable。";
   }
   return "请处理我上传的文件。";
 }
@@ -33881,38 +33966,42 @@ function toolSourceLabel(source) {
       return "Tool";
   }
 }
+function modelToolName(identifier, apiName) {
+  const normalize2 = (value) => String(value || "").trim().replace(/[^a-zA-Z0-9_]/g, "_");
+  return [normalize2(identifier), normalize2(apiName)].filter(Boolean).join("_");
+}
 function toolTitle(identifier, apiName, source = "") {
-  const key = [identifier, apiName].filter(Boolean).join(".");
+  const key = modelToolName(identifier, apiName);
   const titles = {
-    "default.run_command": "执行命令",
-    "default.execute_code": "执行代码",
-    "default.read_file": "读取文件",
-    "default.write_file": "写入文件",
-    "default.edit_file": "编辑文件",
-    "web.search": "搜索网页",
-    "web.crawl": "读取网页",
-    "browser.open": "打开浏览器",
-    "browser.click": "浏览器点击",
-    "browser.type": "浏览器输入",
-    "browser.takeover": "接管浏览器",
-    "computer.get_state": "检查桌面",
-    "computer.screenshot": "截取屏幕",
-    "computer.click": "桌面点击",
-    "computer.type_text": "桌面输入",
-    "computer.hotkey": "按下快捷键",
-    "computer.launch_app": "启动应用",
-    "computer.open_url": "打开网址",
-    "computer.search_web": "浏览器内搜索",
-    "skills.search": "查找 Skill",
-    "skills.inspect": "检查 Skill",
-    "skills.discover": "发现 Skill",
-    "skills.preview": "安全预览 Skill",
-    "skills.read_asset": "读取 Skill 资产",
-    "skills.install": "安装 Skill",
-    "skills.enable": "启用 Skill",
-    "skills.disable": "停用 Skill"
+    default_run_command: "执行命令",
+    default_execute_code: "执行代码",
+    default_read_file: "读取文件",
+    default_write_file: "写入文件",
+    default_edit_file: "编辑文件",
+    web_search: "搜索网页",
+    web_crawl: "读取网页",
+    browser_open: "打开浏览器",
+    browser_click: "浏览器点击",
+    browser_type: "浏览器输入",
+    browser_takeover: "接管浏览器",
+    computer_get_state: "检查桌面",
+    computer_screenshot: "截取屏幕",
+    computer_click: "桌面点击",
+    computer_type_text: "桌面输入",
+    computer_hotkey: "按下快捷键",
+    computer_launch_app: "启动应用",
+    computer_open_url: "打开网址",
+    computer_search_web: "浏览器内搜索",
+    skills_search: "查找 Skill",
+    skills_inspect: "检查 Skill",
+    skills_discover: "发现 Skill",
+    skills_preview: "安全预览 Skill",
+    skills_read_asset: "读取 Skill 资产",
+    skills_install: "安装 Skill",
+    skills_enable: "启用 Skill",
+    skills_disable: "停用 Skill"
   };
-  if (titles[key] || titles[`${identifier}.${apiName}`]) return titles[key] || titles[`${identifier}.${apiName}`];
+  if (titles[key]) return titles[key];
   if (String(source || "").trim().toLowerCase() === "mcp") return humanizeToolName(apiName) || humanizeToolName(key) || "MCP 工具";
   return key || "调用工具";
 }
@@ -33972,13 +34061,6 @@ function normalizeToolParts(identifier = "", apiName = "") {
     edit_file: { identifier: "default", apiName: "edit_file" }
   };
   if (aliases[normalized]) return aliases[normalized];
-  const dotIndex = rawIdentifier.indexOf(".");
-  if (dotIndex > 0) {
-    return {
-      identifier: rawIdentifier.slice(0, dotIndex),
-      apiName: rawIdentifier.slice(dotIndex + 1)
-    };
-  }
   return { identifier: rawIdentifier, apiName: rawApiName };
 }
 function toolSummary({ identifier, apiName, args = {}, reason = "", success, source = "", manifestType = "" }) {
@@ -33990,7 +34072,7 @@ function toolSummary({ identifier, apiName, args = {}, reason = "", success, sou
   const status = success === true ? "Completed" : success === false ? "Failed" : "";
   return {
     detail,
-    label: [parts.identifier, parts.apiName].filter(Boolean).join(".") || "tool",
+    label: modelToolName(parts.identifier, parts.apiName) || "tool",
     source: resolvedSource,
     sourceLabel: toolSourceLabel(resolvedSource),
     risk,
@@ -34038,8 +34120,12 @@ function parseSkillsConfig(raw) {
     enabled: enabled.map((item) => {
       if (!item || typeof item !== "object") return null;
       return {
+        ...item.skill_id ? { skill_id: String(item.skill_id).trim() } : {},
         skill: String(item.skill || "").trim(),
-        version: Number(item.version || 0) || 0
+        version: Number(item.version || 0) || 0,
+        ...item.mode ? { mode: String(item.mode).trim() } : {},
+        ...Number(item.priority || 0) ? { priority: Number(item.priority) } : {},
+        ...item.inputs && typeof item.inputs === "object" ? { inputs: item.inputs } : {}
       };
     }).filter((item) => item == null ? void 0 : item.skill)
   };
@@ -34081,11 +34167,11 @@ function parseMCPServers(raw) {
 }
 function toolNamespaceEnabled(namespace, policy) {
   if (!policy.explicit) return true;
-  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}.`));
+  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}_`));
 }
 function runtimeSupportsToolItem(identifier, runtime) {
   const normalizedRuntime = String(runtime).trim() || "cloud_sandbox";
-  if (identifier === "browser.takeover" || identifier === "browser.close") {
+  if (identifier === "browser_takeover" || identifier === "browser_close") {
     return normalizedRuntime === "local_system";
   }
   return true;
@@ -35122,6 +35208,7 @@ function agentEditorDraft(agent2) {
   const enabledNamespaces = toolPolicy.explicit ? builtinToolNamespaces.filter((item) => toolNamespaceEnabled(item.key, toolPolicy)).map((item) => item.key) : builtinToolNamespaces.map((item) => item.key);
   const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
   return {
+    environmentID: (agent2 == null ? void 0 : agent2.environment_id) || "",
     llmModel: config.llm_model || "",
     llmProvider: config.llm_provider || "",
     mcpBindings: editableMCPBindings(config.mcp),
@@ -35135,6 +35222,12 @@ function agentEditorDraft(agent2) {
     toolRuntime: toolPolicy.runtime || ""
   };
 }
+function userSelectableEnvironments(response) {
+  return ((response == null ? void 0 : response.environments) || []).filter((environment) => {
+    var _a2;
+    return !((_a2 = environment == null ? void 0 : environment.config) == null ? void 0 : _a2.managed_by);
+  });
+}
 function agentConfigVersionMetrics(version2) {
   const toolPolicy = parseToolPolicy(version2 == null ? void 0 : version2.tools);
   return {
@@ -35143,15 +35236,48 @@ function agentConfigVersionMetrics(version2) {
     tools: toolPolicy.explicit ? toolPolicy.enabledToolPatterns.length : builtinToolNamespaces.length
   };
 }
-function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOptions, onRollback, onSave, rollingBackVersion, saving, skills: skills2 }) {
+function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mcpRegistryServers = [], modelOptions, onRollback, onSave, rollingBackVersion, saving, skills: skills2 }) {
+  var _a2;
   const [draft, setDraft] = reactExports.useState(() => agentEditorDraft(agent2));
   const [rollbackCandidate, setRollbackCandidate] = reactExports.useState(0);
+  const [saveError, setSaveError] = reactExports.useState("");
+  const [skillLatestVersions, setSkillLatestVersions] = reactExports.useState({});
+  const [skillVersionLoading, setSkillVersionLoading] = reactExports.useState(false);
   const [versionError, setVersionError] = reactExports.useState("");
   const [versionLoading, setVersionLoading] = reactExports.useState(false);
   const [versions, setVersions] = reactExports.useState([]);
   reactExports.useEffect(() => {
     setDraft(agentEditorDraft(agent2));
+    setSaveError("");
   }, [agent2 == null ? void 0 : agent2.id, agent2 == null ? void 0 : agent2.current_config_version]);
+  reactExports.useEffect(() => {
+    let active = true;
+    const availableSkills = skills2.filter((skill) => skill.status !== "archived");
+    setSkillLatestVersions({});
+    if (!availableSkills.length) {
+      setSkillVersionLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+    setSkillVersionLoading(true);
+    Promise.all(availableSkills.map(async (skill) => {
+      try {
+        const response = await skillVersions(skill.id);
+        const latest = Math.max(0, ...(response.versions || []).map((version2) => Number(version2.version || 0)));
+        return [skill.identifier, latest];
+      } catch {
+        return [skill.identifier, 0];
+      }
+    })).then((entries) => {
+      if (active) setSkillLatestVersions(Object.fromEntries(entries));
+    }).finally(() => {
+      if (active) setSkillVersionLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [skills2]);
   reactExports.useEffect(() => {
     let active = true;
     setRollbackCandidate(0);
@@ -35174,11 +35300,14 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
     };
   }, [agent2 == null ? void 0 : agent2.id, agent2 == null ? void 0 : agent2.current_config_version]);
   if (!agent2) return /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "请先选择一个智能体。" });
+  const configuredSkillBindings = new Map(parseSkillsConfig((_a2 = agent2.config_version) == null ? void 0 : _a2.skills).enabled.map((binding) => [binding.skill, binding]));
+  const configuredSkillVersions = new Map([...configuredSkillBindings].map(([identifier, binding]) => [identifier, binding.version]));
+  const environmentOptions = environments2.some((environment) => environment.id === draft.environmentID) || !draft.environmentID ? environments2 : [{ id: draft.environmentID, name: draft.environmentID }, ...environments2];
   const installedSkillIDs = new Set(skills2.map((skill) => skill.identifier));
   const skillOptions = [
     ...skills2.map((skill) => ({
-      description: skill.description || "工作区技能",
-      disabled: skill.status === "archived",
+      description: configuredSkillVersions.get(skill.identifier) ? `${skill.description || "工作区技能"} · 已固定 v${configuredSkillVersions.get(skill.identifier)}` : `${skill.description || "工作区技能"}${skillLatestVersions[skill.identifier] ? ` · 最新 v${skillLatestVersions[skill.identifier]}` : ""}`,
+      disabled: skill.status === "archived" || !configuredSkillVersions.get(skill.identifier) && !skillLatestVersions[skill.identifier],
       identifier: skill.identifier,
       title: skill.title || skill.identifier
     })),
@@ -35190,6 +35319,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
     }))
   ];
   function toggleListValue(key, value) {
+    setSaveError("");
     setDraft((current) => ({
       ...current,
       [key]: current[key].includes(value) ? current[key].filter((item) => item !== value) : [...current[key], value]
@@ -35216,7 +35346,37 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
       mcpBindings: current.mcpBindings.map((binding) => binding.server_id === server.id ? { ...binding, version: Number(server.current_version || binding.version || 1) } : binding)
     }));
   }
-  const canSave = Boolean(draft.name.trim() && draft.llmProvider && draft.llmModel && !saving);
+  const selectedSkillsHaveVersions = draft.selectedSkills.every((identifier) => Number(configuredSkillVersions.get(identifier) || skillLatestVersions[identifier] || 0) > 0);
+  const canSave = Boolean(draft.name.trim() && draft.environmentID && draft.llmProvider && draft.llmModel && selectedSkillsHaveVersions && !skillVersionLoading && !saving);
+  async function saveAgentConfig() {
+    setSaveError("");
+    const enabledSkills = draft.selectedSkills.map((skill) => ({
+      ...configuredSkillBindings.get(skill),
+      skill,
+      version: Number(configuredSkillVersions.get(skill) || skillLatestVersions[skill] || 0)
+    }));
+    if (enabledSkills.some((binding) => binding.version < 1)) {
+      setSaveError("所选 Skill 缺少可绑定的已发布版本");
+      return;
+    }
+    try {
+      await onSave({
+        environment_id: draft.environmentID,
+        name: draft.name.trim(),
+        llm_provider: draft.llmProvider,
+        llm_model: draft.llmModel,
+        system: draft.system,
+        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...draft.toolRuntime ? { runtime: draft.toolRuntime } : {} },
+        skills: { enabled: enabledSkills },
+        mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
+          const identifier = String(server.identifier || server.id || server.name || "").trim();
+          return identifier && ((server.transport || "stdio") === "streamable_http" ? String(server.url || "").trim() : String(server.command || "").trim());
+        }) }
+      });
+    } catch (error) {
+      setSaveError(error.message || "Agent 配置保存失败");
+    }
+  }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-editor", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-editor-grid", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
@@ -35245,6 +35405,16 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
         )
       ] })
     ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field agent-runtime-field", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: draft.environmentID, onChange: (event) => {
+        setSaveError("");
+        setDraft((current) => ({ ...current, environmentID: event.target.value }));
+      }, children: [
+        !environmentOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "尚未配置运行环境" }) : null,
+        environmentOptions.map((environment) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment.id, children: environment.name }, environment.id))
+      ] })
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "System prompt" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { rows: "7", value: draft.system, onChange: (event) => setDraft((current) => ({ ...current, system: event.target.value })), placeholder: "定义智能体的角色、边界和工作方式" })
@@ -35259,6 +35429,15 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
           draft.selectedTools.length,
           "/",
           builtinToolNamespaces.length
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field agent-runtime-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具运行时覆盖" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: draft.toolRuntime, onChange: (event) => setDraft((current) => ({ ...current, toolRuntime: event.target.value })), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "继承 Environment" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "auto", children: "服务器默认" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "cloud_sandbox", children: "Sandbox" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "local_system", children: "Local" })
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-option-grid", children: builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-option", children: [
@@ -35294,7 +35473,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => setDraft((current) => ({ ...current, mcpServers: [...current.mcpServers, { identifier: "", transport: "stdio", stdio_framing: "json_lines", command: "", disabled: false }] })), children: "添加服务" })
       ] }),
       mcpRegistryServers.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-binding-list", children: mcpRegistryServers.map((server) => {
-        var _a2;
+        var _a3;
         const binding = draft.mcpBindings.find((item) => item.server_id === server.id);
         const behind = binding && Number(binding.version) < Number(server.current_version);
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `mcp-binding-row ${server.status !== "active" ? "disabled" : ""}`, children: [
@@ -35307,7 +35486,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
                 " · v",
                 (binding == null ? void 0 : binding.version) || server.current_version,
                 " · ",
-                ((_a2 = server.config) == null ? void 0 : _a2.transport) || "stdio"
+                ((_a3 = server.config) == null ? void 0 : _a3.transport) || "stdio"
               ] })
             ] })
           ] }),
@@ -35318,7 +35497,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
         ] }, server.id);
       }) }) : null,
       draft.mcpServers.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mcp-editor-list", children: draft.mcpServers.map((server, index2) => {
-        var _a2, _b, _c;
+        var _a3, _b, _c;
         return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mcp-editor-row", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "标识" }),
@@ -35337,7 +35516,7 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field mcp-logging-field", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "日志级别" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: ((_a2 = server.logging) == null ? void 0 : _a2.level) || "", onChange: (event) => updateMCP(index2, { logging: event.target.value ? { level: event.target.value } : void 0 }), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: ((_a3 = server.logging) == null ? void 0 : _a3.level) || "", onChange: (event) => updateMCP(index2, { logging: event.target.value ? { level: event.target.value } : void 0 }), children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "不设置" }),
               ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"].map((level) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: level, children: level }, level))
             ] })
@@ -35362,24 +35541,14 @@ function AgentConfigEditor({ agent: agent2, mcpRegistryServers = [], modelOption
         ] }, `${server.identifier || "new"}-${index2}`);
       }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "尚未配置 MCP 服务。" })
     ] }),
+    saveError ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: saveError }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-editor-footer", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
         "保存会创建配置版本 #",
         Number(agent2.current_config_version || 0) + 1,
         "，已有会话继续使用原版本。"
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: !canSave, onClick: () => onSave({
-        name: draft.name.trim(),
-        llm_provider: draft.llmProvider,
-        llm_model: draft.llmModel,
-        system: draft.system,
-        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...draft.toolRuntime ? { runtime: draft.toolRuntime } : {} },
-        skills: { enabled: draft.selectedSkills.map((skill) => ({ skill })) },
-        mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
-          const identifier = String(server.identifier || server.id || server.name || "").trim();
-          return identifier && ((server.transport || "stdio") === "streamable_http" ? String(server.url || "").trim() : String(server.command || "").trim());
-        }) }
-      }), children: saving ? "保存中..." : "保存配置" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", disabled: !canSave, onClick: saveAgentConfig, children: saving ? "保存中..." : skillVersionLoading ? "加载 Skill 版本..." : "保存配置" })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "agent-editor-section agent-version-history", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-editor-section-head", children: [
@@ -36746,14 +36915,14 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
   ] });
 }
 const permissionRuleTools = [
-  { value: "default.read_file", label: "读取文件" },
-  { value: "default.write_file", label: "写入文件" },
-  { value: "default.edit_file", label: "编辑文件" }
+  { value: "default_read_file", label: "读取文件" },
+  { value: "default_write_file", label: "写入文件" },
+  { value: "default_edit_file", label: "编辑文件" }
 ];
 function newPermissionRule(scope, index2) {
   return {
     id: `${scope}-${Date.now()}-${index2 + 1}`,
-    tool: "default.edit_file",
+    tool: "default_edit_file",
     argument: "path",
     pattern: "",
     behavior: scope === "workspace" ? "deny" : "ask",
@@ -36772,7 +36941,7 @@ function PermissionRuleEditor({ disabled, rules, scope, onChange }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { disabled, value: rule.tool || "default.edit_file", onChange: (event) => updateRule(index2, { tool: event.target.value }), children: permissionRuleTools.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)) })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { disabled, value: rule.tool || "default_edit_file", onChange: (event) => updateRule(index2, { tool: event.target.value }), children: permissionRuleTools.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)) })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "permission-rule-pattern", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "路径模式" }),
@@ -36856,7 +37025,7 @@ function SettingsPage({
   principal,
   workspaceID
 }) {
-  var _a2, _b, _c, _d;
+  var _a2, _b, _c, _d, _e;
   const [archiveQuery, setArchiveQuery] = reactExports.useState("");
   const [archiveRange, setArchiveRange] = reactExports.useState("all");
   const [agentPortabilityBusy, setAgentPortabilityBusy] = reactExports.useState("");
@@ -36864,8 +37033,11 @@ function SettingsPage({
   const [agentCreateOpen, setAgentCreateOpen] = reactExports.useState(false);
   const [agentCreateName, setAgentCreateName] = reactExports.useState("");
   const [agentCreateModel, setAgentCreateModel] = reactExports.useState("");
+  const [agentCreateEnvironment, setAgentCreateEnvironment] = reactExports.useState("");
   const [agentCreateBusy, setAgentCreateBusy] = reactExports.useState(false);
   const [agentCreateError, setAgentCreateError] = reactExports.useState("");
+  const [availableEnvironments, setAvailableEnvironments] = reactExports.useState([]);
+  const [environmentCreateBusy, setEnvironmentCreateBusy] = reactExports.useState(false);
   const [agentManagementView, setAgentManagementView] = reactExports.useState("config");
   const [agentPermissionBusy, setAgentPermissionBusy] = reactExports.useState("");
   const [agentPermissionError, setAgentPermissionError] = reactExports.useState("");
@@ -36876,7 +37048,7 @@ function SettingsPage({
   const [workspacePermissionLoading, setWorkspacePermissionLoading] = reactExports.useState(false);
   const [workspacePermissionBusy, setWorkspacePermissionBusy] = reactExports.useState(false);
   const [permissionPreviewContext, setPermissionPreviewContext] = reactExports.useState("agent");
-  const [permissionPreviewTool, setPermissionPreviewTool] = reactExports.useState("default.edit_file");
+  const [permissionPreviewTool, setPermissionPreviewTool] = reactExports.useState("default_edit_file");
   const [permissionPreviewPath, setPermissionPreviewPath] = reactExports.useState("/workspace/src/main.go");
   const [permissionPreviewMode, setPermissionPreviewMode] = reactExports.useState("request_approval");
   const [permissionPreviewBusy, setPermissionPreviewBusy] = reactExports.useState(false);
@@ -36910,6 +37082,9 @@ function SettingsPage({
   const selectedAgentModel = (selectedAgent == null ? void 0 : selectedAgent.config_version) ? `${selectedAgent.config_version.llm_provider || ""}::${selectedAgent.config_version.llm_model || ""}` : "";
   const defaultCreateModel = modelOptions.some((option) => `${option.llmProvider}::${option.llmModel}` === selectedAgentModel) ? selectedAgentModel : modelOptions[0] ? `${modelOptions[0].llmProvider}::${modelOptions[0].llmModel}` : "";
   const agentCreateModelValue = agentCreateModel || defaultCreateModel;
+  const defaultCreateEnvironment = availableEnvironments.some((environment) => environment.id === (selectedAgent == null ? void 0 : selectedAgent.environment_id)) ? selectedAgent.environment_id : ((_d = availableEnvironments[0]) == null ? void 0 : _d.id) || "";
+  const agentCreateEnvironmentValue = agentCreateEnvironment || defaultCreateEnvironment;
+  const environmentsByID = new Map(availableEnvironments.map((environment) => [environment.id, environment]));
   const healthItems = [...healthReport.mcp || [], ...healthReport.skills || []];
   const healthyCount = healthItems.filter((item) => item.status === "online").length;
   const unhealthyCount = healthItems.filter((item) => item.status !== "online").length;
@@ -36920,6 +37095,20 @@ function SettingsPage({
     var _a3;
     setAgentPathRules(parseToolPolicy((_a3 = selectedAgent == null ? void 0 : selectedAgent.config_version) == null ? void 0 : _a3.tools).permissionRules);
   }, [selectedAgent == null ? void 0 : selectedAgent.id, selectedAgent == null ? void 0 : selectedAgent.current_config_version]);
+  reactExports.useEffect(() => {
+    let active = true;
+    if (activeSection !== "agent") return () => {
+      active = false;
+    };
+    environments().then((response) => {
+      if (active) setAvailableEnvironments(userSelectableEnvironments(response));
+    }).catch((error) => {
+      if (active) setAgentCreateError(error.message);
+    });
+    return () => {
+      active = false;
+    };
+  }, [activeSection]);
   reactExports.useEffect(() => {
     const settings = currentSession == null ? void 0 : currentSession.runtime_settings;
     setSessionPathRules(Array.isArray(settings == null ? void 0 : settings.permission_rules) ? settings.permission_rules.map((rule) => ({ ...rule })) : []);
@@ -37475,6 +37664,7 @@ function SettingsPage({
                 setAgentCreateOpen((current) => !current);
                 setAgentCreateName("");
                 setAgentCreateModel(defaultCreateModel);
+                setAgentCreateEnvironment(defaultCreateEnvironment);
                 setAgentCreateError("");
               }, children: agentCreateOpen ? "关闭新建" : "新建 Agent" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: Boolean(agentPortabilityBusy), onClick: () => {
@@ -37499,18 +37689,20 @@ function SettingsPage({
           agentCreateOpen ? /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "settings-card agent-create-panel", onSubmit: async (event) => {
             event.preventDefault();
             const model = modelOptions.find((option) => `${option.llmProvider}::${option.llmModel}` === agentCreateModelValue);
-            if (!agentCreateName.trim() || !model) return;
+            if (!agentCreateName.trim() || !model || !agentCreateEnvironmentValue) return;
             setAgentCreateBusy(true);
             setAgentCreateError("");
             try {
               await onCreateAgent({
                 name: agentCreateName.trim(),
                 llm_provider: model.llmProvider,
-                llm_model: model.llmModel
+                llm_model: model.llmModel,
+                environment_id: agentCreateEnvironmentValue
               });
               setAgentCreateOpen(false);
               setAgentCreateName("");
               setAgentCreateModel("");
+              setAgentCreateEnvironment("");
             } catch (error) {
               setAgentCreateError(error.message);
             } finally {
@@ -37530,14 +37722,38 @@ function SettingsPage({
                 modelOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: `${option.llmProvider}::${option.llmModel}`, children: option.label }, `${option.llmProvider}::${option.llmModel}`))
               ] })
             ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: agentCreateEnvironmentValue, onChange: (event) => setAgentCreateEnvironment(event.target.value), children: [
+                !availableEnvironments.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "尚未配置运行环境" }) : null,
+                availableEnvironments.map((environment) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment.id, children: environment.name }, environment.id))
+              ] })
+            ] }),
+            !availableEnvironments.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: environmentCreateBusy, onClick: async () => {
+              setEnvironmentCreateBusy(true);
+              setAgentCreateError("");
+              try {
+                const environment = await createEnvironment({
+                  name: "通用 Sandbox",
+                  config: { runtime_settings: { tool_runtime: "cloud_sandbox" } }
+                });
+                setAvailableEnvironments([environment]);
+                setAgentCreateEnvironment(environment.id);
+              } catch (error) {
+                setAgentCreateError(error.message);
+              } finally {
+                setEnvironmentCreateBusy(false);
+              }
+            }, children: environmentCreateBusy ? "创建中..." : "创建通用 Sandbox" }) : null,
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-create-actions", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: agentCreateBusy, onClick: () => {
                 setAgentCreateOpen(false);
                 setAgentCreateName("");
                 setAgentCreateModel("");
+                setAgentCreateEnvironment("");
                 setAgentCreateError("");
               }, children: "取消" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: agentCreateBusy || !agentCreateName.trim() || !agentCreateModelValue, children: agentCreateBusy ? "创建中..." : "创建 Agent" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: agentCreateBusy || !agentCreateName.trim() || !agentCreateModelValue || !agentCreateEnvironmentValue, children: agentCreateBusy ? "创建中..." : "创建 Agent" })
             ] })
           ] }) : null,
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-management-tabs", role: "tablist", "aria-label": "Agent 管理视图", children: [
@@ -37552,7 +37768,7 @@ function SettingsPage({
                 agents2.length
               ] }),
               agents2.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-agent-list", children: agents2.map((agent2) => {
-                var _a4, _b3, _c2;
+                var _a4, _b3, _c2, _d2;
                 const isCurrent = agent2.id === (selectedAgent == null ? void 0 : selectedAgent.id);
                 return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `settings-row ${isCurrent ? "current" : ""}`, children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -37563,8 +37779,12 @@ function SettingsPage({
                       ((_b3 = agent2.config_version) == null ? void 0 : _b3.llm_model) || "-"
                     ] }),
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
+                      "运行环境：",
+                      ((_c2 = environmentsByID.get(agent2.environment_id)) == null ? void 0 : _c2.name) || (agent2.environment_id ? agent2.environment_id : "未绑定")
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "subtle", children: [
                       "配置版本 #",
-                      agent2.current_config_version || ((_c2 = agent2.config_version) == null ? void 0 : _c2.version) || 1
+                      agent2.current_config_version || ((_d2 = agent2.config_version) == null ? void 0 : _d2.version) || 1
                     ] })
                   ] }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-row-actions", children: isCurrent ? /* @__PURE__ */ jsxRuntimeExports.jsx(Pill, { value: "idle" }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => onSelectAgent(agent2.id), children: "选择" }) })
@@ -37573,7 +37793,7 @@ function SettingsPage({
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "settings-card agent-management-editor", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-card-title", children: "当前 Agent 配置" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(AgentConfigEditor, { agent: selectedAgent, mcpRegistryServers, modelOptions, onRollback: onRollbackAgent, onSave: onSaveAgent, rollingBackVersion, saving: savingAgent, skills: skills2 })
+              /* @__PURE__ */ jsxRuntimeExports.jsx(AgentConfigEditor, { agent: selectedAgent, environments: availableEnvironments, mcpRegistryServers, modelOptions, onRollback: onRollbackAgent, onSave: onSaveAgent, rollingBackVersion, saving: savingAgent, skills: skills2 })
             ] })
           ] }) : null,
           agentManagementView === "permissions" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -37740,7 +37960,7 @@ function SettingsPage({
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled: !currentSession || permissionAuditLoading, value: permissionAuditToolInput, onChange: (event) => setPermissionAuditToolInput(event.target.value), placeholder: "default.edit_file" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("input", { disabled: !currentSession || permissionAuditLoading, value: permissionAuditToolInput, onChange: (event) => setPermissionAuditToolInput(event.target.value), placeholder: "default_edit_file" })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "submit", disabled: !currentSession || permissionAuditLoading, children: permissionAuditLoading ? "加载中..." : "筛选" })
               ] }),
@@ -37905,7 +38125,10 @@ function SettingsPage({
     /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "settings-sidebar", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "settings-back-button", type: "button", onClick: onClose, children: "← 返回应用" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "settings-search", value: search2, onChange: (event) => setSearch(event.target.value), placeholder: "搜索设置..." }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-nav", children: sections.length ? sections.map((section) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-nav", children: sections.length ? sections.map((section) => section.href ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "settings-nav-item", href: section.href, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: section.title }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: section.description })
+      ] }) }, section.key) : /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
           className: `settings-nav-item ${section.key === activeSection ? "active" : ""}`,
@@ -37928,7 +38151,7 @@ function SettingsPage({
     /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "settings-main", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "settings-main-header", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-main-label", children: "设置" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: ((_d = sections.find((section) => section.key === activeSection)) == null ? void 0 : _d.title) || "设置" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: ((_e = sections.find((section) => section.key === activeSection)) == null ? void 0 : _e.title) || "设置" })
       ] }) }),
       content2
     ] })
@@ -38236,10 +38459,8 @@ function activityView(event) {
       return { title: "任务空闲", detail: payload(event).last_turn_status === "failed" ? payload(event).reason || "上一轮执行失败。" : "等待下一条消息。", kind: payload(event).last_turn_status === "failed" ? "error" : "ok" };
     case "runtime.failed":
     case "session.status_failed": {
-      const original = payload(event).reason || payload(event).message || "执行过程中出现失败。";
-      const providerError = objectValue(data.provider_error);
-      const detail = Object.keys(providerError).length ? providerErrorPresentation(providerError, original).detail : original;
-      return { title: "任务失败", detail: shortText(detail, 260), kind: "error" };
+      const failure = runtimeFailurePresentation(payload(event));
+      return { title: "任务失败", detail: shortText(failure.detail, 260), kind: "error" };
     }
     case "session.status_running":
       return { title: "执行中", detail: "智能体正在处理任务。", kind: "running" };
@@ -38516,11 +38737,11 @@ function turnSignal(events2, options = {}) {
     };
   }
   if (failureEvent) {
-    const reason = payload(failureEvent).reason || payload(failureEvent).message || eventText(failureEvent) || "Turn failed.";
+    const failure = runtimeFailurePresentation(payload(failureEvent));
     return {
       kind: "error",
       title: "本轮失败",
-      detail: reason
+      detail: failure.detail
     };
   }
   if (latestAgentMessage && includeSuccess) {
@@ -38905,11 +39126,15 @@ function ProcessEventCard({
   } else if (event.type === "runtime.failed") {
     title = "任务失败";
     metaLabel = "执行错误";
-    const original = payload(event).reason || payload(event).message || eventText(event) || "执行过程中出现错误。";
-    const providerError = objectValue(data.provider_error);
-    const presentation = Object.keys(providerError).length ? providerErrorPresentation(providerError, original) : null;
-    preview = (presentation == null ? void 0 : presentation.detail) || original;
-    detailObject = presentation ? { description: presentation.description, original_error: presentation.original, provider_error: providerError } : Object.keys(error).length ? { error } : null;
+    const presentation = runtimeFailurePresentation(payload(event));
+    preview = presentation.detail;
+    detailObject = {
+      error_code: presentation.code,
+      description: presentation.description,
+      original_error: presentation.original,
+      ...Object.keys(presentation.providerError).length ? { provider_error: presentation.providerError } : {},
+      ...Object.keys(error).length ? { error } : {}
+    };
     tone = "error";
     status = "error";
     statusLabel = "失败";
@@ -39164,7 +39389,6 @@ function parseSessionRuntimeSettings(raw) {
     interventionMode: typeof raw.intervention_mode === "string" ? raw.intervention_mode : "",
     llmModel: typeof raw.llm_model === "string" ? raw.llm_model : "",
     llmProvider: typeof raw.llm_provider === "string" ? raw.llm_provider : "",
-    toolRuntime: typeof raw.tool_runtime === "string" ? raw.tool_runtime : "",
     humanInteractionEnabled: humanInteraction.enabled !== false
   };
 }
@@ -39219,7 +39443,6 @@ function WorkbenchApp() {
   const [status, setStatus] = reactExports.useState("ready");
   const [principal, setPrincipal] = reactExports.useState(null);
   const [agentID, setAgentID] = reactExports.useState("");
-  const [environmentID, setEnvironmentID] = reactExports.useState("");
   const [sessionID, setSessionID] = reactExports.useState("");
   const [task, setTask] = reactExports.useState("");
   const [composerFiles, setComposerFiles] = reactExports.useState([]);
@@ -39251,7 +39474,6 @@ function WorkbenchApp() {
   const [artifactPreviewMode, setArtifactPreviewMode] = reactExports.useState("preview");
   const [artifactPreviewWidth, setArtifactPreviewWidth] = reactExports.useState(480);
   const [runtimeConfig, setRuntimeConfig] = reactExports.useState(null);
-  const [runtimeCapabilities, setRuntimeCapabilities] = reactExports.useState({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
   const [modelOptions, setModelOptions] = reactExports.useState([]);
   const [defaultAgentConfig, setDefaultAgentConfig] = reactExports.useState(null);
   const [availableAgents, setAvailableAgents] = reactExports.useState([]);
@@ -39429,7 +39651,6 @@ function WorkbenchApp() {
       sessionIDRef.current = selected.id;
       setSessionID(selected.id);
       setAgentID(selected.agent_id || "");
-      setEnvironmentID(selected.environment_id || "");
       rememberSession(selected.id);
       await loadSession(selected.id);
       await defaultsPromise;
@@ -39484,12 +39705,12 @@ function WorkbenchApp() {
     const skillsResponse = await skills({ workspaceId: defaultAgent$1.workspace_id }).catch(() => ({ skills: [] }));
     setInstalledSkills(skillsResponse.skills || []);
     setSettingsDraft((current) => {
-      var _a3, _b2;
+      var _a3, _b2, _c;
       return {
         ...current,
         llmModel: current.llmModel || ((_a3 = defaultAgent$1.config_version) == null ? void 0 : _a3.llm_model) || "",
         llmProvider: current.llmProvider || ((_b2 = defaultAgent$1.config_version) == null ? void 0 : _b2.llm_provider) || "",
-        toolRuntime: current.toolRuntime || "cloud_sandbox"
+        toolRuntime: parseToolPolicy((_c = defaultAgent$1.config_version) == null ? void 0 : _c.tools).runtime || "cloud_sandbox"
       };
     });
   }
@@ -39614,14 +39835,6 @@ function WorkbenchApp() {
     return filteredTaskSessions.slice(0, visibleTaskCount);
   }, [filteredTaskSessions, visibleTaskCount]);
   const hasMoreTasks = filteredTaskSessions.length > visibleTaskCount;
-  const runtimeOptions = reactExports.useMemo(() => {
-    const available = new Set(runtimeCapabilities.available_runtimes || ["cloud_sandbox"]);
-    const options = [{ value: "cloud_sandbox", label: "Sandbox" }];
-    if (available.has("local_system") || settingsDraft.toolRuntime === "local_system") {
-      options.push({ value: "local_system", label: "Local" });
-    }
-    return options;
-  }, [runtimeCapabilities.available_runtimes, settingsDraft.toolRuntime]);
   const selectedModelValue = settingsDraft.llmProvider && settingsDraft.llmModel ? `${settingsDraft.llmProvider}::${settingsDraft.llmModel}` : "";
   const selectedAgentValue = agentID || (defaultAgentConfig == null ? void 0 : defaultAgentConfig.id) || "";
   const selectedAgent = availableAgents.find((agent2) => agent2.id === selectedAgentValue) || defaultAgentConfig;
@@ -39711,6 +39924,7 @@ function WorkbenchApp() {
       { key: "mcp", title: "MCP", description: "MCP 服务与可用性", keywords: "mcp server tool" },
       { key: "agent", title: "Agent", description: "智能体列表与当前配置", keywords: "agent 智能体 model config" },
       { key: "work", title: "Work", description: "任务与会话状态", keywords: "work task session" },
+      { key: "space", title: "LLM Space", description: "运行对比、数据集与批量评测", keywords: "space llm evaluation experiment dataset compare 评测 实验 数据集 对比", href: "/space" },
       { key: "inspector", title: "Inspector", description: "调试与观察入口", keywords: "inspector trace debug" }
     ];
     const query = settingsSearch.trim().toLowerCase();
@@ -39741,7 +39955,6 @@ function WorkbenchApp() {
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
-      setEnvironmentID(nextSession.environment_id || "");
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
     sessionEventCursorsRef.current.set(value, eventStreamCursorRef.current);
@@ -39764,7 +39977,6 @@ function WorkbenchApp() {
     if (!nextSessionID) {
       setRuntimeConfig(null);
       setModelOptions([]);
-      setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
       setSettingsDraft({
         humanInteractionEnabled: true,
         interventionMode: "request_approval",
@@ -39789,10 +40001,9 @@ function WorkbenchApp() {
       isDefaultVision: Boolean(model.is_default_vision)
     })));
     setRuntimeConfig(config);
-    setRuntimeCapabilities(capabilities);
     setModelOptions(options);
     const parsedSettings = parseSessionRuntimeSettings((sessionValue == null ? void 0 : sessionValue.runtime_settings) || {});
-    const preferredRuntime = parsedSettings.toolRuntime || capabilities.default_runtime || "cloud_sandbox";
+    const preferredRuntime = parseToolPolicy(config.tools).runtime || capabilities.default_runtime || "cloud_sandbox";
     setSettingsDraft({
       humanInteractionEnabled: parsedSettings.humanInteractionEnabled !== false,
       interventionMode: parsedSettings.interventionMode || "request_approval",
@@ -39825,7 +40036,6 @@ function WorkbenchApp() {
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
-      setEnvironmentID(nextSession.environment_id || "");
       setRecentSessions((current) => [nextSession, ...current.filter((item) => item.id !== nextSession.id)]);
     }
     setTaskPlanResponse(nextTaskPlan);
@@ -40027,11 +40237,17 @@ function WorkbenchApp() {
               }
               continue;
             }
-            if (event.type !== "llm.text" || !event.text) continue;
+            if (event.type !== "llm.text") continue;
             if (sessionIDRef.current === sessionKey) setLiveToolProgress(null);
             const current = sessionLiveRepliesRef.current.get(sessionKey);
             const sameStream = (current == null ? void 0 : current.turnID) === event.turn_id && (current == null ? void 0 : current.toolRound) === Number(event.tool_round || 0);
             if (sameStream && Number(event.stream_seq || 0) <= Number(current.streamSeq || 0)) continue;
+            if (event.operation === "reset") {
+              sessionLiveRepliesRef.current.delete(sessionKey);
+              if (sessionIDRef.current === sessionKey) setLiveReply(null);
+              continue;
+            }
+            if (!event.text) continue;
             const next = {
               sessionID: sessionKey,
               turnID: event.turn_id,
@@ -40389,18 +40605,23 @@ function WorkbenchApp() {
       return;
     }
     setStatus("creating session");
-    const agent2 = agentID.trim() ? { id: agentID.trim() } : defaultAgentConfig || await defaultAgent();
-    const environment = environmentID.trim() ? { id: environmentID.trim() } : await createEnvironment({
-      name: "Workbench Environment",
-      config: { type: "cloud" }
-    });
+    const requestedAgentID = agentID.trim();
+    const agent$1 = requestedAgentID ? availableAgents.find((item) => item.id === requestedAgentID) || await agent(requestedAgentID) : defaultAgentConfig || await defaultAgent();
+    let legacyEnvironmentID = "";
+    if (!agent$1.environment_id) {
+      const response = await environments();
+      const environment = userSelectableEnvironments(response)[0] || await createEnvironment({
+        name: "Workbench Environment",
+        config: { type: "cloud" }
+      });
+      legacyEnvironmentID = environment.id;
+    }
     const session2 = await createSession({
-      agent_id: agent2.id,
-      environment_id: environment.id,
+      agent_id: agent$1.id,
+      ...legacyEnvironmentID ? { environment_id: legacyEnvironmentID } : {},
       title: task.trim() ? task.trim().slice(0, 80) : ((_a3 = composerFiles[0]) == null ? void 0 : _a3.file.name) || ((_b2 = composerLibraryItems[0]) == null ? void 0 : _b2.name) || "New workbench task"
     });
-    setAgentID(agent2.id);
-    setEnvironmentID(environment.id);
+    setAgentID(agent$1.id);
     sessionLoadRequestRef.current += 1;
     sessionIDRef.current = session2.id;
     setSessionID(session2.id);
@@ -40408,15 +40629,14 @@ function WorkbenchApp() {
     rememberSession(session2.id);
     setRecentSessions((current) => [session2, ...current.filter((item) => item.id !== session2.id)]);
     const shouldApplyInitialSettings = Boolean(
-      settingsDraft.interventionMode || settingsDraft.toolRuntime || settingsDraft.llmProvider || settingsDraft.llmModel
+      settingsDraft.interventionMode || settingsDraft.llmProvider || settingsDraft.llmModel
     );
     if (shouldApplyInitialSettings) {
       const updatedSession = await updateSessionRuntimeSettings(session2.id, session2.runtime_settings_revision, {
         human_interaction: humanInteractionRuntimeSettings(settingsDraft.humanInteractionEnabled),
         intervention_mode: settingsDraft.interventionMode || "request_approval",
-        llm_model: settingsDraft.llmModel || ((_c = agent2.config_version) == null ? void 0 : _c.llm_model) || "",
-        llm_provider: settingsDraft.llmProvider || ((_d = agent2.config_version) == null ? void 0 : _d.llm_provider) || "",
-        tool_runtime: settingsDraft.toolRuntime || "cloud_sandbox"
+        llm_model: settingsDraft.llmModel || ((_c = agent$1.config_version) == null ? void 0 : _c.llm_model) || "",
+        llm_provider: settingsDraft.llmProvider || ((_d = agent$1.config_version) == null ? void 0 : _d.llm_provider) || ""
       });
       setSessionMeta(updatedSession);
       await loadSessionSettings(session2.id, updatedSession);
@@ -41081,7 +41301,7 @@ function WorkbenchApp() {
     setStatus("requesting skill enable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version2} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_enable，将已安装 Skill ${JSON.stringify(identifier)} 的 version ${version2} 启用到当前 Agent。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置，Skill 可以继续使用；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -41099,7 +41319,7 @@ function WorkbenchApp() {
     setStatus("requesting skill disable");
     try {
       await sendTask(sessionID, {
-        text: `请调用 skills.disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
+        text: `请调用 skills_disable，将 Skill ${JSON.stringify(identifier)} 从当前 Agent 的最新配置中停用。只移除这个 binding，不要归档或卸载 Skill。该操作需要独立审批。完成后按工具结果准确说明：当前轮次保持原配置；requires_session_upgrade=false 时同一 Session 的下一条消息会自动使用新配置；只有 requires_session_upgrade=true 才需要手动升级。`,
         attachments: [],
         clearTask: false,
         guidanceItems: []
@@ -41193,7 +41413,6 @@ function WorkbenchApp() {
     sessionIDRef.current = session2.id;
     setSessionID(session2.id);
     setAgentID(session2.agent_id || "");
-    setEnvironmentID(session2.environment_id || "");
     rememberSession(session2.id);
     const loaded = await loadSession(session2.id);
     if (loaded == null ? void 0 : loaded.stale) return;
@@ -41201,7 +41420,7 @@ function WorkbenchApp() {
     setStatus("history restored");
   }
   function startNewTask() {
-    var _a3, _b2;
+    var _a3, _b2, _c;
     sessionLoadRequestRef.current += 1;
     clearArtifactPreview();
     setComposerFiles([]);
@@ -41209,7 +41428,6 @@ function WorkbenchApp() {
     setComposerDragActive(false);
     setToolPickerOpen(false);
     setAgentID((current) => current || (defaultAgentConfig == null ? void 0 : defaultAgentConfig.id) || "");
-    setEnvironmentID("");
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
@@ -41220,13 +41438,12 @@ function WorkbenchApp() {
     setWaitingForReply(false);
     setSteeringQueueID("");
     setRuntimeConfig(null);
-    setRuntimeCapabilities({ default_runtime: "cloud_sandbox", available_runtimes: ["cloud_sandbox"] });
     setSettingsDraft({
       humanInteractionEnabled: true,
       interventionMode: "request_approval",
       llmModel: ((_a3 = defaultAgentConfig == null ? void 0 : defaultAgentConfig.config_version) == null ? void 0 : _a3.llm_model) || "",
       llmProvider: ((_b2 = defaultAgentConfig == null ? void 0 : defaultAgentConfig.config_version) == null ? void 0 : _b2.llm_provider) || "",
-      toolRuntime: "cloud_sandbox"
+      toolRuntime: parseToolPolicy((_c = defaultAgentConfig == null ? void 0 : defaultAgentConfig.config_version) == null ? void 0 : _c.tools).runtime || "cloud_sandbox"
     });
     setApprovalsOpen(false);
     setTemplatePickerOpen(false);
@@ -41274,7 +41491,6 @@ function WorkbenchApp() {
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
-    setEnvironmentID("");
     setEventsResponse({ events: [] });
     setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
@@ -41290,7 +41506,8 @@ function WorkbenchApp() {
       setSettingsDraft((current) => ({
         ...current,
         llmProvider: agent2.config_version.llm_provider || current.llmProvider || "",
-        llmModel: agent2.config_version.llm_model || current.llmModel || ""
+        llmModel: agent2.config_version.llm_model || current.llmModel || "",
+        toolRuntime: parseToolPolicy(agent2.config_version.tools).runtime || "cloud_sandbox"
       }));
     }
   }
@@ -41305,8 +41522,7 @@ function WorkbenchApp() {
         human_interaction: humanInteractionRuntimeSettings(nextDraft.humanInteractionEnabled),
         intervention_mode: nextDraft.interventionMode,
         llm_model: nextDraft.llmModel,
-        llm_provider: nextDraft.llmProvider,
-        tool_runtime: nextDraft.toolRuntime
+        llm_provider: nextDraft.llmProvider
       });
       setSessionMeta(updatedSession);
       await loadSessionSettings(sessionID, updatedSession);
@@ -41466,6 +41682,9 @@ function WorkbenchApp() {
         });
       }
       setStatus("Agent 配置已保存");
+    } catch (error) {
+      setStatus(error.message || "Agent 配置保存失败");
+      throw error;
     } finally {
       setSavingAgentConfig(false);
     }
@@ -41529,7 +41748,6 @@ function WorkbenchApp() {
     sessionIDRef.current = "";
     setSessionID("");
     setSessionMeta(null);
-    setEnvironmentID("");
     setEventsResponse({ events: [] });
     setTaskPlanResponse({ plan: null });
     setInterventionResponse({ interventions: [] });
@@ -41599,7 +41817,7 @@ function WorkbenchApp() {
         onOpenSession: openArchivedSessionFromSettings,
         onRestoreSession: (session2) => restoreTask(session2).catch((error) => setStatus(error.message)),
         onRollbackAgent: rollbackAgentFromSettings,
-        onSaveAgent: (body) => saveAgentFromSettings(body).catch((error) => setStatus(error.message)),
+        onSaveAgent: saveAgentFromSettings,
         onSelectAgent: selectAgentFromSettings,
         onUpdateAgentPermissions: updateAgentPermissionsFromSettings,
         onUpdateSessionPermissions: updateSessionPermissionsFromSettings,
@@ -41988,7 +42206,7 @@ function WorkbenchApp() {
                 ] }, template.id)) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "empty-state compact", children: "正在加载任务模板..." }) }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "welcome-note", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "提示" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "你可以在任务开始前预先选择模型、审批模式和运行环境。" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "你可以在任务开始前预先选择模型和审批模式。" })
                 ] })
               ] }),
               !streamingReply && waitingForReply ? /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "message agent pending", children: [
@@ -42199,18 +42417,6 @@ function WorkbenchApp() {
                                   /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
                                   /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
                                 ]
-                              }
-                            )
-                          ] }),
-                          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "composer-setting", children: [
-                            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
-                            /* @__PURE__ */ jsxRuntimeExports.jsx(
-                              "select",
-                              {
-                                disabled: savingSettings,
-                                value: settingsDraft.toolRuntime,
-                                onChange: (event) => applySessionSettings({ toolRuntime: event.target.value }).catch((error) => setStatus(error.message)),
-                                children: runtimeOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
                               }
                             )
                           ] }),

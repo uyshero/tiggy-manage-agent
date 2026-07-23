@@ -211,6 +211,10 @@ export function createEnvironment(body, options = {}) {
   return coreSDK.environments.create(body, options.signal);
 }
 
+export async function environments(options = {}) {
+  return { environments: await coreSDK.environments.list(options.signal) };
+}
+
 export async function environmentVariables(workspaceId = "") {
   return { variables: await coreSDK.environmentVariables.list(workspaceId ? { workspaceId } : {}) };
 }

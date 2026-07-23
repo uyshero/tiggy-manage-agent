@@ -347,9 +347,137 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["get_v2_environments"];
         put?: never;
         post: operations["post_v2_environments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/environments/{environment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_environments_by_environment_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_datasets"];
+        put?: never;
+        post: operations["post_v2_evaluation_datasets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-datasets/{dataset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_datasets_by_dataset_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-experiments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_experiments"];
+        put?: never;
+        post: operations["post_v2_evaluation_experiments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-experiments/{experiment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_experiments_by_experiment_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-experiments/{experiment_id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_evaluation_experiments_by_experiment_id_reconcile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-rubrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_rubrics"];
+        put?: never;
+        post: operations["post_v2_evaluation_rubrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/evaluation-rubrics/{rubric_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_evaluation_rubrics_by_rubric_id"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -750,6 +878,54 @@ export interface paths {
         get: operations["get_v2_operator_audit"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/run-comparisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_run_comparisons"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/run-evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_run_evaluations"];
+        put?: never;
+        post: operations["post_v2_run_evaluations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/run-evaluations/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_run_evaluations_auto"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2559,6 +2735,7 @@ export interface components {
         Agent: {
             id: string;
             workspace_id: string;
+            environment_id?: string;
             /** @enum {string} */
             owner_type: "user" | "workspace";
             owner_id: string;
@@ -2798,6 +2975,7 @@ export interface components {
         };
         CreateAgentRequest: {
             workspace_id?: string;
+            environment_id?: string;
             /** @enum {string} */
             owner_type?: "user" | "workspace";
             owner_id?: string;
@@ -2822,6 +3000,7 @@ export interface components {
             };
         };
         UpdateAgentRequest: {
+            environment_id?: string;
             name?: string;
             llm_provider?: string;
             llm_model?: string;
@@ -2850,6 +3029,9 @@ export interface components {
             archived_at?: string | null;
             /** Format: date-time */
             created_at: string;
+        };
+        EnvironmentList: {
+            environments: components["schemas"]["Environment"][];
         };
         CreateEnvironmentRequest: {
             workspace_id?: string;
@@ -3053,7 +3235,7 @@ export interface components {
             workspace_id?: string;
             owner_id?: string;
             agent_id?: string;
-            environment_id: string;
+            environment_id?: string;
             title?: string;
             created_by?: string;
             parent_session_id?: string;
@@ -3068,7 +3250,6 @@ export interface components {
             llm_model?: string;
             intervention_mode?: string;
             permission_rules?: components["schemas"]["PermissionRule"][];
-            tool_runtime?: string;
             cloud_sandbox_root?: string;
             cloud_sandbox_image?: string;
             cloud_sandbox_allow_network?: boolean;
@@ -3355,8 +3536,216 @@ export interface components {
         ArtifactList: {
             artifacts: components["schemas"]["Artifact"][];
         };
+        EvaluationCriterion: {
+            id: string;
+            name: string;
+            description?: string;
+        };
+        EvaluationRubric: {
+            id: string;
+            workspace_id: string;
+            name: string;
+            description?: string;
+            criteria: components["schemas"]["EvaluationCriterion"][];
+            /** Format: int64 */
+            revision: number;
+            created_by?: string;
+            updated_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CreateEvaluationRubricRequest: {
+            workspace_id?: string;
+            name: string;
+            description?: string;
+            criteria: components["schemas"]["EvaluationCriterion"][];
+        };
+        EvaluationRubricList: {
+            rubrics: components["schemas"]["EvaluationRubric"][];
+        };
+        EvaluationCriterionScore: {
+            criterion_id: string;
+            /** Format: int32 */
+            left_score: number;
+            /** Format: int32 */
+            right_score: number;
+        };
+        EvaluationRubricSnapshot: {
+            rubric_id: string;
+            name: string;
+            description?: string;
+            /** Format: int64 */
+            revision: number;
+            criteria: components["schemas"]["EvaluationCriterion"][];
+        };
+        RunEvaluation: {
+            id: string;
+            workspace_id: string;
+            left_session_id: string;
+            left_turn_id: string;
+            right_session_id: string;
+            right_turn_id: string;
+            rubric_id?: string;
+            rubric_snapshot: components["schemas"]["EvaluationRubricSnapshot"];
+            scores: components["schemas"]["EvaluationCriterionScore"][];
+            /** @enum {string} */
+            conclusion: "left" | "right" | "tie" | "inconclusive";
+            notes?: string;
+            /** @enum {string} */
+            evaluation_type: "manual" | "auto";
+            judge_provider?: string;
+            judge_model?: string;
+            judge_reasoning?: string;
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateRunEvaluationRequest: {
+            left_session_id: string;
+            left_turn_id: string;
+            right_session_id: string;
+            right_turn_id: string;
+            rubric_id: string;
+            scores: components["schemas"]["EvaluationCriterionScore"][];
+            /** @enum {string} */
+            conclusion: "left" | "right" | "tie" | "inconclusive";
+            notes?: string;
+        };
+        AutoRunEvaluationRequest: {
+            left_session_id: string;
+            left_turn_id: string;
+            right_session_id: string;
+            right_turn_id: string;
+            rubric_id: string;
+        };
+        RunEvaluationList: {
+            evaluations: components["schemas"]["RunEvaluation"][];
+        };
+        EvaluationDatasetItem: {
+            id: string;
+            dataset_id: string;
+            /** Format: int32 */
+            item_index: number;
+            prompt: string;
+            expected_output?: string;
+            tags: string[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        EvaluationDataset: {
+            id: string;
+            workspace_id: string;
+            name: string;
+            description?: string;
+            items: components["schemas"]["EvaluationDatasetItem"][];
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CreateEvaluationDatasetItemRequest: {
+            prompt: string;
+            expected_output?: string;
+            tags?: string[];
+        };
+        CreateEvaluationDatasetRequest: {
+            workspace_id?: string;
+            name: string;
+            description?: string;
+            items: components["schemas"]["CreateEvaluationDatasetItemRequest"][];
+        };
+        EvaluationDatasetList: {
+            datasets: components["schemas"]["EvaluationDataset"][];
+        };
+        EvaluationExperimentItem: {
+            id: string;
+            experiment_id: string;
+            dataset_item_id?: string;
+            /** Format: int32 */
+            item_index: number;
+            prompt: string;
+            expected_output?: string;
+            tags: string[];
+            left_session_id?: string;
+            left_turn_id?: string;
+            right_session_id?: string;
+            right_turn_id?: string;
+            evaluation_id?: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed";
+            /** @enum {string} */
+            conclusion?: "left" | "right" | "tie" | "inconclusive";
+            /** Format: double */
+            left_average: number;
+            /** Format: double */
+            right_average: number;
+            error_message?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EvaluationExperimentSummary: {
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            queued: number;
+            /** Format: int32 */
+            running: number;
+            /** Format: int32 */
+            completed: number;
+            /** Format: int32 */
+            failed: number;
+            /** Format: int32 */
+            left_wins: number;
+            /** Format: int32 */
+            right_wins: number;
+            /** Format: int32 */
+            ties: number;
+            /** Format: int32 */
+            inconclusive: number;
+            /** Format: double */
+            left_average: number;
+            /** Format: double */
+            right_average: number;
+        };
+        EvaluationExperiment: {
+            id: string;
+            workspace_id: string;
+            name: string;
+            dataset_id?: string;
+            rubric_id?: string;
+            left_template_session_id?: string;
+            right_template_session_id?: string;
+            /** @enum {string} */
+            status: "running" | "completed" | "failed";
+            summary: components["schemas"]["EvaluationExperimentSummary"];
+            items: components["schemas"]["EvaluationExperimentItem"][];
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at?: string;
+        };
+        CreateEvaluationExperimentRequest: {
+            workspace_id?: string;
+            name: string;
+            dataset_id: string;
+            rubric_id: string;
+            left_template_session_id: string;
+            right_template_session_id: string;
+        };
+        EvaluationExperimentList: {
+            experiments: components["schemas"]["EvaluationExperiment"][];
+        };
         SessionComparisonSide: {
             session: components["schemas"]["Session"];
+            run?: components["schemas"]["Run"];
             llm_provider: string;
             llm_model: string;
             prompt: string;
@@ -3369,8 +3758,13 @@ export interface components {
                 records: components["schemas"]["LLMUsageRecord"][];
             };
             artifacts: components["schemas"]["Artifact"][];
+            trace?: components["schemas"]["TurnTrace"];
         };
         SessionComparison: {
+            left: components["schemas"]["SessionComparisonSide"];
+            right: components["schemas"]["SessionComparisonSide"];
+        };
+        RunComparison: {
             left: components["schemas"]["SessionComparisonSide"];
             right: components["schemas"]["SessionComparisonSide"];
         };
@@ -4855,6 +5249,7 @@ export interface components {
             current_session_version: number;
             binding: components["schemas"]["EnabledSkill"];
             changed: boolean;
+            /** @description True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn. */
             requires_session_upgrade: boolean;
         };
         MarketplaceDisableResult: {
@@ -4867,6 +5262,7 @@ export interface components {
             current_session_version: number;
             binding: components["schemas"]["EnabledSkill"];
             removed: boolean;
+            /** @description True only when the Session is pinned and requires a manual config upgrade; follow_latest Sessions apply the new version automatically on the next turn. */
             requires_session_upgrade: boolean;
         };
         MarketplaceEntry: {
@@ -5046,7 +5442,7 @@ export interface components {
         PermissionRule: {
             id: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             /** @enum {string} */
             argument: "path";
             pattern: string;
@@ -5057,7 +5453,7 @@ export interface components {
         WorkspacePermissionRule: {
             id: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             /** @enum {string} */
             argument: "path";
             pattern: string;
@@ -5081,7 +5477,7 @@ export interface components {
             agent_id?: string;
             session_id?: string;
             /** @enum {string} */
-            tool: "default.read_file" | "default.write_file" | "default.edit_file";
+            tool: "default_read_file" | "default_write_file" | "default_edit_file";
             path: string;
             /** @enum {string} */
             intervention_mode?: "request_approval" | "approve_for_me" | "full_access";
@@ -6412,6 +6808,35 @@ export interface operations {
             };
         };
     };
+    get_v2_environments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     post_v2_environments: {
         parameters: {
             query?: never;
@@ -6432,6 +6857,354 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Environment"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_environments_by_environment_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Environment"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_datasets: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDatasetList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_evaluation_datasets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvaluationDatasetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDataset"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_datasets_by_dataset_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDataset"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_experiments: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationExperimentList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_evaluation_experiments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvaluationExperimentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationExperiment"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_experiments_by_experiment_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationExperiment"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_evaluation_experiments_by_experiment_id_reconcile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                experiment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationExperiment"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_rubrics: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRubricList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_evaluation_rubrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvaluationRubricRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRubric"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_evaluation_rubrics_by_rubric_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rubric_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationRubric"];
                 };
             };
             /** @description API error */
@@ -7493,6 +8266,141 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OperatorAuditList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_run_comparisons: {
+        parameters: {
+            query: {
+                left_session_id: string;
+                left_turn_id: string;
+                right_session_id: string;
+                right_turn_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunComparison"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_run_evaluations: {
+        parameters: {
+            query: {
+                left_session_id: string;
+                left_turn_id: string;
+                right_session_id: string;
+                right_turn_id: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEvaluationList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_run_evaluations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRunEvaluationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEvaluation"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_run_evaluations_auto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoRunEvaluationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEvaluation"];
                 };
             };
             /** @description API error */

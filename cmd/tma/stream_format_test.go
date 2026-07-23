@@ -152,7 +152,7 @@ func TestStreamSSEFormatsToolInterventionRequired(t *testing.T) {
 	if !strings.Contains(text, "approval required") {
 		t.Fatalf("expected readable approval header, got %q", text)
 	}
-	if !strings.Contains(text, "tool: default.edit_file") {
+	if !strings.Contains(text, "tool: default_edit_file") {
 		t.Fatalf("expected tool summary, got %q", text)
 	}
 	if !strings.Contains(text, "mode: request_approval") {
@@ -200,7 +200,7 @@ func TestStreamSSEFormatsToolInterventionApproved(t *testing.T) {
 	if !strings.Contains(text, "approval approved") {
 		t.Fatalf("expected readable approved header, got %q", text)
 	}
-	if !strings.Contains(text, "tool: default.edit_file") {
+	if !strings.Contains(text, "tool: default_edit_file") {
 		t.Fatalf("expected tool summary, got %q", text)
 	}
 	if strings.Contains(text, "event: runtime.tool_intervention_approved") {

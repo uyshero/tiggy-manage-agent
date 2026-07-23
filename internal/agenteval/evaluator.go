@@ -628,7 +628,7 @@ func filesystemToolSequence(steps []agentruntime.Step) []string {
 		}
 		identifier, _ := step.Data["identifier"].(string)
 		api, _ := step.Data["api_name"].(string)
-		result = append(result, defaultEvalString(identifier, tools.NamespaceDefault)+"."+api)
+		result = append(result, tools.ModelToolName(defaultEvalString(identifier, tools.NamespaceDefault), api))
 	}
 	return result
 }
@@ -893,8 +893,8 @@ func validateFilesystemFixture(fixture Case) error {
 }
 
 func isQualifiedFilesystemEvalTool(name string) bool {
-	identifier, api, ok := strings.Cut(strings.TrimSpace(name), ".")
-	return ok && identifier == tools.NamespaceDefault && isVisibleFilesystemEvalTool(api)
+	call := tools.DefaultRegistry().ResolveCall(tools.Call{Name: strings.TrimSpace(name)})
+	return call.Identifier == tools.NamespaceDefault && isVisibleFilesystemEvalTool(call.APIName)
 }
 
 func validatePlanSnapshot(plan PlanSnapshot) error {
@@ -1074,7 +1074,7 @@ func (client *schemaReplayClient) Generate(context.Context, llm.Request) (llm.Re
 	}
 	return llm.Response{Message: llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
 		ID: candidate.ToolCall.ID, Type: "function",
-		Function: llm.ToolCallFunction{Name: "quality_schema.check", Arguments: candidate.ToolCall.Arguments},
+		Function: llm.ToolCallFunction{Name: "quality_schema_check", Arguments: candidate.ToolCall.Arguments},
 	}}}}, nil
 }
 
@@ -1130,7 +1130,7 @@ func (reader *replayPlanReader) GetCurrentSessionTaskPlanContext(context.Context
 		for _, item := range snapshot.Items {
 			refs := make([]managedagents.TaskEvidenceRef, 0, len(item.ToolCallIDs))
 			for _, callID := range item.ToolCallIDs {
-				refs = append(refs, managedagents.TaskEvidenceRef{Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn_1", ToolCallID: callID, Tool: "verify.check"})
+				refs = append(refs, managedagents.TaskEvidenceRef{Kind: managedagents.TaskEvidenceKindToolResult, TurnID: "turn_1", ToolCallID: callID, Tool: "verify_check"})
 			}
 			items = append(items, managedagents.SessionTaskItem{ID: item.ID, PlanID: snapshot.ID, Description: item.Description, Status: item.Status, Evidence: item.Evidence, EvidenceRefs: refs})
 		}

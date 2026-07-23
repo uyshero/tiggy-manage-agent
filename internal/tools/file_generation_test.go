@@ -91,7 +91,7 @@ func TestValidateFileMutationCallAcceptsIndentedNumberedPlaceholder(t *testing.T
 func TestValidateFileMutationBatchRejectsMultipleMutations(t *testing.T) {
 	calls := []Call{
 		{APIName: "write_file", Arguments: json.RawMessage(`{"path":"a","content":"a"}`)},
-		{APIName: "default.edit_file", Arguments: json.RawMessage(`{"path":"b","old_string":"b","new_string":"c"}`)},
+		{APIName: "default_edit_file", Arguments: json.RawMessage(`{"path":"b","old_string":"b","new_string":"c"}`)},
 	}
 	validationError := ValidateFileMutationBatch(calls)
 	if validationError == nil || validationError.Type != "multiple_file_mutations" {

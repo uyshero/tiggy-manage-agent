@@ -369,7 +369,7 @@ func (r Registry) Available(available AvailableCapabilities) Registry {
 		if len(availableNamespaces) > 0 && !availableNamespaces[namespace] {
 			return false
 		}
-		if len(availableAPIs) > 0 && !availableAPIs[namespace+"."+apiName] {
+		if len(availableAPIs) > 0 && !availableAPIs[ModelToolName(namespace, apiName)] {
 			return false
 		}
 		if !apiRuntimeAvailable(api, available.Runtime) {
@@ -776,9 +776,6 @@ func NormalizeCall(call Call) Call {
 	if call.APIName == "" {
 		call.APIName = call.Name
 	}
-	if call.Identifier == "" && strings.Contains(call.APIName, ".") {
-		call.Identifier, call.APIName = splitFunctionName(call.APIName)
-	}
 	if call.Identifier == "" {
 		call.Identifier, call.APIName = splitBuiltinModelToolName(call.APIName)
 	}
@@ -790,12 +787,12 @@ func NormalizeCall(call Call) Call {
 
 // ResolveCall resolves the canonical namespace_api model name against the
 // registry. Registry lookup avoids ambiguity when a namespace or API itself
-// contains underscores. Legacy namespace.api names remain accepted.
+// contains underscores.
 func (r Registry) ResolveCall(call Call) Call {
 	if call.APIName == "" {
 		call.APIName = call.Name
 	}
-	if call.Identifier != "" || strings.Contains(call.APIName, ".") {
+	if call.Identifier != "" {
 		return NormalizeCall(call)
 	}
 	name := strings.TrimSpace(call.APIName)
@@ -852,14 +849,6 @@ func splitBuiltinModelToolName(name string) (string, string) {
 		}
 	}
 	return "", name
-}
-
-func splitFunctionName(name string) (string, string) {
-	parts := strings.Split(name, ".")
-	if len(parts) == 1 {
-		return "", name
-	}
-	return strings.Join(parts[:len(parts)-1], "."), parts[len(parts)-1]
 }
 
 func ResultMessage(result ExecutionResult) string {

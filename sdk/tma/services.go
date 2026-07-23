@@ -93,6 +93,20 @@ func agentPath(agentID string) string { return "/v2/agents/" + url.PathEscape(ag
 
 type EnvironmentsService struct{ client *Client }
 
+func (s *EnvironmentsService) List(ctx context.Context) ([]Environment, error) {
+	var response struct {
+		Environments []Environment `json:"environments"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/environments", nil, &response)
+	return response.Environments, err
+}
+
+func (s *EnvironmentsService) Get(ctx context.Context, environmentID string) (Environment, error) {
+	var environment Environment
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/environments/"+url.PathEscape(environmentID), nil, &environment)
+	return environment, err
+}
+
 func (s *EnvironmentsService) Create(ctx context.Context, request CreateEnvironmentRequest) (Environment, error) {
 	var environment Environment
 	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/environments", request, &environment)
@@ -279,6 +293,132 @@ func (s *SessionsService) Compare(ctx context.Context, leftSessionID string, rig
 	var result SessionComparison
 	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/session-comparisons?"+values.Encode(), nil, &result)
 	return result, err
+}
+
+func (s *SessionsService) CompareRuns(ctx context.Context, leftSessionID string, leftTurnID string, rightSessionID string, rightTurnID string) (RunComparison, error) {
+	values := url.Values{}
+	values.Set("left_session_id", leftSessionID)
+	values.Set("left_turn_id", leftTurnID)
+	values.Set("right_session_id", rightSessionID)
+	values.Set("right_turn_id", rightTurnID)
+	var result RunComparison
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/run-comparisons?"+values.Encode(), nil, &result)
+	return result, err
+}
+
+type EvaluationsService struct{ client *Client }
+
+func (s *EvaluationsService) CreateRubric(ctx context.Context, request CreateEvaluationRubricRequest) (EvaluationRubric, error) {
+	var result EvaluationRubric
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/evaluation-rubrics", request, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) ListRubrics(ctx context.Context, workspaceID string) ([]EvaluationRubric, error) {
+	values := url.Values{}
+	if workspaceID != "" {
+		values.Set("workspace_id", workspaceID)
+	}
+	path := "/v2/evaluation-rubrics"
+	if query := values.Encode(); query != "" {
+		path += "?" + query
+	}
+	var result struct {
+		Rubrics []EvaluationRubric `json:"rubrics"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, path, nil, &result)
+	return result.Rubrics, err
+}
+
+func (s *EvaluationsService) GetRubric(ctx context.Context, rubricID string) (EvaluationRubric, error) {
+	var result EvaluationRubric
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/evaluation-rubrics/"+url.PathEscape(rubricID), nil, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) CreateRunEvaluation(ctx context.Context, request CreateRunEvaluationRequest) (RunEvaluation, error) {
+	var result RunEvaluation
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/run-evaluations", request, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) AutoEvaluate(ctx context.Context, request AutoRunEvaluationRequest) (RunEvaluation, error) {
+	var result RunEvaluation
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/run-evaluations/auto", request, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) CreateDataset(ctx context.Context, request CreateEvaluationDatasetRequest) (EvaluationDataset, error) {
+	var result EvaluationDataset
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/evaluation-datasets", request, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) ListDatasets(ctx context.Context, workspaceID string) ([]EvaluationDataset, error) {
+	values := url.Values{}
+	if strings.TrimSpace(workspaceID) != "" {
+		values.Set("workspace_id", workspaceID)
+	}
+	var result struct {
+		Datasets []EvaluationDataset `json:"datasets"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/evaluation-datasets?"+values.Encode(), nil, &result)
+	return result.Datasets, err
+}
+
+func (s *EvaluationsService) GetDataset(ctx context.Context, datasetID string) (EvaluationDataset, error) {
+	var result EvaluationDataset
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/evaluation-datasets/"+url.PathEscape(datasetID), nil, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) CreateExperiment(ctx context.Context, request CreateEvaluationExperimentRequest) (EvaluationExperiment, error) {
+	var result EvaluationExperiment
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/evaluation-experiments", request, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) ListExperiments(ctx context.Context, workspaceID string, limit int) ([]EvaluationExperiment, error) {
+	values := url.Values{}
+	if strings.TrimSpace(workspaceID) != "" {
+		values.Set("workspace_id", workspaceID)
+	}
+	if limit > 0 {
+		values.Set("limit", strconv.Itoa(limit))
+	}
+	var result struct {
+		Experiments []EvaluationExperiment `json:"experiments"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/evaluation-experiments?"+values.Encode(), nil, &result)
+	return result.Experiments, err
+}
+
+func (s *EvaluationsService) GetExperiment(ctx context.Context, experimentID string) (EvaluationExperiment, error) {
+	var result EvaluationExperiment
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/evaluation-experiments/"+url.PathEscape(experimentID), nil, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) ReconcileExperiment(ctx context.Context, experimentID string) (EvaluationExperiment, error) {
+	var result EvaluationExperiment
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/evaluation-experiments/"+url.PathEscape(experimentID)+"/reconcile", nil, &result)
+	return result, err
+}
+
+func (s *EvaluationsService) ListRunEvaluations(ctx context.Context, query RunEvaluationListQuery) ([]RunEvaluation, error) {
+	values := url.Values{}
+	values.Set("left_session_id", query.LeftSessionID)
+	values.Set("left_turn_id", query.LeftTurnID)
+	values.Set("right_session_id", query.RightSessionID)
+	values.Set("right_turn_id", query.RightTurnID)
+	if query.Limit > 0 {
+		values.Set("limit", strconv.Itoa(query.Limit))
+	}
+	var result struct {
+		Evaluations []RunEvaluation `json:"evaluations"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/run-evaluations?"+values.Encode(), nil, &result)
+	return result.Evaluations, err
 }
 
 func (s *SessionsService) RuntimeConfig(ctx context.Context, sessionID string) (AgentRuntimeConfig, error) {
