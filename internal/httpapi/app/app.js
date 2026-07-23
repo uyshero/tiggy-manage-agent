@@ -26238,6 +26238,15 @@ class SessionsService extends ServiceBase {
     const path2 = withQuery("/v2/session-comparisons", { left_session_id: leftSessionId, right_session_id: rightSessionId });
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {});
   }
+  compareRuns(leftSessionId, leftTurnId, rightSessionId, rightTurnId, signal) {
+    const path2 = withQuery("/v2/run-comparisons", {
+      left_session_id: leftSessionId,
+      left_turn_id: leftTurnId,
+      right_session_id: rightSessionId,
+      right_turn_id: rightTurnId
+    });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {});
+  }
   updateRuntimeSettings(sessionId, expectedRevision, request, signal) {
     return this.transport.requestJSON("PATCH", `${sessionPath(sessionId)}/runtime-settings`, request, {
       headers: { "If-Match": `"${expectedRevision}"` },
@@ -26377,8 +26386,39 @@ class AuthService extends ServiceBase {
   }
 }
 class EnvironmentsService extends ServiceBase {
+  list(signal) {
+    return this.transport.requestJSON("GET", "/v2/environments", void 0, signal ? { signal } : {}).then((value) => value.environments);
+  }
+  get(environmentId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/environments", environmentId), void 0, signal ? { signal } : {});
+  }
   create(request, signal) {
     return this.transport.requestJSON("POST", "/v2/environments", request, signal ? { signal } : {});
+  }
+}
+class EvaluationsService extends ServiceBase {
+  createRubric(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/evaluation-rubrics", request, signal ? { signal } : {});
+  }
+  listRubrics(workspaceId, signal) {
+    const path2 = withQuery("/v2/evaluation-rubrics", { workspace_id: workspaceId });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.rubrics);
+  }
+  getRubric(rubricId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/evaluation-rubrics", rubricId), void 0, signal ? { signal } : {});
+  }
+  createRunEvaluation(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/run-evaluations", request, signal ? { signal } : {});
+  }
+  listRunEvaluations(query, signal) {
+    const path2 = withQuery("/v2/run-evaluations", {
+      left_session_id: query.leftSessionId,
+      left_turn_id: query.leftTurnId,
+      right_session_id: query.rightSessionId,
+      right_turn_id: query.rightTurnId,
+      limit: query.limit
+    });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.evaluations);
   }
 }
 class InterventionsService extends ServiceBase {
@@ -26982,6 +27022,7 @@ class TMAClient {
     __publicField(this, "agents");
     __publicField(this, "environments");
     __publicField(this, "sessions");
+    __publicField(this, "evaluations");
     __publicField(this, "runs");
     __publicField(this, "interventions");
     __publicField(this, "artifacts");
@@ -27004,6 +27045,7 @@ class TMAClient {
     this.agents = new AgentsService(transport);
     this.environments = new EnvironmentsService(transport);
     this.sessions = new SessionsService(transport);
+    this.evaluations = new EvaluationsService(transport);
     this.interventions = new InterventionsService(transport);
     this.runs = new RunsService(transport, this.interventions);
     this.artifacts = new ArtifactsService(transport);
@@ -30034,6 +30076,37 @@ function normalizePlan(value) {
 }
 function objectValue$2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+const sessionSyncEventTypes = /* @__PURE__ */ new Set([
+  "agent.message",
+  "runtime.tool_intervention_required",
+  "runtime.tool_intervention_approved",
+  "runtime.tool_intervention_rejected",
+  "runtime.human_input_required",
+  "runtime.human_input_submitted",
+  "runtime.human_input_skipped",
+  "runtime.human_input_canceled",
+  "runtime.plan_approval_required",
+  "runtime.plan_approval_approved",
+  "runtime.plan_approval_rejected",
+  "runtime.turn_completing",
+  "runtime.completion_validated",
+  "runtime.completion_blocked",
+  "runtime.completion_validation_failed",
+  "runtime.failed",
+  "runtime.completed",
+  "session.status_idle",
+  "session.status_failed",
+  "session.status_terminated",
+  "session.config_updated",
+  // Agent Core persists these durable event names instead of the legacy
+  // runtime.* intervention events.
+  "intervention.required",
+  "intervention.resolved"
+]);
+function shouldSyncSessionForEvent(event) {
+  const type = typeof event === "string" ? event : event == null ? void 0 : event.type;
+  return sessionSyncEventTypes.has(String(type || ""));
 }
 const sessionMessageQueueStorageKey = "tma.workbench.session-message-queue.v1";
 function normalizeSessionMessageQueue(value) {
@@ -33615,29 +33688,6 @@ function pluginPathFromHash() {
     return "";
   }
 }
-const sessionSyncEventTypes = /* @__PURE__ */ new Set([
-  "agent.message",
-  "runtime.tool_intervention_required",
-  "runtime.tool_intervention_approved",
-  "runtime.tool_intervention_rejected",
-  "runtime.human_input_required",
-  "runtime.human_input_submitted",
-  "runtime.human_input_skipped",
-  "runtime.human_input_canceled",
-  "runtime.plan_approval_required",
-  "runtime.plan_approval_approved",
-  "runtime.plan_approval_rejected",
-  "runtime.turn_completing",
-  "runtime.completion_validated",
-  "runtime.completion_blocked",
-  "runtime.completion_validation_failed",
-  "runtime.failed",
-  "runtime.completed",
-  "session.status_idle",
-  "session.status_failed",
-  "session.status_terminated",
-  "session.config_updated"
-]);
 const liveReplyTerminalEventTypes = /* @__PURE__ */ new Set([
   "agent.message",
   "runtime.tool_call",
@@ -39930,7 +39980,7 @@ function WorkbenchApp() {
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
         setLiveToolProgress(null);
       }
-      if (isCurrent && sessionSyncEventTypes.has(event.type)) {
+      if (isCurrent && shouldSyncSessionForEvent(event)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = window.setTimeout(() => {
           sessionSyncTimerRef.current = null;

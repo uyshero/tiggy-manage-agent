@@ -12,6 +12,7 @@ import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, su
 import { providerErrorPresentation } from "./providerErrors.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
+import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
 import {
   appendSessionMessageQueue,
   normalizeSessionMessageQueue,
@@ -135,29 +136,6 @@ function pluginPathFromHash() {
     return "";
   }
 }
-const sessionSyncEventTypes = new Set([
-  "agent.message",
-  "runtime.tool_intervention_required",
-  "runtime.tool_intervention_approved",
-  "runtime.tool_intervention_rejected",
-  "runtime.human_input_required",
-  "runtime.human_input_submitted",
-  "runtime.human_input_skipped",
-  "runtime.human_input_canceled",
-  "runtime.plan_approval_required",
-  "runtime.plan_approval_approved",
-  "runtime.plan_approval_rejected",
-  "runtime.turn_completing",
-  "runtime.completion_validated",
-  "runtime.completion_blocked",
-  "runtime.completion_validation_failed",
-  "runtime.failed",
-  "runtime.completed",
-  "session.status_idle",
-  "session.status_failed",
-  "session.status_terminated",
-  "session.config_updated"
-]);
 const liveReplyTerminalEventTypes = new Set([
   "agent.message",
   "runtime.tool_call",
@@ -6582,7 +6560,7 @@ function WorkbenchApp() {
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
         setLiveToolProgress(null);
       }
-      if (isCurrent && sessionSyncEventTypes.has(event.type)) {
+      if (isCurrent && shouldSyncSessionForEvent(event)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
         sessionSyncTimerRef.current = window.setTimeout(() => {
           sessionSyncTimerRef.current = null;
