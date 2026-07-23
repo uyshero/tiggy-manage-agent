@@ -86,6 +86,32 @@ func TestDiagnosticChatAndRerankerRequests(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/chat/completions":
+			var request struct {
+				Tools []struct {
+					Type     string `json:"type"`
+					Function struct {
+						Name       string `json:"name"`
+						Parameters struct {
+							Type                 string         `json:"type"`
+							Properties           map[string]any `json:"properties"`
+							AdditionalProperties bool           `json:"additionalProperties"`
+						} `json:"parameters"`
+					} `json:"function"`
+				} `json:"tools"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatalf("decode chat diagnostic request: %v", err)
+			}
+			if len(request.Tools) != 1 || request.Tools[0].Type != "function" {
+				t.Fatalf("unexpected diagnostic tools: %+v", request.Tools)
+			}
+			tool := request.Tools[0].Function
+			if tool.Name != "diagnostic_ping" || strings.Contains(tool.Name, ".") {
+				t.Fatalf("unexpected diagnostic tool name: %q", tool.Name)
+			}
+			if tool.Parameters.Type != "object" || len(tool.Parameters.Properties) != 0 || tool.Parameters.AdditionalProperties {
+				t.Fatalf("unexpected diagnostic tool schema: %+v", tool.Parameters)
+			}
 			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
 		case "/v1/rerank":
 			_, _ = w.Write([]byte(`{"results":[{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":0.1}]}`))

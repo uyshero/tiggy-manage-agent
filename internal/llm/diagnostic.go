@@ -145,6 +145,18 @@ func (s DiagnosticService) testChat(ctx context.Context, config DiagnosticConfig
 		"model":      config.Model,
 		"messages":   []map[string]string{{"role": "user", "content": "ping"}},
 		"max_tokens": 1,
+		"tools": []map[string]any{{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "diagnostic_ping",
+				"description": "Validate model tool-calling compatibility.",
+				"parameters": map[string]any{
+					"type":                 "object",
+					"properties":           map[string]any{},
+					"additionalProperties": false,
+				},
+			},
+		}},
 	}
 	responseBody, failure := s.postJSON(ctx, config, "/chat/completions", body)
 	if failure != nil {
