@@ -49,6 +49,33 @@ func TestEngineCompletesWithoutTools(t *testing.T) {
 	}
 }
 
+func TestMemoryDurabilityStateOwnershipContract(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	durability := modeltest.NewMemoryDurability(state)
+	next := state.Clone()
+	next.Phase = agentcore.PhaseAwaitingModel
+	originalText := next.Messages[0].Content[0].Text
+	committed, err := durability.Commit(context.Background(), agentcore.Transition{ExpectedRevision: 0, Next: next})
+	if err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if next.Revision != 0 {
+		t.Fatalf("Commit() mutated input revision to %d", next.Revision)
+	}
+
+	committed.Messages[0].Content[0].Text = "mutated returned state"
+	if next.Messages[0].Content[0].Text != originalText {
+		t.Fatal("returned state aliases transition input")
+	}
+	next.Messages[0].Content[0].Text = "mutated transition input"
+	snapshot := durability.Snapshot()
+	if snapshot.Messages[0].Content[0].Text != originalText {
+		t.Fatal("durability storage aliases transition input or returned state")
+	}
+}
+
 func TestEngineMergesInitialSteerIntoFirstModelAttempt(t *testing.T) {
 	t.Parallel()
 
@@ -163,6 +190,69 @@ func TestEngineExecutesToolResultsInSourceOrder(t *testing.T) {
 	}
 	if preflight, execute := tools.Counts(); preflight != 1 || execute != 2 {
 		t.Fatalf("tool counts = (%d, %d)", preflight, execute)
+	}
+}
+
+func TestEngineCombinesToolPlanStartsAndBatchesOnlySafeReadResults(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	calls := []model.ToolCall{
+		{ID: "read_1", Name: "read.first", Arguments: json.RawMessage(`{}`)},
+		{ID: "read_2", Name: "read.second", Arguments: json.RawMessage(`{}`)},
+		{ID: "write_1", Name: "write.unsafe", Arguments: json.RawMessage(`{}`)},
+	}
+	modelPort := modeltest.NewScriptedModel(
+		modeltest.ModelStep{Response: toolResponse("assistant_tools", calls)},
+		modeltest.ModelStep{Response: textResponse("answer_2", "done", model.Usage{})},
+	)
+	toolsPort := &modeltest.ScriptedTools{
+		PreflightFunc: func(_ context.Context, _ agentcore.State, source []model.ToolCall) (agentcore.ToolBatchPlan, error) {
+			planned := make([]agentcore.PlannedToolCall, len(source))
+			for index, call := range source {
+				planned[index] = agentcore.PlannedToolCall{
+					Call: call, ExecutionMode: "sequential", SideEffect: "read", Idempotency: "safe",
+					IdempotencyKey: "key_" + call.ID, Disposition: agentcore.ToolDispositionExecute,
+					ValidationState: agentcore.ToolValidationValid, ApprovalState: agentcore.ToolApprovalNotRequired,
+				}
+			}
+			planned[2].SideEffect = "write"
+			planned[2].Idempotency = "unsafe"
+			return agentcore.ToolBatchPlan{Calls: planned, RegistryRevision: "registry", PolicyRevision: "policy", MiddlewareRevision: "middleware"}, nil
+		},
+		ExecuteFunc: func(_ context.Context, _ agentcore.State, plan agentcore.ToolBatchPlan) (agentcore.ToolBatchResult, error) {
+			return successfulResults(plan), nil
+		},
+	}
+	engine, durability := newEngine(t, state, modelPort, toolsPort, nil, nil)
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("Run() outcome=%+v err=%v", outcome, err)
+	}
+
+	var plannedAndStarted bool
+	resultBatchSizes := make([]int, 0, 2)
+	for _, batch := range durability.EventBatches() {
+		planned := 0
+		started := 0
+		results := 0
+		for _, event := range batch {
+			switch event.Type {
+			case agentcore.EventToolBatchPlanned:
+				planned++
+			case agentcore.EventToolCallStarted:
+				started++
+			case agentcore.EventToolCallResult:
+				results++
+			}
+		}
+		plannedAndStarted = plannedAndStarted || (planned == 1 && started == 3)
+		if results > 0 {
+			resultBatchSizes = append(resultBatchSizes, results)
+		}
+	}
+	if !plannedAndStarted || !reflect.DeepEqual(resultBatchSizes, []int{2, 1}) {
+		t.Fatalf("event batches=%+v result batch sizes=%v", durability.EventBatches(), resultBatchSizes)
 	}
 }
 

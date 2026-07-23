@@ -36,6 +36,39 @@ make test-postgres
 
 `make migrate-up` 使用 `ON_ERROR_STOP=1` 和单文件事务执行每个迁移。任何 SQL 错误都会立即让命令和依赖它的 verification target 失败，不允许继续执行后续迁移形成假绿；重复执行应保持幂等成功。
 
+### Agent Core 性能基准
+
+内存 Agent Loop 基准会报告每轮延迟、分配、事件数和持久化转换数：
+
+```bash
+make benchmark-agent-core
+```
+
+与当前 `HEAD` 使用同一份 benchmark 做基线对照：
+
+```bash
+make benchmark-agent-core-compare
+```
+
+可通过 `TMA_BENCH_BASE_REF`、`TMA_BENCHTIME` 和 `TMA_BENCH_COUNT` 调整基线、运行时间和重复次数。事务数量是硬性性能不变量：无 Tool 为 3 次；1 个或 10 个安全只读 Tool 均为 8 次；10 个非幂等写 Tool 为 17 次。安全读批次必须保持 O(1) 次持久化，写 Tool 必须逐次持久化结果。
+
+真实 PostgreSQL 基准会创建一次性 `tma_bench_*` 数据库、应用全部迁移、运行基准并自动删除数据库，不连接开发或 staging 数据：
+
+```bash
+make benchmark-agent-core-postgres
+make benchmark-agent-core-e2e
+```
+
+第一个入口测量 fast commit 和 Session event counter；第二个入口执行无 Tool、安全读、危险写和审批 pause/resume 的完整 Engine 流程。默认分别执行 50 次和 20 次，以便计算 P50/P95/P99。可通过 `TMA_POSTGRES_BENCHTIME`、`TMA_POSTGRES_E2E_BENCHTIME` 和 `TMA_POSTGRES_BENCH_COUNT` 调整。
+
+生成安全读端到端场景的 CPU 和内存 profile：
+
+```bash
+make profile-agent-core-e2e
+```
+
+profile 输出保存在 `.codex_artifacts/profiles`。绝对延迟受宿主机、Docker 和 PostgreSQL 配置影响，不作为跨机器 CI 硬阈值；发布前应在同一机器上与目标基线比较。
+
 真实 Keycloak OIDC/Claim mapping 验收使用独立 Compose profile。它会导入测试 realm，签发测试用户 Token，启动临时 TMA 服务，验证 Group 到 Workspace/operator 的映射和 Workspace 隔离，最后清理 Keycloak 容器及测试租户：
 
 ```bash

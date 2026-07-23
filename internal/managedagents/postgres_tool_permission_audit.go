@@ -12,6 +12,16 @@ import (
 )
 
 func (s *PostgresStore) projectToolPermissionAuditEventTx(ctx context.Context, tx *sql.Tx, event Event) error {
+	switch event.Type {
+	case string(agentcore.EventToolBatchPlanned),
+		string(agentcore.EventToolCallStarted),
+		string(agentcore.EventToolCallResult),
+		string(agentcore.EventInterventionResolved),
+		EventRuntimeToolInterventionApproved,
+		EventRuntimeToolInterventionRejected:
+	default:
+		return nil
+	}
 	turnID, data := toolPermissionAuditEventData(event)
 	switch event.Type {
 	case string(agentcore.EventToolBatchPlanned):

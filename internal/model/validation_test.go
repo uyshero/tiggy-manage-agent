@@ -39,9 +39,11 @@ func TestToolCallValidateRequiresJSONObjectArguments(t *testing.T) {
 			t.Errorf("Validate() with %q error = nil, want error", arguments)
 		}
 	}
-	valid := ToolCall{ID: "call_1", Name: "lookup", Arguments: json.RawMessage(`{"query":"pi"}`)}
-	if err := valid.Validate(); err != nil {
-		t.Fatalf("Validate() valid object error = %v", err)
+	for _, arguments := range []string{`{"query":"pi"}`, " \n\t {\"query\":\"pi\"} \r"} {
+		valid := ToolCall{ID: "call_1", Name: "lookup", Arguments: json.RawMessage(arguments)}
+		if err := valid.Validate(); err != nil {
+			t.Fatalf("Validate() valid object %q error = %v", arguments, err)
+		}
 	}
 }
 

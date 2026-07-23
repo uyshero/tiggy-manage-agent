@@ -54,3 +54,19 @@ func TestPostgresSafeJSONReplacesNullInTopLevelString(t *testing.T) {
 		t.Fatalf("unexpected sanitized top-level string: %q", decoded)
 	}
 }
+
+func TestPostgresSafeJSONRejectsInvalidPayload(t *testing.T) {
+	if _, err := postgresSafeJSON(json.RawMessage(`{"broken"`)); err == nil {
+		t.Fatal("invalid JSON was accepted")
+	}
+}
+
+func BenchmarkPostgresSafeJSONWithoutNullEscape(b *testing.B) {
+	payload := json.RawMessage(`{"turn_id":"turn_1","message":"normal event","data":{"status":"ok"}}`)
+	b.ReportAllocs()
+	for iteration := 0; iteration < b.N; iteration++ {
+		if _, err := postgresSafeJSON(payload); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

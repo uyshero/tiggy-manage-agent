@@ -15,7 +15,7 @@ if [ -z "$database_url" ] || [ -z "$postgres_port" ]; then
   echo "cannot resolve competitor database URL" >&2
   exit 1
 fi
-database_url=$(printf '%s' "$database_url" | sed "s/:5432\//:$postgres_port\//")
+database_url=$(printf '%s' "$database_url" | sed -E "s#(localhost|127\\.0\\.0\\.1|\\[::1\\]):[0-9]+/#\\1:$postgres_port/#")
 
 cd "$REPOSITORY_ROOT"
 export TMA_HTTP_ADDR="$HTTP_ADDR"

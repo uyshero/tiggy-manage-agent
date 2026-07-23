@@ -242,9 +242,6 @@ func (d *PostgresAgentLoopDurability) apply(ctx context.Context, transition agen
 
 	next := transition.Next.Clone()
 	next.Revision = transition.ExpectedRevision + 1
-	if err := next.Validate(); err != nil {
-		return agentcore.State{}, fmt.Errorf("%w: invalid agent loop state: %v", ErrInvalid, err)
-	}
 	raw, err := json.Marshal(next)
 	if err != nil {
 		return agentcore.State{}, fmt.Errorf("encode agent loop state: %w", err)
@@ -272,7 +269,7 @@ func (d *PostgresAgentLoopDurability) apply(ctx context.Context, transition agen
 	for _, event := range events {
 		d.store.hub.publish(event)
 	}
-	return next.Clone(), nil
+	return next, nil
 }
 
 func useAgentLoopFastCommit(action agentLoopAction, transition agentcore.Transition) bool {
@@ -296,22 +293,8 @@ func (d *PostgresAgentLoopDurability) applyFastCommit(ctx context.Context, trans
 	if _, err := setDatabaseAccessScope(ctx, tx, scope.WorkspaceID); err != nil {
 		return agentcore.State{}, err
 	}
-	session, err := lockAgentLoopSession(ctx, tx, transition.Next.SessionID)
-	if err != nil {
-		return agentcore.State{}, err
-	}
-	if session.WorkspaceID != scope.WorkspaceID || (scope.OwnerID != "" && session.OwnerID != scope.OwnerID) {
-		return agentcore.State{}, ErrForbidden
-	}
-	if session.Status == SessionStatusTerminated {
-		return agentcore.State{}, ErrTerminated
-	}
-
 	next := transition.Next.Clone()
 	next.Revision = transition.ExpectedRevision + 1
-	if err := next.Validate(); err != nil {
-		return agentcore.State{}, fmt.Errorf("%w: invalid agent loop state: %v", ErrInvalid, err)
-	}
 	raw, err := json.Marshal(next)
 	if err != nil {
 		return agentcore.State{}, fmt.Errorf("encode agent loop state: %w", err)
@@ -339,8 +322,16 @@ func (d *PostgresAgentLoopDurability) applyFastCommit(ctx context.Context, trans
 			  AND turn.attempt_count = $9
 			  AND turn.lease_expires_at > CURRENT_TIMESTAMP
 		  )
+		  AND EXISTS (
+			SELECT 1
+			FROM sessions AS session
+			WHERE session.id = state.session_id
+			  AND session.workspace_id = state.workspace_id
+			  AND session.owner_id = state.owner_id
+			  AND session.status <> $10
+		  )
 	`, next.SessionID, next.TurnID, next.Revision, next.Phase, raw, transition.ExpectedRevision,
-		TurnStatusRunning, d.fence.LeaseOwner, d.fence.Attempt)
+		TurnStatusRunning, d.fence.LeaseOwner, d.fence.Attempt, SessionStatusTerminated)
 	if err != nil {
 		return agentcore.State{}, err
 	}
@@ -363,13 +354,16 @@ func (d *PostgresAgentLoopDurability) applyFastCommit(ctx context.Context, trans
 	for _, event := range events {
 		d.store.hub.publish(event)
 	}
-	return next.Clone(), nil
+	return next, nil
 }
 
 func (d *PostgresAgentLoopDurability) diagnoseFastCommitConflict(ctx context.Context, tx *sql.Tx, transition agentcore.Transition) error {
-	_, turn, err := lockAgentLoopTurn(ctx, tx, transition.Next.SessionID, transition.Next.TurnID)
+	session, turn, err := lockAgentLoopTurn(ctx, tx, transition.Next.SessionID, transition.Next.TurnID)
 	if err != nil {
 		return err
+	}
+	if session.Status == SessionStatusTerminated {
+		return ErrTerminated
 	}
 	if turn.status != TurnStatusRunning {
 		return fmt.Errorf("%w: agent loop turn is %s", ErrLeaseLost, turn.status)
@@ -395,7 +389,7 @@ func (d *PostgresAgentLoopDurability) diagnoseFastCommitConflict(ctx context.Con
 }
 
 func validateAgentLoopTransitionInput(transition agentcore.Transition) error {
-	if transition.ExpectedRevision < 0 || transition.Next.Revision != transition.ExpectedRevision {
+	if transition.ExpectedRevision < 0 || transition.ExpectedRevision == 1<<63-1 || transition.Next.Revision != transition.ExpectedRevision {
 		return fmt.Errorf("%w: transition revision is invalid", ErrInvalid)
 	}
 	if err := transition.Next.Validate(); err != nil {
@@ -438,7 +432,7 @@ func lockAgentLoopSession(ctx context.Context, tx *sql.Tx, sessionID string) (Se
 		SELECT id, workspace_id, owner_id, status
 		FROM sessions
 		WHERE id = $1
-		FOR UPDATE
+		FOR NO KEY UPDATE
 	`, sessionID).Scan(&session.ID, &session.WorkspaceID, &session.OwnerID, &session.Status); errors.Is(err, sql.ErrNoRows) {
 		return Session{}, fmt.Errorf("%w: session %s", ErrNotFound, sessionID)
 	} else if err != nil {
@@ -508,7 +502,7 @@ func saveAgentLoopState(ctx context.Context, tx *sql.Tx, session Session, state 
 }
 
 func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx *sql.Tx, state agentcore.State, runtimeEvents []agentcore.RuntimeEvent, now time.Time) ([]Event, error) {
-	events := make([]Event, 0, len(runtimeEvents)+1)
+	inputs := make([]sessionEventAppend, 0, len(runtimeEvents)+1)
 	for _, runtimeEvent := range runtimeEvents {
 		if runtimeEvent.Type == "" {
 			return nil, fmt.Errorf("%w: agent loop runtime event type is required", ErrInvalid)
@@ -522,11 +516,7 @@ func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx 
 		if err != nil {
 			return nil, fmt.Errorf("encode agent loop runtime event: %w", err)
 		}
-		event, err := store.appendEventTx(ctx, tx, state.SessionID, string(runtimeEvent.Type), payload, now)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, event)
+		inputs = append(inputs, sessionEventAppend{Type: string(runtimeEvent.Type), Payload: payload})
 		if progressData, ok := agentLoopProgressMessageData(state, runtimeEvent); ok {
 			progressPayload, err := json.Marshal(map[string]any{
 				"turn_id":       state.TurnID,
@@ -537,14 +527,10 @@ func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx 
 			if err != nil {
 				return nil, fmt.Errorf("encode agent loop progress message: %w", err)
 			}
-			progressEvent, err := store.appendEventTx(ctx, tx, state.SessionID, EventRuntimeProgressMessage, progressPayload, now)
-			if err != nil {
-				return nil, err
-			}
-			events = append(events, progressEvent)
+			inputs = append(inputs, sessionEventAppend{Type: EventRuntimeProgressMessage, Payload: progressPayload})
 		}
 	}
-	return events, nil
+	return store.appendEventsTx(ctx, tx, state.SessionID, inputs, now)
 }
 
 func agentLoopProgressMessageData(state agentcore.State, runtimeEvent agentcore.RuntimeEvent) (map[string]any, bool) {
@@ -651,11 +637,10 @@ func (a agentLoopComplete) apply(ctx context.Context, store *PostgresStore, tx *
 	if err != nil {
 		return nil, err
 	}
-	agentEvent, err := store.appendEventTx(ctx, tx, state.SessionID, EventAgentMessage, payloadWithTurnID(payload, state.TurnID), now)
-	if err != nil {
-		return nil, err
-	}
-	idleEvent, err := store.appendEventTx(ctx, tx, state.SessionID, EventSessionStatusIdle, statusPayload(SessionStatusIdle, state.TurnID), now)
+	events, err := store.appendEventsTx(ctx, tx, state.SessionID, []sessionEventAppend{
+		{Type: EventAgentMessage, Payload: payloadWithTurnID(payload, state.TurnID)},
+		{Type: EventSessionStatusIdle, Payload: statusPayload(SessionStatusIdle, state.TurnID)},
+	}, now)
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +650,7 @@ func (a agentLoopComplete) apply(ctx context.Context, store *PostgresStore, tx *
 	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET status = $2 WHERE id = $1`, session.ID, SessionStatusIdle); err != nil {
 		return nil, err
 	}
-	return []Event{agentEvent, idleEvent}, nil
+	return events, nil
 }
 
 func (a agentLoopFail) apply(ctx context.Context, store *PostgresStore, tx *sql.Tx, session Session, state agentcore.State, now time.Time) ([]Event, error) {

@@ -98,7 +98,11 @@ func TestPostgresToolPermissionAuditProjectsAndPaginatesDurableEvents(t *testing
 	}}
 	state, err = durability.Commit(ctx, agentcore.Transition{
 		ExpectedRevision: 0, Next: state,
-		Events: []agentcore.RuntimeEvent{{Type: agentcore.EventToolBatchPlanned, Payload: plan}},
+		Events: []agentcore.RuntimeEvent{
+			{Type: agentcore.EventToolBatchPlanned, Payload: plan},
+			{Type: agentcore.EventToolCallStarted, Payload: agentcore.ToolCallJournalEntry{CallID: "call_ask", Status: agentcore.ToolCallStarted}},
+			{Type: agentcore.EventToolCallStarted, Payload: agentcore.ToolCallJournalEntry{CallID: "call_deny", Status: agentcore.ToolCallStarted}},
+		},
 	})
 	if err != nil {
 		t.Fatalf("commit permission plan: %v", err)
@@ -261,6 +265,203 @@ func TestPostgresAgentLoopRejectsStaleRevision(t *testing.T) {
 	next.ControlCursor = 2
 	if _, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: advanced.Revision, Next: next}); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("expired worker commit error = %v, want lease lost", err)
+	}
+}
+
+func TestPostgresAgentLoopDurabilityStateOwnershipContract(t *testing.T) {
+	store := newPostgresAgentLoopIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"ownership"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("start session run: %v", err)
+	}
+	ctx, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	if err != nil {
+		t.Fatalf("scope context: %v", err)
+	}
+	durability := store.AgentLoopDurability(leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "ownership-contract"))
+	next := postgresAgentLoopInitialState(session.ID, started.Run.ID)
+	next.Phase = agentcore.PhaseAwaitingModel
+	originalText := next.Messages[0].Content[0].Text
+	committed, err := durability.Commit(ctx, agentcore.Transition{ExpectedRevision: 0, Next: next})
+	if err != nil {
+		t.Fatalf("commit ownership state: %v", err)
+	}
+	if next.Revision != 0 {
+		t.Fatalf("commit mutated input revision to %d", next.Revision)
+	}
+
+	committed.Messages[0].Content[0].Text = "mutated returned state"
+	if next.Messages[0].Content[0].Text != originalText {
+		t.Fatal("returned state aliases transition input")
+	}
+	next.Messages[0].Content[0].Text = "mutated transition input"
+	loaded, err := durability.Load(ctx, session.ID, started.Run.ID)
+	if err != nil {
+		t.Fatalf("load ownership state: %v", err)
+	}
+	if loaded.Messages[0].Content[0].Text != originalText {
+		t.Fatal("durable state aliases transition input or returned state")
+	}
+}
+
+func TestPostgresAgentLoopFastCommitDoesNotWaitForSessionRowLock(t *testing.T) {
+	store := newPostgresAgentLoopIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	started, err := store.StartSessionRunContext(t.Context(), session.ID, StartSessionRunInput{
+		Payload: json.RawMessage(`{"content":[{"type":"text","text":"avoid session lock"}]}`),
+	})
+	if err != nil {
+		t.Fatalf("start session run: %v", err)
+	}
+	ctx, _ := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	fence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-lock-free")
+	durability := store.AgentLoopDurability(fence)
+	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
+	state.Phase = agentcore.PhaseAwaitingModel
+	state, err = durability.Commit(ctx, agentcore.Transition{ExpectedRevision: 0, Next: state})
+	if err != nil {
+		t.Fatalf("initial commit: %v", err)
+	}
+
+	blocker, err := store.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback()
+	var lockedSessionID string
+	if err := blocker.QueryRowContext(t.Context(), `SELECT id FROM sessions WHERE id = $1 FOR NO KEY UPDATE`, session.ID).Scan(&lockedSessionID); err != nil {
+		t.Fatalf("lock session row: %v", err)
+	}
+
+	next := state.Clone()
+	next.ControlCursor = 1
+	commitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	committed, err := durability.Commit(commitCtx, agentcore.Transition{
+		ExpectedRevision: state.Revision,
+		Next:             next,
+		Events: []agentcore.RuntimeEvent{{
+			Type: agentcore.EventModelRequested, Message: "Fast commit while session metadata is locked.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("fast commit waited for sessions row lock: %v", err)
+	}
+	if committed.Revision != state.Revision+1 || committed.ControlCursor != 1 {
+		t.Fatalf("fast committed state = %+v", committed)
+	}
+
+	var counterSeq, eventSeq int64
+	if err := store.db.QueryRowContext(t.Context(), `SELECT last_seq FROM session_event_counters WHERE session_id = $1`, session.ID).Scan(&counterSeq); err != nil {
+		t.Fatalf("load event counter: %v", err)
+	}
+	if err := store.db.QueryRowContext(t.Context(), `SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = $1`, session.ID).Scan(&eventSeq); err != nil {
+		t.Fatalf("load latest event seq: %v", err)
+	}
+	if counterSeq != eventSeq {
+		t.Fatalf("event counter = %d, latest event seq = %d", counterSeq, eventSeq)
+	}
+}
+
+func TestPostgresSessionEventBatchPreservesOrderAndRollbackLeavesNoGap(t *testing.T) {
+	store := newPostgresAgentLoopIntegrationStore(t)
+	session := createPostgresIntegrationSession(t, store)
+	ctx, err := ContextWithDatabaseAccessScope(t.Context(), AccessScope{WorkspaceID: session.WorkspaceID, OwnerID: session.OwnerID})
+	if err != nil {
+		t.Fatalf("scope context: %v", err)
+	}
+	latestSeq := func() int64 {
+		var seq int64
+		if err := store.db.QueryRowContext(t.Context(), `SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = $1`, session.ID).Scan(&seq); err != nil {
+			t.Fatalf("latest session event seq: %v", err)
+		}
+		return seq
+	}
+	initialSeq := latestSeq()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	inputs := []sessionEventAppend{
+		{Type: "batch.first", Payload: json.RawMessage(`{"position":1}`)},
+		{Type: "batch.second", Payload: json.RawMessage(`{"position":2}`)},
+		{Type: "batch.third", Payload: json.RawMessage(`{"position":3}`)},
+	}
+
+	rollbackTx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setDatabaseAccessScope(ctx, rollbackTx, session.WorkspaceID); err != nil {
+		rollbackTx.Rollback()
+		t.Fatal(err)
+	}
+	rolledBack, err := store.appendEventsTx(ctx, rollbackTx, session.ID, inputs, now)
+	if err != nil {
+		rollbackTx.Rollback()
+		t.Fatalf("append rollback batch: %v", err)
+	}
+	if err := rollbackTx.Rollback(); err != nil {
+		t.Fatalf("rollback batch: %v", err)
+	}
+	if latestSeq() != initialSeq {
+		t.Fatalf("rolled back batch advanced latest seq from %d to %d", initialSeq, latestSeq())
+	}
+
+	commitTx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer commitTx.Rollback()
+	if _, err := setDatabaseAccessScope(ctx, commitTx, session.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := store.appendEventsTx(ctx, commitTx, session.ID, inputs, now)
+	if err != nil {
+		t.Fatalf("append committed batch: %v", err)
+	}
+	if err := commitTx.Commit(); err != nil {
+		t.Fatalf("commit batch: %v", err)
+	}
+	for index := range committed {
+		expectedSeq := initialSeq + int64(index) + 1
+		if committed[index].Seq != expectedSeq || committed[index].Type != inputs[index].Type {
+			t.Fatalf("committed event %d = %+v, want seq=%d type=%s", index, committed[index], expectedSeq, inputs[index].Type)
+		}
+		if rolledBack[index].Seq != committed[index].Seq {
+			t.Fatalf("rollback seq %d = %d, committed seq = %d", index, rolledBack[index].Seq, committed[index].Seq)
+		}
+	}
+	if latestSeq() != initialSeq+int64(len(inputs)) {
+		t.Fatalf("latest seq = %d, want %d", latestSeq(), initialSeq+int64(len(inputs)))
+	}
+	rows, err := store.db.QueryContext(t.Context(), `
+		SELECT seq, type
+		FROM session_events
+		WHERE session_id = $1 AND seq > $2
+		ORDER BY seq
+	`, session.ID, initialSeq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	index := 0
+	for rows.Next() {
+		var seq int64
+		var eventType string
+		if err := rows.Scan(&seq, &eventType); err != nil {
+			t.Fatal(err)
+		}
+		if index >= len(inputs) || seq != initialSeq+int64(index)+1 || eventType != inputs[index].Type {
+			t.Fatalf("stored event %d has seq=%d type=%s", index, seq, eventType)
+		}
+		index++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if index != len(inputs) {
+		t.Fatalf("stored event count = %d, want %d", index, len(inputs))
 	}
 }
 
@@ -685,7 +886,7 @@ func TestPostgresAgentLoopPersistsCancelAfterTurnInterrupt(t *testing.T) {
 	}
 }
 
-func newPostgresAgentLoopIntegrationStore(t *testing.T) *PostgresStore {
+func newPostgresAgentLoopIntegrationStore(t testing.TB) *PostgresStore {
 	t.Helper()
 	store := newPostgresIntegrationStore(t)
 	var table sql.NullString
@@ -711,7 +912,7 @@ func postgresAgentLoopInitialState(sessionID, turnID string) agentcore.State {
 	return state
 }
 
-func newPostgresAgentLoopEngine(t *testing.T, store *PostgresStore, fence AgentLoopFence, modelPort agentcore.ModelPort, toolPort agentcore.ToolPort) *agentcore.Engine {
+func newPostgresAgentLoopEngine(t testing.TB, store *PostgresStore, fence AgentLoopFence, modelPort agentcore.ModelPort, toolPort agentcore.ToolPort) *agentcore.Engine {
 	t.Helper()
 	engine, err := agentcore.NewEngine(agentcore.Ports{
 		Model: modelPort,
@@ -727,7 +928,7 @@ func newPostgresAgentLoopEngine(t *testing.T, store *PostgresStore, fence AgentL
 	return engine
 }
 
-func leasePostgresAgentLoopTurn(t *testing.T, store *PostgresStore, sessionID, turnID, owner string) AgentLoopFence {
+func leasePostgresAgentLoopTurn(t testing.TB, store *PostgresStore, sessionID, turnID, owner string) AgentLoopFence {
 	t.Helper()
 	var attempt int
 	err := store.db.QueryRowContext(t.Context(), `

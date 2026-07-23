@@ -5,6 +5,7 @@ BASE_URL="${TMA_BASE_URL:-http://localhost:18088}"
 CLI="${TMA_CLI:-bin/tma}"
 DOTENV_PATH="${TMA_DOTENV_PATH:-.env}"
 WAIT_SECONDS="${TMA_AGENT_CORE_STAGING_WAIT_SECONDS:-180}"
+STATE_POLL_SECONDS="${TMA_AGENT_CORE_INFRASTRUCTURE_STATE_POLL_SECONDS:-0.05}"
 POSTGRES_CONTAINER="${TMA_AGENT_CORE_STAGING_POSTGRES_CONTAINER:-tma-postgres}"
 OUTAGE_SECONDS="${TMA_AGENT_CORE_DATABASE_OUTAGE_SECONDS:-18}"
 MODE="${TMA_AGENT_CORE_INFRASTRUCTURE_MODE:-all}"
@@ -110,7 +111,7 @@ wait_for_state() {
         return 0
         ;;
     esac
-    sleep 1
+    sleep "$STATE_POLL_SECONDS"
   done
   echo "timed out waiting for durable state prefix $expected, last=$state" >&2
   return 1
@@ -217,7 +218,7 @@ verify_database_outage() {
   session_id="$(create_session agent-core-database-outage "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" session runtime update --session "$session_id" --intervention-mode full_access >/dev/null
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text DATABASE_OUTAGE_TOOL >/dev/null
-  state="$(wait_for_state "$session_id" 'executing_tools|5||started|1|unknown||1|')"
+  state="$(wait_for_state "$session_id" 'executing_tools|3||started|1|unknown||1|')"
   server_pid="$(cat "$MAIN_PID_FILE")"
   echo "Stopping database during tool execution session=$session_id state=$state"
   docker stop "$POSTGRES_CONTAINER" >/dev/null
@@ -266,7 +267,7 @@ verify_lease_fencing() {
   session_id="$(create_session agent-core-lease-fencing "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text 'Write 200 numbered lines. Each line must contain a distinct short sentence.' >/dev/null
   main_pid="$(cat "$MAIN_PID_FILE")"
-  state="$(wait_for_state "$session_id" 'awaiting_model|2|1|||||1|')"
+  state="$(wait_for_state "$session_id" 'awaiting_model|1|1|||||1|')"
   case "$state" in
     *"-$main_pid-"*) ;;
     *)
@@ -319,7 +320,7 @@ verify_lease_fencing() {
   sleep 3
   state="$(database_state "$session_id")"
   case "$state" in
-    completed'|7||||||2||completed') ;;
+    completed'|5||||||2||completed') ;;
     *)
       echo "unexpected lease fencing state: $state" >&2
       exit 1

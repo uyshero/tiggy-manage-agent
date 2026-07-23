@@ -12,10 +12,11 @@ import (
 )
 
 type ToolBatchPlan struct {
-	Calls            []PlannedToolCall     `json:"calls"`
-	Interactions     []RequiredInteraction `json:"interactions,omitempty"`
-	RegistryRevision string                `json:"registry_revision,omitempty"`
-	PolicyRevision   string                `json:"policy_revision,omitempty"`
+	Calls              []PlannedToolCall     `json:"calls"`
+	Interactions       []RequiredInteraction `json:"interactions,omitempty"`
+	RegistryRevision   string                `json:"registry_revision,omitempty"`
+	PolicyRevision     string                `json:"policy_revision,omitempty"`
+	MiddlewareRevision string                `json:"middleware_revision,omitempty"`
 }
 
 type PlannedToolCall struct {

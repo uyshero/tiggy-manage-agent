@@ -5,6 +5,7 @@ BASE_URL="${TMA_BASE_URL:-http://localhost:18088}"
 CLI="${TMA_CLI:-bin/tma}"
 DOTENV_PATH="${TMA_DOTENV_PATH:-.env}"
 WAIT_SECONDS="${TMA_AGENT_CORE_STAGING_WAIT_SECONDS:-180}"
+STATE_POLL_SECONDS="${TMA_AGENT_CORE_CRASH_STATE_POLL_SECONDS:-0.05}"
 POSTGRES_CONTAINER="${TMA_AGENT_CORE_STAGING_POSTGRES_CONTAINER:-tma-postgres}"
 MODE="${TMA_AGENT_CORE_CRASH_MODE:-all}"
 
@@ -78,7 +79,7 @@ wait_for_state() {
         return 0
         ;;
     esac
-    sleep 1
+    sleep "$STATE_POLL_SECONDS"
   done
   echo "timed out waiting for durable state prefix $expected, last=$state" >&2
   return 1
@@ -157,7 +158,7 @@ verify_model_crash() {
   system_prompt='This is a crash-recovery test. Never call tools. Produce the requested long response without abbreviating it.'
   session_id="$(create_session agent-core-model-crash "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text 'Write 120 numbered lines. Each line must contain a distinct short sentence.' >/dev/null
-  state="$(wait_for_state "$session_id" 'awaiting_model|2|1|')"
+  state="$(wait_for_state "$session_id" 'awaiting_model|1|1|')"
   echo "Crashing during model request session=$session_id state=$state"
   crash_and_restart
   wait_for_recovery "$session_id" model
@@ -170,7 +171,7 @@ verify_tool_crash() {
   session_id="$(create_session agent-core-tool-crash "$system_prompt")"
   "$CLI" --base-url "$BASE_URL" session runtime update --session "$session_id" --intervention-mode full_access >/dev/null
   "$CLI" --base-url "$BASE_URL" event send --session "$session_id" --text CRASH_TOOL >/dev/null
-  state="$(wait_for_state "$session_id" 'executing_tools|5||started|1|unknown')"
+  state="$(wait_for_state "$session_id" 'executing_tools|3||started|1|unknown')"
   echo "Crashing during tool execution session=$session_id state=$state"
   crash_and_restart
   reconciliation_call_id="$(wait_for_reconciliation "$session_id")"

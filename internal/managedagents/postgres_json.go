@@ -12,6 +12,16 @@ func postgresSafeJSON(payload json.RawMessage) (json.RawMessage, error) {
 	if len(payload) == 0 {
 		return payload, nil
 	}
+	if !json.Valid(payload) {
+		return nil, fmt.Errorf("invalid JSON")
+	}
+	// PostgreSQL JSONB rejects the decoded U+0000 character. Most payloads do
+	// not contain that escape, so avoid materializing the full JSON tree unless
+	// replacement may actually be required. False positives such as "\\u0000"
+	// are harmless and fall through to the existing decoder.
+	if !bytes.Contains(payload, []byte(`\u0000`)) {
+		return payload, nil
+	}
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.UseNumber()
 	var value any

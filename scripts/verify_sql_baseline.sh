@@ -2,7 +2,7 @@
 set -eu
 
 REPOSITORY_ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-BASELINE="${1:-$REPOSITORY_ROOT/sql/baselines/000087_baseline.sql}"
+BASELINE="${1:-$REPOSITORY_ROOT/sql/baselines/000088_baseline.sql}"
 POSTGRES_USER="${TMA_POSTGRES_TEST_USER:-tma}"
 POSTGRES_PASSWORD="${TMA_POSTGRES_TEST_PASSWORD:-tma}"
 POSTGRES_HOST="${TMA_POSTGRES_TEST_HOST:-localhost}"

@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: tma-database-baseline-000087
+  name: tma-database-baseline-000088
   namespace: tma
 spec:
   backoffLimit: 1
@@ -22,7 +22,7 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
-              psql "$TMA_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f /opt/tma/sql/000087_baseline.sql
+              psql "$TMA_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f /opt/tma/sql/000088_baseline.sql
               psql "$TMA_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f /opt/tma/sql/runtime-grants.sql
           env:
             - name: TMA_MIGRATION_DATABASE_URL

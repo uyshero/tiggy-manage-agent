@@ -175,6 +175,11 @@ type ControlPort interface {
 }
 
 type DurabilityPort interface {
+	// Transition values are borrowed, read-only inputs. Implementations must not
+	// mutate their State or nested mutable data. A successful operation transfers
+	// ownership of the returned State to the caller: it must not alias the input
+	// or mutable implementation storage, and the implementation must never mutate
+	// it after returning.
 	Commit(context.Context, Transition) (State, error)
 	Park(context.Context, ParkTransition) (State, error)
 	Complete(context.Context, CompleteTransition) (State, error)

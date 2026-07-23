@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -79,8 +80,8 @@ func (c ToolCall) Validate() error {
 	if len(c.Arguments) == 0 || !json.Valid(c.Arguments) {
 		return fmt.Errorf("tool call arguments must be valid JSON")
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(c.Arguments, &object); err != nil || object == nil {
+	trimmed := bytes.TrimSpace(c.Arguments)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return fmt.Errorf("tool call arguments must be a JSON object")
 	}
 	return nil

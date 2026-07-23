@@ -484,8 +484,22 @@ func (e *Engine) preflightTools(ctx context.Context, state State) (State, *Outco
 		return State{}, &outcome, nil
 	}
 	next.Phase = PhaseExecutingTools
-	committed, commitErr := e.commit(ctx, state, next, RuntimeEvent{Type: EventToolBatchPlanned, Message: "Tool batch passed preflight.", Payload: plan})
-	return committed, nil, commitErr
+	if err := e.ports.Tools.ValidateExecution(ctx, next.Clone(), plan); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			canceled, cancelErr := e.cancel(context.WithoutCancel(ctx), state, "context_canceled", "agent execution was canceled")
+			return State{}, &canceled, cancelErr
+		}
+		code, message := toolRuntimeFailure(err, "tool_execution_precheck_failed", "tool runtime rejected the durable execution plan")
+		failed, failErr := e.fail(context.WithoutCancel(ctx), state, code, message, false)
+		return State{}, &failed, failErr
+	}
+	staged := e.stageToolCalls(next, plan)
+	events := append([]RuntimeEvent{{Type: EventToolBatchPlanned, Message: "Tool batch passed preflight.", Payload: plan}}, staged.events...)
+	committed, commitErr := e.commit(ctx, state, staged.next, events...)
+	if commitErr != nil {
+		return State{}, nil, commitErr
+	}
+	return e.executePreparedToolCalls(ctx, committed, plan, staged.parallel, staged.sequential, staged.immediate)
 }
 
 func (e *Engine) executeTools(ctx context.Context, state State) (State, *Outcome, error) {
@@ -510,7 +524,11 @@ func (e *Engine) executeTools(ctx context.Context, state State) (State, *Outcome
 	if err != nil {
 		return State{}, nil, err
 	}
-	state = prepared
+	return e.executePreparedToolCalls(ctx, prepared, plan, parallel, sequential, immediate)
+}
+
+func (e *Engine) executePreparedToolCalls(ctx context.Context, state State, plan ToolBatchPlan, parallel, sequential []PlannedToolCall, immediate []toolCallOutcome) (State, *Outcome, error) {
+	var err error
 	for _, outcome := range immediate {
 		state, err = e.commitToolCallResult(context.WithoutCancel(ctx), state, outcome)
 		if err != nil {
@@ -821,13 +839,30 @@ type toolCallOutcome struct {
 	canceled bool
 }
 
+type stagedToolCalls struct {
+	next       State
+	parallel   []PlannedToolCall
+	sequential []PlannedToolCall
+	immediate  []toolCallOutcome
+	events     []RuntimeEvent
+}
+
 func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBatchPlan) (State, []PlannedToolCall, []PlannedToolCall, []toolCallOutcome, error) {
-	next := state.Clone()
-	journalIndex := toolJournalIndex(next.ToolJournal)
-	parallel := make([]PlannedToolCall, 0, len(plan.Calls))
-	sequential := make([]PlannedToolCall, 0, len(plan.Calls))
-	immediate := make([]toolCallOutcome, 0)
-	events := make([]RuntimeEvent, 0, len(plan.Calls))
+	staged := e.stageToolCalls(state, plan)
+	if len(staged.events) == 0 {
+		return state, staged.parallel, staged.sequential, staged.immediate, nil
+	}
+	committed, err := e.commit(ctx, state, staged.next, staged.events...)
+	return committed, staged.parallel, staged.sequential, staged.immediate, err
+}
+
+func (e *Engine) stageToolCalls(state State, plan ToolBatchPlan) stagedToolCalls {
+	staged := stagedToolCalls{
+		next: state.Clone(), parallel: make([]PlannedToolCall, 0, len(plan.Calls)),
+		sequential: make([]PlannedToolCall, 0, len(plan.Calls)), immediate: make([]toolCallOutcome, 0),
+		events: make([]RuntimeEvent, 0, len(plan.Calls)),
+	}
+	journalIndex := toolJournalIndex(staged.next.ToolJournal)
 	now := e.ports.Clock.Now()
 	parallelBatch := true
 	for _, planned := range plan.Calls {
@@ -839,15 +874,15 @@ func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBat
 
 	for _, planned := range plan.Calls {
 		index, exists := journalIndex[planned.Call.ID]
-		if exists && next.ToolJournal[index].Status != ToolCallStarted {
+		if exists && staged.next.ToolJournal[index].Status != ToolCallStarted {
 			continue
 		}
 		if exists && planned.ApprovalState == ToolApprovalRejected {
-			immediate = append(immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
+			staged.immediate = append(staged.immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
 			continue
 		}
 		if exists && !toolCallReplayable(planned.Idempotency) {
-			immediate = append(immediate, toolCallOutcome{
+			staged.immediate = append(staged.immediate, toolCallOutcome{
 				planned: planned,
 				result:  indeterminateToolResult(planned, "Tool execution may have completed before recovery; it was not replayed because the operation is not idempotent."),
 				status:  ToolCallIndeterminate,
@@ -855,32 +890,28 @@ func (e *Engine) prepareToolCalls(ctx context.Context, state State, plan ToolBat
 			continue
 		}
 		if exists {
-			next.ToolJournal[index].Attempt++
-			next.ToolJournal[index].StartedAt = now
+			staged.next.ToolJournal[index].Attempt++
+			staged.next.ToolJournal[index].StartedAt = now
 		} else {
 			entry := ToolCallJournalEntry{
 				CallID: planned.Call.ID, Name: planned.Call.Name,
 				Idempotency: planned.Idempotency, IdempotencyKey: planned.IdempotencyKey,
 				Status: ToolCallStarted, Attempt: 1, StartedAt: now,
 			}
-			next.ToolJournal = append(next.ToolJournal, entry)
-			journalIndex[planned.Call.ID] = len(next.ToolJournal) - 1
+			staged.next.ToolJournal = append(staged.next.ToolJournal, entry)
+			journalIndex[planned.Call.ID] = len(staged.next.ToolJournal) - 1
 		}
-		entry := next.ToolJournal[journalIndex[planned.Call.ID]]
-		events = append(events, RuntimeEvent{Type: EventToolCallStarted, Message: "Tool call started.", Payload: entry})
+		entry := staged.next.ToolJournal[journalIndex[planned.Call.ID]]
+		staged.events = append(staged.events, RuntimeEvent{Type: EventToolCallStarted, Message: "Tool call started.", Payload: entry})
 		if planned.ApprovalState == ToolApprovalRejected {
-			immediate = append(immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
+			staged.immediate = append(staged.immediate, toolCallOutcome{planned: planned, result: rejectedToolResult(planned), status: ToolCallFailed})
 		} else if parallelBatch {
-			parallel = append(parallel, planned)
+			staged.parallel = append(staged.parallel, planned)
 		} else {
-			sequential = append(sequential, planned)
+			staged.sequential = append(staged.sequential, planned)
 		}
 	}
-	if len(events) == 0 {
-		return state, parallel, sequential, immediate, nil
-	}
-	committed, err := e.commit(ctx, state, next, events...)
-	return committed, parallel, sequential, immediate, err
+	return staged
 }
 
 func (e *Engine) executeParallelToolCalls(ctx context.Context, state State, plan ToolBatchPlan, calls []PlannedToolCall) (State, error, bool) {
@@ -900,38 +931,84 @@ func (e *Engine) executeParallelToolCalls(ctx context.Context, state State, plan
 	}
 	var fatalErr error
 	var canceled bool
+	batch := make([]toolCallOutcome, 0, len(calls))
 	for range calls {
 		outcome := <-outcomes
 		if outcome.err != nil {
 			fatalErr = errors.Join(fatalErr, outcome.err)
 			continue
 		}
+		if toolResultBatchable(outcome.planned) {
+			batch = append(batch, outcome)
+		} else {
+			var err error
+			state, err = e.commitToolCallResult(context.WithoutCancel(ctx), state, outcome)
+			if err != nil {
+				return State{}, err, canceled
+			}
+		}
+		canceled = canceled || outcome.canceled
+	}
+	if len(batch) > 0 {
 		var err error
-		state, err = e.commitToolCallResult(context.WithoutCancel(ctx), state, outcome)
+		state, err = e.commitToolCallResults(context.WithoutCancel(ctx), state, batch)
 		if err != nil {
 			return State{}, err, canceled
 		}
-		canceled = canceled || outcome.canceled
 	}
 	return state, fatalErr, canceled
 }
 
 func (e *Engine) executeSequentialToolCalls(ctx context.Context, state State, plan ToolBatchPlan, calls []PlannedToolCall) (State, error, bool) {
-	for _, planned := range calls {
-		outcome := e.executeToolCall(ctx, state, plan, planned)
-		if outcome.err != nil {
-			return state, outcome.err, false
+	batch := make([]toolCallOutcome, 0, len(calls))
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
 		var err error
-		state, err = e.commitToolCallResult(context.WithoutCancel(ctx), state, outcome)
-		if err != nil {
-			return State{}, err, outcome.canceled
+		state, err = e.commitToolCallResults(context.WithoutCancel(ctx), state, batch)
+		batch = batch[:0]
+		return err
+	}
+	for _, planned := range calls {
+		if !toolResultBatchable(planned) {
+			if err := flush(); err != nil {
+				return State{}, err, false
+			}
+		}
+		outcome := e.executeToolCall(ctx, state, plan, planned)
+		if outcome.err != nil {
+			if err := flush(); err != nil {
+				return State{}, err, false
+			}
+			return state, outcome.err, false
+		}
+		if toolResultBatchable(planned) {
+			batch = append(batch, outcome)
+		} else {
+			var err error
+			state, err = e.commitToolCallResult(context.WithoutCancel(ctx), state, outcome)
+			if err != nil {
+				return State{}, err, outcome.canceled
+			}
 		}
 		if outcome.canceled {
+			if err := flush(); err != nil {
+				return State{}, err, true
+			}
 			return state, nil, true
 		}
 	}
+	if err := flush(); err != nil {
+		return State{}, err, false
+	}
 	return state, nil, false
+}
+
+func toolResultBatchable(planned PlannedToolCall) bool {
+	idempotency := strings.ToLower(strings.TrimSpace(planned.Idempotency))
+	sideEffect := strings.ToLower(strings.TrimSpace(planned.SideEffect))
+	return (idempotency == "safe" || idempotency == "idempotent") && (sideEffect == "" || sideEffect == "none" || sideEffect == "read")
 }
 
 func (e *Engine) executeToolCall(ctx context.Context, state State, plan ToolBatchPlan, planned PlannedToolCall) toolCallOutcome {
@@ -959,18 +1036,30 @@ func (e *Engine) executeToolCall(ctx context.Context, state State, plan ToolBatc
 }
 
 func (e *Engine) commitToolCallResult(ctx context.Context, state State, outcome toolCallOutcome) (State, error) {
-	next := state.Clone()
-	index, ok := toolJournalIndex(next.ToolJournal)[outcome.planned.Call.ID]
-	if !ok || next.ToolJournal[index].Status != ToolCallStarted {
-		return State{}, fmt.Errorf("tool journal call %q is not started", outcome.planned.Call.ID)
+	return e.commitToolCallResults(ctx, state, []toolCallOutcome{outcome})
+}
+
+func (e *Engine) commitToolCallResults(ctx context.Context, state State, outcomes []toolCallOutcome) (State, error) {
+	if len(outcomes) == 0 {
+		return state, nil
 	}
+	next := state.Clone()
 	completedAt := e.ports.Clock.Now()
-	next.ToolJournal[index].Status = outcome.status
-	next.ToolJournal[index].CompletedAt = &completedAt
-	next.ToolJournal[index].Result = cloneToolResult(outcome.result)
-	return e.commit(ctx, state, next, RuntimeEvent{
-		Type: EventToolCallResult, Message: "Tool call result recorded.", Payload: next.ToolJournal[index],
-	})
+	events := make([]RuntimeEvent, 0, len(outcomes))
+	indexes := toolJournalIndex(next.ToolJournal)
+	for _, outcome := range outcomes {
+		index, ok := indexes[outcome.planned.Call.ID]
+		if !ok || next.ToolJournal[index].Status != ToolCallStarted {
+			return State{}, fmt.Errorf("tool journal call %q is not started", outcome.planned.Call.ID)
+		}
+		next.ToolJournal[index].Status = outcome.status
+		next.ToolJournal[index].CompletedAt = &completedAt
+		next.ToolJournal[index].Result = cloneToolResult(outcome.result)
+		events = append(events, RuntimeEvent{
+			Type: EventToolCallResult, Message: "Tool call result recorded.", Payload: next.ToolJournal[index],
+		})
+	}
+	return e.commit(ctx, state, next, events...)
 }
 
 func (e *Engine) terminalizeStartedToolCalls(ctx context.Context, state State, plan ToolBatchPlan) (State, error) {
@@ -996,7 +1085,8 @@ func (e *Engine) terminalizeStartedToolCalls(ctx context.Context, state State, p
 
 func singleToolPlan(plan ToolBatchPlan, planned PlannedToolCall) ToolBatchPlan {
 	single := ToolBatchPlan{
-		Calls: []PlannedToolCall{planned}, RegistryRevision: plan.RegistryRevision, PolicyRevision: plan.PolicyRevision,
+		Calls: []PlannedToolCall{planned}, RegistryRevision: plan.RegistryRevision,
+		PolicyRevision: plan.PolicyRevision, MiddlewareRevision: plan.MiddlewareRevision,
 	}
 	for _, interaction := range plan.Interactions {
 		if interaction.CallID == planned.Call.ID {
@@ -1252,7 +1342,7 @@ func (e *Engine) commit(ctx context.Context, current, next State, events ...Runt
 	if err := next.Validate(); err != nil {
 		return State{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
-	committed, err := e.ports.Durability.Commit(ctx, Transition{ExpectedRevision: current.Revision, Next: next.Clone(), Events: events})
+	committed, err := e.ports.Durability.Commit(ctx, Transition{ExpectedRevision: current.Revision, Next: next, Events: events})
 	if err != nil {
 		return State{}, err
 	}
@@ -1268,7 +1358,7 @@ func (e *Engine) park(ctx context.Context, current, next State, pause PauseState
 		return State{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
 	committed, err := e.ports.Durability.Park(ctx, ParkTransition{
-		Transition: Transition{ExpectedRevision: current.Revision, Next: next.Clone(), Events: events},
+		Transition: Transition{ExpectedRevision: current.Revision, Next: next, Events: events},
 		Pause:      pause,
 	})
 	if err != nil {
@@ -1286,7 +1376,7 @@ func (e *Engine) complete(ctx context.Context, current, next State, finalMessage
 		return State{}, fmt.Errorf("%w: %v", ErrInvalidTransition, err)
 	}
 	committed, err := e.ports.Durability.Complete(ctx, CompleteTransition{
-		Transition:     Transition{ExpectedRevision: current.Revision, Next: next.Clone(), Events: events},
+		Transition:     Transition{ExpectedRevision: current.Revision, Next: next, Events: events},
 		FinalMessageID: finalMessageID,
 	})
 	if err != nil {
@@ -1372,7 +1462,7 @@ func validateCommittedState(previousRevision int64, committed State) (State, err
 	if err := committed.Validate(); err != nil {
 		return State{}, fmt.Errorf("durability port returned invalid state: %w", err)
 	}
-	return committed.Clone(), nil
+	return committed, nil
 }
 
 func toolCalls(message model.Message) []model.ToolCall {

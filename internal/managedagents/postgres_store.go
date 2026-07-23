@@ -1404,7 +1404,7 @@ func (s *PostgresStore) createSubagentSessionContext(ctx context.Context, input 
 		SELECT id, workspace_id, owner_id, spawn_depth
 		FROM sessions
 		WHERE id = $1
-		FOR UPDATE
+		FOR NO KEY UPDATE
 	`, parentSessionID).Scan(&parent.ID, &parent.WorkspaceID, &parent.OwnerID, &parent.SpawnDepth); err == sql.ErrNoRows {
 		return Session{}, fmt.Errorf("%w: parent session %s", ErrNotFound, parentSessionID)
 	} else if err != nil {
@@ -8029,46 +8029,127 @@ func (s *PostgresStore) applyEventTx(ctx context.Context, tx *sql.Tx, session *S
 }
 
 func (s *PostgresStore) appendEventTx(ctx context.Context, tx *sql.Tx, sessionID, eventType string, payload json.RawMessage, now time.Time) (Event, error) {
-	var err error
-	payload, err = postgresSafeJSON(payload)
-	if err != nil {
-		return Event{}, fmt.Errorf("sanitize event payload: %w", err)
-	}
-	// seq 是 Session 内递增序号；外层事务已锁 Session 行，避免并发重复 seq。
-	seq, err := nextEventSeq(ctx, tx, sessionID)
+	events, err := s.appendEventsTx(ctx, tx, sessionID, []sessionEventAppend{{Type: eventType, Payload: payload}}, now)
 	if err != nil {
 		return Event{}, err
 	}
-	id, err := nextSequenceID(ctx, tx, "evt", "tma_event_id_seq")
-	if err != nil {
-		return Event{}, err
+	return events[0], nil
+}
+
+type sessionEventAppend struct {
+	Type    string
+	Payload json.RawMessage
+}
+
+type eventSequenceAllocation struct {
+	seq int64
+	id  string
+}
+
+func (s *PostgresStore) appendEventsTx(ctx context.Context, tx *sql.Tx, sessionID string, inputs []sessionEventAppend, now time.Time) ([]Event, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	sanitized := make([]sessionEventAppend, len(inputs))
+	for index, input := range inputs {
+		payload, err := postgresSafeJSON(input.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("sanitize event payload %d: %w", index, err)
+		}
+		sanitized[index] = sessionEventAppend{Type: input.Type, Payload: payload}
 	}
 
-	event := Event{
-		ID:        id,
-		SessionID: sessionID,
-		TurnID:    payloadString(payload, "turn_id"),
-		Seq:       seq,
-		Type:      eventType,
-		Payload:   cloneRaw(payload),
-		CreatedAt: now,
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO session_events (id, session_id, turn_id, seq, type, payload_json, created_at)
-		VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7)
-	`, event.ID, event.SessionID, event.TurnID, event.Seq, event.Type, nullableRaw(event.Payload), event.CreatedAt)
+	allocations, err := allocateEventSequences(ctx, tx, sessionID, len(sanitized))
 	if err != nil {
-		return Event{}, err
+		return nil, err
 	}
-	if err := s.projectToolPermissionAuditEventTx(ctx, tx, event); err != nil {
-		return Event{}, err
+	events := make([]Event, len(sanitized))
+	for index, input := range sanitized {
+		events[index] = Event{
+			ID: allocations[index].id, SessionID: sessionID,
+			TurnID: payloadString(input.Payload, "turn_id"), Seq: allocations[index].seq,
+			Type: input.Type, Payload: cloneRaw(input.Payload), CreatedAt: now,
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `SELECT pg_notify($1, $2)`, eventNotificationChannel, event.SessionID); err != nil {
-		return Event{}, err
+	if err := insertSessionEventsBatch(ctx, tx, events); err != nil {
+		return nil, err
 	}
+	// Projection order is part of the contract: a planned Tool event creates the
+	// audit record before later started/result events update it.
+	for _, event := range events {
+		if err := s.projectToolPermissionAuditEventTx(ctx, tx, event); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT pg_notify($1, $2)`, eventNotificationChannel, sessionID); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
 
-	return event, nil
+func allocateEventSequences(ctx context.Context, tx *sql.Tx, sessionID string, count int) ([]eventSequenceAllocation, error) {
+	if count <= 0 {
+		return nil, nil
+	}
+	// Reserving the range and inserting the events happen in the same transaction.
+	// A rollback therefore restores last_seq and leaves no gap in the Session order.
+	rows, err := tx.QueryContext(ctx, `
+		WITH counter AS (
+			INSERT INTO session_event_counters (session_id, last_seq)
+			VALUES ($1, $2)
+			ON CONFLICT (session_id) DO UPDATE
+			SET last_seq = session_event_counters.last_seq + EXCLUDED.last_seq
+			RETURNING last_seq
+		)
+		SELECT counter.last_seq - $2 + generated.ordinal,
+			nextval('tma_event_id_seq')
+		FROM counter
+		CROSS JOIN generate_series(1, $2::BIGINT) AS generated(ordinal)
+		ORDER BY generated.ordinal
+	`, sessionID, count)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	allocations := make([]eventSequenceAllocation, 0, count)
+	for rows.Next() {
+		var seq int64
+		var idValue int64
+		if err := rows.Scan(&seq, &idValue); err != nil {
+			return nil, err
+		}
+		allocations = append(allocations, eventSequenceAllocation{seq: seq, id: fmt.Sprintf("evt_%06d", idValue)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(allocations) != count {
+		return nil, fmt.Errorf("allocate event sequences: got %d allocations for %d events", len(allocations), count)
+	}
+	return allocations, nil
+}
+
+func insertSessionEventsBatch(ctx context.Context, tx *sql.Tx, events []Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	var query strings.Builder
+	query.WriteString(`INSERT INTO session_events (id, session_id, turn_id, seq, type, payload_json, created_at) VALUES `)
+	args := make([]any, 0, 2+len(events)*5)
+	args = append(args, events[0].SessionID, events[0].CreatedAt)
+	for index, event := range events {
+		if event.SessionID != events[0].SessionID {
+			return fmt.Errorf("batch session events must share session_id")
+		}
+		if index > 0 {
+			query.WriteString(",")
+		}
+		first := len(args) + 1
+		fmt.Fprintf(&query, "($%d,$1,NULLIF($%d,''),$%d,$%d,$%d,$2)", first, first+1, first+2, first+3, first+4)
+		args = append(args, event.ID, event.TurnID, event.Seq, event.Type, nullableRaw(event.Payload))
+	}
+	_, err := tx.ExecContext(ctx, query.String(), args...)
+	return err
 }
 
 type queryer interface {
@@ -8082,14 +8163,6 @@ func nextSequenceID(ctx context.Context, q queryer, prefix, sequence string) (st
 		return "", err
 	}
 	return fmt.Sprintf("%s_%06d", prefix, value), nil
-}
-
-func nextEventSeq(ctx context.Context, tx *sql.Tx, sessionID string) (int64, error) {
-	var seq int64
-	err := tx.QueryRowContext(ctx, `
-		SELECT COALESCE(MAX(seq), 0) + 1 FROM session_events WHERE session_id = $1
-	`, sessionID).Scan(&seq)
-	return seq, err
 }
 
 func nextTurnID(ctx context.Context, tx *sql.Tx, sessionID string) (string, error) {
@@ -8740,7 +8813,8 @@ func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 }
 
 func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
-	// 涉及状态迁移的事务都通过 FOR UPDATE 锁住 Session，保护状态机一致性。
+	// Session 主键不会在状态迁移中修改。NO KEY UPDATE 仍保证状态串行化，
+	// 同时允许 session_events 的外键 KEY SHARE 与 Agent Loop 事件持久化并发。
 	return scanSession(ctx, tx, `
 		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
@@ -8750,7 +8824,7 @@ func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session,
 			), created_by, created_at, archived_at
 		FROM sessions
 		WHERE id = $1
-		FOR UPDATE
+		FOR NO KEY UPDATE
 	`, id)
 }
 

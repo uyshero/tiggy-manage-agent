@@ -3001,7 +3001,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, managed_environment_variables,
 			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
-		session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
+		session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
 		skill_marketplace_entries, skill_marketplace_policies, skill_marketplace_policy_versions,
@@ -4383,7 +4383,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}
@@ -4977,7 +4977,7 @@ func TestPostgresEmbeddingAndRerankerModelConfiguration(t *testing.T) {
 	}
 }
 
-func newPostgresIntegrationStore(t *testing.T) *PostgresStore {
+func newPostgresIntegrationStore(t testing.TB) *PostgresStore {
 	t.Helper()
 
 	if os.Getenv("TMA_RUN_POSTGRES_TESTS") != "1" {
@@ -5007,7 +5007,7 @@ func newPostgresIntegrationStore(t *testing.T) *PostgresStore {
 	return store
 }
 
-func requirePostgresIntegrationSchema(t *testing.T, store *PostgresStore) {
+func requirePostgresIntegrationSchema(t testing.TB, store *PostgresStore) {
 	t.Helper()
 
 	var table sql.NullString
@@ -5041,7 +5041,7 @@ func createPostgresIntegrationWorkspace(t *testing.T, store *PostgresStore, pref
 	return workspaceID
 }
 
-func createPostgresIntegrationSession(t *testing.T, store *PostgresStore) Session {
+func createPostgresIntegrationSession(t testing.TB, store *PostgresStore) Session {
 	t.Helper()
 
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
@@ -5078,7 +5078,7 @@ func createPostgresIntegrationSession(t *testing.T, store *PostgresStore) Sessio
 	return session
 }
 
-func cleanupPostgresIntegrationData(t *testing.T, store *PostgresStore, sessionID string, agentID string, environmentID string) {
+func cleanupPostgresIntegrationData(t testing.TB, store *PostgresStore, sessionID string, agentID string, environmentID string) {
 	t.Helper()
 
 	ctx := context.Background()

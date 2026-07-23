@@ -111,10 +111,11 @@ func (c FixedClock) Now() time.Time {
 }
 
 type MemoryDurability struct {
-	mu          sync.Mutex
-	state       agentcore.State
-	events      []agentcore.RuntimeEvent
-	transitions []string
+	mu           sync.Mutex
+	state        agentcore.State
+	events       []agentcore.RuntimeEvent
+	eventBatches [][]agentcore.RuntimeEvent
+	transitions  []string
 }
 
 func NewMemoryDurability(initial agentcore.State) *MemoryDurability {
@@ -179,6 +180,7 @@ func (d *MemoryDurability) apply(kind string, transition agentcore.Transition) (
 	}
 	d.state = next
 	d.events = append(d.events, transition.Events...)
+	d.eventBatches = append(d.eventBatches, append([]agentcore.RuntimeEvent(nil), transition.Events...))
 	d.transitions = append(d.transitions, kind)
 	return next.Clone(), nil
 }
@@ -193,6 +195,16 @@ func (d *MemoryDurability) Events() []agentcore.RuntimeEvent {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return append([]agentcore.RuntimeEvent(nil), d.events...)
+}
+
+func (d *MemoryDurability) EventBatches() [][]agentcore.RuntimeEvent {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	result := make([][]agentcore.RuntimeEvent, len(d.eventBatches))
+	for index := range d.eventBatches {
+		result[index] = append([]agentcore.RuntimeEvent(nil), d.eventBatches[index]...)
+	}
+	return result
 }
 
 func (d *MemoryDurability) Transitions() []string {
