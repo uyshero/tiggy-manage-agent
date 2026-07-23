@@ -109,14 +109,15 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, err
 	}
+	selectionHistory, err := e.resolveConversationHistory(ctx, request.SessionID, request.UserEventSeq)
+	if err != nil {
+		_ = e.recordRuntimeFailed(ctx, err, emit)
+		return TurnResult{}, err
+	}
+	selectionHistory = conversationHistoryAfterSeq(selectionHistory, config.SummarySourceUntilSeq)
 	var history []managedagents.ConversationMessage
 	if request.ResumeIntervention == nil {
-		history, err = e.resolveConversationHistory(ctx, request.SessionID, request.UserEventSeq)
-		if err != nil {
-			_ = e.recordRuntimeFailed(ctx, err, emit)
-			return TurnResult{}, err
-		}
-		history = conversationHistoryAfterSeq(history, config.SummarySourceUntilSeq)
+		history = selectionHistory
 	}
 	resolvedSkills, err := e.resolveSkills(ctx, request, config, emit)
 	if err != nil {
@@ -170,6 +171,13 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		managedEnvironment = mergeRuntimeSkillEnvironment(managedEnvironment, materializedSkills)
 		toolExecution.Context.Environment = managedEnvironment
 	}
+	toolExecution.Registry = execution.SelectTurnTools(toolExecution.Registry, toolExecution.Policy, execution.TurnToolSelection{
+		UserPayload:     request.UserPayload,
+		History:         selectionHistory,
+		SummaryText:     config.SummaryText,
+		HasActiveSkills: len(resolvedSkills.Skills) > 0,
+		SkillContext:    resolvedSkills.Rendered,
+	})
 	permissionRules, err := tools.ResolvePermissionRules(config.RuntimeSettings, config.Tools, config.WorkspaceToolPolicy)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
