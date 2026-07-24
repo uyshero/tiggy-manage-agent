@@ -1321,7 +1321,8 @@ func (s *PostgresStore) CreateEnvironment(input CreateEnvironmentInput) (Environ
 }
 
 func (s *PostgresStore) createEnvironmentContext(ctx context.Context, input CreateEnvironmentInput) (Environment, error) {
-	if input.Name == "" {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
 		return Environment{}, fmt.Errorf("%w: environment name is required", ErrInvalid)
 	}
 
@@ -1347,11 +1348,17 @@ func (s *PostgresStore) createEnvironmentContext(ctx context.Context, input Crea
 		config = json.RawMessage(`{}`)
 	}
 	now := time.Now().UTC()
-
-	_, err = tx.ExecContext(ctx, `
+	var environment Environment
+	var storedConfig []byte
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO environments (id, workspace_id, name, config_json, created_at)
 		VALUES ($1, $2, $3, $4, $5)
-	`, id, scope.WorkspaceID, input.Name, config, now)
+		ON CONFLICT (workspace_id, (lower(btrim(name)))) WHERE archived_at IS NULL
+		DO UPDATE SET name = environments.name
+		RETURNING id, workspace_id, name, config_json, created_at
+	`, id, scope.WorkspaceID, name, config, now).Scan(
+		&environment.ID, &environment.WorkspaceID, &environment.Name, &storedConfig, &environment.CreatedAt,
+	)
 	if err != nil {
 		return Environment{}, err
 	}
@@ -1359,13 +1366,8 @@ func (s *PostgresStore) createEnvironmentContext(ctx context.Context, input Crea
 		return Environment{}, err
 	}
 
-	return Environment{
-		ID:          id,
-		WorkspaceID: scope.WorkspaceID,
-		Name:        input.Name,
-		Config:      cloneRaw(config),
-		CreatedAt:   now,
-	}, nil
+	environment.Config = cloneRaw(storedConfig)
+	return environment, nil
 }
 
 func (s *PostgresStore) CreateSession(input CreateSessionInput) (Session, error) {

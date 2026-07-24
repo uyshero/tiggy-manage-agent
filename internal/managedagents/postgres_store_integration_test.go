@@ -132,6 +132,42 @@ func TestPostgresAgentEnvironmentUpdateOnlyAffectsNewSessions(t *testing.T) {
 	}
 }
 
+func TestPostgresEnvironmentCreationIsIdempotentByActiveWorkspaceName(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	name := "idempotent-environment-" + suffix
+	first, err := store.CreateEnvironment(CreateEnvironmentInput{
+		Name: name, Config: json.RawMessage(`{"type":"first"}`),
+	})
+	if err != nil {
+		t.Fatalf("create first environment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM environments WHERE id = $1`, first.ID)
+	})
+
+	second, err := store.CreateEnvironment(CreateEnvironmentInput{
+		Name: "  " + strings.ToUpper(name) + "  ", Config: json.RawMessage(`{"type":"second"}`),
+	})
+	if err != nil {
+		t.Fatalf("create idempotent environment: %v", err)
+	}
+	if second.ID != first.ID || second.Name != first.Name || string(second.Config) != string(first.Config) {
+		t.Fatalf("duplicate environment did not resolve to the active record: first=%+v second=%+v", first, second)
+	}
+
+	var activeCount int
+	if err := store.db.QueryRowContext(context.Background(), `
+		SELECT count(*) FROM environments
+		WHERE workspace_id = $1 AND archived_at IS NULL AND lower(btrim(name)) = lower(btrim($2))
+	`, first.WorkspaceID, name).Scan(&activeCount); err != nil {
+		t.Fatalf("count active duplicate environments: %v", err)
+	}
+	if activeCount != 1 {
+		t.Fatalf("active duplicate environment count = %d, want 1", activeCount)
+	}
+}
+
 func TestPostgresRunEvaluationSnapshotAndWorkspaceIsolation(t *testing.T) {
 	store := newPostgresIntegrationStore(t)
 	leftSession := createPostgresIntegrationSession(t, store)
