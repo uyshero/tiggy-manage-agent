@@ -574,6 +574,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.WriteHeader(status)
 
 	if err := json.NewEncoder(w).Encode(value); err != nil {
+		slog.Error("encode HTTP JSON response", "status", status, "error", err)
 		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
@@ -623,6 +624,9 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, skillretention.ErrConflict):
 		status = http.StatusConflict
 		message = err.Error()
+	}
+	if status >= http.StatusInternalServerError {
+		slog.Error("HTTP request failed", "status", status, "error", err)
 	}
 
 	writeJSON(w, status, map[string]string{"error": message})

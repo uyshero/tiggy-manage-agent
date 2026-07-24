@@ -15,6 +15,13 @@ import (
 	"tiggy-manage-agent/internal/modeltest"
 )
 
+func TestAgentCoreBudgetDefaultsToOneHundredRounds(t *testing.T) {
+	budget := agentCoreBudget(context.Background(), managedagents.AgentRuntimeConfig{}, nil, 0, 0)
+	if budget.MaxRounds != 100 || budget.MaxModelCalls != 108 || budget.MaxToolCalls != 800 {
+		t.Fatalf("unexpected default agent core budget: %+v", budget)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorRunsDurableCore(t *testing.T) {
 	t.Parallel()
 

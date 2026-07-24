@@ -167,6 +167,11 @@ func validateManifestIntegrity(identifier string, manifest Manifest) error {
 		if _, err := CompileJSONSchema(api.Parameters); err != nil {
 			return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema is invalid for %s: %w", ModelToolName(identifier, name), err)
 		}
+		if manifest.Type == "builtin" {
+			if err := validateBuiltinFileReferenceDeclarations(api.Parameters); err != nil {
+				return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema for %s has invalid file declarations: %w", ModelToolName(identifier, name), err)
+			}
+		}
 	}
 	return nil
 }

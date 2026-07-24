@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -242,7 +241,7 @@ func (s *Server) generateAutoJudgeResultForRubric(ctx context.Context, rubric ma
 	}
 	manager, err := llm.NewManagerWithConfig(llm.ManagerConfig{
 		Provider: s.defaultLLMProvider, ProviderType: provider.ProviderType, Model: s.defaultLLMModel,
-		BaseURL: provider.BaseURL, APIKey: os.Getenv(provider.APIKeyEnv),
+		BaseURL: provider.BaseURL, APIKey: s.resolveLLMAPIKey(ctx, rubric.WorkspaceID, provider.APIKeyEnv),
 	})
 	if err != nil {
 		return autoJudgeResult{}, fmt.Errorf("初始化 Judge 模型失败: %w", err)

@@ -8,6 +8,7 @@ export interface EventStreamOptions {
   signal?: AbortSignal;
   retryInitialMs?: number;
   retryMaxMs?: number;
+  idleTimeoutMs?: number;
 }
 
 export type LiveEventStreamOptions = Omit<EventStreamOptions, "afterSeq">;
@@ -19,6 +20,7 @@ export async function* streamLiveEvents(
 ): AsyncGenerator<LiveEvent> {
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 10_000;
+  const idleTimeout = options.idleTimeoutMs ?? 45_000;
 
   while (!options.signal?.aborted) {
     try {
@@ -45,7 +47,7 @@ export async function* streamLiveEvents(
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done) break;
           parser.feed(decoder.decode(value, { stream: true }));
           if (parserError) throw parserError;
@@ -80,6 +82,7 @@ export async function* streamEvents(
   let afterSeq = options.afterSeq ?? 0;
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 10_000;
+  const idleTimeout = options.idleTimeoutMs ?? 45_000;
 
   while (!options.signal?.aborted) {
     try {
@@ -108,7 +111,7 @@ export async function* streamEvents(
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done) break;
           parser.feed(decoder.decode(value, { stream: true }));
           if (parserError) throw parserError;
@@ -137,6 +140,24 @@ export async function* streamEvents(
     }
   }
   throw abortError();
+}
+
+async function readWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return reader.read();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new RetryableSSEError(`SSE connection was idle for ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function decodeEvent(data: string): Event {

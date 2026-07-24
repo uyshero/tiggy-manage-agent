@@ -450,7 +450,7 @@ func validateAgentCoreBindings(state agentcore.State, route coremodel.Route, def
 }
 
 func agentCoreBudget(ctx context.Context, config managedagents.AgentRuntimeConfig, settings json.RawMessage, timeout time.Duration, configuredMaxRounds int) agentcore.Budget {
-	maxRounds := positiveInt(configuredMaxRounds, 32)
+	maxRounds := positiveInt(configuredMaxRounds, 100)
 	maxModelCalls := maxRounds + 8
 	maxToolCalls := maxRounds * 8
 	contextTokens := int64(config.ContextWindowTokens)
@@ -490,7 +490,7 @@ func agentCoreBudget(ctx context.Context, config managedagents.AgentRuntimeConfi
 	} else if timeout > 0 {
 		budget.Deadline = time.Now().UTC().Add(timeout)
 	} else {
-		budget.Deadline = time.Now().UTC().Add(time.Hour)
+		budget.Deadline = time.Now().UTC().Add(2 * time.Hour)
 	}
 	return budget
 }

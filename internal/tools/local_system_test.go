@@ -70,7 +70,7 @@ func TestDefaultManifestRoutesFinalDeliverablesToWorkspace(t *testing.T) {
 		"final user deliverables",
 		"under /workspace",
 		"uploaded inputs are synchronized under /workspace/uploads",
-		"Use /mnt/data only for caches, temporary files, and intermediate generation results",
+		"Use /mnt/data or the session-shared /tmp only for caches, temporary files, and intermediate generation results",
 	} {
 		if !strings.Contains(manifest.SystemRole, expected) {
 			t.Fatalf("default system role is missing deliverable path rule %q: %s", expected, manifest.SystemRole)
@@ -743,6 +743,26 @@ func TestDefaultRuntimeReturnsEditProviderFailureAsToolResult(t *testing.T) {
 	}
 	if !strings.Contains(result.Error.Message, "workspace path guard edit denied") {
 		t.Fatalf("expected path-guard reason, got %#v", result.Error)
+	}
+}
+
+func TestRegistryExecutorResolvesDeclaredFileReference(t *testing.T) {
+	tempDir := t.TempDir()
+	relative, err := filepath.Rel(os.TempDir(), tempDir)
+	if err != nil {
+		t.Fatalf("relative temp path: %v", err)
+	}
+	call := Call{
+		ID: "call_fileref", Identifier: DefaultIdentifier, APIName: "write_file",
+		Arguments: json.RawMessage(`{"path":"fileref://tmp/` + filepath.ToSlash(relative) + `/note.txt","content":"resolved"}`),
+	}
+	result, err := (RegistryExecutor{Registry: DefaultRegistry()}).Execute(t.Context(), call, ExecutionContext{Provider: capability.LocalSystemProvider{}})
+	if err != nil || result.Error != nil {
+		t.Fatalf("execute FileRef write: result=%+v err=%v", result, err)
+	}
+	content, err := os.ReadFile(filepath.Join(tempDir, "note.txt"))
+	if err != nil || string(content) != "resolved" {
+		t.Fatalf("read resolved FileRef output: content=%q err=%v", content, err)
 	}
 }
 

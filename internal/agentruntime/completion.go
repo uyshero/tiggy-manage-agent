@@ -31,13 +31,21 @@ type CompletionGate interface {
 }
 
 type CompletionCandidate struct {
-	SessionID   string
-	TurnID      string
-	ToolRound   int
-	Attempt     int
-	Response    llm.Response
-	Messages    []llm.Message
-	ActiveTools []string
+	SessionID      string
+	TurnID         string
+	ToolRound      int
+	Attempt        int
+	Response       llm.Response
+	Messages       []llm.Message
+	ActiveTools    []string
+	ToolExecutions []CompletionToolExecution
+}
+
+type CompletionToolExecution struct {
+	CallID  string
+	Name    string
+	Status  string
+	IsError bool
 }
 
 type CompletionVerdict struct {

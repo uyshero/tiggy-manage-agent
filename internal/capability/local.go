@@ -88,6 +88,35 @@ func (LocalSystemProvider) ToolCapabilities() []string {
 	}
 }
 
+func (LocalSystemProvider) ResolveFileReference(_ context.Context, value string) (string, error) {
+	reference, recognized, err := ParseFileReference(value)
+	if err != nil || !recognized {
+		return value, err
+	}
+	switch reference.Scope {
+	case "absolute":
+		return reference.Path, nil
+	case "workspace":
+		root, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve local workspace: %w", err)
+		}
+		return filepath.Join(root, filepath.FromSlash(reference.Path)), nil
+	case "tmp":
+		return filepath.Join(os.TempDir(), filepath.FromSlash(reference.Path)), nil
+	case "data":
+		root, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve local data directory: %w", err)
+		}
+		return filepath.Join(root, ".tma", "data", filepath.FromSlash(reference.Path)), nil
+	case "artifact":
+		return "", fmt.Errorf("artifact file references require a session-aware provider")
+	default:
+		return "", fmt.Errorf("unsupported file reference scope %q", reference.Scope)
+	}
+}
+
 func (LocalSystemProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
 	return runLocalCommand(ctx, request, nil)
 }

@@ -324,6 +324,39 @@ func TestOnlyboxesProviderMountsSessionDataDir(t *testing.T) {
 	}
 }
 
+func TestOnlyboxesProviderMountsSessionTempDirAndInjectsTempEnvironment(t *testing.T) {
+	provider := OnlyboxesProvider{
+		Image: "onlyboxes/test:latest", WorkspaceRoot: t.TempDir(), DataRoot: t.TempDir(),
+		SessionID: "sesn_tmp", Runner: &captureProvider{},
+	}
+	runner := provider.Runner.(*captureProvider)
+	if _, err := provider.RunCommand(t.Context(), RunCommandRequest{Command: "sh"}); err != nil {
+		t.Fatalf("run command: %v", err)
+	}
+	tempDir, err := provider.sessionTempDir()
+	if err != nil {
+		t.Fatalf("session temp dir: %v", err)
+	}
+	if !slices.Contains(runner.request.Args, tempDir+":/tmp:rw") {
+		t.Fatalf("expected shared /tmp mount, args=%#v", runner.request.Args)
+	}
+	for _, value := range []string{"TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp"} {
+		if !slices.Contains(runner.request.Args, value) {
+			t.Fatalf("expected %q in docker args: %#v", value, runner.request.Args)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, "crop.png"), []byte("image"), 0o600); err != nil {
+		t.Fatalf("write shared temp file: %v", err)
+	}
+	result, err := provider.ReadFile(t.Context(), ReadFileRequest{Path: "fileref://tmp/crop.png"})
+	if err != nil {
+		t.Fatalf("read shared temp FileRef: %v", err)
+	}
+	if result.Path != "/tmp/crop.png" || result.SizeBytes != 5 || result.Kind != "image" {
+		t.Fatalf("unexpected shared temp read: %#v", result)
+	}
+}
+
 func TestOnlyboxesProviderReusesSessionDataDir(t *testing.T) {
 	dataRoot := t.TempDir()
 	provider := OnlyboxesProvider{

@@ -8,6 +8,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"tiggy-manage-agent/internal/capability"
 )
 
 const (
@@ -241,6 +243,9 @@ func matchingPermissionRule(rules []PermissionRule, call Call) (PermissionRule, 
 	value, _ := arguments["path"].(string)
 	if strings.TrimSpace(value) == "" {
 		return PermissionRule{}, false
+	}
+	if resolved, recognized, err := capability.PortableFileReferencePath(value); err == nil && recognized {
+		value = resolved
 	}
 
 	matches := make([]PermissionRule, 0, len(rules))

@@ -26010,6 +26010,7 @@ async function* streamLiveEvents(transport, path2, options = {}) {
   var _a2, _b, _c;
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 1e4;
+  const idleTimeout = options.idleTimeoutMs ?? 45e3;
   while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
     try {
       const response = await transport.fetch(new URL(transport.url(path2)), {
@@ -26038,7 +26039,7 @@ async function* streamLiveEvents(transport, path2, options = {}) {
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done)
             break;
           parser.feed(decoder.decode(value, { stream: true }));
@@ -26076,6 +26077,7 @@ async function* streamEvents(transport, path2, options = {}) {
   let afterSeq = options.afterSeq ?? 0;
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 1e4;
+  const idleTimeout = options.idleTimeoutMs ?? 45e3;
   while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
     try {
       const url = new URL(transport.url(path2));
@@ -26107,7 +26109,7 @@ async function* streamEvents(transport, path2, options = {}) {
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done)
             break;
           parser.feed(decoder.decode(value, { stream: true }));
@@ -26144,6 +26146,22 @@ async function* streamEvents(transport, path2, options = {}) {
     }
   }
   throw abortError();
+}
+async function readWithIdleTimeout(reader, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    return reader.read();
+  let timer;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new RetryableSSEError(`SSE connection was idle for ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== void 0)
+      clearTimeout(timer);
+  }
 }
 function decodeEvent(data) {
   let decoded;
@@ -29855,6 +29873,9 @@ function buildToolCallLifecycles(events2) {
       case "runtime.tool_call":
         lifecycle.call = latestEvent(lifecycle.call, event);
         break;
+      case "tool.call_started":
+        lifecycle.started = latestEvent(lifecycle.started, event);
+        break;
       case "runtime.tool_intervention_required":
       case "runtime.human_input_required":
         lifecycle.required = latestEvent(lifecycle.required, event);
@@ -29985,6 +30006,24 @@ function arrayValue(value) {
 }
 function terminalToolLifecycleEvent(lifecycle) {
   return latestEvent(lifecycle == null ? void 0 : lifecycle.decision, lifecycle == null ? void 0 : lifecycle.result) || null;
+}
+function toolLifecycleIsRunning(lifecycle, executionActive = true) {
+  var _a2;
+  if (!executionActive) return false;
+  if (!(lifecycle == null ? void 0 : lifecycle.started) || (lifecycle == null ? void 0 : lifecycle.result)) return false;
+  if (((_a2 = lifecycle == null ? void 0 : lifecycle.decision) == null ? void 0 : _a2.type) === "runtime.tool_intervention_rejected") return false;
+  return true;
+}
+function shouldSynthesizeThinking(internalEvents) {
+  const events2 = Array.isArray(internalEvents) ? internalEvents : [];
+  return events2.length > 0 && !events2.every((event) => String((event == null ? void 0 : event.type) || "").startsWith("tool."));
+}
+function liveToolProgressAfterEvent(current, event) {
+  if (!current) return null;
+  if (["runtime.failed", "runtime.completed"].includes(event == null ? void 0 : event.type)) return null;
+  if ((event == null ? void 0 : event.type) !== "tool.call_result") return current;
+  const completedCallID = toolCallID(event);
+  return !completedCallID || completedCallID === current.callID ? null : current;
 }
 const stateMeta = Object.freeze({
   open: { label: "已熔断", rank: 4 },
@@ -33819,6 +33858,10 @@ function defaultModelCapabilities(capabilityType, current = {}) {
   }
   return {};
 }
+function providerAPIKeyEnvironmentName(providerID) {
+  const normalized = String(providerID || "").trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 88);
+  return normalized ? `TMA_LLM_PROVIDER_${normalized}_API_KEY` : "";
+}
 const supportedVisionImageTypes = /* @__PURE__ */ new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 function workbenchSurface() {
   if (window.matchMedia("(max-width: 640px)").matches) return "web_mobile";
@@ -35925,12 +35968,12 @@ function ModelCatalogRow({ model, busy, onDelete, onSave, onTest, testBusy, test
     }
   );
 }
-function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
+function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment, workspaceID = "" }) {
   const [providers, setProviders] = reactExports.useState([]);
   const [models, setModels] = reactExports.useState([]);
   const [selectedProviderID, setSelectedProviderID] = reactExports.useState("");
   const [creatingProvider, setCreatingProvider] = reactExports.useState(false);
-  const [providerDraft, setProviderDraft] = reactExports.useState({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", enabled: true });
+  const [providerDraft, setProviderDraft] = reactExports.useState({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", apiKey: "", enabled: true });
   const [modelDraft, setModelDraft] = reactExports.useState({ model: "", contextWindowTokens: "128000", capabilityType: "text", capabilities: {} });
   const [loading, setLoading] = reactExports.useState(true);
   const [busy, setBusy] = reactExports.useState("");
@@ -35981,7 +36024,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
   const defaultVisionModel = models.find((model) => model.is_default_vision) || null;
   const defaultEmbeddingModel = models.find((model) => model.is_default_embedding) || null;
   const defaultRerankerModel = models.find((model) => model.is_default_reranker) || null;
-  const providerDraftDirty = Boolean(!creatingProvider && selectedProvider) && (providerDraft.providerType.trim() !== (selectedProvider.provider_type || "openai-compatible") || providerDraft.baseURL.trim() !== (selectedProvider.base_url || "") || providerDraft.apiKeyEnv.trim() !== (selectedProvider.api_key_env || "") || providerDraft.enabled !== (selectedProvider.enabled !== false));
+  const providerDraftDirty = Boolean(!creatingProvider && selectedProvider) && (providerDraft.providerType.trim() !== (selectedProvider.provider_type || "openai-compatible") || providerDraft.baseURL.trim() !== (selectedProvider.base_url || "") || providerDraft.apiKeyEnv.trim() !== (selectedProvider.api_key_env || "") || Boolean(providerDraft.apiKey.trim()) || providerDraft.enabled !== (selectedProvider.enabled !== false));
   reactExports.useEffect(() => {
     if (creatingProvider || !selectedProvider) return;
     setProviderDraft({
@@ -35989,6 +36032,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
       providerType: selectedProvider.provider_type || "openai-compatible",
       baseURL: selectedProvider.base_url || "",
       apiKeyEnv: selectedProvider.api_key_env || "",
+      apiKey: "",
       enabled: selectedProvider.enabled !== false
     });
   }, [creatingProvider, selectedProvider]);
@@ -36001,6 +36045,13 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
     event.preventDefault();
     const providerID = providerDraft.id.trim();
     if (!providerID || !providerDraft.providerType.trim()) return;
+    const apiKey = providerDraft.apiKey;
+    const requiresAPIKey = providerDraft.providerType !== "fake";
+    if (creatingProvider && requiresAPIKey && !apiKey.trim()) {
+      setError("新增 Provider 需要填写实际 API Key。");
+      return;
+    }
+    const apiKeyEnv = apiKey.trim() ? providerDraft.apiKeyEnv.trim() || providerAPIKeyEnvironmentName(providerID) : providerDraft.apiKeyEnv.trim();
     setBusy("provider-save");
     setError("");
     setMessage("");
@@ -36008,14 +36059,18 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
       const body = {
         provider_type: providerDraft.providerType.trim(),
         base_url: providerDraft.baseURL.trim(),
-        api_key_env: providerDraft.apiKeyEnv.trim(),
+        api_key_env: apiKeyEnv,
         enabled: providerDraft.enabled
       };
+      if (apiKey.trim()) {
+        await putEnvironmentVariable(apiKeyEnv, apiKey, workspaceID);
+      }
       if (creatingProvider) {
         await createLLMProvider({ id: providerID, ...body });
       } else {
         await updateLLMProvider(providerID, selectedProvider.revision, body);
       }
+      setProviderDraft((current) => ({ ...current, apiKey: "", apiKeyEnv }));
       setCreatingProvider(false);
       await refreshCatalog(providerID, creatingProvider ? `Provider ${providerID} 已添加。` : `Provider ${providerID} 已更新。`);
     } catch (saveError) {
@@ -36180,7 +36235,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
   }
   function startCreateProvider() {
     setCreatingProvider(true);
-    setProviderDraft({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", enabled: true });
+    setProviderDraft({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", apiKey: "", enabled: true });
     setError("");
     setMessage("");
   }
@@ -36202,8 +36257,8 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-management-security", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "凭证管理" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "环境变量" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: onOpenEnvironment, children: "管理密钥" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "加密存储" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: onOpenEnvironment, children: "管理环境变量" })
       ] })
     ] }),
     error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "health-error", children: error }) : null,
@@ -36316,11 +36371,27 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Base URL" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: providerDraft.baseURL, onChange: (event) => setProviderDraft((current) => ({ ...current, baseURL: event.target.value })), placeholder: "https://api.openai.com/v1", type: "url" })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "model-provider-wide-field", children: [
+            !creatingProvider ? /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "model-provider-wide-field", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "API Key 环境变量" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: providerDraft.apiKeyEnv, onChange: (event) => setProviderDraft((current) => ({ ...current, apiKeyEnv: event.target.value })), placeholder: "OPENAI_API_KEY", pattern: "[A-Za-z_][A-Za-z0-9_]*" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "这里只保存变量名，不保存密钥明文。" })
-            ] })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "系统默认 Provider 可继续由服务端 env 注入。" })
+            ] }) : null,
+            providerDraft.providerType !== "fake" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "model-provider-wide-field", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: creatingProvider ? "API Key" : "更新 API Key（可选）" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "password",
+                  value: providerDraft.apiKey,
+                  autoComplete: "new-password",
+                  spellCheck: "false",
+                  onChange: (event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value })),
+                  placeholder: creatingProvider ? "输入 Provider 的实际 API Key" : "留空则不修改已有凭据",
+                  required: creatingProvider
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: creatingProvider ? "密钥会加密保存到当前工作区，保存后不再回显。" : "填写后会加密保存，并优先于同名服务端 env 使用。" })
+            ] }) : null
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-editor-actions", children: [
             creatingProvider ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: Boolean(busy), onClick: () => setCreatingProvider(false), children: "取消" }) : null,
@@ -37467,7 +37538,7 @@ function SettingsPage({
       case "environment":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(EnvironmentVariablesSettings, { canManageWorkspaceVariables, workspaceID });
       case "models":
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(ModelManagementSettings, { onCatalogChanged: onModelCatalogChanged, onOpenEnvironment: () => setActiveSection("environment") });
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(ModelManagementSettings, { onCatalogChanged: onModelCatalogChanged, onOpenEnvironment: () => setActiveSection("environment"), workspaceID });
       case "skills":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(
           SkillsManagement,
@@ -38183,7 +38254,7 @@ function SettingsPage({
     /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "settings-sidebar", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "settings-back-button", type: "button", onClick: onClose, children: "← 返回应用" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("input", { className: "settings-search", value: search2, onChange: (event) => setSearch(event.target.value), placeholder: "搜索设置..." }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-nav", children: sections.length ? sections.map((section) => section.href ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "settings-nav-item", href: section.href, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "settings-nav", children: sections.length ? sections.map((section) => section.href ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { className: "settings-nav-item", href: section.href, target: "_blank", rel: "noreferrer", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: section.title }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: section.description })
       ] }) }, section.key) : /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -38366,6 +38437,10 @@ function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = tr
   function flushInternalEvents() {
     var _a2;
     if (!internalEvents.length) return;
+    if (!shouldSynthesizeThinking(internalEvents)) {
+      internalEvents = [];
+      return;
+    }
     if (!includeTransientThinking || Number(internalEvents.at(-1).seq || 0) <= Number(transientThinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
@@ -38888,6 +38963,7 @@ function formatClockTime(value) {
 function ProcessEventCard({
   event,
   active = false,
+  sessionActive = false,
   completedAt = "",
   toolLifecycle = null,
   onApplySessionConfig = () => {
@@ -38925,6 +39001,8 @@ function ProcessEventCard({
   const lifecycleFailure = toolResultFailurePresentation(lifecycleResult);
   const lifecycleRejected = ((_a2 = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _a2.type) === "runtime.tool_intervention_rejected";
   const lifecycleApproved = ((_b = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _b.type) === "runtime.tool_intervention_approved";
+  const lifecycleRunning = toolLifecycleIsRunning(toolLifecycle, sessionActive);
+  const lifecycleUnfinished = Boolean((toolLifecycle == null ? void 0 : toolLifecycle.started) && !(toolLifecycle == null ? void 0 : toolLifecycle.result) && !sessionActive);
   const requiredData = eventData(toolLifecycle == null ? void 0 : toolLifecycle.required);
   const toolApproval = event.type === "runtime.tool_call" ? toolApprovalPresentation(event, toolLifecycle) : null;
   if (event.type.startsWith("session.status_")) {
@@ -38972,8 +39050,8 @@ function ProcessEventCard({
       arguments: Object.keys(args).length ? args : void 0
     };
     tone = summary.risk === "high" ? "warn" : "tool";
-    status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
-    statusLabel = active ? "执行中" : "待执行";
+    status = summary.risk === "high" ? "warning" : lifecycleRunning || active ? "running" : "completed";
+    statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
@@ -39003,10 +39081,14 @@ function ProcessEventCard({
       tone = "error";
       status = "error";
       statusLabel = "未执行";
+    } else if (lifecycleUnfinished) {
+      tone = "warn";
+      status = "warning";
+      statusLabel = "未完成";
     } else if (lifecycleApproved) {
       tone = "ok";
-      status = active ? "running" : "completed";
-      statusLabel = active ? "执行中" : "待执行";
+      status = lifecycleRunning || active ? "running" : "completed";
+      statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
     } else if (toolLifecycle == null ? void 0 : toolLifecycle.required) {
       tone = "warn";
       status = "warning";
@@ -40266,7 +40348,27 @@ function WorkbenchApp() {
     function finishStream(sessionKey, stream) {
       stream.eventDone = stream.eventDone || false;
       stream.liveDone = stream.liveDone || false;
-      if (stream.eventDone && stream.liveDone && sessionStreamsRef.current.get(sessionKey) === stream) {
+      if (sessionStreamsRef.current.get(sessionKey) !== stream) return;
+      if (stream.intentional) {
+        if (stream.eventDone && stream.liveDone) sessionStreamsRef.current.delete(sessionKey);
+        return;
+      }
+      stream.intentional = true;
+      stream.eventController.abort();
+      stream.liveController.abort();
+      sessionStreamsRef.current.delete(sessionKey);
+      if (!stream.reconnectScheduled && targets.has(sessionKey)) {
+        stream.reconnectScheduled = true;
+        window.setTimeout(() => setStreamReconnectVersion((current) => current + 1), 1e3);
+      }
+    }
+    function replaceStaleStream(sessionKey) {
+      const stream = sessionStreamsRef.current.get(sessionKey);
+      if (!stream || stream.version === streamReconnectVersion) return;
+      stream.intentional = true;
+      stream.eventController.abort();
+      stream.liveController.abort();
+      if (sessionStreamsRef.current.get(sessionKey) === stream) {
         sessionStreamsRef.current.delete(sessionKey);
       }
     }
@@ -40295,7 +40397,7 @@ function WorkbenchApp() {
         }
       }
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
-        setLiveToolProgress(null);
+        setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
       }
       if (isCurrent && shouldSyncSessionForEvent(event)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
@@ -40311,7 +40413,10 @@ function WorkbenchApp() {
         eventController: new AbortController(),
         liveController: new AbortController(),
         eventDone: false,
-        liveDone: false
+        liveDone: false,
+        intentional: false,
+        reconnectScheduled: false,
+        version: streamReconnectVersion
       };
       sessionStreamsRef.current.set(sessionKey, stream);
       const afterSeq = Number(sessionEventCursorsRef.current.get(sessionKey) || 0);
@@ -40374,9 +40479,13 @@ function WorkbenchApp() {
         }
       })();
     }
-    for (const sessionKey of targets.keys()) startSessionStreams(sessionKey);
+    for (const sessionKey of targets.keys()) {
+      replaceStaleStream(sessionKey);
+      startSessionStreams(sessionKey);
+    }
     for (const [sessionKey, stream] of sessionStreamsRef.current) {
       if (targets.has(sessionKey)) continue;
+      stream.intentional = true;
       stream.eventController.abort();
       stream.liveController.abort();
       sessionStreamsRef.current.delete(sessionKey);
@@ -40385,11 +40494,51 @@ function WorkbenchApp() {
   }, [recentSessions, sessionID, sessionMeta == null ? void 0 : sessionMeta.id, sessionMeta == null ? void 0 : sessionMeta.status, streamReconnectVersion]);
   reactExports.useEffect(() => () => {
     for (const stream of sessionStreamsRef.current.values()) {
+      stream.intentional = true;
       stream.eventController.abort();
       stream.liveController.abort();
     }
     sessionStreamsRef.current.clear();
   }, []);
+  reactExports.useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
+    const active = ["provisioning", "running", "interrupting", "compacting"].includes(String(effectiveSessionStatus || ""));
+    if (!currentSessionID || !active) return void 0;
+    let disposed = false;
+    let inFlight = false;
+    async function catchUpDurableEvents() {
+      if (disposed || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const response = await events(currentSessionID, Number(eventStreamCursorRef.current || 0));
+        if (disposed || sessionIDRef.current !== currentSessionID) return;
+        const recoveredEvents = response.events || [];
+        if (!recoveredEvents.length) return;
+        eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(recoveredEvents));
+        sessionEventCursorsRef.current.set(currentSessionID, eventStreamCursorRef.current);
+        setEventsResponse((current) => ({
+          ...current,
+          events: mergeEvents(current.events, recoveredEvents),
+          error: ""
+        }));
+        for (const event of recoveredEvents) {
+          if (["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
+            setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
+          }
+        }
+        await syncSession(currentSessionID);
+      } catch (error) {
+        if (!disposed && sessionIDRef.current === currentSessionID) setStatus((error == null ? void 0 : error.message) || String(error));
+      } finally {
+        inFlight = false;
+      }
+    }
+    const timer = window.setInterval(() => catchUpDurableEvents(), 3e3);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionID, effectiveSessionStatus]);
   reactExports.useEffect(() => {
     if (!waitingForReply) return;
     if (effectiveSessionStatus === "interrupting") {
@@ -42278,6 +42427,7 @@ function WorkbenchApp() {
                     onRequestSkillDisable: requestInstalledSkillDisable,
                     sessionConfigApplyBusy: applyingSessionConfigVersion,
                     sessionConfigVersion: Number((sessionMeta == null ? void 0 : sessionMeta.agent_config_version) || 0),
+                    sessionActive: ["running", "interrupting", "provisioning", "compacting"].includes(effectiveSessionStatus),
                     skillEnableBusy: requestingSkillEnable,
                     skillDisableBusy: requestingSkillDisable,
                     skillEnableDisabled: Boolean(applyingSessionConfigVersion || waitingForReply || hasPendingApprovals || ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus)),

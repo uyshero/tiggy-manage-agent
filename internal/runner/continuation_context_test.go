@@ -66,3 +66,54 @@ func TestBuildContinuationContextReturnsEmptyWithoutPreviousTurn(t *testing.T) {
 		t.Fatalf("expected empty context, got %q", context)
 	}
 }
+
+func TestBuildContinuationContextWalksAcrossCanceledContinuationTurn(t *testing.T) {
+	events := []managedagents.Event{
+		{Seq: 1, TurnID: "turn_work", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"把图片转成可编辑 PPT"}]}`)},
+		{Seq: 2, TurnID: "turn_work", Type: "tool.batch_planned", Payload: json.RawMessage(`{
+			"data":{"calls":[{"call":{"id":"call_build","name":"default_run_command","arguments":{
+				"command":"editppt","args":["run","next","/mnt/data/image-to-ppt/run-001"]
+			}}}]}
+		}`)},
+		{Seq: 3, TurnID: "turn_work", Type: "tool.call_result", Payload: json.RawMessage(`{
+			"data":{"name":"default_run_command","call_id":"call_build","result":{"status":"succeeded","state":{
+				"status":"completed","exit_code":0,"stdout":"page_001 pending validation"
+			}}}
+		}`)},
+		{Seq: 4, TurnID: "turn_work", Type: "runtime.failed", Payload: json.RawMessage(`{}`)},
+		{Seq: 10, TurnID: "turn_interrupted", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"继续"}]}`)},
+		{Seq: 11, TurnID: "turn_interrupted", Type: "model.requested", Payload: json.RawMessage(`{}`)},
+		{Seq: 12, TurnID: "turn_interrupted", Type: "runtime.canceled", Payload: json.RawMessage(`{}`)},
+		{Seq: 20, TurnID: "turn_current", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"继续"}]}`)},
+	}
+
+	context := buildContinuationContext(events, "turn_current", 20)
+	for _, expected := range []string{
+		"Previous turn: turn_interrupted", "terminal status: canceled",
+		"turn_work -> turn_interrupted", "Original objective: 把图片转成可编辑 PPT",
+		"/mnt/data/image-to-ppt/run-001", "page_001 pending validation",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("continuation chain context missing %q:\n%s", expected, context)
+		}
+	}
+}
+
+func TestBuildContinuationContextKeepsToolCallsScopedToTheirTurn(t *testing.T) {
+	events := []managedagents.Event{
+		{Seq: 1, TurnID: "turn_work", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"生成报告"}]}`)},
+		{Seq: 2, TurnID: "turn_work", Type: "tool.batch_planned", Payload: json.RawMessage(`{"data":{"calls":[{"call":{"id":"call_0","name":"default_run_command","arguments":{"command":"first-command"}}}]}}`)},
+		{Seq: 3, TurnID: "turn_work", Type: "tool.call_result", Payload: json.RawMessage(`{"data":{"name":"default_run_command","call_id":"call_0","result":{"status":"succeeded","state":{"status":"completed"}}}}`)},
+		{Seq: 4, TurnID: "turn_work", Type: "runtime.failed", Payload: json.RawMessage(`{}`)},
+		{Seq: 10, TurnID: "turn_continue", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"继续"}]}`)},
+		{Seq: 11, TurnID: "turn_continue", Type: "tool.batch_planned", Payload: json.RawMessage(`{"data":{"calls":[{"call":{"id":"call_0","name":"default_run_command","arguments":{"command":"second-command"}}}]}}`)},
+		{Seq: 12, TurnID: "turn_continue", Type: "tool.call_result", Payload: json.RawMessage(`{"data":{"name":"default_run_command","call_id":"call_0","result":{"status":"succeeded","state":{"status":"completed"}}}}`)},
+		{Seq: 13, TurnID: "turn_continue", Type: "runtime.canceled", Payload: json.RawMessage(`{}`)},
+		{Seq: 20, TurnID: "turn_current", Type: managedagents.EventUserMessage, Payload: json.RawMessage(`{"content":[{"type":"text","text":"继续"}]}`)},
+	}
+
+	context := buildContinuationContext(events, "turn_current", 20)
+	if !strings.Contains(context, "first-command") || !strings.Contains(context, "second-command") {
+		t.Fatalf("expected call arguments from both turns without call ID collision:\n%s", context)
+	}
+}

@@ -7,7 +7,7 @@ import "./auth.js";
 import * as api from "./api.js";
 import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolResultFailurePresentation } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, liveToolProgressAfterEvent, normalizeToolTimelineEvents, shouldSynthesizeThinking, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolLifecycleIsRunning, toolResultFailurePresentation } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { runtimeFailurePresentation } from "./runtimeFailures.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
@@ -120,6 +120,15 @@ function defaultModelCapabilities(capabilityType, current = {}) {
     };
   }
   return {};
+}
+
+function providerAPIKeyEnvironmentName(providerID) {
+  const normalized = String(providerID || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 88);
+  return normalized ? `TMA_LLM_PROVIDER_${normalized}_API_KEY` : "";
 }
 const supportedVisionImageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
@@ -2391,12 +2400,12 @@ function ModelCatalogRow({ model, busy, onDelete, onSave, onTest, testBusy, test
   );
 }
 
-function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
+function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment, workspaceID = "" }) {
   const [providers, setProviders] = useState([]);
   const [models, setModels] = useState([]);
   const [selectedProviderID, setSelectedProviderID] = useState("");
   const [creatingProvider, setCreatingProvider] = useState(false);
-  const [providerDraft, setProviderDraft] = useState({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", enabled: true });
+  const [providerDraft, setProviderDraft] = useState({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", apiKey: "", enabled: true });
   const [modelDraft, setModelDraft] = useState({ model: "", contextWindowTokens: "128000", capabilityType: "text", capabilities: {} });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -2450,6 +2459,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
     providerDraft.providerType.trim() !== (selectedProvider.provider_type || "openai-compatible")
     || providerDraft.baseURL.trim() !== (selectedProvider.base_url || "")
     || providerDraft.apiKeyEnv.trim() !== (selectedProvider.api_key_env || "")
+    || Boolean(providerDraft.apiKey.trim())
     || providerDraft.enabled !== (selectedProvider.enabled !== false)
   );
 
@@ -2460,6 +2470,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
       providerType: selectedProvider.provider_type || "openai-compatible",
       baseURL: selectedProvider.base_url || "",
       apiKeyEnv: selectedProvider.api_key_env || "",
+      apiKey: "",
       enabled: selectedProvider.enabled !== false
     });
   }, [creatingProvider, selectedProvider]);
@@ -2474,6 +2485,15 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
     event.preventDefault();
     const providerID = providerDraft.id.trim();
     if (!providerID || !providerDraft.providerType.trim()) return;
+    const apiKey = providerDraft.apiKey;
+    const requiresAPIKey = providerDraft.providerType !== "fake";
+    if (creatingProvider && requiresAPIKey && !apiKey.trim()) {
+      setError("新增 Provider 需要填写实际 API Key。");
+      return;
+    }
+    const apiKeyEnv = apiKey.trim()
+      ? (providerDraft.apiKeyEnv.trim() || providerAPIKeyEnvironmentName(providerID))
+      : providerDraft.apiKeyEnv.trim();
     setBusy("provider-save");
     setError("");
     setMessage("");
@@ -2481,14 +2501,18 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
       const body = {
         provider_type: providerDraft.providerType.trim(),
         base_url: providerDraft.baseURL.trim(),
-        api_key_env: providerDraft.apiKeyEnv.trim(),
+        api_key_env: apiKeyEnv,
         enabled: providerDraft.enabled
       };
+      if (apiKey.trim()) {
+        await api.putEnvironmentVariable(apiKeyEnv, apiKey, workspaceID);
+      }
       if (creatingProvider) {
         await api.createLLMProvider({ id: providerID, ...body });
       } else {
         await api.updateLLMProvider(providerID, selectedProvider.revision, body);
       }
+      setProviderDraft((current) => ({ ...current, apiKey: "", apiKeyEnv }));
       setCreatingProvider(false);
       await refreshCatalog(providerID, creatingProvider ? `Provider ${providerID} 已添加。` : `Provider ${providerID} 已更新。`);
     } catch (saveError) {
@@ -2664,7 +2688,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
 
   function startCreateProvider() {
     setCreatingProvider(true);
-    setProviderDraft({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", enabled: true });
+    setProviderDraft({ id: "", providerType: "openai-compatible", baseURL: "", apiKeyEnv: "", apiKey: "", enabled: true });
     setError("");
     setMessage("");
   }
@@ -2686,8 +2710,8 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
         </div>
         <div className="model-management-security">
           <span>凭证管理</span>
-          <strong>环境变量</strong>
-          <button className="secondary" type="button" onClick={onOpenEnvironment}>管理密钥</button>
+          <strong>加密存储</strong>
+          <button className="secondary" type="button" onClick={onOpenEnvironment}>管理环境变量</button>
         </div>
       </div>
       {error ? <div className="health-error">{error}</div> : null}
@@ -2785,11 +2809,28 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment }) {
                 <span>Base URL</span>
                 <input value={providerDraft.baseURL} onChange={(event) => setProviderDraft((current) => ({ ...current, baseURL: event.target.value }))} placeholder="https://api.openai.com/v1" type="url" />
               </label>
-              <label className="model-provider-wide-field">
-                <span>API Key 环境变量</span>
-                <input value={providerDraft.apiKeyEnv} onChange={(event) => setProviderDraft((current) => ({ ...current, apiKeyEnv: event.target.value }))} placeholder="OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]*" />
-                <small>这里只保存变量名，不保存密钥明文。</small>
-              </label>
+              {!creatingProvider ? (
+                <label className="model-provider-wide-field">
+                  <span>API Key 环境变量</span>
+                  <input value={providerDraft.apiKeyEnv} onChange={(event) => setProviderDraft((current) => ({ ...current, apiKeyEnv: event.target.value }))} placeholder="OPENAI_API_KEY" pattern="[A-Za-z_][A-Za-z0-9_]*" />
+                  <small>系统默认 Provider 可继续由服务端 env 注入。</small>
+                </label>
+              ) : null}
+              {providerDraft.providerType !== "fake" ? (
+                <label className="model-provider-wide-field">
+                  <span>{creatingProvider ? "API Key" : "更新 API Key（可选）"}</span>
+                  <input
+                    type="password"
+                    value={providerDraft.apiKey}
+                    autoComplete="new-password"
+                    spellCheck="false"
+                    onChange={(event) => setProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                    placeholder={creatingProvider ? "输入 Provider 的实际 API Key" : "留空则不修改已有凭据"}
+                    required={creatingProvider}
+                  />
+                  <small>{creatingProvider ? "密钥会加密保存到当前工作区，保存后不再回显。" : "填写后会加密保存，并优先于同名服务端 env 使用。"}</small>
+                </label>
+              ) : null}
             </div>
             <div className="model-editor-actions">
               {creatingProvider ? <button className="secondary" type="button" disabled={Boolean(busy)} onClick={() => setCreatingProvider(false)}>取消</button> : null}
@@ -3839,7 +3880,7 @@ function SettingsPage({
       case "environment":
         return <EnvironmentVariablesSettings canManageWorkspaceVariables={canManageWorkspaceVariables} workspaceID={workspaceID} />;
       case "models":
-        return <ModelManagementSettings onCatalogChanged={onModelCatalogChanged} onOpenEnvironment={() => setActiveSection("environment")} />;
+        return <ModelManagementSettings onCatalogChanged={onModelCatalogChanged} onOpenEnvironment={() => setActiveSection("environment")} workspaceID={workspaceID} />;
       case "skills":
         return (
           <SkillsManagement
@@ -4377,7 +4418,7 @@ function SettingsPage({
         <input className="settings-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索设置..." />
         <div className="settings-nav">
           {sections.length ? sections.map((section) => section.href ? (
-            <a className="settings-nav-item" href={section.href} key={section.key}>
+            <a className="settings-nav-item" href={section.href} key={section.key} target="_blank" rel="noreferrer">
               <div>
                 <strong>{section.title}</strong>
                 <div>{section.description}</div>
@@ -4589,6 +4630,10 @@ function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = tr
 
   function flushInternalEvents() {
     if (!internalEvents.length) return;
+    if (!shouldSynthesizeThinking(internalEvents)) {
+      internalEvents = [];
+      return;
+    }
     if (!includeTransientThinking || Number(internalEvents.at(-1).seq || 0) <= Number(transientThinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
@@ -5194,6 +5239,7 @@ function formatClockTime(value) {
 function ProcessEventCard({
   event,
   active = false,
+  sessionActive = false,
   completedAt = "",
   toolLifecycle = null,
   onApplySessionConfig = () => {},
@@ -5227,6 +5273,8 @@ function ProcessEventCard({
   const lifecycleFailure = toolResultFailurePresentation(lifecycleResult);
   const lifecycleRejected = toolLifecycle?.decision?.type === "runtime.tool_intervention_rejected";
   const lifecycleApproved = toolLifecycle?.decision?.type === "runtime.tool_intervention_approved";
+  const lifecycleRunning = toolLifecycleIsRunning(toolLifecycle, sessionActive);
+  const lifecycleUnfinished = Boolean(toolLifecycle?.started && !toolLifecycle?.result && !sessionActive);
   const requiredData = eventData(toolLifecycle?.required);
   const toolApproval = event.type === "runtime.tool_call" ? toolApprovalPresentation(event, toolLifecycle) : null;
 
@@ -5275,8 +5323,8 @@ function ProcessEventCard({
       arguments: Object.keys(args).length ? args : undefined
     };
     tone = summary.risk === "high" ? "warn" : "tool";
-    status = summary.risk === "high" ? "warning" : active ? "running" : "completed";
-    statusLabel = active ? "执行中" : "待执行";
+    status = summary.risk === "high" ? "warning" : lifecycleRunning || active ? "running" : "completed";
+    statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
@@ -5306,10 +5354,14 @@ function ProcessEventCard({
       tone = "error";
       status = "error";
       statusLabel = "未执行";
+    } else if (lifecycleUnfinished) {
+      tone = "warn";
+      status = "warning";
+      statusLabel = "未完成";
     } else if (lifecycleApproved) {
       tone = "ok";
-      status = active ? "running" : "completed";
-      statusLabel = active ? "执行中" : "待执行";
+      status = lifecycleRunning || active ? "running" : "completed";
+      statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
     } else if (toolLifecycle?.required) {
       tone = "warn";
       status = "warning";
@@ -6698,7 +6750,28 @@ function WorkbenchApp() {
     function finishStream(sessionKey, stream) {
       stream.eventDone = stream.eventDone || false;
       stream.liveDone = stream.liveDone || false;
-      if (stream.eventDone && stream.liveDone && sessionStreamsRef.current.get(sessionKey) === stream) {
+      if (sessionStreamsRef.current.get(sessionKey) !== stream) return;
+      if (stream.intentional) {
+        if (stream.eventDone && stream.liveDone) sessionStreamsRef.current.delete(sessionKey);
+        return;
+      }
+      stream.intentional = true;
+      stream.eventController.abort();
+      stream.liveController.abort();
+      sessionStreamsRef.current.delete(sessionKey);
+      if (!stream.reconnectScheduled && targets.has(sessionKey)) {
+        stream.reconnectScheduled = true;
+        window.setTimeout(() => setStreamReconnectVersion((current) => current + 1), 1000);
+      }
+    }
+
+    function replaceStaleStream(sessionKey) {
+      const stream = sessionStreamsRef.current.get(sessionKey);
+      if (!stream || stream.version === streamReconnectVersion) return;
+      stream.intentional = true;
+      stream.eventController.abort();
+      stream.liveController.abort();
+      if (sessionStreamsRef.current.get(sessionKey) === stream) {
         sessionStreamsRef.current.delete(sessionKey);
       }
     }
@@ -6728,7 +6801,7 @@ function WorkbenchApp() {
         }
       }
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
-        setLiveToolProgress(null);
+        setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
       }
       if (isCurrent && shouldSyncSessionForEvent(event)) {
         if (sessionSyncTimerRef.current) window.clearTimeout(sessionSyncTimerRef.current);
@@ -6745,7 +6818,10 @@ function WorkbenchApp() {
         eventController: new AbortController(),
         liveController: new AbortController(),
         eventDone: false,
-        liveDone: false
+        liveDone: false,
+        intentional: false,
+        reconnectScheduled: false,
+        version: streamReconnectVersion
       };
       sessionStreamsRef.current.set(sessionKey, stream);
       const afterSeq = Number(sessionEventCursorsRef.current.get(sessionKey) || 0);
@@ -6811,9 +6887,13 @@ function WorkbenchApp() {
       })();
     }
 
-    for (const sessionKey of targets.keys()) startSessionStreams(sessionKey);
+    for (const sessionKey of targets.keys()) {
+      replaceStaleStream(sessionKey);
+      startSessionStreams(sessionKey);
+    }
     for (const [sessionKey, stream] of sessionStreamsRef.current) {
       if (targets.has(sessionKey)) continue;
+      stream.intentional = true;
       stream.eventController.abort();
       stream.liveController.abort();
       sessionStreamsRef.current.delete(sessionKey);
@@ -6823,11 +6903,54 @@ function WorkbenchApp() {
 
   useEffect(() => () => {
     for (const stream of sessionStreamsRef.current.values()) {
+      stream.intentional = true;
       stream.eventController.abort();
       stream.liveController.abort();
     }
     sessionStreamsRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    const currentSessionID = String(sessionID || "").trim();
+    const active = ["provisioning", "running", "interrupting", "compacting"].includes(String(effectiveSessionStatus || ""));
+    if (!currentSessionID || !active) return undefined;
+    let disposed = false;
+    let inFlight = false;
+
+    async function catchUpDurableEvents() {
+      if (disposed || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      try {
+        const response = await api.events(currentSessionID, Number(eventStreamCursorRef.current || 0));
+        if (disposed || sessionIDRef.current !== currentSessionID) return;
+        const recoveredEvents = response.events || [];
+        if (!recoveredEvents.length) return;
+        eventStreamCursorRef.current = Math.max(eventStreamCursorRef.current || 0, maxSeq(recoveredEvents));
+        sessionEventCursorsRef.current.set(currentSessionID, eventStreamCursorRef.current);
+        setEventsResponse((current) => ({
+          ...current,
+          events: mergeEvents(current.events, recoveredEvents),
+          error: ""
+        }));
+        for (const event of recoveredEvents) {
+          if (["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
+            setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
+          }
+        }
+        await syncSession(currentSessionID);
+      } catch (error) {
+        if (!disposed && sessionIDRef.current === currentSessionID) setStatus(error?.message || String(error));
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const timer = window.setInterval(() => catchUpDurableEvents(), 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionID, effectiveSessionStatus]);
 
   useEffect(() => {
     if (!waitingForReply) return;
@@ -8774,6 +8897,7 @@ function WorkbenchApp() {
                       onRequestSkillDisable={requestInstalledSkillDisable}
                       sessionConfigApplyBusy={applyingSessionConfigVersion}
                       sessionConfigVersion={Number(sessionMeta?.agent_config_version || 0)}
+					  sessionActive={["running", "interrupting", "provisioning", "compacting"].includes(effectiveSessionStatus)}
                       skillEnableBusy={requestingSkillEnable}
                       skillDisableBusy={requestingSkillDisable}
                       skillEnableDisabled={Boolean(applyingSessionConfigVersion || waitingForReply || hasPendingApprovals || ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus))}

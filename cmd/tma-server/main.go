@@ -1004,6 +1004,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		agentruntime.TaskPlanCompletionGate{Reader: taskPlanReader},
 		agentruntime.ToolMarkupCompletionGate{},
 		agentruntime.ImageGenerationCompletionGate{},
+		agentruntime.SkillMutationCompletionGate{},
 		agentruntime.ArtifactCompletionGate{Reader: store},
 	}}
 	turnExecutor := runner.AgentRuntimeTurnExecutor{

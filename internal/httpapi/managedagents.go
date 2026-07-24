@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
@@ -465,7 +466,7 @@ func (s *Server) testLLMProvider(w http.ResponseWriter, r *http.Request) {
 	result := (llm.DiagnosticService{}).TestProvider(r.Context(), llm.DiagnosticConfig{
 		ProviderType:     provider.ProviderType,
 		BaseURL:          baseURL,
-		APIKey:           llmDiagnosticAPIKey(provider.APIKeyEnv),
+		APIKey:           s.resolveLLMAPIKey(r.Context(), requestWorkspaceID(r, ""), provider.APIKeyEnv),
 		APIKeyConfigured: strings.TrimSpace(provider.APIKeyEnv) != "",
 	})
 	s.recordLLMDiagnosticAudit(r, "llm.provider.test", "llm_provider", providerID, result)
@@ -500,7 +501,7 @@ func (s *Server) testLLMModel(w http.ResponseWriter, r *http.Request) {
 	result := (llm.DiagnosticService{}).TestModel(r.Context(), llm.DiagnosticConfig{
 		ProviderType:       provider.ProviderType,
 		BaseURL:            baseURL,
-		APIKey:             llmDiagnosticAPIKey(provider.APIKeyEnv),
+		APIKey:             s.resolveLLMAPIKey(r.Context(), requestWorkspaceID(r, ""), provider.APIKeyEnv),
 		APIKeyConfigured:   strings.TrimSpace(provider.APIKeyEnv) != "",
 		Model:              model.Model,
 		CapabilityType:     model.CapabilityType,
@@ -517,6 +518,20 @@ func llmDiagnosticAPIKey(envName string) string {
 		return ""
 	}
 	return os.Getenv(envName)
+}
+
+func (s *Server) resolveLLMAPIKey(ctx context.Context, workspaceID string, envName string) string {
+	envName = strings.TrimSpace(envName)
+	if envName == "" {
+		return ""
+	}
+	managedEnvironment, _, err := envvars.ResolveWorkspace(ctx, s.store, workspaceID)
+	if err == nil {
+		if value := managedEnvironment[envName]; strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return llmDiagnosticAPIKey(envName)
 }
 
 func (s *Server) recordLLMDiagnosticAudit(r *http.Request, action string, resourceType string, resourceID string, result llm.DiagnosticResult) {
@@ -3642,16 +3657,24 @@ func (s *Server) streamSessionEvents(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	fmt.Fprint(w, ": stream ready\n\n")
+	fmt.Fprint(w, ": stream ready\nretry: 1000\n\n")
 	flusher.Flush()
 
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		case event, ok := <-events:
 			if !ok {
 				return

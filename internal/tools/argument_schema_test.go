@@ -172,6 +172,20 @@ func TestRegistryRejectsInvalidOrExternalToolSchema(t *testing.T) {
 	}
 }
 
+func TestBuiltinSchemaRequiresFileReferenceDeclaration(t *testing.T) {
+	runtime := &argumentSchemaTestRuntime{parameters: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)}
+	registry := NewRegistry(runtime)
+	err := registry.ValidateIntegrity()
+	if err == nil || !strings.Contains(err.Error(), "must declare x-tma-file-ref") {
+		t.Fatalf("expected missing file declaration error, got %v", err)
+	}
+
+	runtime.parameters = json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","x-tma-file-ref":"read"}},"required":["path"]}`)
+	if err := registry.ValidateIntegrity(); err != nil {
+		t.Fatalf("expected declared file schema to pass: %v", err)
+	}
+}
+
 type argumentSchemaTestRuntime struct {
 	calls      int
 	parameters json.RawMessage

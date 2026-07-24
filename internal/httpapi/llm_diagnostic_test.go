@@ -1,12 +1,15 @@
 package httpapi
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/runner"
@@ -15,7 +18,12 @@ import (
 func TestLLMDiagnosticEndpointsAndAuditSanitization(t *testing.T) {
 	const envName = "TMA_TEST_LLM_DIAGNOSTIC_KEY"
 	const apiKey = "do-not-return-diagnostic-key"
-	t.Setenv(envName, apiKey)
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envvars.MasterKeyEnvironmentVariable, base64.StdEncoding.EncodeToString(key))
+	t.Setenv(envName, "wrong-process-environment-key")
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+apiKey {
 			t.Fatalf("diagnostic request did not resolve configured API key")
@@ -33,6 +41,13 @@ func TestLLMDiagnosticEndpointsAndAuditSanitization(t *testing.T) {
 	defer upstream.Close()
 
 	store := newTestStore()
+	service, err := envvars.NewServiceFromEnvironment(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Put(t.Context(), "wksp_default", "", envName, apiKey); err != nil {
+		t.Fatal(err)
+	}
 	server := NewServerWithStoreAndRunner(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil)
 	postJSON[managedagents.LLMProvider](t, server, "/v1/llm-providers", `{
 		"id":"diagnostic-provider","provider_type":"openai-compatible",

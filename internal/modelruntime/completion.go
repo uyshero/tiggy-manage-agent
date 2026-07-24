@@ -33,14 +33,22 @@ func (a CompletionGate) Validate(ctx context.Context, candidate agentcore.Comple
 	if err != nil {
 		return agentcore.CompletionVerdict{}, fmt.Errorf("convert completion candidate: %w", err)
 	}
+	toolExecutions := make([]agentruntime.CompletionToolExecution, 0, len(candidate.State.ToolJournal))
+	for _, entry := range candidate.State.ToolJournal {
+		isError := entry.Result != nil && entry.Result.IsError
+		toolExecutions = append(toolExecutions, agentruntime.CompletionToolExecution{
+			CallID: entry.CallID, Name: entry.Name, Status: string(entry.Status), IsError: isError,
+		})
+	}
 	legacy, err := a.Gate.Validate(ctx, agentruntime.CompletionCandidate{
-		SessionID:   candidate.State.SessionID,
-		TurnID:      candidate.State.TurnID,
-		ToolRound:   candidate.State.Round,
-		Attempt:     candidate.Attempt,
-		Response:    llm.Response{Message: responseMessage},
-		Messages:    messages,
-		ActiveTools: append([]string(nil), candidate.State.ActiveTools...),
+		SessionID:      candidate.State.SessionID,
+		TurnID:         candidate.State.TurnID,
+		ToolRound:      candidate.State.Round,
+		Attempt:        candidate.Attempt,
+		Response:       llm.Response{Message: responseMessage},
+		Messages:       messages,
+		ActiveTools:    append([]string(nil), candidate.State.ActiveTools...),
+		ToolExecutions: toolExecutions,
 	})
 	if err != nil {
 		return agentcore.CompletionVerdict{}, fmt.Errorf("completion validator %s: %w", legacy.Validator, err)

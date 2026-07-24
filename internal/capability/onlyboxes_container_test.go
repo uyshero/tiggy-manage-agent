@@ -28,6 +28,12 @@ func TestOnlyboxesContainerManagerReusesSessionContainer(t *testing.T) {
 	if runner.runCount() != 1 || runner.execCount() != 2 {
 		t.Fatalf("expected one container create and two execs, runs=%d execs=%d calls=%#v", runner.runCount(), runner.execCount(), runner.callsSnapshot())
 	}
+	joined := fmt.Sprint(runner.callsSnapshot())
+	for _, expected := range []string{"/tmp:rw", "TMPDIR=/tmp", "TMP=/tmp", "TEMP=/tmp"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected managed container calls to include %q: %s", expected, joined)
+		}
+	}
 }
 
 func TestOnlyboxesContainerManagerRecreatesExpiredContainer(t *testing.T) {

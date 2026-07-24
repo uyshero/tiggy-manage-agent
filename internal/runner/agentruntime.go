@@ -208,13 +208,13 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 			LLMProviderType:       config.LLMProviderType,
 			LLMModel:              config.LLMModel,
 			LLMBaseURL:            config.LLMBaseURL,
-			LLMAPIKey:             llmAPIKey(config.LLMAPIKeyEnv),
+			LLMAPIKey:             llmAPIKey(config.LLMAPIKeyEnv, managedEnvironment),
 			LLMCapabilityType:     config.LLMCapabilityType,
 			VisionLLMProvider:     config.VisionLLMProvider,
 			VisionLLMProviderType: config.VisionLLMProviderType,
 			VisionLLMModel:        config.VisionLLMModel,
 			VisionLLMBaseURL:      config.VisionLLMBaseURL,
-			VisionLLMAPIKey:       llmAPIKey(config.VisionLLMAPIKeyEnv),
+			VisionLLMAPIKey:       llmAPIKey(config.VisionLLMAPIKeyEnv, managedEnvironment),
 			ContextWindowTokens:   config.ContextWindowTokens,
 			SummaryText:           tools.RedactEnvironmentText(config.SummaryText, managedEnvironment),
 			SummarySourceUntilSeq: config.SummarySourceUntilSeq,
@@ -754,9 +754,12 @@ func (e AgentRuntimeTurnExecutor) resolveConversationHistory(ctx context.Context
 	return managedagents.ListConversationMessagesWithContext(ctx, e.Store, sessionID, beforeSeq)
 }
 
-func llmAPIKey(envName string) string {
+func llmAPIKey(envName string, managedEnvironment map[string]string) string {
 	if envName == "" {
 		return ""
+	}
+	if value := managedEnvironment[envName]; strings.TrimSpace(value) != "" {
+		return value
 	}
 	return os.Getenv(envName)
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/agentcore"
+	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	coremodel "tiggy-manage-agent/internal/model"
 	"tiggy-manage-agent/internal/tools"
@@ -594,6 +595,9 @@ func toolLockKey(api tools.API, state agentcore.State, call coremodel.ToolCall, 
 			path = strings.TrimSpace(path)
 			if path == "" {
 				return state.SessionID + ":" + call.Name
+			}
+			if resolved, recognized, err := capability.PortableFileReferencePath(path); err == nil && recognized {
+				path = resolved
 			}
 			value = strings.ReplaceAll(value, "{path}", filepath.ToSlash(filepath.Clean(path)))
 		}

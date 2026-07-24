@@ -28,7 +28,7 @@ const maxWorkspaceSnapshotBytes = 512 << 20
 const workspaceSnapshotRestoreMarker = ".tma-workspace-restored"
 
 const DefaultOnlyboxesImage = "coolfan1024/onlyboxes-runtime:default"
-const DefaultOnlyboxesDataDirTTL = time.Hour
+const DefaultOnlyboxesDataDirTTL = 4 * time.Hour
 const DefaultOnlyboxesMemoryLimit = "512m"
 
 const runtimeSkillsSandboxRoot = "/tma/skills"
@@ -493,6 +493,34 @@ func (p OnlyboxesProvider) RequiresNetworkApproval() bool {
 	return !p.DisableNetwork
 }
 
+func (p OnlyboxesProvider) ResolveFileReference(ctx context.Context, value string) (string, error) {
+	reference, recognized, err := ParseFileReference(value)
+	if err != nil || !recognized {
+		return value, err
+	}
+	if reference.Scope != "artifact" {
+		resolved, _, err := PortableFileReferencePath(value)
+		return resolved, err
+	}
+	if p.Store == nil || strings.TrimSpace(p.SessionID) == "" {
+		return "", fmt.Errorf("artifact file reference requires a session artifact store")
+	}
+	artifactID := strings.SplitN(reference.Path, "/", 2)[0]
+	artifacts, err := p.Store.ListSessionArtifacts(p.SessionID)
+	if err != nil {
+		return "", fmt.Errorf("resolve artifact file reference %q: %w", artifactID, err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.ID == artifactID {
+			if _, err := p.workspaceDir(); err != nil {
+				return "", err
+			}
+			return SessionArtifactSandboxPath(artifact), nil
+		}
+	}
+	return "", fmt.Errorf("artifact file reference %q was not found in session %q", artifactID, p.SessionID)
+}
+
 func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandRequest) (CommandResult, error) {
 	if strings.TrimSpace(request.Command) == "" {
 		return CommandResult{}, fmt.Errorf("onlyboxes command is required")
@@ -518,6 +546,10 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if err != nil {
 		return CommandResult{}, err
 	}
+	tempDir, err := p.sessionTempDir()
+	if err != nil {
+		return CommandResult{}, err
+	}
 	if err := p.syncSessionFiles(ctx, root); err != nil {
 		return CommandResult{}, err
 	}
@@ -531,6 +563,7 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 			SkillsRoot:       func() string { value, _ := p.runtimeSkillCacheDir(); return value }(),
 			ContainerWorkDir: containerWorkDir,
 			DataDir:          dataDir,
+			TempDir:          tempDir,
 			Request:          request,
 		})
 	}
@@ -554,12 +587,15 @@ func (p OnlyboxesProvider) RunCommand(ctx context.Context, request RunCommandReq
 	if dataDir != "" {
 		args = append(args, "--volume", dataDir+":/mnt/data:rw")
 	}
+	if tempDir != "" {
+		args = append(args, "--volume", tempDir+":/tmp:rw")
+	}
 	if skillCache, cacheErr := p.runtimeSkillCacheDir(); cacheErr != nil {
 		return CommandResult{}, cacheErr
 	} else {
 		args = append(args, "--volume", skillCache+":/tma/skills:ro")
 	}
-	for key, value := range request.Env {
+	for key, value := range sandboxTemporaryEnvironment(request.Env) {
 		if !validEnvKey(key) {
 			return CommandResult{}, fmt.Errorf("invalid env key %q", key)
 		}
@@ -859,6 +895,39 @@ func (p OnlyboxesProvider) sessionDataDir() (string, error) {
 	return path, nil
 }
 
+func (p OnlyboxesProvider) sessionTempDir() (string, error) {
+	root := strings.TrimSpace(p.DataRoot)
+	if root != "" {
+		dataDir, err := p.sessionDataDir()
+		if err != nil {
+			return "", err
+		}
+		root = filepath.Join(dataDir, "tmp")
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return "", fmt.Errorf("create sandbox session temp dir: %w", err)
+		}
+		return root, nil
+	}
+	base := filepath.Join(os.TempDir(), "tma-cloud-sandbox-tmp")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", fmt.Errorf("create sandbox temp root: %w", err)
+	}
+	base, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", fmt.Errorf("resolve sandbox temp root symlink: %w", err)
+	}
+	if err := cleanupExpiredSessionDataDirs(base, p.dataDirTTL(), time.Now()); err != nil {
+		return "", err
+	}
+	root = filepath.Join(base, p.sandboxScopeDirName())
+	if err := createSandboxScopeDir(base, root); err != nil {
+		return "", fmt.Errorf("create sandbox session temp dir: %w", err)
+	}
+	now := time.Now()
+	_ = os.Chtimes(root, now, now)
+	return root, nil
+}
+
 func (p OnlyboxesProvider) workspaceDir() (string, error) {
 	if !p.IsolateWorkspace {
 		return cleanWorkspaceRoot(p.WorkspaceRoot)
@@ -1145,6 +1214,13 @@ func (p OnlyboxesProvider) hostPathToSandboxPath(hostPath string) (string, error
 	if hostPath == "" {
 		return "", fmt.Errorf("sandbox path is required")
 	}
+	if tempDir, err := p.sessionTempDir(); err == nil && strings.TrimSpace(tempDir) != "" {
+		if relative, relErr := filepath.Rel(tempDir, hostPath); relErr == nil && relative == "." {
+			return "/tmp", nil
+		} else if relErr == nil && !strings.HasPrefix(relative, "..") && !filepath.IsAbs(relative) {
+			return filepath.ToSlash(filepath.Join("/tmp", relative)), nil
+		}
+	}
 	if dataDir, err := p.sessionDataDir(); err == nil && strings.TrimSpace(dataDir) != "" {
 		if relative, relErr := filepath.Rel(dataDir, hostPath); relErr == nil && relative == "." {
 			return "/mnt/data", nil
@@ -1164,6 +1240,11 @@ func (p OnlyboxesProvider) resolveSandboxFilePath(path string, workDir string) (
 	if path == "" {
 		return "", fmt.Errorf("path is required")
 	}
+	resolvedPath, err := p.ResolveFileReference(context.Background(), path)
+	if err != nil {
+		return "", err
+	}
+	path = resolvedPath
 	if strings.HasPrefix(path, "/mnt/data/") || path == "/mnt/data" {
 		dataDir, err := p.sessionDataDir()
 		if err != nil {
@@ -1174,6 +1255,13 @@ func (p OnlyboxesProvider) resolveSandboxFilePath(path string, workDir string) (
 		}
 		return resolveContainerPathInside(dataDir, strings.TrimPrefix(path, "/mnt/data"))
 	}
+	if strings.HasPrefix(path, "/tmp/") || path == "/tmp" {
+		tempDir, err := p.sessionTempDir()
+		if err != nil {
+			return "", err
+		}
+		return resolveContainerPathInside(tempDir, strings.TrimPrefix(path, "/tmp"))
+	}
 	root, err := p.workspaceDir()
 	if err != nil {
 		return "", err
@@ -1183,7 +1271,17 @@ func (p OnlyboxesProvider) resolveSandboxFilePath(path string, workDir string) (
 	case strings.HasPrefix(path, "/workspace/") || path == "/workspace":
 		return resolveContainerPathInside(root, strings.TrimPrefix(path, "/workspace"))
 	case filepath.IsAbs(path):
-		return "", fmt.Errorf("only /workspace and /mnt/data absolute paths are supported in cloud_sandbox, got %q", path)
+		return "", fmt.Errorf("only /workspace, /mnt/data, and /tmp absolute paths are supported in cloud_sandbox, got %q", path)
+	case strings.HasPrefix(workDir, "/tmp/") || workDir == "/tmp":
+		tempDir, err := p.sessionTempDir()
+		if err != nil {
+			return "", err
+		}
+		base, err := resolveContainerPathInside(tempDir, strings.TrimPrefix(workDir, "/tmp"))
+		if err != nil {
+			return "", err
+		}
+		return resolvePathRelativeToRoot(tempDir, base, path)
 	case strings.HasPrefix(workDir, "/mnt/data/") || workDir == "/mnt/data":
 		dataDir, err := p.sessionDataDir()
 		if err != nil {

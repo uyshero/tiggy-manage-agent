@@ -23,9 +23,54 @@ type imageModelClientStub struct {
 func (s *imageModelClientStub) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
 	s.chatRequest = request
 	return llm.Response{
-		Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "visible invoice total: 42"}}},
-		Usage:   llm.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9},
+		Message:      llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "visible invoice total: 42"}}},
+		Usage:        llm.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9},
+		FinishReason: "stop",
 	}, nil
+}
+
+type streamingImageModelClientStub struct {
+	chatRequest   llm.Request
+	generateCalls int
+	streamCalls   int
+}
+
+func (s *streamingImageModelClientStub) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	s.chatRequest = request
+	s.generateCalls++
+	return llm.Response{}, nil
+}
+
+func (s *streamingImageModelClientStub) GenerateStream(_ context.Context, request llm.Request, onDelta func(llm.Delta) error) (llm.Response, error) {
+	s.chatRequest = request
+	s.streamCalls++
+	for _, delta := range []llm.Delta{
+		{Kind: llm.DeltaKindReasoning, Text: "checking layout"},
+		{Kind: llm.DeltaKindText, Text: "visible invoice total: 42"},
+	} {
+		if err := onDelta(delta); err != nil {
+			return llm.Response{}, err
+		}
+	}
+	return llm.Response{
+		Message:      llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "visible invoice total: 42"}}},
+		Usage:        llm.Usage{InputTokens: 5, OutputTokens: 4, TotalTokens: 9},
+		FinishReason: "stop",
+	}, nil
+}
+
+type continuingImageModelClientStub struct {
+	requests  []llm.Request
+	responses []llm.Response
+}
+
+func (s *continuingImageModelClientStub) Generate(_ context.Context, request llm.Request) (llm.Response, error) {
+	s.requests = append(s.requests, request)
+	index := len(s.requests) - 1
+	if index >= len(s.responses) {
+		return s.responses[len(s.responses)-1], nil
+	}
+	return s.responses[index], nil
 }
 
 func TestImageRuntimeManifestExposesDefaultGenerationAndVisionTools(t *testing.T) {
@@ -191,6 +236,108 @@ func TestImageRuntimeAnalyzeUsesConfiguredVisionModel(t *testing.T) {
 	parts := client.chatRequest.Messages[0].Content
 	if len(parts) != 2 || parts[1].ImageURL == nil || parts[1].ImageURL.Detail != "high" {
 		t.Fatalf("unexpected vision content: %#v", parts)
+	}
+}
+
+func TestImageRuntimeAnalyzeStreamsVisionProgress(t *testing.T) {
+	client := &streamingImageModelClientStub{}
+	progress := make([]ToolProgress, 0, 3)
+	runtime := ImageRuntime{
+		Client: client,
+		Vision: ImageModelRoute{Provider: "vision-provider", ProviderType: llm.ProviderOpenAICompatible, Model: "vision-configured"},
+	}
+	result, err := runtime.Execute(t.Context(), Call{
+		ID: "call_stream", Identifier: ImageIdentifier, APIName: "analyze",
+		Arguments: json.RawMessage(`{"image_urls":["data:image/png;base64,cG5n"]}`),
+	}, ExecutionContext{Progress: func(_ context.Context, update ToolProgress) {
+		progress = append(progress, update)
+	}})
+	if err != nil || result.Error != nil || result.Content != "visible invoice total: 42" {
+		t.Fatalf("streaming analyze result=%+v err=%v", result, err)
+	}
+	if client.streamCalls != 1 || client.generateCalls != 0 {
+		t.Fatalf("expected streaming client path, stream=%d generate=%d", client.streamCalls, client.generateCalls)
+	}
+	if len(progress) < 2 || progress[0].Stage != "analyzing" || progress[1].Stage != "responding" ||
+		!strings.Contains(progress[1].Message, "已接收") {
+		t.Fatalf("unexpected streaming progress: %#v", progress)
+	}
+}
+
+func TestImageRuntimeAnalyzeRequiresSingleImageForPreciseLayout(t *testing.T) {
+	runtime := ImageRuntime{Client: &imageModelClientStub{}, Vision: ImageModelRoute{Provider: "vision", Model: "vision-model"}}
+	result, err := runtime.Execute(t.Context(), Call{
+		Identifier: ImageIdentifier, APIName: "analyze",
+		Arguments: json.RawMessage(`{"prompt":"给出所有元素的精确坐标和边框","image_urls":["data:image/png;base64,b25l","data:image/png;base64,dHdv"]}`),
+	}, ExecutionContext{})
+	if err != nil || result.Error == nil || result.Error.Type != "image_analysis_split_required" ||
+		!strings.Contains(result.Error.Message, "precise_layout") {
+		t.Fatalf("unexpected precise-layout split result=%+v err=%v", result, err)
+	}
+}
+
+func TestImageRuntimeAnalyzeContinuesTruncatedResponse(t *testing.T) {
+	client := &continuingImageModelClientStub{responses: []llm.Response{
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "first section"}}},
+			Usage:   llm.Usage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30}, FinishReason: "length",
+		},
+		{
+			Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "remaining section " + imageAnalysisCompleteTag}}},
+			Usage:   llm.Usage{InputTokens: 30, OutputTokens: 40, TotalTokens: 70}, FinishReason: "stop",
+		},
+	}}
+	runtime := ImageRuntime{Client: client, Vision: ImageModelRoute{Provider: "vision", Model: "vision-model"}}
+	result, err := runtime.Execute(t.Context(), Call{
+		Identifier: ImageIdentifier, APIName: "analyze",
+		Arguments: json.RawMessage(`{"analysis_mode":"precise_layout","max_output_tokens":30000,"prompt":"map the layout","image_urls":["data:image/png;base64,cG5n"]}`),
+	}, ExecutionContext{})
+	if err != nil || result.Error != nil || result.Content != "first section\nremaining section" {
+		t.Fatalf("continued analyze result=%+v err=%v", result, err)
+	}
+	if len(client.requests) != 2 || client.requests[0].MaxOutputTokens != 30000 || client.requests[1].MaxOutputTokens != 30000 || len(client.requests[1].Messages) != 3 {
+		t.Fatalf("unexpected continuation requests: %#v", client.requests)
+	}
+	state := string(result.State)
+	if !strings.Contains(state, `"complete":true`) || !strings.Contains(state, `"segments":2`) ||
+		!strings.Contains(state, `"input_tokens":40`) || !strings.Contains(state, `"output_tokens":60`) {
+		t.Fatalf("unexpected continuation state: %s", state)
+	}
+}
+
+func TestImageRuntimeAnalyzeRejectsStillIncompleteResponse(t *testing.T) {
+	client := &continuingImageModelClientStub{responses: []llm.Response{{
+		Message:      llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "partial"}}},
+		FinishReason: "length",
+	}}}
+	runtime := ImageRuntime{Client: client, Vision: ImageModelRoute{Provider: "vision", Model: "vision-model"}}
+	result, err := runtime.Execute(t.Context(), Call{
+		Identifier: ImageIdentifier, APIName: "analyze",
+		Arguments: json.RawMessage(`{"analysis_mode":"precise_layout","prompt":"map the layout","image_urls":["data:image/png;base64,cG5n"]}`),
+	}, ExecutionContext{})
+	if err != nil || result.Error == nil || result.Error.Type != "incomplete_vision_analysis" || len(client.requests) != maxAnalysisContinuations+1 {
+		t.Fatalf("unexpected incomplete result=%+v requests=%d err=%v", result, len(client.requests), err)
+	}
+	if !strings.Contains(result.Error.Message, "21 output characters") {
+		t.Fatalf("expected non-streaming output character count, got %q", result.Error.Message)
+	}
+}
+
+func TestImageRuntimeAnalyzeDoesNotTreatContentFilterAsComplete(t *testing.T) {
+	client := &continuingImageModelClientStub{responses: []llm.Response{{
+		Message:      llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "partial " + imageAnalysisCompleteTag}}},
+		FinishReason: "content_filter",
+	}}}
+	runtime := ImageRuntime{Client: client, Vision: ImageModelRoute{Provider: "vision", Model: "vision-model"}}
+	result, err := runtime.Execute(t.Context(), Call{
+		Identifier: ImageIdentifier, APIName: "analyze",
+		Arguments: json.RawMessage(`{"prompt":"analyze","image_urls":["data:image/png;base64,cG5n"]}`),
+	}, ExecutionContext{})
+	if err != nil || result.Error == nil || result.Error.Type != "incomplete_vision_analysis" || len(client.requests) != 1 {
+		t.Fatalf("unexpected filtered result=%+v requests=%d err=%v", result, len(client.requests), err)
+	}
+	if !strings.Contains(result.Error.Message, `finish_reason="content_filter"`) {
+		t.Fatalf("expected content_filter reason in error, got %q", result.Error.Message)
 	}
 }
 

@@ -59,6 +59,7 @@ type onlyboxesContainerCommand struct {
 	SkillsRoot       string
 	ContainerWorkDir string
 	DataDir          string
+	TempDir          string
 	Request          RunCommandRequest
 }
 
@@ -120,7 +121,8 @@ func (m *OnlyboxesContainerManager) RunCommand(ctx context.Context, command only
 		args = append(args, "--interactive")
 	}
 	args = append(args, "--workdir", command.ContainerWorkDir)
-	for key, value := range command.Request.Env {
+	requestEnv := sandboxTemporaryEnvironment(command.Request.Env)
+	for key, value := range requestEnv {
 		args = append(args, "--env", key+"="+value)
 	}
 	args = append(args, state.name, command.Request.Command)
@@ -216,6 +218,9 @@ func (m *OnlyboxesContainerManager) ensureContainer(ctx context.Context, state *
 		"--pids-limit", "256",
 		"--workdir", "/workspace",
 		"--volume", command.WorkspaceRoot + ":/workspace:rw",
+		"--env", "TMPDIR=/tmp",
+		"--env", "TMP=/tmp",
+		"--env", "TEMP=/tmp",
 	}
 	if command.SkillsRoot != "" {
 		args = append(args, "--volume", command.SkillsRoot+":/tma/skills:ro")
@@ -225,6 +230,9 @@ func (m *OnlyboxesContainerManager) ensureContainer(ctx context.Context, state *
 	}
 	if command.DataDir != "" {
 		args = append(args, "--volume", command.DataDir+":/mnt/data:rw")
+	}
+	if command.TempDir != "" {
+		args = append(args, "--volume", command.TempDir+":/tmp:rw")
 	}
 	args = append(args, command.Provider.image(), "sh", "-c", "while :; do sleep 3600; done")
 	state.runner = command.Provider.runner()
@@ -357,9 +365,21 @@ func onlyboxesContainerFingerprint(command onlyboxesContainerCommand) string {
 		command.WorkspaceRoot,
 		command.SkillsRoot,
 		command.DataDir,
+		command.TempDir,
 		fmt.Sprintf("network_disabled=%t", command.Provider.DisableNetwork),
 	}, "\x00")
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(payload)))
+}
+
+func sandboxTemporaryEnvironment(values map[string]string) map[string]string {
+	result := make(map[string]string, len(values)+3)
+	for key, value := range values {
+		result[key] = value
+	}
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		result[key] = "/tmp"
+	}
+	return result
 }
 
 func onlyboxesContainerName(sessionID string, isolationKey string, scope string) string {

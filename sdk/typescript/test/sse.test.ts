@@ -39,6 +39,25 @@ describe("SSE", () => {
     expect(calls).toBe(1);
   });
 
+  it("reconnects when a durable stream stops delivering bytes", async () => {
+    let calls = 0;
+    server = await startServer((_request, response) => {
+      calls++;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      if (calls === 1) {
+        response.write(": connected\n\n");
+        return;
+      }
+      response.end(`data: {"id":"evt_1","session_id":"sesn_1","seq":1,"type":"runtime.started","created_at":"2026-07-15T00:00:00Z"}\n\n`);
+    });
+    const client = new TMAClient(server.baseURL);
+    const stream = client.sessions.events("sesn_1", { idleTimeoutMs: 20, retryInitialMs: 1, retryMaxMs: 2 });
+    const event = await stream.next();
+    await stream.return(undefined);
+    expect(event.value?.seq).toBe(1);
+    expect(calls).toBe(2);
+  });
+
   it("streams transient live text without a durable cursor", async () => {
     server = await startServer((request, response) => {
       expect(request.url).toBe("/v2/sessions/sesn_1/live/stream");

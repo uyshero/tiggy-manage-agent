@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolResultFailurePresentation } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, liveToolProgressAfterEvent, normalizeToolTimelineEvents, shouldSynthesizeThinking, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolLifecycleIsRunning, toolResultFailurePresentation } from "./toolLifecycle.js";
 
 function event(seq, type, id, data = {}) {
   return { seq, type, created_at: `2026-07-14T16:19:0${seq}Z`, payload: { data: { id, ...data } } };
@@ -86,7 +86,54 @@ test("normalizes Agent Core tool events into visible runtime tool lifecycles", (
   assert.equal(result.payload.data.content, "10 results");
   assert.equal(result.payload.data.duration_ms, 20000);
   assert.equal(lifecycle.call.type, "runtime.tool_call");
+	assert.equal(lifecycle.started.type, "tool.call_started");
+	assert.equal(toolLifecycleIsRunning(lifecycle), false);
   assert.equal(lifecycle.result.type, "runtime.tool_result");
+});
+
+test("marks a tool as running after tool.call_started and before its result", () => {
+  const events = normalizeToolTimelineEvents([
+    {
+      seq: 10,
+      type: "tool.batch_planned",
+      payload: { data: { calls: [{ call: { id: "call-running", name: "image_analyze", arguments: {} } }] } }
+    },
+    {
+      seq: 11,
+      type: "tool.call_started",
+      payload: { data: { call_id: "call-running", name: "image_analyze", status: "started" } }
+    }
+  ]);
+  const lifecycle = buildToolCallLifecycles(events).get("call-running");
+
+  assert.equal(lifecycle.started.type, "tool.call_started");
+  assert.equal(toolLifecycleIsRunning(lifecycle), true);
+  assert.equal(toolLifecycleIsRunning(lifecycle, false), false);
+});
+
+test("does not synthesize thinking from tool lifecycle events", () => {
+  assert.equal(shouldSynthesizeThinking([
+    { type: "tool.batch_planned" },
+    { type: "tool.call_started" }
+  ]), false);
+  assert.equal(shouldSynthesizeThinking([
+    { type: "model.responded" },
+    { type: "tool.batch_planned" }
+  ]), true);
+});
+
+test("keeps another parallel tool's live progress when one tool completes", () => {
+  const progress = { callID: "call-b", text: "still running" };
+
+  assert.equal(liveToolProgressAfterEvent(progress, {
+    type: "tool.call_result",
+    payload: { data: { call_id: "call-a" } }
+  }), progress);
+  assert.equal(liveToolProgressAfterEvent(progress, {
+    type: "tool.call_result",
+    payload: { data: { call_id: "call-b" } }
+  }), null);
+  assert.equal(liveToolProgressAfterEvent(progress, { type: "runtime.completed" }), null);
 });
 
 test("does not duplicate native runtime tool events", () => {

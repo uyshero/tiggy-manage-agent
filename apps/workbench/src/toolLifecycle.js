@@ -121,6 +121,9 @@ export function buildToolCallLifecycles(events) {
       case "runtime.tool_call":
         lifecycle.call = latestEvent(lifecycle.call, event);
         break;
+      case "tool.call_started":
+        lifecycle.started = latestEvent(lifecycle.started, event);
+        break;
       case "runtime.tool_intervention_required":
       case "runtime.human_input_required":
         lifecycle.required = latestEvent(lifecycle.required, event);
@@ -264,4 +267,24 @@ function arrayValue(value) {
 
 export function terminalToolLifecycleEvent(lifecycle) {
   return latestEvent(lifecycle?.decision, lifecycle?.result) || null;
+}
+
+export function toolLifecycleIsRunning(lifecycle, executionActive = true) {
+  if (!executionActive) return false;
+  if (!lifecycle?.started || lifecycle?.result) return false;
+  if (lifecycle?.decision?.type === "runtime.tool_intervention_rejected") return false;
+  return true;
+}
+
+export function shouldSynthesizeThinking(internalEvents) {
+  const events = Array.isArray(internalEvents) ? internalEvents : [];
+  return events.length > 0 && !events.every((event) => String(event?.type || "").startsWith("tool."));
+}
+
+export function liveToolProgressAfterEvent(current, event) {
+  if (!current) return null;
+  if (["runtime.failed", "runtime.completed"].includes(event?.type)) return null;
+  if (event?.type !== "tool.call_result") return current;
+  const completedCallID = toolCallID(event);
+  return !completedCallID || completedCallID === current.callID ? null : current;
 }

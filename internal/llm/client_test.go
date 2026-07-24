@@ -653,7 +653,7 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
 			Header:     make(http.Header),
-			Body:       io.NopCloser(bytes.NewBufferString(`{"choices":[{"message":{"role":"assistant","content":"real-ish response"}}],"usage":{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":2}}}`)),
+			Body:       io.NopCloser(bytes.NewBufferString(`{"choices":[{"message":{"role":"assistant","content":"real-ish response"},"finish_reason":"length"}],"usage":{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":2}}}`)),
 		}, nil
 	})}
 
@@ -703,6 +703,9 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 	}
 	if response.Message.Role != "assistant" || response.Message.Content[0].Text != "real-ish response" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+	if response.FinishReason != "length" {
+		t.Fatalf("expected finish_reason=length, got %q", response.FinishReason)
 	}
 	if response.Usage.InputTokens != 12 || response.Usage.OutputTokens != 7 || response.Usage.TotalTokens != 19 || response.Usage.CachedInputTokens != 3 || response.Usage.ReasoningTokens != 2 {
 		t.Fatalf("unexpected usage: %#v", response.Usage)
@@ -889,6 +892,9 @@ func TestOpenAICompatibleClientStreamsAssistantMessage(t *testing.T) {
 	if response.Usage.InputTokens != 5 || response.Usage.OutputTokens != 4 || response.Usage.TotalTokens != 9 {
 		t.Fatalf("unexpected usage: %#v", response.Usage)
 	}
+	if response.FinishReason != "done" {
+		t.Fatalf("expected finish_reason=done, got %q", response.FinishReason)
+	}
 }
 
 func TestDecodeOpenAIStreamEmitsPresentZeroUsage(t *testing.T) {
@@ -1043,6 +1049,9 @@ func TestOpenAICompatibleClientStreamsToolCallFragments(t *testing.T) {
 	}
 	if response.Usage.TotalTokens != 13 {
 		t.Fatalf("unexpected streamed usage: %#v", response.Usage)
+	}
+	if response.FinishReason != "tool_calls" {
+		t.Fatalf("expected finish_reason=tool_calls, got %q", response.FinishReason)
 	}
 	if len(deltas) != 4 || deltas[0].Kind != DeltaKindToolCall || deltas[1].Kind != DeltaKindToolCall || deltas[2].Kind != DeltaKindStop || deltas[3].Kind != DeltaKindUsage {
 		t.Fatalf("unexpected typed tool stream deltas: %#v", deltas)

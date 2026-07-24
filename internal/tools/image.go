@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/llm"
@@ -30,6 +31,8 @@ const (
 	maxShuYouResponseBytes   = 2 << 20
 	defaultImagePollInterval = 5 * time.Second
 	defaultImageTimeout      = 10 * time.Minute
+	imageAnalysisCompleteTag = "[[TMA_IMAGE_ANALYSIS_COMPLETE]]"
+	maxAnalysisContinuations = 2
 )
 
 type ImageModelRoute struct {
@@ -118,10 +121,18 @@ type shuyouPredictionResponse struct {
 }
 
 type imageAnalyzeRequest struct {
-	Prompt    string   `json:"prompt,omitempty"`
-	Paths     []string `json:"paths,omitempty"`
-	ImageURLs []string `json:"image_urls,omitempty"`
-	Detail    string   `json:"detail,omitempty"`
+	Prompt          string   `json:"prompt,omitempty"`
+	Paths           []string `json:"paths,omitempty"`
+	ImageURLs       []string `json:"image_urls,omitempty"`
+	Detail          string   `json:"detail,omitempty"`
+	AnalysisMode    string   `json:"analysis_mode,omitempty"`
+	MaxOutputTokens int      `json:"max_output_tokens,omitempty"`
+}
+
+type imageAnalysisProfile struct {
+	Mode            string
+	MaxImages       int
+	MaxOutputTokens int
 }
 
 var imageGenerateUseCases = map[string]bool{
@@ -170,7 +181,7 @@ func (ImageRuntime) Manifest() Manifest {
 						"prompt":{"type":"string","minLength":1,"description":"The user's primary request. Preserve specific prompts; only add tasteful detail through the optional structured fields when it materially improves a generic prompt."},
 						"use_case":{"type":"string","enum":["photorealistic-natural","product-mockup","ui-mockup","infographic-diagram","scientific-educational","ads-marketing","productivity-visual","logo-brand","illustration-story","stylized-concept","historical-scene","text-localization","identity-preserve","precise-object-edit","lighting-weather","background-extraction","style-transfer","compositing","sketch-to-render"]},
 						"asset_type":{"type":"string","description":"Where the asset will be used, such as landing page hero, product photo, mobile screen, or game texture."},
-						"input_images":{"type":"array","maxItems":16,"description":"Labeled reference or edit images. Supply exactly one of path (workspace image, sent as a data URL) or url (public HTTPS image URL).","items":{"type":"object","properties":{"path":{"type":"string","minLength":1},"url":{"type":"string","minLength":1},"role":{"type":"string","minLength":1,"description":"For example: edit target, reference image, style reference, or compositing input."},"description":{"type":"string"}},"required":["role"],"oneOf":[{"required":["path"]},{"required":["url"]}],"additionalProperties":false}},
+						"input_images":{"type":"array","maxItems":16,"description":"Labeled reference or edit images. Supply exactly one of path (workspace image or FileRef URI, sent as a data URL) or url (public HTTPS image URL).","items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"x-tma-file-ref":"read"},"url":{"type":"string","minLength":1},"role":{"type":"string","minLength":1,"description":"For example: edit target, reference image, style reference, or compositing input."},"description":{"type":"string"}},"required":["role"],"oneOf":[{"required":["path"]},{"required":["url"]}],"additionalProperties":false}},
 						"scene_backdrop":{"type":"string"},
 						"subject":{"type":"string"},
 						"style_medium":{"type":"string"},
@@ -181,7 +192,7 @@ func (ImageRuntime) Manifest() Manifest {
 						"text_verbatim":{"type":"string","description":"Exact in-image text. It will be quoted and marked for verbatim rendering with no extra characters."},
 						"constraints":{"type":"string","description":"Must-keep and must-avoid invariants. Required for edit use cases; say change only X and keep Y unchanged."},
 						"avoid":{"type":"string","description":"Negative constraints without inventing unrelated requirements."},
-						"mask_path":{"type":"string","description":"Optional workspace PNG mask path, sent to ShuYou as a data URL."},
+						"mask_path":{"type":"string","x-tma-file-ref":"read","description":"Optional workspace PNG mask path or FileRef URI, sent to ShuYou as a data URL."},
 						"mask_url":{"type":"string","description":"Optional public HTTPS mask URL. Do not use together with mask_path."},
 						"size":{"type":"string","description":"Output dimensions such as auto, 1024x1024, or 1920x1080."},
 						"resolution":{"type":"string","enum":["1K","2K","4K"]},
@@ -200,14 +211,16 @@ func (ImageRuntime) Manifest() Manifest {
 			},
 			{
 				Name:        "analyze",
-				Description: "Analyze one or more workspace images or data/HTTPS image URLs with the configured default vision model.",
+				Description: "Analyze workspace images or data/HTTPS image URLs with the configured default vision model. Use precise_layout for coordinates and detailed reconstruction; it accepts one image per call to preserve quality.",
 				Parameters: json.RawMessage(`{
 					"type":"object",
 					"properties":{
 						"prompt":{"type":"string","description":"Question or analysis instructions for the images."},
-						"paths":{"type":"array","items":{"type":"string","minLength":1},"maxItems":16,"description":"Workspace image paths to inspect."},
+						"paths":{"type":"array","items":{"type":"string","minLength":1,"x-tma-file-ref":"read"},"maxItems":16,"description":"Workspace image paths or FileRef URIs to inspect."},
 						"image_urls":{"type":"array","items":{"type":"string","minLength":1},"maxItems":16,"description":"Image data URLs or HTTPS URLs to inspect."},
-						"detail":{"type":"string","enum":["auto","low","high"]}
+						"detail":{"type":"string","enum":["auto","low","high"]},
+						"analysis_mode":{"type":"string","enum":["simple","compare","detailed","precise_layout"],"description":"Complexity profile. precise_layout is for coordinates, OCR-heavy reconstruction, and slide layout analysis and accepts exactly one image per call. When omitted, the tool infers a mode from the prompt."},
+						"max_output_tokens":{"type":"integer","minimum":4096,"maximum":32768,"description":"Optional high output ceiling. Defaults by analysis_mode: simple 8192, compare 12288, detailed 16384, precise_layout 24576."}
 					},
 					"additionalProperties":false
 				}`),
@@ -636,13 +649,29 @@ func (r ImageRuntime) analyze(ctx context.Context, call Call, executionContext E
 	if len(input.Paths)+len(input.ImageURLs) == 0 {
 		return failedResult(call, "invalid_arguments", "at least one path or image_url is required"), nil
 	}
-	if len(input.Paths)+len(input.ImageURLs) > maxImageInputs {
+	imageCount := len(input.Paths) + len(input.ImageURLs)
+	if imageCount > maxImageInputs {
 		return failedResult(call, "invalid_arguments", fmt.Sprintf("at most %d images may be analyzed", maxImageInputs)), nil
 	}
 	prompt := strings.TrimSpace(input.Prompt)
 	if prompt == "" {
 		prompt = "Analyze these images accurately. Describe visible content, extract readable text, and report relevant details."
 	}
+	profile := resolveImageAnalysisProfile(input.AnalysisMode, prompt)
+	if imageCount > profile.MaxImages {
+		return failedResult(call, "image_analysis_split_required", fmt.Sprintf(
+			"analysis_mode %q accepts at most %d image(s) per call; split this request into smaller calls to preserve analysis quality",
+			profile.Mode, profile.MaxImages,
+		)), nil
+	}
+	maxOutputTokens := input.MaxOutputTokens
+	if maxOutputTokens == 0 {
+		maxOutputTokens = profile.MaxOutputTokens
+	}
+	prompt = strings.Join([]string{
+		prompt,
+		"Completion protocol: answer every requested item, then end the final segment with " + imageAnalysisCompleteTag + ". Do not emit this marker before the analysis is complete.",
+	}, "\n\n")
 	detail := defaultImageOption(input.Detail, "auto")
 	content := []llm.ContentPart{{Type: "text", Text: prompt}}
 	for _, path := range input.Paths {
@@ -658,23 +687,192 @@ func (r ImageRuntime) analyze(ctx context.Context, call Call, executionContext E
 		}
 		content = append(content, llm.ContentPart{Type: "image_url", ImageURL: &llm.ImageURL{URL: value, Detail: detail}})
 	}
-	response, err := r.Client.Generate(ctx, llm.Request{
+	request := llm.Request{
 		Provider: r.Vision.Provider, ProviderType: r.Vision.ProviderType, Model: r.Vision.Model,
 		BaseURL: r.Vision.BaseURL, APIKey: r.Vision.APIKey,
-		Messages: []llm.Message{{Role: "user", Content: content}},
-	})
-	if err != nil {
-		return failedResult(call, "vision_analysis_failed", err.Error()), nil
+		MaxOutputTokens: maxOutputTokens,
+		Messages:        []llm.Message{{Role: "user", Content: content}},
 	}
-	analysis := strings.TrimSpace(textContentParts(response.Message.Content))
-	if analysis == "" {
-		return failedResult(call, "empty_vision_analysis", "The configured vision model returned no analysis text."), nil
+	if executionContext.Progress != nil {
+		executionContext.Progress(ctx, ToolProgress{
+			CallID: call.ID, Tool: ModelToolName(ImageIdentifier, "analyze"), Stage: "analyzing",
+			Message: fmt.Sprintf("视觉模型正在分析 %d 张图片（%s，输出上限 %d tokens）。", imageCount, profile.Mode, maxOutputTokens),
+		})
+	}
+	segments := make([]string, 0, maxAnalysisContinuations+1)
+	complete := false
+	lastFinishReason := ""
+	var totalUsage llm.Usage
+	totalReceivedRunes := 0
+	totalOutputRunes := 0
+	for segment := 1; segment <= maxAnalysisContinuations+1; segment++ {
+		response, err := r.generateVisionAnalysisSegment(ctx, call, executionContext, request, segment, &totalReceivedRunes)
+		if err != nil {
+			return failedResult(call, "vision_analysis_failed", err.Error()), nil
+		}
+		segmentText := strings.TrimSpace(textContentParts(response.Message.Content))
+		if segmentText == "" {
+			return failedResult(call, "empty_vision_analysis", "The configured vision model returned no analysis text."), nil
+		}
+		addImageAnalysisUsage(&totalUsage, response.Usage)
+		lastFinishReason = strings.TrimSpace(strings.ToLower(response.FinishReason))
+		markerPresent := strings.Contains(segmentText, imageAnalysisCompleteTag)
+		segmentText = strings.TrimSpace(strings.ReplaceAll(segmentText, imageAnalysisCompleteTag, ""))
+		if segmentText != "" {
+			segments = append(segments, segmentText)
+			totalOutputRunes += utf8.RuneCountInString(segmentText)
+		}
+		complete = !imageAnalysisFinishReasonRejected(lastFinishReason) &&
+			(markerPresent || imageAnalysisFinishReasonComplete(lastFinishReason))
+		if complete {
+			break
+		}
+		if segment > maxAnalysisContinuations || !imageAnalysisFinishReasonContinuable(lastFinishReason) {
+			break
+		}
+		if executionContext.Progress != nil {
+			executionContext.Progress(ctx, ToolProgress{
+				CallID: call.ID, Tool: ModelToolName(ImageIdentifier, "analyze"), Stage: "continuing",
+				Message: fmt.Sprintf("视觉分析第 %d 段未完成，正在续写剩余内容。", segment),
+			})
+		}
+		assistantMessage := response.Message
+		if strings.TrimSpace(assistantMessage.Role) == "" {
+			assistantMessage.Role = "assistant"
+		}
+		request.Messages = append(request.Messages,
+			assistantMessage,
+			llm.Message{Role: "user", Content: []llm.ContentPart{{
+				Type: "text",
+				Text: "Continue exactly where the previous segment stopped. Do not repeat completed content. Cover every remaining requested item and end the final segment with " + imageAnalysisCompleteTag + ".",
+			}}},
+		)
+	}
+	analysis := strings.TrimSpace(strings.Join(segments, "\n"))
+	if !complete {
+		result := failedResult(call, "incomplete_vision_analysis", fmt.Sprintf(
+			"vision analysis remained incomplete after %d segment(s); received %d output characters; finish_reason=%q; retry with fewer images or a narrower prompt",
+			len(segments), totalOutputRunes, lastFinishReason,
+		))
+		result.State, _ = json.Marshal(map[string]any{
+			"provider": r.Vision.Provider, "model": r.Vision.Model, "image_count": imageCount,
+			"analysis_mode": profile.Mode, "max_output_tokens": maxOutputTokens,
+			"segments": len(segments), "complete": false, "finish_reason": lastFinishReason, "usage": totalUsage,
+		})
+		return result, nil
 	}
 	state, _ := json.Marshal(map[string]any{
 		"provider": r.Vision.Provider, "model": r.Vision.Model,
-		"image_count": len(input.Paths) + len(input.ImageURLs), "usage": response.Usage,
+		"image_count": imageCount, "analysis_mode": profile.Mode, "max_output_tokens": maxOutputTokens,
+		"segments": len(segments), "complete": true, "finish_reason": lastFinishReason, "usage": totalUsage,
 	})
 	return ExecutionResult{ID: call.ID, Identifier: ImageIdentifier, APIName: "analyze", Content: analysis, State: state}, nil
+}
+
+func (r ImageRuntime) generateVisionAnalysisSegment(ctx context.Context, call Call, executionContext ExecutionContext, request llm.Request, segment int, totalReceivedRunes *int) (llm.Response, error) {
+	streaming, ok := r.Client.(llm.StreamingClient)
+	if !ok {
+		return r.Client.Generate(ctx, request)
+	}
+	lastReportedRunes := *totalReceivedRunes
+	lastReportedAt := time.Time{}
+	streamFinishReason := ""
+	response, err := streaming.GenerateStream(ctx, request, func(delta llm.Delta) error {
+		if delta.Kind == llm.DeltaKindStop && strings.TrimSpace(delta.FinishReason) != "" {
+			streamFinishReason = delta.FinishReason
+		}
+		if delta.Kind != llm.DeltaKindText && delta.Kind != llm.DeltaKindReasoning {
+			return nil
+		}
+		*totalReceivedRunes += utf8.RuneCountInString(delta.Text)
+		if executionContext.Progress == nil || *totalReceivedRunes == 0 {
+			return nil
+		}
+		now := time.Now()
+		if lastReportedRunes > 0 && *totalReceivedRunes-lastReportedRunes < 500 && now.Sub(lastReportedAt) < 2*time.Second {
+			return nil
+		}
+		lastReportedRunes = *totalReceivedRunes
+		lastReportedAt = now
+		executionContext.Progress(ctx, ToolProgress{
+			CallID: call.ID, Tool: ModelToolName(ImageIdentifier, "analyze"), Stage: "responding",
+			Message: fmt.Sprintf("视觉模型正在返回第 %d 段，累计已接收 %d 个字符。", segment, *totalReceivedRunes),
+		})
+		return nil
+	})
+	if strings.TrimSpace(response.FinishReason) == "" {
+		response.FinishReason = streamFinishReason
+	}
+	return response, err
+}
+
+func resolveImageAnalysisProfile(requested string, prompt string) imageAnalysisProfile {
+	mode := strings.TrimSpace(strings.ToLower(requested))
+	if mode == "" {
+		lowerPrompt := strings.ToLower(prompt)
+		switch {
+		case containsAnyText(lowerPrompt, "坐标", "边框", "像素", "布局", "精确位置", "换算回原图", "coordinate", "bounding box", "bbox", "pixel", "precise layout"):
+			mode = "precise_layout"
+		case containsAnyText(lowerPrompt, "对比", "比较", "区别", "差异", "compare", "comparison", "difference"):
+			mode = "compare"
+		case utf8.RuneCountInString(prompt) > 500 || containsAnyText(lowerPrompt, "详细", "逐项", "extract all", "detailed"):
+			mode = "detailed"
+		default:
+			mode = "simple"
+		}
+	}
+	switch mode {
+	case "simple":
+		return imageAnalysisProfile{Mode: mode, MaxImages: 4, MaxOutputTokens: 8192}
+	case "compare":
+		return imageAnalysisProfile{Mode: mode, MaxImages: 2, MaxOutputTokens: 12288}
+	case "precise_layout":
+		return imageAnalysisProfile{Mode: mode, MaxImages: 1, MaxOutputTokens: 24576}
+	default:
+		return imageAnalysisProfile{Mode: "detailed", MaxImages: 2, MaxOutputTokens: 16384}
+	}
+}
+
+func imageAnalysisFinishReasonComplete(reason string) bool {
+	reason = strings.TrimSpace(strings.ToLower(reason))
+	switch reason {
+	case "stop", "done", "end_turn":
+		return true
+	default:
+		return false
+	}
+}
+
+func imageAnalysisFinishReasonContinuable(reason string) bool {
+	reason = strings.TrimSpace(strings.ToLower(reason))
+	switch reason {
+	case "", "length", "max_tokens", "max_output_tokens":
+		return true
+	default:
+		return false
+	}
+}
+
+func imageAnalysisFinishReasonRejected(reason string) bool {
+	reason = strings.TrimSpace(strings.ToLower(reason))
+	return reason == "content_filter" || reason == "safety" || reason == "blocked"
+}
+
+func addImageAnalysisUsage(total *llm.Usage, value llm.Usage) {
+	total.InputTokens += value.InputTokens
+	total.OutputTokens += value.OutputTokens
+	total.TotalTokens += value.TotalTokens
+	total.CachedInputTokens += value.CachedInputTokens
+	total.ReasoningTokens += value.ReasoningTokens
+}
+
+func containsAnyText(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func workspaceImage(ctx context.Context, executionContext ExecutionContext, path string) (workspaceImageData, error) {

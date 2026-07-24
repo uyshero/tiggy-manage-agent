@@ -350,6 +350,9 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Turn.MaxToolRounds != DefaultMaxToolRounds {
 		t.Fatalf("expected default max tool rounds %d, got %d", DefaultMaxToolRounds, config.Turn.MaxToolRounds)
 	}
+	if config.Turn.Timeout != 2*time.Hour || config.Turn.TimeoutMillis != 7200000 {
+		t.Fatalf("expected default turn timeout 2h, got %+v", config.Turn)
+	}
 	if config.Turn.PollInterval != time.Duration(DefaultTurnPollIntervalMS)*time.Millisecond || config.Turn.LeaseDuration != time.Duration(DefaultTurnLeaseDurationMS)*time.Millisecond || config.Turn.HeartbeatInterval != time.Duration(DefaultTurnHeartbeatIntervalMS)*time.Millisecond {
 		t.Fatalf("unexpected default turn lease config: %+v", config.Turn)
 	}

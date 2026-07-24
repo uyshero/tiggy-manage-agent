@@ -94,9 +94,10 @@ type Request struct {
 }
 
 type Response struct {
-	Message   Message         `json:"message"`
-	Reasoning []ReasoningPart `json:"reasoning,omitempty"`
-	Usage     Usage           `json:"usage,omitempty"`
+	Message      Message         `json:"message"`
+	Reasoning    []ReasoningPart `json:"reasoning,omitempty"`
+	Usage        Usage           `json:"usage,omitempty"`
+	FinishReason string          `json:"finish_reason,omitempty"`
 }
 
 type Delta struct {
@@ -1081,8 +1082,9 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 				Text: openAIContentText(decoded.Choices[0].Message.Content),
 			}},
 		},
-		Reasoning: reasoningParts(openAIReasoningText(decoded.Choices[0].Message)),
-		Usage:     openAIUsage(decoded.Usage),
+		Reasoning:    reasoningParts(openAIReasoningText(decoded.Choices[0].Message)),
+		Usage:        openAIUsage(decoded.Usage),
+		FinishReason: decoded.Choices[0].FinishReason,
 	}, nil
 }
 
@@ -1298,7 +1300,8 @@ type openAIToolCallFunction struct {
 
 type openAIChatResponse struct {
 	Choices []struct {
-		Message openAIMessage `json:"message"`
+		Message      openAIMessage `json:"message"`
+		FinishReason string        `json:"finish_reason"`
 	} `json:"choices"`
 	Usage openAIUsageResponse `json:"usage"`
 }
@@ -1338,6 +1341,7 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 	index := 0
 	role := "assistant"
 	var usage Usage
+	finishReason := ""
 	stopped := false
 	type streamedToolCall struct {
 		id        string
@@ -1383,7 +1387,8 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 				return Response{}, err
 			}
 			if !stopped {
-				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: "done"}); err != nil {
+				finishReason = "done"
+				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: finishReason}); err != nil {
 					return Response{}, err
 				}
 				stopped = true
@@ -1469,7 +1474,8 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 				if err := flushReasoning(); err != nil {
 					return Response{}, err
 				}
-				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: choice.FinishReason}); err != nil {
+				finishReason = choice.FinishReason
+				if err := emitDelta(Delta{Kind: DeltaKindStop, FinishReason: finishReason}); err != nil {
 					return Response{}, err
 				}
 				stopped = true
@@ -1515,8 +1521,9 @@ func decodeOpenAIStream(reader io.Reader, onDelta func(Delta) error) (Response, 
 			Content:   content,
 			ToolCalls: toolCallsFromOpenAI(toolCalls),
 		},
-		Reasoning: reasoningParts(reasoningBuilder.String()),
-		Usage:     usage,
+		Reasoning:    reasoningParts(reasoningBuilder.String()),
+		Usage:        usage,
+		FinishReason: finishReason,
 	}, nil
 }
 

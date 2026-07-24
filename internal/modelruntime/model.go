@@ -85,6 +85,9 @@ func (a LLMModel) Generate(ctx context.Context, request coremodel.Request, sink 
 	if err != nil {
 		return coremodel.Response{}, fromLLMError(err)
 	}
+	if finishReason == "" {
+		finishReason = response.FinishReason
+	}
 	return fromLLMResponse(request.AttemptID, response, finishReason, request.Tools), nil
 }
 

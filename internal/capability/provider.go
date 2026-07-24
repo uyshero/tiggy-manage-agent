@@ -56,6 +56,12 @@ type ArtifactExportProvider interface {
 	ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error)
 }
 
+// FileReferenceResolver converts a portable FileRef URI into the path used by
+// a concrete execution environment.
+type FileReferenceResolver interface {
+	ResolveFileReference(ctx context.Context, value string) (string, error)
+}
+
 // RuntimeSkillMaterializer exposes immutable Skill packages inside an execution
 // environment before the model can invoke package scripts or read package files.
 type RuntimeSkillMaterializer interface {

@@ -678,6 +678,11 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 		}
 		return failedResult(call, validationError.Type, validationError.Message), nil
 	}
+	resolvedCall, fileReferenceError := registry.ResolveCallFileReferences(ctx, call, executionContext)
+	if fileReferenceError != nil {
+		return failedResult(call, fileReferenceError.Type, fileReferenceError.Message), nil
+	}
+	call = resolvedCall
 
 	result, err := runtime.Execute(ctx, call, executionContext)
 	if err != nil {

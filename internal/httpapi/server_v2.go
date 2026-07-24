@@ -338,14 +338,22 @@ func (s *Server) streamSessionRunEventsV2(w http.ResponseWriter, r *http.Request
 	}
 	defer cancel()
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Connection", "keep-alive")
-	fmt.Fprint(w, ": stream ready\n\n")
+	w.Header().Set("X-Accel-Buffering", "no")
+	fmt.Fprint(w, ": stream ready\nretry: 1000\n\n")
 	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			if _, err := fmt.Fprint(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
 		case event, open := <-events:
 			if !open {
 				return

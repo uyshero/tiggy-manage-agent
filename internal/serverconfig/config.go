@@ -32,8 +32,8 @@ const (
 	DefaultTurnPollIntervalMS                      = 500
 	DefaultTurnLeaseDurationMS                     = 10000
 	DefaultTurnHeartbeatIntervalMS                 = 1000
-	DefaultTurnTimeoutMS                           = 3600000
-	DefaultMaxToolRounds                           = 0
+	DefaultTurnTimeoutMS                           = 7200000
+	DefaultMaxToolRounds                           = 100
 	DefaultLLMProvider                             = "fake"
 	DefaultLLMModel                                = "fake-demo"
 	DefaultLLMBaseURL                              = "https://api.openai.com/v1"
@@ -61,7 +61,7 @@ const (
 	DefaultToolRuntime                             = "cloud_sandbox"
 	DefaultCloudSandboxWorkspaceRoot               = "/private/tmp/tma-cloud-sandbox-workspaces"
 	DefaultCloudSandboxDataRoot                    = "/private/tmp/tma-cloud-sandbox-data"
-	DefaultCloudSandboxDataTTLSec                  = 3600
+	DefaultCloudSandboxDataTTLSec                  = 14400
 	DefaultCloudSandboxContainerIdleTTLSec         = 1800
 	DefaultCloudSandboxContainerMaxLifetimeSec     = 14400
 	DefaultCloudSandboxContainerCleanupIntervalSec = 60

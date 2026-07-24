@@ -56,24 +56,32 @@ type continuationToolCall struct {
 
 type continuationToolResult struct {
 	Seq     int64
+	TurnID  string
 	CallID  string
 	Name    string
 	Summary string
 }
 
 func buildContinuationContext(events []managedagents.Event, currentTurnID string, beforeSeq int64) string {
-	previousTurnID := ""
-	for index := len(events) - 1; index >= 0; index-- {
-		event := events[index]
-		if event.Seq >= beforeSeq || event.TurnID == "" || event.TurnID == currentTurnID {
-			continue
-		}
-		previousTurnID = event.TurnID
-		break
-	}
-	if previousTurnID == "" {
+	turnOrder := continuationTurnOrder(events, currentTurnID, beforeSeq)
+	if len(turnOrder) == 0 {
 		return ""
 	}
+	chainStart := len(turnOrder) - 1
+	for chainStart > 0 {
+		payload, found := continuationTurnUserPayload(events, turnOrder[chainStart], beforeSeq)
+		if found && !isContinuationRequest(payload) {
+			break
+		}
+		chainStart--
+	}
+	chain := turnOrder[chainStart:]
+	selectedTurns := make(map[string]struct{}, len(chain))
+	for _, turnID := range chain {
+		selectedTurns[turnID] = struct{}{}
+	}
+	previousTurnID := chain[len(chain)-1]
+	rootTurnID := chain[0]
 
 	calls := map[string]continuationToolCall{}
 	results := make([]continuationToolResult, 0)
@@ -81,13 +89,18 @@ func buildContinuationContext(events []managedagents.Event, currentTurnID string
 	finalMessage := ""
 	terminalStatus := "unknown"
 	for _, event := range events {
-		if event.Seq >= beforeSeq || event.TurnID != previousTurnID {
+		if event.Seq >= beforeSeq {
+			continue
+		}
+		if _, selected := selectedTurns[event.TurnID]; !selected {
 			continue
 		}
 		switch event.Type {
 		case managedagents.EventUserMessage:
-			if text := strings.TrimSpace(firstTextContent(event.Payload)); text != "" {
-				objective = text
+			if event.TurnID == rootTurnID {
+				if text := strings.TrimSpace(firstTextContent(event.Payload)); text != "" {
+					objective = text
+				}
 			}
 		case managedagents.EventAgentMessage:
 			if text := strings.TrimSpace(firstTextContent(event.Payload)); text != "" {
@@ -95,18 +108,24 @@ func buildContinuationContext(events []managedagents.Event, currentTurnID string
 			}
 		case string(agentcore.EventToolBatchPlanned):
 			for callID, call := range continuationCallsFromEvent(event.Payload) {
-				calls[callID] = call
+				calls[continuationCallKey(event.TurnID, callID)] = call
 			}
 		case string(agentcore.EventToolCallResult):
 			if result, ok := continuationResultFromEvent(event); ok {
 				results = append(results, result)
 			}
 		case string(agentcore.EventRuntimeCompleted):
-			terminalStatus = "completed"
+			if event.TurnID == previousTurnID {
+				terminalStatus = "completed"
+			}
 		case string(agentcore.EventRuntimeFailed):
-			terminalStatus = "failed"
+			if event.TurnID == previousTurnID {
+				terminalStatus = "failed"
+			}
 		case string(agentcore.EventRuntimeCanceled):
-			terminalStatus = "canceled"
+			if event.TurnID == previousTurnID {
+				terminalStatus = "canceled"
+			}
 		}
 	}
 
@@ -116,17 +135,20 @@ func buildContinuationContext(events []managedagents.Event, currentTurnID string
 	}
 
 	lines := []string{
-		"Execution continuation from the immediately preceding turn (protected state):",
+		"Execution continuation from the preceding turn chain (protected state):",
 		fmt.Sprintf("Previous turn: %s; terminal status: %s.", previousTurnID, terminalStatus),
 		"The user explicitly asked to continue. Preserve the original objective, reuse the existing Session workspace and artifacts, and continue from unfinished work. Do not restart completed steps merely because this is a new turn.",
+	}
+	if len(chain) > 1 {
+		lines = append(lines, "Continuation chain (oldest to newest): "+strings.Join(chain, " -> ")+". Recover from the whole chain, including work before an interrupted or canceled continuation turn.")
 	}
 	if objective != "" {
 		lines = append(lines, "Original objective: "+truncateContinuationText(objective, maxContinuationFieldRunes))
 	}
 	if len(results) > 0 {
-		lines = append(lines, "Recent execution evidence (oldest to newest):")
+		lines = append(lines, "Recent execution evidence across the continuation chain (oldest to newest):")
 		for _, result := range results {
-			call := calls[result.CallID]
+			call := calls[continuationCallKey(result.TurnID, result.CallID)]
 			name := firstNonemptyContinuation(result.Name, call.Name, "unknown_tool")
 			line := "- " + name
 			if arguments := compactContinuationArguments(call.Arguments); arguments != "" {
@@ -142,6 +164,36 @@ func buildContinuationContext(events []managedagents.Event, currentTurnID string
 		lines = append(lines, "Previous final output: "+truncateContinuationText(finalMessage, maxContinuationFieldRunes))
 	}
 	return truncateContinuationText(strings.Join(lines, "\n"), maxContinuationContextRunes)
+}
+
+func continuationTurnOrder(events []managedagents.Event, currentTurnID string, beforeSeq int64) []string {
+	seen := map[string]struct{}{}
+	order := make([]string, 0)
+	for _, event := range events {
+		if event.Seq >= beforeSeq || event.TurnID == "" || event.TurnID == currentTurnID {
+			continue
+		}
+		if _, exists := seen[event.TurnID]; exists {
+			continue
+		}
+		seen[event.TurnID] = struct{}{}
+		order = append(order, event.TurnID)
+	}
+	return order
+}
+
+func continuationTurnUserPayload(events []managedagents.Event, turnID string, beforeSeq int64) (json.RawMessage, bool) {
+	for _, event := range events {
+		if event.Seq >= beforeSeq || event.TurnID != turnID || event.Type != managedagents.EventUserMessage {
+			continue
+		}
+		return event.Payload, true
+	}
+	return nil, false
+}
+
+func continuationCallKey(turnID, callID string) string {
+	return turnID + "\x00" + callID
 }
 
 func continuationCallsFromEvent(payload json.RawMessage) map[string]continuationToolCall {
@@ -202,7 +254,7 @@ func continuationResultFromEvent(event managedagents.Event) (continuationToolRes
 		}
 	}
 	return continuationToolResult{
-		Seq: event.Seq, CallID: callID, Name: strings.TrimSpace(decoded.Data.Name),
+		Seq: event.Seq, TurnID: event.TurnID, CallID: callID, Name: strings.TrimSpace(decoded.Data.Name),
 		Summary: truncateContinuationText(strings.Join(parts, "; "), maxContinuationFieldRunes),
 	}, true
 }
