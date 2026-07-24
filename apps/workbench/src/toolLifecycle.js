@@ -150,6 +150,38 @@ export function buildToolCallLifecycles(events) {
   return lifecycles;
 }
 
+export function toolResultFailurePresentation(event) {
+  const data = objectValue(event?.payload?.data);
+  const error = objectValue(data.error);
+  const status = String(data.status || "").trim().toLowerCase();
+  const failed = data.success === false || Object.keys(error).length > 0 || [
+    "failed",
+    "error",
+    "rejected",
+    "canceled",
+    "cancelled"
+  ].includes(status);
+  if (!failed) return null;
+
+  const contentResult = parseToolResultContent(data.content);
+  const contentError = objectValue(contentResult.error);
+  const message = firstText(
+    error.message,
+    contentError.message,
+    typeof data.error === "string" ? data.error : "",
+    data.message,
+    contentResult.message,
+    data.content,
+    event?.payload?.message,
+    "工具执行失败。"
+  );
+  return {
+    message,
+    type: firstText(error.type, error.code, contentError.type, contentError.code, data.error_type, data.reason),
+    retryable: typeof data.retryable === "boolean" ? data.retryable : undefined
+  };
+}
+
 function latestEvent(left, right) {
   if (!left) return right;
   return Number(right?.seq || 0) > Number(left.seq || 0) ? right : left;
@@ -182,6 +214,23 @@ function toolResultContent(content) {
     const part = objectValue(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
+}
+
+function parseToolResultContent(content) {
+  if (typeof content !== "string" || !content.trim().startsWith("{")) return {};
+  try {
+    return objectValue(JSON.parse(content));
+  } catch {
+    return {};
+  }
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text) return text;
+  }
+  return "";
 }
 
 function approvalSourceLabel(value) {

@@ -280,7 +280,15 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, WebRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
+	return NewRegistry(DefaultRuntime{}, WebRuntime{}, ImageRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
+}
+
+var platformDefaultToolIdentifiers = [...]string{
+	DefaultIdentifier,
+	WebIdentifier,
+	ImageIdentifier,
+	AgentIdentifier,
+	SkillsIdentifier,
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -312,11 +320,13 @@ func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
 		return r, policy
 	}
 	configured := Registry{runtimes: make(map[string]Runtime)}
-	if len(policy.EnabledToolPatterns) == 0 {
-		return configured, policy
-	}
 	enabledTools := map[string]bool{}
 	enabledAPIs := map[string]map[string]bool{}
+	for _, identifier := range platformDefaultToolIdentifiers {
+		if _, ok := r.Get(identifier); ok {
+			enabledTools[identifier] = true
+		}
+	}
 	for _, pattern := range policy.EnabledToolPatterns {
 		if _, ok := r.Get(pattern); ok {
 			enabledTools[pattern] = true
@@ -337,9 +347,24 @@ func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
 	}
 	for identifier := range enabledTools {
 		runtime, ok := r.Get(identifier)
-		if ok {
-			configured.Register(runtime)
+		if !ok {
+			continue
 		}
+		allowedAPIs := enabledAPIs[identifier]
+		if len(allowedAPIs) == 0 {
+			configured.Register(runtime)
+			continue
+		}
+		for _, api := range runtime.Manifest().API {
+			if !api.HiddenFromModel {
+				allowedAPIs[api.Name] = true
+			}
+		}
+		configured.Register(filteredRuntime{
+			inner:        runtime,
+			allowedAPIs:  allowedAPIs,
+			exposeHidden: true,
+		})
 	}
 	for identifier, allowedAPIs := range enabledAPIs {
 		if enabledTools[identifier] {

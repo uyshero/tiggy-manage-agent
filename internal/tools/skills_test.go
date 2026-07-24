@@ -81,6 +81,9 @@ func TestSkillsRuntimeManifestAndExecution(t *testing.T) {
 	if manifest.Identifier != SkillsIdentifier || len(manifest.API) != 8 {
 		t.Fatalf("unexpected skills manifest: %#v", manifest)
 	}
+	if !strings.Contains(manifest.SystemRole, "binding execution contract") || !strings.Contains(manifest.SystemRole, "has_more is false") || !strings.Contains(manifest.SystemRole, "Never substitute a mandatory workflow") {
+		t.Fatalf("skills system role is missing binding compliance rules: %s", manifest.SystemRole)
+	}
 	if manifest.ApprovalPolicy != ApprovalPolicyNever || manifest.API[2].Risk != ToolRiskRead || manifest.API[3].Risk != ToolRiskRead || manifest.API[4].Risk != ToolRiskRead || manifest.API[5].Risk != ToolRiskWrite || manifest.API[5].ApprovalPolicy != ApprovalPolicyAlways || manifest.API[6].Risk != ToolRiskWrite || manifest.API[7].Risk != ToolRiskWrite || manifest.API[7].ApprovalPolicy != ApprovalPolicyAlways {
 		t.Fatalf("expected install and enable approval metadata: %#v", manifest.API)
 	}

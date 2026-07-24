@@ -1025,7 +1025,10 @@ func TestFixedContextAndCompletionGateAdapters(t *testing.T) {
 	verdict, err := completion.Validate(context.Background(), agentcore.CompletionCandidate{
 		Message: candidateMessage,
 		Attempt: 2,
-		State:   agentcore.State{SessionID: "session_1", TurnID: "turn_1", Round: 3, Messages: append(state.Messages, candidateMessage)},
+		State: agentcore.State{
+			SessionID: "session_1", TurnID: "turn_1", Round: 3,
+			Messages: append(state.Messages, candidateMessage), ActiveTools: []string{"image_generate"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("Validate() error = %v", err)
@@ -1329,6 +1332,9 @@ type stubCompletionGate struct{}
 func (stubCompletionGate) Validate(_ context.Context, candidate agentruntime.CompletionCandidate) (agentruntime.CompletionVerdict, error) {
 	if candidate.SessionID != "session_1" || candidate.TurnID != "turn_1" || candidate.Attempt != 2 || candidate.ToolRound != 3 {
 		return agentruntime.CompletionVerdict{}, errors.New("completion candidate metadata mismatch")
+	}
+	if !reflect.DeepEqual(candidate.ActiveTools, []string{"image_generate"}) {
+		return agentruntime.CompletionVerdict{}, errors.New("completion candidate active tools mismatch")
 	}
 	return agentruntime.CompletionVerdict{
 		Outcome: agentruntime.CompletionOutcomeRetry, Validator: "task-plan", Feedback: "finish the plan", Evidence: map[string]any{"plan_id": "plan_1"},

@@ -7,12 +7,13 @@ import "./auth.js";
 import * as api from "./api.js";
 import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolResultFailurePresentation } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { runtimeFailurePresentation } from "./runtimeFailures.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
+import { retainedProcessText } from "./chatTimelineRetention.js";
 import {
   appendSessionMessageQueue,
   normalizeSessionMessageQueue,
@@ -523,11 +524,30 @@ function toolSummary({ identifier, apiName, args = {}, reason = "", success, sou
 }
 
 const builtinToolNamespaces = [
-  { key: "default", title: "默认工具", description: "文件读写、命令执行和代码运行。" },
-  { key: "browser", title: "浏览器工具", description: "打开页面、读取内容、点击输入和截图。" },
-  { key: "web", title: "网页检索", description: "搜索公开网页并抓取页面正文。" },
-  { key: "agent", title: "子智能体", description: "派生子任务、等待结果、收集输出。" },
-  { key: "skills", title: "技能工具", description: "检索技能、查看技能和读取技能资产。" }
+  {
+    key: "default",
+    title: "默认工具",
+    description: "命令执行、文件查找、读取、检索、写入和编辑。",
+    apis: ["run_command", "read_file", "find_files", "search_files", "write_file", "edit_file"]
+  },
+  {
+    key: "web",
+    title: "网页检索",
+    description: "搜索公开网页并抓取页面正文。",
+    apis: ["search", "crawl"]
+  },
+  {
+    key: "agent",
+    title: "子智能体",
+    description: "创建子会话、传递任务、等待结果，以及分组和讨论协作。",
+    apis: ["spawn", "create_session", "send_message", "get_session", "wait", "collect_result", "list_events", "stream_events", "approve_tool", "reject_tool", "cancel_start", "run_group", "list_group_templates", "get_group", "wait_group", "collect_group", "cancel_group", "retry_group_item", "retry_group", "start_discussion", "list_discussion_strategies", "get_discussion", "wait_discussion", "collect_discussion", "cancel_discussion", "retry_discussion_participant", "archive_session"]
+  },
+  {
+    key: "skills",
+    title: "技能工具",
+    description: "查找、检查、安装、启用和读取技能资产。",
+    apis: ["search", "inspect", "discover", "preview", "read_asset", "install", "enable", "disable"]
+  }
 ];
 
 function parseToolPolicy(raw) {
@@ -614,9 +634,15 @@ function parseMCPServers(raw) {
     .filter(Boolean);
 }
 
-function toolNamespaceEnabled(namespace, policy) {
-  if (!policy.explicit) return true;
-  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}_`));
+function registeredBuiltinToolAPI(pattern) {
+  const value = String(pattern || "").trim();
+  for (const namespace of builtinToolNamespaces) {
+    const prefix = `${namespace.key}_`;
+    if (!value.startsWith(prefix)) continue;
+    const apiName = value.slice(prefix.length);
+    return namespace.apis.includes(apiName) ? { apiName, namespace } : null;
+  }
+  return null;
 }
 
 function runtimeSupportsToolItem(identifier, runtime) {
@@ -659,43 +685,26 @@ function toolingHostMetric(host, field) {
 }
 
 function buildToolingCatalog({ config, installedSkills, preferredRuntime }) {
-  const toolPolicy = parseToolPolicy(config?.tools);
   const skillsConfig = parseSkillsConfig(config?.skills);
   const mcpServers = parseMCPServers(config?.mcp);
   const enabledSkillMap = new Map(skillsConfig.enabled.map((item) => [item.skill, item]));
 
   const toolItems = [];
   for (const namespace of builtinToolNamespaces) {
-    const enabled = toolNamespaceEnabled(namespace.key, toolPolicy);
-    const selectable = enabled && runtimeSupportsToolItem(namespace.key, preferredRuntime);
+    const selectable = runtimeSupportsToolItem(namespace.key, preferredRuntime);
+    if (!selectable) continue;
     toolItems.push({
       category: "tools",
-      description: enabled ? namespace.description : "当前智能体配置未启用这个工具命名空间。",
-      disabledReason: enabled ? "" : "未在当前智能体工具配置中启用",
+      description: `${namespace.description} API：${namespace.apis.join("、")}`,
+      disabledReason: "",
       key: `tool-namespace:${namespace.key}`,
       kind: "tool_namespace",
       name: namespace.key,
-      selectable,
-      status: selectable ? "available" : "disabled",
+      selectable: true,
+      status: "available",
       title: namespace.title
     });
   }
-  for (const pattern of toolPolicy.enabledToolPatterns) {
-    if (!pattern.includes(".")) continue;
-    const selectable = runtimeSupportsToolItem(pattern, preferredRuntime);
-    toolItems.push({
-      category: "tools",
-      description: "当前智能体显式配置的工具 API。",
-      disabledReason: selectable ? "" : "当前运行环境下不可用",
-      key: `tool-api:${pattern}`,
-      kind: "tool_api",
-      name: pattern,
-      selectable,
-      status: selectable ? "available" : "disabled",
-      title: pattern
-    });
-  }
-
   const knownSkillKeys = new Set();
   const skillItems = (installedSkills || []).map((skill) => {
     knownSkillKeys.add(skill.identifier);
@@ -758,10 +767,19 @@ function buildToolingCatalog({ config, installedSkills, preferredRuntime }) {
 function buildGuidedTaskMessage(task, selectedItems) {
   const text = String(task || "").trim();
   if (!selectedItems.length) return text;
-  const lines = selectedItems.map((item) => `- ${toolingGuidanceLabel(item)}`);
+  const skills = selectedItems.filter((item) => item.kind === "skill");
+  const capabilities = selectedItems.filter((item) => item.kind !== "skill");
   return [
-    "请优先考虑使用以下已选择的能力来完成这次任务；如果其中某项并不适合当前问题，就忽略它，按最佳方案继续：",
-    ...lines,
+    ...(skills.length ? [
+      "用户明确选择了以下 Skill。若任务与其描述匹配，必须先用 skills_inspect 读取冻结版本的完整说明并严格执行。不得擅自绕过或替换其中要求的工具、步骤、验证、禁止项和交付契约；如有步骤无法执行，必须说明具体阻塞并停止，等待用户决定，不得用替代流程冒充成功：",
+      ...skills.map((item) => `- ${toolingGuidanceLabel(item)}`),
+      ""
+    ] : []),
+    ...(capabilities.length ? [
+      "请优先考虑使用以下已选择的能力；只有确认与当前任务不匹配时才可忽略：",
+      ...capabilities.map((item) => `- ${toolingGuidanceLabel(item)}`),
+      ""
+    ] : []),
     "",
     "用户原始请求：",
     text
@@ -1766,9 +1784,6 @@ function editableMCPBindings(raw) {
 function agentEditorDraft(agent) {
   const config = agent?.config_version || {};
   const toolPolicy = parseToolPolicy(config.tools);
-  const enabledNamespaces = toolPolicy.explicit
-    ? builtinToolNamespaces.filter((item) => toolNamespaceEnabled(item.key, toolPolicy)).map((item) => item.key)
-    : builtinToolNamespaces.map((item) => item.key);
   const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
   return {
     environmentID: agent?.environment_id || "",
@@ -1778,11 +1793,9 @@ function agentEditorDraft(agent) {
     mcpServers: editableMCPServers(config.mcp),
     name: agent?.name || "",
     selectedSkills: parseSkillsConfig(config.skills).enabled.map((item) => item.skill),
-    selectedTools: enabledNamespaces,
     system: config.system || "",
     permissionRules: toolPolicy.permissionRules,
     toolPatterns: toolPolicy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern)),
-    toolRuntime: toolPolicy.runtime || ""
   };
 }
 
@@ -1790,12 +1803,32 @@ function userSelectableEnvironments(response) {
   return (response?.environments || []).filter((environment) => !environment?.config?.managed_by);
 }
 
+function environmentRuntimeDescription(environment) {
+  const config = objectValue(environment?.config);
+  const runtimeSettings = objectValue(config.runtime_settings);
+  const networking = objectValue(config.networking);
+  const runtime = String(runtimeSettings.tool_runtime || config.tool_runtime || config.type || "").trim();
+  const details = [];
+
+  if (runtime === "cloud" || runtime === "cloud_sandbox") details.push("Cloud Sandbox");
+  else if (runtime === "local_system") details.push("本地系统");
+  else if (runtime) details.push(runtime);
+
+  if (runtimeSettings.cloud_sandbox_allow_network === true) details.push("可访问网络");
+  else if (runtimeSettings.cloud_sandbox_allow_network === false) details.push("禁止网络");
+  else if (networking.type === "limited") details.push("受限网络");
+  else if (networking.type) details.push(String(networking.type));
+
+  const image = String(runtimeSettings.cloud_sandbox_image || config.cloud_sandbox_image || "").trim();
+  if (image) details.push(image);
+  return details.join(" · ");
+}
+
 function agentConfigVersionMetrics(version) {
-  const toolPolicy = parseToolPolicy(version?.tools);
   return {
     mcp: editableMCPServers(version?.mcp).filter((server) => !server.disabled).length + editableMCPBindings(version?.mcp).length,
     skills: parseSkillsConfig(version?.skills).enabled.length,
-    tools: toolPolicy.explicit ? toolPolicy.enabledToolPatterns.length : builtinToolNamespaces.length
+    tools: builtinToolNamespaces.length
   };
 }
 
@@ -1935,7 +1968,7 @@ function AgentConfigEditor({ agent, environments = [], mcpRegistryServers = [], 
         llm_provider: draft.llmProvider,
         llm_model: draft.llmModel,
         system: draft.system,
-        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...(draft.toolRuntime ? { runtime: draft.toolRuntime } : {}) },
+        tools: { enabled_tools: [...builtinToolNamespaces.map((item) => item.key), ...draft.toolPatterns.filter((pattern) => registeredBuiltinToolAPI(pattern))], permission_rules: draft.permissionRules },
         skills: { enabled: enabledSkills },
         mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
           const identifier = String(server.identifier || server.id || server.name || "").trim();
@@ -1988,23 +2021,14 @@ function AgentConfigEditor({ agent, environments = [], mcpRegistryServers = [], 
       </label>
       <section className="agent-editor-section">
         <div className="agent-editor-section-head">
-          <div><strong>Tools</strong><div className="subtle">控制该 Agent 默认可调用的工具命名空间。</div></div>
-          <span className="agent-editor-count">{draft.selectedTools.length}/{builtinToolNamespaces.length}</span>
+          <div><strong>工具</strong><div className="subtle">平台默认能力自动启用，运行时继承 Environment。</div></div>
+          <span className="agent-editor-count">默认 {builtinToolNamespaces.length} 项</span>
         </div>
-        <label className="agent-editor-field agent-runtime-field">
-          <span>工具运行时覆盖</span>
-          <select value={draft.toolRuntime} onChange={(event) => setDraft((current) => ({ ...current, toolRuntime: event.target.value }))}>
-            <option value="">继承 Environment</option>
-            <option value="auto">服务器默认</option>
-            <option value="cloud_sandbox">Sandbox</option>
-            <option value="local_system">Local</option>
-          </select>
-        </label>
         <div className="agent-option-grid">
           {builtinToolNamespaces.map((item) => (
-            <label className="agent-option" key={item.key}>
-              <input type="checkbox" checked={draft.selectedTools.includes(item.key)} onChange={() => toggleListValue("selectedTools", item.key)} />
-              <span><strong>{item.title}</strong><small>{item.description}</small></span>
+            <label className="agent-option platform-default" key={item.key}>
+              <input type="checkbox" checked disabled readOnly />
+              <span><strong>{item.title}<em>平台默认</em></strong><small>{item.description}</small><small>API：{item.apis.join("、")}</small></span>
             </label>
           ))}
         </div>
@@ -3661,43 +3685,20 @@ function SettingsPage({
       setHealthChecking("");
     }
   }
-  async function updateAgentToolPermission(agent, namespace, enabled) {
-    const policy = parseToolPolicy(agent.config_version?.tools);
-    const existingTools = agent.config_version?.tools && typeof agent.config_version.tools === "object" && !Array.isArray(agent.config_version.tools) ? agent.config_version.tools : {};
-    const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
-    const customPatterns = policy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern) && !builtinToolNamespaces.some((item) => pattern.startsWith(`${item.key}.`)));
-    const enabledNamespaces = builtinToolNamespaces
-      .filter((item) => item.key === namespace ? enabled : toolNamespaceEnabled(item.key, policy))
-      .map((item) => item.key);
-    const key = `${agent.id}:${namespace}`;
-    setAgentPermissionBusy(key);
-    setAgentPermissionError("");
-    try {
-      await onUpdateAgentPermissions(agent.id, {
-        ...existingTools,
-        enabled_tools: [...enabledNamespaces, ...customPatterns],
-        permission_rules: policy.permissionRules,
-        ...(policy.runtime ? { runtime: policy.runtime } : {})
-      });
-    } catch (error) {
-      setAgentPermissionError(error.message);
-    } finally {
-      setAgentPermissionBusy("");
-    }
-  }
   async function saveAgentPathRules() {
     if (!selectedAgent?.id) return;
     const policy = parseToolPolicy(selectedAgent.config_version?.tools);
     const existingTools = selectedAgent.config_version?.tools && typeof selectedAgent.config_version.tools === "object" && !Array.isArray(selectedAgent.config_version.tools) ? selectedAgent.config_version.tools : {};
-    const enabledTools = policy.explicit ? policy.enabledToolPatterns : builtinToolNamespaces.map((item) => item.key);
+    const { runtime: _legacyRuntime, ...inheritedRuntimeTools } = existingTools;
+    const customPatterns = policy.enabledToolPatterns.filter((pattern) => registeredBuiltinToolAPI(pattern));
+    const enabledTools = [...builtinToolNamespaces.map((item) => item.key), ...customPatterns];
     setAgentPermissionBusy("agent-path-rules");
     setAgentPermissionError("");
     try {
       await onUpdateAgentPermissions(selectedAgent.id, {
-        ...existingTools,
+        ...inheritedRuntimeTools,
         enabled_tools: enabledTools,
-        permission_rules: agentPathRules,
-        ...(policy.runtime ? { runtime: policy.runtime } : {})
+        permission_rules: agentPathRules
       });
     } catch (error) {
       setAgentPermissionError(error.message);
@@ -4157,33 +4158,27 @@ function SettingsPage({
                           </tr>
                         </thead>
                         <tbody>
-                          {agents.map((agent) => {
-                            const policy = parseToolPolicy(agent.config_version?.tools);
-                            return (
+                          {agents.map((agent) => (
                               <tr className={agent.id === selectedAgent?.id ? "current" : ""} key={agent.id}>
                                 <th scope="row">
                                   <strong>{agent.name || agent.id}</strong>
                                   <span>版本 #{agent.current_config_version || 1}</span>
                                 </th>
                                 {builtinToolNamespaces.map((item) => {
-                                  const checked = toolNamespaceEnabled(item.key, policy);
-                                  const busy = agentPermissionBusy === `${agent.id}:${item.key}`;
                                   return (
                                     <td key={item.key}>
                                       <input
                                         type="checkbox"
-                                        aria-label={`允许 ${agent.name || agent.id} 使用 ${item.title}`}
-                                        checked={checked}
-                                        disabled={Boolean(agentPermissionBusy)}
-                                        onChange={(event) => updateAgentToolPermission(agent, item.key, event.target.checked)}
+                                        aria-label={`${agent.name || agent.id} 的${item.title}为平台默认能力`}
+                                        checked
+                                        disabled
+                                        readOnly
                                       />
-                                      {busy ? <span className="agent-permission-saving">保存中</span> : null}
                                     </td>
                                   );
                                 })}
                               </tr>
-                            );
-                          })}
+                            ))}
                         </tbody>
                       </table>
                     </div>
@@ -4586,7 +4581,7 @@ const chatTimelineInternalEventTypes = new Set([
   "intervention.resolved"
 ]);
 
-function compactChatTimelineEvents(sourceEvents, { includeThinking = true, thinkingAfterSeq = 0 } = {}) {
+function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = true, transientThinkingAfterSeq = 0 } = {}) {
   const sorted = [...(sourceEvents || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -4594,7 +4589,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
 
   function flushInternalEvents() {
     if (!internalEvents.length) return;
-    if (!includeThinking || Number(internalEvents.at(-1).seq || 0) <= Number(thinkingAfterSeq || 0)) {
+    if (!includeTransientThinking || Number(internalEvents.at(-1).seq || 0) <= Number(transientThinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
     }
@@ -4626,7 +4621,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
-      if (!includeThinking || Number(event.seq || 0) <= Number(thinkingAfterSeq || 0)) continue;
+      if (!retainedProcessText(event)) continue;
       compacted.push(event);
       continue;
     }
@@ -5229,6 +5224,7 @@ function ProcessEventCard({
   let defaultExpanded = false;
   const lifecycleResult = toolLifecycle?.result;
   const lifecycleResultData = eventData(lifecycleResult);
+  const lifecycleFailure = toolResultFailurePresentation(lifecycleResult);
   const lifecycleRejected = toolLifecycle?.decision?.type === "runtime.tool_intervention_rejected";
   const lifecycleApproved = toolLifecycle?.decision?.type === "runtime.tool_intervention_approved";
   const requiredData = eventData(toolLifecycle?.required);
@@ -5247,7 +5243,7 @@ function ProcessEventCard({
   } else if (event.type === "runtime.thinking") {
     title = active ? "思考中" : "思考";
     metaLabel = "思考";
-    preview = turnActivityLabel(event) || "正在准备下一步。";
+    preview = retainedProcessText(event) || turnActivityLabel(event) || "正在准备下一步。";
     tone = "tool";
     status = active ? "running" : "completed";
     statusLabel = active ? "进行中" : "完成";
@@ -5286,6 +5282,26 @@ function ProcessEventCard({
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
       statusLabel = lifecycleResultData.success === false ? "失败" : "完成";
+      if (lifecycleFailure) {
+        const lifecycleError = objectValue(lifecycleResultData.error);
+        preview = shortText(lifecycleFailure.message, 480);
+        contextItems = [
+          ...contextItems,
+          ...(lifecycleFailure.type ? [{ label: "错误类型", value: lifecycleFailure.type }] : [])
+        ];
+        detailObject = {
+          ...detailObject,
+          result: {
+            success: false,
+            status: lifecycleResultData.status || undefined,
+            retryable: lifecycleFailure.retryable,
+            reason: lifecycleResultData.reason || undefined,
+            content: lifecycleResultData.content || undefined,
+            state: Object.keys(objectValue(lifecycleResultData.state)).length ? lifecycleResultData.state : undefined,
+            error: Object.keys(lifecycleError).length ? lifecycleError : { message: lifecycleFailure.message }
+          }
+        };
+      }
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
@@ -5919,6 +5935,7 @@ function WorkbenchApp() {
   const [modelOptions, setModelOptions] = useState([]);
   const [defaultAgentConfig, setDefaultAgentConfig] = useState(null);
   const [availableAgents, setAvailableAgents] = useState([]);
+  const [workbenchEnvironments, setWorkbenchEnvironments] = useState([]);
   const [taskHoverPreview, setTaskHoverPreview] = useState(null);
   const [settingsDraft, setSettingsDraft] = useState({
     humanInteractionEnabled: true,
@@ -6006,6 +6023,24 @@ function WorkbenchApp() {
 
   function isCurrentSession(value) {
     return String(sessionIDRef.current || "").trim() === String(value || "").trim();
+  }
+
+  function switchSessionView(nextSession, waitingForSession = false) {
+    const nextSessionID = String(nextSession?.id || "").trim();
+    sessionLoadRequestRef.current += 1;
+    sessionIDRef.current = nextSessionID;
+    setSessionID(nextSessionID);
+    setSessionMeta(nextSession || null);
+    setEventsResponse({ events: [] });
+    setTaskPlanResponse({ plan: null });
+    setInterventionResponse({ interventions: [] });
+    setArtifactResponse({ artifacts: [] });
+    setLiveReply(nextSessionID ? sessionLiveRepliesRef.current.get(nextSessionID) || null : null);
+    setLiveToolProgress(null);
+    setWaitingForReply(waitingForSession);
+    setApprovalsOpen(false);
+    pendingApprovalCountRef.current = 0;
+    eventStreamCursorRef.current = 0;
   }
 
   function mergeCurrentSessionEvents(value, nextEvents) {
@@ -6137,10 +6172,11 @@ function WorkbenchApp() {
   }, [sessionID]);
 
   async function loadPreSessionDefaults() {
-    const [defaultAgent, agentsResponse, providersResponse] = await Promise.all([
+    const [defaultAgent, agentsResponse, providersResponse, environmentsResponse] = await Promise.all([
       api.defaultAgent(),
       api.agents(),
-      api.llmProviders()
+      api.llmProviders(),
+      api.environments()
     ]);
     const sortedAgents = sortAvailableAgents(agentsResponse.agents, defaultAgent.id);
     const enabledProviders = (providersResponse.providers || []).filter((provider) => provider.enabled !== false);
@@ -6156,6 +6192,7 @@ function WorkbenchApp() {
     ));
     setDefaultAgentConfig(defaultAgent);
     setAvailableAgents(sortedAgents);
+    setWorkbenchEnvironments(environmentsResponse.environments || []);
     setAgentID((current) => current || defaultAgent.id);
     setModelOptions(options);
     const skillsResponse = await api.skills({ workspaceId: defaultAgent.workspace_id }).catch(() => ({ skills: [] }));
@@ -6177,8 +6214,8 @@ function WorkbenchApp() {
     .sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events]);
   const chatTimelineEvents = useMemo(() => {
     const timelineStatus = latestSessionStatus(events, sessionMeta?.status);
-    const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
-    const thinkingAfterSeq = events.reduce((maximum, event) => (
+    const includeTransientThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    const transientThinkingAfterSeq = events.reduce((maximum, event) => (
       event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum
     ), 0);
     return compactChatTimelineEvents([...toolTimelineEvents]
@@ -6198,7 +6235,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-      }), { includeThinking, thinkingAfterSeq });
+      }), { includeTransientThinking, transientThinkingAfterSeq });
   }, [events, sessionMeta?.status, toolTimelineEvents]);
   const latestSuccessfulSkillInstallSeq = useMemo(() => {
     const event = [...events].reverse().find((item) => {
@@ -6307,6 +6344,10 @@ function WorkbenchApp() {
   const selectedModelValue = settingsDraft.llmProvider && settingsDraft.llmModel ? `${settingsDraft.llmProvider}::${settingsDraft.llmModel}` : "";
   const selectedAgentValue = agentID || defaultAgentConfig?.id || "";
   const selectedAgent = availableAgents.find((agent) => agent.id === selectedAgentValue) || defaultAgentConfig;
+  const currentEnvironmentID = String(sessionMeta?.environment_id || selectedAgent?.environment_id || "").trim();
+  const currentEnvironment = workbenchEnvironments.find((environment) => environment.id === currentEnvironmentID) || null;
+  const currentEnvironmentName = currentEnvironment?.name || currentEnvironmentID || "未绑定运行环境";
+  const currentEnvironmentDetails = environmentRuntimeDescription(currentEnvironment);
   const selectedTaskTemplate = taskTemplates.find((template) => template.id === selectedTaskTemplateID) || null;
   const toolingConfig = sessionID ? runtimeConfig : selectedAgent?.config_version || null;
   const toolingWorkspaceID = String(sessionMeta?.workspace_id || runtimeConfig?.workspace_id || selectedAgent?.workspace_id || defaultAgentConfig?.workspace_id || "").trim();
@@ -6423,12 +6464,18 @@ function WorkbenchApp() {
       api.interventions(value, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       api.artifacts(value).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
+    const nextEnvironment = !nextSession.error && nextSession.environment_id
+      ? await api.environment(nextSession.environment_id).catch(() => null)
+      : null;
     if (requestID !== sessionLoadRequestRef.current) return { stale: true };
     if (!isCurrentSession(value)) return { stale: true };
     if (nextEvents.error) throw new Error(nextEvents.error);
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
+    }
+    if (nextEnvironment) {
+      setWorkbenchEnvironments((current) => [nextEnvironment, ...current.filter((environment) => environment.id !== nextEnvironment.id)]);
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
     sessionEventCursorsRef.current.set(value, eventStreamCursorRef.current);
@@ -7142,10 +7189,7 @@ function WorkbenchApp() {
       title: task.trim() ? task.trim().slice(0, 80) : (composerFiles[0]?.file.name || composerLibraryItems[0]?.name || "New workbench task")
     });
     setAgentID(agent.id);
-    sessionLoadRequestRef.current += 1;
-    sessionIDRef.current = session.id;
-    setSessionID(session.id);
-    setSessionMeta(session);
+    switchSessionView(session);
     rememberSession(session.id);
     setRecentSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
     const shouldApplyInitialSettings = Boolean(
@@ -7969,10 +8013,10 @@ function WorkbenchApp() {
     setComposerFiles([]);
     setComposerLibraryItems([]);
     setToolPickerOpen(false);
-    setLiveReply(sessionLiveRepliesRef.current.get(session.id) || null);
-    setWaitingForReply(["provisioning", "running", "interrupting"].includes(String(session.status || "")));
-    sessionIDRef.current = session.id;
-    setSessionID(session.id);
+    switchSessionView(
+      session,
+      ["provisioning", "running", "interrupting"].includes(String(session.status || ""))
+    );
     setAgentID(session.agent_id || "");
     rememberSession(session.id);
     const loaded = await loadSession(session.id);
@@ -8672,7 +8716,7 @@ function WorkbenchApp() {
                 <WorkflowProgress run={workflowRun} onStop={() => stopWorkflowRun().catch((error) => setStatus(error.message))} />
 				{renderedChatTimelineEvents.length ? renderedChatTimelineEvents.map((event, eventIndex) => {
                   if (event.type === "runtime.progress_message") {
-                    const progressText = String(eventData(event).text || "").trim();
+                    const progressText = retainedProcessText(event);
                     return progressText ? (
                       <article aria-label="通用智能体过程更新" className="agent-progress-message" key={`${event.seq}-${event.type}`}>
                         <div>{progressText}</div>
@@ -8913,6 +8957,15 @@ function WorkbenchApp() {
                       ))}
                     </div>
                   ) : null}
+                  <div
+                    className="composer-environment-readonly"
+                    aria-label="当前运行环境"
+                    title={currentEnvironmentID ? `环境 ID：${currentEnvironmentID}` : "当前智能体未绑定运行环境"}
+                  >
+                    <span className="composer-environment-label">环境</span>
+                    <strong>{currentEnvironmentName}</strong>
+                    {currentEnvironmentDetails ? <small>{currentEnvironmentDetails}</small> : null}
+                  </div>
                   <div className="composer-toolbar">
                     <div className="composer-settings-inline">
                       <div className={`composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`}>

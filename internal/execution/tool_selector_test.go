@@ -14,13 +14,15 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"帮我整理项目中的配置文件"}]}`),
 	})
 	names := selectedToolNames(selected)
-	if len(names) != 14 {
-		t.Fatalf("expected 14 common model tools, got %d: %#v", len(names), names)
+	if len(names) != 16 {
+		t.Fatalf("expected 16 common model tools, got %d: %#v", len(names), names)
 	}
 
 	assertSelected(t, names, "default_read_file", true)
 	assertSelected(t, names, "interaction_ask_user", true)
 	assertSelected(t, names, "task_create_plan", true)
+	assertSelected(t, names, "image_generate", true)
+	assertSelected(t, names, "image_analyze", true)
 	assertSelected(t, names, "web_search", false)
 	assertSelected(t, names, "skills_search", false)
 	assertSelected(t, names, "agent_spawn", false)
@@ -91,15 +93,17 @@ func TestSelectTurnToolsKeepsActiveSkillInspectionAndSkillRequiredWeb(t *testing
 	assertSelected(t, names, "web_search", true)
 }
 
-func TestSelectTurnToolsPreservesExplicitConfiguration(t *testing.T) {
+func TestSelectTurnToolsKeepsPlatformDefaultsForExplicitConfiguration(t *testing.T) {
 	registry, policy := tools.DefaultRegistry().Configured(json.RawMessage(`{"tools":["web_search"]}`))
 	selected := SelectTurnTools(registry, policy, TurnToolSelection{
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"只整理本地文件"}]}`),
 	})
 	names := selectedToolNames(selected)
 
-	if len(names) != 1 || !names["web_search"] {
-		t.Fatalf("expected explicit tool configuration to bypass selection, got %#v", names)
+	for _, name := range []string{"default_read_file", "web_search", "skills_search", "agent_spawn"} {
+		if !names[name] {
+			t.Fatalf("expected platform default %q to remain enabled, got %#v", name, names)
+		}
 	}
 }
 

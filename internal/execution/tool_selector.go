@@ -43,7 +43,7 @@ func SelectTurnTools(registry tools.Registry, policy tools.ConfigPolicy, request
 
 	return registry.FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
 		switch manifest.Identifier {
-		case tools.DefaultIdentifier, tools.InteractionIdentifier, tools.TaskIdentifier:
+		case tools.DefaultIdentifier, tools.ImageIdentifier, tools.InteractionIdentifier, tools.TaskIdentifier:
 			return true
 		case tools.WebIdentifier:
 			return wantsWeb

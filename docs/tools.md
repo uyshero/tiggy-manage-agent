@@ -52,6 +52,37 @@ Session 可通过带 `If-Match` revision 的 runtime settings 热更新：
 `make eval-filesystem-tools` 和相关 capability/tool tests，完整命令见
 [`TESTING.md`](../TESTING.md)。
 
+## 内置图片能力
+
+默认 Registry 暴露两个 Server 内置工具：
+
+- `image_generate`：通过 ShuYou `gpt-image-2` 异步任务生成或编辑图片，支持带角色的参考图和可选 mask。
+- `image_analyze`：分析工作区图片、base64 `data:image` URL 或无凭据的 HTTPS 图片 URL。
+
+`image_generate` 不经过 LLM Provider Adapter：固定调用
+`https://coder.shuyou.ai/v1/predictions`，固定模型 `gpt-image-2`，并只从当前沙箱托管环境变量读取
+`SHUYOU_API_KEY`。Runtime 自动执行 POST 创建、GET 轮询（默认每 5 秒，最长 10 分钟）、解析
+`data.output[].image`、下载所有结果并持久化为 Session artifacts。`image_analyze` 仍使用
+`is_default_vision=true` 的 `text_image` 配置模型及其 Provider 凭证。
+
+运行时对明确的图片生成/编辑请求启用 `builtin.image_generation_execution` 完成校验。若模型只
+回复“正在生成”或“马上画”而本轮没有尝试 `image_generate`，该回复不会发布给用户；校验器会把
+明确反馈送回同一 Agent Loop，要求模型先调用工具。能力咨询（例如“你会画图吗”“画图工具叫啥”）
+不触发强制调用。工具不可用时校验器也不会制造无效重试。
+
+生成提示词遵循本机最新 imagegen skill：调用方必须选择精确的 use-case taxonomy slug；Runtime
+按 `Use case`、`Asset type`、`Primary request`、`Input images`、场景、主体、风格、构图、光线、
+色彩、材质、逐字文本、约束和 Avoid 的顺序构造最终 brief。每张输入图片必须标明角色，编辑类
+use case 必须声明“只改什么、保持什么不变”。具体提示已足够详细时只做结构化整理，不自动添加
+角色、物件、品牌、口号、配色或叙事元素。最终提示词写入 Tool State，便于审计与复现。
+
+生成参数支持 `size`、`resolution`（1K/2K/4K）、`quality`、`aspect_ratio`、`output_format`、
+`output_compression` 和 1～10 张结果。参考图可使用工作区 `path`（读取后转换为 data URL）或
+公网 HTTPS `url`，mask 同样支持工作区 PNG 或 HTTPS URL。生成结果以二进制 `ExportedFiles`
+返回，由标准 Tool Artifact Recorder 写入对象存储并绑定到当前 Session。工作区输入单张上限
+20 MiB，结果下载单张上限 50 MiB；缺少密钥时返回 `shuyou_api_key_not_configured`，视觉模型
+未配置时返回 `vision_model_not_configured`。
+
 ## 进程插件
 
 Worker 用 `--plugin PATH` 或 `TMA_WORKER_PLUGINS` 加载进程插件。协议流程为：

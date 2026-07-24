@@ -34,12 +34,13 @@ func (a CompletionGate) Validate(ctx context.Context, candidate agentcore.Comple
 		return agentcore.CompletionVerdict{}, fmt.Errorf("convert completion candidate: %w", err)
 	}
 	legacy, err := a.Gate.Validate(ctx, agentruntime.CompletionCandidate{
-		SessionID: candidate.State.SessionID,
-		TurnID:    candidate.State.TurnID,
-		ToolRound: candidate.State.Round,
-		Attempt:   candidate.Attempt,
-		Response:  llm.Response{Message: responseMessage},
-		Messages:  messages,
+		SessionID:   candidate.State.SessionID,
+		TurnID:      candidate.State.TurnID,
+		ToolRound:   candidate.State.Round,
+		Attempt:     candidate.Attempt,
+		Response:    llm.Response{Message: responseMessage},
+		Messages:    messages,
+		ActiveTools: append([]string(nil), candidate.State.ActiveTools...),
 	})
 	if err != nil {
 		return agentcore.CompletionVerdict{}, fmt.Errorf("completion validator %s: %w", legacy.Validator, err)

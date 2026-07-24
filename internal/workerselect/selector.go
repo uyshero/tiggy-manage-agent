@@ -72,6 +72,9 @@ func AvailableRegistryFromWorkers(registry tools.Registry, workers []managedagen
 	}
 	registry = registryWithWorkerManifests(registry, workers, now)
 	return registry.FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
+		if manifest.Identifier == tools.ImageIdentifier && api.Implementation == tools.ToolImplementationServerBuiltin {
+			return true
+		}
 		invocation := tools.WorkInvocationFromAPI(manifest, api, runtime, nil)
 		for _, worker := range workers {
 			if !workerAvailable(worker, now) {

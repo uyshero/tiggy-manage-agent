@@ -3371,7 +3371,10 @@ func TestMetricsEndpointAndInspectorPage(t *testing.T) {
 		!strings.Contains(appJS, "提交审核") ||
 		!strings.Contains(appJS, "LLM Space") ||
 		!strings.Contains(appJS, "运行对比、数据集与批量评测") ||
+		!strings.Contains(appJS, "平台默认能力自动启用，运行时继承 Environment。") ||
 		!strings.Contains(appJS, "让 TMA 帮你构建、检查、修改或执行某项工作") ||
+		strings.Contains(appJS, "工具运行时覆盖") ||
+		strings.Contains(appJS, "打开页面、读取内容、点击输入和截图。") ||
 		strings.Contains(appJS, "TMA Inspector") ||
 		strings.Contains(appJS, "Trace ID") {
 		t.Fatalf("expected standalone user app bundle, got %q", appJS)

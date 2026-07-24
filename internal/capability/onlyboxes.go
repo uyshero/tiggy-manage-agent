@@ -779,7 +779,14 @@ func (p OnlyboxesProvider) PreviewEditFile(ctx context.Context, request EditFile
 	return result, nil
 }
 
-func (p OnlyboxesProvider) ExportArtifactFile(_ context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+func (p OnlyboxesProvider) ExportArtifactFile(ctx context.Context, request ExportArtifactFileRequest) (ExportArtifactFileResult, error) {
+	workspaceDir, err := p.workspaceDir()
+	if err != nil {
+		return ExportArtifactFileResult{}, err
+	}
+	if err := p.syncSessionFiles(ctx, workspaceDir); err != nil {
+		return ExportArtifactFileResult{}, err
+	}
 	hostPath, err := p.resolveArtifactExportPath(request)
 	if err != nil {
 		return ExportArtifactFileResult{}, err

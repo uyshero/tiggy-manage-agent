@@ -30,6 +30,9 @@ func RenderVersion(skill Skill, version Version, mode string, inputs json.RawMes
 	if skill.Description != "" {
 		fmt.Fprintf(&builder, "Description: %s\n", skill.Description)
 	}
+	if mode != ModeExamplesOnly {
+		fmt.Fprintln(&builder, "\nSkill compliance policy: When the user's request matches this enabled Skill, its frozen-version instructions are binding, not optional guidance. Follow every required tool, step, validation, prohibition, and delivery contract. Do not replace a mandated workflow or tool with an alternative unless the Skill explicitly permits it or the user approves the deviation after you explain the blocker. If a required step cannot run, report the exact blocker and stop; never claim Skill-compliant success.")
+	}
 	if mode != ModeExamplesOnly && manifest.SystemRole != "" {
 		fmt.Fprintf(&builder, "\n%s\n", manifest.SystemRole)
 	}
@@ -37,7 +40,7 @@ func RenderVersion(skill Skill, version Version, mode string, inputs json.RawMes
 		fmt.Fprintf(&builder, "\n%s\n", strings.TrimSpace(version.ContentText))
 	}
 	if mode == ModeSummary && strings.TrimSpace(version.ContentText) != "" {
-		fmt.Fprintf(&builder, "\nFull SKILL.md instructions are available on demand. Call skills_inspect with identifier %q and version %d before applying details not covered by this summary.\n", skill.Identifier, version.Version)
+		fmt.Fprintf(&builder, "\nFull SKILL.md instructions are available on demand. Before taking any task action governed by this Skill, you MUST call skills_inspect with identifier %q and version %d and read every page until has_more is false.\n", skill.Identifier, version.Version)
 	}
 	for _, block := range manifest.Blocks {
 		if !includeBlock(mode, block.Type) {

@@ -190,8 +190,12 @@ func TestAvailableRegistryFromWorkersRequiresSingleWorkerToMatchAPI(t *testing.T
 	}, tools.ToolRuntimeLocalSystem, now)
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 1 || modelTools[0].Function.Name != "default_read_file" {
-		t.Fatalf("expected only read_file to be executable by one worker, got %#v", modelTools)
+	names := map[string]bool{}
+	for _, modelTool := range modelTools {
+		names[modelTool.Function.Name] = true
+	}
+	if len(names) != 3 || !names["default_read_file"] || !names["image_generate"] || !names["image_analyze"] {
+		t.Fatalf("expected read_file plus server image tools, got %#v", names)
 	}
 	if _, _, ok := registry.GetAPI("default", "run_command"); ok {
 		t.Fatal("expected run_command to be unavailable when API and exec capability are split across workers")

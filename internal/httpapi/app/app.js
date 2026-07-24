@@ -27238,6 +27238,9 @@ function createEnvironment(body, options = {}) {
 async function environments(options = {}) {
   return { environments: await coreSDK.environments.list(options.signal) };
 }
+function environment(environmentId, options = {}) {
+  return coreSDK.environments.get(environmentId, options.signal);
+}
 async function environmentVariables(workspaceId = "") {
   return { variables: await coreSDK.environmentVariables.list(workspaceId ? { workspaceId } : {}) };
 }
@@ -29880,6 +29883,37 @@ function buildToolCallLifecycles(events2) {
   }
   return lifecycles;
 }
+function toolResultFailurePresentation(event) {
+  var _a2, _b;
+  const data = objectValue$4((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
+  const error = objectValue$4(data.error);
+  const status = String(data.status || "").trim().toLowerCase();
+  const failed = data.success === false || Object.keys(error).length > 0 || [
+    "failed",
+    "error",
+    "rejected",
+    "canceled",
+    "cancelled"
+  ].includes(status);
+  if (!failed) return null;
+  const contentResult = parseToolResultContent(data.content);
+  const contentError = objectValue$4(contentResult.error);
+  const message = firstText(
+    error.message,
+    contentError.message,
+    typeof data.error === "string" ? data.error : "",
+    data.message,
+    contentResult.message,
+    data.content,
+    (_b = event == null ? void 0 : event.payload) == null ? void 0 : _b.message,
+    "工具执行失败。"
+  );
+  return {
+    message,
+    type: firstText(error.type, error.code, contentError.type, contentError.code, data.error_type, data.reason),
+    retryable: typeof data.retryable === "boolean" ? data.retryable : void 0
+  };
+}
 function latestEvent(left, right) {
   if (!left) return right;
   return Number((right == null ? void 0 : right.seq) || 0) > Number(left.seq || 0) ? right : left;
@@ -29909,6 +29943,21 @@ function toolResultContent(content2) {
     const part = objectValue$4(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
+}
+function parseToolResultContent(content2) {
+  if (typeof content2 !== "string" || !content2.trim().startsWith("{")) return {};
+  try {
+    return objectValue$4(JSON.parse(content2));
+  } catch {
+    return {};
+  }
+}
+function firstText(...values) {
+  for (const value of values) {
+    const text2 = typeof value === "string" ? value.trim() : "";
+    if (text2) return text2;
+  }
+  return "";
 }
 function approvalSourceLabel(value) {
   const source = String(value || "").trim().toLowerCase();
@@ -30192,6 +30241,17 @@ const sessionSyncEventTypes = /* @__PURE__ */ new Set([
 function shouldSyncSessionForEvent(event) {
   const type = typeof event === "string" ? event : event == null ? void 0 : event.type;
   return sessionSyncEventTypes.has(String(type || ""));
+}
+function retainedProcessText(event) {
+  const payload2 = (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
+  const data = payload2.data && typeof payload2.data === "object" && !Array.isArray(payload2.data) ? payload2.data : {};
+  if ((event == null ? void 0 : event.type) === "runtime.progress_message") {
+    return String(data.text || "").trim();
+  }
+  if ((event == null ? void 0 : event.type) === "runtime.thinking") {
+    return String(data.text || payload2.message || payload2.summary || payload2.text || "").trim();
+  }
+  return "";
 }
 const sessionMessageQueueStorageKey = "tma.workbench.session-message-queue.v1";
 function normalizeSessionMessageQueue(value) {
@@ -32024,9 +32084,9 @@ function definePluginManifest(input) {
   if (configuration !== void 0) manifest2.configuration = configuration;
   return Object.freeze(manifest2);
 }
-function checkPluginCompatibility(input, environment) {
+function checkPluginCompatibility(input, environment2) {
   const manifest2 = definePluginManifest(input);
-  const value = objectValue$1(environment, "environment");
+  const value = objectValue$1(environment2, "environment");
   const workbenchAPIVersion = parseSemver(value.workbenchAPIVersion, "environment.workbenchAPIVersion").raw;
   const designSystemVersion = parseSemver(value.designSystemVersion, "environment.designSystemVersion").raw;
   const surface = stringValue(value.surface, "environment.surface");
@@ -32113,7 +32173,7 @@ function permissionList(value) {
 }
 function createStaticPluginRegistry(options) {
   if (!options || typeof options !== "object") throw new PluginRuntimeError("invalid_options", "Plugin Runtime options are required.");
-  const environment = Object.freeze({
+  const environment2 = Object.freeze({
     workbenchAPIVersion: options.workbenchAPIVersion,
     designSystemVersion: options.designSystemVersion,
     surface: options.surface
@@ -32138,7 +32198,7 @@ function createStaticPluginRegistry(options) {
     if (!pluginPackage || typeof pluginPackage !== "object" || Array.isArray(pluginPackage)) {
       throw new PluginRuntimeError("invalid_package", "Static plugin package must be an object.");
     }
-    const compatibility = checkPluginCompatibility(pluginPackage.manifest, environment);
+    const compatibility = checkPluginCompatibility(pluginPackage.manifest, environment2);
     const manifest2 = compatibility.manifest;
     const enablement = options.evaluateEnablement ? options.evaluateEnablement(pluginPackage, options.scope) : evaluatePluginEnablement(pluginPackage.enablement, options.scope);
     if (records.has(manifest2.id)) throw new PluginRuntimeError("plugin_exists", `Plugin ${manifest2.id} is already registered.`);
@@ -34081,11 +34141,30 @@ function toolSummary({ identifier, apiName, args = {}, reason = "", success, sou
   };
 }
 const builtinToolNamespaces = [
-  { key: "default", title: "默认工具", description: "文件读写、命令执行和代码运行。" },
-  { key: "browser", title: "浏览器工具", description: "打开页面、读取内容、点击输入和截图。" },
-  { key: "web", title: "网页检索", description: "搜索公开网页并抓取页面正文。" },
-  { key: "agent", title: "子智能体", description: "派生子任务、等待结果、收集输出。" },
-  { key: "skills", title: "技能工具", description: "检索技能、查看技能和读取技能资产。" }
+  {
+    key: "default",
+    title: "默认工具",
+    description: "命令执行、文件查找、读取、检索、写入和编辑。",
+    apis: ["run_command", "read_file", "find_files", "search_files", "write_file", "edit_file"]
+  },
+  {
+    key: "web",
+    title: "网页检索",
+    description: "搜索公开网页并抓取页面正文。",
+    apis: ["search", "crawl"]
+  },
+  {
+    key: "agent",
+    title: "子智能体",
+    description: "创建子会话、传递任务、等待结果，以及分组和讨论协作。",
+    apis: ["spawn", "create_session", "send_message", "get_session", "wait", "collect_result", "list_events", "stream_events", "approve_tool", "reject_tool", "cancel_start", "run_group", "list_group_templates", "get_group", "wait_group", "collect_group", "cancel_group", "retry_group_item", "retry_group", "start_discussion", "list_discussion_strategies", "get_discussion", "wait_discussion", "collect_discussion", "cancel_discussion", "retry_discussion_participant", "archive_session"]
+  },
+  {
+    key: "skills",
+    title: "技能工具",
+    description: "查找、检查、安装、启用和读取技能资产。",
+    apis: ["search", "inspect", "discover", "preview", "read_asset", "install", "enable", "disable"]
+  }
 ];
 function parseToolPolicy(raw) {
   if (!raw) return { explicit: false, enabledToolPatterns: [], permissionRules: [], runtime: "" };
@@ -34165,9 +34244,15 @@ function parseMCPServers(raw) {
     };
   }).filter(Boolean);
 }
-function toolNamespaceEnabled(namespace, policy) {
-  if (!policy.explicit) return true;
-  return policy.enabledToolPatterns.some((pattern) => pattern === namespace || pattern.startsWith(`${namespace}_`));
+function registeredBuiltinToolAPI(pattern) {
+  const value = String(pattern || "").trim();
+  for (const namespace of builtinToolNamespaces) {
+    const prefix = `${namespace.key}_`;
+    if (!value.startsWith(prefix)) continue;
+    const apiName = value.slice(prefix.length);
+    return namespace.apis.includes(apiName) ? { apiName, namespace } : null;
+  }
+  return null;
 }
 function runtimeSupportsToolItem(identifier, runtime) {
   const normalizedRuntime = String(runtime).trim() || "cloud_sandbox";
@@ -34202,39 +34287,23 @@ function toolingHostMetric(host, field) {
   return Number.isFinite(value) && value >= 0 ? value : 0;
 }
 function buildToolingCatalog({ config, installedSkills, preferredRuntime }) {
-  const toolPolicy = parseToolPolicy(config == null ? void 0 : config.tools);
   const skillsConfig = parseSkillsConfig(config == null ? void 0 : config.skills);
   const mcpServers2 = parseMCPServers(config == null ? void 0 : config.mcp);
   const enabledSkillMap = new Map(skillsConfig.enabled.map((item) => [item.skill, item]));
   const toolItems = [];
   for (const namespace of builtinToolNamespaces) {
-    const enabled = toolNamespaceEnabled(namespace.key, toolPolicy);
-    const selectable = enabled && runtimeSupportsToolItem(namespace.key, preferredRuntime);
+    const selectable = runtimeSupportsToolItem(namespace.key, preferredRuntime);
+    if (!selectable) continue;
     toolItems.push({
       category: "tools",
-      description: enabled ? namespace.description : "当前智能体配置未启用这个工具命名空间。",
-      disabledReason: enabled ? "" : "未在当前智能体工具配置中启用",
+      description: `${namespace.description} API：${namespace.apis.join("、")}`,
+      disabledReason: "",
       key: `tool-namespace:${namespace.key}`,
       kind: "tool_namespace",
       name: namespace.key,
-      selectable,
-      status: selectable ? "available" : "disabled",
+      selectable: true,
+      status: "available",
       title: namespace.title
-    });
-  }
-  for (const pattern of toolPolicy.enabledToolPatterns) {
-    if (!pattern.includes(".")) continue;
-    const selectable = runtimeSupportsToolItem(pattern, preferredRuntime);
-    toolItems.push({
-      category: "tools",
-      description: "当前智能体显式配置的工具 API。",
-      disabledReason: selectable ? "" : "当前运行环境下不可用",
-      key: `tool-api:${pattern}`,
-      kind: "tool_api",
-      name: pattern,
-      selectable,
-      status: selectable ? "available" : "disabled",
-      title: pattern
     });
   }
   const knownSkillKeys = /* @__PURE__ */ new Set();
@@ -34296,10 +34365,19 @@ function buildToolingCatalog({ config, installedSkills, preferredRuntime }) {
 function buildGuidedTaskMessage(task, selectedItems) {
   const text2 = String(task || "").trim();
   if (!selectedItems.length) return text2;
-  const lines = selectedItems.map((item) => `- ${toolingGuidanceLabel(item)}`);
+  const skills2 = selectedItems.filter((item) => item.kind === "skill");
+  const capabilities = selectedItems.filter((item) => item.kind !== "skill");
   return [
-    "请优先考虑使用以下已选择的能力来完成这次任务；如果其中某项并不适合当前问题，就忽略它，按最佳方案继续：",
-    ...lines,
+    ...skills2.length ? [
+      "用户明确选择了以下 Skill。若任务与其描述匹配，必须先用 skills_inspect 读取冻结版本的完整说明并严格执行。不得擅自绕过或替换其中要求的工具、步骤、验证、禁止项和交付契约；如有步骤无法执行，必须说明具体阻塞并停止，等待用户决定，不得用替代流程冒充成功：",
+      ...skills2.map((item) => `- ${toolingGuidanceLabel(item)}`),
+      ""
+    ] : [],
+    ...capabilities.length ? [
+      "请优先考虑使用以下已选择的能力；只有确认与当前任务不匹配时才可忽略：",
+      ...capabilities.map((item) => `- ${toolingGuidanceLabel(item)}`),
+      ""
+    ] : [],
     "",
     "用户原始请求：",
     text2
@@ -35205,7 +35283,6 @@ function editableMCPBindings(raw) {
 function agentEditorDraft(agent2) {
   const config = (agent2 == null ? void 0 : agent2.config_version) || {};
   const toolPolicy = parseToolPolicy(config.tools);
-  const enabledNamespaces = toolPolicy.explicit ? builtinToolNamespaces.filter((item) => toolNamespaceEnabled(item.key, toolPolicy)).map((item) => item.key) : builtinToolNamespaces.map((item) => item.key);
   const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
   return {
     environmentID: (agent2 == null ? void 0 : agent2.environment_id) || "",
@@ -35215,25 +35292,39 @@ function agentEditorDraft(agent2) {
     mcpServers: editableMCPServers(config.mcp),
     name: (agent2 == null ? void 0 : agent2.name) || "",
     selectedSkills: parseSkillsConfig(config.skills).enabled.map((item) => item.skill),
-    selectedTools: enabledNamespaces,
     system: config.system || "",
     permissionRules: toolPolicy.permissionRules,
-    toolPatterns: toolPolicy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern)),
-    toolRuntime: toolPolicy.runtime || ""
+    toolPatterns: toolPolicy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern))
   };
 }
 function userSelectableEnvironments(response) {
-  return ((response == null ? void 0 : response.environments) || []).filter((environment) => {
+  return ((response == null ? void 0 : response.environments) || []).filter((environment2) => {
     var _a2;
-    return !((_a2 = environment == null ? void 0 : environment.config) == null ? void 0 : _a2.managed_by);
+    return !((_a2 = environment2 == null ? void 0 : environment2.config) == null ? void 0 : _a2.managed_by);
   });
 }
+function environmentRuntimeDescription(environment2) {
+  const config = objectValue(environment2 == null ? void 0 : environment2.config);
+  const runtimeSettings = objectValue(config.runtime_settings);
+  const networking = objectValue(config.networking);
+  const runtime = String(runtimeSettings.tool_runtime || config.tool_runtime || config.type || "").trim();
+  const details = [];
+  if (runtime === "cloud" || runtime === "cloud_sandbox") details.push("Cloud Sandbox");
+  else if (runtime === "local_system") details.push("本地系统");
+  else if (runtime) details.push(runtime);
+  if (runtimeSettings.cloud_sandbox_allow_network === true) details.push("可访问网络");
+  else if (runtimeSettings.cloud_sandbox_allow_network === false) details.push("禁止网络");
+  else if (networking.type === "limited") details.push("受限网络");
+  else if (networking.type) details.push(String(networking.type));
+  const image2 = String(runtimeSettings.cloud_sandbox_image || config.cloud_sandbox_image || "").trim();
+  if (image2) details.push(image2);
+  return details.join(" · ");
+}
 function agentConfigVersionMetrics(version2) {
-  const toolPolicy = parseToolPolicy(version2 == null ? void 0 : version2.tools);
   return {
     mcp: editableMCPServers(version2 == null ? void 0 : version2.mcp).filter((server) => !server.disabled).length + editableMCPBindings(version2 == null ? void 0 : version2.mcp).length,
     skills: parseSkillsConfig(version2 == null ? void 0 : version2.skills).enabled.length,
-    tools: toolPolicy.explicit ? toolPolicy.enabledToolPatterns.length : builtinToolNamespaces.length
+    tools: builtinToolNamespaces.length
   };
 }
 function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mcpRegistryServers = [], modelOptions, onRollback, onSave, rollingBackVersion, saving, skills: skills2 }) {
@@ -35302,7 +35393,7 @@ function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mc
   if (!agent2) return /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "请先选择一个智能体。" });
   const configuredSkillBindings = new Map(parseSkillsConfig((_a2 = agent2.config_version) == null ? void 0 : _a2.skills).enabled.map((binding) => [binding.skill, binding]));
   const configuredSkillVersions = new Map([...configuredSkillBindings].map(([identifier, binding]) => [identifier, binding.version]));
-  const environmentOptions = environments2.some((environment) => environment.id === draft.environmentID) || !draft.environmentID ? environments2 : [{ id: draft.environmentID, name: draft.environmentID }, ...environments2];
+  const environmentOptions = environments2.some((environment2) => environment2.id === draft.environmentID) || !draft.environmentID ? environments2 : [{ id: draft.environmentID, name: draft.environmentID }, ...environments2];
   const installedSkillIDs = new Set(skills2.map((skill) => skill.identifier));
   const skillOptions = [
     ...skills2.map((skill) => ({
@@ -35366,7 +35457,7 @@ function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mc
         llm_provider: draft.llmProvider,
         llm_model: draft.llmModel,
         system: draft.system,
-        tools: { enabled_tools: [...draft.selectedTools, ...draft.toolPatterns], permission_rules: draft.permissionRules, ...draft.toolRuntime ? { runtime: draft.toolRuntime } : {} },
+        tools: { enabled_tools: [...builtinToolNamespaces.map((item) => item.key), ...draft.toolPatterns.filter((pattern) => registeredBuiltinToolAPI(pattern))], permission_rules: draft.permissionRules },
         skills: { enabled: enabledSkills },
         mcp: { bindings: draft.mcpBindings, servers: draft.mcpServers.filter((server) => {
           const identifier = String(server.identifier || server.id || server.name || "").trim();
@@ -35412,7 +35503,7 @@ function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mc
         setDraft((current) => ({ ...current, environmentID: event.target.value }));
       }, children: [
         !environmentOptions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "尚未配置运行环境" }) : null,
-        environmentOptions.map((environment) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment.id, children: environment.name }, environment.id))
+        environmentOptions.map((environment2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment2.id, children: environment2.name }, environment2.id))
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
@@ -35422,29 +35513,27 @@ function AgentConfigEditor({ agent: agent2, environments: environments2 = [], mc
     /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "agent-editor-section", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-editor-section-head", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Tools" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: "控制该 Agent 默认可调用的工具命名空间。" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "工具" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "subtle", children: "平台默认能力自动启用，运行时继承 Environment。" })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "agent-editor-count", children: [
-          draft.selectedTools.length,
-          "/",
-          builtinToolNamespaces.length
+          "默认 ",
+          builtinToolNamespaces.length,
+          " 项"
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field agent-runtime-field", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工具运行时覆盖" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: draft.toolRuntime, onChange: (event) => setDraft((current) => ({ ...current, toolRuntime: event.target.value })), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "继承 Environment" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "auto", children: "服务器默认" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "cloud_sandbox", children: "Sandbox" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "local_system", children: "Local" })
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-option-grid", children: builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-option", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: draft.selectedTools.includes(item.key), onChange: () => toggleListValue("selectedTools", item.key) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-option-grid", children: builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-option platform-default", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: true, disabled: true, readOnly: true }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.title }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.description })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
+            item.title,
+            /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: "平台默认" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.description }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+            "API：",
+            item.apis.join("、")
+          ] })
         ] })
       ] }, item.key)) })
     ] }),
@@ -37082,9 +37171,9 @@ function SettingsPage({
   const selectedAgentModel = (selectedAgent == null ? void 0 : selectedAgent.config_version) ? `${selectedAgent.config_version.llm_provider || ""}::${selectedAgent.config_version.llm_model || ""}` : "";
   const defaultCreateModel = modelOptions.some((option) => `${option.llmProvider}::${option.llmModel}` === selectedAgentModel) ? selectedAgentModel : modelOptions[0] ? `${modelOptions[0].llmProvider}::${modelOptions[0].llmModel}` : "";
   const agentCreateModelValue = agentCreateModel || defaultCreateModel;
-  const defaultCreateEnvironment = availableEnvironments.some((environment) => environment.id === (selectedAgent == null ? void 0 : selectedAgent.environment_id)) ? selectedAgent.environment_id : ((_d = availableEnvironments[0]) == null ? void 0 : _d.id) || "";
+  const defaultCreateEnvironment = availableEnvironments.some((environment2) => environment2.id === (selectedAgent == null ? void 0 : selectedAgent.environment_id)) ? selectedAgent.environment_id : ((_d = availableEnvironments[0]) == null ? void 0 : _d.id) || "";
   const agentCreateEnvironmentValue = agentCreateEnvironment || defaultCreateEnvironment;
-  const environmentsByID = new Map(availableEnvironments.map((environment) => [environment.id, environment]));
+  const environmentsByID = new Map(availableEnvironments.map((environment2) => [environment2.id, environment2]));
   const healthItems = [...healthReport.mcp || [], ...healthReport.skills || []];
   const healthyCount = healthItems.filter((item) => item.status === "online").length;
   const unhealthyCount = healthItems.filter((item) => item.status !== "online").length;
@@ -37221,43 +37310,21 @@ function SettingsPage({
       setHealthChecking("");
     }
   }
-  async function updateAgentToolPermission(agent2, namespace, enabled) {
-    var _a3, _b2;
-    const policy = parseToolPolicy((_a3 = agent2.config_version) == null ? void 0 : _a3.tools);
-    const existingTools = ((_b2 = agent2.config_version) == null ? void 0 : _b2.tools) && typeof agent2.config_version.tools === "object" && !Array.isArray(agent2.config_version.tools) ? agent2.config_version.tools : {};
-    const namespaceKeys = new Set(builtinToolNamespaces.map((item) => item.key));
-    const customPatterns = policy.enabledToolPatterns.filter((pattern) => !namespaceKeys.has(pattern) && !builtinToolNamespaces.some((item) => pattern.startsWith(`${item.key}.`)));
-    const enabledNamespaces = builtinToolNamespaces.filter((item) => item.key === namespace ? enabled : toolNamespaceEnabled(item.key, policy)).map((item) => item.key);
-    const key = `${agent2.id}:${namespace}`;
-    setAgentPermissionBusy(key);
-    setAgentPermissionError("");
-    try {
-      await onUpdateAgentPermissions(agent2.id, {
-        ...existingTools,
-        enabled_tools: [...enabledNamespaces, ...customPatterns],
-        permission_rules: policy.permissionRules,
-        ...policy.runtime ? { runtime: policy.runtime } : {}
-      });
-    } catch (error) {
-      setAgentPermissionError(error.message);
-    } finally {
-      setAgentPermissionBusy("");
-    }
-  }
   async function saveAgentPathRules() {
     var _a3, _b2;
     if (!(selectedAgent == null ? void 0 : selectedAgent.id)) return;
     const policy = parseToolPolicy((_a3 = selectedAgent.config_version) == null ? void 0 : _a3.tools);
     const existingTools = ((_b2 = selectedAgent.config_version) == null ? void 0 : _b2.tools) && typeof selectedAgent.config_version.tools === "object" && !Array.isArray(selectedAgent.config_version.tools) ? selectedAgent.config_version.tools : {};
-    const enabledTools = policy.explicit ? policy.enabledToolPatterns : builtinToolNamespaces.map((item) => item.key);
+    const { runtime: _legacyRuntime, ...inheritedRuntimeTools } = existingTools;
+    const customPatterns = policy.enabledToolPatterns.filter((pattern) => registeredBuiltinToolAPI(pattern));
+    const enabledTools = [...builtinToolNamespaces.map((item) => item.key), ...customPatterns];
     setAgentPermissionBusy("agent-path-rules");
     setAgentPermissionError("");
     try {
       await onUpdateAgentPermissions(selectedAgent.id, {
-        ...existingTools,
+        ...inheritedRuntimeTools,
         enabled_tools: enabledTools,
-        permission_rules: agentPathRules,
-        ...policy.runtime ? { runtime: policy.runtime } : {}
+        permission_rules: agentPathRules
       });
     } catch (error) {
       setAgentPermissionError(error.message);
@@ -37726,19 +37793,19 @@ function SettingsPage({
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "运行环境" }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: agentCreateEnvironmentValue, onChange: (event) => setAgentCreateEnvironment(event.target.value), children: [
                 !availableEnvironments.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "尚未配置运行环境" }) : null,
-                availableEnvironments.map((environment) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment.id, children: environment.name }, environment.id))
+                availableEnvironments.map((environment2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: environment2.id, children: environment2.name }, environment2.id))
               ] })
             ] }),
             !availableEnvironments.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: environmentCreateBusy, onClick: async () => {
               setEnvironmentCreateBusy(true);
               setAgentCreateError("");
               try {
-                const environment = await createEnvironment({
+                const environment2 = await createEnvironment({
                   name: "通用 Sandbox",
                   config: { runtime_settings: { tool_runtime: "cloud_sandbox" } }
                 });
-                setAvailableEnvironments([environment]);
-                setAgentCreateEnvironment(environment.id);
+                setAvailableEnvironments([environment2]);
+                setAgentCreateEnvironment(environment2.id);
               } catch (error) {
                 setAgentCreateError(error.message);
               } finally {
@@ -37809,36 +37876,27 @@ function SettingsPage({
                   /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: "Agent" }),
                   builtinToolNamespaces.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("th", { scope: "col", children: item.title }, item.key))
                 ] }) }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: agents2.map((agent2) => {
-                  var _a4;
-                  const policy = parseToolPolicy((_a4 = agent2.config_version) == null ? void 0 : _a4.tools);
-                  return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: agent2.id === (selectedAgent == null ? void 0 : selectedAgent.id) ? "current" : "", children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsxs("th", { scope: "row", children: [
-                      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: agent2.name || agent2.id }),
-                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-                        "版本 #",
-                        agent2.current_config_version || 1
-                      ] })
-                    ] }),
-                    builtinToolNamespaces.map((item) => {
-                      const checked = toolNamespaceEnabled(item.key, policy);
-                      const busy = agentPermissionBusy === `${agent2.id}:${item.key}`;
-                      return /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
-                        /* @__PURE__ */ jsxRuntimeExports.jsx(
-                          "input",
-                          {
-                            type: "checkbox",
-                            "aria-label": `允许 ${agent2.name || agent2.id} 使用 ${item.title}`,
-                            checked,
-                            disabled: Boolean(agentPermissionBusy),
-                            onChange: (event) => updateAgentToolPermission(agent2, item.key, event.target.checked)
-                          }
-                        ),
-                        busy ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "agent-permission-saving", children: "保存中" }) : null
-                      ] }, item.key);
-                    })
-                  ] }, agent2.id);
-                }) })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: agents2.map((agent2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { className: agent2.id === (selectedAgent == null ? void 0 : selectedAgent.id) ? "current" : "", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("th", { scope: "row", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: agent2.name || agent2.id }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                      "版本 #",
+                      agent2.current_config_version || 1
+                    ] })
+                  ] }),
+                  builtinToolNamespaces.map((item) => {
+                    return /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "input",
+                      {
+                        type: "checkbox",
+                        "aria-label": `${agent2.name || agent2.id} 的${item.title}为平台默认能力`,
+                        checked: true,
+                        disabled: true,
+                        readOnly: true
+                      }
+                    ) }, item.key);
+                  })
+                ] }, agent2.id)) })
               ] }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "工作区里还没有智能体。" })
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-card permission-policy-card", children: [
@@ -38300,7 +38358,7 @@ const chatTimelineInternalEventTypes = /* @__PURE__ */ new Set([
   "intervention.required",
   "intervention.resolved"
 ]);
-function compactChatTimelineEvents(sourceEvents, { includeThinking = true, thinkingAfterSeq = 0 } = {}) {
+function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = true, transientThinkingAfterSeq = 0 } = {}) {
   const sorted = [...sourceEvents || []].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
   const compacted = [];
@@ -38308,7 +38366,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
   function flushInternalEvents() {
     var _a2;
     if (!internalEvents.length) return;
-    if (!includeThinking || Number(internalEvents.at(-1).seq || 0) <= Number(thinkingAfterSeq || 0)) {
+    if (!includeTransientThinking || Number(internalEvents.at(-1).seq || 0) <= Number(transientThinkingAfterSeq || 0)) {
       internalEvents = [];
       return;
     }
@@ -38339,7 +38397,7 @@ function compactChatTimelineEvents(sourceEvents, { includeThinking = true, think
     }
     if (event.type === "runtime.thinking") {
       internalEvents = [];
-      if (!includeThinking || Number(event.seq || 0) <= Number(thinkingAfterSeq || 0)) continue;
+      if (!retainedProcessText(event)) continue;
       compacted.push(event);
       continue;
     }
@@ -38864,6 +38922,7 @@ function ProcessEventCard({
   let defaultExpanded = false;
   const lifecycleResult = toolLifecycle == null ? void 0 : toolLifecycle.result;
   const lifecycleResultData = eventData(lifecycleResult);
+  const lifecycleFailure = toolResultFailurePresentation(lifecycleResult);
   const lifecycleRejected = ((_a2 = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _a2.type) === "runtime.tool_intervention_rejected";
   const lifecycleApproved = ((_b = toolLifecycle == null ? void 0 : toolLifecycle.decision) == null ? void 0 : _b.type) === "runtime.tool_intervention_approved";
   const requiredData = eventData(toolLifecycle == null ? void 0 : toolLifecycle.required);
@@ -38881,7 +38940,7 @@ function ProcessEventCard({
   } else if (event.type === "runtime.thinking") {
     title = active ? "思考中" : "思考";
     metaLabel = "思考";
-    preview = turnActivityLabel(event) || "正在准备下一步。";
+    preview = retainedProcessText(event) || turnActivityLabel(event) || "正在准备下一步。";
     tone = "tool";
     status = active ? "running" : "completed";
     statusLabel = active ? "进行中" : "完成";
@@ -38920,6 +38979,26 @@ function ProcessEventCard({
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
       statusLabel = lifecycleResultData.success === false ? "失败" : "完成";
+      if (lifecycleFailure) {
+        const lifecycleError = objectValue(lifecycleResultData.error);
+        preview = shortText(lifecycleFailure.message, 480);
+        contextItems = [
+          ...contextItems,
+          ...lifecycleFailure.type ? [{ label: "错误类型", value: lifecycleFailure.type }] : []
+        ];
+        detailObject = {
+          ...detailObject,
+          result: {
+            success: false,
+            status: lifecycleResultData.status || void 0,
+            retryable: lifecycleFailure.retryable,
+            reason: lifecycleResultData.reason || void 0,
+            content: lifecycleResultData.content || void 0,
+            state: Object.keys(objectValue(lifecycleResultData.state)).length ? lifecycleResultData.state : void 0,
+            error: Object.keys(lifecycleError).length ? lifecycleError : { message: lifecycleFailure.message }
+          }
+        };
+      }
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
@@ -39477,6 +39556,7 @@ function WorkbenchApp() {
   const [modelOptions, setModelOptions] = reactExports.useState([]);
   const [defaultAgentConfig, setDefaultAgentConfig] = reactExports.useState(null);
   const [availableAgents, setAvailableAgents] = reactExports.useState([]);
+  const [workbenchEnvironments, setWorkbenchEnvironments] = reactExports.useState([]);
   const [taskHoverPreview, setTaskHoverPreview] = reactExports.useState(null);
   const [settingsDraft, setSettingsDraft] = reactExports.useState({
     humanInteractionEnabled: true,
@@ -39562,6 +39642,23 @@ function WorkbenchApp() {
   }, []);
   function isCurrentSession(value) {
     return String(sessionIDRef.current || "").trim() === String(value || "").trim();
+  }
+  function switchSessionView(nextSession, waitingForSession = false) {
+    const nextSessionID = String((nextSession == null ? void 0 : nextSession.id) || "").trim();
+    sessionLoadRequestRef.current += 1;
+    sessionIDRef.current = nextSessionID;
+    setSessionID(nextSessionID);
+    setSessionMeta(nextSession || null);
+    setEventsResponse({ events: [] });
+    setTaskPlanResponse({ plan: null });
+    setInterventionResponse({ interventions: [] });
+    setArtifactResponse({ artifacts: [] });
+    setLiveReply(nextSessionID ? sessionLiveRepliesRef.current.get(nextSessionID) || null : null);
+    setLiveToolProgress(null);
+    setWaitingForReply(waitingForSession);
+    setApprovalsOpen(false);
+    pendingApprovalCountRef.current = 0;
+    eventStreamCursorRef.current = 0;
   }
   function mergeCurrentSessionEvents(value, nextEvents) {
     if (!isCurrentSession(value)) return false;
@@ -39683,10 +39780,11 @@ function WorkbenchApp() {
     setWorkflowRun((restored == null ? void 0 : restored.sessionID) === sessionID ? restored : null);
   }, [sessionID]);
   async function loadPreSessionDefaults() {
-    const [defaultAgent$1, agentsResponse, providersResponse] = await Promise.all([
+    const [defaultAgent$1, agentsResponse, providersResponse, environmentsResponse] = await Promise.all([
       defaultAgent(),
       agents(),
-      llmProviders()
+      llmProviders(),
+      environments()
     ]);
     const sortedAgents = sortAvailableAgents(agentsResponse.agents, defaultAgent$1.id);
     const enabledProviders = (providersResponse.providers || []).filter((provider) => provider.enabled !== false);
@@ -39700,6 +39798,7 @@ function WorkbenchApp() {
     })));
     setDefaultAgentConfig(defaultAgent$1);
     setAvailableAgents(sortedAgents);
+    setWorkbenchEnvironments(environmentsResponse.environments || []);
     setAgentID((current) => current || defaultAgent$1.id);
     setModelOptions(options);
     const skillsResponse = await skills({ workspaceId: defaultAgent$1.workspace_id }).catch(() => ({ skills: [] }));
@@ -39721,8 +39820,8 @@ function WorkbenchApp() {
   const conversationEvents = reactExports.useMemo(() => events$1.filter((event) => event.type === "user.message" || event.type === "agent.message").sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0)), [events$1]);
   const chatTimelineEvents = reactExports.useMemo(() => {
     const timelineStatus = latestSessionStatus(events$1, sessionMeta == null ? void 0 : sessionMeta.status);
-    const includeThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
-    const thinkingAfterSeq = events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
+    const includeTransientThinking = ["provisioning", "running", "interrupting", "compacting"].includes(timelineStatus);
+    const transientThinkingAfterSeq = events$1.reduce((maximum, event) => event.type === "user.message" ? Math.max(maximum, Number(event.seq || 0)) : maximum, 0);
     return compactChatTimelineEvents([...toolTimelineEvents].filter((event) => {
       if (event.type === "user.message" || event.type === "user.steer") return true;
       if (event.type === "agent.message") return hasVisibleAgentText(event);
@@ -39739,7 +39838,7 @@ function WorkbenchApp() {
         "runtime.plan_approval_rejected",
         "runtime.failed"
       ].includes(event.type);
-    }), { includeThinking, thinkingAfterSeq });
+    }), { includeTransientThinking, transientThinkingAfterSeq });
   }, [events$1, sessionMeta == null ? void 0 : sessionMeta.status, toolTimelineEvents]);
   const latestSuccessfulSkillInstallSeq = reactExports.useMemo(() => {
     const event = [...events$1].reverse().find((item) => {
@@ -39838,6 +39937,10 @@ function WorkbenchApp() {
   const selectedModelValue = settingsDraft.llmProvider && settingsDraft.llmModel ? `${settingsDraft.llmProvider}::${settingsDraft.llmModel}` : "";
   const selectedAgentValue = agentID || (defaultAgentConfig == null ? void 0 : defaultAgentConfig.id) || "";
   const selectedAgent = availableAgents.find((agent2) => agent2.id === selectedAgentValue) || defaultAgentConfig;
+  const currentEnvironmentID = String((sessionMeta == null ? void 0 : sessionMeta.environment_id) || (selectedAgent == null ? void 0 : selectedAgent.environment_id) || "").trim();
+  const currentEnvironment = workbenchEnvironments.find((environment2) => environment2.id === currentEnvironmentID) || null;
+  const currentEnvironmentName = (currentEnvironment == null ? void 0 : currentEnvironment.name) || currentEnvironmentID || "未绑定运行环境";
+  const currentEnvironmentDetails = environmentRuntimeDescription(currentEnvironment);
   const selectedTaskTemplate = taskTemplates$1.find((template) => template.id === selectedTaskTemplateID) || null;
   const toolingConfig = sessionID ? runtimeConfig : (selectedAgent == null ? void 0 : selectedAgent.config_version) || null;
   const toolingWorkspaceID = String((sessionMeta == null ? void 0 : sessionMeta.workspace_id) || (runtimeConfig == null ? void 0 : runtimeConfig.workspace_id) || (selectedAgent == null ? void 0 : selectedAgent.workspace_id) || (defaultAgentConfig == null ? void 0 : defaultAgentConfig.workspace_id) || "").trim();
@@ -39949,12 +40052,16 @@ function WorkbenchApp() {
       interventions(value, "pending").catch((error) => ({ interventions: [], error: String(error) })),
       artifacts(value).catch((error) => ({ artifacts: [], error: String(error) }))
     ]);
+    const nextEnvironment = !nextSession.error && nextSession.environment_id ? await environment(nextSession.environment_id).catch(() => null) : null;
     if (requestID !== sessionLoadRequestRef.current) return { stale: true };
     if (!isCurrentSession(value)) return { stale: true };
     if (nextEvents.error) throw new Error(nextEvents.error);
     setSessionMeta(nextSession);
     if (!nextSession.error) {
       setAgentID(nextSession.agent_id || "");
+    }
+    if (nextEnvironment) {
+      setWorkbenchEnvironments((current) => [nextEnvironment, ...current.filter((environment2) => environment2.id !== nextEnvironment.id)]);
     }
     eventStreamCursorRef.current = maxSeq(nextEvents.events || []);
     sessionEventCursorsRef.current.set(value, eventStreamCursorRef.current);
@@ -40610,11 +40717,11 @@ function WorkbenchApp() {
     let legacyEnvironmentID = "";
     if (!agent$1.environment_id) {
       const response = await environments();
-      const environment = userSelectableEnvironments(response)[0] || await createEnvironment({
+      const environment2 = userSelectableEnvironments(response)[0] || await createEnvironment({
         name: "Workbench Environment",
         config: { type: "cloud" }
       });
-      legacyEnvironmentID = environment.id;
+      legacyEnvironmentID = environment2.id;
     }
     const session2 = await createSession({
       agent_id: agent$1.id,
@@ -40622,10 +40729,7 @@ function WorkbenchApp() {
       title: task.trim() ? task.trim().slice(0, 80) : ((_a3 = composerFiles[0]) == null ? void 0 : _a3.file.name) || ((_b2 = composerLibraryItems[0]) == null ? void 0 : _b2.name) || "New workbench task"
     });
     setAgentID(agent$1.id);
-    sessionLoadRequestRef.current += 1;
-    sessionIDRef.current = session2.id;
-    setSessionID(session2.id);
-    setSessionMeta(session2);
+    switchSessionView(session2);
     rememberSession(session2.id);
     setRecentSessions((current) => [session2, ...current.filter((item) => item.id !== session2.id)]);
     const shouldApplyInitialSettings = Boolean(
@@ -41408,10 +41512,10 @@ function WorkbenchApp() {
     setComposerFiles([]);
     setComposerLibraryItems([]);
     setToolPickerOpen(false);
-    setLiveReply(sessionLiveRepliesRef.current.get(session2.id) || null);
-    setWaitingForReply(["provisioning", "running", "interrupting"].includes(String(session2.status || "")));
-    sessionIDRef.current = session2.id;
-    setSessionID(session2.id);
+    switchSessionView(
+      session2,
+      ["provisioning", "running", "interrupting"].includes(String(session2.status || ""))
+    );
     setAgentID(session2.agent_id || "");
     rememberSession(session2.id);
     const loaded = await loadSession(session2.id);
@@ -42120,7 +42224,7 @@ function WorkbenchApp() {
               /* @__PURE__ */ jsxRuntimeExports.jsx(WorkflowProgress, { run: workflowRun, onStop: () => stopWorkflowRun().catch((error) => setStatus(error.message)) }),
               renderedChatTimelineEvents.length ? renderedChatTimelineEvents.map((event, eventIndex) => {
                 if (event.type === "runtime.progress_message") {
-                  const progressText = String(eventData(event).text || "").trim();
+                  const progressText = retainedProcessText(event);
                   return progressText ? /* @__PURE__ */ jsxRuntimeExports.jsx("article", { "aria-label": "通用智能体过程更新", className: "agent-progress-message", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: progressText }) }, `${event.seq}-${event.type}`) : null;
                 }
                 if (event.type === "user.message" || event.type === "user.steer" || event.type === "agent.message" || event.type === "agent.streaming") {
@@ -42387,6 +42491,19 @@ function WorkbenchApp() {
                       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: toolingGuidanceLabel(item) }),
                       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "×" })
                     ] }, item.key)) }) : null,
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                      "div",
+                      {
+                        className: "composer-environment-readonly",
+                        "aria-label": "当前运行环境",
+                        title: currentEnvironmentID ? `环境 ID：${currentEnvironmentID}` : "当前智能体未绑定运行环境",
+                        children: [
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "composer-environment-label", children: "环境" }),
+                          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: currentEnvironmentName }),
+                          currentEnvironmentDetails ? /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: currentEnvironmentDetails }) : null
+                        ]
+                      }
+                    ),
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "composer-toolbar", children: [
                       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "composer-settings-inline", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `composer-runtime-settings ${mobileRuntimeSettingsOpen ? "open" : ""}`, children: [
                         /* @__PURE__ */ jsxRuntimeExports.jsxs(

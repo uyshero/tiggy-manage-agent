@@ -142,8 +142,8 @@ func TestResolveToolExecutionUsesWorkerBackedProviderForMatchingWorker(t *testin
 	if _, ok := resolved.Context.Provider.(WorkerBackedProvider); !ok {
 		t.Fatalf("expected worker-backed provider, got %T", resolved.Context.Provider)
 	}
-	if got := len(resolved.Registry.ModelTools()); got != 1 {
-		t.Fatalf("expected only matching worker tool to be visible, got %d", got)
+	if got := len(resolved.Registry.ModelTools()); got != 3 {
+		t.Fatalf("expected matching worker tool plus server image tools to be visible, got %d", got)
 	}
 	if store.listInput.WorkspaceID != "wksp_default" || store.listInput.Status != managedagents.WorkerStatusOnline {
 		t.Fatalf("unexpected worker list input: %#v", store.listInput)
@@ -183,8 +183,12 @@ func TestResolveToolExecutionExposesWorkerPluginManifest(t *testing.T) {
 		t.Fatal("expected plugin tool to use worker-backed provider")
 	}
 	modelTools := resolved.Registry.ModelTools()
-	if len(modelTools) != 1 || modelTools[0].Function.Name != "robot_get_state" {
-		t.Fatalf("expected plugin model tool, got %#v", modelTools)
+	names := map[string]bool{}
+	for _, modelTool := range modelTools {
+		names[modelTool.Function.Name] = true
+	}
+	if len(names) != 3 || !names["robot_get_state"] || !names["image_generate"] || !names["image_analyze"] {
+		t.Fatalf("expected plugin model tool plus server image tools, got %#v", names)
 	}
 	if _, ok := resolved.Registry.Get("robot"); !ok {
 		t.Fatal("expected plugin manifest runtime in registry")

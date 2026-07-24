@@ -10,6 +10,7 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/envvars"
+	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/tools"
@@ -29,6 +30,7 @@ type ToolExecutionRequest struct {
 	MCPHost           *mcp.StdioHost
 	MCPHTTPHost       *mcp.StreamableHTTPHost
 	MCPRuntimeGuard   *mcp.RuntimeGuard
+	ModelClient       llm.Client
 	Now               func() time.Time
 }
 
@@ -58,7 +60,16 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 	if resolveCtx == nil {
 		resolveCtx = context.Background()
 	}
-	registry := tools.RegistryWithMCPWarningsLookupHostsGuard(resolveCtx, tools.DefaultRegistry(), config.MCP, lookup, request.MCPHost, request.MCPHTTPHost, mcpHostScope(config, sessionID), request.MCPRuntimeGuard, config.WorkspaceID)
+	registry := tools.DefaultRegistry()
+	registry.Register(tools.ImageRuntime{
+		Client: request.ModelClient,
+		Vision: tools.ImageModelRoute{
+			Provider: config.VisionLLMProvider, ProviderType: config.VisionLLMProviderType,
+			Model: config.VisionLLMModel, BaseURL: config.VisionLLMBaseURL,
+			APIKey: lookupEnvironmentValue(lookup, config.VisionLLMAPIKeyEnv),
+		},
+	})
+	registry = tools.RegistryWithMCPWarningsLookupHostsGuard(resolveCtx, registry, config.MCP, lookup, request.MCPHost, request.MCPHTTPHost, mcpHostScope(config, sessionID), request.MCPRuntimeGuard, config.WorkspaceID)
 	registry, toolPolicy := registry.Configured(config.Tools)
 	if config.SpawnDepth > 0 || strings.TrimSpace(config.ParentSessionID) != "" || !HumanInteractionEnabled(config.RuntimeSettings) {
 		registry = registry.Without(tools.InteractionIdentifier)
@@ -109,6 +120,15 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 			TaskService:      taskService,
 		},
 	}
+}
+
+func lookupEnvironmentValue(lookup func(string) (string, bool), key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" || lookup == nil {
+		return ""
+	}
+	value, _ := lookup(key)
+	return value
 }
 
 func HumanInteractionEnabled(raw json.RawMessage) bool {

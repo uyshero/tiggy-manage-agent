@@ -62,7 +62,7 @@ func TestResolveRegistrySummaryDefersFullSkillContentToInspect(t *testing.T) {
 		t.Fatalf("resolve summary skill: %v", err)
 	}
 	rendered := string(result.Rendered)
-	if result.Skills[0].RenderedMode != ModeSummary || !strings.Contains(rendered, "Review carefully.") || !strings.Contains(rendered, "skills_inspect") {
+	if result.Skills[0].RenderedMode != ModeSummary || !strings.Contains(rendered, "Review carefully.") || !strings.Contains(rendered, "skills_inspect") || !strings.Contains(rendered, "binding, not optional guidance") || !strings.Contains(rendered, "has_more is false") {
 		t.Fatalf("expected summary with on-demand guidance, got %#v rendered=%s", result.Skills[0], rendered)
 	}
 	if strings.Contains(rendered, "FULL-SKILL-BODY") {

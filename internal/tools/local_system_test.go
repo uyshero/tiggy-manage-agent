@@ -31,6 +31,14 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 		t.Fatalf("unexpected web manifest: %#v", manifest)
 	}
 
+	imageRuntime, ok := registry.Get(ImageIdentifier)
+	if !ok {
+		t.Fatalf("expected %s runtime", ImageIdentifier)
+	}
+	if manifest := imageRuntime.Manifest(); manifest.Identifier != ImageIdentifier || len(manifest.API) != 2 {
+		t.Fatalf("unexpected image manifest: %#v", manifest)
+	}
+
 	agentRuntime, ok := registry.Get(AgentIdentifier)
 	if !ok {
 		t.Fatalf("expected %s runtime", AgentIdentifier)
@@ -274,14 +282,14 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	for _, manifest := range decoded.Tools {
 		identifiers[manifest.Identifier] = true
 	}
-	if len(decoded.Tools) != 6 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
+	if len(decoded.Tools) != 7 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[ImageIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
 }
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 51 {
+	if len(modelTools) != 53 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -295,7 +303,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || names[NamespaceBrowser+"_open"] || !names[AgentIdentifier+"_spawn"] || !names[AgentIdentifier+"_wait"] || !names[AgentIdentifier+"_collect_result"] || !names[AgentIdentifier+"_stream_events"] || !names[AgentIdentifier+"_approve_tool"] || !names[AgentIdentifier+"_reject_tool"] || !names[AgentIdentifier+"_cancel_start"] || !names[AgentIdentifier+"_run_group"] || !names[AgentIdentifier+"_list_group_templates"] || !names[AgentIdentifier+"_get_group"] || !names[AgentIdentifier+"_wait_group"] || !names[AgentIdentifier+"_collect_group"] || !names[AgentIdentifier+"_cancel_group"] || !names[AgentIdentifier+"_retry_group_item"] || !names[AgentIdentifier+"_retry_group"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
+	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[ImageIdentifier+"_generate"] || !names[ImageIdentifier+"_analyze"] || names[NamespaceBrowser+"_open"] || !names[AgentIdentifier+"_spawn"] || !names[AgentIdentifier+"_wait"] || !names[AgentIdentifier+"_collect_result"] || !names[AgentIdentifier+"_stream_events"] || !names[AgentIdentifier+"_approve_tool"] || !names[AgentIdentifier+"_reject_tool"] || !names[AgentIdentifier+"_cancel_start"] || !names[AgentIdentifier+"_run_group"] || !names[AgentIdentifier+"_list_group_templates"] || !names[AgentIdentifier+"_get_group"] || !names[AgentIdentifier+"_wait_group"] || !names[AgentIdentifier+"_collect_group"] || !names[AgentIdentifier+"_cancel_group"] || !names[AgentIdentifier+"_retry_group_item"] || !names[AgentIdentifier+"_retry_group"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }
@@ -404,7 +412,7 @@ func TestRegistryGetAPIReturnsManifestMetadata(t *testing.T) {
 	}
 }
 
-func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
+func TestRegistryConfiguredKeepsPlatformDefaultsEnabled(t *testing.T) {
 	registry, policy := DefaultRegistry().Configured(json.RawMessage(`{
 		"tools": ["default_read_file", "default_edit_file"],
 		"runtime": "local_system"
@@ -414,14 +422,12 @@ func TestRegistryConfiguredFiltersEnabledToolAPIs(t *testing.T) {
 		t.Fatalf("unexpected policy: %#v", policy)
 	}
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 2 {
-		t.Fatalf("expected 2 configured model tools, got %#v", modelTools)
-	}
 	names := map[string]bool{}
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_edit_file"] || names[DefaultIdentifier+"_run_command"] {
+	if !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[DefaultIdentifier+"_run_command"] ||
+		!names[WebIdentifier+"_search"] || !names[AgentIdentifier+"_spawn"] || !names[SkillsIdentifier+"_search"] {
 		t.Fatalf("unexpected configured tool names: %#v", names)
 	}
 }
@@ -436,9 +442,12 @@ func TestRegistryCompatibilityAPIsAreHiddenUnlessExplicitlyConfigured(t *testing
 	}
 	for _, apiName := range []string{"search_file", "execute_code"} {
 		registry, _ := DefaultRegistry().Configured(json.RawMessage(`{"tools":["default_` + apiName + `"]}`))
-		modelTools := registry.ModelTools()
-		if len(modelTools) != 1 || modelTools[0].Function.Name != DefaultIdentifier+"_"+apiName {
-			t.Fatalf("explicit %s configuration was not preserved: %#v", apiName, modelTools)
+		explicitNames := map[string]bool{}
+		for _, modelTool := range registry.ModelTools() {
+			explicitNames[modelTool.Function.Name] = true
+		}
+		if !explicitNames[DefaultIdentifier+"_"+apiName] || !explicitNames[DefaultIdentifier+"_run_command"] {
+			t.Fatalf("explicit %s compatibility API was not added to platform defaults: %#v", apiName, explicitNames)
 		}
 	}
 }
@@ -454,7 +463,7 @@ func TestRegistryAvailableFiltersByCapabilities(t *testing.T) {
 	for _, modelTool := range modelTools {
 		names[modelTool.Function.Name] = true
 	}
-	if len(modelTools) != 21 || !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[TaskIdentifier+"_create_plan"] || !names[TaskIdentifier+"_update_items"] || !names[TaskIdentifier+"_get_plan"] || !names[TaskIdentifier+"_complete_plan"] || !names[TaskIdentifier+"_cancel_plan"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
+	if len(modelTools) != 23 || !names[DefaultIdentifier+"_read_file"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[ImageIdentifier+"_generate"] || !names[ImageIdentifier+"_analyze"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[TaskIdentifier+"_create_plan"] || !names[TaskIdentifier+"_update_items"] || !names[TaskIdentifier+"_get_plan"] || !names[TaskIdentifier+"_complete_plan"] || !names[TaskIdentifier+"_cancel_plan"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
 		t.Fatalf("expected read_file plus server builtin interaction, task, web, and skills tools, got %#v", modelTools)
 	}
 	if _, _, ok := registry.GetAPI(DefaultIdentifier, "run_command"); ok {
@@ -474,7 +483,7 @@ func TestRegistryAvailableKeepsRuntimeAllowedTools(t *testing.T) {
 	})
 
 	modelTools := registry.ModelTools()
-	if len(modelTools) != 24 {
+	if len(modelTools) != 26 {
 		t.Fatalf("expected all default tools to be available for local_system provider, got %#v", modelTools)
 	}
 	names := map[string]bool{}

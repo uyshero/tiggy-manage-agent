@@ -619,6 +619,42 @@ func TestOnlyboxesProviderSearchFileSyncsSessionFilesBeforeFirstSearch(t *testin
 	}
 }
 
+func TestOnlyboxesProviderExportArtifactFileSyncsSessionFilesBeforeFirstExport(t *testing.T) {
+	root := t.TempDir()
+	session := managedagents.Session{ID: "sesn_export_sync", WorkspaceID: managedagents.DefaultWorkspaceID}
+	store := &sessionDataStoreFake{
+		session: session,
+		artifacts: []managedagents.SessionArtifact{{
+			ID: "art_image", WorkspaceID: session.WorkspaceID, SessionID: session.ID,
+			ObjectRefID: "obj_image", Name: "architecture.png", ArtifactType: managedagents.ArtifactTypeFile,
+		}},
+		objectRefs: map[string]managedagents.ObjectRef{
+			"obj_image": {
+				ID: "obj_image", WorkspaceID: session.WorkspaceID, Bucket: "tma-artifacts",
+				ObjectKey: "wksp_default/sesn_export_sync/uploads/architecture.png", StorageProvider: managedagents.ObjectStorageProviderS3,
+			},
+		},
+	}
+	objectStore := &fakeSessionObjectStore{objects: map[string]string{
+		"tma-artifacts|wksp_default/sesn_export_sync/uploads/architecture.png|": "\x89PNG\r\n\x1a\nimage-data",
+	}}
+	provider := OnlyboxesProvider{
+		WorkspaceRoot: root, SessionID: session.ID, Store: store, ObjectStore: objectStore,
+	}
+
+	result, err := provider.ExportArtifactFile(t.Context(), ExportArtifactFileRequest{
+		Path: "/workspace/uploads/art_image/architecture.png",
+	})
+	if err != nil {
+		t.Fatalf("export synchronized session image: %v", err)
+	}
+	if result.Path != "/workspace/uploads/art_image/architecture.png" ||
+		result.Name != "architecture.png" ||
+		string(result.Content) != "\x89PNG\r\n\x1a\nimage-data" {
+		t.Fatalf("unexpected synchronized image export: %#v", result)
+	}
+}
+
 func TestOnlyboxesProviderExportsSandboxDataFile(t *testing.T) {
 	root := t.TempDir()
 	dataRoot := t.TempDir()

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID } from "./toolLifecycle.js";
+import { buildToolCallLifecycles, normalizeToolTimelineEvents, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolResultFailurePresentation } from "./toolLifecycle.js";
 
 function event(seq, type, id, data = {}) {
   return { seq, type, created_at: `2026-07-14T16:19:0${seq}Z`, payload: { data: { id, ...data } } };
@@ -132,4 +132,39 @@ test("distinguishes tools that do not require approval", () => {
   });
 
   assert.equal(toolApprovalPresentation(call, {}).label, "无需审批");
+});
+
+test("presents the concrete error from a failed tool result", () => {
+  const result = event(2, "runtime.tool_result", "call-read", {
+    success: false,
+    status: "failed",
+    retryable: false,
+    content: "unable to read file",
+    error: {
+      type: "read_failed",
+      message: "open /opt/missing/manifest-schema.md: no such file or directory"
+    }
+  });
+
+  assert.deepEqual(toolResultFailurePresentation(result), {
+    message: "open /opt/missing/manifest-schema.md: no such file or directory",
+    type: "read_failed",
+    retryable: false
+  });
+});
+
+test("reads nested protocol errors when the result content is JSON", () => {
+  const result = event(2, "runtime.tool_result", "call-json", {
+    success: false,
+    content: JSON.stringify({
+      protocol_version: "tma.tool_result.v1",
+      error: { type: "path_not_found", message: "requested file does not exist" }
+    })
+  });
+
+  assert.deepEqual(toolResultFailurePresentation(result), {
+    message: "requested file does not exist",
+    type: "path_not_found",
+    retryable: undefined
+  });
 });

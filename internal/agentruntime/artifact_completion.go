@@ -60,7 +60,7 @@ func (gate ArtifactCompletionGate) Validate(ctx context.Context, candidate Compl
 		Validator: artifactCompletionValidator,
 		Reason:    fmt.Sprintf("%d referenced workspace file(s) are not persisted as session artifacts", len(missing)),
 		Feedback: fmt.Sprintf(
-			"Completion is blocked because these final files are referenced but are not registered as Session artifacts: %s. Verify that each file exists, then call default_run_command with output_paths containing these exact /workspace paths (a no-op verification command is sufficient). Provide the final response only after the tool result includes the exported artifacts.",
+			"Completion is blocked because the response claims these final files but they are not registered as Session artifacts: %s. For real deliverables, verify that each file exists, then call default_run_command with output_paths containing these exact /workspace paths (a no-op verification command is sufficient). If a path is only documentation, an example, a template, or a missing file, do not create a placeholder artifact; remove it from the delivery claim or clearly state that no such file was produced. Provide the final response only after real deliverables are exported. This is internal validation feedback: do not mention the completion gate, validator, or retry mechanism to the user.",
 			strings.Join(missing, ", "),
 		),
 		Evidence: map[string]any{
@@ -101,15 +101,20 @@ func referencedWorkspaceFiles(text string) []string {
 	seen := map[string]bool{}
 	add := func(raw string) {
 		normalized := normalizeReferencedWorkspacePath(raw)
-		if normalized != "" {
+		if normalized != "" && !templateWorkspacePath(normalized) {
 			seen[normalized] = true
 		}
 	}
-	for _, match := range workspaceCodePathPattern.FindAllStringSubmatch(text, -1) {
-		add(match[1])
-	}
-	for _, match := range workspacePathPattern.FindAllString(text, -1) {
-		add(match)
+	for _, line := range strings.Split(textOutsideMarkdownFences(text), "\n") {
+		if ignoreWorkspaceReferenceLine(line) {
+			continue
+		}
+		for _, match := range workspaceCodePathPattern.FindAllStringSubmatch(line, -1) {
+			add(match[1])
+		}
+		for _, match := range workspacePathPattern.FindAllString(line, -1) {
+			add(match)
+		}
 	}
 	paths := make([]string, 0, len(seen))
 	for value := range seen {
@@ -117,6 +122,64 @@ func referencedWorkspaceFiles(text string) []string {
 	}
 	sort.Strings(paths)
 	return paths
+}
+
+func textOutsideMarkdownFences(text string) string {
+	var result strings.Builder
+	inFence := false
+	var fenceCharacter byte
+	var fenceLength int
+	for _, line := range strings.SplitAfter(text, "\n") {
+		trimmed := strings.TrimSpace(strings.TrimSuffix(line, "\n"))
+		character, length, fence := markdownFence(trimmed)
+		if fence {
+			if !inFence {
+				inFence, fenceCharacter, fenceLength = true, character, length
+			} else if character == fenceCharacter && length >= fenceLength {
+				inFence = false
+			}
+			continue
+		}
+		if !inFence {
+			result.WriteString(line)
+		}
+	}
+	return result.String()
+}
+
+func markdownFence(line string) (byte, int, bool) {
+	if len(line) < 3 || line[0] != '`' && line[0] != '~' {
+		return 0, 0, false
+	}
+	character := line[0]
+	length := 0
+	for length < len(line) && line[length] == character {
+		length++
+	}
+	return character, length, length >= 3
+}
+
+func ignoreWorkspaceReferenceLine(line string) bool {
+	lower := strings.ToLower(line)
+	for _, marker := range []string{
+		"示例", "占位", "路径模板", "不存在", "未生成", "没有生成", "仅为文档",
+		"example", "placeholder", "sample path", "does not exist", "not found", "not generated",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func templateWorkspacePath(path string) bool {
+	lower := strings.ToLower(path)
+	for _, marker := range []string{"{", "}", "${", "_xxx", "xxx_", "timestamp", "task_id", "task-id", "时间戳"} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeReferencedWorkspacePath(value string) string {

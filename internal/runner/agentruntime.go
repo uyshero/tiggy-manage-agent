@@ -163,6 +163,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		MCPHost:           e.MCPHost,
 		MCPHTTPHost:       e.MCPHTTPHost,
 		MCPRuntimeGuard:   e.MCPRuntimeGuard,
+		ModelClient:       e.CoreClient,
 	})
 	if err := e.restoreWorkspaceSnapshot(ctx, toolExecution.Provider, config, request.SessionID); err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
