@@ -505,10 +505,31 @@ test("Session live stream uses the transient v2 SDK endpoint without after_seq",
   assert.equal(request.options.signal, controller.signal);
 });
 
-test("current Session task Plan treats 404 as an empty snapshot", async () => {
+test("current Session task Plan selects the active plan from a 200 history response", async () => {
+  let requestPath = "";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({ error: "task plan not found" }), {
-    status: 404,
+  globalThis.fetch = async (path) => {
+    requestPath = String(path);
+    return new Response(JSON.stringify({ plans: [
+      { id: "plan/completed", status: "completed", items: [] },
+      { id: "plan/active", status: "active", items: [] }
+    ] }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+  try {
+    assert.deepEqual(await taskPlan("session/1"), { plan: { id: "plan/active", status: "active", items: [] } });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(requestPath, "http://localhost/v2/sessions/session%2F1/task-plans");
+});
+
+test("current Session task Plan treats an empty history as an empty snapshot", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ plans: [] }), {
+    status: 200,
     headers: { "content-type": "application/json" }
   });
   try {

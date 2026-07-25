@@ -1031,7 +1031,7 @@ func (s *Server) authorizeSessionID(r *http.Request, sessionID string) error {
 
 func isPublicRequest(r *http.Request) bool {
 	path := r.URL.Path
-	return path == "/" || path == "/health" || path == "/app" || path == "/app/" ||
+	return path == "/" || path == "/health" || path == "/favicon.ico" || path == "/app" || path == "/app/" ||
 		path == "/v1/auth/config" || path == "/v2/auth/config" ||
 		path == "/inspector" || path == "/space" || strings.HasPrefix(path, "/auth/") ||
 		strings.HasPrefix(path, "/app/assets/") || strings.HasPrefix(path, "/inspector/assets/") ||

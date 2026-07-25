@@ -27528,12 +27528,8 @@ async function testLLMModel(providerId, model) {
   return coreSDK.llm.testModel(providerId, model);
 }
 async function taskPlan(sessionId, options = {}) {
-  try {
-    return { plan: await coreSDK.sessions.taskPlan(sessionId, options.signal) };
-  } catch (error) {
-    if ((error == null ? void 0 : error.status) === 404) return { plan: null };
-    throw error;
-  }
+  const plans = await coreSDK.sessions.taskPlans(sessionId, options.signal);
+  return { plan: plans.find((plan) => plan.status === "active") || null };
 }
 async function artifacts(sessionId) {
   return { artifacts: await coreSDK.artifacts.list(sessionId) };
@@ -42108,10 +42104,7 @@ function WorkbenchApp() {
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-app", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "user-topbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-brand", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-context", children: (activePluginRoute == null ? void 0 : activePluginRoute.title) || (sessionMeta == null ? void 0 : sessionMeta.title) || sessionID || "通用智能体工作区" })
-      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-brand", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-navigation-actions", "aria-label": "移动端导航", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",

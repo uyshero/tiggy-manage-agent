@@ -358,6 +358,21 @@ func TestRootRedirectsToUserApp(t *testing.T) {
 	}
 }
 
+func TestFaviconIsPubliclyAvailable(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/favicon.ico", nil)
+	response := httptest.NewRecorder()
+	newTestServer().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected favicon status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "image/svg+xml" {
+		t.Fatalf("expected SVG favicon content type, got %q", contentType)
+	}
+	if !strings.Contains(response.Body.String(), "<svg") {
+		t.Fatalf("expected SVG favicon body, got %q", response.Body.String())
+	}
+}
+
 func TestListTaskGroupTemplates(t *testing.T) {
 	server := newTestServer()
 	response := getJSON[tools.AgentTaskGroupTemplateListResponse](t, server, "/v1/agent/task-group-templates")

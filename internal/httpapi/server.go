@@ -170,6 +170,7 @@ func (s *Server) routes() {
 	s.registerV2Routes()
 	s.mux.HandleFunc("GET /{$}", redirectUserApp)
 	s.mux.HandleFunc("GET /health", healthHandler)
+	s.mux.HandleFunc("GET /favicon.ico", faviconHandler)
 	s.mux.HandleFunc("GET /metrics", s.requireControlAuth(s.getMetrics))
 	s.mux.HandleFunc("GET /app", s.getUserApp)
 	s.mux.HandleFunc("GET /app/{$}", redirectUserApp)

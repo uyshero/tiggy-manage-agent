@@ -602,12 +602,8 @@ export function summary(sessionId, options = {}) {
 }
 
 export async function taskPlan(sessionId, options = {}) {
-  try {
-    return { plan: await coreSDK.sessions.taskPlan(sessionId, options.signal) };
-  } catch (error) {
-    if (error?.status === 404) return { plan: null };
-    throw error;
-  }
+  const plans = await coreSDK.sessions.taskPlans(sessionId, options.signal);
+  return { plan: plans.find((plan) => plan.status === "active") || null };
 }
 
 export async function artifacts(sessionId) {

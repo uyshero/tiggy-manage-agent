@@ -8613,7 +8613,6 @@ function WorkbenchApp() {
       <header className="user-topbar">
         <div className="topbar-brand">
           <div className="topbar-label">TMA 工作台</div>
-          <div className="topbar-context">{activePluginRoute?.title || sessionMeta?.title || sessionID || "通用智能体工作区"}</div>
         </div>
         <div className="mobile-navigation-actions" aria-label="移动端导航">
           <button
