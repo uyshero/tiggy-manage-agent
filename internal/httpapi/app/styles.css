@@ -649,7 +649,10 @@ button.secondary:hover:not(:disabled){border-color:var(--line-strong);background
 }
 
 .task-nav-item:hover{border-color:var(--line);background:#f7f9f8;transform:none;box-shadow:none}
-.task-nav-item.active{border-color:#b9d8d1;background:var(--accent-soft);box-shadow:inset 2px 0 var(--accent)}
+.task-nav-item.active{border-color:#b9d8d1;background:var(--accent-soft);box-shadow:none}
+.task-nav-open:hover:not(:disabled){background:transparent;color:var(--ink);transform:none;box-shadow:none}
+.task-nav-open:hover strong{text-decoration:none}
+.task-nav-item.active .task-status-icon.idle{background:var(--accent)}
 .task-nav-row strong{font-size:13px;font-weight:620}
 .task-inline-actions{gap:2px}
 .task-inline-actions>.icon-button{width:32px;height:32px;border-radius:6px}
