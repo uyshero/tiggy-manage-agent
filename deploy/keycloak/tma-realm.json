@@ -36,6 +36,8 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
+  "ssoSessionIdleTimeoutRememberMe": 604800,
+  "ssoSessionMaxLifespanRememberMe": 2592000,
   "offlineSessionIdleTimeout": 2592000,
   "smtpServer": {
     "host": "smtp.163.com",
