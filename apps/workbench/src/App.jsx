@@ -14,6 +14,7 @@ import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./in
 import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
 import { retainedProcessText } from "./chatTimelineRetention.js";
+import { durableEventReplacesLiveReply } from "./chatLiveReply.js";
 import {
   appendSessionMessageQueue,
   normalizeSessionMessageQueue,
@@ -46,6 +47,7 @@ import { loadStaticPluginCatalog } from "./plugins/index.jsx";
 import "./styles.css";
 
 const activeSessionStorageKey = "tma.workbench.active-session";
+const desktopSidebarVisibilityStorageKey = "tma.workbench.desktop-sidebars.v1";
 const workflowStoragePrefix = "tma.workbench.workflow.";
 const workbenchDialogService = createDialogService();
 const workbenchNotificationService = createNotificationService();
@@ -146,17 +148,6 @@ function pluginPathFromHash() {
     return "";
   }
 }
-const liveReplyTerminalEventTypes = new Set([
-  "agent.message",
-  "runtime.tool_call",
-  "tool.batch_planned",
-  "tool.call_started",
-  "runtime.tool_intervention_required",
-  "runtime.human_input_required",
-  "runtime.plan_approval_required",
-  "runtime.failed"
-]);
-
 function Empty({ children }) {
   return <span className="empty">{children}</span>;
 }
@@ -232,6 +223,15 @@ function CloseIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16">
       <path d="m4 4 8 8m0-8-8 8" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function SidebarIcon({ side = "left" }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16">
+      <rect x="2.25" y="2.75" width="11.5" height="10.5" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.25" />
+      <path d={side === "right" ? "M10 3v10" : "M6 3v10"} fill="none" stroke="currentColor" strokeWidth="1.25" />
     </svg>
   );
 }
@@ -5964,6 +5964,14 @@ function WorkbenchApp() {
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = useState("");
   const [mobileResultsOpen, setMobileResultsOpen] = useState(false);
+  const [desktopSidebars, setDesktopSidebars] = useState(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(desktopSidebarVisibilityStorageKey) || "{}");
+      return { left: stored.left !== false, right: stored.right !== false };
+    } catch {
+      return { left: true, right: true };
+    }
+  });
   const [streamReconnectVersion, setStreamReconnectVersion] = useState(0);
   const [uploadingFiles, setUploadingFiles] = useState(false);
   const [steeringQueueID, setSteeringQueueID] = useState("");
@@ -6148,6 +6156,14 @@ function WorkbenchApp() {
   }, [mobileNavigationPanel, mobileResultsOpen]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(desktopSidebarVisibilityStorageKey, JSON.stringify(desktopSidebars));
+    } catch {
+      // Sidebar visibility can remain session-only when browser storage is unavailable.
+    }
+  }, [desktopSidebars]);
+
+  useEffect(() => {
     if (!taskMenuSessionID) return undefined;
     const closeTaskMenu = (event) => {
       const target = event.target;
@@ -6324,12 +6340,7 @@ function WorkbenchApp() {
 	const activeToolProgress = liveToolProgress?.sessionID === sessionID ? liveToolProgress : null;
 	const renderedChatTimelineEvents = useMemo(() => {
 		if (!streamingReply) return chatTimelineEvents;
-		const hasDurableReply = chatTimelineEvents.some((event) => (
-			payload(event).turn_id === streamingReply.turnID && (
-				(event.type === "agent.message" && hasVisibleAgentText(event)) ||
-				(event.type === "runtime.progress_message" && Number(eventData(event).tool_round || 0) === Number(streamingReply.toolRound || 0))
-			)
-		));
+		const hasDurableReply = chatTimelineEvents.some((event) => durableEventReplacesLiveReply(event, streamingReply));
 		if (hasDurableReply) return chatTimelineEvents;
 		return [...chatTimelineEvents, {
 			type: "agent.streaming",
@@ -6792,13 +6803,10 @@ function WorkbenchApp() {
           setSessionMeta((current) => current?.id === sessionKey ? { ...current, status: streamedStatus } : current);
         }
       }
-      if (liveReplyTerminalEventTypes.has(event.type)) {
-        const turnID = String(event.turn_id || payload(event).turn_id || "");
-        const currentReply = sessionLiveRepliesRef.current.get(sessionKey);
-        if (!turnID || !currentReply || currentReply.turnID === turnID) {
-          sessionLiveRepliesRef.current.delete(sessionKey);
-          if (isCurrent) setLiveReply(null);
-        }
+      const currentReply = sessionLiveRepliesRef.current.get(sessionKey);
+      if (durableEventReplacesLiveReply(event, currentReply)) {
+        sessionLiveRepliesRef.current.delete(sessionKey);
+        if (isCurrent) setLiveReply(null);
       }
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
         setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
@@ -8611,8 +8619,21 @@ function WorkbenchApp() {
   return (
     <div className="user-app">
       <header className="user-topbar">
-        <div className="topbar-brand">
-          <div className="topbar-label">TMA 工作台</div>
+        <div className="topbar-leading">
+          <button
+            className={`secondary icon-button desktop-sidebar-toggle ${desktopSidebars.left ? "active" : ""}`.trim()}
+            type="button"
+            title={desktopSidebars.left ? "隐藏左侧栏" : "显示左侧栏"}
+            aria-label={desktopSidebars.left ? "隐藏左侧栏" : "显示左侧栏"}
+            aria-controls="mobile-navigation-sidebar"
+            aria-expanded={desktopSidebars.left}
+            onClick={() => setDesktopSidebars((current) => ({ ...current, left: !current.left }))}
+          >
+            <SidebarIcon />
+          </button>
+          <div className="topbar-brand">
+            <div className="topbar-label">TMA 工作台</div>
+          </div>
         </div>
         <div className="mobile-navigation-actions" aria-label="移动端导航">
           <button
@@ -8653,6 +8674,19 @@ function WorkbenchApp() {
           {principal ? <span className="topbar-user" title={principal.username || principal.subject || principal.owner_id}>{principal.username || principal.subject || principal.owner_id}</span> : null}
           <button className="secondary topbar-settings" type="button" onClick={openSettingsPage}>设置</button>
           <button className="secondary topbar-logout" type="button" onClick={() => logout().catch((error) => setStatus(error.message))}>退出</button>
+          {!pluginRoutePath ? (
+            <button
+              className={`secondary icon-button desktop-sidebar-toggle ${desktopSidebars.right ? "active" : ""}`.trim()}
+              type="button"
+              title={desktopSidebars.right ? "隐藏右侧栏" : "显示右侧栏"}
+              aria-label={desktopSidebars.right ? "隐藏右侧栏" : "显示右侧栏"}
+              aria-controls="mobile-results-sidebar"
+              aria-expanded={desktopSidebars.right}
+              onClick={() => setDesktopSidebars((current) => ({ ...current, right: !current.right }))}
+            >
+              <SidebarIcon side="right" />
+            </button>
+          ) : null}
         </div>
       </header>
       {mobileNavigationPanel || mobileResultsOpen ? (
@@ -8664,7 +8698,7 @@ function WorkbenchApp() {
         />
       ) : null}
       <div
-        className={`user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""}`.trim()}
+        className={`user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim()}
         style={{ "--artifact-preview-width": `${artifactPreviewWidth}px` }}
       >
         <aside

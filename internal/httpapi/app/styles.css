@@ -741,3 +741,27 @@ button.secondary:hover:not(:disabled){border-color:var(--line-strong);background
 @media(min-width:861px){
   .user-layout:not(.plugin-route-active)>.user-sidebar:not(.right){grid-template-rows:min-content minmax(0,1fr)}
 }
+
+/* Desktop sidebars stay independently available from the top bar. */
+.topbar-leading{min-width:0;display:flex;align-items:center;gap:10px}
+.desktop-sidebar-toggle{width:32px;height:32px;min-width:32px;padding:0;color:var(--muted)}
+.desktop-sidebar-toggle svg{width:17px;height:17px}
+.desktop-sidebar-toggle.active{border-color:var(--line-strong);background:#f8faf9;color:var(--ink)}
+.desktop-sidebar-toggle:hover:not(:disabled){border-color:var(--line-strong);background:#f1f5f3;color:var(--ink)}
+
+@media(min-width:1101px){
+  .user-layout.sidebar-left-hidden>.user-sidebar:not(.right),
+  .user-layout.sidebar-right-hidden>.user-sidebar.right{display:none}
+  .user-layout.sidebar-left-hidden{grid-template-columns:minmax(0,1fr) 312px}
+  .user-layout.sidebar-right-hidden{grid-template-columns:288px minmax(0,1fr)}
+  .user-layout.sidebar-left-hidden.sidebar-right-hidden{grid-template-columns:minmax(0,1fr)}
+  .user-layout.has-artifact-preview.sidebar-left-hidden{grid-template-columns:minmax(360px,1fr) minmax(320px,var(--artifact-preview-width)) 312px}
+  .user-layout.has-artifact-preview.sidebar-right-hidden{grid-template-columns:288px minmax(360px,1fr) minmax(320px,var(--artifact-preview-width))}
+  .user-layout.has-artifact-preview.sidebar-left-hidden.sidebar-right-hidden{grid-template-columns:minmax(360px,1fr) minmax(320px,var(--artifact-preview-width))}
+  .user-layout.plugin-route-active.sidebar-left-hidden{grid-template-columns:minmax(0,1fr)}
+}
+
+@media(max-width:1100px){
+  .desktop-sidebar-toggle{display:none}
+  .topbar-leading{display:contents}
+}

@@ -26189,7 +26189,7 @@ function decodeLiveEvent(data) {
     throw new SSESchemaError("Live SSE event must be an object");
   const event = decoded;
   const validBase = Number.isSafeInteger(event.stream_seq) && typeof event.session_id === "string" && typeof event.turn_id === "string" && typeof event.text === "string" && typeof event.created_at === "string";
-  const validLLMText = event.type === "llm.text" && event.operation === "append" && event.content_format === "markdown";
+  const validLLMText = event.type === "llm.text" && (event.operation === "append" || event.operation === "reset") && event.content_format === "markdown";
   const progress = event;
   const validToolProgress = event.type === "tool.call_progress" && event.operation === "update" && event.content_format === "text" && typeof progress.call_id === "string" && typeof progress.tool === "string" && typeof progress.stage === "string";
   if (!validBase || !validLLMText && !validToolProgress) {
@@ -30288,6 +30288,33 @@ function retainedProcessText(event) {
   }
   return "";
 }
+function eventPayload(event) {
+  return (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
+}
+function eventData$1(event) {
+  const payload2 = eventPayload(event);
+  return payload2.data && typeof payload2.data === "object" && !Array.isArray(payload2.data) ? payload2.data : {};
+}
+function agentMessageText(event) {
+  const payload2 = eventPayload(event);
+  if (Array.isArray(payload2.content)) {
+    return payload2.content.map((item) => (item == null ? void 0 : item.text) || (item == null ? void 0 : item.content) || "").join("\n").trim();
+  }
+  return String(payload2.content || payload2.message || payload2.summary || payload2.text || "").trim();
+}
+function durableEventReplacesLiveReply(event, liveReply) {
+  if (!event || !liveReply) return false;
+  const payload2 = eventPayload(event);
+  const eventTurnID = String(event.turn_id || payload2.turn_id || "");
+  const liveTurnID = String(liveReply.turnID || "");
+  if (eventTurnID && liveTurnID && eventTurnID !== liveTurnID) return false;
+  if (event.type === "runtime.failed") return true;
+  if (!eventTurnID || !liveTurnID) return false;
+  if (event.type === "agent.message") return Boolean(agentMessageText(event));
+  if (event.type !== "runtime.progress_message") return false;
+  const data = eventData$1(event);
+  return Number(data.tool_round || 0) === Number(liveReply.toolRound || 0) && Boolean(String(data.text || "").trim());
+}
 const sessionMessageQueueStorageKey = "tma.workbench.session-message-queue.v1";
 function normalizeSessionMessageQueue(value) {
   if (!Array.isArray(value)) return [];
@@ -33780,6 +33807,7 @@ function loadStaticPluginCatalog(runtime, options = {}) {
   return loadPluginCatalog(runtime, staticPluginCatalog, options);
 }
 const activeSessionStorageKey = "tma.workbench.active-session";
+const desktopSidebarVisibilityStorageKey = "tma.workbench.desktop-sidebars.v1";
 const workflowStoragePrefix = "tma.workbench.workflow.";
 const workbenchDialogService = createDialogService();
 const workbenchNotificationService = createNotificationService();
@@ -33872,16 +33900,6 @@ function pluginPathFromHash() {
     return "";
   }
 }
-const liveReplyTerminalEventTypes = /* @__PURE__ */ new Set([
-  "agent.message",
-  "runtime.tool_call",
-  "tool.batch_planned",
-  "tool.call_started",
-  "runtime.tool_intervention_required",
-  "runtime.human_input_required",
-  "runtime.plan_approval_required",
-  "runtime.failed"
-]);
 function Empty({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "empty", children });
 }
@@ -33924,6 +33942,12 @@ function FileIcon() {
 }
 function CloseIcon() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: "m4 4 8 8m0-8-8 8", fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeWidth: "1.5" }) });
+}
+function SidebarIcon({ side = "left" }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "2.25", y: "2.75", width: "11.5", height: "10.5", rx: "1.5", fill: "none", stroke: "currentColor", strokeWidth: "1.25" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { d: side === "right" ? "M10 3v10" : "M6 3v10", fill: "none", stroke: "currentColor", strokeWidth: "1.25" })
+  ] });
 }
 function StopIcon() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("svg", { "aria-hidden": "true", viewBox: "0 0 16 16", children: /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "4.5", y: "4.5", width: "7", height: "7", rx: "1", fill: "currentColor" }) });
@@ -39611,6 +39635,14 @@ function WorkbenchApp() {
   const [mobileRuntimeSettingsOpen, setMobileRuntimeSettingsOpen] = reactExports.useState(false);
   const [mobileNavigationPanel, setMobileNavigationPanel] = reactExports.useState("");
   const [mobileResultsOpen, setMobileResultsOpen] = reactExports.useState(false);
+  const [desktopSidebars, setDesktopSidebars] = reactExports.useState(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(desktopSidebarVisibilityStorageKey) || "{}");
+      return { left: stored.left !== false, right: stored.right !== false };
+    } catch {
+      return { left: true, right: true };
+    }
+  });
   const [streamReconnectVersion, setStreamReconnectVersion] = reactExports.useState(0);
   const [uploadingFiles, setUploadingFiles] = reactExports.useState(false);
   const [steeringQueueID, setSteeringQueueID] = reactExports.useState("");
@@ -39786,6 +39818,12 @@ function WorkbenchApp() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [mobileNavigationPanel, mobileResultsOpen]);
   reactExports.useEffect(() => {
+    try {
+      window.localStorage.setItem(desktopSidebarVisibilityStorageKey, JSON.stringify(desktopSidebars));
+    } catch {
+    }
+  }, [desktopSidebars]);
+  reactExports.useEffect(() => {
     if (!taskMenuSessionID) return void 0;
     const closeTaskMenu = (event) => {
       const target = event.target;
@@ -39951,7 +39989,7 @@ function WorkbenchApp() {
   const activeToolProgress = (liveToolProgress == null ? void 0 : liveToolProgress.sessionID) === sessionID ? liveToolProgress : null;
   const renderedChatTimelineEvents = reactExports.useMemo(() => {
     if (!streamingReply) return chatTimelineEvents;
-    const hasDurableReply = chatTimelineEvents.some((event) => payload(event).turn_id === streamingReply.turnID && (event.type === "agent.message" && hasVisibleAgentText(event) || event.type === "runtime.progress_message" && Number(eventData(event).tool_round || 0) === Number(streamingReply.toolRound || 0)));
+    const hasDurableReply = chatTimelineEvents.some((event) => durableEventReplacesLiveReply(event, streamingReply));
     if (hasDurableReply) return chatTimelineEvents;
     return [...chatTimelineEvents, {
       type: "agent.streaming",
@@ -40384,13 +40422,10 @@ function WorkbenchApp() {
           setSessionMeta((current) => (current == null ? void 0 : current.id) === sessionKey ? { ...current, status: streamedStatus } : current);
         }
       }
-      if (liveReplyTerminalEventTypes.has(event.type)) {
-        const turnID = String(event.turn_id || payload(event).turn_id || "");
-        const currentReply = sessionLiveRepliesRef.current.get(sessionKey);
-        if (!turnID || !currentReply || currentReply.turnID === turnID) {
-          sessionLiveRepliesRef.current.delete(sessionKey);
-          if (isCurrent) setLiveReply(null);
-        }
+      const currentReply = sessionLiveRepliesRef.current.get(sessionKey);
+      if (durableEventReplacesLiveReply(event, currentReply)) {
+        sessionLiveRepliesRef.current.delete(sessionKey);
+        if (isCurrent) setLiveReply(null);
       }
       if (isCurrent && ["tool.call_result", "runtime.failed", "runtime.completed"].includes(event.type)) {
         setLiveToolProgress((current) => liveToolProgressAfterEvent(current, event));
@@ -42104,7 +42139,22 @@ function WorkbenchApp() {
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "user-app", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "user-topbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-brand", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-leading", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `secondary icon-button desktop-sidebar-toggle ${desktopSidebars.left ? "active" : ""}`.trim(),
+            type: "button",
+            title: desktopSidebars.left ? "隐藏左侧栏" : "显示左侧栏",
+            "aria-label": desktopSidebars.left ? "隐藏左侧栏" : "显示左侧栏",
+            "aria-controls": "mobile-navigation-sidebar",
+            "aria-expanded": desktopSidebars.left,
+            onClick: () => setDesktopSidebars((current) => ({ ...current, left: !current.left })),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(SidebarIcon, {})
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-brand", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }) })
+      ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-navigation-actions", "aria-label": "移动端导航", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
@@ -42156,7 +42206,20 @@ function WorkbenchApp() {
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-status", children: [
         principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-user", title: principal.username || principal.subject || principal.owner_id, children: principal.username || principal.subject || principal.owner_id }) : null,
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-settings", type: "button", onClick: openSettingsPage, children: "设置" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" }),
+        !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `secondary icon-button desktop-sidebar-toggle ${desktopSidebars.right ? "active" : ""}`.trim(),
+            type: "button",
+            title: desktopSidebars.right ? "隐藏右侧栏" : "显示右侧栏",
+            "aria-label": desktopSidebars.right ? "隐藏右侧栏" : "显示右侧栏",
+            "aria-controls": "mobile-results-sidebar",
+            "aria-expanded": desktopSidebars.right,
+            onClick: () => setDesktopSidebars((current) => ({ ...current, right: !current.right })),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(SidebarIcon, { side: "right" })
+          }
+        ) : null
       ] })
     ] }),
     mobileNavigationPanel || mobileResultsOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -42174,7 +42237,7 @@ function WorkbenchApp() {
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
-        className: `user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""}`.trim(),
+        className: `user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim(),
         style: { "--artifact-preview-width": `${artifactPreviewWidth}px` },
         children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs(

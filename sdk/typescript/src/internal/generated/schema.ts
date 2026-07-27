@@ -2659,7 +2659,7 @@ export interface components {
             /** Format: int32 */
             percent?: number;
             /** @enum {string} */
-            operation: "append" | "update";
+            operation: "append" | "reset" | "update";
             /** @enum {string} */
             content_format: "markdown" | "text";
             text: string;

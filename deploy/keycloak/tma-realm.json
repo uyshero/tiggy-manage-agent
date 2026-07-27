@@ -26,7 +26,7 @@
   ],
   "defaultLocale": "zh-CN",
   "registrationAllowed": true,
-  "registrationEmailAsUsername": false,
+  "registrationEmailAsUsername": true,
   "rememberMe": true,
   "verifyEmail": true,
   "loginWithEmailAllowed": true,
@@ -91,6 +91,7 @@
     {
       "clientId": "tma-web",
       "name": "TMA Web App",
+      "baseUrl": "http://localhost:8080/app",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,

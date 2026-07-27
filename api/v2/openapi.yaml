@@ -4920,7 +4920,7 @@ components:
         tool: {type: string}
         stage: {type: string}
         percent: {type: integer, format: int32, minimum: 0, maximum: 100}
-        operation: {type: string, enum: [append, update]}
+        operation: {type: string, enum: [append, reset, update]}
         content_format: {type: string, enum: [markdown, text]}
         text: {type: string}
         created_at: {type: string, format: date-time}

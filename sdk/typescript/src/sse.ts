@@ -186,7 +186,7 @@ function decodeLiveEvent(data: string): LiveEvent {
   const event = decoded as Partial<LiveEvent>;
   const validBase = Number.isSafeInteger(event.stream_seq) && typeof event.session_id === "string" &&
     typeof event.turn_id === "string" && typeof event.text === "string" && typeof event.created_at === "string";
-  const validLLMText = event.type === "llm.text" && event.operation === "append" && event.content_format === "markdown";
+  const validLLMText = event.type === "llm.text" && (event.operation === "append" || event.operation === "reset") && event.content_format === "markdown";
   const progress = event as Partial<LiveEvent> & { call_id?: string; tool?: string; stage?: string };
   const validToolProgress = event.type === "tool.call_progress" && event.operation === "update" && event.content_format === "text" &&
     typeof progress.call_id === "string" && typeof progress.tool === "string" && typeof progress.stage === "string";

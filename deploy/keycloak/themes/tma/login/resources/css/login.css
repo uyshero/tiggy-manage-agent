@@ -210,6 +210,10 @@ body#keycloak-bg {
   font-size: 30px;
 }
 
+.pf-v5-c-login__main:has(#kc-register-form) .pf-v5-c-form__group {
+  margin-bottom: 16px;
+}
+
 #kc-form,
 #kc-form-wrapper,
 .pf-v5-c-form {
@@ -341,6 +345,30 @@ a:hover {
 
 .pf-v5-c-login__main-footer {
   margin-top: 24px;
+}
+
+.tma-info-message {
+  display: grid;
+  gap: 24px;
+}
+
+.tma-info-message .instruction {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tma-info-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.tma-info-actions .pf-v5-c-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  text-decoration: none;
 }
 
 .pf-v5-c-login__main-footer-band {

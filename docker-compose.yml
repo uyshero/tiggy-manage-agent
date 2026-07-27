@@ -36,6 +36,7 @@ services:
       - tma-keycloak-data:/opt/keycloak/data
       - ./testdata/keycloak/tma-test-realm.json:/opt/keycloak/data/import/tma-test-realm.json:ro
       - ./deploy/keycloak/tma-realm.json:/opt/keycloak/data/import/tma-realm.json:ro
+      - ./deploy/keycloak/tma-user-profile.json:/opt/keycloak/conf/tma-user-profile.json:ro
       - ./deploy/keycloak/themes/tma:/opt/keycloak/themes/tma:ro
 
   searxng:
