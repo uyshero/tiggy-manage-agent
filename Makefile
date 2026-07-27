@@ -1,9 +1,10 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-space-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
+.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-space-ui build-cli build-worker build-browser-gateway build-r-notebook-runtime r-notebook-up r-notebook-down fmt db-up db-down db-logs migrate-up
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
 TMA_ONLYBOXES_TEST_IMAGE ?= coolfan1024/onlyboxes-runtime:default
 TMA_BROWSER_GATEWAY_IMAGE ?= tma-browser-gateway:local
+TMA_R_NOTEBOOK_IMAGE ?= tma-r-notebook:local
 TMA_BENCHTIME ?= 1s
 TMA_BENCH_COUNT ?= 5
 TMA_POSTGRES_BENCHTIME ?= 50x
@@ -250,6 +251,15 @@ build-worker:
 
 build-browser-gateway:
 	docker build -t "$(TMA_BROWSER_GATEWAY_IMAGE)" extensions/browser-gateway
+
+build-r-notebook-runtime:
+	docker build -t "$(TMA_R_NOTEBOOK_IMAGE)" deploy/r-notebook-runtime
+
+r-notebook-up:
+	TMA_R_NOTEBOOK_IMAGE="$(TMA_R_NOTEBOOK_IMAGE)" docker compose -f deploy/r-notebook-runtime/compose.yaml up -d
+
+r-notebook-down:
+	docker compose -f deploy/r-notebook-runtime/compose.yaml down
 
 fmt:
 	GOCACHE="$(GOCACHE_DIR)" go fmt ./...

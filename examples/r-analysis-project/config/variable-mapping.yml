@@ -1,0 +1,15 @@
+version: 1
+fields:
+  患者编号: patient_id
+  随访时间（月）: followup_month
+  结局状态: event
+  治疗方案: treatment
+  年龄: age
+  疾病分期: stage
+values:
+  event:
+    death: [死亡, 已死亡, 事件发生]
+    censored: [存活, 失访, 删失, 未发生]
+  treatment:
+    new: [新方案, 新药组, 试验组]
+    standard: [常规治疗, 标准组, 对照组]

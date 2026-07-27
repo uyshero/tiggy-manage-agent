@@ -1,0 +1,22 @@
+services:
+  r-notebook:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${TMA_R_NOTEBOOK_IMAGE:-tma-r-notebook:local}
+    container_name: tma-r-notebook
+    environment:
+      TMA_NOTEBOOK_TOKEN: ${TMA_NOTEBOOK_TOKEN:-tma-local-notebook}
+      TMA_NOTEBOOK_BASE_URL: ${TMA_NOTEBOOK_BASE_URL:-/}
+      TMA_NOTEBOOK_ALLOW_ORIGIN: ${TMA_NOTEBOOK_ALLOW_ORIGIN:-http://localhost:8080}
+    ports:
+      - "${TMA_NOTEBOOK_PORT:-18888}:8888"
+    volumes:
+      - ${TMA_NOTEBOOK_WORKSPACE:-./workspace}:/workspace
+      - r-notebook-renv-cache:/home/tma/.cache/R/renv
+    mem_limit: 4294967296
+    cpus: 2.0
+    restart: unless-stopped
+
+volumes:
+  r-notebook-renv-cache:

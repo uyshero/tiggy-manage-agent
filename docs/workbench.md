@@ -81,6 +81,22 @@ Workspace installation 决定插件是否可用。Shell 在加载前校验版本
 插件不得从任意 URL 执行脚本。生产使用受控 bundle、CSP、依赖锁定和发布审计。跨插件
 通信通过 command/event 或公开 SDK，不访问其他插件内部 store。
 
+## 扩展工作台
+
+顶部“扩展工作台”打开通用工作台目录。专业工具通过 `workbench` 导航分组注册自己的独立
+Plugin 和路由；宿主只负责目录、路由、认证、权限、Dialog、Notification 和受控 `/v2` HTTP。
+当前 `com.tma.r-survival-workbench` 提供 R 语言生存分析，项目、Notebook 布局和分析交互均
+保留在插件包内。
+
+当前前端闭环包括项目草稿、Git 风格目录、Notebook 预览、远程 JupyterLab 地址和关联 TMA
+Session 的 Agent 对话。R/Jupyter 运行环境位于 `deploy/r-notebook-runtime`，GitLab 初始化模板
+位于 `examples/r-analysis-project`。生产接入继续遵守以下边界：
+
+- GitLab Token 进入 Secret/环境变量体系，不进入插件 localStorage 或项目元数据。
+- JupyterLab 通过 TMA 同源 HTTP/WebSocket 代理访问，不直接暴露无认证端口。
+- 原始或可识别数据进入受控对象存储，Git 仓库只保存代码、配置、Notebook 和脱敏样例。
+- 运行代码、提交、Push 和覆盖文件继续使用平台权限、审批与审计语义。
+
 ## 验收
 
 覆盖桌面/移动布局、键盘/焦点、加载/空/错/离线状态、RBAC、Workspace 切换、SSE 重连、

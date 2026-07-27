@@ -1,0 +1,11 @@
+.Rhistory
+.RData
+.Rproj.user/
+.quarto/
+renv/library/
+renv/staging/
+data/raw/
+data/private/
+outputs/
+reports/_freeze/
+.ipynb_checkpoints/

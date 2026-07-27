@@ -8,20 +8,23 @@ import {
   createRouteRegistry
 } from "./extensionRegistries.js";
 
-test("navigation registry enforces host groups, ordering, and cleanup", () => {
-  const registry = createNavigationRegistry({ groups: ["workspace"] });
+test("navigation registry enforces host groups, ordering, filtering, and cleanup", () => {
+  const registry = createNavigationRegistry({ groups: ["workspace", "workbench"] });
   const snapshots = [];
   registry.subscribe((items) => snapshots.push(items.length));
   const removeLater = registry.register("com.example.two", { id: "two", group: "workspace", title: "第二项", route: "/plugins/com.example.two/page", order: 20 });
   const removeFirst = registry.register("com.example.one", { id: "one", group: "workspace", title: "第一项", route: "/plugins/com.example.one/page", order: 10 });
-  assert.deepEqual(registry.list().map((item) => item.id), ["one", "two"]);
+  const removeWorkbench = registry.register("com.example.r", { id: "r-survival", group: "workbench", title: "R 语言生存分析", route: "/plugins/com.example.r/survival", order: 100 });
+  assert.deepEqual(registry.list().map((item) => item.id), ["one", "two", "r-survival"]);
+  assert.deepEqual(registry.list({ group: "workbench" }).map((item) => item.id), ["r-survival"]);
   assert.throws(
     () => registry.register("com.example.bad", { id: "bad", group: "root", title: "越权", route: "/plugins/com.example.bad/page" }),
     (error) => error instanceof ExtensionRegistryError && error.code === "navigation_group_denied"
   );
   removeFirst();
   removeLater();
-  assert.deepEqual(snapshots, [0, 1, 2, 1, 0]);
+  removeWorkbench();
+  assert.deepEqual(snapshots, [0, 1, 2, 3, 2, 1, 0]);
 });
 
 test("route registry binds component exports and prevents path conflicts", () => {

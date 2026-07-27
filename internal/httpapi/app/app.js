@@ -3857,14 +3857,14 @@ function requireReactDomClient_production() {
       queue = queue.firstBaseUpdate;
       if (null !== queue) {
         do {
-          var clone = {
+          var clone2 = {
             lane: queue.lane,
             tag: queue.tag,
             payload: queue.payload,
             callback: null,
             next: null
           };
-          null === newLast ? newFirst = newLast = clone : newLast = newLast.next = clone;
+          null === newLast ? newFirst = newLast = clone2 : newLast = newLast.next = clone2;
           queue = queue.next;
         } while (null !== queue);
         null === newLast ? newFirst = newLast = capturedUpdate : newLast = newLast.next = capturedUpdate;
@@ -12554,7 +12554,7 @@ function stringify$1(values, options) {
 const nameRe = /^[$_\p{ID_Start}][$_\u{200C}\u{200D}\p{ID_Continue}]*$/u;
 const nameReJsx = /^[$_\p{ID_Start}][-$_\u{200C}\u{200D}\p{ID_Continue}]*$/u;
 const emptyOptions$3 = {};
-function name$3(name2, options) {
+function name$4(name2, options) {
   const settings = emptyOptions$3;
   const re2 = settings.jsx ? nameReJsx : nameRe;
   return re2.test(name2);
@@ -14523,7 +14523,7 @@ function findComponentFromName(state, name2, allowExpression) {
     let index2 = -1;
     let node2;
     while (++index2 < identifiers.length) {
-      const prop = name$3(identifiers[index2]) ? { type: "Identifier", name: identifiers[index2] } : { type: "Literal", value: identifiers[index2] };
+      const prop = name$4(identifiers[index2]) ? { type: "Identifier", name: identifiers[index2] } : { type: "Literal", value: identifiers[index2] };
       node2 = node2 ? {
         type: "MemberExpression",
         object: node2,
@@ -14534,7 +14534,7 @@ function findComponentFromName(state, name2, allowExpression) {
     }
     result = node2;
   } else {
-    result = name$3(name2) && !/^[a-z]/.test(name2) ? { type: "Identifier", name: name2 } : { type: "Literal", value: name2 };
+    result = name$4(name2) && !/^[a-z]/.test(name2) ? { type: "Identifier", name: name2 } : { type: "Literal", value: name2 };
   }
   if (result.type === "Literal") {
     const name3 = (
@@ -20563,7 +20563,7 @@ function requireExtend() {
     return obj[name2];
   };
   extend$1 = function extend2() {
-    var options, name2, src, copy, copyIsArray, clone;
+    var options, name2, src, copy, copyIsArray, clone2;
     var target = arguments[0];
     var i = 1;
     var length = arguments.length;
@@ -20586,11 +20586,11 @@ function requireExtend() {
             if (deep && copy && (isPlainObject2(copy) || (copyIsArray = isArray(copy)))) {
               if (copyIsArray) {
                 copyIsArray = false;
-                clone = src && isArray(src) ? src : [];
+                clone2 = src && isArray(src) ? src : [];
               } else {
-                clone = src && isPlainObject2(src) ? src : {};
+                clone2 = src && isPlainObject2(src) ? src : {};
               }
-              setProperty(target, { name: name2, newValue: extend2(deep, clone, copy) });
+              setProperty(target, { name: name2, newValue: extend2(deep, clone2, copy) });
             } else if (typeof copy !== "undefined") {
               setProperty(target, { name: name2, newValue: copy });
             }
@@ -20693,8 +20693,8 @@ function wrap(middleware, callback) {
     done(null, value);
   }
 }
-const minpath = { basename, dirname, extname, join, sep: "/" };
-function basename(path2, extname2) {
+const minpath = { basename: basename$1, dirname, extname, join, sep: "/" };
+function basename$1(path2, extname2) {
   if (extname2 !== void 0 && typeof extname2 !== "string") {
     throw new TypeError('"ext" argument must be a string');
   }
@@ -25131,6 +25131,408 @@ function remarkGfm(options) {
   fromMarkdownExtensions.push(gfmFromMarkdown());
   toMarkdownExtensions.push(gfmToMarkdown(settings));
 }
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const toKebabCase = (string2) => string2.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+const mergeClasses = (...classes) => classes.filter((className, index2, array) => {
+  return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index2;
+}).join(" ").trim();
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+var defaultAttributes = {
+  xmlns: "http://www.w3.org/2000/svg",
+  width: 24,
+  height: 24,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round"
+};
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Icon = reactExports.forwardRef(
+  ({
+    color: color2 = "currentColor",
+    size = 24,
+    strokeWidth = 2,
+    absoluteStrokeWidth,
+    className = "",
+    children,
+    iconNode,
+    ...rest
+  }, ref) => {
+    return reactExports.createElement(
+      "svg",
+      {
+        ref,
+        ...defaultAttributes,
+        width: size,
+        height: size,
+        stroke: color2,
+        strokeWidth: absoluteStrokeWidth ? Number(strokeWidth) * 24 / Number(size) : strokeWidth,
+        className: mergeClasses("lucide", className),
+        ...rest
+      },
+      [
+        ...iconNode.map(([tag, attrs]) => reactExports.createElement(tag, attrs)),
+        ...Array.isArray(children) ? children : [children]
+      ]
+    );
+  }
+);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const createLucideIcon = (iconName, iconNode) => {
+  const Component = reactExports.forwardRef(
+    ({ className, ...props }, ref) => reactExports.createElement(Icon, {
+      ref,
+      iconNode,
+      className: mergeClasses(`lucide-${toKebabCase(iconName)}`, className),
+      ...props
+    })
+  );
+  Component.displayName = `${iconName}`;
+  return Component;
+};
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Blocks = createLucideIcon("Blocks", [
+  ["rect", { width: "7", height: "7", x: "14", y: "3", rx: "1", key: "6d4xhi" }],
+  [
+    "path",
+    {
+      d: "M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3",
+      key: "1fpvtg"
+    }
+  ]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Bot = createLucideIcon("Bot", [
+  ["path", { d: "M12 8V4H8", key: "hb8ula" }],
+  ["rect", { width: "16", height: "12", x: "4", y: "8", rx: "2", key: "enze0r" }],
+  ["path", { d: "M2 14h2", key: "vft8re" }],
+  ["path", { d: "M20 14h2", key: "4cs60a" }],
+  ["path", { d: "M15 13v2", key: "1xurst" }],
+  ["path", { d: "M9 13v2", key: "rq6x2g" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Check = createLucideIcon("Check", [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const ChevronDown = createLucideIcon("ChevronDown", [
+  ["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const ChevronRight = createLucideIcon("ChevronRight", [
+  ["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const CircleAlert = createLucideIcon("CircleAlert", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
+  ["line", { x1: "12", x2: "12.01", y1: "16", y2: "16", key: "4dfq90" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const CircleDot = createLucideIcon("CircleDot", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Cloud = createLucideIcon("Cloud", [
+  ["path", { d: "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z", key: "p7xjir" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const CodeXml = createLucideIcon("CodeXml", [
+  ["path", { d: "m18 16 4-4-4-4", key: "1inbqp" }],
+  ["path", { d: "m6 8-4 4 4 4", key: "15zrgr" }],
+  ["path", { d: "m14.5 4-5 16", key: "e7oirm" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const FileCode2 = createLucideIcon("FileCode2", [
+  ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  ["path", { d: "m5 12-3 3 3 3", key: "oke12k" }],
+  ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const FileText = createLucideIcon("FileText", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  ["path", { d: "M10 9H8", key: "b1mrlr" }],
+  ["path", { d: "M16 13H8", key: "t4e002" }],
+  ["path", { d: "M16 17H8", key: "z1uh3a" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const File$1 = createLucideIcon("File", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Folder = createLucideIcon("Folder", [
+  [
+    "path",
+    {
+      d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+      key: "1kt360"
+    }
+  ]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const GitBranch = createLucideIcon("GitBranch", [
+  ["line", { x1: "6", x2: "6", y1: "3", y2: "15", key: "17qcm7" }],
+  ["circle", { cx: "18", cy: "6", r: "3", key: "1h7g24" }],
+  ["circle", { cx: "6", cy: "18", r: "3", key: "fqmcym" }],
+  ["path", { d: "M18 9a9 9 0 0 1-9 9", key: "n2h4wq" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const GitCommitHorizontal = createLucideIcon("GitCommitHorizontal", [
+  ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }],
+  ["line", { x1: "3", x2: "9", y1: "12", y2: "12", key: "1dyftd" }],
+  ["line", { x1: "15", x2: "21", y1: "12", y2: "12", key: "oup4p8" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const LoaderCircle = createLucideIcon("LoaderCircle", [
+  ["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const MessageSquare = createLucideIcon("MessageSquare", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const PanelLeft = createLucideIcon("PanelLeft", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+  ["path", { d: "M9 3v18", key: "fh3hqa" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Play = createLucideIcon("Play", [
+  ["polygon", { points: "6 3 20 12 6 21 6 3", key: "1oa8hb" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Plus = createLucideIcon("Plus", [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "M12 5v14", key: "s699le" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const RefreshCw = createLucideIcon("RefreshCw", [
+  ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
+  ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
+  ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
+  ["path", { d: "M8 16H3v5", key: "1cv678" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Search = createLucideIcon("Search", [
+  ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
+  ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Send = createLucideIcon("Send", [
+  [
+    "path",
+    {
+      d: "M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z",
+      key: "1ffxy3"
+    }
+  ],
+  ["path", { d: "m21.854 2.147-10.94 10.939", key: "12cjpa" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Server = createLucideIcon("Server", [
+  ["rect", { width: "20", height: "8", x: "2", y: "2", rx: "2", ry: "2", key: "ngkwjq" }],
+  ["rect", { width: "20", height: "8", x: "2", y: "14", rx: "2", ry: "2", key: "iecqi9" }],
+  ["line", { x1: "6", x2: "6.01", y1: "6", y2: "6", key: "16zg32" }],
+  ["line", { x1: "6", x2: "6.01", y1: "18", y2: "18", key: "nzw8ys" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Settings2 = createLucideIcon("Settings2", [
+  ["path", { d: "M20 7h-9", key: "3s1dr2" }],
+  ["path", { d: "M14 17H5", key: "gfn3mx" }],
+  ["circle", { cx: "17", cy: "17", r: "3", key: "18b49y" }],
+  ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Sheet = createLucideIcon("Sheet", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }],
+  ["line", { x1: "3", x2: "21", y1: "9", y2: "9", key: "1vqk6q" }],
+  ["line", { x1: "3", x2: "21", y1: "15", y2: "15", key: "o2sbyz" }],
+  ["line", { x1: "9", x2: "9", y1: "9", y2: "21", key: "1ib60c" }],
+  ["line", { x1: "15", x2: "15", y1: "9", y2: "21", key: "1n26ft" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Sparkles = createLucideIcon("Sparkles", [
+  [
+    "path",
+    {
+      d: "M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z",
+      key: "4pj2yx"
+    }
+  ],
+  ["path", { d: "M20 3v4", key: "1olli1" }],
+  ["path", { d: "M22 5h-4", key: "1gvqau" }],
+  ["path", { d: "M4 17v2", key: "vumght" }],
+  ["path", { d: "M5 18H3", key: "zchphs" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const SquareTerminal = createLucideIcon("SquareTerminal", [
+  ["path", { d: "m7 11 2-2-2-2", key: "1lz0vl" }],
+  ["path", { d: "M11 13h4", key: "1p7l4v" }],
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }]
+]);
 const nativeFetch = window.fetch.bind(window);
 let refreshRequest = null;
 function isAuthenticationRoute(request) {
@@ -30689,32 +31091,32 @@ function plainObject$1(value, field) {
   }
   return value;
 }
-function requiredText$2(value, field) {
+function requiredText$3(value, field) {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (!normalized) {
     throw new DialogServiceError("invalid_options", `${field} must be a non-empty string`);
   }
   return normalized;
 }
-function optionalText$2(value, field) {
+function optionalText$3(value, field) {
   if (value === void 0 || value === null || value === "") return "";
-  return requiredText$2(value, field);
+  return requiredText$3(value, field);
 }
 function dismissible(value) {
   return value === void 0 ? true : Boolean(value);
 }
 function confirmOptions(input) {
   const value = plainObject$1(input, "confirm options");
-  const tone = optionalText$2(value.tone, "confirm options.tone") || "default";
+  const tone = optionalText$3(value.tone, "confirm options.tone") || "default";
   if (!confirmTones.has(tone)) {
     throw new DialogServiceError("invalid_options", "confirm options.tone must be default, warning, or danger");
   }
   return Object.freeze({
-    title: requiredText$2(value.title, "confirm options.title"),
-    description: optionalText$2(value.description, "confirm options.description"),
-    detail: optionalText$2(value.detail, "confirm options.detail"),
-    confirmLabel: optionalText$2(value.confirmLabel, "confirm options.confirmLabel") || "确认",
-    cancelLabel: optionalText$2(value.cancelLabel, "confirm options.cancelLabel") || "取消",
+    title: requiredText$3(value.title, "confirm options.title"),
+    description: optionalText$3(value.description, "confirm options.description"),
+    detail: optionalText$3(value.detail, "confirm options.detail"),
+    confirmLabel: optionalText$3(value.confirmLabel, "confirm options.confirmLabel") || "确认",
+    cancelLabel: optionalText$3(value.cancelLabel, "confirm options.cancelLabel") || "取消",
     tone,
     dismissible: dismissible(value.dismissible)
   });
@@ -30724,12 +31126,12 @@ function formOptions(input) {
   const schema = plainObject$1(value.schema, "form options.schema");
   const initialValues = value.initialValues === void 0 ? {} : plainObject$1(value.initialValues, "form options.initialValues");
   return Object.freeze({
-    title: requiredText$2(value.title, "form options.title"),
-    description: optionalText$2(value.description, "form options.description"),
+    title: requiredText$3(value.title, "form options.title"),
+    description: optionalText$3(value.description, "form options.description"),
     schema,
     initialValues,
-    submitLabel: optionalText$2(value.submitLabel, "form options.submitLabel") || "保存",
-    cancelLabel: optionalText$2(value.cancelLabel, "form options.cancelLabel") || "取消",
+    submitLabel: optionalText$3(value.submitLabel, "form options.submitLabel") || "保存",
+    cancelLabel: optionalText$3(value.cancelLabel, "form options.cancelLabel") || "取消",
     dismissible: dismissible(value.dismissible)
   });
 }
@@ -30741,16 +31143,16 @@ function choiceOptions(input) {
   const seen = /* @__PURE__ */ new Set();
   const items = value.items.map((item, index2) => {
     const option = plainObject$1(item, `choice options.items[${index2}]`);
-    const optionValue = requiredText$2(option.value, `choice options.items[${index2}].value`);
+    const optionValue = requiredText$3(option.value, `choice options.items[${index2}].value`);
     if (seen.has(optionValue)) {
       throw new DialogServiceError("invalid_options", `choice option value ${optionValue} is duplicated`);
     }
     seen.add(optionValue);
     return Object.freeze({
       value: optionValue,
-      label: requiredText$2(option.label, `choice options.items[${index2}].label`),
-      description: optionalText$2(option.description, `choice options.items[${index2}].description`),
-      keywords: optionalText$2(option.keywords, `choice options.items[${index2}].keywords`),
+      label: requiredText$3(option.label, `choice options.items[${index2}].label`),
+      description: optionalText$3(option.description, `choice options.items[${index2}].description`),
+      keywords: optionalText$3(option.keywords, `choice options.items[${index2}].keywords`),
       disabled: Boolean(option.disabled)
     });
   });
@@ -30758,18 +31160,18 @@ function choiceOptions(input) {
   if (!enabled.length) {
     throw new DialogServiceError("invalid_options", "choice options.items must include an enabled item");
   }
-  const requestedInitialValue = optionalText$2(value.initialValue, "choice options.initialValue");
+  const requestedInitialValue = optionalText$3(value.initialValue, "choice options.initialValue");
   const initialValue = enabled.some((item) => item.value === requestedInitialValue) ? requestedInitialValue : enabled[0].value;
   return Object.freeze({
-    title: requiredText$2(value.title, "choice options.title"),
-    description: optionalText$2(value.description, "choice options.description"),
+    title: requiredText$3(value.title, "choice options.title"),
+    description: optionalText$3(value.description, "choice options.description"),
     items: Object.freeze(items),
     initialValue,
     searchable: value.searchable === void 0 ? items.length > 8 : Boolean(value.searchable),
-    searchPlaceholder: optionalText$2(value.searchPlaceholder, "choice options.searchPlaceholder") || "搜索...",
-    emptyMessage: optionalText$2(value.emptyMessage, "choice options.emptyMessage") || "没有匹配项",
-    submitLabel: optionalText$2(value.submitLabel, "choice options.submitLabel") || "选择",
-    cancelLabel: optionalText$2(value.cancelLabel, "choice options.cancelLabel") || "取消",
+    searchPlaceholder: optionalText$3(value.searchPlaceholder, "choice options.searchPlaceholder") || "搜索...",
+    emptyMessage: optionalText$3(value.emptyMessage, "choice options.emptyMessage") || "没有匹配项",
+    submitLabel: optionalText$3(value.submitLabel, "choice options.submitLabel") || "选择",
+    cancelLabel: optionalText$3(value.cancelLabel, "choice options.cancelLabel") || "取消",
     dismissible: dismissible(value.dismissible)
   });
 }
@@ -30779,8 +31181,8 @@ function customOptions(dialogID, renderer, input, options) {
     dialogID,
     renderer,
     input,
-    title: optionalText$2(value.title, "dialog options.title") || dialogID,
-    description: optionalText$2(value.description, "dialog options.description"),
+    title: optionalText$3(value.title, "dialog options.title") || dialogID,
+    description: optionalText$3(value.description, "dialog options.description"),
     dismissible: dismissible(value.dismissible)
   });
 }
@@ -30813,7 +31215,7 @@ class DialogService {
     return this.enqueue("choice", choiceOptions(options));
   }
   register(dialogID, renderer) {
-    const normalizedID = requiredText$2(dialogID, "dialog id");
+    const normalizedID = requiredText$3(dialogID, "dialog id");
     if (!dialogIDPattern.test(normalizedID)) {
       throw new DialogServiceError("invalid_dialog_id", "dialog id must be a lowercase namespaced identifier");
     }
@@ -30829,7 +31231,7 @@ class DialogService {
     };
   }
   open(dialogID, input, options) {
-    const normalizedID = requiredText$2(dialogID, "dialog id");
+    const normalizedID = requiredText$3(dialogID, "dialog id");
     const renderer = this.renderers.get(normalizedID);
     if (!renderer) {
       return Promise.reject(new DialogServiceError("unknown_dialog", `dialog ${normalizedID} is not registered`));
@@ -30950,18 +31352,18 @@ function plainObject(value, field) {
   }
   return value;
 }
-function requiredText$1(value, field) {
+function requiredText$2(value, field) {
   const normalized = typeof value === "string" ? value.trim() : "";
   if (!normalized) throw new NotificationServiceError(field, "must be a non-empty string");
   return normalized;
 }
-function optionalText$1(value, field) {
+function optionalText$2(value, field) {
   if (value === void 0 || value === null || value === "") return "";
-  return requiredText$1(value, field);
+  return requiredText$2(value, field);
 }
 function normalizeNotification(input, id2, now) {
   const value = plainObject(input, "notification");
-  const level = optionalText$1(value.level, "notification.level") || "info";
+  const level = optionalText$2(value.level, "notification.level") || "info";
   if (!NOTIFICATION_LEVELS.includes(level)) {
     throw new NotificationServiceError("notification.level", `must be one of ${NOTIFICATION_LEVELS.join(", ")}`);
   }
@@ -30972,9 +31374,9 @@ function normalizeNotification(input, id2, now) {
   return Object.freeze({
     id: id2,
     level,
-    title: requiredText$1(value.title, "notification.title"),
-    message: optionalText$1(value.message, "notification.message"),
-    dedupeKey: optionalText$1(value.dedupeKey, "notification.dedupeKey"),
+    title: requiredText$2(value.title, "notification.title"),
+    message: optionalText$2(value.message, "notification.message"),
+    dedupeKey: optionalText$2(value.dedupeKey, "notification.dedupeKey"),
     durationMs,
     createdAt: now
   });
@@ -32510,29 +32912,29 @@ function createStaticPluginRegistry(options) {
     commands
   });
 }
-const protocol_version$2 = "tma.workbench_plugin.v1";
-const id$2 = "com.tma.workbench-diagnostics";
-const name$2 = "扩展诊断";
-const description$2 = "查看静态插件运行时与多端声明状态";
-const version$2 = "1.0.0";
-const entry$2 = "./index.js";
-const surfaces$2 = ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"];
-const engines$2 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
-const permissions$2 = [];
-const contributes$2 = { "navigation": [{ "id": "diagnostics", "group": "workspace", "title": "扩展诊断", "route": "/plugins/com.tma.workbench-diagnostics/status", "order": 900 }], "routes": [{ "id": "status", "path": "/plugins/com.tma.workbench-diagnostics/status", "component": "DiagnosticsPage", "required_permissions": [] }], "commands": [{ "id": "com.tma.workbench-diagnostics.refresh", "title": "刷新诊断状态", "risk": "read", "required_permissions": [] }] };
-const manifest$2 = {
-  protocol_version: protocol_version$2,
-  id: id$2,
-  name: name$2,
-  description: description$2,
-  version: version$2,
-  entry: entry$2,
-  surfaces: surfaces$2,
-  engines: engines$2,
-  permissions: permissions$2,
-  contributes: contributes$2
+const protocol_version$3 = "tma.workbench_plugin.v1";
+const id$3 = "com.tma.workbench-diagnostics";
+const name$3 = "扩展诊断";
+const description$3 = "查看静态插件运行时与多端声明状态";
+const version$3 = "1.0.0";
+const entry$3 = "./index.js";
+const surfaces$3 = ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"];
+const engines$3 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
+const permissions$3 = [];
+const contributes$3 = { "navigation": [{ "id": "diagnostics", "group": "workspace", "title": "扩展诊断", "route": "/plugins/com.tma.workbench-diagnostics/status", "order": 900 }], "routes": [{ "id": "status", "path": "/plugins/com.tma.workbench-diagnostics/status", "component": "DiagnosticsPage", "required_permissions": [] }], "commands": [{ "id": "com.tma.workbench-diagnostics.refresh", "title": "刷新诊断状态", "risk": "read", "required_permissions": [] }] };
+const manifest$3 = {
+  protocol_version: protocol_version$3,
+  id: id$3,
+  name: name$3,
+  description: description$3,
+  version: version$3,
+  entry: entry$3,
+  surfaces: surfaces$3,
+  engines: engines$3,
+  permissions: permissions$3,
+  contributes: contributes$3
 };
-const plugin$2 = {
+const plugin$3 = {
   id: "com.tma.workbench-diagnostics",
   activate(context) {
     context.commands.register("com.tma.workbench-diagnostics.refresh", async () => ({
@@ -32604,13 +33006,691 @@ function DiagnosticsPage({ context }) {
     )
   );
 }
-const _package$2 = Object.freeze({
-  manifest: manifest$2,
-  plugin: plugin$2,
+const _package$3 = Object.freeze({
+  manifest: manifest$3,
+  plugin: plugin$3,
   components: Object.freeze({ DiagnosticsPage }),
   enablement: Object.freeze({ defaultEnabled: true })
 });
 const __vite_glob_0_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: _package$3
+}, Symbol.toStringTag, { value: "Module" }));
+const protocol_version$2 = "tma.workbench_plugin.v1";
+const id$2 = "com.tma.r-survival-workbench";
+const name$2 = "R 语言生存分析";
+const description$2 = "GitLab 项目、远程 R Notebook 与 TMA Agent 的生存分析工作台";
+const version$2 = "0.1.0";
+const entry$2 = "./index.jsx";
+const surfaces$2 = ["web_desktop", "desktop_shell", "web_tablet", "web_mobile"];
+const engines$2 = { "workbench_api": ">=1.0.0 <2.0.0", "design_system": ">=1.0.0 <2.0.0" };
+const permissions$2 = [];
+const contributes$2 = { "navigation": [{ "id": "r-survival", "group": "workbench", "title": "R 语言生存分析", "route": "/plugins/com.tma.r-survival-workbench/workbench", "order": 100 }], "routes": [{ "id": "workbench", "path": "/plugins/com.tma.r-survival-workbench/workbench", "component": "RSurvivalWorkbenchPage", "required_permissions": [] }], "commands": [{ "id": "com.tma.r-survival-workbench.create-project", "title": "创建分析项目", "risk": "write", "required_permissions": [] }] };
+const manifest$2 = {
+  protocol_version: protocol_version$2,
+  id: id$2,
+  name: name$2,
+  description: description$2,
+  version: version$2,
+  entry: entry$2,
+  surfaces: surfaces$2,
+  engines: engines$2,
+  permissions: permissions$2,
+  contributes: contributes$2
+};
+const STORAGE_PREFIX$1 = "tma.plugin.com.tma.r-survival-workbench.projects.v1";
+const DEFAULT_NOTEBOOK_CODE = `library(survival)
+library(ggsurvfit)
+
+surv_obj <- Surv(followup_month, event)
+km_fit <- survfit(surv_obj ~ treatment, data = followup)
+cox_fit <- coxph(
+  surv_obj ~ treatment + age + stage,
+  data = followup
+)
+
+ggsurvfit(km_fit) + add_risktable()`;
+const DEFAULT_PROJECT_FILES = Object.freeze([
+  Object.freeze({ path: "README.md", kind: "file", status: "clean" }),
+  Object.freeze({ path: "notebooks", kind: "folder" }),
+  Object.freeze({ path: "notebooks/survival-analysis.ipynb", kind: "file", status: "modified" }),
+  Object.freeze({ path: "R", kind: "folder" }),
+  Object.freeze({ path: "R/clean-data.R", kind: "file", status: "clean" }),
+  Object.freeze({ path: "R/survival-model.R", kind: "file", status: "clean" }),
+  Object.freeze({ path: "config", kind: "folder" }),
+  Object.freeze({ path: "config/variable-mapping.yml", kind: "file", status: "clean" }),
+  Object.freeze({ path: "reports", kind: "folder" }),
+  Object.freeze({ path: "renv.lock", kind: "file", status: "clean" })
+]);
+function requiredText$1(value, field, maxLength) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) throw new Error(`${field} is required`);
+  if (normalized.length > maxLength) throw new Error(`${field} exceeds ${maxLength} characters`);
+  return normalized;
+}
+function optionalText$1(value, maxLength) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (normalized.length > maxLength) throw new Error(`value exceeds ${maxLength} characters`);
+  return normalized;
+}
+function normalizedScope$1(scope) {
+  return {
+    workspaceId: requiredText$1(scope == null ? void 0 : scope.workspaceId, "scope.workspaceId", 240),
+    userId: requiredText$1(scope == null ? void 0 : scope.userId, "scope.userId", 240)
+  };
+}
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+function projectID$1(randomID2) {
+  var _a2, _b;
+  const generated = typeof randomID2 === "function" ? String(randomID2()).trim() : "";
+  return `analysis_${generated || ((_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) || Math.random().toString(36).slice(2)}`;
+}
+function normalizeProject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  try {
+    return {
+      id: requiredText$1(value.id, "project.id", 240),
+      name: requiredText$1(value.name, "project.name", 120),
+      objective: optionalText$1(value.objective, 1200),
+      repositoryPath: optionalText$1(value.repositoryPath, 240),
+      gitlabURL: optionalText$1(value.gitlabURL, 1e3),
+      notebookURL: optionalText$1(value.notebookURL, 1e3),
+      gitStatus: ["local", "syncing", "synced", "error"].includes(value.gitStatus) ? value.gitStatus : "local",
+      branch: optionalText$1(value.branch, 120) || "main",
+      activeFile: optionalText$1(value.activeFile, 500) || "notebooks/survival-analysis.ipynb",
+      notebookCode: typeof value.notebookCode === "string" ? value.notebookCode : DEFAULT_NOTEBOOK_CODE,
+      files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({ ...file })) : clone(DEFAULT_PROJECT_FILES),
+      createdAt: requiredText$1(value.createdAt, "project.createdAt", 80),
+      updatedAt: requiredText$1(value.updatedAt, "project.updatedAt", 80)
+    };
+  } catch {
+    return null;
+  }
+}
+function storageKeyForScope$1(scope) {
+  const normalized = normalizedScope$1(scope);
+  return `${STORAGE_PREFIX$1}:${encodeURIComponent(normalized.workspaceId)}:${encodeURIComponent(normalized.userId)}`;
+}
+function createAnalysisWorkspaceRepository(options = {}) {
+  const storage = options.storage;
+  if (!storage || typeof storage.getItem !== "function" || typeof storage.setItem !== "function") {
+    throw new Error("a storage adapter is required");
+  }
+  const key = storageKeyForScope$1(options.scope);
+  const now = typeof options.now === "function" ? options.now : () => Date.now();
+  const randomID2 = options.randomID;
+  function read() {
+    try {
+      const parsed = JSON.parse(storage.getItem(key) || "[]");
+      return Array.isArray(parsed) ? parsed.map(normalizeProject).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+  function write(projects) {
+    storage.setItem(key, JSON.stringify(projects));
+  }
+  function create2(input) {
+    const timestamp = new Date(now()).toISOString();
+    const name2 = requiredText$1(input == null ? void 0 : input.name, "project.name", 120);
+    const repositoryPath = optionalText$1(input == null ? void 0 : input.repositoryPath, 240) || name2.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "r-analysis";
+    const project = {
+      id: projectID$1(randomID2),
+      name: name2,
+      objective: optionalText$1(input == null ? void 0 : input.objective, 1200),
+      repositoryPath,
+      gitlabURL: optionalText$1(input == null ? void 0 : input.gitlabURL, 1e3),
+      notebookURL: optionalText$1(input == null ? void 0 : input.notebookURL, 1e3),
+      gitStatus: "local",
+      branch: "main",
+      activeFile: "notebooks/survival-analysis.ipynb",
+      notebookCode: DEFAULT_NOTEBOOK_CODE,
+      files: clone(DEFAULT_PROJECT_FILES),
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    const projects = read();
+    projects.push(project);
+    write(projects);
+    return clone(project);
+  }
+  function ensureExample() {
+    const projects = read();
+    if (projects.length) return clone(projects[0]);
+    return create2({
+      name: "肿瘤患者生存分析",
+      objective: "完成中文随访数据清洗、Kaplan-Meier 分析和 Cox 回归",
+      repositoryPath: "survival-analysis"
+    });
+  }
+  function list2() {
+    return read().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).map(clone);
+  }
+  function update(id2, patch2) {
+    const projects = read();
+    const index2 = projects.findIndex((project) => project.id === id2);
+    if (index2 < 0) throw new Error(`project ${id2} was not found`);
+    const current = projects[index2];
+    const next = normalizeProject({
+      ...current,
+      ...patch2,
+      id: current.id,
+      createdAt: current.createdAt,
+      updatedAt: new Date(now()).toISOString()
+    });
+    if (!next) throw new Error("project update is invalid");
+    projects[index2] = next;
+    write(projects);
+    return clone(next);
+  }
+  return Object.freeze({ key, create: create2, ensureExample, list: list2, update });
+}
+const repositories$1 = /* @__PURE__ */ new Map();
+function repositoryFor$1(scope) {
+  const key = `${scope.workspaceId}:${scope.userId}`;
+  if (!repositories$1.has(key)) {
+    repositories$1.set(key, createAnalysisWorkspaceRepository({ storage: window.localStorage, scope }));
+  }
+  return repositories$1.get(key);
+}
+function projectForm$1() {
+  return {
+    title: "新建分析项目",
+    description: "创建本地项目草稿；GitLab 和远程 Notebook 地址可在项目设置中补充。",
+    schema: {
+      type: "object",
+      required: ["name"],
+      properties: {
+        name: { type: "string", title: "项目名称", description: "例如：肿瘤患者生存分析" },
+        objective: { type: "string", format: "textarea", title: "分析目标" },
+        repositoryPath: { type: "string", title: "GitLab 项目路径", description: "例如：survival-analysis" },
+        gitlabURL: { type: "string", title: "GitLab 项目地址", description: "后端连接器创建项目后写入" },
+        notebookURL: { type: "string", title: "JupyterLab 地址", description: "开发环境可使用 http://127.0.0.1:18888/lab" }
+      }
+    },
+    initialValues: {},
+    submitLabel: "创建项目"
+  };
+}
+function settingsForm(project) {
+  return {
+    title: "项目连接设置",
+    description: project.name,
+    schema: {
+      type: "object",
+      properties: {
+        gitlabURL: { type: "string", title: "GitLab 项目地址" },
+        notebookURL: { type: "string", title: "JupyterLab 地址" }
+      }
+    },
+    initialValues: {
+      gitlabURL: project.gitlabURL || "",
+      notebookURL: project.notebookURL || ""
+    },
+    submitLabel: "保存连接"
+  };
+}
+function statusLabel(status) {
+  if (status === "synced") return "GitLab 已同步";
+  if (status === "syncing") return "正在同步";
+  if (status === "error") return "同步失败";
+  return "本地草稿";
+}
+function fileIcon(path2, kind) {
+  if (kind === "folder") return /* @__PURE__ */ jsxRuntimeExports.jsx(Folder, { "aria-hidden": "true" });
+  if (path2.endsWith(".ipynb")) return /* @__PURE__ */ jsxRuntimeExports.jsx(FileCode2, { "aria-hidden": "true" });
+  if (path2.endsWith(".R")) return /* @__PURE__ */ jsxRuntimeExports.jsx(CodeXml, { "aria-hidden": "true" });
+  if (path2.endsWith(".yml") || path2.endsWith(".yaml")) return /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" });
+  if (path2.endsWith(".md")) return /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" });
+  if (path2.endsWith(".xlsx") || path2.endsWith(".csv")) return /* @__PURE__ */ jsxRuntimeExports.jsx(Sheet, { "aria-hidden": "true" });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(File$1, { "aria-hidden": "true" });
+}
+function basename(path2) {
+  return String(path2 || "").split("/").filter(Boolean).at(-1) || path2;
+}
+function eventText$1(event) {
+  const payload2 = (event == null ? void 0 : event.payload) || {};
+  if (Array.isArray(payload2.content)) {
+    return payload2.content.map((item) => (item == null ? void 0 : item.text) || (item == null ? void 0 : item.content) || "").filter(Boolean).join("\n");
+  }
+  if (typeof payload2.content === "string") return payload2.content;
+  return payload2.message || payload2.summary || payload2.text || "";
+}
+function wait(milliseconds, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal == null ? void 0 : signal.addEventListener("abort", () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    }, { once: true });
+  });
+}
+async function waitForAgentReply(context, sessionID, runID, signal) {
+  const session2 = encodeURIComponent(sessionID);
+  const run = encodeURIComponent(runID);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const [runState, eventList] = await Promise.all([
+      context.http.request(`/v2/sessions/${session2}/runs/${run}`, { signal }),
+      context.http.request(`/v2/sessions/${session2}/runs/${run}/events`, { signal })
+    ]);
+    const events2 = Array.isArray(eventList == null ? void 0 : eventList.events) ? eventList.events : [];
+    const reply = [...events2].reverse().find((event) => event.type === "agent.message" && eventText$1(event).trim());
+    if (reply) return eventText$1(reply).trim();
+    if (["failed", "interrupted"].includes(runState == null ? void 0 : runState.status)) {
+      throw new Error(runState.error_message || `Agent Run ${runState.status}`);
+    }
+    if ((runState == null ? void 0 : runState.status) === "completed") return "任务已完成，未返回可见文本。";
+    await wait(1500, signal);
+  }
+  return "任务仍在运行，可在主工作台继续查看。";
+}
+function KMSurvivalChart() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "analysis-km-chart", viewBox: "0 0 620 300", role: "img", "aria-labelledby": "analysis-km-title analysis-km-desc", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("title", { id: "analysis-km-title", children: "Kaplan-Meier 生存曲线示例输出" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("desc", { id: "analysis-km-desc", children: "新治疗组的生存概率整体高于标准治疗组。" }),
+    [50, 100, 150, 200, 250].map((y) => /* @__PURE__ */ jsxRuntimeExports.jsx("line", { className: "grid", x1: "58", x2: "596", y1: y, y2: y }, y)),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("line", { className: "axis", x1: "58", x2: "596", y1: "250", y2: "250" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("line", { className: "axis", x1: "58", x2: "58", y1: "36", y2: "250" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "axis-label", x: "8", y: "22", children: "生存概率" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "axis-label", x: "314", y: "290", textAnchor: "middle", children: "随访时间（月）" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x: "48", y: "254", textAnchor: "end", children: "0%" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x: "48", y: "204", textAnchor: "end", children: "25%" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x: "48", y: "154", textAnchor: "end", children: "50%" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x: "48", y: "104", textAnchor: "end", children: "75%" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x: "48", y: "54", textAnchor: "end", children: "100%" }),
+    [58, 192, 326, 460, 596].map((x, index2) => /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "tick", x, y: "270", textAnchor: "middle", children: index2 * 6 }, x)),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "curve primary", d: "M58 50 H100 V57 H145 V66 H190 V77 H235 V91 H280 V106 H325 V120 H370 V140 H415 V158 H460 V178 H505 V194 H550 V211 H596" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { className: "curve secondary", d: "M58 50 H95 V63 H130 V78 H170 V96 H210 V117 H250 V140 H290 V162 H330 V181 H375 V202 H420 V216 H470 V229 H520 V239 H560 V245 H596" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("text", { className: "annotation", x: "414", y: "74", children: "HR 0.68 · p = 0.021" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("g", { className: "legend", transform: "translate(408 92)", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("line", { className: "curve primary", x1: "0", x2: "22", y1: "0", y2: "0" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("text", { x: "30", y: "4", children: "新治疗组" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("line", { className: "curve secondary", x1: "0", x2: "22", y1: "22", y2: "22" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("text", { x: "30", y: "26", children: "标准治疗组" })
+    ] })
+  ] });
+}
+function NotebookPreview({ code: code2, onCodeChange, onCodeSave, onOpenRuntime, runtimeAvailable }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-notebook", "aria-label": "Notebook 预览", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-notebook-cell markdown-cell", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cell-gutter", children: "MD" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cell-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "治疗组总生存期比较" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "使用 Kaplan-Meier 方法估计生存函数，并通过 Cox 比例风险模型调整年龄和疾病分期。" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-notebook-cell code-cell", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cell-gutter", children: "R" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cell-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cell-toolbar", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "In [1]" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "analysis-icon-button", type: "button", disabled: !runtimeAvailable, onClick: onOpenRuntime, title: runtimeAvailable ? "在远程 JupyterLab 中运行" : "先配置远程 JupyterLab", "aria-label": "运行代码单元", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { "aria-hidden": "true" }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { className: "analysis-code-editor", spellCheck: "false", value: code2, onChange: (event) => onCodeChange(event.target.value), onBlur: onCodeSave, "aria-label": "R 代码" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-notebook-cell output-cell", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cell-gutter", children: "Out" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "cell-content", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-output-heading", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "已保存的示例输出" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-status neutral", children: "未重新运行" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(KMSurvivalChart, {})
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-notebook-cell output-cell compact-output", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cell-gutter", children: "Out" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "cell-content", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "analysis-model-table", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "变量" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "HR" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "95% CI" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "p 值" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("tbody", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "新治疗组" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.68" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.49–0.94" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.021" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "年龄（每 10 岁）" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "1.14" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.98–1.32" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.087" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "III 期 vs II 期" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "1.72" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "1.23–2.41" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: "0.002" })
+          ] })
+        ] })
+      ] }) })
+    ] })
+  ] });
+}
+function RuntimeFrame({ project }) {
+  if (!project.notebookURL) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-runtime-empty", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Server, { "aria-hidden": "true" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "远程 JupyterLab 未连接" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "项目设置中配置同源代理地址，或使用开发环境地址。" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: "http://127.0.0.1:18888/lab" })
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "iframe",
+    {
+      className: "analysis-runtime-frame",
+      src: project.notebookURL,
+      title: `${project.name} JupyterLab`,
+      sandbox: "allow-same-origin allow-scripts allow-forms allow-downloads allow-popups"
+    }
+  );
+}
+const plugin$2 = {
+  id: "com.tma.r-survival-workbench",
+  activate(context) {
+    const repository = repositoryFor$1(context.scope);
+    context.commands.register("com.tma.r-survival-workbench.create-project", async (input) => repository.create(input));
+  }
+};
+function RSurvivalWorkbenchPage({ context }) {
+  const repository = reactExports.useMemo(() => repositoryFor$1(context.scope), [context]);
+  const [projects, setProjects] = reactExports.useState(() => {
+    repository.ensureExample();
+    return repository.list();
+  });
+  const [projectID2, setProjectID] = reactExports.useState(() => {
+    var _a2;
+    return ((_a2 = projects[0]) == null ? void 0 : _a2.id) || "";
+  });
+  const project = projects.find((item) => item.id === projectID2) || projects[0] || null;
+  const [selectedFile, setSelectedFile] = reactExports.useState(() => (project == null ? void 0 : project.activeFile) || "");
+  const [code2, setCode] = reactExports.useState(() => (project == null ? void 0 : project.notebookCode) || "");
+  const [centerView, setCenterView] = reactExports.useState("notebook");
+  const [sessions2, setSessions] = reactExports.useState([]);
+  const [sessionID, setSessionID] = reactExports.useState("");
+  const [sessionLoading, setSessionLoading] = reactExports.useState(true);
+  const [prompt, setPrompt] = reactExports.useState("检查当前生存分析代码，并说明需要补充的统计检验");
+  const [messages, setMessages] = reactExports.useState([
+    { id: "welcome", role: "assistant", text: "选择一个 TMA Session 后，可结合当前项目和 R 代码继续分析。" }
+  ]);
+  const [sending, setSending] = reactExports.useState(false);
+  const sendAbortRef = reactExports.useRef(null);
+  function refreshProjects(preferredID = projectID2) {
+    const next = repository.list();
+    setProjects(next);
+    if (preferredID) setProjectID(preferredID);
+  }
+  reactExports.useEffect(() => {
+    if (!project) return;
+    setSelectedFile(project.activeFile);
+    setCode(project.notebookCode);
+  }, [project == null ? void 0 : project.id]);
+  reactExports.useEffect(() => {
+    let active = true;
+    setSessionLoading(true);
+    context.tasks.list({ workspaceId: context.scope.workspaceId, includeArchived: false, limit: 40 }).then((items) => {
+      if (!active) return;
+      const next = Array.isArray(items) ? items : [];
+      setSessions(next);
+      setSessionID((current) => {
+        var _a2;
+        return current || ((_a2 = next[0]) == null ? void 0 : _a2.id) || "";
+      });
+    }).catch((error) => {
+      if (active) context.notifications.show({ level: "error", title: "任务加载失败", message: error.message || String(error) });
+    }).finally(() => {
+      if (active) setSessionLoading(false);
+    });
+    return () => {
+      var _a2;
+      active = false;
+      (_a2 = sendAbortRef.current) == null ? void 0 : _a2.abort();
+    };
+  }, [context]);
+  async function createProject() {
+    const values = await context.dialog.form(projectForm$1());
+    if (!values) return;
+    const created = await context.commands.execute("com.tma.r-survival-workbench.create-project", values);
+    refreshProjects(created.id);
+    setSelectedFile(created.activeFile);
+    setCode(created.notebookCode);
+    context.notifications.show({ level: "success", title: "分析项目已创建", message: created.name });
+  }
+  async function configureProject() {
+    if (!project) return;
+    const values = await context.dialog.form(settingsForm(project));
+    if (!values) return;
+    const updated = repository.update(project.id, values);
+    refreshProjects(updated.id);
+    context.notifications.show({ level: "success", title: "项目连接已保存", message: updated.name });
+  }
+  function selectFile(file) {
+    if (file.kind === "folder" || !project) return;
+    setSelectedFile(file.path);
+    repository.update(project.id, { activeFile: file.path });
+  }
+  function saveCode() {
+    if (!project || code2 === project.notebookCode) return;
+    const updated = repository.update(project.id, { notebookCode: code2 });
+    refreshProjects(updated.id);
+  }
+  async function refreshSessions() {
+    var _a2;
+    setSessionLoading(true);
+    try {
+      const next = await context.tasks.list({ workspaceId: context.scope.workspaceId, includeArchived: false, limit: 40 });
+      setSessions(Array.isArray(next) ? next : []);
+      if (!sessionID && ((_a2 = next == null ? void 0 : next[0]) == null ? void 0 : _a2.id)) setSessionID(next[0].id);
+    } finally {
+      setSessionLoading(false);
+    }
+  }
+  async function sendMessage(event) {
+    var _a2;
+    event.preventDefault();
+    const text2 = prompt.trim();
+    if (!text2 || !sessionID || !project || sending) return;
+    const userMessage = { id: `user-${Date.now()}`, role: "user", text: text2 };
+    const pendingID = `assistant-${Date.now()}`;
+    setMessages((current) => [...current, userMessage, { id: pendingID, role: "assistant", text: "正在分析…", pending: true }]);
+    setPrompt("");
+    setSending(true);
+    (_a2 = sendAbortRef.current) == null ? void 0 : _a2.abort();
+    const controller = new AbortController();
+    sendAbortRef.current = controller;
+    const contextualPrompt = [
+      "[R 语言生存分析工作台上下文]",
+      `项目：${project.name}`,
+      `目标：${project.objective || "未填写"}`,
+      `当前文件：${selectedFile || project.activeFile}`,
+      "当前 R 代码：",
+      code2,
+      "",
+      `[用户请求] ${text2}`
+    ].join("\n");
+    try {
+      const started = await context.http.request(`/v2/sessions/${encodeURIComponent(sessionID)}/runs`, {
+        method: "POST",
+        signal: controller.signal,
+        body: { input: { content: [{ type: "text", text: contextualPrompt }], attachments: [] } }
+      });
+      const reply = await waitForAgentReply(context, sessionID, started.run.id, controller.signal);
+      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: reply, pending: false } : message));
+    } catch (error) {
+      if ((error == null ? void 0 : error.name) === "AbortError") return;
+      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: error.message || String(error), pending: false, error: true } : message));
+    } finally {
+      if (sendAbortRef.current === controller) sendAbortRef.current = null;
+      setSending(false);
+    }
+  }
+  if (!project) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-workbench-empty", children: "没有可用项目。" });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-page", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "analysis-workbench-toolbar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-project-picker", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "analysis-project-select", children: "项目" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-select-wrap", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("select", { id: "analysis-project-select", value: project.id, onChange: (event) => setProjectID(event.target.value), children: projects.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.id, children: item.name }, item.id)) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { "aria-hidden": "true" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `analysis-status ${project.gitStatus}`, children: statusLabel(project.gitStatus) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", onClick: configureProject, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" }),
+          "项目设置"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: createProject, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { "aria-hidden": "true" }),
+          "新建项目"
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-grid", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "analysis-project-pane", "aria-label": "项目文件", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-pane-heading", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(PanelLeft, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "项目目录" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "analysis-icon-button", type: "button", onClick: () => context.notifications.show({ level: "info", title: "GitLab 同步", message: project.gitlabURL ? "GitLab Connector 将在后端阶段接管同步。" : "请先配置 GitLab 项目地址。" }), "aria-label": "刷新项目目录", title: "刷新项目目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" }) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-repository-meta", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(GitBranch, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.branch }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: project.repositoryPath })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-file-tree", role: "tree", "aria-label": "项目目录", children: project.files.map((file) => {
+          const depth = Math.max(0, file.path.split("/").length - 1);
+          const active = file.path === selectedFile;
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: `analysis-file-row ${active ? "active" : ""}`,
+              style: { "--analysis-file-depth": depth },
+              type: "button",
+              role: "treeitem",
+              "aria-selected": active,
+              onClick: () => selectFile(file),
+              children: [
+                fileIcon(file.path, file.kind),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: basename(file.path) }),
+                file.status === "modified" ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-file-change", children: "M" }) : null
+              ]
+            },
+            file.path
+          );
+        }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-git-summary", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(GitCommitHorizontal, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "待提交变更" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "1" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Notebook 代码将在 GitLab Connector 接入后生成 Diff 和检查点。" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "analysis-notebook-pane", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-pane-heading analysis-notebook-heading", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-view-tabs", role: "tablist", "aria-label": "分析视图", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: centerView === "notebook" ? "active" : "", type: "button", role: "tab", "aria-selected": centerView === "notebook", onClick: () => setCenterView("notebook"), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(FileCode2, { "aria-hidden": "true" }),
+              "Notebook"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: centerView === "runtime" ? "active" : "", type: "button", role: "tab", "aria-selected": centerView === "runtime", onClick: () => setCenterView("runtime"), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(SquareTerminal, { "aria-hidden": "true" }),
+              "JupyterLab"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-runtime-state", children: [
+            project.notebookURL ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.notebookURL ? "R Runtime 已配置" : "R Runtime 待连接" })
+          ] })
+        ] }),
+        centerView === "notebook" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          NotebookPreview,
+          {
+            code: code2,
+            onCodeChange: setCode,
+            onCodeSave: saveCode,
+            onOpenRuntime: () => setCenterView("runtime"),
+            runtimeAvailable: Boolean(project.notebookURL)
+          }
+        ) : /* @__PURE__ */ jsxRuntimeExports.jsx(RuntimeFrame, { project })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "analysis-chat-pane", "aria-label": "AI 分析助手", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-pane-heading", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MessageSquare, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "AI 分析助手" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "analysis-status agent", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(CircleDot, { "aria-hidden": "true" }),
+            "TMA Agent"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-session-picker", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "analysis-session-select", children: "关联任务" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { id: "analysis-session-select", value: sessionID, disabled: sessionLoading, onChange: (event) => setSessionID(event.target.value), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: sessionLoading ? "正在加载…" : "选择 TMA Session" }),
+              sessions2.map((session2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: session2.id, children: session2.title || session2.id }, session2.id))
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: "analysis-icon-button",
+                type: "button",
+                disabled: sessionLoading,
+                onClick: () => refreshSessions().catch((error) => context.notifications.show({
+                  level: "error",
+                  title: "刷新失败",
+                  message: error.message || String(error)
+                })),
+                "aria-label": "刷新任务",
+                title: "刷新任务",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" })
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-chat-messages", "aria-live": "polite", children: messages.map((message) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: `analysis-chat-message ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            message.role === "assistant" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: message.role === "assistant" ? "分析助手" : "你" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: message.text }),
+          message.pending ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : null
+        ] }, message.id)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "analysis-chat-composer", onSubmit: sendMessage, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: prompt, onChange: (event) => setPrompt(event.target.value), placeholder: "结合当前 Notebook 继续分析…", "aria-label": "发送给分析助手" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Cloud, { "aria-hidden": "true" }),
+              "包含当前项目上下文"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: !sessionID || !prompt.trim() || sending, "aria-label": "发送消息", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Send, { "aria-hidden": "true" }) })
+          ] })
+        ] })
+      ] })
+    ] })
+  ] });
+}
+const _package$2 = Object.freeze({
+  manifest: manifest$2,
+  plugin: plugin$2,
+  components: Object.freeze({ RSurvivalWorkbenchPage }),
+  enablement: Object.freeze({ defaultEnabled: true })
+});
+const __vite_glob_1_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: _package$2
 }, Symbol.toStringTag, { value: "Module" }));
@@ -32841,7 +33921,7 @@ const _package$1 = Object.freeze({
   components: Object.freeze({ EnterpriseBrowserPage }),
   enablement: Object.freeze({ defaultEnabled: true })
 });
-const __vite_glob_1_0 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const __vite_glob_1_1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: _package$1
 }, Symbol.toStringTag, { value: "Module" }));
@@ -33785,7 +34865,7 @@ const _package = Object.freeze({
   components: Object.freeze({ ResearchProjectsPage }),
   enablement: Object.freeze({ defaultEnabled: true })
 });
-const __vite_glob_1_1 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+const __vite_glob_1_2 = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
   __proto__: null,
   default: _package
 }, Symbol.toStringTag, { value: "Module" }));
@@ -33840,7 +34920,7 @@ function loadPluginCatalog(runtime, catalog, options = {}) {
 }
 const packageModules = {
   .../* @__PURE__ */ Object.assign({ "./workbenchDiagnostics/package.js": __vite_glob_0_0 }),
-  .../* @__PURE__ */ Object.assign({ "./enterpriseBrowser/package.jsx": __vite_glob_1_0, "./researchProjects/package.jsx": __vite_glob_1_1 })
+  .../* @__PURE__ */ Object.assign({ "./analysisWorkbench/package.jsx": __vite_glob_1_0, "./enterpriseBrowser/package.jsx": __vite_glob_1_1, "./researchProjects/package.jsx": __vite_glob_1_2 })
 };
 const staticPluginCatalog = buildStaticPluginCatalog(packageModules);
 function loadStaticPluginCatalog(runtime, options = {}) {
@@ -33849,6 +34929,7 @@ function loadStaticPluginCatalog(runtime, options = {}) {
 const activeSessionStorageKey = "tma.workbench.active-session";
 const desktopSidebarVisibilityStorageKey = "tma.workbench.desktop-sidebars.v1";
 const workflowStoragePrefix = "tma.workbench.workflow.";
+const extensionWorkbenchHubRoute = "/workbenches";
 const workbenchDialogService = createDialogService();
 const workbenchNotificationService = createNotificationService();
 const workbenchRelatedResourceService = createRelatedResourceService();
@@ -33938,6 +35019,13 @@ function pluginPathFromHash() {
     return value.startsWith("/plugins/") ? value : "";
   } catch {
     return "";
+  }
+}
+function extensionWorkbenchHubFromHash() {
+  try {
+    return decodeURIComponent(String(window.location.hash || "").replace(/^#/, "")) === extensionWorkbenchHubRoute;
+  } catch {
+    return false;
   }
 }
 function Empty({ children }) {
@@ -39058,7 +40146,7 @@ function ProcessEventCard({
   let contextItems = [];
   let tone = "muted";
   let status = "completed";
-  let statusLabel = "完成";
+  let statusLabel2 = "完成";
   let defaultExpanded = false;
   const lifecycleResult = toolLifecycle == null ? void 0 : toolLifecycle.result;
   const lifecycleResultData = eventData(lifecycleResult);
@@ -39077,7 +40165,7 @@ function ProcessEventCard({
     preview = activity.detail;
     tone = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warn" : sessionStatus === "idle" || sessionStatus === "terminated" ? "ok" : "tool";
     status = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warning" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "running" : "completed";
-    statusLabel = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
+    statusLabel2 = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
     defaultExpanded = status === "running";
   } else if (event.type === "runtime.thinking") {
     title = active ? "思考中" : "思考";
@@ -39085,7 +40173,7 @@ function ProcessEventCard({
     preview = retainedProcessText(event) || turnActivityLabel(event) || "正在准备下一步。";
     tone = "tool";
     status = active ? "running" : "completed";
-    statusLabel = active ? "进行中" : "完成";
+    statusLabel2 = active ? "进行中" : "完成";
     defaultExpanded = true;
   } else if (event.type === "runtime.tool_call") {
     const summary = toolSummary({
@@ -39115,12 +40203,12 @@ function ProcessEventCard({
     };
     tone = summary.risk === "high" ? "warn" : "tool";
     status = summary.risk === "high" ? "warning" : lifecycleRunning || active ? "running" : "completed";
-    statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
+    statusLabel2 = lifecycleRunning || active ? "执行中" : "待执行";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
-      statusLabel = lifecycleResultData.success === false ? "失败" : "完成";
+      statusLabel2 = lifecycleResultData.success === false ? "失败" : "完成";
       if (lifecycleFailure) {
         const lifecycleError = objectValue(lifecycleResultData.error);
         preview = shortText(lifecycleFailure.message, 480);
@@ -39144,19 +40232,19 @@ function ProcessEventCard({
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
-      statusLabel = "未执行";
+      statusLabel2 = "未执行";
     } else if (lifecycleUnfinished) {
       tone = "warn";
       status = "warning";
-      statusLabel = "未完成";
+      statusLabel2 = "未完成";
     } else if (lifecycleApproved) {
       tone = "ok";
       status = lifecycleRunning || active ? "running" : "completed";
-      statusLabel = lifecycleRunning || active ? "执行中" : "待执行";
+      statusLabel2 = lifecycleRunning || active ? "执行中" : "待执行";
     } else if (toolLifecycle == null ? void 0 : toolLifecycle.required) {
       tone = "warn";
       status = "warning";
-      statusLabel = "等待执行";
+      statusLabel2 = "等待执行";
     }
   } else if (event.type === "runtime.tool_result") {
     const summary = toolSummary({
@@ -39186,7 +40274,7 @@ function ProcessEventCard({
     };
     tone = data.success === false ? "error" : "ok";
     status = data.success === false ? "error" : "completed";
-    statusLabel = data.success === false ? "失败" : "完成";
+    statusLabel2 = data.success === false ? "失败" : "完成";
     defaultExpanded = data.success !== false && data.identifier === "skills" && ["preview", "install", "enable", "disable"].includes(data.api_name);
   } else if (event.type === "runtime.tool_intervention_required") {
     const summary = toolSummary({
@@ -39206,22 +40294,22 @@ function ProcessEventCard({
     };
     tone = "warn";
     status = "warning";
-    statusLabel = "待审批";
+    statusLabel2 = "待审批";
     defaultExpanded = true;
     if (lifecycleResult) {
       tone = lifecycleResultData.success === false ? "error" : "ok";
       status = lifecycleResultData.success === false ? "error" : "completed";
-      statusLabel = lifecycleResultData.success === false ? "失败" : "已执行";
+      statusLabel2 = lifecycleResultData.success === false ? "失败" : "已执行";
       defaultExpanded = false;
     } else if (lifecycleRejected) {
       tone = "error";
       status = "error";
-      statusLabel = "已拒绝";
+      statusLabel2 = "已拒绝";
       defaultExpanded = false;
     } else if (lifecycleApproved) {
       tone = "ok";
       status = "completed";
-      statusLabel = "已通过";
+      statusLabel2 = "已通过";
       defaultExpanded = false;
     }
   } else if (event.type === "runtime.tool_intervention_approved") {
@@ -39252,7 +40340,7 @@ function ProcessEventCard({
       approval_source: data.approval_source || void 0
     };
     tone = "ok";
-    statusLabel = "已通过";
+    statusLabel2 = "已通过";
   } else if (event.type === "runtime.tool_intervention_rejected") {
     const approvalRequest = Object.keys(objectValue(data.request)).length ? objectValue(data.request) : objectValue(requiredData.request);
     const approvalArgs = Object.keys(args).length ? args : Object.keys(objectValue(requiredData.arguments)).length ? objectValue(requiredData.arguments) : objectValue(approvalRequest.arguments);
@@ -39282,7 +40370,7 @@ function ProcessEventCard({
     };
     tone = "error";
     status = "error";
-    statusLabel = "已拒绝";
+    statusLabel2 = "已拒绝";
     defaultExpanded = true;
   } else if (event.type === "runtime.plan_approval_required") {
     title = "执行计划等待审阅";
@@ -39291,7 +40379,7 @@ function ProcessEventCard({
     detailObject = { arguments: Object.keys(args).length ? args : void 0 };
     tone = "warn";
     status = "warning";
-    statusLabel = "待审阅";
+    statusLabel2 = "待审阅";
     defaultExpanded = true;
   } else if (event.type === "runtime.plan_approval_rejected") {
     title = "计划需要修改";
@@ -39299,55 +40387,55 @@ function ProcessEventCard({
     preview = data.decision_reason || "智能体将根据意见修订计划。";
     tone = "warn";
     status = "warning";
-    statusLabel = "需修改";
+    statusLabel2 = "需修改";
     defaultExpanded = true;
   } else if (event.type === "runtime.plan_approval_approved") {
     title = "计划已批准";
     metaLabel = "计划审批";
     preview = data.decision_reason || "智能体将按计划继续执行。";
     tone = "ok";
-    statusLabel = "已通过";
+    statusLabel2 = "已通过";
   } else if (event.type === "runtime.human_input_required") {
     title = "需要补充信息";
     metaLabel = "人工输入";
     preview = objectValue(data.request).question || objectValue(args).question || "请补充任务所需信息。";
     tone = "warn";
     status = "warning";
-    statusLabel = "待输入";
+    statusLabel2 = "待输入";
     defaultExpanded = true;
   } else if (event.type === "runtime.human_input_submitted") {
     title = "补充信息已提交";
     metaLabel = "人工输入";
     preview = "智能体将继续执行任务。";
     tone = "ok";
-    statusLabel = "已提交";
+    statusLabel2 = "已提交";
   } else if (event.type === "runtime.human_input_skipped" || event.type === "runtime.human_input_canceled") {
     title = event.type === "runtime.human_input_skipped" ? "已跳过补充信息" : "补充信息已取消";
     metaLabel = "人工输入";
     preview = data.decision_reason || "任务将根据现有信息继续。";
     tone = event.type === "runtime.human_input_skipped" ? "warn" : "error";
     status = event.type === "runtime.human_input_skipped" ? "warning" : "error";
-    statusLabel = event.type === "runtime.human_input_skipped" ? "已跳过" : "已取消";
+    statusLabel2 = event.type === "runtime.human_input_skipped" ? "已跳过" : "已取消";
   } else if (event.type === "runtime.completed") {
     title = "任务完成";
     metaLabel = "执行结果";
     preview = "本轮任务已完成。";
     tone = "ok";
-    statusLabel = "完成";
+    statusLabel2 = "完成";
   } else if (event.type === "runtime.completion_blocked") {
     title = "继续执行任务";
     metaLabel = "完成校验";
     preview = data.reason || "候选回复尚未满足完成条件。";
     tone = "warn";
     status = "warning";
-    statusLabel = "继续";
+    statusLabel2 = "继续";
   } else if (event.type === "runtime.completion_validation_failed") {
     title = "完成校验失败";
     metaLabel = "完成校验";
     preview = data.reason || "任务尚未通过完成校验。";
     tone = "error";
     status = "error";
-    statusLabel = "失败";
+    statusLabel2 = "失败";
   } else if (event.type === "runtime.failed") {
     title = "任务失败";
     metaLabel = "执行错误";
@@ -39362,7 +40450,7 @@ function ProcessEventCard({
     };
     tone = "error";
     status = "error";
-    statusLabel = "失败";
+    statusLabel2 = "失败";
     defaultExpanded = true;
   }
   const startedAtMS = new Date(event.created_at || "").getTime();
@@ -39424,7 +40512,7 @@ function ProcessEventCard({
           "耗时 ",
           formatDuration(durationMS)
         ] }) : null,
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: toolApproval ? `${toolApproval.label} · ${statusLabel}` : statusLabel }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: toolApproval ? `${toolApproval.label} · ${statusLabel2}` : statusLabel2 }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `process-card-status-icon ${status}`, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ProcessStatusIcon, { status }) })
       ] })
     ] }),
@@ -39663,6 +40751,49 @@ function sortAvailableAgents(agents2, defaultAgentID) {
     return String(left.name || "").localeCompare(String(right.name || ""));
   });
 }
+function ExtensionWorkbenchHub({ items, onBack, onOpen }) {
+  const [query, setQuery] = reactExports.useState("");
+  const filteredItems = reactExports.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return items;
+    return items.filter((item) => `${item.title} ${item.pluginID}`.toLocaleLowerCase().includes(normalized));
+  }, [items, query]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "extension-workbench-hub", "aria-label": "扩展工作台目录", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "extension-workbench-hub-header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "专业工作台" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "扩展工作台" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+          items.length,
+          " 个已启用工作台"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: onBack, children: "返回工作台" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "extension-workbench-hub-toolbar", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Search, { "aria-hidden": "true" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "搜索工作台" })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "extension-workbench-list", children: [
+      filteredItems.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "extension-workbench-list-item", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "extension-workbench-list-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(CodeXml, { "aria-hidden": "true" }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.title }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.pluginID })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "extension-workbench-list-status", children: "可用" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => onOpen(item.route), children: [
+          "打开",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { "aria-hidden": "true" })
+        ] })
+      ] }, `${item.pluginID}:${item.id}`)),
+      !filteredItems.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "extension-workbench-list-empty", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Blocks, { "aria-hidden": "true" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: items.length ? "没有匹配的工作台" : "当前没有已启用的专业工作台" })
+      ] }) : null
+    ] })
+  ] });
+}
 function WorkbenchApp() {
   var _a2, _b;
   const [status, setStatus] = reactExports.useState("ready");
@@ -39753,6 +40884,7 @@ function WorkbenchApp() {
   const [requestingSkillDisable, setRequestingSkillDisable] = reactExports.useState("");
   const [applyingSessionConfigVersion, setApplyingSessionConfigVersion] = reactExports.useState(0);
   const [pluginRoutePath, setPluginRoutePath] = reactExports.useState(pluginPathFromHash);
+  const [extensionWorkbenchHubOpen, setExtensionWorkbenchHubOpen] = reactExports.useState(extensionWorkbenchHubFromHash);
   const [pluginNavigation, setPluginNavigation] = reactExports.useState([]);
   const [pluginRoutes, setPluginRoutes] = reactExports.useState([]);
   const [pluginLoadState, setPluginLoadState] = reactExports.useState("loading");
@@ -39842,12 +40974,15 @@ function WorkbenchApp() {
     window.location.assign(payload2.redirect_url || "/app");
   }
   reactExports.useEffect(() => {
-    const syncPluginPath = () => setPluginRoutePath(pluginPathFromHash());
-    window.addEventListener("hashchange", syncPluginPath);
-    window.addEventListener("popstate", syncPluginPath);
+    const syncExtensionPath = () => {
+      setPluginRoutePath(pluginPathFromHash());
+      setExtensionWorkbenchHubOpen(extensionWorkbenchHubFromHash());
+    };
+    window.addEventListener("hashchange", syncExtensionPath);
+    window.addEventListener("popstate", syncExtensionPath);
     return () => {
-      window.removeEventListener("hashchange", syncPluginPath);
-      window.removeEventListener("popstate", syncPluginPath);
+      window.removeEventListener("hashchange", syncExtensionPath);
+      window.removeEventListener("popstate", syncExtensionPath);
     };
   }, []);
   reactExports.useEffect(() => {
@@ -40114,7 +41249,7 @@ function WorkbenchApp() {
     workbenchAPIVersion: "1.0.0",
     designSystemVersion: "1.0.0",
     surface: workbenchSurface(),
-    navigationGroups: ["workspace"],
+    navigationGroups: ["workspace", "workbench"],
     scope: pluginScope,
     services: {
       permissions: workbenchHostPermissionService,
@@ -40168,6 +41303,15 @@ function WorkbenchApp() {
     };
   }, [pluginRuntime]);
   const activePluginRoute = reactExports.useMemo(() => pluginRoutes.find((route) => route.path === pluginRoutePath) || null, [pluginRoutePath, pluginRoutes]);
+  const activePluginNavigation = reactExports.useMemo(() => pluginNavigation.find((item) => item.route === pluginRoutePath) || null, [pluginNavigation, pluginRoutePath]);
+  const extensionWorkbenchItems = reactExports.useMemo(() => pluginNavigation.filter((item) => item.group === "workbench"), [pluginNavigation]);
+  const extensionSurfaceOpen = Boolean(pluginRoutePath || extensionWorkbenchHubOpen);
+  const extensionWorkbenchActive = extensionWorkbenchHubOpen || (activePluginNavigation == null ? void 0 : activePluginNavigation.group) === "workbench";
+  reactExports.useEffect(() => {
+    if (!extensionSurfaceOpen) return;
+    setMobileNavigationPanel("");
+    setMobileResultsOpen(false);
+  }, [extensionSurfaceOpen]);
   const toolingCatalog = reactExports.useMemo(() => buildToolingCatalog({
     config: toolingConfig,
     installedSkills,
@@ -41909,14 +43053,28 @@ function WorkbenchApp() {
     if (isSessionBusy) await interruptTask(workflowRun.sessionID);
   }
   const hasTaskSearch = Boolean(taskSearch.trim());
+  function navigatePluginRoute(path2) {
+    clearArtifactPreview();
+    setSettingsOpen(false);
+    setExtensionWorkbenchHubOpen(false);
+    window.location.hash = encodeURI(path2);
+  }
   function closePluginRoute() {
-    if (!pluginRoutePath && !window.location.hash) return;
+    if (!pluginRoutePath && !extensionWorkbenchHubOpen && !window.location.hash) return;
     window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
     setPluginRoutePath("");
+    setExtensionWorkbenchHubOpen(false);
   }
   function openSettingsPage() {
     closePluginRoute();
     setSettingsOpen(true);
+  }
+  function openExtensionWorkbench() {
+    clearArtifactPreview();
+    setSettingsOpen(false);
+    setPluginRoutePath("");
+    setExtensionWorkbenchHubOpen(true);
+    window.location.hash = extensionWorkbenchHubRoute;
   }
   function closeSettingsPage() {
     setSettingsOpen(false);
@@ -42199,7 +43357,7 @@ function WorkbenchApp() {
         ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-brand", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "topbar-label", children: "TMA 工作台" }) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-navigation-actions", "aria-label": "移动端导航", children: [
+      !extensionSurfaceOpen ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-navigation-actions", "aria-label": "移动端导航", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
@@ -42228,7 +43386,7 @@ function WorkbenchApp() {
             children: "任务"
           }
         ),
-        !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
             className: `secondary mobile-results-button ${mobileResultsOpen ? "active" : ""}`,
@@ -42245,13 +43403,23 @@ function WorkbenchApp() {
               resultFiles.length ? ` ${resultFiles.length}` : ""
             ]
           }
-        ) : null
-      ] }),
+        )
+      ] }) : null,
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "topbar-status", children: [
         principal ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "topbar-user", title: principal.username || principal.subject || principal.owner_id, children: principal.username || principal.subject || principal.owner_id }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `secondary topbar-extension-workbench ${extensionWorkbenchActive ? "active" : ""}`.trim(),
+            type: "button",
+            disabled: pluginLoadState === "failed",
+            onClick: openExtensionWorkbench,
+            children: "扩展工作台"
+          }
+        ),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-settings", type: "button", onClick: openSettingsPage, children: "设置" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary topbar-logout", type: "button", onClick: () => logout().catch((error) => setStatus(error.message)), children: "退出" }),
-        !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        !extensionSurfaceOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
             className: `secondary icon-button desktop-sidebar-toggle ${desktopSidebars.right ? "active" : ""}`.trim(),
@@ -42281,7 +43449,7 @@ function WorkbenchApp() {
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
-        className: `user-layout ${artifactPreview && !pluginRoutePath ? "has-artifact-preview" : ""} ${pluginRoutePath ? "plugin-route-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim(),
+        className: `user-layout ${artifactPreview && !extensionSurfaceOpen ? "has-artifact-preview" : ""} ${extensionSurfaceOpen ? "plugin-route-active" : ""} ${extensionWorkbenchActive ? "extension-workbench-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim(),
         style: { "--artifact-preview-width": `${artifactPreviewWidth}px` },
         children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -42444,7 +43612,7 @@ function WorkbenchApp() {
               ]
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: `user-main ${pluginRoutePath ? "plugin-route-main" : ""}`, children: pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: `user-main ${extensionSurfaceOpen ? "plugin-route-main" : ""}`, children: extensionWorkbenchHubOpen ? /* @__PURE__ */ jsxRuntimeExports.jsx(ExtensionWorkbenchHub, { items: extensionWorkbenchItems, onBack: closePluginRoute, onOpen: navigatePluginRoute }) : pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsx(
             PluginRouteHost,
             {
               loading: pluginLoadState === "loading",
@@ -42873,7 +44041,7 @@ function WorkbenchApp() {
               )
             ] })
           ] }) }),
-          !pluginRoutePath && artifactPreview ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "artifact-preview-pane", "aria-label": "结果预览", children: [
+          !extensionSurfaceOpen && artifactPreview ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "artifact-preview-pane", "aria-label": "结果预览", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "artifact-resize-handle", type: "button", "aria-label": "拖动调整预览宽度", onPointerDown: startArtifactResize }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "artifact-preview-pane-header", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -42914,7 +44082,7 @@ function WorkbenchApp() {
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-pane-body", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreviewContent, { preview: artifactPreview, mode: artifactPreviewMode }) })
           ] }) : null,
-          !pluginRoutePath ? /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { id: "mobile-results-sidebar", className: `user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim(), children: [
+          !extensionSurfaceOpen ? /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { id: "mobile-results-sidebar", className: `user-sidebar right ${mobileResultsOpen ? "mobile-open" : ""}`.trim(), children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mobile-sidebar-header", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "结果文件" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button", type: "button", "aria-label": "关闭结果文件", onClick: () => setMobileResultsOpen(false), children: /* @__PURE__ */ jsxRuntimeExports.jsx(CloseIcon, {}) })
