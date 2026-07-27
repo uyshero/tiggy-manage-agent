@@ -9,6 +9,7 @@ import SkillsManagement from "./SkillsManagement.jsx";
 import { formatDuration, formatTaskTime, formatTime, pillClass, pretty } from "./utils.js";
 import { buildToolCallLifecycles, liveToolProgressAfterEvent, normalizeToolTimelineEvents, shouldSynthesizeThinking, terminalToolLifecycleEvent, toolApprovalPresentation, toolCallID, toolLifecycleIsRunning, toolResultFailurePresentation } from "./toolLifecycle.js";
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
+import { gitLabDockerMCPDraft } from "./mcpPresets.js";
 import { runtimeFailurePresentation } from "./runtimeFailures.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
@@ -2985,6 +2986,16 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
     setRestoreCandidate(0);
   }
 
+  function startCreating(nextDraft = emptyDraft) {
+    setCreating(true);
+    setSelectedID("");
+    setDraft(nextDraft);
+    setError("");
+    setMessage("");
+    setDeleteCandidate("");
+    setRestoreCandidate(0);
+  }
+
   async function save(event) {
     event.preventDefault();
     setBusy("save");
@@ -3072,7 +3083,8 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
           <div><div className="settings-card-title">Workspace MCP</div><span>{servers.length} 个注册服务</span></div>
           <div className="model-section-actions">
             <button className="icon-button secondary" type="button" title="刷新 MCP 运行状态" aria-label="刷新 MCP 运行状态" disabled={runtimeLoading} onClick={onRefreshRuntime}><RefreshIcon /></button>
-            <button type="button" onClick={() => { setCreating(true); setSelectedID(""); setDraft(emptyDraft); setError(""); setMessage(""); }}>添加</button>
+            <button className="secondary" type="button" onClick={() => startCreating(gitLabDockerMCPDraft())}>GitLab Docker</button>
+            <button type="button" onClick={() => startCreating()}>添加</button>
           </div>
         </div>
         {servers.length ? servers.map((server) => {

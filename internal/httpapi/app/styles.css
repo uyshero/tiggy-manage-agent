@@ -765,3 +765,8 @@ button.secondary:hover:not(:disabled){border-color:var(--line-strong);background
   .desktop-sidebar-toggle{display:none}
   .topbar-leading{display:contents}
 }
+
+@media(max-width:640px){
+  .mcp-registry-list>.model-section-heading{display:grid;grid-template-columns:minmax(0,1fr)}
+  .mcp-registry-list>.model-section-heading>.model-section-actions{width:100%;justify-content:flex-start;flex-wrap:wrap}
+}

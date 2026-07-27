@@ -148,6 +148,10 @@ verify-mcp-runtime-guard: build build-cli db-up
 verify-mcp-compatibility:
 	TMA_RUN_MCP_COMPATIBILITY=1 GOCACHE="$(GOCACHE_DIR)" go test ./internal/mcp -run TestExternalMCPCompatibility -v -count=1
 
+.PHONY: verify-mcp-gitlab-docker
+verify-mcp-gitlab-docker:
+	GOCACHE="$(GOCACHE_DIR)" scripts/verify_mcp_gitlab_docker.sh
+
 verify-mcp-all: build build-cli db-up
 	GOCACHE="$(GOCACHE_DIR)" go test ./internal/mcp -run 'TestStreamableHTTP(ClientReadsSSEResponse|ListenerRepliesUnsupportedServerRequestAndReconnects|HostKeepsSessionAfterRequestCancellation|HostReinitializesAfterRemoteSessionExpires|HostReusesSessionAndDeletesOnClose)$$' -count=1
 	GOCACHE="$(GOCACHE_DIR)" go test ./internal/mcpregistry -count=1

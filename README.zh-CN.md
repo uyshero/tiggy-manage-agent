@@ -268,8 +268,11 @@ bin/tma-worker --base-url http://localhost:8080 --name computer-worker \
 
 Agent 可通过 `config_version.mcp` 绑定 stdio 或 Streamable HTTP MCP Server，并将 MCP 工具作为普通模型工具接入现有 TMA 工具/结果链路。TMA Server 按 Session 和 Agent 配置维护 stdio 进程与远程 HTTP Session，同时隔离作用域并回收空闲实例。详见 [MCP 集成](./docs/mcp.md)。
 
+GitLab 仓库可通过 Workbench 的 **设置 > MCP > GitLab Docker** 模板接入。模板固定镜像摘要并默认只开放仓库搜索和文件读取；Token、Self-Managed 地址及 Docker 运行边界见 [GitLab Docker MCP](./docs/mcp-gitlab.md)。
+
 ```bash
 make verify-mcp-stdio
+make verify-mcp-gitlab-docker
 make verify-worker-backed-local-system
 ```
 

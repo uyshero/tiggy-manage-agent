@@ -30063,6 +30063,46 @@ function mcpRuntimeStateLabel(state) {
 function mcpRuntimeFailureLabel(failureClass) {
   return failureLabels[failureClass] || "";
 }
+const GITLAB_DOCKER_MCP_IMAGE = "mcp/gitlab@sha256:a1b8571a210a3c8b17b288498d287cd1c3512c10519330ea71ca48e559e78917";
+const GITLAB_DOCKER_READ_TOOLS = Object.freeze([
+  "search_repositories",
+  "get_file_contents"
+]);
+function gitLabDockerMCPDraft() {
+  return {
+    identifier: "gitlab",
+    name: "GitLab (Docker)",
+    description: "通过固定版本的 Docker MCP 只读访问 GitLab 仓库。",
+    config: JSON.stringify({
+      transport: "stdio",
+      command: "docker",
+      args: [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "GITLAB_PERSONAL_ACCESS_TOKEN",
+        "-e",
+        "GITLAB_API_URL",
+        GITLAB_DOCKER_MCP_IMAGE
+      ],
+      env: {
+        GITLAB_PERSONAL_ACCESS_TOKEN: { secret_ref: "env:TMA_GITLAB_PERSONAL_ACCESS_TOKEN" },
+        GITLAB_API_URL: "https://gitlab.com/api/v4"
+      },
+      stdio_framing: "json_lines",
+      include_tools: GITLAB_DOCKER_READ_TOOLS,
+      runtime: {
+        timeout_seconds: 60,
+        max_concurrency: 2,
+        failure_threshold: 3,
+        cooldown_seconds: 30
+      },
+      title: "GitLab",
+      description: "Search repositories and read repository files through GitLab MCP."
+    }, null, 2)
+  };
+}
 const providerErrorDescriptions = Object.freeze({
   auth: "模型服务认证失败，请检查 Provider 凭据或联系管理员。",
   rate_limit: "模型服务请求过多或额度受限，请稍后重试。",
@@ -36582,6 +36622,15 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
     setDeleteCandidate("");
     setRestoreCandidate(0);
   }
+  function startCreating(nextDraft = emptyDraft) {
+    setCreating(true);
+    setSelectedID("");
+    setDraft(nextDraft);
+    setError("");
+    setMessage("");
+    setDeleteCandidate("");
+    setRestoreCandidate(0);
+  }
   async function save(event) {
     event.preventDefault();
     setBusy("save");
@@ -36667,13 +36716,8 @@ function MCPRegistrySettings({ onChanged, onRefreshRuntime, runtimeCheckedAt, ru
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "model-section-actions", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "icon-button secondary", type: "button", title: "刷新 MCP 运行状态", "aria-label": "刷新 MCP 运行状态", disabled: runtimeLoading, onClick: onRefreshRuntime, children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshIcon, {}) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => {
-            setCreating(true);
-            setSelectedID("");
-            setDraft(emptyDraft);
-            setError("");
-            setMessage("");
-          }, children: "添加" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => startCreating(gitLabDockerMCPDraft()), children: "GitLab Docker" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => startCreating(), children: "添加" })
         ] })
       ] }),
       servers.length ? servers.map((server) => {
