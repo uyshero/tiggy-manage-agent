@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"maps"
 	"mime/multipart"
 	"net/http"
@@ -4343,6 +4344,64 @@ func TestDownloadSessionArtifactProxiesObjectContent(t *testing.T) {
 	}
 }
 
+func TestPreviewDOCXSessionArtifactConvertsToPDF(t *testing.T) {
+	store := newTestStore()
+	objectStore := &fakeObjectStore{downloads: map[string]string{}}
+	api := &Server{
+		mux:               http.NewServeMux(),
+		store:             store,
+		runner:            runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil),
+		logger:            slog.Default(),
+		objectStore:       objectStore,
+		documentPreviewer: fakeDocumentPreviewer{pdf: []byte("%PDF-1.7\npreview")},
+	}
+	api.routes()
+	server := api.v2EnvelopeMiddleware(api.identityMiddleware(api.mux))
+
+	agent := postJSON[managedagents.Agent](t, server, "/v1/agents", `{
+		"name": "Code Assistant",
+		"model": "fake-demo",
+		"system": "You are helpful."
+	}`)
+	environment := postJSON[managedagents.Environment](t, server, "/v1/environments", `{
+		"name": "default-cloud",
+		"config": {"type": "cloud"}
+	}`)
+	session := postJSON[managedagents.Session](t, server, "/v1/sessions", `{
+		"agent_id": "`+agent.ID+`",
+		"environment_id": "`+environment.ID+`"
+	}`)
+	object := postJSON[managedagents.ObjectRef](t, server, "/v1/object-refs", `{
+		"bucket": "tma-artifacts",
+		"object_key": "wksp_default/`+session.ID+`/files/brief.docx",
+		"content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"size_bytes": 12
+	}`)
+	artifact := postJSON[managedagents.SessionArtifact](t, server, "/v1/sessions/"+session.ID+"/artifacts", `{
+		"object_ref_id": "`+object.ID+`",
+		"name": "brief.docx",
+		"artifact_type": "file"
+	}`)
+	objectStore.downloads[object.Bucket+"/"+object.ObjectKey] = "docx-content"
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+session.ID+"/artifacts/"+artifact.ID+"/preview?format=pdf", nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected preview status %d, got %d: %s", http.StatusOK, response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Content-Type"); got != "application/pdf" {
+		t.Fatalf("unexpected preview content type: %q", got)
+	}
+	if got := response.Header().Get("Content-Disposition"); !strings.Contains(got, "inline") || !strings.Contains(got, "brief.pdf") {
+		t.Fatalf("unexpected preview disposition: %q", got)
+	}
+	if got := response.Body.String(); got != "%PDF-1.7\npreview" {
+		t.Fatalf("unexpected preview body: %q", got)
+	}
+}
+
 func TestDownloadObjectRefRequiresSessionContext(t *testing.T) {
 	store := newTestStore()
 	objectStore := &fakeObjectStore{downloads: map[string]string{}}
@@ -4986,6 +5045,18 @@ type fakeObjectStorePut struct {
 	ContentType string
 	SizeBytes   int64
 	Checksum    string
+}
+
+type fakeDocumentPreviewer struct {
+	pdf []byte
+	err error
+}
+
+func (f fakeDocumentPreviewer) ConvertDOCXToPDF(context.Context, documentPreviewInput) ([]byte, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]byte(nil), f.pdf...), nil
 }
 
 func (f *fakeObjectStore) PutObject(_ context.Context, input objectstore.PutObjectInput) (objectstore.PutObjectResult, error) {

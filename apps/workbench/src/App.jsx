@@ -58,6 +58,7 @@ const workbenchNotificationService = createNotificationService();
 const workbenchRelatedResourceService = createRelatedResourceService();
 workbenchRelatedResourceService.registerProvider(createSessionArtifactProvider({
   downloadArtifact: api.downloadArtifact,
+  previewArtifact: api.previewArtifact,
   artifactDownloadPath: api.artifactDownloadPath
 }));
 const workbenchHostPermissionService = createPermissionService({ grants: [] });

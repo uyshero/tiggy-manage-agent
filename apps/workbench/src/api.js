@@ -614,6 +614,10 @@ export function downloadArtifact(sessionId, artifactId, options = {}) {
   return coreSDK.artifacts.download(sessionId, artifactId, options.signal);
 }
 
+export function previewArtifact(sessionId, artifactId, format = "pdf", options = {}) {
+  return coreSDK.artifacts.preview(sessionId, artifactId, format, options.signal);
+}
+
 export function artifactDownloadPath(sessionId, artifactId) {
   return `/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
 }

@@ -10,6 +10,8 @@ export const MAX_SPREADSHEET_PREVIEW_COLUMNS = 20;
 const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const pdfExtensions = new Set(["pdf"]);
 const spreadsheetExtensions = new Set(["xlsx", "xls", "xlsm", "ods"]);
+const convertibleDocumentExtensions = new Set(["docx"]);
+const docxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const textExtensions = new Set([
   "txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "log", "xml", "html", "htm", "css",
   "js", "jsx", "ts", "tsx", "go", "py", "sh", "yaml", "yml"
@@ -38,6 +40,7 @@ export function previewKindForResource(resource, contentType = "") {
     || type.includes("opendocument.spreadsheet")
     || spreadsheetExtensions.has(extension)
   ) return "spreadsheet";
+  if (isConvertibleDocumentResource(resource, type)) return "pdf";
   if (type.startsWith("text/") || type.includes("json") || type.includes("xml") || textExtensions.has(extension)) return "text";
   return "download";
 }
@@ -48,6 +51,11 @@ export function isPDFResource(resource, contentType = "") {
 
 export function isSpreadsheetResource(resource, contentType = "") {
   return previewKindForResource(resource, contentType) === "spreadsheet";
+}
+
+export function isConvertibleDocumentResource(resource, contentType = "") {
+  const type = String(contentType || resource?.mimeType || "").toLowerCase();
+  return type === docxMimeType || convertibleDocumentExtensions.has(resourceExtension(resource));
 }
 
 export function isMarkdownResource(resource, contentType = "") {
@@ -216,6 +224,7 @@ export async function previewDescriptorFromResponse(resource, response, options 
 
 export function createSessionArtifactProvider(options = {}) {
   const downloadArtifact = options.downloadArtifact;
+  const previewArtifact = options.previewArtifact;
   const artifactDownloadPath = options.artifactDownloadPath;
   const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
   const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
@@ -237,7 +246,10 @@ export function createSessionArtifactProvider(options = {}) {
     },
     async preview(resource, context = {}) {
       const url = downloadURL(resource);
-      const response = await downloadArtifact(sessionIDFromResource(resource), resource.id, { signal: context.signal });
+      const sessionID = sessionIDFromResource(resource);
+      const response = typeof previewArtifact === "function" && isConvertibleDocumentResource(resource)
+        ? await previewArtifact(sessionID, resource.id, "pdf", { signal: context.signal })
+        : await downloadArtifact(sessionID, resource.id, { signal: context.signal });
       throwIfAborted(context.signal);
       return {
         ...(await previewDescriptorFromResponse(resource, response, { ...options, createObjectURL, revokeObjectURL }, context)),

@@ -27939,6 +27939,9 @@ async function artifacts(sessionId) {
 function downloadArtifact(sessionId, artifactId, options = {}) {
   return coreSDK.artifacts.download(sessionId, artifactId, options.signal);
 }
+function previewArtifact(sessionId, artifactId, format = "pdf", options = {}) {
+  return coreSDK.artifacts.preview(sessionId, artifactId, format, options.signal);
+}
 function artifactDownloadPath(sessionId, artifactId) {
   return `/v2/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(artifactId)}/download`;
 }
@@ -31984,6 +31987,8 @@ const MAX_SPREADSHEET_PREVIEW_COLUMNS = 20;
 const imageExtensions = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const pdfExtensions = /* @__PURE__ */ new Set(["pdf"]);
 const spreadsheetExtensions = /* @__PURE__ */ new Set(["xlsx", "xls", "xlsm", "ods"]);
+const convertibleDocumentExtensions = /* @__PURE__ */ new Set(["docx"]);
+const docxMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const textExtensions = /* @__PURE__ */ new Set([
   "txt",
   "md",
@@ -32023,8 +32028,13 @@ function previewKindForResource(resource, contentType = "") {
   if (type.startsWith("image/") || imageExtensions.has(extension2)) return "image";
   if (type.includes("application/pdf") || pdfExtensions.has(extension2)) return "pdf";
   if (type.includes("spreadsheet") || type.includes("ms-excel") || type.includes("opendocument.spreadsheet") || spreadsheetExtensions.has(extension2)) return "spreadsheet";
+  if (isConvertibleDocumentResource(resource, type)) return "pdf";
   if (type.startsWith("text/") || type.includes("json") || type.includes("xml") || textExtensions.has(extension2)) return "text";
   return "download";
+}
+function isConvertibleDocumentResource(resource, contentType = "") {
+  const type = String(contentType || (resource == null ? void 0 : resource.mimeType) || "").toLowerCase();
+  return type === docxMimeType || convertibleDocumentExtensions.has(resourceExtension(resource));
 }
 function isMarkdownResource(resource, contentType = "") {
   const type = String(contentType || (resource == null ? void 0 : resource.mimeType) || "").toLowerCase();
@@ -32182,6 +32192,7 @@ async function previewDescriptorFromResponse(resource, response, options = {}, c
 }
 function createSessionArtifactProvider(options = {}) {
   const downloadArtifact2 = options.downloadArtifact;
+  const previewArtifact2 = options.previewArtifact;
   const artifactDownloadPath2 = options.artifactDownloadPath;
   const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
   const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
@@ -32201,7 +32212,8 @@ function createSessionArtifactProvider(options = {}) {
     },
     async preview(resource, context = {}) {
       const url = downloadURL(resource);
-      const response = await downloadArtifact2(sessionIDFromResource(resource), resource.id, { signal: context.signal });
+      const sessionID = sessionIDFromResource(resource);
+      const response = typeof previewArtifact2 === "function" && isConvertibleDocumentResource(resource) ? await previewArtifact2(sessionID, resource.id, "pdf", { signal: context.signal }) : await downloadArtifact2(sessionID, resource.id, { signal: context.signal });
       throwIfAborted(context.signal);
       return {
         ...await previewDescriptorFromResponse(resource, response, { ...options, createObjectURL, revokeObjectURL }, context),
@@ -35159,6 +35171,7 @@ const workbenchNotificationService = createNotificationService();
 const workbenchRelatedResourceService = createRelatedResourceService();
 workbenchRelatedResourceService.registerProvider(createSessionArtifactProvider({
   downloadArtifact,
+  previewArtifact,
   artifactDownloadPath
 }));
 const workbenchHostPermissionService = createPermissionService({ grants: [] });
@@ -42822,7 +42835,7 @@ function WorkbenchApp() {
       document.body.classList.remove("resizing-artifact-preview");
     };
   }, []);
-  async function previewArtifact(artifact) {
+  async function previewArtifact2(artifact) {
     if (!sessionID || !(artifact == null ? void 0 : artifact.id)) return;
     const resource = artifactToResourceRef(artifact, { sessionID });
     setArtifactPreviewMode("preview");
@@ -43836,7 +43849,7 @@ function WorkbenchApp() {
                         sessionID,
                         text: eventText(event),
                         streaming,
-                        onPreview: (artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message)),
+                        onPreview: (artifact) => previewArtifact2(artifact).catch((error) => setStatus(error.message)),
                         onInclude: setAchievementIncludeArtifact
                       }
                     ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -43845,7 +43858,7 @@ function WorkbenchApp() {
                         event,
                         artifacts: messageArtifacts,
                         sessionID,
-                        onPreview: (artifact) => previewArtifact(artifact).catch((error) => setStatus(error.message))
+                        onPreview: (artifact) => previewArtifact2(artifact).catch((error) => setStatus(error.message))
                       }
                     )
                   ] }, messageKey);
@@ -44273,7 +44286,7 @@ function WorkbenchApp() {
                     selectedArtifactID: ((_b = artifactPreview == null ? void 0 : artifactPreview.resource) == null ? void 0 : _b.id) || "",
                     onPreview: (artifact) => {
                       setMobileResultsOpen(false);
-                      previewArtifact(artifact).catch((error) => setStatus(error.message));
+                      previewArtifact2(artifact).catch((error) => setStatus(error.message));
                     },
                     onInclude: (artifact) => {
                       setMobileResultsOpen(false);

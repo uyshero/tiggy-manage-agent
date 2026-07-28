@@ -2077,6 +2077,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/artifacts/{artifact_id}/preview:
+    get:
+      operationId: get_v2_sessions_by_session_id_artifacts_by_artifact_id_preview
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: artifact_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: format
+          in: query
+          schema: {type: string, enum: [pdf], default: pdf}
+      responses:
+        "200":
+          description: Successful preview response
+          content:
+            application/pdf:
+              schema:
+                $ref: "#/components/schemas/BinaryContent"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/sessions/{session_id}/config/upgrade:
     post:
       operationId: post_v2_sessions_by_session_id_config_upgrade

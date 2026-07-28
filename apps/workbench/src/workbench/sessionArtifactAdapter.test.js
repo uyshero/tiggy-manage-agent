@@ -64,6 +64,8 @@ test("artifact adapter creates an allowlisted ResourceRef", () => {
 test("artifact adapter identifies image, text, markdown, and download resources", () => {
   assert.equal(previewKindForResource({ title: "chart.PNG" }), "image");
   assert.equal(previewKindForResource({ title: "report.pdf" }), "pdf");
+  assert.equal(previewKindForResource({ title: "brief.docx" }), "pdf");
+  assert.equal(previewKindForResource({ title: "brief", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), "pdf");
   assert.equal(previewKindForResource({ title: "workbook.xlsx" }), "spreadsheet");
   assert.equal(previewKindForResource({ title: "workbook", mimeType: "application/vnd.ms-excel" }), "spreadsheet");
   assert.equal(previewKindForResource({ title: "data.bin", mimeType: "application/json" }), "text");
@@ -167,6 +169,33 @@ test("Session Artifact provider previews PDF through an Object URL", async () =>
   assert.equal(preview.objectUrl, "blob:pdf-01");
   preview.dispose();
   assert.deepEqual(revoked, ["blob:pdf-01"]);
+});
+
+test("Session Artifact provider requests converted PDF previews for DOCX resources", async () => {
+  const calls = [];
+  const provider = createSessionArtifactProvider(providerOptions(
+    async () => {
+      throw new Error("download should not be used for DOCX preview");
+    },
+    {
+      previewArtifact: async (sessionID, artifactID, format, options) => {
+        calls.push({ sessionID, artifactID, format, options });
+        return response({ contentType: "application/pdf", blob: { type: "application/pdf" } });
+      },
+      createObjectURL: () => "blob:docx-pdf-01",
+      revokeObjectURL: () => undefined
+    }
+  ));
+  const controller = new AbortController();
+  const resource = artifactToResourceRef({ id: "docx", name: "brief.docx" }, { sessionID: "session_01" });
+  const preview = await provider.preview(resource, { signal: controller.signal });
+
+  assert.equal(preview.kind, "pdf");
+  assert.equal(preview.objectUrl, "blob:docx-pdf-01");
+  assert.deepEqual(calls.map(({ sessionID, artifactID, format }) => ({ sessionID, artifactID, format })), [
+    { sessionID: "session_01", artifactID: "docx", format: "pdf" }
+  ]);
+  assert.equal(calls[0].options.signal, controller.signal);
 });
 
 test("Session Artifact provider previews XLSX as bounded rows", async () => {

@@ -50,6 +50,7 @@ type Server struct {
 	subagentPolicy     SubagentPolicy
 	skillsToolService  tools.SkillsToolService
 	skillRetention     *skillretention.Service
+	documentPreviewer  documentPreviewConverter
 }
 
 func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger) http.Handler {
@@ -128,6 +129,7 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		webLogin:           webLogin,
 		authorizationAudit: newAuthorizationAudit(authConfig.AuthorizationSink),
 		subagentPolicy:     subagentPolicy,
+		documentPreviewer:  defaultDocumentPreviewConverter(),
 	}
 	tools.SetDefaultAgentToolService(newAgentToolService(store, turnRunner, logger, subagentPolicy))
 	server.skillsToolService = newSkillsToolServiceWithDependenciesAndBinaryScanner(
@@ -372,6 +374,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/artifacts", s.createSessionArtifact)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/artifacts", s.listSessionArtifacts)
 	s.mux.HandleFunc("GET /v1/sessions/{session_id}/artifacts/{artifact_id}/download", s.downloadSessionArtifact)
+	s.mux.HandleFunc("GET /v1/sessions/{session_id}/artifacts/{artifact_id}/preview", s.previewSessionArtifact)
 	s.mux.HandleFunc("DELETE /v1/sessions/{session_id}/artifacts/{artifact_id}", s.deleteSessionArtifact)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/artifacts/upload", s.uploadSessionArtifact)
 	s.mux.HandleFunc("POST /v1/sessions/{session_id}/artifacts/{artifact_id}/achievement-library", s.createAchievementLibraryItem)

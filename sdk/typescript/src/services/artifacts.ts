@@ -29,6 +29,11 @@ export class ArtifactsService extends ServiceBase {
     return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/download`, signal ? { signal } : {});
   }
 
+  preview(sessionId: string, artifactId: string, format = "pdf", signal?: AbortSignal): Promise<Response> {
+    const query = format ? `?format=${encodeURIComponent(format)}` : "";
+    return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/preview${query}`, signal ? { signal } : {});
+  }
+
   async delete(sessionId: string, artifactId: string, signal?: AbortSignal): Promise<void> {
     await this.transport.request("DELETE", artifactPath(sessionId, artifactId), signal ? { signal } : {});
   }
