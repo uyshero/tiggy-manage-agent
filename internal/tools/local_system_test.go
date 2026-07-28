@@ -256,7 +256,7 @@ func TestSearchFileExecutionReturnsFocusedLocations(t *testing.T) {
 	}
 }
 
-func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
+func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *testing.T) {
 	context := DefaultRegistry().ModelContext()
 	if len(context) == 0 {
 		t.Fatal("expected model context")
@@ -264,10 +264,18 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 
 	var decoded struct {
 		ProtocolVersion string `json:"protocol_version"`
+		ExposureMode    string `json:"exposure_mode"`
 		ToolCallFormat  struct {
 			ProtocolVersion string `json:"protocol_version"`
 		} `json:"tool_call_format"`
-		Tools []Manifest `json:"tools"`
+		Tools []struct {
+			Identifier string `json:"identifier"`
+			APIs       []struct {
+				Name         string `json:"name"`
+				FunctionName string `json:"function_name"`
+				Description  string `json:"description"`
+			} `json:"apis"`
+		} `json:"tools"`
 	}
 	if err := json.Unmarshal(context, &decoded); err != nil {
 		t.Fatalf("decode model context: %v", err)
@@ -275,15 +283,31 @@ func TestRegistryModelContextIncludesManifestAndCallFormat(t *testing.T) {
 	if decoded.ProtocolVersion != ManifestProtocolVersion {
 		t.Fatalf("unexpected protocol version: %#v", decoded)
 	}
+	if decoded.ExposureMode != "progressive_summary" {
+		t.Fatalf("expected progressive summary exposure mode, got %#v", decoded)
+	}
 	if decoded.ToolCallFormat.ProtocolVersion != ToolCallProtocolVersion {
 		t.Fatalf("unexpected tool call format: %#v", decoded.ToolCallFormat)
 	}
 	identifiers := map[string]bool{}
+	functionNames := map[string]bool{}
 	for _, manifest := range decoded.Tools {
 		identifiers[manifest.Identifier] = true
+		for _, api := range manifest.APIs {
+			functionNames[api.FunctionName] = true
+			if len([]rune(api.Description)) > 180 {
+				t.Fatalf("expected compact API description for %s, got %q", api.FunctionName, api.Description)
+			}
+		}
 	}
 	if len(decoded.Tools) != 7 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[ImageIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
+	}
+	if !functionNames[DefaultIdentifier+"_run_command"] || !functionNames[DefaultIdentifier+"_edit_file"] || !functionNames[SkillsIdentifier+"_inspect"] {
+		t.Fatalf("expected summary function names, got %#v", functionNames)
+	}
+	if strings.Contains(string(context), `"parameters"`) || strings.Contains(string(context), `"system_role"`) {
+		t.Fatalf("model context should not expose full manifest fields: %s", string(context))
 	}
 }
 

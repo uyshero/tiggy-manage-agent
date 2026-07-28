@@ -261,6 +261,21 @@ type WorkerCapabilities struct {
 	Constraints  map[string]any `json:"constraints,omitempty"`
 }
 
+type modelContextToolSummary struct {
+	Identifier  string                   `json:"identifier"`
+	Title       string                   `json:"title,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	APIs        []modelContextAPISummary `json:"apis"`
+}
+
+type modelContextAPISummary struct {
+	Name         string   `json:"name"`
+	FunctionName string   `json:"function_name"`
+	Description  string   `json:"description,omitempty"`
+	Risk         string   `json:"risk,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
 func DecodeWorkerCapabilities(raw json.RawMessage) (WorkerCapabilities, error) {
 	var capabilities WorkerCapabilities
 	if len(raw) == 0 {
@@ -604,6 +619,8 @@ func (r Registry) ModelContext() json.RawMessage {
 	}
 	payload := map[string]any{
 		"protocol_version": ManifestProtocolVersion,
+		"exposure_mode":    "progressive_summary",
+		"guidance":         "This is a compact tool catalog. Full argument schemas are provided separately through native function tools; do not infer arguments from this summary. Use the exact function_name when calling a tool.",
 		"tool_call_format": map[string]any{
 			"protocol_version": ToolCallProtocolVersion,
 			"shape": map[string]any{
@@ -617,13 +634,61 @@ func (r Registry) ModelContext() json.RawMessage {
 				}},
 			},
 		},
-		"tools": manifests,
+		"tools": modelContextToolSummaries(manifests),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return nil
 	}
 	return json.RawMessage(encoded)
+}
+
+func modelContextToolSummaries(manifests []Manifest) []modelContextToolSummary {
+	summaries := make([]modelContextToolSummary, 0, len(manifests))
+	for _, manifest := range manifests {
+		apis := make([]modelContextAPISummary, 0, len(manifest.API))
+		for _, api := range manifest.API {
+			apis = append(apis, modelContextAPISummary{
+				Name:         api.Name,
+				FunctionName: ModelToolName(manifest.Identifier, api.Name),
+				Description:  compactModelContextDescription(api.Description),
+				Risk:         api.Risk,
+				Capabilities: append([]string(nil), api.Capabilities...),
+			})
+		}
+		summaries = append(summaries, modelContextToolSummary{
+			Identifier:  manifest.Identifier,
+			Title:       manifest.Meta.Title,
+			Description: compactModelContextDescription(manifest.Meta.Description),
+			APIs:        apis,
+		})
+	}
+	return summaries
+}
+
+func compactModelContextDescription(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return ""
+	}
+	const maxDescriptionRunes = 180
+	runes := []rune(value)
+	if len(runes) <= maxDescriptionRunes {
+		return value
+	}
+	sentenceEnd := -1
+	for index, r := range runes {
+		if index > maxDescriptionRunes {
+			break
+		}
+		if r == '.' || r == '!' || r == '?' || r == '。' || r == '！' || r == '？' {
+			sentenceEnd = index + 1
+		}
+	}
+	if sentenceEnd > 0 && sentenceEnd <= maxDescriptionRunes {
+		return strings.TrimSpace(string(runes[:sentenceEnd]))
+	}
+	return strings.TrimRight(string(runes[:maxDescriptionRunes-1]), " ,;:") + "…"
 }
 
 func (r Registry) modelManifests() []Manifest {
