@@ -145,14 +145,36 @@ func TestToolArtifactRecorderPersistsExportedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record exported file artifact: %v", err)
 	}
-	if len(refs) != 2 {
-		t.Fatalf("expected tool result artifact plus exported file artifact, got %#v", refs)
+	if len(refs) != 3 {
+		t.Fatalf("expected tool result, exported file, and manifest artifacts, got %#v", refs)
 	}
-	if len(store.createdObjects) != 2 || len(store.createdArtifacts) != 2 {
-		t.Fatalf("expected two created objects/artifacts, got objects=%#v artifacts=%#v", store.createdObjects, store.createdArtifacts)
+	if len(store.createdObjects) != 3 || len(store.createdArtifacts) != 3 {
+		t.Fatalf("expected three created objects/artifacts, got objects=%#v artifacts=%#v", store.createdObjects, store.createdArtifacts)
 	}
 	if store.createdArtifacts[1].ArtifactType != managedagents.ArtifactTypeFile || store.createdArtifacts[1].Name != "report.txt" {
 		t.Fatalf("unexpected exported artifact input: %#v", store.createdArtifacts[1])
+	}
+	var metadata struct {
+		ProtocolVersion string `json:"protocol_version"`
+		Lineage         struct {
+			Kind       string `json:"kind"`
+			SessionID  string `json:"session_id"`
+			TurnID     string `json:"turn_id"`
+			ToolCallID string `json:"tool_call_id"`
+		} `json:"lineage"`
+		Template struct {
+			Status string `json:"status"`
+		} `json:"template"`
+		Validation struct {
+			Status         string `json:"status"`
+			ChecksumSHA256 string `json:"checksum_sha256"`
+		} `json:"validation"`
+	}
+	if err := json.Unmarshal(store.createdArtifacts[1].Metadata, &metadata); err != nil {
+		t.Fatalf("decode exported artifact metadata: %v", err)
+	}
+	if metadata.ProtocolVersion != "tma.tool_export.v1" || metadata.Lineage.Kind != "tool_export" || metadata.Lineage.ToolCallID != "call_2" || metadata.Template.Status != "unbound" || metadata.Validation.Status != "passed" || metadata.Validation.ChecksumSHA256 == "" {
+		t.Fatalf("unexpected exported artifact metadata: %+v", metadata)
 	}
 	get, err := objectStore.GetObject(context.Background(), objectstore.GetObjectInput{Bucket: "tma-artifacts", Key: store.createdObjects[1].ObjectKey})
 	if err != nil {
@@ -165,6 +187,22 @@ func TestToolArtifactRecorderPersistsExportedFiles(t *testing.T) {
 	}
 	if string(body) != "artifact body" {
 		t.Fatalf("unexpected exported object body: %q", string(body))
+	}
+	manifestObject, err := objectStore.GetObject(context.Background(), objectstore.GetObjectInput{Bucket: "tma-artifacts", Key: store.createdObjects[2].ObjectKey})
+	if err != nil {
+		t.Fatalf("get manifest object: %v", err)
+	}
+	defer manifestObject.Body.Close()
+	manifestBody, err := io.ReadAll(manifestObject.Body)
+	if err != nil {
+		t.Fatalf("read manifest object body: %v", err)
+	}
+	var manifest deliverableManifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if manifest.ProtocolVersion != "tma.deliverable_manifest.v1" || len(manifest.Deliverables) != 1 || manifest.Deliverables[0].Name != "report.txt" || manifest.Validation.Status != "passed" {
+		t.Fatalf("unexpected manifest: %+v", manifest)
 	}
 }
 
@@ -202,8 +240,8 @@ func TestToolArtifactRecorderPersistsTransportedExportedFilesWithoutExporter(t *
 	if err != nil {
 		t.Fatalf("record transported exported file artifact: %v", err)
 	}
-	if len(refs) != 2 {
-		t.Fatalf("expected tool result artifact plus transported file artifact, got %#v", refs)
+	if len(refs) != 3 {
+		t.Fatalf("expected tool result, transported file, and manifest artifacts, got %#v", refs)
 	}
 	get, err := objectStore.GetObject(context.Background(), objectstore.GetObjectInput{Bucket: "tma-artifacts", Key: store.createdObjects[1].ObjectKey})
 	if err != nil {

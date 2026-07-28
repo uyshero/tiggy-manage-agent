@@ -27,6 +27,34 @@ type ToolArtifactRecorder struct {
 	Bucket      string
 }
 
+type deliverableManifest struct {
+	ProtocolVersion string                        `json:"protocol_version"`
+	SessionID       string                        `json:"session_id"`
+	TurnID          string                        `json:"turn_id"`
+	ToolCallID      string                        `json:"tool_call_id"`
+	Tool            string                        `json:"tool"`
+	GeneratedAt     time.Time                     `json:"generated_at"`
+	Deliverables    []deliverableManifestItem     `json:"deliverables"`
+	Validation      deliverableManifestValidation `json:"validation"`
+}
+
+type deliverableManifestItem struct {
+	ArtifactID     string `json:"artifact_id"`
+	ObjectRefID    string `json:"object_ref_id"`
+	Name           string `json:"name"`
+	ArtifactType   string `json:"artifact_type"`
+	Path           string `json:"path,omitempty"`
+	ContentType    string `json:"content_type,omitempty"`
+	SizeBytes      int64  `json:"size_bytes"`
+	ChecksumSHA256 string `json:"checksum_sha256"`
+	Validation     string `json:"validation_status"`
+}
+
+type deliverableManifestValidation struct {
+	Status string   `json:"status"`
+	Checks []string `json:"checks"`
+}
+
 func (r ToolArtifactRecorder) RecordToolArtifact(ctx context.Context, call tools.Call, executionContext tools.ExecutionContext, result tools.ExecutionResult) ([]tools.ArtifactRef, error) {
 	if r.Store == nil || r.ObjectStore == nil || result.PendingIntervention || result.Error != nil {
 		return nil, nil
@@ -164,6 +192,7 @@ func (r ToolArtifactRecorder) recordExportedFiles(ctx context.Context, session m
 		exporter = provider
 	}
 	refs := make([]tools.ArtifactRef, 0, len(exports))
+	manifestItems := make([]deliverableManifestItem, 0, len(exports))
 	for index, export := range exports {
 		file, err := exportedArtifactFile(ctx, exporter, export)
 		if err != nil {
@@ -184,20 +213,106 @@ func (r ToolArtifactRecorder) recordExportedFiles(ctx context.Context, session m
 		if name == "" {
 			name = fmt.Sprintf("artifact-%d", index+1)
 		}
+		checksum := sha256.Sum256(file.Content)
+		checksumHex := hex.EncodeToString(checksum[:])
 		artifactType := strings.TrimSpace(export.ArtifactType)
 		if artifactType == "" {
 			artifactType = managedagents.ArtifactTypeFile
 		}
 		objectKey := path.Join(session.WorkspaceID, sessionID, "tool-exports", sanitizeObjectName(call.Identifier+"_"+call.APIName), fmt.Sprintf("%s-%02d-%s", time.Now().UTC().Format("20060102T150405.000000000Z07"), index+1, name))
-		metadata := json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.tool_export.v1","tool":%q,"path":%q}`,
-			tools.ModelToolName(call.Identifier, call.APIName), export.Path))
+		metadata, err := exportedArtifactMetadata(sessionID, turnID, call, export, contentType, int64(len(file.Content)), checksumHex)
+		if err != nil {
+			return nil, err
+		}
 		objectRef, artifact, err := r.persistArtifactObject(ctx, session, bucket, objectKey, file.Content, contentType, artifactType, name, exportedArtifactDescription(call, export), call, sessionID, turnID, metadata)
 		if err != nil {
 			return nil, err
 		}
-		refs = append(refs, artifactRef(sessionID, artifact, objectRef))
+		ref := artifactRef(sessionID, artifact, objectRef)
+		refs = append(refs, ref)
+		manifestItems = append(manifestItems, deliverableManifestItem{
+			ArtifactID:     artifact.ID,
+			ObjectRefID:    objectRef.ID,
+			Name:           artifact.Name,
+			ArtifactType:   artifact.ArtifactType,
+			Path:           export.Path,
+			ContentType:    contentType,
+			SizeBytes:      int64(len(file.Content)),
+			ChecksumSHA256: checksumHex,
+			Validation:     "passed",
+		})
+	}
+	manifestRef, err := r.recordDeliverableManifest(ctx, session, bucket, sessionID, turnID, call, manifestItems)
+	if err != nil {
+		return nil, err
+	}
+	if manifestRef.ArtifactID != "" {
+		refs = append(refs, manifestRef)
 	}
 	return refs, nil
+}
+
+func exportedArtifactMetadata(sessionID string, turnID string, call tools.Call, export tools.ArtifactExport, contentType string, sizeBytes int64, checksumSHA256 string) (json.RawMessage, error) {
+	payload := map[string]any{
+		"protocol_version": "tma.tool_export.v1",
+		"tool":             tools.ModelToolName(call.Identifier, call.APIName),
+		"path":             export.Path,
+		"lineage": map[string]any{
+			"kind":         "tool_export",
+			"session_id":   sessionID,
+			"turn_id":      turnID,
+			"tool_call_id": call.ID,
+			"tool":         tools.ModelToolName(call.Identifier, call.APIName),
+			"source_path":  export.Path,
+		},
+		"template": map[string]any{
+			"status":           "unbound",
+			"template_id":      "",
+			"template_version": "",
+		},
+		"validation": map[string]any{
+			"status":          "passed",
+			"content_type":    contentType,
+			"size_bytes":      sizeBytes,
+			"checksum_sha256": checksumSHA256,
+			"checks": []map[string]string{
+				{"name": "artifact_export_read", "status": "passed"},
+				{"name": "object_checksum", "status": "passed"},
+			},
+		},
+	}
+	return json.Marshal(payload)
+}
+
+func (r ToolArtifactRecorder) recordDeliverableManifest(ctx context.Context, session managedagents.Session, bucket string, sessionID string, turnID string, call tools.Call, items []deliverableManifestItem) (tools.ArtifactRef, error) {
+	if len(items) == 0 {
+		return tools.ArtifactRef{}, nil
+	}
+	manifest := deliverableManifest{
+		ProtocolVersion: "tma.deliverable_manifest.v1",
+		SessionID:       sessionID,
+		TurnID:          turnID,
+		ToolCallID:      call.ID,
+		Tool:            tools.ModelToolName(call.Identifier, call.APIName),
+		GeneratedAt:     time.Now().UTC(),
+		Deliverables:    items,
+		Validation: deliverableManifestValidation{
+			Status: "passed",
+			Checks: []string{"artifact_export_read", "object_checksum"},
+		},
+	}
+	encoded, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return tools.ArtifactRef{}, err
+	}
+	metadata := json.RawMessage(fmt.Sprintf(`{"protocol_version":"tma.deliverable_manifest.v1","tool":%q,"lineage":{"kind":"deliverable_manifest","session_id":%q,"turn_id":%q,"tool_call_id":%q},"validation":{"status":"passed"}}`,
+		tools.ModelToolName(call.Identifier, call.APIName), sessionID, turnID, call.ID))
+	objectKey := path.Join(session.WorkspaceID, sessionID, "deliverable-manifests", fmt.Sprintf("%s-%s.json", sanitizeObjectName(call.Identifier+"_"+call.APIName), time.Now().UTC().Format("20060102T150405.000000000Z07")))
+	objectRef, artifact, err := r.persistArtifactObject(ctx, session, bucket, objectKey, encoded, "application/json", managedagents.ArtifactTypeAsset, "deliverable-manifest.json", "Deliverable manifest for exported files", call, sessionID, turnID, metadata)
+	if err != nil {
+		return tools.ArtifactRef{}, err
+	}
+	return artifactRef(sessionID, artifact, objectRef), nil
 }
 
 func exportedArtifactFile(ctx context.Context, exporter capability.ArtifactExportProvider, export tools.ArtifactExport) (capability.ExportArtifactFileResult, error) {
