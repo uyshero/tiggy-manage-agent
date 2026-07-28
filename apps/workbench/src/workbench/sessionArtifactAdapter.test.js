@@ -11,7 +11,7 @@ import {
   previewKindForResource
 } from "./sessionArtifactAdapter.js";
 
-function response({ contentType = "", contentLength = "", text = "", blob = {} } = {}) {
+function response({ contentType = "", contentLength = "", text = "", blob = {}, arrayBuffer = new ArrayBuffer(0) } = {}) {
   const headers = new Map([
     ["content-type", contentType],
     ["content-length", String(contentLength)]
@@ -19,7 +19,8 @@ function response({ contentType = "", contentLength = "", text = "", blob = {} }
   return {
     headers: { get: (name) => headers.get(name.toLowerCase()) || null },
     text: async () => text,
-    blob: async () => blob
+    blob: async () => blob,
+    arrayBuffer: async () => arrayBuffer
   };
 }
 
@@ -62,6 +63,9 @@ test("artifact adapter creates an allowlisted ResourceRef", () => {
 
 test("artifact adapter identifies image, text, markdown, and download resources", () => {
   assert.equal(previewKindForResource({ title: "chart.PNG" }), "image");
+  assert.equal(previewKindForResource({ title: "report.pdf" }), "pdf");
+  assert.equal(previewKindForResource({ title: "workbook.xlsx" }), "spreadsheet");
+  assert.equal(previewKindForResource({ title: "workbook", mimeType: "application/vnd.ms-excel" }), "spreadsheet");
   assert.equal(previewKindForResource({ title: "data.bin", mimeType: "application/json" }), "text");
   assert.equal(previewKindForResource({ title: "archive.zip" }), "download");
   assert.equal(isMarkdownResource({ title: "README.md" }), true);
@@ -146,6 +150,48 @@ test("Session Artifact provider owns image Object URL cleanup", async () => {
   preview.dispose();
   preview.dispose();
   assert.deepEqual(revoked, ["blob:preview-01"]);
+});
+
+test("Session Artifact provider previews PDF through an Object URL", async () => {
+  const revoked = [];
+  const provider = createSessionArtifactProvider(providerOptions(
+    async () => response({ contentType: "application/pdf", blob: { type: "application/pdf" } }),
+    {
+      createObjectURL: () => "blob:pdf-01",
+      revokeObjectURL: (url) => revoked.push(url)
+    }
+  ));
+  const resource = artifactToResourceRef({ id: "pdf", name: "report.pdf" }, { sessionID: "session_01" });
+  const preview = await provider.preview(resource);
+  assert.equal(preview.kind, "pdf");
+  assert.equal(preview.objectUrl, "blob:pdf-01");
+  preview.dispose();
+  assert.deepEqual(revoked, ["blob:pdf-01"]);
+});
+
+test("Session Artifact provider previews XLSX as bounded rows", async () => {
+  const xlsx = await import("xlsx");
+  const workbook = xlsx.utils.book_new();
+  const worksheet = xlsx.utils.aoa_to_sheet([
+    ["Name", "Score"],
+    ["Alpha", 1],
+    ["Beta", 2]
+  ]);
+  xlsx.utils.book_append_sheet(workbook, worksheet, "Scores");
+  const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
+  const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  const provider = createSessionArtifactProvider(providerOptions(
+    async () => response({
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      arrayBuffer
+    })
+  ));
+  const resource = artifactToResourceRef({ id: "xlsx", name: "scores.xlsx" }, { sessionID: "session_01" });
+  const preview = await provider.preview(resource);
+
+  assert.equal(preview.kind, "spreadsheet");
+  assert.equal(preview.activeSheet, "Scores");
+  assert.deepEqual(preview.rows, [["Name", "Score"], ["Alpha", "1"], ["Beta", "2"]]);
 });
 
 test("Session Artifact provider lists and opens resources through stable references", async () => {

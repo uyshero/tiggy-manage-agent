@@ -41,7 +41,7 @@ import {
   htmlPreviewDocument,
   isHTMLResource,
   isMarkdownResource,
-  previewKindForResource
+  previewDescriptorFromResponse
 } from "./workbench/sessionArtifactAdapter.js";
 import PluginRouteHost from "./workbench/PluginRouteHost.jsx";
 import { createPermissionService } from "./workbench/permissionService.js";
@@ -1397,33 +1397,16 @@ function AchievementLibrarySettings({ workspaceID }) {
       const response = await api.downloadAchievementLibraryItem(item.id, workspaceID, { signal: controller.signal });
       if (!isCurrentRequest()) return;
       const contentType = response.headers.get("Content-Type") || "";
-      const contentLength = Number(response.headers.get("Content-Length") || 0);
       resource.mimeType = contentType;
-      const kind = previewKindForResource(resource, contentType);
-      if (kind === "image") {
-        const objectUrl = URL.createObjectURL(await response.blob());
-        if (!isCurrentRequest()) {
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-        setPreview({ resource, status: "ready", kind, contentType, objectUrl, dispose: () => URL.revokeObjectURL(objectUrl) });
+      const descriptor = await previewDescriptorFromResponse(resource, response, {
+        maxTextBytes: MAX_ARTIFACT_PREVIEW_BYTES,
+        maxTextCharacters: MAX_ARTIFACT_PREVIEW_CHARACTERS
+      }, { signal: controller.signal });
+      if (!isCurrentRequest()) {
+        descriptor.dispose?.();
         return;
       }
-      if (kind === "text") {
-        if (contentLength > MAX_ARTIFACT_PREVIEW_BYTES) {
-          setPreview({ resource, status: "ready", kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" });
-          return;
-        }
-        let text = await response.text();
-        if (!isCurrentRequest()) return;
-        if (contentType.toLowerCase().includes("json")) {
-          try { text = JSON.stringify(JSON.parse(text), null, 2); } catch {}
-        }
-        if (text.length > MAX_ARTIFACT_PREVIEW_CHARACTERS) text = `${text.slice(0, MAX_ARTIFACT_PREVIEW_CHARACTERS)}\n\n[预览已截断]`;
-        setPreview({ resource, status: "ready", kind, contentType, text });
-        return;
-      }
-      setPreview({ resource, status: "ready", kind: "download", contentType, message: "暂不支持此文件类型的内联预览，请下载后查看。" });
+      setPreview({ resource, status: "ready", kind, contentType, ...descriptor });
     } catch (previewError) {
       if (previewError?.name === "AbortError" || !isCurrentRequest()) return;
       setPreview({ resource, status: "error", error: previewError.message });
@@ -4925,6 +4908,32 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
   if (preview.status === "error") return <div className="artifact-preview-error">{preview.error}</div>;
   if (preview.status === "ready" && preview.kind === "image") {
     return <img className="preview-media" src={preview.objectUrl} alt={preview.resource.title} />;
+  }
+  if (preview.status === "ready" && preview.kind === "pdf") {
+    return <iframe className="artifact-preview-pdf" src={preview.objectUrl} title={`${preview.resource.title} PDF 预览`} />;
+  }
+  if (preview.status === "ready" && preview.kind === "spreadsheet") {
+    const rows = Array.isArray(preview.rows) ? preview.rows : [];
+    if (!rows.length) return <Empty>电子表格没有可预览的数据。</Empty>;
+    return (
+      <div className="artifact-preview-sheet">
+        <div className="artifact-preview-sheet-meta">
+          <span>{preview.activeSheet || "Sheet1"}</span>
+          {preview.truncated ? <span>仅显示前几行和前几列</span> : null}
+        </div>
+        <div className="artifact-preview-sheet-scroll">
+          <table>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => <td key={`${rowIndex}:${cellIndex}`}>{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
   if (preview.status === "ready" && preview.kind === "text") {
     if (mode === "preview") {

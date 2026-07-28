@@ -26,11 +26,14 @@ function normalizePreviewDescriptor(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new RelatedResourceServiceError("invalid_preview", "Preview provider returned an invalid descriptor.");
   }
-  if (!["image", "text", "download"].includes(value.kind)) {
-    throw new RelatedResourceServiceError("invalid_preview", "Preview kind must be image, text, or download.");
+  if (!["image", "pdf", "spreadsheet", "text", "download"].includes(value.kind)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Preview kind must be image, pdf, spreadsheet, text, or download.");
   }
-  if (value.kind === "image" && !(typeof value.objectUrl === "string" && value.objectUrl)) {
-    throw new RelatedResourceServiceError("invalid_preview", "Image previews require objectUrl.");
+  if ((value.kind === "image" || value.kind === "pdf") && !(typeof value.objectUrl === "string" && value.objectUrl)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Image and PDF previews require objectUrl.");
+  }
+  if (value.kind === "spreadsheet" && !Array.isArray(value.rows)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Spreadsheet previews require rows.");
   }
   if (value.kind === "text" && typeof value.text !== "string") {
     throw new RelatedResourceServiceError("invalid_preview", "Text previews require text.");
@@ -43,6 +46,10 @@ function normalizePreviewDescriptor(value) {
     contentType: typeof value.contentType === "string" ? value.contentType : "",
     text: typeof value.text === "string" ? value.text : "",
     objectUrl: typeof value.objectUrl === "string" ? value.objectUrl : "",
+    sheets: Array.isArray(value.sheets) ? value.sheets.map((item) => String(item)) : [],
+    activeSheet: typeof value.activeSheet === "string" ? value.activeSheet : "",
+    rows: Array.isArray(value.rows) ? value.rows.map((row) => Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []) : [],
+    truncated: Boolean(value.truncated),
     downloadUrl: typeof value.downloadUrl === "string" ? value.downloadUrl : "",
     message: typeof value.message === "string" ? value.message : "",
     dispose: typeof value.dispose === "function" ? value.dispose : () => {}

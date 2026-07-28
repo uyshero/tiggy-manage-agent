@@ -3,12 +3,18 @@ import { defineResourceRef } from "./contracts.js";
 export const SESSION_ARTIFACT_SOURCE_PREFIX = "tma.session-artifact:";
 export const MAX_ARTIFACT_PREVIEW_BYTES = 512 * 1024;
 export const MAX_ARTIFACT_PREVIEW_CHARACTERS = 64000;
+export const MAX_SPREADSHEET_PREVIEW_BYTES = 5 * 1024 * 1024;
+export const MAX_SPREADSHEET_PREVIEW_ROWS = 50;
+export const MAX_SPREADSHEET_PREVIEW_COLUMNS = 20;
 
 const imageExtensions = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const pdfExtensions = new Set(["pdf"]);
+const spreadsheetExtensions = new Set(["xlsx", "xls", "xlsm", "ods"]);
 const textExtensions = new Set([
   "txt", "md", "markdown", "json", "jsonl", "csv", "tsv", "log", "xml", "html", "htm", "css",
   "js", "jsx", "ts", "tsx", "go", "py", "sh", "yaml", "yml"
 ]);
+let xlsxModulePromise;
 
 function plainMetadata(artifact) {
   const value = artifact?.metadata;
@@ -25,8 +31,23 @@ export function previewKindForResource(resource, contentType = "") {
   const type = String(contentType || resource?.mimeType || "").toLowerCase();
   const extension = resourceExtension(resource);
   if (type.startsWith("image/") || imageExtensions.has(extension)) return "image";
+  if (type.includes("application/pdf") || pdfExtensions.has(extension)) return "pdf";
+  if (
+    type.includes("spreadsheet")
+    || type.includes("ms-excel")
+    || type.includes("opendocument.spreadsheet")
+    || spreadsheetExtensions.has(extension)
+  ) return "spreadsheet";
   if (type.startsWith("text/") || type.includes("json") || type.includes("xml") || textExtensions.has(extension)) return "text";
   return "download";
+}
+
+export function isPDFResource(resource, contentType = "") {
+  return previewKindForResource(resource, contentType) === "pdf";
+}
+
+export function isSpreadsheetResource(resource, contentType = "") {
+  return previewKindForResource(resource, contentType) === "spreadsheet";
 }
 
 export function isMarkdownResource(resource, contentType = "") {
@@ -105,14 +126,100 @@ function throwIfAborted(signal) {
   throw error;
 }
 
+function loadXLSXModule() {
+  if (!xlsxModulePromise) xlsxModulePromise = import("xlsx");
+  return xlsxModulePromise;
+}
+
+function disposeObjectURL(revokeObjectURL, objectUrl) {
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    revokeObjectURL(objectUrl);
+  };
+}
+
+async function spreadsheetPreview(response, contentLength, context, options) {
+  const maxSpreadsheetBytes = options.maxSpreadsheetBytes || MAX_SPREADSHEET_PREVIEW_BYTES;
+  if (contentLength > maxSpreadsheetBytes) {
+    return { kind: "download", message: "电子表格过大，请下载文件后查看。" };
+  }
+  const buffer = await response.arrayBuffer();
+  throwIfAborted(context.signal);
+  const xlsx = await (options.loadXLSXModule || loadXLSXModule)();
+  const rowLimit = options.maxSpreadsheetRows || MAX_SPREADSHEET_PREVIEW_ROWS;
+  const columnLimit = options.maxSpreadsheetColumns || MAX_SPREADSHEET_PREVIEW_COLUMNS;
+  const workbook = xlsx.read(buffer, { type: "array", cellDates: true, sheetRows: rowLimit + 1 });
+  const sheetName = workbook.SheetNames[0] || "";
+  if (!sheetName) return { kind: "spreadsheet", sheets: [], activeSheet: "", rows: [], truncated: false };
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = xlsx.utils
+    .sheet_to_json(worksheet, { header: 1, blankrows: false, raw: false, defval: "" })
+    .map((row) => Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []);
+  return {
+    kind: "spreadsheet",
+    sheets: workbook.SheetNames,
+    activeSheet: sheetName,
+    rows: rows.slice(0, rowLimit).map((row) => row.slice(0, columnLimit)),
+    truncated: rows.length > rowLimit || rows.some((row) => row.length > columnLimit)
+  };
+}
+
+export async function previewDescriptorFromResponse(resource, response, options = {}, context = {}) {
+  const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
+  const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
+  const maxTextBytes = options.maxTextBytes || MAX_ARTIFACT_PREVIEW_BYTES;
+  const maxTextCharacters = options.maxTextCharacters || MAX_ARTIFACT_PREVIEW_CHARACTERS;
+  const contentType = response.headers.get("Content-Type") || resource.mimeType || "";
+  const contentLength = Number(response.headers.get("Content-Length") || 0);
+  const kind = previewKindForResource(resource, contentType);
+  if (kind === "image" || kind === "pdf") {
+    const blob = await response.blob();
+    throwIfAborted(context.signal);
+    const objectUrl = createObjectURL(blob);
+    return {
+      kind,
+      contentType,
+      objectUrl,
+      dispose: disposeObjectURL(revokeObjectURL, objectUrl)
+    };
+  }
+  if (kind === "spreadsheet") {
+    const preview = await spreadsheetPreview(response, contentLength, context, options);
+    return { contentType, ...preview };
+  }
+  if (kind === "text") {
+    if (contentLength > maxTextBytes) {
+      return { kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" };
+    }
+    let text = await response.text();
+    throwIfAborted(context.signal);
+    if (contentType.toLowerCase().includes("json")) {
+      try {
+        text = JSON.stringify(JSON.parse(text), null, 2);
+      } catch {}
+    }
+    const truncated = text.length > maxTextCharacters;
+    return {
+      kind,
+      contentType,
+      text: truncated ? `${text.slice(0, maxTextCharacters)}\n\n[预览已截断]` : text
+    };
+  }
+  return {
+    kind: "download",
+    contentType,
+    message: "暂不支持此文件类型的内联预览，请下载后查看。"
+  };
+}
+
 export function createSessionArtifactProvider(options = {}) {
   const downloadArtifact = options.downloadArtifact;
   const artifactDownloadPath = options.artifactDownloadPath;
   const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
   const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
   const openURL = options.openURL || ((url) => window.open(url, "_blank", "noopener,noreferrer"));
-  const maxTextBytes = options.maxTextBytes || MAX_ARTIFACT_PREVIEW_BYTES;
-  const maxTextCharacters = options.maxTextCharacters || MAX_ARTIFACT_PREVIEW_CHARACTERS;
   if (typeof downloadArtifact !== "function" || typeof artifactDownloadPath !== "function") {
     throw new TypeError("Session Artifact provider requires downloadArtifact and artifactDownloadPath.");
   }
@@ -132,50 +239,9 @@ export function createSessionArtifactProvider(options = {}) {
       const url = downloadURL(resource);
       const response = await downloadArtifact(sessionIDFromResource(resource), resource.id, { signal: context.signal });
       throwIfAborted(context.signal);
-      const contentType = response.headers.get("Content-Type") || resource.mimeType || "";
-      const contentLength = Number(response.headers.get("Content-Length") || 0);
-      const kind = previewKindForResource(resource, contentType);
-      if (kind === "image") {
-        const blob = await response.blob();
-        throwIfAborted(context.signal);
-        const objectUrl = createObjectURL(blob);
-        let disposed = false;
-        return {
-          kind,
-          contentType,
-          objectUrl,
-          downloadUrl: url,
-          dispose() {
-            if (disposed) return;
-            disposed = true;
-            revokeObjectURL(objectUrl);
-          }
-        };
-      }
-      if (kind === "text") {
-        if (contentLength > maxTextBytes) {
-          return { kind: "download", contentType, downloadUrl: url, message: "预览内容过大，请下载文件后查看。" };
-        }
-        let text = await response.text();
-        throwIfAborted(context.signal);
-        if (contentType.toLowerCase().includes("json")) {
-          try {
-            text = JSON.stringify(JSON.parse(text), null, 2);
-          } catch {}
-        }
-        const truncated = text.length > maxTextCharacters;
-        return {
-          kind,
-          contentType,
-          text: truncated ? `${text.slice(0, maxTextCharacters)}\n\n[预览已截断]` : text,
-          downloadUrl: url
-        };
-      }
       return {
-        kind: "download",
-        contentType,
-        downloadUrl: url,
-        message: "暂不支持此文件类型的内联预览，请下载后查看。"
+        ...(await previewDescriptorFromResponse(resource, response, { ...options, createObjectURL, revokeObjectURL }, context)),
+        downloadUrl: url
       };
     },
     open(resource) {

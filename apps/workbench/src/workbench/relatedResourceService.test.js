@@ -57,6 +57,26 @@ test("resource service routes preview and open to a matching provider", async ()
   assert.deepEqual(opened, [["file_01", "download"]]);
 });
 
+test("resource service normalizes PDF and spreadsheet preview descriptors", async () => {
+  const service = createRelatedResourceService();
+  service.registerProvider({
+    id: "test.files",
+    sourcePrefix: "test.files:",
+    preview: async (item) => item.id === "pdf"
+      ? { kind: "pdf", objectUrl: "blob:pdf", contentType: "application/pdf" }
+      : { kind: "spreadsheet", rows: [["A", 1]], sheets: ["Sheet1"], activeSheet: "Sheet1", truncated: true },
+    open: () => undefined
+  });
+
+  const pdf = await service.preview(resource("pdf"));
+  assert.equal(pdf.kind, "pdf");
+  assert.equal(pdf.objectUrl, "blob:pdf");
+  const spreadsheet = await service.preview(resource("sheet"));
+  assert.equal(spreadsheet.kind, "spreadsheet");
+  assert.deepEqual(spreadsheet.rows, [["A", "1"]]);
+  assert.equal(spreadsheet.truncated, true);
+});
+
 test("a newer preview cancels stale work and disposes temporary resources", async () => {
   const service = createRelatedResourceService();
   const first = deferred();

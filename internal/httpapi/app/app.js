@@ -11308,7 +11308,7 @@ function requireReactDomClient_production() {
     r: requestFormReset,
     D: prefetchDNS,
     C: preconnect,
-    L: preload,
+    L: preload2,
     m: preloadModule,
     X: preinitScript,
     S: preinitStyle,
@@ -11340,7 +11340,7 @@ function requireReactDomClient_production() {
     previousDispatcher.C(href, crossOrigin);
     preconnectAs("preconnect", href, crossOrigin);
   }
-  function preload(href, as, options2) {
+  function preload2(href, as, options2) {
     previousDispatcher.L(href, as, options2);
     var ownerDocument = globalDocument;
     if (ownerDocument && href && as) {
@@ -15009,15 +15009,15 @@ function initializeDocument(effects) {
       }
       const indexBeforeExits = self2.events.length;
       let indexBeforeFlow = indexBeforeExits;
-      let seen;
+      let seen2;
       let point2;
       while (indexBeforeFlow--) {
         if (self2.events[indexBeforeFlow][0] === "exit" && self2.events[indexBeforeFlow][1].type === "chunkFlow") {
-          if (seen) {
+          if (seen2) {
             point2 = self2.events[indexBeforeFlow][1].end;
             break;
           }
-          seen = true;
+          seen2 = true;
         }
       }
       exitContainers(continued);
@@ -16314,7 +16314,7 @@ function factoryDestination(effects, ok2, nok, type, literalType, literalMarkerT
 function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
   const self2 = this;
   let size = 0;
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     effects.enter(type);
@@ -16325,7 +16325,7 @@ function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
     return atBreak;
   }
   function atBreak(code2) {
-    if (size > 999 || code2 === null || code2 === 91 || code2 === 93 && !seen || // To do: remove in the future once we’ve switched from
+    if (size > 999 || code2 === null || code2 === 91 || code2 === 93 && !seen2 || // To do: remove in the future once we’ve switched from
     // `micromark-extension-footnote` to `micromark-extension-gfm-footnote`,
     // which doesn’t need this.
     // Hidden footnotes hook.
@@ -16358,7 +16358,7 @@ function factoryLabel(effects, ok2, nok, type, markerType, stringType) {
       return atBreak(code2);
     }
     effects.consume(code2);
-    if (!seen) seen = !markdownSpace(code2);
+    if (!seen2) seen2 = !markdownSpace(code2);
     return code2 === 92 ? labelEscape : labelInside;
   }
   function labelEscape(code2) {
@@ -16431,18 +16431,18 @@ function factoryTitle(effects, ok2, nok, type, markerType, stringType) {
   }
 }
 function factoryWhitespace(effects, ok2) {
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     if (markdownLineEnding(code2)) {
       effects.enter("lineEnding");
       effects.consume(code2);
       effects.exit("lineEnding");
-      seen = true;
+      seen2 = true;
       return start;
     }
     if (markdownSpace(code2)) {
-      return factorySpace(effects, start, seen ? "linePrefix" : "lineSuffix")(code2);
+      return factorySpace(effects, start, seen2 ? "linePrefix" : "lineSuffix")(code2);
     }
     return ok2(code2);
   }
@@ -17731,15 +17731,15 @@ function tokenizeListStart(effects, ok2, nok) {
   let size = 0;
   return start;
   function start(code2) {
-    const kind = self2.containerState.type || (code2 === 42 || code2 === 43 || code2 === 45 ? "listUnordered" : "listOrdered");
-    if (kind === "listUnordered" ? !self2.containerState.marker || code2 === self2.containerState.marker : asciiDigit(code2)) {
+    const kind2 = self2.containerState.type || (code2 === 42 || code2 === 43 || code2 === 45 ? "listUnordered" : "listOrdered");
+    if (kind2 === "listUnordered" ? !self2.containerState.marker || code2 === self2.containerState.marker : asciiDigit(code2)) {
       if (!self2.containerState.type) {
-        self2.containerState.type = kind;
-        effects.enter(kind, {
+        self2.containerState.type = kind2;
+        effects.enter(kind2, {
           _container: true
         });
       }
-      if (kind === "listUnordered") {
+      if (kind2 === "listUnordered") {
         effects.enter("listItemPrefix");
         return code2 === 42 || code2 === 45 ? effects.check(thematicBreak$2, nok, atMarker)(code2) : atMarker(code2);
       }
@@ -23970,7 +23970,7 @@ function tokenizeWwwAutolink(effects, ok2, nok) {
 function tokenizeProtocolAutolink(effects, ok2, nok) {
   const self2 = this;
   let buffer = "";
-  let seen = false;
+  let seen2 = false;
   return protocolStart;
   function protocolStart(code2) {
     if ((code2 === 72 || code2 === 104) && previousProtocol.call(self2, self2.previous) && !previousUnbalanced(self2.events)) {
@@ -24000,10 +24000,10 @@ function tokenizeProtocolAutolink(effects, ok2, nok) {
   function protocolSlashesInside(code2) {
     if (code2 === 47) {
       effects.consume(code2);
-      if (seen) {
+      if (seen2) {
         return afterProtocol;
       }
-      seen = true;
+      seen2 = true;
       return protocolSlashesInside;
     }
     return nok(code2);
@@ -24039,7 +24039,7 @@ function tokenizeWwwPrefix(effects, ok2, nok) {
 function tokenizeDomain(effects, ok2, nok) {
   let underscoreInLastSegment;
   let underscoreInLastLastSegment;
-  let seen;
+  let seen2;
   return domainInside;
   function domainInside(code2) {
     if (code2 === 46 || code2 === 95) {
@@ -24048,7 +24048,7 @@ function tokenizeDomain(effects, ok2, nok) {
     if (code2 === null || markdownLineEndingOrSpace(code2) || unicodeWhitespace(code2) || code2 !== 45 && unicodePunctuation(code2)) {
       return domainAfter(code2);
     }
-    seen = true;
+    seen2 = true;
     effects.consume(code2);
     return domainInside;
   }
@@ -24063,7 +24063,7 @@ function tokenizeDomain(effects, ok2, nok) {
     return domainInside;
   }
   function domainAfter(code2) {
-    if (underscoreInLastLastSegment || underscoreInLastSegment || !seen) {
+    if (underscoreInLastLastSegment || underscoreInLastSegment || !seen2) {
       return nok(code2);
     }
     return ok2(code2);
@@ -24666,7 +24666,7 @@ function tokenizeTable(effects, ok2, nok) {
   const self2 = this;
   let size = 0;
   let sizeB = 0;
-  let seen;
+  let seen2;
   return start;
   function start(code2) {
     let index2 = self2.events.length - 1;
@@ -24692,7 +24692,7 @@ function tokenizeTable(effects, ok2, nok) {
     if (code2 === 124) {
       return headRowBreak(code2);
     }
-    seen = true;
+    seen2 = true;
     sizeB += 1;
     return headRowBreak(code2);
   }
@@ -24716,15 +24716,15 @@ function tokenizeTable(effects, ok2, nok) {
       return factorySpace(effects, headRowBreak, "whitespace")(code2);
     }
     sizeB += 1;
-    if (seen) {
-      seen = false;
+    if (seen2) {
+      seen2 = false;
       size += 1;
     }
     if (code2 === 124) {
       effects.enter("tableCellDivider");
       effects.consume(code2);
       effects.exit("tableCellDivider");
-      seen = true;
+      seen2 = true;
       return headRowBreak;
     }
     effects.enter("data");
@@ -24751,7 +24751,7 @@ function tokenizeTable(effects, ok2, nok) {
       return nok(code2);
     }
     effects.enter("tableDelimiterRow");
-    seen = false;
+    seen2 = false;
     if (markdownSpace(code2)) {
       return factorySpace(effects, headDelimiterBefore, "linePrefix", self2.parser.constructs.disable.null.includes("codeIndented") ? void 0 : 4)(code2);
     }
@@ -24762,7 +24762,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterValueBefore(code2);
     }
     if (code2 === 124) {
-      seen = true;
+      seen2 = true;
       effects.enter("tableCellDivider");
       effects.consume(code2);
       effects.exit("tableCellDivider");
@@ -24779,7 +24779,7 @@ function tokenizeTable(effects, ok2, nok) {
   function headDelimiterValueBefore(code2) {
     if (code2 === 58) {
       sizeB += 1;
-      seen = true;
+      seen2 = true;
       effects.enter("tableDelimiterMarker");
       effects.consume(code2);
       effects.exit("tableDelimiterMarker");
@@ -24807,7 +24807,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterFiller;
     }
     if (code2 === 58) {
-      seen = true;
+      seen2 = true;
       effects.exit("tableDelimiterFiller");
       effects.enter("tableDelimiterMarker");
       effects.consume(code2);
@@ -24828,7 +24828,7 @@ function tokenizeTable(effects, ok2, nok) {
       return headDelimiterBefore(code2);
     }
     if (code2 === null || markdownLineEnding(code2)) {
-      if (!seen || size !== sizeB) {
+      if (!seen2 || size !== sizeB) {
         return headDelimiterNok(code2);
       }
       effects.exit("tableDelimiterRow");
@@ -28081,16 +28081,16 @@ function skillConfigSyncState(agentConfigVersion, sessionConfigVersion, hasSessi
     targetVersion: needsApply ? agentVersion : 0
   };
 }
-function resolveLocalSchema(root2, schema, seen = /* @__PURE__ */ new Set()) {
+function resolveLocalSchema(root2, schema, seen2 = /* @__PURE__ */ new Set()) {
   if (!schema || typeof schema !== "object" || Array.isArray(schema) || typeof schema.$ref !== "string") return schema;
-  if (!schema.$ref.startsWith("#/") || seen.has(schema.$ref)) return schema;
+  if (!schema.$ref.startsWith("#/") || seen2.has(schema.$ref)) return schema;
   let resolved = root2;
   for (const token of schema.$ref.slice(2).split("/")) {
     const key = token.replace(/~1/g, "/").replace(/~0/g, "~");
     resolved = resolved == null ? void 0 : resolved[key];
   }
   if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) return schema;
-  const nextSeen = new Set(seen);
+  const nextSeen = new Set(seen2);
   nextSeen.add(schema.$ref);
   return { ...resolveLocalSchema(root2, resolved, nextSeen), ...schema, $ref: void 0 };
 }
@@ -30801,11 +30801,11 @@ function messageArtifactIDs(event) {
   const ids = eventPayload(event).artifact_ids;
   if (!Array.isArray(ids)) return null;
   const result = [];
-  const seen = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
   for (const id2 of ids) {
     const value = String(id2 || "").trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
+    if (!value || seen2.has(value)) continue;
+    seen2.add(value);
     result.push(value);
   }
   return result;
@@ -31236,14 +31236,14 @@ function choiceOptions(input) {
   if (!Array.isArray(value.items) || !value.items.length) {
     throw new DialogServiceError("invalid_options", "choice options.items must be a non-empty array");
   }
-  const seen = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
   const items = value.items.map((item, index2) => {
     const option = plainObject$1(item, `choice options.items[${index2}]`);
     const optionValue = requiredText$3(option.value, `choice options.items[${index2}].value`);
-    if (seen.has(optionValue)) {
+    if (seen2.has(optionValue)) {
       throw new DialogServiceError("invalid_options", `choice option value ${optionValue} is duplicated`);
     }
-    seen.add(optionValue);
+    seen2.add(optionValue);
     return Object.freeze({
       value: optionValue,
       label: requiredText$3(option.label, `choice options.items[${index2}].label`),
@@ -31354,12 +31354,12 @@ class DialogService {
     requests.forEach((request) => request.reject(error));
     this.notify();
   }
-  enqueue(kind, options) {
+  enqueue(kind2, options) {
     return new Promise((resolve, reject) => {
       this.counter += 1;
       this.queue.push(Object.freeze({
         id: `dialog_${this.counter}`,
-        kind,
+        kind: kind2,
         options,
         resolve,
         reject
@@ -31726,11 +31726,14 @@ function normalizePreviewDescriptor(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new RelatedResourceServiceError("invalid_preview", "Preview provider returned an invalid descriptor.");
   }
-  if (!["image", "text", "download"].includes(value.kind)) {
-    throw new RelatedResourceServiceError("invalid_preview", "Preview kind must be image, text, or download.");
+  if (!["image", "pdf", "spreadsheet", "text", "download"].includes(value.kind)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Preview kind must be image, pdf, spreadsheet, text, or download.");
   }
-  if (value.kind === "image" && !(typeof value.objectUrl === "string" && value.objectUrl)) {
-    throw new RelatedResourceServiceError("invalid_preview", "Image previews require objectUrl.");
+  if ((value.kind === "image" || value.kind === "pdf") && !(typeof value.objectUrl === "string" && value.objectUrl)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Image and PDF previews require objectUrl.");
+  }
+  if (value.kind === "spreadsheet" && !Array.isArray(value.rows)) {
+    throw new RelatedResourceServiceError("invalid_preview", "Spreadsheet previews require rows.");
   }
   if (value.kind === "text" && typeof value.text !== "string") {
     throw new RelatedResourceServiceError("invalid_preview", "Text previews require text.");
@@ -31743,6 +31746,10 @@ function normalizePreviewDescriptor(value) {
     contentType: typeof value.contentType === "string" ? value.contentType : "",
     text: typeof value.text === "string" ? value.text : "",
     objectUrl: typeof value.objectUrl === "string" ? value.objectUrl : "",
+    sheets: Array.isArray(value.sheets) ? value.sheets.map((item) => String(item)) : [],
+    activeSheet: typeof value.activeSheet === "string" ? value.activeSheet : "",
+    rows: Array.isArray(value.rows) ? value.rows.map((row) => Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []) : [],
+    truncated: Boolean(value.truncated),
     downloadUrl: typeof value.downloadUrl === "string" ? value.downloadUrl : "",
     message: typeof value.message === "string" ? value.message : "",
     dispose: typeof value.dispose === "function" ? value.dispose : () => {
@@ -31809,7 +31816,7 @@ function createRelatedResourceService() {
   }
   async function listRelated(context = {}) {
     const resources = [];
-    const seen = /* @__PURE__ */ new Set();
+    const seen2 = /* @__PURE__ */ new Set();
     for (const provider of providers.values()) {
       if (typeof provider.listRelated !== "function") continue;
       let listed;
@@ -31825,8 +31832,8 @@ function createRelatedResourceService() {
         const resource = defineResourceRef(item);
         const key = `${resource.source}
 ${resource.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (seen2.has(key)) continue;
+        seen2.add(key);
         resources.push(resource);
       }
     }
@@ -31894,10 +31901,89 @@ ${resource.id}`;
   }
   return Object.freeze({ registerProvider, listRelated, preview, open, releasePreview, dispose });
 }
+const scriptRel = "modulepreload";
+const assetsURL = function(dep) {
+  return "/app/assets/" + dep;
+};
+const seen = {};
+const __vitePreload = function preload(baseModule, deps, importerUrl) {
+  let promise = Promise.resolve();
+  if (deps && deps.length > 0) {
+    let allSettled2 = function(promises) {
+      return Promise.all(
+        promises.map(
+          (p) => Promise.resolve(p).then(
+            (value) => ({ status: "fulfilled", value }),
+            (reason) => ({ status: "rejected", reason })
+          )
+        )
+      );
+    };
+    document.getElementsByTagName("link");
+    const cspNonceMeta = document.querySelector(
+      "meta[property=csp-nonce]"
+    );
+    const cspNonce = (cspNonceMeta == null ? void 0 : cspNonceMeta.nonce) || (cspNonceMeta == null ? void 0 : cspNonceMeta.getAttribute("nonce"));
+    promise = allSettled2(
+      deps.map((dep) => {
+        dep = assetsURL(dep);
+        if (dep in seen) return;
+        seen[dep] = true;
+        const isCss = dep.endsWith(".css");
+        const cssSelector = isCss ? '[rel="stylesheet"]' : "";
+        if (document.querySelector(`link[href="${dep}"]${cssSelector}`)) {
+          return;
+        }
+        const link2 = document.createElement("link");
+        link2.rel = isCss ? "stylesheet" : scriptRel;
+        if (!isCss) {
+          link2.as = "script";
+        }
+        link2.crossOrigin = "";
+        link2.href = dep;
+        if (cspNonce) {
+          link2.setAttribute("nonce", cspNonce);
+        }
+        document.head.appendChild(link2);
+        if (isCss) {
+          return new Promise((res, rej) => {
+            link2.addEventListener("load", res);
+            link2.addEventListener(
+              "error",
+              () => rej(new Error(`Unable to preload CSS for ${dep}`))
+            );
+          });
+        }
+      })
+    );
+  }
+  function handlePreloadError(err) {
+    const e = new Event("vite:preloadError", {
+      cancelable: true
+    });
+    e.payload = err;
+    window.dispatchEvent(e);
+    if (!e.defaultPrevented) {
+      throw err;
+    }
+  }
+  return promise.then((res) => {
+    for (const item of res || []) {
+      if (item.status !== "rejected") continue;
+      handlePreloadError(item.reason);
+    }
+    return baseModule().catch(handlePreloadError);
+  });
+};
 const SESSION_ARTIFACT_SOURCE_PREFIX = "tma.session-artifact:";
 const MAX_ARTIFACT_PREVIEW_BYTES = 512 * 1024;
 const MAX_ARTIFACT_PREVIEW_CHARACTERS = 64e3;
+const MAX_SPREADSHEET_PREVIEW_BYTES = 5 * 1024 * 1024;
+const MAX_SPREADSHEET_PREVIEW_ROWS = 50;
+const MAX_SPREADSHEET_PREVIEW_COLUMNS = 20;
 const imageExtensions = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const pdfExtensions = /* @__PURE__ */ new Set(["pdf"]);
+const spreadsheetExtensions = /* @__PURE__ */ new Set(["xlsx", "xls", "xlsm", "ods"]);
 const textExtensions = /* @__PURE__ */ new Set([
   "txt",
   "md",
@@ -31921,6 +32007,7 @@ const textExtensions = /* @__PURE__ */ new Set([
   "yaml",
   "yml"
 ]);
+let xlsxModulePromise;
 function plainMetadata(artifact) {
   const value = artifact == null ? void 0 : artifact.metadata;
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -31934,6 +32021,8 @@ function previewKindForResource(resource, contentType = "") {
   const type = String(contentType || (resource == null ? void 0 : resource.mimeType) || "").toLowerCase();
   const extension2 = resourceExtension(resource);
   if (type.startsWith("image/") || imageExtensions.has(extension2)) return "image";
+  if (type.includes("application/pdf") || pdfExtensions.has(extension2)) return "pdf";
+  if (type.includes("spreadsheet") || type.includes("ms-excel") || type.includes("opendocument.spreadsheet") || spreadsheetExtensions.has(extension2)) return "spreadsheet";
   if (type.startsWith("text/") || type.includes("json") || type.includes("xml") || textExtensions.has(extension2)) return "text";
   return "download";
 }
@@ -32006,14 +32095,97 @@ function throwIfAborted(signal) {
   error.name = "AbortError";
   throw error;
 }
+function loadXLSXModule() {
+  if (!xlsxModulePromise) xlsxModulePromise = __vitePreload(() => import("./xlsx.js"), true ? [] : void 0);
+  return xlsxModulePromise;
+}
+function disposeObjectURL(revokeObjectURL, objectUrl) {
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    revokeObjectURL(objectUrl);
+  };
+}
+async function spreadsheetPreview(response, contentLength, context, options) {
+  const maxSpreadsheetBytes = options.maxSpreadsheetBytes || MAX_SPREADSHEET_PREVIEW_BYTES;
+  if (contentLength > maxSpreadsheetBytes) {
+    return { kind: "download", message: "电子表格过大，请下载文件后查看。" };
+  }
+  const buffer = await response.arrayBuffer();
+  throwIfAborted(context.signal);
+  const xlsx = await (options.loadXLSXModule || loadXLSXModule)();
+  const rowLimit = options.maxSpreadsheetRows || MAX_SPREADSHEET_PREVIEW_ROWS;
+  const columnLimit = options.maxSpreadsheetColumns || MAX_SPREADSHEET_PREVIEW_COLUMNS;
+  const workbook = xlsx.read(buffer, { type: "array", cellDates: true, sheetRows: rowLimit + 1 });
+  const sheetName = workbook.SheetNames[0] || "";
+  if (!sheetName) return { kind: "spreadsheet", sheets: [], activeSheet: "", rows: [], truncated: false };
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, raw: false, defval: "" }).map((row) => Array.isArray(row) ? row.map((cell) => String(cell ?? "")) : []);
+  return {
+    kind: "spreadsheet",
+    sheets: workbook.SheetNames,
+    activeSheet: sheetName,
+    rows: rows.slice(0, rowLimit).map((row) => row.slice(0, columnLimit)),
+    truncated: rows.length > rowLimit || rows.some((row) => row.length > columnLimit)
+  };
+}
+async function previewDescriptorFromResponse(resource, response, options = {}, context = {}) {
+  const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
+  const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
+  const maxTextBytes = options.maxTextBytes || MAX_ARTIFACT_PREVIEW_BYTES;
+  const maxTextCharacters = options.maxTextCharacters || MAX_ARTIFACT_PREVIEW_CHARACTERS;
+  const contentType = response.headers.get("Content-Type") || resource.mimeType || "";
+  const contentLength = Number(response.headers.get("Content-Length") || 0);
+  const kind2 = previewKindForResource(resource, contentType);
+  if (kind2 === "image" || kind2 === "pdf") {
+    const blob = await response.blob();
+    throwIfAborted(context.signal);
+    const objectUrl = createObjectURL(blob);
+    return {
+      kind: kind2,
+      contentType,
+      objectUrl,
+      dispose: disposeObjectURL(revokeObjectURL, objectUrl)
+    };
+  }
+  if (kind2 === "spreadsheet") {
+    const preview = await spreadsheetPreview(response, contentLength, context, options);
+    return { contentType, ...preview };
+  }
+  if (kind2 === "text") {
+    if (contentLength > maxTextBytes) {
+      return { kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" };
+    }
+    let text2 = await response.text();
+    throwIfAborted(context.signal);
+    if (contentType.toLowerCase().includes("json")) {
+      try {
+        text2 = JSON.stringify(JSON.parse(text2), null, 2);
+      } catch {
+      }
+    }
+    const truncated = text2.length > maxTextCharacters;
+    return {
+      kind: kind2,
+      contentType,
+      text: truncated ? `${text2.slice(0, maxTextCharacters)}
+
+[预览已截断]` : text2
+    };
+  }
+  return {
+    kind: "download",
+    contentType,
+    message: "暂不支持此文件类型的内联预览，请下载后查看。"
+  };
+}
 function createSessionArtifactProvider(options = {}) {
   const downloadArtifact2 = options.downloadArtifact;
   const artifactDownloadPath2 = options.artifactDownloadPath;
   const createObjectURL = options.createObjectURL || ((blob) => URL.createObjectURL(blob));
   const revokeObjectURL = options.revokeObjectURL || ((url) => URL.revokeObjectURL(url));
   const openURL = options.openURL || ((url) => window.open(url, "_blank", "noopener,noreferrer"));
-  const maxTextBytes = options.maxTextBytes || MAX_ARTIFACT_PREVIEW_BYTES;
-  const maxTextCharacters = options.maxTextCharacters || MAX_ARTIFACT_PREVIEW_CHARACTERS;
   if (typeof downloadArtifact2 !== "function" || typeof artifactDownloadPath2 !== "function") {
     throw new TypeError("Session Artifact provider requires downloadArtifact and artifactDownloadPath.");
   }
@@ -32031,53 +32203,9 @@ function createSessionArtifactProvider(options = {}) {
       const url = downloadURL(resource);
       const response = await downloadArtifact2(sessionIDFromResource(resource), resource.id, { signal: context.signal });
       throwIfAborted(context.signal);
-      const contentType = response.headers.get("Content-Type") || resource.mimeType || "";
-      const contentLength = Number(response.headers.get("Content-Length") || 0);
-      const kind = previewKindForResource(resource, contentType);
-      if (kind === "image") {
-        const blob = await response.blob();
-        throwIfAborted(context.signal);
-        const objectUrl = createObjectURL(blob);
-        let disposed = false;
-        return {
-          kind,
-          contentType,
-          objectUrl,
-          downloadUrl: url,
-          dispose() {
-            if (disposed) return;
-            disposed = true;
-            revokeObjectURL(objectUrl);
-          }
-        };
-      }
-      if (kind === "text") {
-        if (contentLength > maxTextBytes) {
-          return { kind: "download", contentType, downloadUrl: url, message: "预览内容过大，请下载文件后查看。" };
-        }
-        let text2 = await response.text();
-        throwIfAborted(context.signal);
-        if (contentType.toLowerCase().includes("json")) {
-          try {
-            text2 = JSON.stringify(JSON.parse(text2), null, 2);
-          } catch {
-          }
-        }
-        const truncated = text2.length > maxTextCharacters;
-        return {
-          kind,
-          contentType,
-          text: truncated ? `${text2.slice(0, maxTextCharacters)}
-
-[预览已截断]` : text2,
-          downloadUrl: url
-        };
-      }
       return {
-        kind: "download",
-        contentType,
-        downloadUrl: url,
-        message: "暂不支持此文件类型的内联预览，请下载后查看。"
+        ...await previewDescriptorFromResponse(resource, response, { ...options, createObjectURL, revokeObjectURL }, context),
+        downloadUrl: url
       };
     },
     open(resource) {
@@ -32457,11 +32585,11 @@ function localIdentifier(value, field) {
 function uniqueStrings(value, field, normalize2) {
   if (!Array.isArray(value)) throw new PluginManifestError(field, "must be an array");
   const result = [];
-  const seen = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
   value.forEach((item, index2) => {
     const normalized = normalize2(item, `${field}[${index2}]`);
-    if (seen.has(normalized)) return;
-    seen.add(normalized);
+    if (seen2.has(normalized)) return;
+    seen2.add(normalized);
     result.push(normalized);
   });
   return Object.freeze(result);
@@ -33334,8 +33462,8 @@ function statusLabel(status) {
   if (status === "error") return "同步失败";
   return "本地草稿";
 }
-function fileIcon(path2, kind) {
-  if (kind === "folder") return /* @__PURE__ */ jsxRuntimeExports.jsx(Folder, { "aria-hidden": "true" });
+function fileIcon(path2, kind2) {
+  if (kind2 === "folder") return /* @__PURE__ */ jsxRuntimeExports.jsx(Folder, { "aria-hidden": "true" });
   if (path2.endsWith(".ipynb")) return /* @__PURE__ */ jsxRuntimeExports.jsx(FileCode2, { "aria-hidden": "true" });
   if (path2.endsWith(".R")) return /* @__PURE__ */ jsxRuntimeExports.jsx(CodeXml, { "aria-hidden": "true" });
   if (path2.endsWith(".yml") || path2.endsWith(".yaml")) return /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" });
@@ -34392,13 +34520,13 @@ function projectBriefMarkdown(project) {
 }
 function sessionSelectionOptions(input) {
   if (!Array.isArray(input)) return Object.freeze([]);
-  const seen = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
   const options = [];
   for (const session2 of input) {
     if (!session2 || typeof session2 !== "object" || Array.isArray(session2)) continue;
     const id2 = typeof session2.id === "string" ? session2.id.trim() : "";
-    if (!id2 || seen.has(id2)) continue;
-    seen.add(id2);
+    if (!id2 || seen2.has(id2)) continue;
+    seen2.add(id2);
     const title = typeof session2.title === "string" ? session2.title.trim() : "";
     const status = typeof session2.status === "string" ? session2.status.trim() : "";
     options.push(Object.freeze({
@@ -34994,12 +35122,12 @@ function buildStaticPluginCatalog(modules) {
   if (!modules || typeof modules !== "object" || Array.isArray(modules)) {
     throw new TypeError("Static plugin modules must be an object.");
   }
-  const seen = /* @__PURE__ */ new Set();
+  const seen2 = /* @__PURE__ */ new Set();
   const catalog = Object.entries(modules).map(([source, moduleValue]) => {
     const pluginPackage = pluginPackageFromModule(moduleValue, source);
     const pluginID = pluginPackage.manifest.id;
-    if (seen.has(pluginID)) throw new TypeError(`Static plugin id ${pluginID} is duplicated.`);
-    seen.add(pluginID);
+    if (seen2.has(pluginID)) throw new TypeError(`Static plugin id ${pluginID} is duplicated.`);
+    seen2.add(pluginID);
     return pluginPackage;
   });
   catalog.sort((left, right) => left.manifest.id.localeCompare(right.manifest.id));
@@ -36133,6 +36261,7 @@ function AchievementLibrarySettings({ workspaceID }) {
     (_a2 = previewRequestRef.current.controller) == null ? void 0 : _a2.abort();
   }, []);
   async function openPreview(item) {
+    var _a2;
     closePreview();
     const controller = new AbortController();
     const sequence = previewRequestRef.current.sequence + 1;
@@ -36145,38 +36274,16 @@ function AchievementLibrarySettings({ workspaceID }) {
       const response = await downloadAchievementLibraryItem(item.id, workspaceID, { signal: controller.signal });
       if (!isCurrentRequest()) return;
       const contentType = response.headers.get("Content-Type") || "";
-      const contentLength = Number(response.headers.get("Content-Length") || 0);
       resource.mimeType = contentType;
-      const kind = previewKindForResource(resource, contentType);
-      if (kind === "image") {
-        const objectUrl = URL.createObjectURL(await response.blob());
-        if (!isCurrentRequest()) {
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-        setPreview({ resource, status: "ready", kind, contentType, objectUrl, dispose: () => URL.revokeObjectURL(objectUrl) });
+      const descriptor = await previewDescriptorFromResponse(resource, response, {
+        maxTextBytes: MAX_ARTIFACT_PREVIEW_BYTES,
+        maxTextCharacters: MAX_ARTIFACT_PREVIEW_CHARACTERS
+      }, { signal: controller.signal });
+      if (!isCurrentRequest()) {
+        (_a2 = descriptor.dispose) == null ? void 0 : _a2.call(descriptor);
         return;
       }
-      if (kind === "text") {
-        if (contentLength > MAX_ARTIFACT_PREVIEW_BYTES) {
-          setPreview({ resource, status: "ready", kind: "download", contentType, message: "预览内容过大，请下载文件后查看。" });
-          return;
-        }
-        let text2 = await response.text();
-        if (!isCurrentRequest()) return;
-        if (contentType.toLowerCase().includes("json")) {
-          try {
-            text2 = JSON.stringify(JSON.parse(text2), null, 2);
-          } catch {
-          }
-        }
-        if (text2.length > MAX_ARTIFACT_PREVIEW_CHARACTERS) text2 = `${text2.slice(0, MAX_ARTIFACT_PREVIEW_CHARACTERS)}
-
-[预览已截断]`;
-        setPreview({ resource, status: "ready", kind, contentType, text: text2 });
-        return;
-      }
-      setPreview({ resource, status: "ready", kind: "download", contentType, message: "暂不支持此文件类型的内联预览，请下载后查看。" });
+      setPreview({ resource, status: "ready", kind, contentType, ...descriptor });
     } catch (previewError) {
       if ((previewError == null ? void 0 : previewError.name) === "AbortError" || !isCurrentRequest()) return;
       setPreview({ resource, status: "error", error: previewError.message });
@@ -37420,14 +37527,14 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment, workspac
       setBusy("");
     }
   }
-  async function saveDefaultKnowledgeModel(kind, value) {
-    const field = kind === "embedding" ? "is_default_embedding" : "is_default_reranker";
+  async function saveDefaultKnowledgeModel(kind2, value) {
+    const field = kind2 === "embedding" ? "is_default_embedding" : "is_default_reranker";
     const current = models.find((model2) => model2[field]);
     const [providerID, modelName] = String(value || "").split("::");
     const target = models.find((model2) => model2.provider_id === providerID && model2.model === modelName);
     const model = target || current;
     if (!model) return;
-    setBusy(`${kind}-default`);
+    setBusy(`${kind2}-default`);
     setError("");
     setMessage("");
     try {
@@ -37439,7 +37546,7 @@ function ModelManagementSettings({ onCatalogChanged, onOpenEnvironment, workspac
         capabilities: model.capabilities || {},
         [field]: Boolean(target)
       }, model.revision);
-      await refreshCatalog(selectedProviderID, target ? `统一默认 ${kind === "embedding" ? "Embedding" : "Reranker"} 模型已设为 ${target.provider_id} / ${target.model}。` : `已清除统一默认 ${kind === "embedding" ? "Embedding" : "Reranker"} 模型。`);
+      await refreshCatalog(selectedProviderID, target ? `统一默认 ${kind2 === "embedding" ? "Embedding" : "Reranker"} 模型已设为 ${target.provider_id} / ${target.model}。` : `已清除统一默认 ${kind2 === "embedding" ? "Embedding" : "Reranker"} 模型。`);
     } catch (saveError) {
       setError(saveError.message);
     } finally {
@@ -38601,18 +38708,18 @@ function SettingsPage({
     if (activeSection !== "mcp" && activeSection !== "agent") return;
     refreshMCPRegistry().catch((loadError) => setHealthError(loadError.message));
   }, [activeSection, mcpWorkspaceID]);
-  async function runToolingHealth(kind = "", identifier = "") {
+  async function runToolingHealth(kind2 = "", identifier = "") {
     if (!(selectedAgent == null ? void 0 : selectedAgent.id)) return;
-    const key = kind && identifier ? `${kind}:${identifier}` : "all";
+    const key = kind2 && identifier ? `${kind2}:${identifier}` : "all";
     setHealthChecking(key);
     setHealthError("");
     try {
-      const report = await agentToolingHealth(selectedAgent.id, { kind, identifier });
-      if (!kind) {
+      const report = await agentToolingHealth(selectedAgent.id, { kind: kind2, identifier });
+      if (!kind2) {
         setHealthReport(report);
       } else {
         setHealthReport((current) => {
-          const field = kind === "mcp" ? "mcp" : "skills";
+          const field = kind2 === "mcp" ? "mcp" : "skills";
           const incoming = report[field] || [];
           const incomingKeys = new Set(incoming.map((item) => item.identifier));
           return {
@@ -38753,8 +38860,8 @@ function SettingsPage({
       const incoming = Array.isArray(page == null ? void 0 : page.records) ? page.records : [];
       if (requestID === permissionAuditRequestRef.current) {
         setPermissionAuditRecords((current) => {
-          const seen = new Set(current.map((record) => `${record.turn_id}\0${record.call_id}`));
-          return current.concat(incoming.filter((record) => !seen.has(`${record.turn_id}\0${record.call_id}`)));
+          const seen2 = new Set(current.map((record) => `${record.turn_id}\0${record.call_id}`));
+          return current.concat(incoming.filter((record) => !seen2.has(`${record.turn_id}\0${record.call_id}`)));
         });
         setPermissionAuditNextCursor((page == null ? void 0 : page.next_cursor) || "");
         setPermissionAuditHasMore(Boolean(page == null ? void 0 : page.has_more));
@@ -39938,6 +40045,20 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
   if (preview.status === "error") return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-error", children: preview.error });
   if (preview.status === "ready" && preview.kind === "image") {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("img", { className: "preview-media", src: preview.objectUrl, alt: preview.resource.title });
+  }
+  if (preview.status === "ready" && preview.kind === "pdf") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("iframe", { className: "artifact-preview-pdf", src: preview.objectUrl, title: `${preview.resource.title} PDF 预览` });
+  }
+  if (preview.status === "ready" && preview.kind === "spreadsheet") {
+    const rows = Array.isArray(preview.rows) ? preview.rows : [];
+    if (!rows.length) return /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "电子表格没有可预览的数据。" });
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-preview-sheet", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-preview-sheet-meta", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: preview.activeSheet || "Sheet1" }),
+        preview.truncated ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "仅显示前几行和前几列" }) : null
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-sheet-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsx("table", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: rows.map((row, rowIndex) => /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: row.map((cell, cellIndex) => /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: cell }, `${rowIndex}:${cellIndex}`)) }, rowIndex)) }) }) })
+    ] });
   }
   if (preview.status === "ready" && preview.kind === "text") {
     if (mode === "preview") {
