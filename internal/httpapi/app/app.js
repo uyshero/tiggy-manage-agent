@@ -32058,17 +32058,38 @@ function htmlPreviewDocument(value = "") {
 function allowlistedMetadata(artifact) {
   const input = plainMetadata(artifact);
   const output = {};
-  const fields = ["size_bytes", "path", "file_path", "workspace_path"];
+  const fields = ["size_bytes", "path", "file_path", "workspace_path", "protocol_version"];
   for (const field of fields) {
     const value = input[field];
     if (typeof value === "string" && value) output[field] = value;
     if (field === "size_bytes" && typeof value === "number" && Number.isFinite(value) && value >= 0) output[field] = value;
+  }
+  const lineage = allowlistedMetadataObject(input.lineage, ["kind", "session_id", "turn_id", "tool_call_id", "tool", "source_path"]);
+  if (lineage) output.lineage = lineage;
+  const template = allowlistedMetadataObject(input.template, ["status", "template_id", "template_version"]);
+  if (template) output.template = template;
+  const validation = allowlistedMetadataObject(input.validation, ["status", "content_type", "size_bytes", "checksum_sha256"]);
+  if (validation) {
+    const checks2 = Array.isArray(input.validation.checks) ? input.validation.checks.map((check) => allowlistedMetadataObject(check, ["name", "status", "message"])).filter(Boolean) : [];
+    if (checks2.length) validation.checks = checks2;
+    output.validation = validation;
   }
   const turnID = (artifact == null ? void 0 : artifact.turn_id) || input.turn_id;
   if (typeof turnID === "string" && turnID) output.turn_id = turnID;
   const objectRefID = (artifact == null ? void 0 : artifact.object_ref_id) || input.object_ref_id;
   if (typeof objectRefID === "string" && objectRefID) output.object_ref_id = objectRefID;
   return output;
+}
+function allowlistedMetadataObject(value, fields) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const output = {};
+  for (const field of fields) {
+    const item = value[field];
+    if (typeof item === "string" && item) output[field] = item;
+    if (typeof item === "number" && Number.isFinite(item)) output[field] = item;
+    if (typeof item === "boolean") output[field] = item;
+  }
+  return Object.keys(output).length ? output : null;
 }
 function artifactToResourceRef(artifact, { sessionID } = {}) {
   if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) {
@@ -36447,7 +36468,8 @@ function AchievementLibrarySettings({ workspaceID }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-preview-mode-tabs", role: "tablist", "aria-label": "成果查看方式", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "preview" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "preview", onClick: () => setPreviewMode("preview"), children: "预览" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "source" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "source", disabled: !isMarkdownResource(preview.resource, preview.contentType) && !isHTMLResource(preview.resource, preview.contentType), onClick: () => setPreviewMode("source"), children: "源码" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "source" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "source", disabled: !isMarkdownResource(preview.resource, preview.contentType) && !isHTMLResource(preview.resource, preview.contentType), onClick: () => setPreviewMode("source"), children: "源码" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: previewMode === "details" ? "active" : "", type: "button", role: "tab", "aria-selected": previewMode === "details", onClick: () => setPreviewMode("details"), children: "详情" })
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-pane-body", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactPreviewContent, { preview, mode: previewMode }) })
@@ -40056,6 +40078,9 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
   if (!preview) return null;
   if (preview.status === "loading") return /* @__PURE__ */ jsxRuntimeExports.jsx(Empty, { children: "正在加载预览..." });
   if (preview.status === "error") return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-error", children: preview.error });
+  if (preview.status === "ready" && mode === "details") {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactMetadataDetails, { preview });
+  }
   if (preview.status === "ready" && preview.kind === "image") {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("img", { className: "preview-media", src: preview.objectUrl, alt: preview.resource.title });
   }
@@ -40097,6 +40122,94 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-preview-error", children: preview.message || "请下载文件后查看。" });
   }
   return null;
+}
+function ArtifactMetadataDetails({ preview }) {
+  var _a2, _b, _c, _d, _e;
+  const metadata = ((_a2 = preview == null ? void 0 : preview.resource) == null ? void 0 : _a2.metadata) && typeof preview.resource.metadata === "object" ? preview.resource.metadata : {};
+  const lineage = metadata.lineage && typeof metadata.lineage === "object" ? metadata.lineage : null;
+  const template = metadata.template && typeof metadata.template === "object" ? metadata.template : null;
+  const validation = metadata.validation && typeof metadata.validation === "object" ? metadata.validation : null;
+  const basicRows = [
+    ["文件名", (_b = preview == null ? void 0 : preview.resource) == null ? void 0 : _b.title],
+    ["类型", (preview == null ? void 0 : preview.contentType) || ((_c = preview == null ? void 0 : preview.resource) == null ? void 0 : _c.mimeType) || ((_d = preview == null ? void 0 : preview.resource) == null ? void 0 : _d.type)],
+    ["协议", metadata.protocol_version],
+    ["路径", metadata.path || metadata.file_path || metadata.workspace_path],
+    ["Artifact", (_e = preview == null ? void 0 : preview.resource) == null ? void 0 : _e.id],
+    ["ObjectRef", metadata.object_ref_id],
+    ["Turn", metadata.turn_id],
+    ["大小", formatArtifactSize(metadata.size_bytes || (validation == null ? void 0 : validation.size_bytes))]
+  ].filter(([, value]) => value !== void 0 && value !== null && String(value) !== "");
+  const lineageRows = lineage ? [
+    ["类型", lineage.kind],
+    ["工具", lineage.tool],
+    ["源路径", lineage.source_path],
+    ["Session", lineage.session_id],
+    ["Turn", lineage.turn_id],
+    ["Tool Call", lineage.tool_call_id]
+  ].filter(([, value]) => value !== void 0 && value !== null && String(value) !== "") : [];
+  const templateRows = template ? [
+    ["状态", templateStatusLabel(template.status)],
+    ["模板 ID", template.template_id],
+    ["模板版本", template.template_version]
+  ].filter(([, value]) => value !== void 0 && value !== null && String(value) !== "") : [];
+  const validationRows = validation ? [
+    ["状态", validationStatusLabel(validation.status)],
+    ["内容类型", validation.content_type],
+    ["大小", formatArtifactSize(validation.size_bytes)],
+    ["SHA-256", validation.checksum_sha256]
+  ].filter(([, value]) => value !== void 0 && value !== null && String(value) !== "") : [];
+  const checks2 = Array.isArray(validation == null ? void 0 : validation.checks) ? validation.checks : [];
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "artifact-metadata-details", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactMetadataSection, { title: "基本信息", rows: basicRows, empty: "暂无基础元数据。" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactMetadataSection, { title: "Artifact 血缘", rows: lineageRows, empty: "暂无血缘信息。" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactMetadataSection, { title: "模板版本", rows: templateRows, empty: "未绑定模板。" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ArtifactMetadataSection, { title: "校验状态", rows: validationRows, empty: "暂无校验信息。", children: checks2.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "artifact-validation-checks", children: checks2.map((check, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `artifact-validation-check ${check.status === "passed" ? "passed" : ""}`, children: [
+      check.name || `check ${index2 + 1}`,
+      " · ",
+      validationStatusLabel(check.status)
+    ] }, `${check.name || "check"}:${index2}`)) }) : null })
+  ] });
+}
+function ArtifactMetadataSection({ title, rows, empty: empty2, children = null }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "artifact-metadata-section", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: title }),
+    rows.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("dl", { children: rows.map(([label, value]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: label }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: value })
+    ] }, label)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: empty2 }),
+    children
+  ] });
+}
+function formatArtifactSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+function validationStatusLabel(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "passed":
+      return "已通过";
+    case "failed":
+      return "未通过";
+    case "pending":
+      return "待校验";
+    case "skipped":
+      return "已跳过";
+    default:
+      return value || "未知";
+  }
+}
+function templateStatusLabel(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "bound":
+      return "已绑定";
+    case "unbound":
+      return "未绑定";
+    default:
+      return value || "未知";
+  }
 }
 function MessageArtifacts({ artifacts: artifacts2, sessionID, onPreview, onInclude = null }) {
   if (!artifacts2.length) return null;
@@ -44262,6 +44375,17 @@ function WorkbenchApp() {
                     title: isMarkdownResource(artifactPreview.resource, artifactPreview.contentType) || isHTMLResource(artifactPreview.resource, artifactPreview.contentType) ? "查看文件源码" : "当前文件不支持源码切换",
                     onClick: () => setArtifactPreviewMode("source"),
                     children: "源码"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    className: artifactPreviewMode === "details" ? "active" : "",
+                    type: "button",
+                    role: "tab",
+                    "aria-selected": artifactPreviewMode === "details",
+                    onClick: () => setArtifactPreviewMode("details"),
+                    children: "详情"
                   }
                 )
               ] })

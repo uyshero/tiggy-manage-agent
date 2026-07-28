@@ -83,17 +83,43 @@ export function htmlPreviewDocument(value = "") {
 function allowlistedMetadata(artifact) {
   const input = plainMetadata(artifact);
   const output = {};
-  const fields = ["size_bytes", "path", "file_path", "workspace_path"];
+  const fields = ["size_bytes", "path", "file_path", "workspace_path", "protocol_version"];
   for (const field of fields) {
     const value = input[field];
     if (typeof value === "string" && value) output[field] = value;
     if (field === "size_bytes" && typeof value === "number" && Number.isFinite(value) && value >= 0) output[field] = value;
+  }
+  const lineage = allowlistedMetadataObject(input.lineage, ["kind", "session_id", "turn_id", "tool_call_id", "tool", "source_path"]);
+  if (lineage) output.lineage = lineage;
+  const template = allowlistedMetadataObject(input.template, ["status", "template_id", "template_version"]);
+  if (template) output.template = template;
+  const validation = allowlistedMetadataObject(input.validation, ["status", "content_type", "size_bytes", "checksum_sha256"]);
+  if (validation) {
+    const checks = Array.isArray(input.validation.checks)
+      ? input.validation.checks
+        .map((check) => allowlistedMetadataObject(check, ["name", "status", "message"]))
+        .filter(Boolean)
+      : [];
+    if (checks.length) validation.checks = checks;
+    output.validation = validation;
   }
   const turnID = artifact?.turn_id || input.turn_id;
   if (typeof turnID === "string" && turnID) output.turn_id = turnID;
   const objectRefID = artifact?.object_ref_id || input.object_ref_id;
   if (typeof objectRefID === "string" && objectRefID) output.object_ref_id = objectRefID;
   return output;
+}
+
+function allowlistedMetadataObject(value, fields) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const output = {};
+  for (const field of fields) {
+    const item = value[field];
+    if (typeof item === "string" && item) output[field] = item;
+    if (typeof item === "number" && Number.isFinite(item)) output[field] = item;
+    if (typeof item === "boolean") output[field] = item;
+  }
+  return Object.keys(output).length ? output : null;
 }
 
 export function artifactToResourceRef(artifact, { sessionID } = {}) {

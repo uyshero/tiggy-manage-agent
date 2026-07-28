@@ -1525,6 +1525,7 @@ function AchievementLibrarySettings({ workspaceID }) {
               <div className="artifact-preview-mode-tabs" role="tablist" aria-label="成果查看方式">
                 <button className={previewMode === "preview" ? "active" : ""} type="button" role="tab" aria-selected={previewMode === "preview"} onClick={() => setPreviewMode("preview")}>预览</button>
                 <button className={previewMode === "source" ? "active" : ""} type="button" role="tab" aria-selected={previewMode === "source"} disabled={!isMarkdownResource(preview.resource, preview.contentType) && !isHTMLResource(preview.resource, preview.contentType)} onClick={() => setPreviewMode("source")}>源码</button>
+                <button className={previewMode === "details" ? "active" : ""} type="button" role="tab" aria-selected={previewMode === "details"} onClick={() => setPreviewMode("details")}>详情</button>
               </div>
             </header>
             <div className="artifact-preview-pane-body"><ArtifactPreviewContent preview={preview} mode={previewMode} /></div>
@@ -4907,6 +4908,9 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
   if (!preview) return null;
   if (preview.status === "loading") return <Empty>正在加载预览...</Empty>;
   if (preview.status === "error") return <div className="artifact-preview-error">{preview.error}</div>;
+  if (preview.status === "ready" && mode === "details") {
+    return <ArtifactMetadataDetails preview={preview} />;
+  }
   if (preview.status === "ready" && preview.kind === "image") {
     return <img className="preview-media" src={preview.objectUrl} alt={preview.resource.title} />;
   }
@@ -4963,6 +4967,106 @@ function ArtifactPreviewContent({ preview, mode = "preview" }) {
     return <div className="artifact-preview-error">{preview.message || "请下载文件后查看。"}</div>;
   }
   return null;
+}
+
+function ArtifactMetadataDetails({ preview }) {
+  const metadata = preview?.resource?.metadata && typeof preview.resource.metadata === "object" ? preview.resource.metadata : {};
+  const lineage = metadata.lineage && typeof metadata.lineage === "object" ? metadata.lineage : null;
+  const template = metadata.template && typeof metadata.template === "object" ? metadata.template : null;
+  const validation = metadata.validation && typeof metadata.validation === "object" ? metadata.validation : null;
+  const basicRows = [
+    ["文件名", preview?.resource?.title],
+    ["类型", preview?.contentType || preview?.resource?.mimeType || preview?.resource?.type],
+    ["协议", metadata.protocol_version],
+    ["路径", metadata.path || metadata.file_path || metadata.workspace_path],
+    ["Artifact", preview?.resource?.id],
+    ["ObjectRef", metadata.object_ref_id],
+    ["Turn", metadata.turn_id],
+    ["大小", formatArtifactSize(metadata.size_bytes || validation?.size_bytes)]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  const lineageRows = lineage ? [
+    ["类型", lineage.kind],
+    ["工具", lineage.tool],
+    ["源路径", lineage.source_path],
+    ["Session", lineage.session_id],
+    ["Turn", lineage.turn_id],
+    ["Tool Call", lineage.tool_call_id]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "") : [];
+  const templateRows = template ? [
+    ["状态", templateStatusLabel(template.status)],
+    ["模板 ID", template.template_id],
+    ["模板版本", template.template_version]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "") : [];
+  const validationRows = validation ? [
+    ["状态", validationStatusLabel(validation.status)],
+    ["内容类型", validation.content_type],
+    ["大小", formatArtifactSize(validation.size_bytes)],
+    ["SHA-256", validation.checksum_sha256]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value) !== "") : [];
+  const checks = Array.isArray(validation?.checks) ? validation.checks : [];
+  return (
+    <div className="artifact-metadata-details">
+      <ArtifactMetadataSection title="基本信息" rows={basicRows} empty="暂无基础元数据。" />
+      <ArtifactMetadataSection title="Artifact 血缘" rows={lineageRows} empty="暂无血缘信息。" />
+      <ArtifactMetadataSection title="模板版本" rows={templateRows} empty="未绑定模板。" />
+      <ArtifactMetadataSection title="校验状态" rows={validationRows} empty="暂无校验信息。">
+        {checks.length ? (
+          <div className="artifact-validation-checks">
+            {checks.map((check, index) => (
+              <span className={`artifact-validation-check ${check.status === "passed" ? "passed" : ""}`} key={`${check.name || "check"}:${index}`}>
+                {check.name || `check ${index + 1}`} · {validationStatusLabel(check.status)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </ArtifactMetadataSection>
+    </div>
+  );
+}
+
+function ArtifactMetadataSection({ title, rows, empty, children = null }) {
+  return (
+    <section className="artifact-metadata-section">
+      <h3>{title}</h3>
+      {rows.length ? (
+        <dl>
+          {rows.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : <p>{empty}</p>}
+      {children}
+    </section>
+  );
+}
+
+function formatArtifactSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size < 0) return "";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function validationStatusLabel(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "passed": return "已通过";
+    case "failed": return "未通过";
+    case "pending": return "待校验";
+    case "skipped": return "已跳过";
+    default: return value || "未知";
+  }
+}
+
+function templateStatusLabel(value) {
+  switch (String(value || "").toLowerCase()) {
+    case "bound": return "已绑定";
+    case "unbound": return "未绑定";
+    default: return value || "未知";
+  }
 }
 
 function MessageArtifacts({ artifacts, sessionID, onPreview, onInclude = null }) {
@@ -9325,6 +9429,15 @@ function WorkbenchApp() {
                   onClick={() => setArtifactPreviewMode("source")}
                 >
                   源码
+                </button>
+                <button
+                  className={artifactPreviewMode === "details" ? "active" : ""}
+                  type="button"
+                  role="tab"
+                  aria-selected={artifactPreviewMode === "details"}
+                  onClick={() => setArtifactPreviewMode("details")}
+                >
+                  详情
                 </button>
               </div>
             </header>

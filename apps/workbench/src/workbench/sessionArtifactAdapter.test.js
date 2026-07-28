@@ -61,6 +61,55 @@ test("artifact adapter creates an allowlisted ResourceRef", () => {
   });
 });
 
+test("artifact adapter preserves delivery lineage, template, and validation metadata", () => {
+  const resource = artifactToResourceRef({
+    id: "artifact_02",
+    name: "报告.docx",
+    artifact_type: "file",
+    metadata: {
+      protocol_version: "tma.tool_export.v1",
+      lineage: {
+        kind: "tool_export",
+        session_id: "session_01",
+        turn_id: "turn_01",
+        tool_call_id: "call_01",
+        tool: "default_run_command",
+        source_path: "/workspace/report.docx",
+        secret: "drop"
+      },
+      template: {
+        status: "bound",
+        template_id: "tpl_report",
+        template_version: "3",
+        internal: "drop"
+      },
+      validation: {
+        status: "passed",
+        content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        size_bytes: 4096,
+        checksum_sha256: "abc123",
+        checks: [{ name: "object_checksum", status: "passed", extra: "drop" }]
+      }
+    }
+  }, { sessionID: "session_01" });
+
+  assert.equal(resource.metadata.protocol_version, "tma.tool_export.v1");
+  assert.deepEqual(resource.metadata.lineage, {
+    kind: "tool_export",
+    session_id: "session_01",
+    turn_id: "turn_01",
+    tool_call_id: "call_01",
+    tool: "default_run_command",
+    source_path: "/workspace/report.docx"
+  });
+  assert.deepEqual(resource.metadata.template, {
+    status: "bound",
+    template_id: "tpl_report",
+    template_version: "3"
+  });
+  assert.deepEqual(resource.metadata.validation.checks, [{ name: "object_checksum", status: "passed" }]);
+});
+
 test("artifact adapter identifies image, text, markdown, and download resources", () => {
   assert.equal(previewKindForResource({ title: "chart.PNG" }), "image");
   assert.equal(previewKindForResource({ title: "report.pdf" }), "pdf");
