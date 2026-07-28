@@ -342,6 +342,36 @@ func payloadWithTurnID(payload json.RawMessage, turnID string) json.RawMessage {
 	return encoded
 }
 
+func payloadWithArtifactIDs(payload json.RawMessage, artifactIDs []string) json.RawMessage {
+	var object map[string]any
+	if len(payload) == 0 || string(payload) == "null" {
+		object = make(map[string]any)
+	} else if err := json.Unmarshal(payload, &object); err != nil {
+		object = make(map[string]any)
+	} else if object == nil {
+		object = make(map[string]any)
+	}
+
+	ids := make([]string, 0, len(artifactIDs))
+	seen := make(map[string]struct{}, len(artifactIDs))
+	for _, id := range artifactIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	object["artifact_ids"] = ids
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return payload
+	}
+	return encoded
+}
+
 func payloadString(payload json.RawMessage, key string) string {
 	var object map[string]any
 	if err := json.Unmarshal(payload, &object); err != nil {

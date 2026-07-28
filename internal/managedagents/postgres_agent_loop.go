@@ -637,8 +637,12 @@ func (a agentLoopComplete) apply(ctx context.Context, store *PostgresStore, tx *
 	if err != nil {
 		return nil, err
 	}
+	payload, err = finalAgentMessagePayload(ctx, tx, state.SessionID, state.TurnID, payload)
+	if err != nil {
+		return nil, err
+	}
 	events, err := store.appendEventsTx(ctx, tx, state.SessionID, []sessionEventAppend{
-		{Type: EventAgentMessage, Payload: payloadWithTurnID(payload, state.TurnID)},
+		{Type: EventAgentMessage, Payload: payload},
 		{Type: EventSessionStatusIdle, Payload: statusPayload(SessionStatusIdle, state.TurnID)},
 	}, now)
 	if err != nil {

@@ -25,6 +25,56 @@ func TestPostgresAgentLoopCompletesAndLoadsDurableState(t *testing.T) {
 		t.Fatalf("scope context: %v", err)
 	}
 	fence := leasePostgresAgentLoopTurn(t, store, session.ID, started.Run.ID, "agent-loop-complete")
+	exportedObject, err := store.CreateObjectRef(CreateObjectRefInput{
+		WorkspaceID: session.WorkspaceID,
+		Bucket:      "tma-artifacts",
+		ObjectKey:   "integration/durable-report.docx",
+		ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		SizeBytes:   42,
+		Visibility:  ObjectVisibilityWorkspace,
+		CreatedBy:   "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create exported object: %v", err)
+	}
+	exportedArtifact, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		WorkspaceID:  session.WorkspaceID,
+		SessionID:    session.ID,
+		ObjectRefID:  exportedObject.ID,
+		TurnID:       started.Run.ID,
+		Name:         "durable-report.docx",
+		ArtifactType: ArtifactTypeFile,
+		Metadata:     json.RawMessage(`{"protocol_version":"tma.tool_export.v1","path":"/workspace/durable-report.docx"}`),
+		CreatedBy:    "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create exported artifact: %v", err)
+	}
+	genericObject, err := store.CreateObjectRef(CreateObjectRefInput{
+		WorkspaceID: session.WorkspaceID,
+		Bucket:      "tma-artifacts",
+		ObjectKey:   "integration/durable-tool-result.json",
+		ContentType: "application/json",
+		SizeBytes:   7,
+		Visibility:  ObjectVisibilityWorkspace,
+		CreatedBy:   "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create generic object: %v", err)
+	}
+	genericArtifact, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		WorkspaceID:  session.WorkspaceID,
+		SessionID:    session.ID,
+		ObjectRefID:  genericObject.ID,
+		TurnID:       started.Run.ID,
+		Name:         "durable-tool-result.json",
+		ArtifactType: ArtifactTypeAsset,
+		Metadata:     json.RawMessage(`{"protocol_version":"tma.tool_artifact.v1","path":"/workspace/durable-tool-result.json"}`),
+		CreatedBy:    "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create generic artifact: %v", err)
+	}
 	state := postgresAgentLoopInitialState(session.ID, started.Run.ID)
 	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: model.Response{
 		Message:    model.Message{ID: "answer_1", Content: []model.Content{{Type: model.ContentText, Text: "done"}}},
@@ -55,6 +105,22 @@ func TestPostgresAgentLoopCompletesAndLoadsDurableState(t *testing.T) {
 		t.Fatalf("turn status = %q", turnStatus)
 	}
 	assertPostgresSessionStatus(t, store, session.ID, SessionStatusIdle)
+	events, err := store.ListEvents(session.ID, 0)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	var finalPayload json.RawMessage
+	for _, event := range events {
+		if event.Type == EventAgentMessage && payloadString(event.Payload, "turn_id") == started.Run.ID {
+			finalPayload = event.Payload
+		}
+	}
+	if len(finalPayload) == 0 {
+		t.Fatalf("expected durable final agent.message")
+	}
+	if got := payloadStringSlice(finalPayload, "artifact_ids"); len(got) != 1 || got[0] != exportedArtifact.ID {
+		t.Fatalf("durable final artifact_ids = %+v, want [%s]; generic artifact was %s", got, exportedArtifact.ID, genericArtifact.ID)
+	}
 }
 
 func TestPostgresToolPermissionAuditProjectsAndPaginatesDurableEvents(t *testing.T) {

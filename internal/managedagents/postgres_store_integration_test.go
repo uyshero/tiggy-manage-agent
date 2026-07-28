@@ -1658,6 +1658,40 @@ func TestPostgresStoreCompletesSessionTurn(t *testing.T) {
 		t.Fatal("expected user.message to include turn_id")
 	}
 
+	exportedObject, err := store.CreateObjectRef(CreateObjectRefInput{
+		WorkspaceID: session.WorkspaceID, Bucket: "tma-artifacts", ObjectKey: "integration/report.docx",
+		ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", SizeBytes: 42,
+		Visibility: ObjectVisibilityWorkspace, CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create exported object: %v", err)
+	}
+	exportedArtifact, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		WorkspaceID: session.WorkspaceID, SessionID: session.ID, ObjectRefID: exportedObject.ID, TurnID: turnID,
+		Name: "report.docx", ArtifactType: ArtifactTypeFile,
+		Metadata:  json.RawMessage(`{"protocol_version":"tma.tool_export.v1","path":"/workspace/report.docx"}`),
+		CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create exported artifact: %v", err)
+	}
+	genericObject, err := store.CreateObjectRef(CreateObjectRefInput{
+		WorkspaceID: session.WorkspaceID, Bucket: "tma-artifacts", ObjectKey: "integration/tool-result.json",
+		ContentType: "application/json", SizeBytes: 7, Visibility: ObjectVisibilityWorkspace, CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create generic object: %v", err)
+	}
+	genericArtifact, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		WorkspaceID: session.WorkspaceID, SessionID: session.ID, ObjectRefID: genericObject.ID, TurnID: turnID,
+		Name: "tool-result.json", ArtifactType: ArtifactTypeAsset,
+		Metadata:  json.RawMessage(`{"protocol_version":"tma.tool_artifact.v1","path":"/workspace/tool-result.json"}`),
+		CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create generic artifact: %v", err)
+	}
+
 	completedEvents, err := store.CompleteSessionTurn(session.ID, turnID, json.RawMessage(`{"content":[{"type":"text","text":"done"}]}`))
 	if err != nil {
 		t.Fatalf("complete turn: %v", err)
@@ -1673,6 +1707,9 @@ func TestPostgresStoreCompletesSessionTurn(t *testing.T) {
 	}
 	if got := payloadString(completedEvents[0].Payload, "turn_id"); got != turnID {
 		t.Fatalf("expected agent.message turn_id %q, got %q", turnID, got)
+	}
+	if got, want := payloadStringSlice(completedEvents[0].Payload, "artifact_ids"), []string{exportedArtifact.ID}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected exported artifact_ids %+v, got %+v; generic artifact was %s", want, got, genericArtifact.ID)
 	}
 
 	assertPostgresSessionStatus(t, store, session.ID, SessionStatusIdle)
@@ -5357,6 +5394,26 @@ func postgresTurnState(t *testing.T, store *PostgresStore, sessionID string, tur
 		t.Fatalf("query turn state: %v", err)
 	}
 	return status, errorMessage.String
+}
+
+func payloadStringSlice(payload json.RawMessage, key string) []string {
+	var object map[string]any
+	if err := json.Unmarshal(payload, &object); err != nil {
+		return nil
+	}
+	values, ok := object[key].([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		item, ok := value.(string)
+		if !ok {
+			return nil
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 func assertNoPostgresAgentMessageForTurn(t *testing.T, store *PostgresStore, sessionID string, turnID string) {

@@ -30730,15 +30730,15 @@ function retainedProcessText(event) {
   }
   return "";
 }
-function eventPayload(event) {
+function eventPayload$1(event) {
   return (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
 }
 function eventData$1(event) {
-  const payload2 = eventPayload(event);
+  const payload2 = eventPayload$1(event);
   return payload2.data && typeof payload2.data === "object" && !Array.isArray(payload2.data) ? payload2.data : {};
 }
 function agentMessageText(event) {
-  const payload2 = eventPayload(event);
+  const payload2 = eventPayload$1(event);
   if (Array.isArray(payload2.content)) {
     return payload2.content.map((item) => (item == null ? void 0 : item.text) || (item == null ? void 0 : item.content) || "").join("\n").trim();
   }
@@ -30746,7 +30746,7 @@ function agentMessageText(event) {
 }
 function durableEventReplacesLiveReply(event, liveReply) {
   if (!event || !liveReply) return false;
-  const payload2 = eventPayload(event);
+  const payload2 = eventPayload$1(event);
   const eventTurnID = String(event.turn_id || payload2.turn_id || "");
   const liveTurnID = String(liveReply.turnID || "");
   if (eventTurnID && liveTurnID && eventTurnID !== liveTurnID) return false;
@@ -30756,6 +30756,102 @@ function durableEventReplacesLiveReply(event, liveReply) {
   if (event.type !== "runtime.progress_message") return false;
   const data = eventData$1(event);
   return Number(data.tool_round || 0) === Number(liveReply.toolRound || 0) && Boolean(String(data.text || "").trim());
+}
+function eventPayload(event) {
+  return (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
+}
+function eventText$2(event) {
+  const data = eventPayload(event);
+  const content2 = data.content;
+  if (Array.isArray(content2)) {
+    return content2.map((item) => (item == null ? void 0 : item.text) || (item == null ? void 0 : item.content) || "").filter(Boolean).join("\n");
+  }
+  if (typeof content2 === "string") return content2;
+  return data.message || data.summary || data.text || "";
+}
+function artifactName$1(artifact) {
+  return (artifact == null ? void 0 : artifact.name) || (artifact == null ? void 0 : artifact.id) || "artifact";
+}
+function artifactMetadata$1(artifact) {
+  const metadata = artifact == null ? void 0 : artifact.metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
+}
+function isUserFileArtifact(artifact) {
+  const metadata = artifactMetadata$1(artifact);
+  return metadata.protocol_version === "tma.tool_export.v1" || String((artifact == null ? void 0 : artifact.description) || "").startsWith("Exported file");
+}
+function finalFileArtifacts(artifacts2) {
+  const latestByPath = /* @__PURE__ */ new Map();
+  for (const artifact of artifacts2 || []) {
+    if (!isUserFileArtifact(artifact)) continue;
+    const metadata = artifactMetadata$1(artifact);
+    const key = String(metadata.path || artifactName$1(artifact)).replace(/\\/g, "/");
+    latestByPath.set(key, artifact);
+  }
+  return [...latestByPath.values()];
+}
+function artifactReferencedByMessage(artifact, text2) {
+  const normalizedText = String(text2 || "").replace(/\\/g, "/");
+  const metadata = artifactMetadata$1(artifact);
+  const path2 = String(metadata.path || metadata.file_path || "").replace(/\\/g, "/");
+  const name2 = artifactName$1(artifact);
+  return Boolean(path2 && normalizedText.includes(path2) || normalizedText.includes(name2));
+}
+function messageArtifactIDs(event) {
+  const ids = eventPayload(event).artifact_ids;
+  if (!Array.isArray(ids)) return null;
+  const result = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const id2 of ids) {
+    const value = String(id2 || "").trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+function artifactsByIDs(artifacts2, ids) {
+  const byID = /* @__PURE__ */ new Map();
+  for (const artifact of artifacts2 || []) {
+    if (artifact == null ? void 0 : artifact.id) byID.set(artifact.id, artifact);
+  }
+  return ids.map((id2) => byID.get(id2)).filter(Boolean);
+}
+function finalAgentMessageArtifacts(event, artifacts2) {
+  const structuredIDs = messageArtifactIDs(event);
+  if (structuredIDs) return artifactsByIDs(artifacts2, structuredIDs);
+  const turnID = eventPayload(event).turn_id || "";
+  const candidates = finalFileArtifacts((artifacts2 || []).filter((artifact) => artifact.turn_id === turnID));
+  const referenced = candidates.filter((artifact) => artifactReferencedByMessage(artifact, eventText$2(event)));
+  return referenced.length ? referenced : candidates;
+}
+function conversationFinalFileArtifacts(artifacts2, events2) {
+  const candidates = finalFileArtifacts(artifacts2);
+  const finalMessageByTurn = /* @__PURE__ */ new Map();
+  for (const event of events2 || []) {
+    if (event.type === "agent.message") finalMessageByTurn.set(eventPayload(event).turn_id || "", event);
+  }
+  const structuredTurns = /* @__PURE__ */ new Set();
+  const structuredIDs = /* @__PURE__ */ new Set();
+  for (const event of finalMessageByTurn.values()) {
+    const ids = messageArtifactIDs(event);
+    if (!ids) continue;
+    structuredTurns.add(eventPayload(event).turn_id || "");
+    for (const id2 of ids) structuredIDs.add(id2);
+  }
+  const referencedTurns = /* @__PURE__ */ new Set();
+  for (const artifact of candidates) {
+    const turnID = artifact.turn_id || "";
+    if (structuredTurns.has(turnID)) continue;
+    const event = finalMessageByTurn.get(turnID);
+    if (event && artifactReferencedByMessage(artifact, eventText$2(event))) referencedTurns.add(turnID);
+  }
+  return candidates.filter((artifact) => {
+    const turnID = artifact.turn_id || "";
+    if (structuredTurns.has(turnID)) return structuredIDs.has(artifact.id);
+    if (!referencedTurns.has(turnID)) return true;
+    return artifactReferencedByMessage(artifact, eventText$2(finalMessageByTurn.get(turnID)));
+  });
 }
 const sessionMessageQueueStorageKey = "tma.workbench.session-message-queue.v1";
 function normalizeSessionMessageQueue(value) {
@@ -39763,50 +39859,6 @@ function artifactName(artifact) {
 function artifactMetadata(artifact) {
   const metadata = artifact == null ? void 0 : artifact.metadata;
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
-}
-function isUserFileArtifact(artifact) {
-  const metadata = artifactMetadata(artifact);
-  return metadata.protocol_version === "tma.tool_export.v1" || String((artifact == null ? void 0 : artifact.description) || "").startsWith("Exported file");
-}
-function finalFileArtifacts(artifacts2) {
-  const latestByPath = /* @__PURE__ */ new Map();
-  for (const artifact of artifacts2 || []) {
-    if (!isUserFileArtifact(artifact)) continue;
-    const metadata = artifactMetadata(artifact);
-    const key = String(metadata.path || artifactName(artifact)).replace(/\\/g, "/");
-    latestByPath.set(key, artifact);
-  }
-  return [...latestByPath.values()];
-}
-function artifactReferencedByMessage(artifact, text2) {
-  const normalizedText = String(text2 || "").replace(/\\/g, "/");
-  const metadata = artifactMetadata(artifact);
-  const path2 = String(metadata.path || metadata.file_path || "").replace(/\\/g, "/");
-  const name2 = artifactName(artifact);
-  return Boolean(path2 && normalizedText.includes(path2) || name2 && normalizedText.includes(name2));
-}
-function finalAgentMessageArtifacts(event, artifacts2) {
-  const turnID = payload(event).turn_id || "";
-  const candidates = finalFileArtifacts((artifacts2 || []).filter((artifact) => artifact.turn_id === turnID));
-  const referenced = candidates.filter((artifact) => artifactReferencedByMessage(artifact, eventText(event)));
-  return referenced.length ? referenced : candidates;
-}
-function conversationFinalFileArtifacts(artifacts2, events2) {
-  const candidates = finalFileArtifacts(artifacts2);
-  const finalMessageByTurn = /* @__PURE__ */ new Map();
-  for (const event of events2 || []) {
-    if (event.type === "agent.message") finalMessageByTurn.set(payload(event).turn_id || "", event);
-  }
-  const referencedTurns = /* @__PURE__ */ new Set();
-  for (const artifact of candidates) {
-    const event = finalMessageByTurn.get(artifact.turn_id || "");
-    if (event && artifactReferencedByMessage(artifact, eventText(event))) referencedTurns.add(artifact.turn_id || "");
-  }
-  return candidates.filter((artifact) => {
-    const turnID = artifact.turn_id || "";
-    if (!referencedTurns.has(turnID)) return true;
-    return artifactReferencedByMessage(artifact, eventText(finalMessageByTurn.get(turnID)));
-  });
 }
 function normalizeArtifactDownloadLinks(text2) {
   return String(text2 || "").replace(

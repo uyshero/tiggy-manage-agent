@@ -17,6 +17,7 @@ import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
 import { retainedProcessText } from "./chatTimelineRetention.js";
 import { durableEventReplacesLiveReply } from "./chatLiveReply.js";
+import { conversationFinalFileArtifacts, finalAgentMessageArtifacts } from "./artifactAssociations.js";
 import {
   appendSessionMessageQueue,
   normalizeSessionMessageQueue,
@@ -4831,55 +4832,6 @@ function artifactName(artifact) {
 function artifactMetadata(artifact) {
   const metadata = artifact?.metadata;
   return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : {};
-}
-
-function isUserFileArtifact(artifact) {
-  const metadata = artifactMetadata(artifact);
-  return metadata.protocol_version === "tma.tool_export.v1" || String(artifact?.description || "").startsWith("Exported file");
-}
-
-function finalFileArtifacts(artifacts) {
-  const latestByPath = new Map();
-  for (const artifact of artifacts || []) {
-    if (!isUserFileArtifact(artifact)) continue;
-    const metadata = artifactMetadata(artifact);
-    const key = String(metadata.path || artifactName(artifact)).replace(/\\/g, "/");
-    latestByPath.set(key, artifact);
-  }
-  return [...latestByPath.values()];
-}
-
-function artifactReferencedByMessage(artifact, text) {
-  const normalizedText = String(text || "").replace(/\\/g, "/");
-  const metadata = artifactMetadata(artifact);
-  const path = String(metadata.path || metadata.file_path || "").replace(/\\/g, "/");
-  const name = artifactName(artifact);
-  return Boolean((path && normalizedText.includes(path)) || (name && normalizedText.includes(name)));
-}
-
-function finalAgentMessageArtifacts(event, artifacts) {
-  const turnID = payload(event).turn_id || "";
-  const candidates = finalFileArtifacts((artifacts || []).filter((artifact) => artifact.turn_id === turnID));
-  const referenced = candidates.filter((artifact) => artifactReferencedByMessage(artifact, eventText(event)));
-  return referenced.length ? referenced : candidates;
-}
-
-function conversationFinalFileArtifacts(artifacts, events) {
-  const candidates = finalFileArtifacts(artifacts);
-  const finalMessageByTurn = new Map();
-  for (const event of events || []) {
-    if (event.type === "agent.message") finalMessageByTurn.set(payload(event).turn_id || "", event);
-  }
-  const referencedTurns = new Set();
-  for (const artifact of candidates) {
-    const event = finalMessageByTurn.get(artifact.turn_id || "");
-    if (event && artifactReferencedByMessage(artifact, eventText(event))) referencedTurns.add(artifact.turn_id || "");
-  }
-  return candidates.filter((artifact) => {
-    const turnID = artifact.turn_id || "";
-    if (!referencedTurns.has(turnID)) return true;
-    return artifactReferencedByMessage(artifact, eventText(finalMessageByTurn.get(turnID)));
-  });
 }
 
 function normalizeArtifactDownloadLinks(text) {

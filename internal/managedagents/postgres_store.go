@@ -5331,7 +5331,11 @@ func (s *PostgresStore) completeSessionTurnContext(ctx context.Context, sessionI
 	}
 
 	now := time.Now().UTC()
-	agentEvent, err := s.appendEventTx(ctx, tx, session.ID, EventAgentMessage, payloadWithTurnID(agentPayload, turnID), now)
+	agentPayload, err = finalAgentMessagePayload(ctx, tx, session.ID, turnID, agentPayload)
+	if err != nil {
+		return nil, err
+	}
+	agentEvent, err := s.appendEventTx(ctx, tx, session.ID, EventAgentMessage, agentPayload, now)
 	if err != nil {
 		return nil, err
 	}
