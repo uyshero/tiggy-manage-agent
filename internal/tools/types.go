@@ -89,6 +89,7 @@ type ExecutionContext struct {
 	TaskService               TaskToolService
 	CapabilityTransport       bool
 	Progress                  ToolProgressSink
+	ToolRegistry              Registry
 }
 
 type ToolProgress struct {
@@ -296,7 +297,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, WebRuntime{}, ImageRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, SkillsRuntime{})
+	return NewRegistry(DefaultRuntime{}, WebRuntime{}, ImageRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, ToolCatalogRuntime{}, SkillsRuntime{})
 }
 
 var platformDefaultToolIdentifiers = [...]string{
@@ -305,6 +306,7 @@ var platformDefaultToolIdentifiers = [...]string{
 	ImageIdentifier,
 	AgentIdentifier,
 	SkillsIdentifier,
+	ToolCatalogIdentifier,
 }
 
 func (r Registry) Register(runtime Runtime) {
@@ -937,7 +939,7 @@ func modelToolNamePart(value string) string {
 func splitBuiltinModelToolName(name string) (string, string) {
 	for _, identifier := range []string{
 		NamespaceInteraction, NamespaceArtifact, NamespaceBrowser, NamespaceDefault,
-		NamespaceSkills, NamespaceAgent, NamespaceTask, NamespaceWeb,
+		NamespaceSkills, NamespaceAgent, NamespaceTask, NamespaceToolCatalog, NamespaceWeb,
 	} {
 		prefix := identifier + "_"
 		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {

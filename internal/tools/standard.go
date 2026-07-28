@@ -15,6 +15,7 @@ const (
 	NamespaceAgent       = "agent"
 	NamespaceInteraction = "interaction"
 	NamespaceTask        = "task"
+	NamespaceToolCatalog = "tool_catalog"
 	NamespaceSkills      = "skills"
 	NamespaceWeb         = "web"
 
@@ -97,6 +98,8 @@ func NormalizeToolNamespace(value string) (string, bool) {
 		return NamespaceInteraction, true
 	case NamespaceTask:
 		return NamespaceTask, true
+	case NamespaceToolCatalog:
+		return NamespaceToolCatalog, true
 	case NamespaceWeb:
 		return NamespaceWeb, true
 	case ToolRuntimeAuto, ToolRuntimeCloudSandbox, ToolRuntimeLocalSystem:

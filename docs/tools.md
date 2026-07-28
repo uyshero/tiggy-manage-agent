@@ -10,6 +10,8 @@ preflight 和 execute 必须来自同一不可变 Snapshot。
 `Available tools` 只放 compact catalog（identifier、function_name、短描述、risk、
 capabilities），不重复完整 manifest、parameters 或长 system_role。需要更多执行细节时应依赖
 原生 schema、工具结果和专用 inspect/read 类工具，而不是把所有工具说明预先塞进上下文。
+`tool_catalog_inspect` 是只读按需入口，可用 `function_name` 读取当前 frozen registry 中某个
+model-visible 工具的完整 manifest/API 元数据；默认 hidden 或当前不可用的 API 不可通过它绕出。
 
 输入使用 JSON Schema Draft 2020-12 校验，支持 required、enum、范围、组合约束和
 `additionalProperties`，禁止外部 `$ref`。Runtime 在审批前校验，Executor 在执行边界再次

@@ -535,6 +535,7 @@ func (r ToolRuntime) executionContext(state agentcore.State) tools.ExecutionCont
 	cloned := r.ExecutionContext
 	cloned.SessionID = state.SessionID
 	cloned.TurnID = state.TurnID
+	cloned.ToolRegistry = r.Snapshot.registry
 	if cloned.Environment != nil {
 		cloned.Environment = cloneStringMap(cloned.Environment)
 	}

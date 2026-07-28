@@ -14,8 +14,8 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"帮我整理项目中的配置文件"}]}`),
 	})
 	names := selectedToolNames(selected)
-	if len(names) != 16 {
-		t.Fatalf("expected 16 common model tools, got %d: %#v", len(names), names)
+	if len(names) != 17 {
+		t.Fatalf("expected 17 common model tools, got %d: %#v", len(names), names)
 	}
 
 	assertSelected(t, names, "default_read_file", true)
@@ -23,6 +23,7 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 	assertSelected(t, names, "task_create_plan", true)
 	assertSelected(t, names, "image_generate", true)
 	assertSelected(t, names, "image_analyze", true)
+	assertSelected(t, names, "tool_catalog_inspect", true)
 	assertSelected(t, names, "web_search", false)
 	assertSelected(t, names, "skills_search", false)
 	assertSelected(t, names, "agent_spawn", false)
