@@ -123,6 +123,28 @@ func TestProjectTurnTraceBuildsToolSummary(t *testing.T) {
 	}
 }
 
+func TestProjectTurnTraceLinksTruncatedFieldsToResultArtifact(t *testing.T) {
+	now := time.Now().UTC()
+	events := []managedagents.Event{{
+		Seq:       1,
+		Type:      managedagents.EventRuntimeToolResult,
+		Payload:   json.RawMessage(`{"turn_id":"turn_1","message":"Received tool result.","data":{"id":"call_run","identifier":"default","api_name":"run_command","success":true,"context":{"content_truncated":true,"state_truncated":true,"original_content_chars":24000,"visible_content_chars":12000,"original_state_bytes":64000,"content_artifact_id":"art_result","state_artifact_id":"art_result"},"artifacts":[{"artifact_id":"art_result","object_ref_id":"obj_result","name":"run_command.json","artifact_type":"asset","download_path":"/v1/sessions/sesn_1/artifacts/art_result/download"},{"artifact_id":"art_file","name":"report.pdf","artifact_type":"file"}]}}`),
+		CreatedAt: now,
+	}}
+
+	trace := ProjectTurnTrace("sesn_1", "turn_1", events)
+	if len(trace.Steps) != 1 {
+		t.Fatalf("expected one trace step, got %#v", trace.Steps)
+	}
+	step := trace.Steps[0]
+	if !step.ContentTruncated || !step.StateTruncated || step.OriginalContentChars != 24000 || step.OriginalStateBytes != 64000 {
+		t.Fatalf("expected truncation metadata, got %#v", step)
+	}
+	if step.ContentArtifact == nil || step.ContentArtifact.ArtifactID != "art_result" || step.StateArtifact == nil || step.StateArtifact.DownloadPath == "" {
+		t.Fatalf("expected content/state artifact pointers, got content=%#v state=%#v", step.ContentArtifact, step.StateArtifact)
+	}
+}
+
 func TestProjectTurnTracePrefersNativeSpanFields(t *testing.T) {
 	now := time.Now().UTC()
 	events := []managedagents.Event{

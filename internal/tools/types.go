@@ -12,6 +12,7 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/llm"
+	"tiggy-manage-agent/internal/managedagents"
 )
 
 const (
@@ -940,6 +941,29 @@ func ObservableResultData(result ExecutionResult, options ResultContextOptions) 
 			metadata["model_context_visible_chars"] = textRuneCount(content)
 		}
 	}
+	context := map[string]any{
+		"content_truncated":        contentTruncated,
+		"original_content_chars":   textRuneCount(result.Content),
+		"visible_content_chars":    textRuneCount(content),
+		"state_truncated":          stateTruncated,
+		"original_state_bytes":     len(result.State),
+		"full_result_in_artifacts": len(result.Artifacts) > 0,
+	}
+	if contentTruncated || stateTruncated {
+		if artifact := firstResultArtifact(result.Artifacts); artifact.ArtifactID != "" || artifact.ObjectRefID != "" {
+			context["result_artifact_id"] = artifact.ArtifactID
+			context["result_object_ref_id"] = artifact.ObjectRefID
+			context["result_artifact_name"] = artifact.Name
+			context["result_artifact_type"] = artifact.ArtifactType
+			context["result_download_path"] = artifact.DownloadPath
+			if contentTruncated {
+				context["content_artifact_id"] = artifact.ArtifactID
+			}
+			if stateTruncated {
+				context["state_artifact_id"] = artifact.ArtifactID
+			}
+		}
+	}
 	return map[string]any{
 		"protocol_version":     ToolResultProtocolVersion,
 		"id":                   result.ID,
@@ -952,15 +976,20 @@ func ObservableResultData(result ExecutionResult, options ResultContextOptions) 
 		"pending_intervention": result.PendingIntervention,
 		"error":                result.Error,
 		"success":              result.Error == nil,
-		"context": map[string]any{
-			"content_truncated":        contentTruncated,
-			"original_content_chars":   textRuneCount(result.Content),
-			"visible_content_chars":    textRuneCount(content),
-			"state_truncated":          stateTruncated,
-			"original_state_bytes":     len(result.State),
-			"full_result_in_artifacts": len(result.Artifacts) > 0,
-		},
+		"context":              context,
 	}
+}
+
+func firstResultArtifact(artifacts []ArtifactRef) ArtifactRef {
+	for _, artifact := range artifacts {
+		if artifact.ArtifactType == managedagents.ArtifactTypeAsset || strings.HasSuffix(strings.ToLower(artifact.Name), ".json") {
+			return artifact
+		}
+	}
+	if len(artifacts) == 0 {
+		return ArtifactRef{}
+	}
+	return artifacts[0]
 }
 
 func truncateResultTextForContext(text string, maxChars int) (string, bool) {

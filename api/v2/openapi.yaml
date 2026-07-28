@@ -6495,6 +6495,8 @@ components:
         original_content_chars: {type: integer, format: int64, maximum: 9007199254740991}
         visible_content_chars: {type: integer, format: int64, maximum: 9007199254740991}
         original_state_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        content_artifact: {$ref: "#/components/schemas/TraceArtifact"}
+        state_artifact: {$ref: "#/components/schemas/TraceArtifact"}
     TraceSpanEvent:
       type: object
       required: [seq, type, name, time]

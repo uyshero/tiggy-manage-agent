@@ -151,11 +151,13 @@ type TraceStep struct {
 	ArtifactError  string          `json:"artifact_error,omitempty"`
 	Artifacts      []TraceArtifact `json:"artifacts,omitempty"`
 
-	ContentTruncated     bool  `json:"content_truncated,omitempty"`
-	StateTruncated       bool  `json:"state_truncated,omitempty"`
-	OriginalContentChars int64 `json:"original_content_chars,omitempty"`
-	VisibleContentChars  int64 `json:"visible_content_chars,omitempty"`
-	OriginalStateBytes   int64 `json:"original_state_bytes,omitempty"`
+	ContentTruncated     bool           `json:"content_truncated,omitempty"`
+	StateTruncated       bool           `json:"state_truncated,omitempty"`
+	OriginalContentChars int64          `json:"original_content_chars,omitempty"`
+	VisibleContentChars  int64          `json:"visible_content_chars,omitempty"`
+	OriginalStateBytes   int64          `json:"original_state_bytes,omitempty"`
+	ContentArtifact      *TraceArtifact `json:"content_artifact,omitempty"`
+	StateArtifact        *TraceArtifact `json:"state_artifact,omitempty"`
 }
 
 type TraceArtifact struct {
@@ -1517,6 +1519,12 @@ func projectStep(event managedagents.Event) TraceStep {
 		step.OriginalContentChars = mapInt64(context, "original_content_chars")
 		step.VisibleContentChars = mapInt64(context, "visible_content_chars")
 		step.OriginalStateBytes = mapInt64(context, "original_state_bytes")
+		if step.ContentTruncated {
+			step.ContentArtifact = traceArtifactPointer(step.Artifacts, mapString(context, "content_artifact_id"))
+		}
+		if step.StateTruncated {
+			step.StateArtifact = traceArtifactPointer(step.Artifacts, mapString(context, "state_artifact_id"))
+		}
 		switch payloadDataBoolPtr(event.Payload, "success"); {
 		case payloadDataBool(event.Payload, "pending_intervention"):
 			step.Outcome = "pending_intervention"
@@ -1996,6 +2004,11 @@ func mapBool(values map[string]any, key string) bool {
 	return value
 }
 
+func mapString(values map[string]any, key string) string {
+	value, _ := values[key].(string)
+	return value
+}
+
 func mapInt64(values map[string]any, key string) int64 {
 	switch value := values[key].(type) {
 	case float64:
@@ -2010,6 +2023,26 @@ func mapInt64(values map[string]any, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func traceArtifactPointer(artifacts []TraceArtifact, artifactID string) *TraceArtifact {
+	for _, artifact := range artifacts {
+		if artifactID != "" && artifact.ArtifactID == artifactID {
+			copy := artifact
+			return &copy
+		}
+	}
+	for _, artifact := range artifacts {
+		if artifact.ArtifactType == managedagents.ArtifactTypeAsset || strings.HasSuffix(strings.ToLower(artifact.Name), ".json") {
+			copy := artifact
+			return &copy
+		}
+	}
+	if len(artifacts) == 0 {
+		return nil
+	}
+	copy := artifacts[0]
+	return &copy
 }
 
 func payloadDataArtifacts(raw json.RawMessage) []TraceArtifact {

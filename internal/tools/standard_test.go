@@ -181,6 +181,9 @@ func TestContextResultMessageTruncatesContentAndState(t *testing.T) {
 	if !ok || contextMeta["content_truncated"] != true || contextMeta["state_truncated"] != true || contextMeta["full_result_in_artifacts"] != true {
 		t.Fatalf("unexpected context metadata: %#v", payload["context"])
 	}
+	if contextMeta["result_artifact_id"] != "art_1" || contextMeta["content_artifact_id"] != "art_1" || contextMeta["state_artifact_id"] != "art_1" || contextMeta["result_download_path"] == "" {
+		t.Fatalf("expected truncated result artifact pointers, got %#v", contextMeta)
+	}
 	state, ok := payload["state"].(map[string]any)
 	if !ok || state["truncated"] != true {
 		t.Fatalf("expected state truncation marker, got %#v", payload["state"])
