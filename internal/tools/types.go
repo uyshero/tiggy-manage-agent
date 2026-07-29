@@ -634,7 +634,7 @@ func (r Registry) ModelContext() json.RawMessage {
 	payload := map[string]any{
 		"protocol_version": ManifestProtocolVersion,
 		"exposure_mode":    "progressive_summary",
-		"guidance":         "This is a compact tool catalog. Full argument schemas are provided separately through native function tools; do not infer arguments from this summary. Use the exact function_name when calling a tool.",
+		"guidance":         "Start with this compact catalog and the native function schemas. Do not infer arguments from this summary. If they do not explain a tool's workflow, runtime policy, or manifest metadata, call tool_catalog_inspect for that single function before using it. Use the exact function_name when calling a tool.",
 		"tool_call_format": map[string]any{
 			"protocol_version": ToolCallProtocolVersion,
 			"shape": map[string]any{

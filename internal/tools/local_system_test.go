@@ -273,6 +273,7 @@ func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *test
 	var decoded struct {
 		ProtocolVersion string `json:"protocol_version"`
 		ExposureMode    string `json:"exposure_mode"`
+		Guidance        string `json:"guidance"`
 		ToolCallFormat  struct {
 			ProtocolVersion string `json:"protocol_version"`
 		} `json:"tool_call_format"`
@@ -293,6 +294,11 @@ func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *test
 	}
 	if decoded.ExposureMode != "progressive_summary" {
 		t.Fatalf("expected progressive summary exposure mode, got %#v", decoded)
+	}
+	for _, expected := range []string{"native function schemas", "tool_catalog_inspect", "single function"} {
+		if !strings.Contains(decoded.Guidance, expected) {
+			t.Fatalf("expected progressive disclosure guidance to mention %q, got %q", expected, decoded.Guidance)
+		}
 	}
 	if decoded.ToolCallFormat.ProtocolVersion != ToolCallProtocolVersion {
 		t.Fatalf("unexpected tool call format: %#v", decoded.ToolCallFormat)
@@ -316,6 +322,13 @@ func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *test
 	}
 	if strings.Contains(string(context), `"parameters"`) || strings.Contains(string(context), `"system_role"`) {
 		t.Fatalf("model context should not expose full manifest fields: %s", string(context))
+	}
+	fullManifests, err := json.Marshal(DefaultRegistry().modelManifests())
+	if err != nil {
+		t.Fatalf("marshal full manifests: %v", err)
+	}
+	if len(context)*2 >= len(fullManifests) {
+		t.Fatalf("compact model context should use less than half the bytes of full manifests: compact=%d full=%d", len(context), len(fullManifests))
 	}
 }
 

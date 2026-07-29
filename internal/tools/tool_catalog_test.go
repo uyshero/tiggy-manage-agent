@@ -32,6 +32,9 @@ func TestToolCatalogInspectReturnsFullVisibleToolDetails(t *testing.T) {
 	if !json.Valid(response.Parameters) || !strings.Contains(string(response.Parameters), `"old_string"`) {
 		t.Fatalf("expected full API parameters, got %s", response.Parameters)
 	}
+	if strings.Contains(result.Content, response.Manifest.SystemRole) || strings.Contains(result.Content, `"old_string"`) {
+		t.Fatalf("inspect summary should keep full details in structured state only, got %q", result.Content)
+	}
 }
 
 func TestToolCatalogInspectRejectsHiddenDefaultTools(t *testing.T) {
