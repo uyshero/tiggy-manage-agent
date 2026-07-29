@@ -22,6 +22,13 @@ type Config struct {
 	Provider                              string
 	ClientToken                           string
 	AllowedOrigins                        []string
+	AuthEnabled                           bool
+	AuthSigningKey                        string
+	AuthTokenTTL                          time.Duration
+	AuthCodeTTL                           time.Duration
+	AuthDevCode                           string
+	AuthExposeDevCode                     bool
+	DataDir                               string
 	DoubaoAPIKey                          string
 	DoubaoASRURL                          string
 	DoubaoASRResourceID                   string
@@ -62,6 +69,14 @@ func ConfigFromEnvironment(lookup func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	authTokenTTL, err := durationFromEnvironment(lookup, "TMA_BIOGRAPHY_AUTH_TOKEN_TTL", 30*24*time.Hour)
+	if err != nil {
+		return Config{}, err
+	}
+	authCodeTTL, err := durationFromEnvironment(lookup, "TMA_BIOGRAPHY_AUTH_CODE_TTL", 5*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
 	compactionThreshold, err := intFromEnvironment(lookup, "TMA_BIOGRAPHY_TMA_INTERVIEW_COMPACTION_THRESHOLD_TOKENS", 8000)
 	if err != nil {
 		return Config{}, err
@@ -75,6 +90,13 @@ func ConfigFromEnvironment(lookup func(string) string) (Config, error) {
 		Provider:                              strings.ToLower(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_PROVIDER"), ProviderMock)),
 		ClientToken:                           strings.TrimSpace(lookup("TMA_BIOGRAPHY_VOICE_CLIENT_TOKEN")),
 		AllowedOrigins:                        splitList(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_ALLOWED_ORIGINS"), "localhost:*,127.0.0.1:*")),
+		AuthEnabled:                           boolFromEnvironment(lookup, "TMA_BIOGRAPHY_AUTH_ENABLED"),
+		AuthSigningKey:                        strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_SIGNING_KEY")),
+		AuthTokenTTL:                          authTokenTTL,
+		AuthCodeTTL:                           authCodeTTL,
+		AuthDevCode:                           strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_DEV_CODE")),
+		AuthExposeDevCode:                     boolFromEnvironment(lookup, "TMA_BIOGRAPHY_AUTH_EXPOSE_DEV_CODE"),
+		DataDir:                               valueOrDefault(lookup("TMA_BIOGRAPHY_DATA_DIR"), ".tma-biography"),
 		DoubaoAPIKey:                          strings.TrimSpace(lookup(voiceAPIKeyEnv)),
 		DoubaoASRURL:                          valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_DOUBAO_ASR_URL"), defaultDoubaoASRURL),
 		DoubaoASRResourceID:                   valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_DOUBAO_ASR_RESOURCE_ID"), "volc.seedasr.sauc.duration"),
@@ -110,6 +132,17 @@ func (config Config) Validate() error {
 	}
 	if len(config.AllowedOrigins) == 0 {
 		return fmt.Errorf("biography voice allowed origins are required")
+	}
+	if config.AuthEnabled {
+		if len(config.AuthSigningKey) < 32 {
+			return fmt.Errorf("biography auth signing key must be at least 32 bytes")
+		}
+		if config.AuthTokenTTL <= 0 || config.AuthCodeTTL <= 0 {
+			return fmt.Errorf("biography auth TTLs must be positive")
+		}
+		if strings.TrimSpace(config.DataDir) == "" {
+			return fmt.Errorf("biography data directory is required when auth is enabled")
+		}
 	}
 	switch config.Provider {
 	case ProviderMock:
@@ -189,6 +222,11 @@ func intFromEnvironment(lookup func(string) string, key string, fallback int) (i
 		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
 	return value, nil
+}
+
+func boolFromEnvironment(lookup func(string) string, key string) bool {
+	raw := strings.TrimSpace(strings.ToLower(lookup(key)))
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }
 
 func valueOrDefault(value string, fallback string) string {
