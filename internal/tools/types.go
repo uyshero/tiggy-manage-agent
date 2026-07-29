@@ -88,6 +88,7 @@ type ExecutionContext struct {
 	ExpectedFileRevision      string
 	ExpectedFileContentSHA256 string
 	TaskService               TaskToolService
+	ArtifactService           ArtifactToolService
 	CapabilityTransport       bool
 	Progress                  ToolProgressSink
 	ToolRegistry              Registry
@@ -305,7 +306,7 @@ func NewRegistry(runtimes ...Runtime) Registry {
 }
 
 func DefaultRegistry() Registry {
-	return NewRegistry(DefaultRuntime{}, WebRuntime{}, ImageRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, ToolCatalogRuntime{}, SkillsRuntime{})
+	return NewRegistry(DefaultRuntime{}, WebRuntime{}, ImageRuntime{}, AgentRuntime{}, InteractionRuntime{}, TaskRuntime{}, ArtifactRuntime{}, ToolCatalogRuntime{}, SkillsRuntime{})
 }
 
 var platformDefaultToolIdentifiers = [...]string{
@@ -314,6 +315,7 @@ var platformDefaultToolIdentifiers = [...]string{
 	ImageIdentifier,
 	AgentIdentifier,
 	SkillsIdentifier,
+	ArtifactIdentifier,
 	ToolCatalogIdentifier,
 }
 
@@ -778,7 +780,7 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 	if result.ID == "" {
 		result.ID = call.ID
 	}
-	if executionContext.ArtifactRecorder != nil && !executionContext.DeferArtifacts && !result.PendingIntervention && result.Error == nil {
+	if executionContext.ArtifactRecorder != nil && call.Identifier != ArtifactIdentifier && !executionContext.DeferArtifacts && !result.PendingIntervention && result.Error == nil {
 		artifactRefs, artifactErr := executionContext.ArtifactRecorder.RecordToolArtifact(ctx, call, executionContext, result)
 		if len(artifactRefs) > 0 {
 			result.Artifacts = append(result.Artifacts, artifactRefs...)
@@ -1009,7 +1011,7 @@ func ObservableResultData(result ExecutionResult, options ResultContextOptions) 
 		state = map[string]any{
 			"truncated":      true,
 			"original_bytes": len(result.State),
-			"message":        "Tool state omitted from model context; inspect the persisted tool artifact for full state.",
+			"message":        "Tool state omitted from model context. When state_artifact_id is present below, use artifact_read with that ID to recover the persisted state on demand.",
 		}
 	}
 	if !stateTruncated && result.Identifier == NamespaceDefault && result.APIName == "read_file" {
@@ -1091,13 +1093,13 @@ func truncateResultTextForContext(text string, maxChars int) (string, bool) {
 		return text, false
 	}
 	if maxChars < 120 {
-		return firstRunes(text, maxChars) + "\n\n[Tool result truncated for model context. Full result is available in session artifacts when present.]", true
+		return firstRunes(text, maxChars) + "\n\n[Tool result truncated for model context. When content_artifact_id is present in context, use artifact_read with that ID to recover it on demand.]", true
 	}
 	headChars := maxChars * 2 / 3
 	tailChars := maxChars - headChars
 	omitted := textRuneCount(text) - headChars - tailChars
 	return firstRunes(text, headChars) +
-		"\n\n[Tool result truncated for model context: " + strconv.Itoa(omitted) + " characters omitted. Full result is available in session artifacts when present.]\n\n" +
+		"\n\n[Tool result truncated for model context: " + strconv.Itoa(omitted) + " characters omitted. When content_artifact_id is present in context, use artifact_read with that ID to recover it on demand.]\n\n" +
 		lastRunes(text, tailChars), true
 }
 

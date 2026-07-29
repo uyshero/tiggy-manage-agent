@@ -59,6 +59,14 @@ func TestDefaultRegistryIncludesDefaultManifest(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected %s runtime", ToolCatalogIdentifier)
 	}
+
+	artifactRuntime, ok := registry.Get(ArtifactIdentifier)
+	if !ok {
+		t.Fatalf("expected %s runtime", ArtifactIdentifier)
+	}
+	if manifest := artifactRuntime.Manifest(); manifest.Identifier != ArtifactIdentifier || len(manifest.API) != 2 {
+		t.Fatalf("unexpected Artifact manifest: %#v", manifest)
+	}
 	if manifest := toolCatalogRuntime.Manifest(); manifest.Identifier != ToolCatalogIdentifier || len(manifest.API) != 1 {
 		t.Fatalf("unexpected tool catalog manifest: %#v", manifest)
 	}
@@ -314,10 +322,10 @@ func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *test
 			}
 		}
 	}
-	if len(decoded.Tools) != 8 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[ImageIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[ToolCatalogIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
+	if len(decoded.Tools) != 9 || !identifiers[DefaultIdentifier] || !identifiers[WebIdentifier] || !identifiers[ImageIdentifier] || !identifiers[AgentIdentifier] || !identifiers[InteractionIdentifier] || !identifiers[TaskIdentifier] || !identifiers[ArtifactIdentifier] || !identifiers[ToolCatalogIdentifier] || !identifiers[SkillsIdentifier] || identifiers[NamespaceBrowser] {
 		t.Fatalf("unexpected tools: %#v", decoded.Tools)
 	}
-	if !functionNames[DefaultIdentifier+"_run_command"] || !functionNames[DefaultIdentifier+"_edit_file"] || !functionNames[ToolCatalogIdentifier+"_inspect"] || !functionNames[SkillsIdentifier+"_inspect"] {
+	if !functionNames[DefaultIdentifier+"_run_command"] || !functionNames[DefaultIdentifier+"_edit_file"] || !functionNames[ArtifactIdentifier+"_read"] || !functionNames[ToolCatalogIdentifier+"_inspect"] || !functionNames[SkillsIdentifier+"_inspect"] {
 		t.Fatalf("expected summary function names, got %#v", functionNames)
 	}
 	if strings.Contains(string(context), `"parameters"`) || strings.Contains(string(context), `"system_role"`) {
@@ -334,7 +342,7 @@ func TestRegistryModelContextIncludesProgressiveToolSummaryAndCallFormat(t *test
 
 func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 	modelTools := DefaultRegistry().ModelTools()
-	if len(modelTools) != 54 {
+	if len(modelTools) != 56 {
 		t.Fatalf("expected default APIs as model tools, got %#v", modelTools)
 	}
 
@@ -348,7 +356,7 @@ func TestRegistryModelToolsUsesQualifiedFunctionNames(t *testing.T) {
 			t.Fatalf("expected parameters for %s", modelTool.Function.Name)
 		}
 	}
-	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[ImageIdentifier+"_generate"] || !names[ImageIdentifier+"_analyze"] || names[NamespaceBrowser+"_open"] || !names[AgentIdentifier+"_spawn"] || !names[AgentIdentifier+"_wait"] || !names[AgentIdentifier+"_collect_result"] || !names[AgentIdentifier+"_stream_events"] || !names[AgentIdentifier+"_approve_tool"] || !names[AgentIdentifier+"_reject_tool"] || !names[AgentIdentifier+"_cancel_start"] || !names[AgentIdentifier+"_run_group"] || !names[AgentIdentifier+"_list_group_templates"] || !names[AgentIdentifier+"_get_group"] || !names[AgentIdentifier+"_wait_group"] || !names[AgentIdentifier+"_collect_group"] || !names[AgentIdentifier+"_cancel_group"] || !names[AgentIdentifier+"_retry_group_item"] || !names[AgentIdentifier+"_retry_group"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[ToolCatalogIdentifier+"_inspect"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
+	if !names[DefaultIdentifier+"_run_command"] || names[DefaultIdentifier+"_execute_code"] || !names[DefaultIdentifier+"_find_files"] || !names[DefaultIdentifier+"_search_files"] || names[DefaultIdentifier+"_search_file"] || !names[DefaultIdentifier+"_edit_file"] || !names[ArtifactIdentifier+"_inspect"] || !names[ArtifactIdentifier+"_read"] || !names[WebIdentifier+"_search"] || !names[WebIdentifier+"_crawl"] || !names[ImageIdentifier+"_generate"] || !names[ImageIdentifier+"_analyze"] || names[NamespaceBrowser+"_open"] || !names[AgentIdentifier+"_spawn"] || !names[AgentIdentifier+"_wait"] || !names[AgentIdentifier+"_collect_result"] || !names[AgentIdentifier+"_stream_events"] || !names[AgentIdentifier+"_approve_tool"] || !names[AgentIdentifier+"_reject_tool"] || !names[AgentIdentifier+"_cancel_start"] || !names[AgentIdentifier+"_run_group"] || !names[AgentIdentifier+"_list_group_templates"] || !names[AgentIdentifier+"_get_group"] || !names[AgentIdentifier+"_wait_group"] || !names[AgentIdentifier+"_collect_group"] || !names[AgentIdentifier+"_cancel_group"] || !names[AgentIdentifier+"_retry_group_item"] || !names[AgentIdentifier+"_retry_group"] || !names[InteractionIdentifier+"_ask_user"] || !names[InteractionIdentifier+"_request_upload"] || !names[InteractionIdentifier+"_request_plan_approval"] || !names[ToolCatalogIdentifier+"_inspect"] || !names[SkillsIdentifier+"_search"] || !names[SkillsIdentifier+"_inspect"] || !names[SkillsIdentifier+"_discover"] || !names[SkillsIdentifier+"_preview"] || !names[SkillsIdentifier+"_read_asset"] || !names[SkillsIdentifier+"_install"] || !names[SkillsIdentifier+"_enable"] || !names[SkillsIdentifier+"_disable"] {
 		t.Fatalf("missing expected qualified names: %#v", names)
 	}
 }

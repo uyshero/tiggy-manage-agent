@@ -2,6 +2,7 @@ package execution
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -37,6 +38,48 @@ func TestResolveToolExecutionDefaultsToCloudSandbox(t *testing.T) {
 	if len(resolved.Registry.ModelTools()) == 0 {
 		t.Fatal("expected default tools to remain visible for cloud_sandbox")
 	}
+	if _, _, ok := resolved.Registry.GetAPI(tools.ArtifactIdentifier, tools.ArtifactAPIRead); ok {
+		t.Fatal("Artifact tools must stay hidden when the server service is unavailable")
+	}
+}
+
+func TestResolveToolExecutionExposesConfiguredArtifactService(t *testing.T) {
+	service := resolverArtifactService{}
+	resolved := ResolveToolExecution(ToolExecutionRequest{
+		Config: managedagents.AgentRuntimeConfig{WorkspaceID: "wksp_default", SessionID: "sesn_000001"},
+		TurnID: "turn_000001", ArtifactService: service,
+	})
+	for _, apiName := range []string{tools.ArtifactAPIInspect, tools.ArtifactAPIRead} {
+		if _, _, ok := resolved.Registry.GetAPI(tools.ArtifactIdentifier, apiName); !ok {
+			t.Fatalf("expected Artifact API %s to remain available after provider filtering", apiName)
+		}
+	}
+	if resolved.Context.ArtifactService == nil {
+		t.Fatal("expected Artifact service in execution context")
+	}
+}
+
+func TestResolveToolExecutionHonorsExplicitArtifactDisable(t *testing.T) {
+	resolved := ResolveToolExecution(ToolExecutionRequest{
+		Config: managedagents.AgentRuntimeConfig{
+			WorkspaceID: "wksp_default", SessionID: "sesn_000001",
+			Tools: json.RawMessage(`{"disable_platform_defaults":true}`),
+		},
+		TurnID: "turn_000001", ArtifactService: resolverArtifactService{},
+	})
+	if _, ok := resolved.Registry.Get(tools.ArtifactIdentifier); ok {
+		t.Fatal("explicit platform-default disable must not be bypassed by Artifact service wiring")
+	}
+}
+
+type resolverArtifactService struct{}
+
+func (resolverArtifactService) Inspect(context.Context, string, string) (tools.ArtifactDescriptor, error) {
+	return tools.ArtifactDescriptor{}, nil
+}
+
+func (resolverArtifactService) Read(context.Context, string, tools.ArtifactReadRequest) (tools.ArtifactReadPage, error) {
+	return tools.ArtifactReadPage{}, nil
 }
 
 func TestResolveToolExecutionHidesHumanInteractionFromSubagents(t *testing.T) {

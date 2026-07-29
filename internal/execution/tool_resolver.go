@@ -25,6 +25,7 @@ type ToolExecutionRequest struct {
 	ProviderResolver  ProviderResolver
 	Store             WorkerBackedStore
 	ArtifactRecorder  tools.ArtifactRecorder
+	ArtifactService   tools.ArtifactToolService
 	Environment       map[string]string
 	EnvironmentCipher *envvars.Cipher
 	MCPHost           *mcp.StdioHost
@@ -78,6 +79,10 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 	if taskService == nil {
 		registry = registry.Without(tools.TaskIdentifier)
 	}
+	if request.ArtifactService == nil {
+		registry = registry.Without(tools.ArtifactIdentifier)
+	}
+	artifactRuntime, artifactEnabled := registry.Get(tools.ArtifactIdentifier)
 	provider := resolveToolProvider(request.ProviderResolver, config, sessionID, toolPolicy)
 	providerCapabilities := AvailableCapabilities(provider, toolPolicy)
 
@@ -101,6 +106,11 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 	} else {
 		registry = registry.Available(providerCapabilities)
 	}
+	// Artifact access is a server service and does not depend on the selected
+	// filesystem/command provider's advertised capabilities.
+	if artifactEnabled {
+		registry.Register(artifactRuntime)
+	}
 
 	return ToolExecution{
 		Registry:               registry,
@@ -117,6 +127,7 @@ func ResolveToolExecution(request ToolExecutionRequest) ToolExecution {
 			Environment:      request.Environment,
 			Provider:         provider,
 			ArtifactRecorder: request.ArtifactRecorder,
+			ArtifactService:  request.ArtifactService,
 			TaskService:      taskService,
 		},
 	}

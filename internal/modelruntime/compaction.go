@@ -48,7 +48,7 @@ func (c LLMCompactor) Compact(ctx context.Context, state agentcore.State, attemp
 		Messages: []coremodel.Message{
 			{
 				ID: "compaction_system_" + attemptID, Role: coremodel.RoleSystem, Visibility: coremodel.VisibilityInternal,
-				Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "Summarize the agent conversation for continued execution. Preserve the objective, user constraints, decisions, tool outcomes, failures, file paths, commands, unresolved work, and facts needed by the next model call. Do not issue tool calls."}},
+				Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "Summarize the agent conversation for continued execution. Preserve the objective, user constraints, decisions, tool outcomes, failures, file paths, commands, unresolved work, and facts needed by the next model call. Preserve Artifact IDs and paging cursors as references; summarize large Artifact or tool-result content instead of copying it. Do not issue tool calls."}},
 			},
 			{
 				ID: "compaction_input_" + attemptID, Role: coremodel.RoleUser, Visibility: coremodel.VisibilityInternal,

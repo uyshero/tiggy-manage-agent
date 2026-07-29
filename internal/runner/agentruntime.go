@@ -157,6 +157,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		ProviderResolver:  e.ProviderResolver,
 		Store:             e.Store,
 		ArtifactRecorder:  ToolArtifactRecorder{Store: e.Store, ObjectStore: e.ObjectStore, Bucket: e.ArtifactBucket},
+		ArtifactService:   NewArtifactToolService(e.Store, e.ObjectStore),
 		Environment:       managedEnvironment,
 		EnvironmentCipher: environmentCipher,
 		MCPHost:           e.MCPHost,

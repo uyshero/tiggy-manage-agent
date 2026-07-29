@@ -177,6 +177,9 @@ func TestContextResultMessageTruncatesContentAndState(t *testing.T) {
 	if !strings.Contains(content, "Tool result truncated for model context") {
 		t.Fatalf("expected truncation notice, got %q", content)
 	}
+	if !strings.Contains(content, "artifact_read") {
+		t.Fatalf("expected on-demand Artifact recovery guidance, got %q", content)
+	}
 	contextMeta, ok := payload["context"].(map[string]any)
 	if !ok || contextMeta["content_truncated"] != true || contextMeta["state_truncated"] != true || contextMeta["full_result_in_artifacts"] != true {
 		t.Fatalf("unexpected context metadata: %#v", payload["context"])
@@ -187,6 +190,9 @@ func TestContextResultMessageTruncatesContentAndState(t *testing.T) {
 	state, ok := payload["state"].(map[string]any)
 	if !ok || state["truncated"] != true {
 		t.Fatalf("expected state truncation marker, got %#v", payload["state"])
+	}
+	if !strings.Contains(state["message"].(string), "artifact_read") {
+		t.Fatalf("expected state recovery guidance, got %#v", state)
 	}
 }
 

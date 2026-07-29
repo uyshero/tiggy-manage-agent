@@ -15,6 +15,11 @@ model-visible 工具的完整 manifest/API 元数据；默认 hidden 或当前�
 模型应先使用 compact catalog 和原生 function schema；仅当两者仍不足以说明某个工具的 workflow、
 runtime policy、长说明或 manifest metadata 时，才对该单个工具调用 `tool_catalog_inspect`。
 
+工具结果和历史上下文采用“摘要 → 引用 → 按需读取”：有界结果中保留 Artifact 引用，完整内容不长期
+驻留在模型上下文。`artifact_inspect` 读取当前 Session 内单个 Artifact 的 metadata、血缘、模板和
+校验信息；`artifact_read` 仅分页读取 UTF-8 文本或 JSON，并返回 `next_offset_bytes`。PDF、DOCX、
+XLSX、图片等二进制内容不会进入模型上下文，应交给格式专用解析或预览流水线。
+
 输入使用 JSON Schema Draft 2020-12 校验，支持 required、enum、范围、组合约束和
 `additionalProperties`，禁止外部 `$ref`。Runtime 在审批前校验，Executor 在执行边界再次
 校验。错误只返回 instance/constraint path，不回显敏感参数。
