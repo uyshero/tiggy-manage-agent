@@ -102,6 +102,7 @@ const sessionTimeValue = computed(() => {
 });
 const nextInterviewPrompt = computed(() => buildNextInterviewPrompt(project.value));
 const recordingSummary = computed(() => recordings.value.length === 0 ? "还没有录音" : `已保存 ${recordings.value.length} 次采访`);
+const recordingEntrySummary = computed(() => recordings.value.length === 0 ? "未保存" : `${recordings.value.length} 次`);
 const canHoldToTalk = computed(() => {
   const inHoldWindow = state.value.status === "ready" || state.value.status === "speaking" || Boolean(pendingTranscriptBuffer.value);
   if (!sessionStarted.value || !inHoldWindow) return false;
@@ -699,16 +700,22 @@ onBeforeUnmount(() => {
         </view>
       </view>
       <view class="topbar-actions">
-        <button class="recordings-entry" @click="showRecordingManager = true">
-          <text class="record-dot" aria-hidden="true" />
-          <view>
-            <text>录音记录</text>
-            <text>{{ recordingSummary }}</text>
+        <button class="recordings-entry" aria-label="打开录音记录" @click="showRecordingManager = true">
+          <view class="recording-entry-icon" aria-hidden="true">
+            <view class="recording-entry-core" />
+            <view class="recording-entry-wave" />
+          </view>
+          <view class="recording-entry-copy">
+            <text class="recording-entry-title">录音</text>
+            <text class="recording-entry-count">{{ recordingEntrySummary }}</text>
           </view>
         </button>
         <view class="session-time">
-          <text>{{ sessionTimeTitle }}</text>
-          <text class="session-time-value">{{ sessionTimeValue }}</text>
+          <view class="session-time-icon" aria-hidden="true" />
+          <view class="session-time-copy">
+            <text>{{ sessionTimeTitle }}</text>
+            <text class="session-time-value">{{ sessionTimeValue }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -758,7 +765,8 @@ onBeforeUnmount(() => {
           </view>
           <text class="hold-talk-hint">{{ holdHint }}</text>
           <button v-if="sessionStarted && state.status !== 'paused'" class="end-session-button" :disabled="voiceOperationPending" @click="confirmEndInterview">
-            结束今天
+            <text class="end-session-icon" aria-hidden="true">✓</text>
+            <text>结束今天</text>
           </button>
         </view>
       </view>
@@ -859,10 +867,10 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.brand-block { gap: 11px; }
+.brand-block { min-width: 0; gap: 11px; }
 .brand-block > view:last-child { display: grid; gap: 2px; }
 .brand { font-size: 21px; font-weight: 800; line-height: 1.1; }
-.book-title { color: #68756f; font-size: 12px; }
+.book-title { overflow: hidden; color: #68756f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 
 .brand-mark {
   display: flex;
@@ -880,27 +888,90 @@ onBeforeUnmount(() => {
 .brand-mark view:nth-child(2) { height: 24px; }
 .brand-mark view:nth-child(3) { height: 17px; }
 
-.topbar-actions { display: flex; align-items: center; gap: 12px; }
-.session-time { display: grid; max-width: 150px; justify-items: end; gap: 3px; text-align: right; }
-.session-time text { color: #7b8781; font-size: 11px; line-height: 1.25; }
-.session-time-value { font-size: 14px; font-weight: 800; }
+.topbar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+.session-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 172px;
+  min-height: 48px;
+  padding: 6px 12px 6px 8px;
+  border: 1px solid #e2e8e4;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.session-time-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 2px solid #8fa299;
+  border-radius: 50%;
+  background: #f6f8f5;
+}
+.session-time-icon::before,
+.session-time-icon::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: #5f7168;
+  transform-origin: bottom center;
+}
+.session-time-icon::before { height: 8px; }
+.session-time-icon::after { height: 6px; transform: rotate(52deg); }
+.session-time-copy { display: grid; min-width: 0; gap: 2px; text-align: left; }
+.session-time text { overflow: hidden; color: #7b8781; font-size: 11px; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.session-time-value { color: #31463d; font-size: 14px; font-weight: 850; }
 
 .recordings-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 5px 10px;
-  border: 1px solid #d8dfda;
-  border-radius: 8px;
-  background: #fff;
-  color: #31463d;
+  gap: 9px;
+  min-height: 48px;
+  margin: 0;
+  padding: 6px 13px 6px 7px;
+  border: 1px solid #cfe1d8;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4faf7 100%);
+  color: #1f7257;
+  box-shadow: 0 8px 18px rgba(31, 114, 87, 0.1);
 }
 .recordings-entry::after { border: 0; }
-.recordings-entry > view { display: grid; gap: 1px; text-align: left; }
-.recordings-entry text:first-child { font-size: 13px; font-weight: 800; }
-.recordings-entry text:last-child { color: #78847e; font-size: 10px; }
-.record-dot { width: 12px; height: 12px; border-radius: 50%; background: #c95f44; box-shadow: 0 0 0 4px #f4e5e0; }
+.recordings-entry:active { transform: scale(0.98); box-shadow: 0 4px 12px rgba(31, 114, 87, 0.12); }
+
+.recording-entry-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e2f1ea;
+  box-shadow: inset 0 0 0 1px #c6ddd3;
+}
+.recording-entry-core {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d26949;
+  box-shadow: 0 0 0 4px #f0d8d0;
+}
+.recording-entry-wave {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #1f7257;
+  border-bottom: 2px solid #1f7257;
+  border-radius: 0 0 9px 0;
+}
+.recording-entry-copy { display: grid; gap: 1px; text-align: left; }
+.recording-entry-title { color: #1f7257; font-size: 14px; font-weight: 850; line-height: 1.15; }
+.recording-entry-count { color: #6f7f77; font-size: 10px; font-weight: 700; line-height: 1.2; }
 
 .interview-main {
   width: min(100%, 760px);
@@ -1041,16 +1112,34 @@ onBeforeUnmount(() => {
 }
 
 .end-session-button {
-  min-width: 138px;
-  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 156px;
+  min-height: 52px;
   margin: 6px 0 0;
-  padding: 0 20px;
-  border: 1px solid #d5b3aa;
-  border-radius: 8px;
-  background: #fff8f6;
+  padding: 0 22px;
+  border: 1px solid #e1b7aa;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fffaf8 0%, #fff1ec 100%);
   color: #a4493d;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: 16px;
+  font-weight: 850;
+  box-shadow: 0 8px 18px rgba(164, 73, 61, 0.1);
+}
+.end-session-button:active { transform: scale(0.98); box-shadow: 0 4px 12px rgba(164, 73, 61, 0.12); }
+.end-session-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #a4493d;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .end-session-button[disabled] { opacity: 0.5; }
@@ -1065,24 +1154,41 @@ onBeforeUnmount(() => {
 }
 
 .progress-band {
+  overflow: hidden;
+  margin-top: 8px;
   padding: 22px 20px 20px;
-  border-top: 1px solid #dfe5df;
-  border-bottom: 1px solid #dfe5df;
+  border: 1px solid #dfe5df;
+  border-radius: 18px 18px 0 0;
   background: #fff;
+  box-shadow: 0 10px 26px rgba(38, 54, 48, 0.06);
 }
 
 .progress-heading { justify-content: space-between; gap: 14px; }
 .progress-heading > view { display: flex; align-items: baseline; gap: 9px; }
 .progress-value { color: #1f7257; font-size: 30px; font-weight: 800; }
 .section-kicker { color: #69766f; font-size: 13px; font-weight: 700; }
-.progress-toggle { color: #1f7257; font-weight: 700; }
+.progress-toggle {
+  min-width: 88px;
+  border-radius: 999px;
+  background: #edf6f1;
+  color: #1f7257;
+  font-weight: 800;
+}
 .progress-track,
 .chapter-track { overflow: hidden; background: #e5eae6; }
 .progress-track { height: 8px; margin: 14px 0 10px; border-radius: 4px; }
 .progress-track view { height: 100%; border-radius: inherit; background: #d26949; }
 .progress-summary { color: #68756f; font-size: 13px; }
 
-.chapter-list { background: #fff; }
+.chapter-list {
+  overflow: hidden;
+  border-right: 1px solid #dfe5df;
+  border-bottom: 1px solid #dfe5df;
+  border-left: 1px solid #dfe5df;
+  border-radius: 0 0 18px 18px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(38, 54, 48, 0.05);
+}
 .chapter-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; padding: 18px 20px; border-bottom: 1px solid #e6eae7; }
 .chapter-index { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #eef2ef; color: #53635c; font-weight: 800; }
 .chapter-copy { min-width: 0; }
@@ -1097,7 +1203,17 @@ onBeforeUnmount(() => {
 .chapter-track { height: 4px; margin-top: 10px; border-radius: 2px; }
 .chapter-track view { height: 100%; border-radius: inherit; background: #6f9887; }
 
-.next-choice { display: grid; gap: 7px; padding: 24px 20px; border-left: 4px solid #d26949; background: #f3f0e8; }
+.next-choice {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 22px 20px;
+  border: 1px solid #e4ded0;
+  border-left: 5px solid #d26949;
+  border-radius: 18px;
+  background: #fffaf0;
+  box-shadow: 0 10px 24px rgba(151, 103, 54, 0.08);
+}
 .next-prompt { font-size: 17px; font-weight: 800; line-height: 1.5; }
 
 .recording-overlay {
@@ -1204,17 +1320,19 @@ onBeforeUnmount(() => {
   .progress-band,
   .chapter-list,
   .next-choice { margin-left: 12px; margin-right: 12px; }
-  .progress-band { border: 1px solid #dfe5df; border-radius: 8px 8px 0 0; }
-  .chapter-list { border-left: 1px solid #dfe5df; border-right: 1px solid #dfe5df; }
-  .next-choice { margin-bottom: 24px; border-right: 1px solid #e0ded7; border-bottom: 1px solid #e0ded7; border-radius: 0 0 8px 0; }
+  .next-choice { margin-bottom: 24px; }
 }
 
 @media (max-width: 520px) {
   .topbar { padding-left: 14px; padding-right: 14px; }
   .topbar-actions { gap: 6px; }
-  .recordings-entry { min-width: 48px; padding: 5px 9px; }
-  .recordings-entry > view { display: none; }
-  .session-time { width: 124px; max-width: 124px; }
+  .recordings-entry { min-width: 86px; min-height: 46px; padding: 6px 10px 6px 6px; gap: 7px; }
+  .recording-entry-icon { width: 32px; height: 32px; }
+  .recording-entry-count { display: none; }
+  .session-time { max-width: 104px; min-height: 46px; padding: 6px 9px 6px 6px; gap: 6px; }
+  .session-time-icon { width: 28px; height: 28px; }
+  .session-time-copy text:first-child { display: none; }
+  .session-time-value { font-size: 13px; }
   .conversation-scroll { height: 168px; }
   .conversation-text { font-size: 20px; line-height: 1.5; }
   .recording-sheet { max-height: 92dvh; }

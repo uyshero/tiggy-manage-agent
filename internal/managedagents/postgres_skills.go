@@ -441,6 +441,30 @@ func (s *PostgresStore) CreateSkillVersion(ctx context.Context, input skills.Cre
 	if err != nil {
 		return skills.Version{}, err
 	}
+	if packageFormat == skillpackage.FormatLegacyDB {
+		for _, asset := range assetBundle.Files {
+			if strings.TrimSpace(asset.ObjectRefID) == "" {
+				continue
+			}
+			if err := insertObjectRefLink(ctx, tx, workspaceID, asset.ObjectRefID,
+				objectRefLinkOwnerSkillAsset, skillAssetObjectRefLinkOwnerID(id, asset.Path),
+				objectRefLinkRoleAsset); err != nil {
+				return skills.Version{}, err
+			}
+		}
+	}
+	if packageObjectRefID != "" {
+		if err := insertObjectRefLink(ctx, tx, workspaceID, packageObjectRefID,
+			objectRefLinkOwnerSkillVersion, id, objectRefLinkRolePackageArchive); err != nil {
+			return skills.Version{}, err
+		}
+	}
+	if skillMDObjectRefID != "" {
+		if err := insertObjectRefLink(ctx, tx, workspaceID, skillMDObjectRefID,
+			objectRefLinkOwnerSkillVersion, id, objectRefLinkRoleSkillMarkdown); err != nil {
+			return skills.Version{}, err
+		}
+	}
 	if storedPackage != nil {
 		for _, storedObject := range storedPackage.Files {
 			if _, err := tx.ExecContext(ctx, `
@@ -451,6 +475,11 @@ func (s *PostgresStore) CreateSkillVersion(ctx context.Context, input skills.Cre
 			`, id, storedObject.File.Path, storedObject.File.Role, storedObject.File.ObjectRefID,
 				storedObject.File.ContentType, storedObject.File.SizeBytes, storedObject.File.ChecksumSHA256,
 				storedObject.File.Binary, storedObject.File.Executable, now); err != nil {
+				return skills.Version{}, err
+			}
+			if err := insertObjectRefLink(ctx, tx, workspaceID, storedObject.File.ObjectRefID,
+				objectRefLinkOwnerSkillPackageFile, skillPackageFileObjectRefLinkOwnerID(id, storedObject.File.Path),
+				storedObject.File.Role); err != nil {
 				return skills.Version{}, err
 			}
 		}

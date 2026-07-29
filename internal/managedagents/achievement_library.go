@@ -177,6 +177,10 @@ func (s *PostgresStore) CreateAchievementLibraryItemContext(ctx context.Context,
 	if err != nil {
 		return AchievementLibraryItem{}, err
 	}
+	if err := insertObjectRefLink(ctx, tx, item.WorkspaceID, item.ObjectRefID,
+		objectRefLinkOwnerAchievementLibraryItem, item.ID, objectRefLinkRoleAchievement); err != nil {
+		return AchievementLibraryItem{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return AchievementLibraryItem{}, err
 	}
@@ -276,6 +280,9 @@ func (s *PostgresStore) DeleteAchievementLibraryItemContext(ctx context.Context,
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+	if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerAchievementLibraryItem, id); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

@@ -68,6 +68,10 @@ func (s *PostgresStore) CreateWorkspaceSnapshot(ctx context.Context, input Creat
 	if err != nil {
 		return WorkspaceSnapshot{}, err
 	}
+	if err := insertObjectRefLink(ctx, tx, snapshot.WorkspaceID, snapshot.ObjectRefID,
+		objectRefLinkOwnerWorkspaceSnapshot, snapshot.ID, objectRefLinkRoleSnapshot); err != nil {
+		return WorkspaceSnapshot{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return WorkspaceSnapshot{}, err
 	}

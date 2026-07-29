@@ -432,6 +432,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('managed_environment_variables', 'managed_environment_variables_workspace_isolation'),
 				('mcp_registry_server_versions', 'mcp_registry_server_versions_workspace_isolation'),
 				('mcp_registry_servers', 'mcp_registry_servers_workspace_isolation'),
+				('object_ref_links', 'object_ref_links_workspace_isolation'),
 				('object_refs', 'object_refs_workspace_isolation'),
 				('observability_exporter_runs', 'observability_exporter_runs_session_isolation'),
 				('operator_audit_log', 'operator_audit_log_workspace_isolation'),
@@ -518,8 +519,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 54 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000090")
+	if checked != 55 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000096")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `

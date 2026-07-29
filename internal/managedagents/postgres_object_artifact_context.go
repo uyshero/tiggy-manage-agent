@@ -128,9 +128,7 @@ func (s *PostgresStore) CountSessionArtifactsByObjectRefContext(ctx context.Cont
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, `
-		SELECT
-			(SELECT COUNT(*) FROM session_artifacts WHERE object_ref_id = $1 AND workspace_id = $2) +
-			(SELECT COUNT(*) FROM achievement_library_items WHERE object_ref_id = $1 AND workspace_id = $2)
+		SELECT COUNT(*) FROM object_ref_links WHERE object_ref_id = $1 AND workspace_id = $2
 	`, objectRefID, scope.WorkspaceID).Scan(&count); err != nil {
 		return 0, err
 	}
@@ -250,6 +248,10 @@ func (s *PostgresStore) CreateSessionArtifactContext(ctx context.Context, input 
 	if err != nil {
 		return SessionArtifact{}, err
 	}
+	if err := insertObjectRefLink(ctx, tx, created.WorkspaceID, created.ObjectRefID,
+		objectRefLinkOwnerSessionArtifact, created.ID, created.ArtifactType); err != nil {
+		return SessionArtifact{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return SessionArtifact{}, err
 	}
@@ -323,6 +325,9 @@ func (s *PostgresStore) DeleteSessionArtifactContext(ctx context.Context, sessio
 	}
 	if rows == 0 {
 		return ErrForbidden
+	}
+	if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerSessionArtifact, artifactID); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

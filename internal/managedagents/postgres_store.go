@@ -6543,9 +6543,7 @@ func (s *PostgresStore) CountSessionArtifactsByObjectRef(objectRefID string) (in
 	}
 	var count int
 	if err := s.db.QueryRowContext(context.Background(), `
-		SELECT
-			(SELECT COUNT(*) FROM session_artifacts WHERE object_ref_id = $1) +
-			(SELECT COUNT(*) FROM achievement_library_items WHERE object_ref_id = $1)
+		SELECT COUNT(*) FROM object_ref_links WHERE object_ref_id = $1
 	`, objectRefID).Scan(&count); err != nil {
 		return 0, err
 	}
@@ -6684,6 +6682,10 @@ func (s *PostgresStore) CreateSessionArtifact(input CreateSessionArtifactInput) 
 	if err != nil {
 		return SessionArtifact{}, err
 	}
+	if err := insertObjectRefLink(ctx, tx, created.WorkspaceID, created.ObjectRefID,
+		objectRefLinkOwnerSessionArtifact, created.ID, created.ArtifactType); err != nil {
+		return SessionArtifact{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return SessionArtifact{}, err
 	}
@@ -6730,18 +6732,26 @@ func (s *PostgresStore) DeleteSessionArtifact(sessionID string, artifactID strin
 	if artifactID == "" {
 		return fmt.Errorf("%w: artifact id is required", ErrInvalid)
 	}
-	result, err := s.db.ExecContext(context.Background(), `DELETE FROM session_artifacts WHERE session_id = $1 AND id = $2`, sessionID, artifactID)
+	ctx := context.Background()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
+	defer tx.Rollback()
+	var workspaceID string
+	if err := tx.QueryRowContext(ctx, `
+		DELETE FROM session_artifacts
+		WHERE session_id = $1 AND id = $2
+		RETURNING workspace_id
+	`, sessionID, artifactID).Scan(&workspaceID); err == sql.ErrNoRows {
 		return ErrNotFound
+	} else if err != nil {
+		return err
 	}
-	return nil
+	if err := deleteObjectRefLinksByOwner(ctx, tx, workspaceID, objectRefLinkOwnerSessionArtifact, artifactID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *PostgresStore) ListSessionArtifacts(sessionID string) ([]SessionArtifact, error) {

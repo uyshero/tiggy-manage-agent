@@ -197,6 +197,24 @@ func (s *PostgresStore) backfillSkillPackageVersion(ctx context.Context, reposit
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return false, nil
 	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM object_ref_links
+		WHERE workspace_id = $1 AND owner_type = 'skill_asset' AND left(owner_id, length($2)) = $2
+	`, workspaceID, versionID+":"); err != nil {
+		return false, err
+	}
+	if packageObjectRefID != "" {
+		if err := insertObjectRefLink(ctx, tx, workspaceID, packageObjectRefID,
+			objectRefLinkOwnerSkillVersion, versionID, objectRefLinkRolePackageArchive); err != nil {
+			return false, err
+		}
+	}
+	if skillMDObjectRefID != "" {
+		if err := insertObjectRefLink(ctx, tx, workspaceID, skillMDObjectRefID,
+			objectRefLinkOwnerSkillVersion, versionID, objectRefLinkRoleSkillMarkdown); err != nil {
+			return false, err
+		}
+	}
 	for _, storedObject := range stored.Files {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO skill_version_package_files (
@@ -206,6 +224,11 @@ func (s *PostgresStore) backfillSkillPackageVersion(ctx context.Context, reposit
 		`, versionID, storedObject.File.Path, storedObject.File.Role, storedObject.File.ObjectRefID,
 			storedObject.File.ContentType, storedObject.File.SizeBytes, storedObject.File.ChecksumSHA256,
 			storedObject.File.Binary, storedObject.File.Executable, now); err != nil {
+			return false, err
+		}
+		if err := insertObjectRefLink(ctx, tx, workspaceID, storedObject.File.ObjectRefID,
+			objectRefLinkOwnerSkillPackageFile, skillPackageFileObjectRefLinkOwnerID(versionID, storedObject.File.Path),
+			storedObject.File.Role); err != nil {
 			return false, err
 		}
 	}

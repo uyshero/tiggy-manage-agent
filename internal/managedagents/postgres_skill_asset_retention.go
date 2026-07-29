@@ -615,10 +615,46 @@ func (s *PostgresStore) FinalizeSkillAssetGCItem(ctx context.Context, itemID str
 	// Package file references use real foreign keys. Once an archived package is
 	// eligible, unlink its index rows before removing the shared object metadata.
 	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM object_ref_links links
+		USING skill_versions sv, skills s
+		WHERE links.object_ref_id = $1
+			AND links.owner_type = 'skill_asset'
+			AND left(links.owner_id, length(sv.id || ':')) = sv.id || ':'
+			AND sv.skill_id = s.id
+			AND s.status = 'archived'
+	`, item.Candidate.ObjectRefID); err != nil {
+		return skillretention.Tombstone{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM object_ref_links links
+		USING skill_version_package_files spf, skill_versions sv, skills s
+		WHERE links.object_ref_id = $1
+			AND links.owner_type = 'skill_package_file'
+			AND links.owner_id = spf.skill_version_id || ':' || spf.path
+			AND spf.object_ref_id = links.object_ref_id
+			AND spf.skill_version_id = sv.id
+			AND sv.skill_id = s.id
+			AND s.status = 'archived'
+	`, item.Candidate.ObjectRefID); err != nil {
+		return skillretention.Tombstone{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM skill_version_package_files spf
 		USING skill_versions sv, skills s
 		WHERE spf.object_ref_id = $1 AND spf.skill_version_id = sv.id
 			AND sv.skill_id = s.id AND s.status = 'archived'
+	`, item.Candidate.ObjectRefID); err != nil {
+		return skillretention.Tombstone{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM object_ref_links links
+		USING skill_versions sv, skills s
+		WHERE links.object_ref_id = $1
+			AND links.owner_type = 'skill_version'
+			AND links.owner_id = sv.id
+			AND sv.skill_id = s.id
+			AND s.status = 'archived'
+			AND (sv.package_object_ref_id = $1 OR sv.skill_md_object_ref_id = $1)
 	`, item.Candidate.ObjectRefID); err != nil {
 		return skillretention.Tombstone{}, err
 	}
