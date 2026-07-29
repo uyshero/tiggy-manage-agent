@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"reflect"
@@ -711,17 +710,11 @@ func (s skillsToolService) fetchSkillInstallPackage(ctx context.Context, session
 		if objectRef.WorkspaceID != workspaceID || objectRef.SizeBytes <= 0 || objectRef.SizeBytes > skillmarketplace.MaxArtifactPackageArchiveBytes {
 			return skillmarketplace.Package{}, fmt.Errorf("%w: artifact skill package object is outside workspace or size limits", managedagents.ErrInvalid)
 		}
-		object, err := s.objectStore.GetObject(ctx, objectstore.GetObjectInput{
-			Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion,
-		})
+		verified, err := managedagents.ReadVerifiedObject(ctx, s.objectStore, objectRef, int64(skillmarketplace.MaxArtifactPackageArchiveBytes))
 		if err != nil {
 			return skillmarketplace.Package{}, err
 		}
-		defer object.Body.Close()
-		content, err := io.ReadAll(io.LimitReader(object.Body, int64(skillmarketplace.MaxArtifactPackageArchiveBytes)+1))
-		if err != nil {
-			return skillmarketplace.Package{}, err
-		}
+		content := verified.Content
 		if len(content) == 0 || len(content) > skillmarketplace.MaxArtifactPackageArchiveBytes {
 			return skillmarketplace.Package{}, fmt.Errorf("%w: artifact skill package ZIP exceeds size limit", managedagents.ErrInvalid)
 		}
@@ -767,17 +760,11 @@ func (s skillsToolService) fetchSkillInstallPackage(ctx context.Context, session
 		if objectRef.WorkspaceID != entry.WorkspaceID || objectRef.SizeBytes <= 0 || objectRef.SizeBytes > skillmarketplace.MaxArtifactPackageArchiveBytes {
 			return skillmarketplace.Package{}, fmt.Errorf("%w: internal marketplace package object is outside publisher workspace or size limits", managedagents.ErrInvalid)
 		}
-		object, err := s.objectStore.GetObject(ctx, objectstore.GetObjectInput{
-			Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion,
-		})
+		verified, err := managedagents.ReadVerifiedObject(ctx, s.objectStore, objectRef, int64(skillmarketplace.MaxArtifactPackageArchiveBytes))
 		if err != nil {
 			return skillmarketplace.Package{}, err
 		}
-		defer object.Body.Close()
-		content, err := io.ReadAll(io.LimitReader(object.Body, int64(skillmarketplace.MaxArtifactPackageArchiveBytes)+1))
-		if err != nil {
-			return skillmarketplace.Package{}, err
-		}
+		content := verified.Content
 		if len(content) == 0 || len(content) > skillmarketplace.MaxArtifactPackageArchiveBytes || int64(len(content)) != objectRef.SizeBytes {
 			return skillmarketplace.Package{}, fmt.Errorf("%w: internal marketplace package object size mismatch", managedagents.ErrInvalid)
 		}

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -272,15 +271,11 @@ func (e AgentRuntimeTurnExecutor) restoreWorkspaceSnapshot(ctx context.Context, 
 	if err != nil {
 		return err
 	}
-	object, err := e.ObjectStore.GetObject(ctx, objectstore.GetObjectInput{Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion})
+	verified, err := managedagents.ReadVerifiedObject(ctx, e.ObjectStore, objectRef, snapshot.SizeBytes)
 	if err != nil {
 		return fmt.Errorf("download workspace snapshot: %w", err)
 	}
-	defer object.Body.Close()
-	archive, err := io.ReadAll(io.LimitReader(object.Body, snapshot.SizeBytes+1))
-	if err != nil {
-		return err
-	}
+	archive := verified.Content
 	if int64(len(archive)) != snapshot.SizeBytes {
 		return fmt.Errorf("workspace snapshot size mismatch")
 	}
@@ -436,15 +431,11 @@ func (e AgentRuntimeTurnExecutor) runtimeSkillAssetContent(ctx context.Context, 
 		if objectRef.WorkspaceID != workspaceID {
 			return nil, managedagents.ErrForbidden
 		}
-		object, err := e.ObjectStore.GetObject(ctx, objectstore.GetObjectInput{Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion})
+		verified, err := managedagents.ReadVerifiedObject(ctx, e.ObjectStore, objectRef, int64(asset.Size))
 		if err != nil {
 			return nil, err
 		}
-		defer object.Body.Close()
-		content, err = io.ReadAll(io.LimitReader(object.Body, int64(asset.Size)+1))
-		if err != nil {
-			return nil, err
-		}
+		content = verified.Content
 	}
 	if len(content) != asset.Size {
 		return nil, fmt.Errorf("binary skill asset size mismatch: expected %d, got %d", asset.Size, len(content))
@@ -580,15 +571,11 @@ func (e AgentRuntimeTurnExecutor) loadUserImageParts(ctx context.Context, payloa
 		if supportedVisionImageType(strings.ToLower(strings.TrimSpace(objectRef.ContentType))) {
 			contentType = strings.ToLower(strings.TrimSpace(objectRef.ContentType))
 		}
-		object, err := e.ObjectStore.GetObject(ctx, objectstore.GetObjectInput{Bucket: objectRef.Bucket, Key: objectRef.ObjectKey, Version: objectRef.ObjectVersion})
+		verified, err := managedagents.ReadVerifiedObject(ctx, e.ObjectStore, objectRef, maxVisionImageBytes)
 		if err != nil {
 			return nil, fmt.Errorf("download image attachment %s: %w", attachment.Name, err)
 		}
-		content, readErr := io.ReadAll(io.LimitReader(object.Body, maxVisionImageBytes+1))
-		_ = object.Body.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read image attachment %s: %w", attachment.Name, readErr)
-		}
+		content := verified.Content
 		if len(content) > maxVisionImageBytes {
 			return nil, fmt.Errorf("image attachment %s exceeds vision limit of 20 MB", attachment.Name)
 		}

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,7 +15,6 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/managedagents"
-	"tiggy-manage-agent/internal/objectstore"
 )
 
 const maxDocumentPreviewBytes int64 = 25 * 1024 * 1024
@@ -141,18 +139,13 @@ func (s *Server) previewSessionArtifact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	object, err := s.objectStore.GetObject(r.Context(), objectstore.GetObjectInput{
-		Bucket:  objectRef.Bucket,
-		Key:     objectRef.ObjectKey,
-		Version: objectRef.ObjectVersion,
-	})
+	verified, err := managedagents.ReadVerifiedObject(r.Context(), s.objectStore, objectRef, maxDocumentPreviewBytes)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	defer object.Body.Close()
 
-	contentType := object.ContentType
+	contentType := verified.ContentType
 	if contentType == "" {
 		contentType = objectRef.ContentType
 	}
@@ -160,15 +153,7 @@ func (s *Server) previewSessionArtifact(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "only DOCX artifacts can be converted to PDF previews"})
 		return
 	}
-	limit := maxDocumentPreviewBytes
-	if object.SizeBytes > 0 && object.SizeBytes < limit {
-		limit = object.SizeBytes
-	}
-	content, err := io.ReadAll(io.LimitReader(object.Body, limit+1))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
+	content := verified.Content
 	if int64(len(content)) > maxDocumentPreviewBytes {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "artifact is too large for document preview"})
 		return
