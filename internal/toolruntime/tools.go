@@ -373,7 +373,7 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 			}
 			results = append(results, coremodel.ToolResult{
 				CallID: planned.Call.ID, Name: planned.Call.Name,
-				Content: []coremodel.Content{{Type: coremodel.ContentText, Text: tools.ResultMessage(failed)}},
+				Content: []coremodel.Content{{Type: coremodel.ContentText, Text: tools.ContextResultMessage(failed, tools.ResultContextOptions{})}},
 				State:   append(json.RawMessage(nil), failed.State...),
 				IsError: true,
 			})
@@ -394,7 +394,7 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 		results = append(results, coremodel.ToolResult{
 			CallID:  planned.Call.ID,
 			Name:    planned.Call.Name,
-			Content: []coremodel.Content{{Type: coremodel.ContentText, Text: tools.ResultMessage(result)}},
+			Content: []coremodel.Content{{Type: coremodel.ContentText, Text: tools.ContextResultMessage(result, tools.ResultContextOptions{})}},
 			State:   append(json.RawMessage(nil), result.State...),
 			IsError: result.Error != nil,
 		})

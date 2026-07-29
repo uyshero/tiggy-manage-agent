@@ -19,6 +19,9 @@ runtime policy、长说明或 manifest metadata 时，才对该单个工具调�
 驻留在模型上下文。`artifact_inspect` 读取当前 Session 内单个 Artifact 的 metadata、血缘、模板和
 校验信息；`artifact_read` 仅分页读取 UTF-8 文本或 JSON，并返回 `next_offset_bytes`。PDF、DOCX、
 XLSX、图片等二进制内容不会进入模型上下文，应交给格式专用解析或预览流水线。
+Agent Core 的 durable ToolResult State 仍完整持久化，但不计入模型输入预算；Compaction 输入会将超过
+4 KiB 且已有 Artifact 引用的工具正文和 State 投影为调用标识、结果状态、Artifact ID 与分页坐标。
+没有 durable 引用的结果不会被投影，避免丢失唯一数据副本。
 
 输入使用 JSON Schema Draft 2020-12 校验，支持 required、enum、范围、组合约束和
 `additionalProperties`，禁止外部 `$ref`。Runtime 在审批前校验，Executor 在执行边界再次

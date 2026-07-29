@@ -19,8 +19,8 @@ const (
 )
 
 const (
-	DefaultArtifactReadMaxBytes = 16 << 10
-	MaximumArtifactReadMaxBytes = 64 << 10
+	DefaultArtifactReadMaxBytes = 8 << 10
+	MaximumArtifactReadMaxBytes = DefaultResultContextMaxChars
 )
 
 type ArtifactToolService interface {
@@ -89,7 +89,7 @@ func (ArtifactRuntime) Manifest() Manifest {
 			{
 				Name: ArtifactAPIRead, Namespace: NamespaceArtifact, APIName: ArtifactAPIRead,
 				Description:  "Read one bounded UTF-8 text or JSON page from a current-Session Artifact. Continue with next_offset_bytes until eof; binary content is rejected.",
-				Parameters:   json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"artifact_id":{"type":"string","minLength":1,"maxLength":160},"offset_bytes":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":1024,"maximum":65536,"default":16384}},"required":["artifact_id"]}`),
+				Parameters:   json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{"artifact_id":{"type":"string","minLength":1,"maxLength":160},"offset_bytes":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":1024,"maximum":12000,"default":8192}},"required":["artifact_id"]}`),
 				Capabilities: []string{"artifact.content.read"}, Risk: ToolRiskRead,
 				Runtime: artifactRuntimePolicy(), Implementation: ToolImplementationServerBuiltin,
 			},

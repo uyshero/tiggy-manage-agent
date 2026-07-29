@@ -28,6 +28,23 @@ func TestEstimateCoreMessagesCountsDecodedContentInsteadOfJSONEscaping(t *testin
 	}
 }
 
+func TestEstimateCoreMessagesIgnoresDurableToolState(t *testing.T) {
+	visible := "bounded result"
+	resultName := "default_run_command"
+	messages := []coremodel.Message{{
+		ID: "tool_result", Role: coremodel.RoleTool, Visibility: coremodel.VisibilityInternal,
+		Content: []coremodel.Content{{Type: coremodel.ContentToolResult, ToolResult: &coremodel.ToolResult{
+			CallID: "call_1", Name: resultName,
+			Content: []coremodel.Content{{Type: coremodel.ContentText, Text: visible}},
+			State:   []byte(`{"stdout":"` + strings.Repeat("durable-only", 10000) + `"}`),
+		}}},
+	}}
+	want := 4 + 8 + tokenestimate.Text(resultName) + tokenestimate.Text(visible)
+	if got := estimateCoreMessages(messages); got != want {
+		t.Fatalf("estimateCoreMessages() counted durable ToolResult State: got=%d want=%d", got, want)
+	}
+}
+
 func TestCompactionPreservesArtifactReferencesInsteadOfCopyingLargeResults(t *testing.T) {
 	model := &recordingCompactionModel{}
 	compactor := LLMCompactor{Model: model, SummaryMaxChars: 12000}
@@ -56,6 +73,53 @@ func TestCompactionPreservesArtifactReferencesInsteadOfCopyingLargeResults(t *te
 	}
 	if !strings.Contains(model.request.Messages[1].Content[0].Text, "art_123") {
 		t.Fatalf("compaction input lost Artifact reference: %#v", model.request.Messages[1])
+	}
+}
+
+func TestCompactionProjectsLargeRecoverableToolResults(t *testing.T) {
+	largeMarker := strings.Repeat("UNPROJECTED_TOOL_OUTPUT_", 400)
+	envelope := `{"protocol_version":"tma.tool_result.v1","id":"call_1","identifier":"default","api_name":"run_command","content":"` + largeMarker + `","state":{"stdout":"` + largeMarker + `"},"artifacts":[{"artifact_id":"art_200","name":"run_command.json"}],"context":{"content_artifact_id":"art_200","state_artifact_id":"art_200"},"success":true}`
+	largeState := []byte(`{"stdout":"` + largeMarker + `"}`)
+	state := agentcore.State{
+		SessionID: "session_1", TurnID: "turn_1",
+		Messages: []coremodel.Message{{
+			ID: "tool_result_1", Role: coremodel.RoleTool, Visibility: coremodel.VisibilityInternal,
+			Content: []coremodel.Content{{Type: coremodel.ContentToolResult, ToolResult: &coremodel.ToolResult{
+				CallID: "call_1", Name: "default_run_command", State: largeState,
+				Content: []coremodel.Content{{Type: coremodel.ContentText, Text: envelope}},
+			}}},
+		}},
+	}
+	model := &recordingCompactionModel{}
+	if _, err := (LLMCompactor{Model: model}).Compact(t.Context(), state, "compact_projection"); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	input := model.request.Messages[1].Content[0].Text
+	if strings.Contains(input, "UNPROJECTED_TOOL_OUTPUT") {
+		t.Fatalf("compaction input retained recoverable large output: %s", input)
+	}
+	for _, expected := range []string{"art_200", "artifact_read", "original_state_bytes", "content_artifact_id"} {
+		if !strings.Contains(input, expected) {
+			t.Fatalf("compaction projection lost %q: %s", expected, input)
+		}
+	}
+	if !strings.Contains(state.Messages[0].Content[0].ToolResult.Content[0].Text, "UNPROJECTED_TOOL_OUTPUT") || !strings.Contains(string(state.Messages[0].Content[0].ToolResult.State), "UNPROJECTED_TOOL_OUTPUT") {
+		t.Fatal("compaction projection mutated durable Agent Core state")
+	}
+}
+
+func TestCompactionKeepsLargeToolResultsWithoutArtifactReferences(t *testing.T) {
+	largeMarker := strings.Repeat("ONLY_COPY_OF_RESULT_", 400)
+	messages := []coremodel.Message{{
+		ID: "tool_result_1", Role: coremodel.RoleTool, Visibility: coremodel.VisibilityInternal,
+		Content: []coremodel.Content{{Type: coremodel.ContentToolResult, ToolResult: &coremodel.ToolResult{
+			CallID: "call_1", Name: "custom_lookup", State: []byte(`{"value":"` + largeMarker + `"}`),
+			Content: []coremodel.Content{{Type: coremodel.ContentText, Text: `{"protocol_version":"tma.tool_result.v1","content":"` + largeMarker + `","success":true}`}},
+		}}},
+	}}
+	projected := projectCompactionMessages(messages)
+	if !strings.Contains(projected[0].Content[0].ToolResult.Content[0].Text, "ONLY_COPY_OF_RESULT") || !strings.Contains(string(projected[0].Content[0].ToolResult.State), "ONLY_COPY_OF_RESULT") {
+		t.Fatal("compaction removed a large result that had no durable recovery reference")
 	}
 }
 
