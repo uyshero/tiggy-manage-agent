@@ -14,12 +14,14 @@ const (
 	objectRefLinkOwnerSkillPackageFile       = "skill_package_file"
 	objectRefLinkOwnerWorkspaceSnapshot      = "workspace_snapshot"
 	objectRefLinkOwnerAchievementLibraryItem = "achievement_library_item"
+	objectRefLinkOwnerKnowledgeDocument      = "knowledge_document"
 
-	objectRefLinkRoleAsset          = "asset"
-	objectRefLinkRolePackageArchive = "package_archive"
-	objectRefLinkRoleSkillMarkdown  = "skill_md"
-	objectRefLinkRoleSnapshot       = "snapshot"
-	objectRefLinkRoleAchievement    = "achievement"
+	objectRefLinkRoleAsset           = "asset"
+	objectRefLinkRolePackageArchive  = "package_archive"
+	objectRefLinkRoleSkillMarkdown   = "skill_md"
+	objectRefLinkRoleSnapshot        = "snapshot"
+	objectRefLinkRoleAchievement     = "achievement"
+	objectRefLinkRoleKnowledgeSource = "knowledge_source"
 )
 
 func insertObjectRefLink(ctx context.Context, tx *sql.Tx, workspaceID, objectRefID, ownerType, ownerID, role string) error {
@@ -68,4 +70,62 @@ func skillPackageFileObjectRefLinkOwnerID(skillVersionID, path string) string {
 
 func skillAssetObjectRefLinkOwnerID(skillVersionID, path string) string {
 	return strings.TrimSpace(skillVersionID) + ":" + strings.TrimSpace(path)
+}
+
+type objectRefLinkScanner interface{ Scan(dest ...any) error }
+
+func scanObjectRefLink(scanner objectRefLinkScanner) (ObjectRefLink, error) {
+	var link ObjectRefLink
+	err := scanner.Scan(&link.ObjectRefID, &link.WorkspaceID, &link.OwnerType, &link.OwnerID, &link.Role, &link.CreatedAt)
+	return link, err
+}
+
+func scanObjectRefLinks(rows *sql.Rows) ([]ObjectRefLink, error) {
+	defer rows.Close()
+	links := []ObjectRefLink{}
+	for rows.Next() {
+		link, err := scanObjectRefLink(rows)
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, link)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return links, nil
+}
+
+func (s *PostgresStore) listObjectRefLinksTx(ctx context.Context, tx *sql.Tx, objectRefID, workspaceID string) ([]ObjectRefLink, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT object_ref_id, workspace_id, owner_type, owner_id, role, created_at
+		FROM object_ref_links
+		WHERE object_ref_id = $1 AND ($2 = '' OR workspace_id = $2)
+		ORDER BY created_at ASC, owner_type ASC, owner_id ASC, role ASC
+	`, strings.TrimSpace(objectRefID), strings.TrimSpace(workspaceID))
+	if err != nil {
+		return nil, err
+	}
+	return scanObjectRefLinks(rows)
+}
+
+func objectRefLinkSummary(links []ObjectRefLink, limit int) string {
+	if len(links) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(links) {
+		limit = len(links)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, link := range links[:limit] {
+		item := link.OwnerType + "/" + link.OwnerID
+		if link.Role != "" {
+			item += "(" + link.Role + ")"
+		}
+		parts = append(parts, item)
+	}
+	if len(links) > limit {
+		parts = append(parts, fmt.Sprintf("and %d more", len(links)-limit))
+	}
+	return strings.Join(parts, ", ")
 }

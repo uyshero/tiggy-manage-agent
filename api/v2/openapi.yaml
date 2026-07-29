@@ -929,6 +929,332 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/bases:
+    get:
+      operationId: get_v2_knowledge_bases
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBaseList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_knowledge_bases
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeBaseRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeBase"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/bases/{base_id}:
+    delete:
+      operationId: delete_v2_knowledge_bases_by_base_id
+      parameters:
+        - name: base_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/bases/{base_id}/documents:
+    get:
+      operationId: get_v2_knowledge_bases_by_base_id_documents
+      parameters:
+        - name: base_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_knowledge_bases_by_base_id_documents
+      parameters:
+        - name: base_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadKnowledgeDocumentRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentUploadResult"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/documents/{document_id}:
+    delete:
+      operationId: delete_v2_knowledge_documents_by_document_id
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/services:
+    get:
+      operationId: get_v2_knowledge_services
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeServiceList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_knowledge_services
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeServiceRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeService"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/services/{service_id}:
+    delete:
+      operationId: delete_v2_knowledge_services_by_service_id
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: get_v2_knowledge_services_by_service_id
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeService"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patch_v2_knowledge_services_by_service_id
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateKnowledgeServiceRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeService"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/services/{service_id}/ask:
+    post:
+      operationId: post_v2_knowledge_services_by_service_id_ask
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeAskRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeAnswer"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/services/{service_id}/shares:
+    get:
+      operationId: get_v2_knowledge_services_by_service_id_shares
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeShareList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_knowledge_services_by_service_id_shares
+      parameters:
+        - name: service_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateKnowledgeShareRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeShareCreateResult"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/shares/{share_id}/revoke:
+    post:
+      operationId: post_v2_knowledge_shares_by_share_id_revoke
+      parameters:
+        - name: share_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/knowledge/shares/{share_id}:
+    delete:
+      operationId: delete_v2_knowledge_shares_by_share_id
+      parameters:
+        - name: share_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "204":
+          description: Successful response
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/llm-models:
     get:
       operationId: get_v2_llm_models
@@ -1667,6 +1993,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/public/knowledge-shares/{token}:
+    get:
+      operationId: get_v2_public_knowledge_shares_by_token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicKnowledgeShare"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/public/knowledge-shares/{token}/ask:
+    post:
+      operationId: post_v2_public_knowledge_shares_by_token_ask
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KnowledgeAskRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeAnswer"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/run-comparisons:
     get:
       operationId: get_v2_run_comparisons
@@ -2091,10 +2465,11 @@ paths:
           schema: {type: string}
         - name: format
           in: query
-          schema: {type: string, enum: [pdf], default: pdf}
+          required: false
+          schema: {type: string}
       responses:
         "200":
-          description: Successful preview response
+          description: Successful response
           content:
             application/pdf:
               schema:
@@ -4571,8 +4946,6 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
   /v2/workbench-projects:
     get:
-      summary: List workbench projects
-      description: Returns workbench projects for the current workspace and optional plugin scope.
       operationId: get_v2_workbench_projects
       parameters:
         - name: workspace_id
@@ -4597,8 +4970,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
     post:
-      summary: Create a workbench project
-      description: Creates a new workbench project draft and, when configured, provisions its backing repository/template.
       operationId: post_v2_workbench_projects
       requestBody:
         required: true
@@ -4621,8 +4992,6 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
   /v2/workbench-projects/{project_id}:
     patch:
-      summary: Update a workbench project
-      description: Updates editable project metadata, notebook content, active file, or persisted project files.
       operationId: patch_v2_workbench_projects_by_project_id
       parameters:
         - name: project_id
@@ -4652,76 +5021,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /v2/workbench-projects/{project_id}/runtime/start:
-    post:
-      summary: Start workbench runtime
-      description: Starts the managed R notebook runtime for the target workbench project.
-      operationId: post_v2_workbench_projects_by_project_id_runtime_start
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: workspace_id
-          in: query
-          required: false
-          schema: {type: string}
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkbenchProject"
-        "503":
-          description: R Notebook runtime provisioning is not configured
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        default:
-          description: API error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-  /v2/workbench-projects/{project_id}/runtime/stop:
-    post:
-      summary: Stop workbench runtime
-      description: Stops the managed R notebook runtime for the target workbench project.
-      operationId: post_v2_workbench_projects_by_project_id_runtime_stop
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: workspace_id
-          in: query
-          required: false
-          schema: {type: string}
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WorkbenchProject"
-        "503":
-          description: R Notebook runtime provisioning is not configured
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        default:
-          description: API error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/workbench-projects/{project_id}/runtime/run-cleaning:
     post:
-      summary: Run workbench data cleaning
-      description: Executes the project's R-based cleaning workflow inside the managed runtime and persists the generated report and output files.
       operationId: post_v2_workbench_projects_by_project_id_runtime_run_cleaning
       parameters:
         - name: project_id
@@ -4740,13 +5041,75 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkbenchProjectRunCleaningResponse"
         "409":
-          description: R Runtime must already be running before data cleaning can execute
+          description: API error
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
         "503":
-          description: R Notebook runtime provisioning is not configured
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/runtime/start:
+    post:
+      operationId: post_v2_workbench_projects_by_project_id_runtime_start
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        "503":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/runtime/stop:
+    post:
+      operationId: post_v2_workbench_projects_by_project_id_runtime_stop
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        "503":
+          description: API error
           content:
             application/json:
               schema:
@@ -4759,8 +5122,6 @@ paths:
                 $ref: "#/components/schemas/ErrorEnvelope"
   /v2/workbench-projects/{project_id}/sync:
     post:
-      summary: Sync workbench project
-      description: Provisions or re-syncs the workbench project to its backing GitLab repository when repository provisioning is available.
       operationId: post_v2_workbench_projects_by_project_id_sync
       parameters:
         - name: project_id
@@ -4779,7 +5140,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkbenchProject"
         "503":
-          description: GitLab project provisioning is not configured
+          description: API error
           content:
             application/json:
               schema:
@@ -5236,7 +5597,6 @@ components:
         version: {type: integer, format: int32}
         llm_provider: {type: string}
         llm_model: {type: string}
-        llm_thinking: {type: string, enum: [enabled, disabled], description: Controls provider reasoning for this Session when supported.}
         system: {type: string}
         tools: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         mcp: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
@@ -5701,9 +6061,6 @@ components:
       properties:
         llm_provider: {type: string}
         llm_model: {type: string}
-        llm_thinking: {type: string, enum: [enabled, disabled], description: Controls provider reasoning for this Session when supported.}
-        agent_core_compaction_threshold_tokens: {type: integer, minimum: 0, description: Compacts conversation context when estimated input reaches this token count.}
-        agent_core_compaction_summary_max_chars: {type: integer, minimum: 1, description: Maximum character count retained in a compacted conversation summary.}
         intervention_mode: {type: string}
         permission_rules:
           type: array
@@ -6271,16 +6628,14 @@ components:
         workspace_path: {type: string}
     WorkbenchProjectFile:
       type: object
-      description: A persisted workbench project file or folder entry.
       required: [path, kind]
       properties:
-        path: {type: string, maxLength: 500, description: Project-relative path.}
-        kind: {type: string, enum: [file, folder], description: Entry kind in the project tree.}
-        status: {type: string, description: Optional file status such as clean or modified.}
-        content: {type: string, maxLength: 1000000, description: File content when the entry represents a file.}
+        path: {type: string, maxLength: 500}
+        kind: {type: string, enum: [file, folder]}
+        status: {type: string}
+        content: {type: string, maxLength: 1000000}
     WorkbenchProject:
       type: object
-      description: Persisted workbench project metadata, runtime state, and project files.
       required: [id, workspace_id, owner_id, plugin_id, name, repository_provider, repository_path, default_branch, sync_status, files, created_by, created_at, updated_at]
       properties:
         id: {type: string}
@@ -6310,14 +6665,12 @@ components:
         updated_at: {type: string, format: date-time}
     WorkbenchProjectList:
       type: object
-      description: Workbench project list response.
       required: [projects, gitlab_configured]
       properties:
         projects: {type: array, items: {$ref: "#/components/schemas/WorkbenchProject"}}
         gitlab_configured: {type: boolean}
     CreateWorkbenchProjectRequest:
       type: object
-      description: Request body for creating a workbench project.
       required: [plugin_id, name, repository_path]
       properties:
         workspace_id: {type: string}
@@ -6329,7 +6682,6 @@ components:
         notebook_code: {type: string, maxLength: 1000000}
     UpdateWorkbenchProjectRequest:
       type: object
-      description: Request body for updating workbench project metadata or files.
       properties:
         workspace_id: {type: string}
         name: {type: string, minLength: 1, maxLength: 120}
@@ -6684,6 +7036,187 @@ components:
     BinaryContent:
       type: string
       format: binary
+    KnowledgeBase:
+      type: object
+      required: [id, workspace_id, name, description, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        document_count: {type: integer, format: int32}
+    KnowledgeBaseList:
+      type: object
+      required: [knowledge_bases]
+      properties:
+        knowledge_bases:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeBase"}
+    CreateKnowledgeBaseRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        description: {type: string}
+    KnowledgeDocument:
+      type: object
+      required: [id, workspace_id, knowledge_base_id, object_ref_id, name, content_type, size_bytes, status, chunk_count, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        knowledge_base_id: {type: string}
+        object_ref_id: {type: string}
+        name: {type: string}
+        content_type: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        status: {type: string, enum: [processing, ready, failed]}
+        error_message: {type: string}
+        chunk_count: {type: integer, format: int32}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KnowledgeDocumentList:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeDocument"}
+    UploadKnowledgeDocumentRequest:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, format: binary}
+        name: {type: string}
+        content_type: {type: string}
+    KnowledgeDocumentUploadResult:
+      type: object
+      required: [document, object_ref]
+      properties:
+        document: {$ref: "#/components/schemas/KnowledgeDocument"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+    KnowledgeService:
+      type: object
+      required: [id, workspace_id, name, scenario, knowledge_base_ids, allow_web_search, sensitive_terms, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
+        status: {type: string, enum: [active, disabled]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KnowledgeServiceList:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeService"}
+    CreateKnowledgeServiceRequest:
+      type: object
+      required: [name, scenario]
+      properties:
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
+    UpdateKnowledgeServiceRequest:
+      type: object
+      required: [name, scenario]
+      properties:
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
+    KnowledgeShare:
+      type: object
+      required: [id, service_id, created_by, created_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        service_id: {type: string}
+        share_url: {type: string}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+    KnowledgeShareList:
+      type: object
+      required: [shares]
+      properties:
+        shares:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeShare"}
+    CreateKnowledgeShareRequest:
+      type: object
+      required: [expires_in]
+      properties:
+        expires_in: {type: string, enum: [1d, 7d, 1m, 1y, permanent]}
+    KnowledgeShareCreateResult:
+      type: object
+      required: [share]
+      properties:
+        share: {$ref: "#/components/schemas/KnowledgeShare"}
+        token: {type: string}
+        share_url: {type: string}
+    PublicKnowledgeShare:
+      type: object
+      required: [share, service]
+      properties:
+        share: {$ref: "#/components/schemas/KnowledgeShare"}
+        service: {$ref: "#/components/schemas/KnowledgeService"}
+    KnowledgeAskRequest:
+      type: object
+      required: [question]
+      properties:
+        question: {type: string}
+    KnowledgeAnswerSource:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [knowledge, web]}
+        title: {type: string}
+        url: {type: string}
+        document_id: {type: string}
+        content: {type: string}
+        score: {type: number, format: double}
+    KnowledgeAnswer:
+      type: object
+      required: [answer, refused, sources]
+      properties:
+        service: {$ref: "#/components/schemas/KnowledgeService"}
+        answer: {type: string}
+        refused: {type: boolean}
+        refusal_reason: {type: string}
+        sources:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeAnswerSource"}
     ObjectRef:
       type: object
       required: [id, workspace_id, storage_provider, bucket, object_key, size_bytes, visibility, created_by, created_at]
@@ -6812,8 +7345,6 @@ components:
         original_content_chars: {type: integer, format: int64, maximum: 9007199254740991}
         visible_content_chars: {type: integer, format: int64, maximum: 9007199254740991}
         original_state_bytes: {type: integer, format: int64, maximum: 9007199254740991}
-        content_artifact: {$ref: "#/components/schemas/TraceArtifact"}
-        state_artifact: {$ref: "#/components/schemas/TraceArtifact"}
     TraceSpanEvent:
       type: object
       required: [seq, type, name, time]

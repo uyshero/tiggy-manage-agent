@@ -6538,6 +6538,10 @@ func (s *PostgresStore) getObjectRef(id string, workspaceID string) (ObjectRef, 
 }
 
 func (s *PostgresStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
+	return s.CountObjectRefLinks(objectRefID)
+}
+
+func (s *PostgresStore) CountObjectRefLinks(objectRefID string) (int, error) {
 	if objectRefID == "" {
 		return 0, fmt.Errorf("%w: object ref id is required", ErrInvalid)
 	}
@@ -6550,9 +6554,32 @@ func (s *PostgresStore) CountSessionArtifactsByObjectRef(objectRefID string) (in
 	return count, nil
 }
 
+func (s *PostgresStore) ListObjectRefLinks(objectRefID string) ([]ObjectRefLink, error) {
+	if objectRefID == "" {
+		return nil, fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	rows, err := s.db.QueryContext(context.Background(), `
+		SELECT object_ref_id, workspace_id, owner_type, owner_id, role, created_at
+		FROM object_ref_links
+		WHERE object_ref_id = $1
+		ORDER BY created_at ASC, owner_type ASC, owner_id ASC, role ASC
+	`, objectRefID)
+	if err != nil {
+		return nil, err
+	}
+	return scanObjectRefLinks(rows)
+}
+
 func (s *PostgresStore) DeleteObjectRef(id string) error {
 	if id == "" {
 		return fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	links, err := s.ListObjectRefLinks(id)
+	if err != nil {
+		return err
+	}
+	if len(links) > 0 {
+		return fmt.Errorf("%w: object ref is still referenced by %d owner(s): %s", ErrConflict, len(links), objectRefLinkSummary(links, 5))
 	}
 	result, err := s.db.ExecContext(context.Background(), `DELETE FROM object_refs WHERE id = $1`, id)
 	if err != nil {

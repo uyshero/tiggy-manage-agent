@@ -50,6 +50,10 @@ type testStore struct {
 	nextDatasetItemID    int64
 	nextExperimentID     int64
 	nextExperimentItemID int64
+	nextKnowledgeBaseID  int64
+	nextKnowledgeDocID   int64
+	nextKnowledgeSvcID   int64
+	nextKnowledgeShareID int64
 
 	agents                    map[string]managedagents.Agent
 	agentConfigVersions       map[string][]managedagents.AgentConfigVersion
@@ -97,11 +101,37 @@ type testStore struct {
 	runEvaluations            []managedagents.RunEvaluation
 	evaluationDatasets        map[string]managedagents.EvaluationDataset
 	evaluationExperiments     map[string]managedagents.EvaluationExperiment
+	knowledgeBases            map[string]managedagents.KnowledgeBase
+	knowledgeDocuments        map[string]managedagents.KnowledgeDocument
+	knowledgeChunks           map[string][]testKnowledgeChunk
+	knowledgeServices         map[string]managedagents.KnowledgeService
+	knowledgeShares           map[string]managedagents.KnowledgeServiceShare
+	knowledgeShareTokenHashes map[string]string
+	knowledgeQuestions        []testKnowledgeQuestion
 }
 
 type testRunIdempotency struct {
 	RunID       string
 	RequestHash string
+}
+
+type testKnowledgeChunk struct {
+	DocumentID     string
+	ChunkIndex     int
+	Content        string
+	Embedding      []float64
+	EmbeddingModel string
+}
+
+type testKnowledgeQuestion struct {
+	WorkspaceID   string
+	ServiceID     string
+	ShareID       string
+	Question      string
+	Answer        string
+	Refused       bool
+	RefusalReason string
+	SourceCount   int
 }
 
 func newTestStore() *testStore {
@@ -147,6 +177,12 @@ func newTestStore() *testStore {
 		evaluationRubrics:         make(map[string]managedagents.EvaluationRubric),
 		evaluationDatasets:        make(map[string]managedagents.EvaluationDataset),
 		evaluationExperiments:     make(map[string]managedagents.EvaluationExperiment),
+		knowledgeBases:            make(map[string]managedagents.KnowledgeBase),
+		knowledgeDocuments:        make(map[string]managedagents.KnowledgeDocument),
+		knowledgeChunks:           make(map[string][]testKnowledgeChunk),
+		knowledgeServices:         make(map[string]managedagents.KnowledgeService),
+		knowledgeShares:           make(map[string]managedagents.KnowledgeServiceShare),
+		knowledgeShareTokenHashes: make(map[string]string),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -3488,23 +3524,49 @@ func (s *testStore) GetObjectRefScoped(id string, scope managedagents.AccessScop
 }
 
 func (s *testStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
+	return s.CountObjectRefLinks(objectRefID)
+}
+
+func (s *testStore) CountObjectRefLinks(objectRefID string) (int, error) {
+	links, err := s.ListObjectRefLinks(objectRefID)
+	if err != nil {
+		return 0, err
+	}
+	return len(links), nil
+}
+
+func (s *testStore) ListObjectRefLinks(objectRefID string) ([]managedagents.ObjectRefLink, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	count := 0
+	links := []managedagents.ObjectRefLink{}
 	for _, artifacts := range s.sessionArtifacts {
 		for _, artifact := range artifacts {
 			if artifact.ObjectRefID == objectRefID {
-				count++
+				links = append(links, managedagents.ObjectRefLink{
+					ObjectRefID: artifact.ObjectRefID,
+					WorkspaceID: artifact.WorkspaceID,
+					OwnerType:   "session_artifact",
+					OwnerID:     artifact.ID,
+					Role:        artifact.ArtifactType,
+					CreatedAt:   artifact.CreatedAt,
+				})
 			}
 		}
 	}
 	for _, item := range s.achievementLibrary {
 		if item.ObjectRefID == objectRefID {
-			count++
+			links = append(links, managedagents.ObjectRefLink{
+				ObjectRefID: item.ObjectRefID,
+				WorkspaceID: item.WorkspaceID,
+				OwnerType:   "achievement_library_item",
+				OwnerID:     item.ID,
+				Role:        "achievement",
+				CreatedAt:   item.CreatedAt,
+			})
 		}
 	}
-	return count, nil
+	return links, nil
 }
 
 func (s *testStore) DeleteObjectRef(id string) error {
@@ -3515,6 +3577,477 @@ func (s *testStore) DeleteObjectRef(id string) error {
 		return managedagents.ErrNotFound
 	}
 	delete(s.objectRefs, id)
+	return nil
+}
+
+func (s *testStore) CreateKnowledgeBase(ctx context.Context, workspaceID, name, description, createdBy string) (managedagents.KnowledgeBase, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return managedagents.KnowledgeBase{}, fmt.Errorf("%w: knowledge base name is required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextKnowledgeBaseID++
+	now := time.Now().UTC()
+	item := managedagents.KnowledgeBase{
+		ID:          fmt.Sprintf("kb_%06d", s.nextKnowledgeBaseID),
+		WorkspaceID: workspaceID,
+		Name:        name,
+		Description: strings.TrimSpace(description),
+		CreatedBy:   defaultString(strings.TrimSpace(createdBy), "system"),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	s.knowledgeBases[item.ID] = item
+	return item, nil
+}
+
+func (s *testStore) ListKnowledgeBases(ctx context.Context, workspaceID string) ([]managedagents.KnowledgeBase, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]managedagents.KnowledgeBase, 0, len(s.knowledgeBases))
+	for _, item := range s.knowledgeBases {
+		if item.WorkspaceID != workspaceID {
+			continue
+		}
+		for _, document := range s.knowledgeDocuments {
+			if document.WorkspaceID == workspaceID && document.KnowledgeBaseID == item.ID {
+				item.DocumentCount++
+			}
+		}
+		items = append(items, item)
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	return items, nil
+}
+
+func (s *testStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, id string) error {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeBases[id]
+	if !ok || item.WorkspaceID != workspaceID {
+		return managedagents.ErrNotFound
+	}
+	delete(s.knowledgeBases, id)
+	for documentID, document := range s.knowledgeDocuments {
+		if document.WorkspaceID == workspaceID && document.KnowledgeBaseID == id {
+			delete(s.knowledgeDocuments, documentID)
+			delete(s.knowledgeChunks, documentID)
+		}
+	}
+	return nil
+}
+
+func (s *testStore) CreateKnowledgeDocument(ctx context.Context, document managedagents.KnowledgeDocument, chunks []managedagents.KnowledgeChunkInput) (managedagents.KnowledgeDocument, error) {
+	workspaceID := testStoreWorkspaceID(ctx, document.WorkspaceID)
+	if strings.TrimSpace(document.Name) == "" || strings.TrimSpace(document.ObjectRefID) == "" || strings.TrimSpace(document.KnowledgeBaseID) == "" {
+		return managedagents.KnowledgeDocument{}, fmt.Errorf("%w: document name, object_ref_id and knowledge_base_id are required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	base, ok := s.knowledgeBases[document.KnowledgeBaseID]
+	if !ok || base.WorkspaceID != workspaceID {
+		return managedagents.KnowledgeDocument{}, managedagents.ErrForbidden
+	}
+	object, ok := s.objectRefs[document.ObjectRefID]
+	if !ok || object.WorkspaceID != workspaceID {
+		return managedagents.KnowledgeDocument{}, managedagents.ErrForbidden
+	}
+	s.nextKnowledgeDocID++
+	now := time.Now().UTC()
+	document.ID = fmt.Sprintf("kdoc_%06d", s.nextKnowledgeDocID)
+	document.WorkspaceID = workspaceID
+	document.Name = strings.TrimSpace(document.Name)
+	document.Status = "ready"
+	document.ChunkCount = len(chunks)
+	document.CreatedBy = defaultString(strings.TrimSpace(document.CreatedBy), "system")
+	document.CreatedAt = now
+	document.UpdatedAt = now
+	s.knowledgeDocuments[document.ID] = document
+	storedChunks := make([]testKnowledgeChunk, 0, len(chunks))
+	for index, chunk := range chunks {
+		content := strings.TrimSpace(chunk.Content)
+		if content == "" {
+			continue
+		}
+		storedChunks = append(storedChunks, testKnowledgeChunk{
+			DocumentID:     document.ID,
+			ChunkIndex:     index,
+			Content:        content,
+			Embedding:      append([]float64(nil), chunk.Embedding...),
+			EmbeddingModel: chunk.EmbeddingModel,
+		})
+	}
+	s.knowledgeChunks[document.ID] = storedChunks
+	return document, nil
+}
+
+func (s *testStore) ListKnowledgeDocuments(ctx context.Context, workspaceID, knowledgeBaseID string) ([]managedagents.KnowledgeDocument, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]managedagents.KnowledgeDocument, 0)
+	for _, item := range s.knowledgeDocuments {
+		if item.WorkspaceID == workspaceID && item.KnowledgeBaseID == knowledgeBaseID {
+			items = append(items, item)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	return items, nil
+}
+
+func (s *testStore) GetKnowledgeDocument(ctx context.Context, workspaceID, id string) (managedagents.KnowledgeDocument, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeDocuments[id]
+	if !ok || item.WorkspaceID != workspaceID {
+		return managedagents.KnowledgeDocument{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, id string) (managedagents.KnowledgeDocument, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeDocuments[id]
+	if !ok || item.WorkspaceID != workspaceID {
+		return managedagents.KnowledgeDocument{}, managedagents.ErrNotFound
+	}
+	delete(s.knowledgeDocuments, id)
+	delete(s.knowledgeChunks, id)
+	return item, nil
+}
+
+func (s *testStore) CreateKnowledgeService(ctx context.Context, input managedagents.CreateKnowledgeServiceInput) (managedagents.KnowledgeService, error) {
+	workspaceID := testStoreWorkspaceID(ctx, input.WorkspaceID)
+	name := strings.TrimSpace(input.Name)
+	scenario := strings.TrimSpace(input.Scenario)
+	if name == "" || scenario == "" {
+		return managedagents.KnowledgeService{}, fmt.Errorf("%w: knowledge service name and scenario are required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, baseID := range input.KnowledgeBaseIDs {
+		base, ok := s.knowledgeBases[baseID]
+		if !ok || base.WorkspaceID != workspaceID {
+			return managedagents.KnowledgeService{}, managedagents.ErrForbidden
+		}
+	}
+	baseSet := map[string]bool{}
+	for _, baseID := range input.KnowledgeBaseIDs {
+		baseSet[baseID] = true
+	}
+	for _, documentID := range input.KnowledgeDocumentIDs {
+		document, ok := s.knowledgeDocuments[documentID]
+		if !ok || document.WorkspaceID != workspaceID || !baseSet[document.KnowledgeBaseID] {
+			return managedagents.KnowledgeService{}, managedagents.ErrForbidden
+		}
+	}
+	s.nextKnowledgeSvcID++
+	now := time.Now().UTC()
+	item := managedagents.KnowledgeService{
+		ID:                   fmt.Sprintf("ksvc_%06d", s.nextKnowledgeSvcID),
+		WorkspaceID:          workspaceID,
+		Name:                 name,
+		Scenario:             scenario,
+		SystemPrompt:         strings.TrimSpace(input.SystemPrompt),
+		KnowledgeBaseIDs:     testStoreCleanStringList(input.KnowledgeBaseIDs, 100),
+		KnowledgeDocumentIDs: testStoreCleanStringList(input.KnowledgeDocumentIDs, 500),
+		AllowWebSearch:       input.AllowWebSearch,
+		SensitiveTerms:       testStoreCleanStringList(input.SensitiveTerms, 100),
+		Status:               "active",
+		CreatedBy:            defaultString(strings.TrimSpace(input.CreatedBy), "system"),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	s.knowledgeServices[item.ID] = item
+	return item, nil
+}
+
+func (s *testStore) ListKnowledgeServices(ctx context.Context, workspaceID string) ([]managedagents.KnowledgeService, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]managedagents.KnowledgeService, 0, len(s.knowledgeServices))
+	for _, item := range s.knowledgeServices {
+		if item.WorkspaceID == workspaceID {
+			items = append(items, item)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	return items, nil
+}
+
+func (s *testStore) GetKnowledgeService(ctx context.Context, workspaceID, id string) (managedagents.KnowledgeService, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeServices[id]
+	if !ok || item.WorkspaceID != workspaceID || item.Status != "active" {
+		return managedagents.KnowledgeService{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) UpdateKnowledgeService(ctx context.Context, workspaceID, id string, input managedagents.UpdateKnowledgeServiceInput) (managedagents.KnowledgeService, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	name := strings.TrimSpace(input.Name)
+	scenario := strings.TrimSpace(input.Scenario)
+	if name == "" || scenario == "" {
+		return managedagents.KnowledgeService{}, fmt.Errorf("%w: service name and scenario are required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeServices[id]
+	if !ok || item.WorkspaceID != workspaceID || item.Status != "active" {
+		return managedagents.KnowledgeService{}, managedagents.ErrNotFound
+	}
+	for _, baseID := range input.KnowledgeBaseIDs {
+		base, ok := s.knowledgeBases[baseID]
+		if !ok || base.WorkspaceID != workspaceID {
+			return managedagents.KnowledgeService{}, managedagents.ErrForbidden
+		}
+	}
+	baseSet := map[string]bool{}
+	for _, baseID := range input.KnowledgeBaseIDs {
+		baseSet[baseID] = true
+	}
+	for _, documentID := range input.KnowledgeDocumentIDs {
+		document, ok := s.knowledgeDocuments[documentID]
+		if !ok || document.WorkspaceID != workspaceID || !baseSet[document.KnowledgeBaseID] {
+			return managedagents.KnowledgeService{}, managedagents.ErrForbidden
+		}
+	}
+	item.Name = name
+	item.Scenario = scenario
+	item.SystemPrompt = strings.TrimSpace(input.SystemPrompt)
+	item.KnowledgeBaseIDs = testStoreCleanStringList(input.KnowledgeBaseIDs, 100)
+	item.KnowledgeDocumentIDs = testStoreCleanStringList(input.KnowledgeDocumentIDs, 500)
+	item.AllowWebSearch = input.AllowWebSearch
+	item.SensitiveTerms = testStoreCleanStringList(input.SensitiveTerms, 100)
+	item.UpdatedAt = time.Now().UTC()
+	s.knowledgeServices[id] = item
+	return item, nil
+}
+
+func (s *testStore) DeleteKnowledgeService(ctx context.Context, workspaceID, id string) error {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.knowledgeServices[id]
+	if !ok || item.WorkspaceID != workspaceID {
+		return managedagents.ErrNotFound
+	}
+	delete(s.knowledgeServices, id)
+	for shareID, share := range s.knowledgeShares {
+		if share.ServiceID == id && share.WorkspaceID == workspaceID {
+			delete(s.knowledgeShares, shareID)
+		}
+	}
+	return nil
+}
+
+func (s *testStore) CreateKnowledgeServiceShare(ctx context.Context, workspaceID, serviceID, token, tokenHash, createdBy string, expiresAt *time.Time) (managedagents.KnowledgeServiceShare, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	token = strings.TrimSpace(token)
+	tokenHash = strings.TrimSpace(tokenHash)
+	if token == "" || tokenHash == "" {
+		return managedagents.KnowledgeServiceShare{}, fmt.Errorf("%w: share token hash is required", managedagents.ErrInvalid)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	service, ok := s.knowledgeServices[serviceID]
+	if !ok || service.WorkspaceID != workspaceID {
+		return managedagents.KnowledgeServiceShare{}, managedagents.ErrNotFound
+	}
+	if _, exists := s.knowledgeShareTokenHashes[tokenHash]; exists {
+		return managedagents.KnowledgeServiceShare{}, managedagents.ErrConflict
+	}
+	s.nextKnowledgeShareID++
+	now := time.Now().UTC()
+	share := managedagents.KnowledgeServiceShare{
+		ID:          fmt.Sprintf("kshr_%06d", s.nextKnowledgeShareID),
+		WorkspaceID: workspaceID,
+		ServiceID:   serviceID,
+		ExpiresAt:   expiresAt,
+		CreatedBy:   defaultString(strings.TrimSpace(createdBy), "system"),
+		CreatedAt:   now,
+		Token:       token,
+	}
+	s.knowledgeShares[share.ID] = share
+	s.knowledgeShareTokenHashes[tokenHash] = share.ID
+	return share, nil
+}
+
+func (s *testStore) ListKnowledgeServiceShares(ctx context.Context, workspaceID, serviceID string) ([]managedagents.KnowledgeServiceShare, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]managedagents.KnowledgeServiceShare, 0)
+	for _, item := range s.knowledgeShares {
+		if item.WorkspaceID == workspaceID && item.ServiceID == serviceID {
+			items = append(items, item)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].ID > items[j].ID })
+	return items, nil
+}
+
+func (s *testStore) RevokeKnowledgeServiceShare(ctx context.Context, workspaceID, shareID string) error {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	share, ok := s.knowledgeShares[shareID]
+	if !ok || share.WorkspaceID != workspaceID {
+		return managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	share.RevokedAt = &now
+	s.knowledgeShares[shareID] = share
+	return nil
+}
+
+func (s *testStore) DeleteRevokedKnowledgeServiceShare(ctx context.Context, workspaceID, shareID string) error {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	share, ok := s.knowledgeShares[shareID]
+	if !ok || share.WorkspaceID != workspaceID {
+		return managedagents.ErrNotFound
+	}
+	if share.RevokedAt == nil {
+		return managedagents.ErrConflict
+	}
+	delete(s.knowledgeShares, shareID)
+	for tokenHash, mappedShareID := range s.knowledgeShareTokenHashes {
+		if mappedShareID == shareID {
+			delete(s.knowledgeShareTokenHashes, tokenHash)
+		}
+	}
+	return nil
+}
+
+func (s *testStore) ResolveKnowledgeServiceShare(ctx context.Context, tokenHash string) (managedagents.KnowledgeServiceShare, managedagents.KnowledgeService, error) {
+	_ = ctx
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	shareID, ok := s.knowledgeShareTokenHashes[strings.TrimSpace(tokenHash)]
+	if !ok {
+		return managedagents.KnowledgeServiceShare{}, managedagents.KnowledgeService{}, managedagents.ErrNotFound
+	}
+	share, ok := s.knowledgeShares[shareID]
+	if !ok || share.RevokedAt != nil || (share.ExpiresAt != nil && time.Now().UTC().After(*share.ExpiresAt)) {
+		return managedagents.KnowledgeServiceShare{}, managedagents.KnowledgeService{}, managedagents.ErrNotFound
+	}
+	service, ok := s.knowledgeServices[share.ServiceID]
+	if !ok || service.WorkspaceID != share.WorkspaceID || service.Status != "active" {
+		return managedagents.KnowledgeServiceShare{}, managedagents.KnowledgeService{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	share.LastUsedAt = &now
+	s.knowledgeShares[share.ID] = share
+	return share, service, nil
+}
+
+func (s *testStore) SearchKnowledge(ctx context.Context, workspaceID string, knowledgeBaseIDs []string, knowledgeDocumentIDs []string, query string, embedding []float64, limit int) ([]managedagents.KnowledgeSearchResult, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	if limit <= 0 {
+		limit = 8
+	}
+	baseFilter := map[string]bool{}
+	for _, id := range knowledgeBaseIDs {
+		baseFilter[strings.TrimSpace(id)] = true
+	}
+	documentFilter := map[string]bool{}
+	for _, id := range knowledgeDocumentIDs {
+		documentFilter[strings.TrimSpace(id)] = true
+	}
+	queryTokens := knowledgeTokens(query)
+	queryLower := strings.ToLower(query)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	documentLimitedBaseFilter := map[string]bool{}
+	for documentID := range documentFilter {
+		if document, ok := s.knowledgeDocuments[documentID]; ok && document.WorkspaceID == workspaceID {
+			documentLimitedBaseFilter[document.KnowledgeBaseID] = true
+		}
+	}
+	results := make([]managedagents.KnowledgeSearchResult, 0)
+	for _, document := range s.knowledgeDocuments {
+		if document.WorkspaceID != workspaceID || document.Status != "ready" {
+			continue
+		}
+		if len(baseFilter) > 0 && !baseFilter[document.KnowledgeBaseID] {
+			continue
+		}
+		if documentLimitedBaseFilter[document.KnowledgeBaseID] && !documentFilter[document.ID] {
+			continue
+		}
+		for _, chunk := range s.knowledgeChunks[document.ID] {
+			contentLower := strings.ToLower(chunk.Content)
+			keywordScore := 0.0
+			for _, token := range queryTokens {
+				if token == "" {
+					continue
+				}
+				if strings.Contains(contentLower, token) || strings.Contains(queryLower, token) && strings.Contains(contentLower, token) {
+					keywordScore += 0.12
+				}
+			}
+			if strings.Contains(contentLower, queryLower) && queryLower != "" {
+				keywordScore += 0.4
+			}
+			vectorScore := testStoreDotProduct(embedding, chunk.Embedding)
+			score := keywordScore*0.45 + max(vectorScore, 0)*0.55
+			if keywordScore == 0 && vectorScore <= 0.05 {
+				continue
+			}
+			results = append(results, managedagents.KnowledgeSearchResult{
+				DocumentID:      document.ID,
+				DocumentName:    document.Name,
+				KnowledgeBaseID: document.KnowledgeBaseID,
+				ChunkIndex:      chunk.ChunkIndex,
+				Content:         chunk.Content,
+				KeywordScore:    keywordScore,
+				VectorScore:     vectorScore,
+				Score:           score,
+			})
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score == results[j].Score {
+			if results[i].DocumentID == results[j].DocumentID {
+				return results[i].ChunkIndex < results[j].ChunkIndex
+			}
+			return results[i].DocumentID < results[j].DocumentID
+		}
+		return results[i].Score > results[j].Score
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
+func (s *testStore) RecordKnowledgeQuestion(ctx context.Context, workspaceID, serviceID, shareID, question, answer string, refused bool, refusalReason string, sourceCount int) error {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.knowledgeQuestions = append(s.knowledgeQuestions, testKnowledgeQuestion{
+		WorkspaceID:   workspaceID,
+		ServiceID:     serviceID,
+		ShareID:       shareID,
+		Question:      question,
+		Answer:        answer,
+		Refused:       refused,
+		RefusalReason: refusalReason,
+		SourceCount:   sourceCount,
+	})
 	return nil
 }
 
@@ -5625,4 +6158,42 @@ func normalizeWorkerWorkType(value string) string {
 	default:
 		return ""
 	}
+}
+
+func testStoreWorkspaceID(ctx context.Context, workspaceID string) string {
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && scope.WorkspaceID != "" {
+		if workspaceID == "" || workspaceID == scope.WorkspaceID {
+			return scope.WorkspaceID
+		}
+		return workspaceID
+	}
+	return defaultString(strings.TrimSpace(workspaceID), managedagents.DefaultWorkspaceID)
+}
+
+func testStoreCleanStringList(values []string, maxItems int) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+		if maxItems > 0 && len(result) == maxItems {
+			break
+		}
+	}
+	return result
+}
+
+func testStoreDotProduct(a []float64, b []float64) float64 {
+	if len(a) == 0 || len(a) != len(b) {
+		return 0
+	}
+	score := 0.0
+	for i := range a {
+		score += a[i] * b[i]
+	}
+	return score
 }

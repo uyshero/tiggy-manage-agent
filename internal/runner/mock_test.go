@@ -1158,8 +1158,35 @@ func (s *mockStore) GetSessionArtifact(string, string) (managedagents.SessionArt
 	return managedagents.SessionArtifact{}, nil
 }
 
-func (s *mockStore) CountSessionArtifactsByObjectRef(string) (int, error) {
-	return 0, nil
+func (s *mockStore) CountSessionArtifactsByObjectRef(objectRefID string) (int, error) {
+	return s.CountObjectRefLinks(objectRefID)
+}
+
+func (s *mockStore) CountObjectRefLinks(objectRefID string) (int, error) {
+	links, err := s.ListObjectRefLinks(objectRefID)
+	if err != nil {
+		return 0, err
+	}
+	return len(links), nil
+}
+
+func (s *mockStore) ListObjectRefLinks(objectRefID string) ([]managedagents.ObjectRefLink, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	links := []managedagents.ObjectRefLink{}
+	for index, artifact := range s.createdArtifacts {
+		if objectRefID != "" && artifact.ObjectRefID != objectRefID {
+			continue
+		}
+		links = append(links, managedagents.ObjectRefLink{
+			ObjectRefID: artifact.ObjectRefID,
+			WorkspaceID: artifact.WorkspaceID,
+			OwnerType:   "session_artifact",
+			OwnerID:     fmt.Sprintf("art_%06d", index+1),
+			Role:        artifact.ArtifactType,
+		})
+	}
+	return links, nil
 }
 
 func (s *mockStore) DeleteObjectRef(string) error {

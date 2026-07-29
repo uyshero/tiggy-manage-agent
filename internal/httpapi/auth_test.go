@@ -210,6 +210,42 @@ func TestAuthClientConfigurationIsPublic(t *testing.T) {
 	}
 }
 
+func TestOIDCWebLoginRedirectsKnowledgePageButKeepsAPIsUnauthorized(t *testing.T) {
+	provider := newOIDCTestProvider(t)
+	server, _ := newUnifiedAuthTestServer(t, AuthConfig{
+		Mode:                 AuthModeOIDC,
+		OIDCIssuer:           provider.server.URL,
+		OIDCAudience:         "tma-api",
+		OIDCSigningAlgs:      []string{"RS256"},
+		OIDCHTTPTimeout:      2 * time.Second,
+		OIDCWebLoginEnabled:  true,
+		OIDCWebClientID:      "tma-web",
+		OIDCWebRedirectURL:   "http://tma.example/auth/callback",
+		OIDCWebSessionSecret: strings.Repeat("s", 32),
+	})
+
+	page := httptest.NewRecorder()
+	server.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/knowledge?tab=services", nil))
+	if page.Code != http.StatusFound {
+		t.Fatalf("expected unauthenticated knowledge page to redirect to login, got %d: %s", page.Code, page.Body.String())
+	}
+	location := page.Header().Get("Location")
+	if !strings.HasPrefix(location, "http://tma.example/auth/login?") || !strings.Contains(location, "return_to=%2Fknowledge%3Ftab%3Dservices") {
+		t.Fatalf("unexpected knowledge login redirect: %q", location)
+	}
+
+	api := httptest.NewRecorder()
+	apiRequest := httptest.NewRequest(http.MethodGet, "/v2/knowledge/bases", nil)
+	apiRequest.Header.Set("Accept", "text/html,application/xhtml+xml,application/json")
+	server.ServeHTTP(api, apiRequest)
+	if api.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated knowledge API to stay 401, got %d: %s", api.Code, api.Body.String())
+	}
+	if api.Header().Get("Location") != "" {
+		t.Fatalf("knowledge API must not redirect unauthenticated clients, got Location %q", api.Header().Get("Location"))
+	}
+}
+
 func TestUnifiedCookieAuthRequiresTrustedOriginForWrites(t *testing.T) {
 	server, _ := newUnifiedAuthTestServer(t, AuthConfig{
 		Mode: AuthModeJWT, JWTSecret: testJWTSecret, JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",

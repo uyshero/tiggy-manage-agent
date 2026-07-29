@@ -2,12 +2,13 @@ package biographyvoice
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ type Server struct {
 	doubaoDialer doubaoDialer
 	interview    interviewEngine
 	resumeTokens *resumeTokenCodec
+	auth         *authService
+	store        *biographyDataStore
 }
 
 func NewServer(config Config, logger *slog.Logger) (*Server, error) {
@@ -58,17 +61,81 @@ func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server
 			return nil, err
 		}
 	}
+	var store *biographyDataStore
+	var auth *authService
+	if strings.TrimSpace(config.AuthMode) == biographyAuthModeOIDC {
+		store, err = newBiographyDataStore(config.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		auth, err = newAuthService(config, store)
+		if err != nil {
+			return nil, err
+		}
+	}
 	server := &Server{
 		config: config, logger: logger, mux: http.NewServeMux(), doubaoDialer: dialer,
-		interview: interview, resumeTokens: resumeTokens,
+		interview: interview, resumeTokens: resumeTokens, auth: auth, store: store,
 	}
 	server.mux.HandleFunc("GET /healthz", server.health)
+	server.mux.HandleFunc("GET /v1/auth/config", server.authConfig)
+	server.mux.HandleFunc("GET /v1/auth/me", server.authMe)
+	server.mux.HandleFunc("GET /v1/progress", server.userProgress)
+	server.mux.HandleFunc("GET /v1/recordings", server.recordings)
+	server.mux.HandleFunc("GET /v1/recordings/{recordingID}/audio", server.recordingAudio)
+	server.mux.HandleFunc("PUT /v1/recordings/{recordingID}/audio", server.recordingAudio)
+	server.mux.HandleFunc("PATCH /v1/recordings/{recordingID}", server.recording)
+	server.mux.HandleFunc("DELETE /v1/recordings/{recordingID}", server.recording)
 	server.mux.HandleFunc("GET /v1/voice/session", server.voiceSession)
 	return server, nil
 }
 
 func (server *Server) Handler() http.Handler {
-	return server.mux
+	return server.cors(server.mux)
+}
+
+// cors keeps the browser-facing REST endpoints aligned with the WebSocket
+// origin allowlist. The mobile H5 build normally runs on a different local
+// port from the voice gateway, so it needs the same explicit permission.
+func (server *Server) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" && server.isAllowedBrowserOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Add("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			if origin == "" || !server.isAllowedBrowserOrigin(origin) {
+				http.Error(w, "origin is not allowed", http.StatusForbidden)
+				return
+			}
+			w.Header().Add("Vary", "Access-Control-Request-Method")
+			w.Header().Add("Vary", "Access-Control-Request-Headers")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (server *Server) isAllowedBrowserOrigin(rawOrigin string) bool {
+	origin, err := url.Parse(rawOrigin)
+	if err != nil || origin.Scheme == "" || origin.Host == "" || origin.User != nil || origin.Path != "" || origin.RawQuery != "" || origin.Fragment != "" {
+		return false
+	}
+	if origin.Scheme != "http" && origin.Scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(origin.Host)
+	for _, allowed := range server.config.AllowedOrigins {
+		matched, err := path.Match(strings.ToLower(strings.TrimSpace(allowed)), host)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 func (server *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -76,8 +143,49 @@ func (server *Server) health(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "provider": server.config.Provider})
 }
 
+func (server *Server) authConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, server.auth.publicConfig())
+}
+
+func (server *Server) authMe(w http.ResponseWriter, r *http.Request) {
+	user, ok := server.authenticate(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if user == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"authenticated": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "user": publicUser{ID: user.ID, Subject: user.Subject, DisplayName: user.DisplayName}})
+}
+
+func (server *Server) userProgress(w http.ResponseWriter, r *http.Request) {
+	user, ok := server.authenticate(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if user == nil || server.store == nil {
+		project := initialBiographyProject()
+		writeJSON(w, http.StatusOK, buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now()))
+		return
+	}
+	progress, exists, err := server.store.progressForUser(user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "读取进度失败"})
+		return
+	}
+	if !exists {
+		project := newBiographyProject()
+		progress = buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now())
+	}
+	writeJSON(w, http.StatusOK, progress)
+}
+
 func (server *Server) voiceSession(w http.ResponseWriter, r *http.Request) {
-	if !server.authorized(r) {
+	user, ok := server.authenticate(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -91,22 +199,32 @@ func (server *Server) voiceSession(w http.ResponseWriter, r *http.Request) {
 
 	var serveErr error
 	if server.config.Provider == ProviderDoubao {
-		serveErr = server.serveDoubaoSession(r.Context(), connection)
+		serveErr = server.serveDoubaoSession(r.Context(), connection, user)
 	} else {
-		serveErr = server.serveMockSession(r.Context(), connection)
+		serveErr = server.serveMockSession(r.Context(), connection, user)
 	}
 	if serveErr != nil && !isExpectedClose(serveErr) {
 		server.logger.Warn("biography voice session failed", "provider", server.config.Provider, "error", server.safeProviderError(serveErr))
 	}
 }
 
-func (server *Server) authorized(r *http.Request) bool {
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (server *Server) authenticate(r *http.Request) (*authenticatedUser, bool) {
+	if server.auth != nil {
+		user, err := server.auth.authenticateRequest(r)
+		return user, err == nil
+	}
 	expected := server.config.ClientToken
 	if expected == "" {
-		return true
+		return nil, true
 	}
-	provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	return len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+	provided := bearerToken(r)
+	return nil, subtleStringCompare(provided, expected)
 }
 
 type inboundFrame struct {
@@ -213,7 +331,7 @@ func (controller *interviewTurnController) handle(event interviewTurnEvent) (str
 	return "", nil
 }
 
-func (server *Server) serveMockSession(ctx context.Context, connection *websocket.Conn) error {
+func (server *Server) serveMockSession(ctx context.Context, connection *websocket.Conn, user *authenticatedUser) error {
 	inbound := make(chan inboundFrame, 1)
 	go readFrames(ctx, connection, inbound)
 
@@ -223,6 +341,16 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 	var ttsTimer *time.Timer
 	var ttsFinished <-chan time.Time
 	conversation := server.newInterviewConversation()
+	progressSession := activeProgressSession{}
+	saveProgress := func(endedAt *time.Time) {
+		server.saveConversationProgress(conversation, progressSession, endedAt)
+	}
+	defer func() {
+		if progressSession.ID != "" {
+			now := time.Now()
+			saveProgress(&now)
+		}
+	}()
 	projectTasks, projectUpdates := server.startProjectUpdateWorker(ctx, conversation)
 	turns := newInterviewTurnController(ctx, server, conversation)
 
@@ -239,6 +367,9 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 				}
 			}
 			if transcript != "" {
+				progressSession.TranscriptCount++
+				progressSession.TodayRecordingSaved = true
+				saveProgress(nil)
 				if err := enqueueProjectUpdate(ctx, projectTasks, transcript); err != nil {
 					server.logger.Warn("biography project update deferred", "error", err)
 				}
@@ -247,6 +378,7 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
 				return err
 			}
+			saveProgress(nil)
 		case <-ttsFinished:
 			ttsFinished = nil
 			if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSFinished, SessionID: sessionID}); err != nil {
@@ -281,7 +413,7 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					}
 					continue
 				}
-				if err := server.prepareInterviewConversation(ctx, conversation, message); err != nil {
+				if err := server.prepareInterviewConversation(ctx, conversation, user, message); err != nil {
 					server.logger.Warn("biography interview resume rejected", "error", server.safeProviderError(err))
 					if writeErr := writeProtocolError(ctx, connection, sessionID, "resume_invalid", "上次采访暂时无法恢复，请重新开始"); writeErr != nil {
 						return writeErr
@@ -289,6 +421,8 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					continue
 				}
 				sessionID = strings.TrimSpace(message.SessionID)
+				progressSession = activeProgressSession{ID: sessionID, StartedAt: time.Now()}
+				saveProgress(nil)
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
 					return err
 				}
@@ -379,6 +513,11 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 				}
 			case ClientSessionFinish:
 				turns.cancelActive(false)
+				if progressSession.ID != "" {
+					now := time.Now()
+					saveProgress(&now)
+					progressSession = activeProgressSession{}
+				}
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionFinished, SessionID: sessionID}); err != nil {
 					return err
 				}
@@ -392,7 +531,7 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 	}
 }
 
-func (server *Server) serveDoubaoSession(ctx context.Context, connection *websocket.Conn) error {
+func (server *Server) serveDoubaoSession(ctx context.Context, connection *websocket.Conn, user *authenticatedUser) error {
 	inbound := make(chan inboundFrame, 1)
 	upstream := make(chan doubaoUpstreamEvent, 64)
 	go readFrames(ctx, connection, inbound)
@@ -401,10 +540,18 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 	var asr *doubaoASRStream
 	var tts *doubaoTTSStream
 	conversation := server.newInterviewConversation()
+	progressSession := activeProgressSession{}
+	saveProgress := func(endedAt *time.Time) {
+		server.saveConversationProgress(conversation, progressSession, endedAt)
+	}
 	projectTasks, projectUpdates := server.startProjectUpdateWorker(ctx, conversation)
 	turns := newInterviewTurnController(ctx, server, conversation)
 	defer func() {
 		turns.cancelActive(false)
+		if progressSession.ID != "" {
+			now := time.Now()
+			saveProgress(&now)
+		}
 		if asr != nil {
 			_ = asr.Close()
 		}
@@ -434,6 +581,9 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				}
 			}
 			if transcript != "" {
+				progressSession.TranscriptCount++
+				progressSession.TodayRecordingSaved = true
+				saveProgress(nil)
 				if err := enqueueProjectUpdate(ctx, projectTasks, transcript); err != nil {
 					server.logger.Warn("biography project update deferred", "error", err)
 				}
@@ -442,6 +592,7 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
 				return err
 			}
+			saveProgress(nil)
 		case event := <-upstream:
 			isCurrentASR := asr != nil && event.StreamID == asr.id
 			isCurrentTTS := tts != nil && event.StreamID == tts.id
@@ -558,7 +709,7 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					}
 					continue
 				}
-				if err := server.prepareInterviewConversation(ctx, conversation, message); err != nil {
+				if err := server.prepareInterviewConversation(ctx, conversation, user, message); err != nil {
 					server.logger.Warn("biography interview resume rejected", "error", server.safeProviderError(err))
 					if writeErr := writeProtocolError(ctx, connection, sessionID, "resume_invalid", "上次采访暂时无法恢复，请重新开始"); writeErr != nil {
 						return writeErr
@@ -566,6 +717,8 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					continue
 				}
 				sessionID = strings.TrimSpace(message.SessionID)
+				progressSession = activeProgressSession{ID: sessionID, StartedAt: time.Now()}
+				saveProgress(nil)
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
 					return err
 				}
@@ -654,6 +807,11 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				}
 			case ClientSessionFinish:
 				turns.cancelActive(false)
+				if progressSession.ID != "" {
+					now := time.Now()
+					saveProgress(&now)
+					progressSession = activeProgressSession{}
+				}
 				if asr != nil {
 					_ = asr.Close()
 					asr = nil
@@ -696,7 +854,13 @@ func (server *Server) newInterviewConversation() *interviewConversation {
 	return &interviewConversation{Project: initialBiographyProject()}
 }
 
-func (server *Server) prepareInterviewConversation(ctx context.Context, conversation *interviewConversation, message ClientMessage) error {
+func (server *Server) prepareInterviewConversation(ctx context.Context, conversation *interviewConversation, user *authenticatedUser, message ClientMessage) error {
+	if user != nil {
+		conversation.UserID = user.ID
+		if strings.TrimSpace(message.ResumeToken) == "" {
+			server.loadStoredConversation(conversation)
+		}
+	}
 	if valueOrDefault(server.config.InterviewProvider, ProviderMock) != ProviderTMA {
 		return nil
 	}
@@ -708,7 +872,11 @@ func (server *Server) prepareInterviewConversation(ctx context.Context, conversa
 	if strings.TrimSpace(message.ResumeToken) == "" {
 		return nil
 	}
-	claims, err := server.resumeTokens.Decode(message.ResumeToken, clientInstanceID)
+	expectedUserID := ""
+	if user != nil {
+		expectedUserID = user.ID
+	}
+	claims, err := server.resumeTokens.Decode(message.ResumeToken, clientInstanceID, expectedUserID)
 	if err != nil {
 		return err
 	}
@@ -724,6 +892,38 @@ func (server *Server) prepareInterviewConversation(ctx context.Context, conversa
 		conversation.replaceProject(*claims.Project)
 	}
 	return nil
+}
+
+func (server *Server) loadStoredConversation(conversation *interviewConversation) {
+	if server.store == nil || strings.TrimSpace(conversation.UserID) == "" {
+		return
+	}
+	progress, ok, err := server.store.progressForUser(conversation.UserID)
+	if err != nil {
+		server.logger.Warn("biography progress load failed", "error", server.safeProviderError(err))
+		return
+	}
+	if !ok {
+		return
+	}
+	if err := validateBiographyProject(progress.Project); err == nil {
+		conversation.replaceProject(progress.Project)
+	}
+	conversation.projectMu.Lock()
+	conversation.RecentQuestions = append([]string(nil), progress.RecentQuestions...)
+	conversation.projectMu.Unlock()
+}
+
+func (server *Server) saveConversationProgress(conversation *interviewConversation, session activeProgressSession, endedAt *time.Time) {
+	if server.store == nil || strings.TrimSpace(conversation.UserID) == "" {
+		return
+	}
+	project := conversation.projectSnapshot()
+	recent := conversation.recentQuestionsSnapshot()
+	progress := buildBiographyProgress(project, recent, session, endedAt, time.Now())
+	if err := server.store.saveProgress(conversation.UserID, progress); err != nil {
+		server.logger.Warn("biography progress save failed", "error", server.safeProviderError(err))
+	}
 }
 
 func (server *Server) runInterviewTurn(
@@ -839,7 +1039,7 @@ func (server *Server) interviewResumeToken(conversation *interviewConversation, 
 	if server.resumeTokens == nil || strings.TrimSpace(conversation.TMASessionID) == "" {
 		return ""
 	}
-	resumeToken, err := server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, &project)
+	resumeToken, err := server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, conversation.UserID, &project)
 	if err != nil {
 		server.logger.Warn("biography resume token creation failed", "error", server.safeProviderError(err))
 		return ""
@@ -893,7 +1093,7 @@ func (server *Server) writeProjectUpdate(ctx context.Context, connection *websoc
 	resumeToken := ""
 	if server.resumeTokens != nil {
 		var err error
-		resumeToken, err = server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, &update.project)
+		resumeToken, err = server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, conversation.UserID, &update.project)
 		if err != nil {
 			server.logger.Warn("biography project resume token creation failed", "error", server.safeProviderError(err))
 			return nil

@@ -18,6 +18,7 @@ type resumeTokenClaims struct {
 	Version          int               `json:"v"`
 	TMASessionID     string            `json:"sid"`
 	ClientInstanceID string            `json:"cid"`
+	UserID           string            `json:"uid,omitempty"`
 	ExpiresAt        int64             `json:"exp"`
 	Project          *BiographyProject `json:"project,omitempty"`
 }
@@ -48,16 +49,17 @@ func newResumeTokenCodec(secret string, ttl time.Duration) (*resumeTokenCodec, e
 }
 
 func (codec *resumeTokenCodec) Encode(tmaSessionID string, clientInstanceID string) (string, error) {
-	return codec.EncodeState(tmaSessionID, clientInstanceID, nil)
+	return codec.EncodeState(tmaSessionID, clientInstanceID, "", nil)
 }
 
-func (codec *resumeTokenCodec) EncodeState(tmaSessionID string, clientInstanceID string, project *BiographyProject) (string, error) {
+func (codec *resumeTokenCodec) EncodeState(tmaSessionID string, clientInstanceID string, userID string, project *BiographyProject) (string, error) {
 	if codec == nil || strings.TrimSpace(tmaSessionID) == "" || strings.TrimSpace(clientInstanceID) == "" {
 		return "", fmt.Errorf("resume token requires TMA session and client instance IDs")
 	}
 	claims, err := json.Marshal(resumeTokenClaims{
 		Version: resumeTokenVersion, TMASessionID: strings.TrimSpace(tmaSessionID),
-		ClientInstanceID: strings.TrimSpace(clientInstanceID), ExpiresAt: codec.now().Add(codec.ttl).Unix(), Project: project,
+		ClientInstanceID: strings.TrimSpace(clientInstanceID), UserID: strings.TrimSpace(userID),
+		ExpiresAt: codec.now().Add(codec.ttl).Unix(), Project: project,
 	})
 	if err != nil {
 		return "", err
@@ -71,7 +73,7 @@ func (codec *resumeTokenCodec) EncodeState(tmaSessionID string, clientInstanceID
 	return base64.RawURLEncoding.EncodeToString(token), nil
 }
 
-func (codec *resumeTokenCodec) Decode(token string, clientInstanceID string) (resumeTokenClaims, error) {
+func (codec *resumeTokenCodec) Decode(token string, clientInstanceID string, expectedUserID string) (resumeTokenClaims, error) {
 	if codec == nil {
 		return resumeTokenClaims{}, fmt.Errorf("resume tokens are not configured")
 	}
@@ -89,6 +91,9 @@ func (codec *resumeTokenCodec) Decode(token string, clientInstanceID string) (re
 		return resumeTokenClaims{}, fmt.Errorf("invalid biography resume token")
 	}
 	if claims.Version != resumeTokenVersion || claims.TMASessionID == "" || claims.ClientInstanceID != strings.TrimSpace(clientInstanceID) {
+		return resumeTokenClaims{}, fmt.Errorf("invalid biography resume token")
+	}
+	if expectedUserID = strings.TrimSpace(expectedUserID); expectedUserID != "" && claims.UserID != expectedUserID {
 		return resumeTokenClaims{}, fmt.Errorf("invalid biography resume token")
 	}
 	if codec.now().Unix() >= claims.ExpiresAt {

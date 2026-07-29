@@ -34,6 +34,7 @@ type v2ErrorEnvelope struct {
 }
 
 func (s *Server) registerV2Routes() {
+	s.registerKnowledgeRoutes()
 	s.mux.HandleFunc("POST /v2/sessions/{session_id}/runs", s.withV2Request(s.startSessionRunV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs", s.withV2Request(s.listSessionRunsV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}", s.withV2Request(s.getSessionRunV2))
@@ -44,6 +45,27 @@ func (s *Server) registerV2Routes() {
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		s.mux.HandleFunc(method+" /v2/{path...}", s.serveV2Alias)
 	}
+}
+
+func (s *Server) registerKnowledgeRoutes() {
+	s.mux.HandleFunc("GET /v2/knowledge/bases", s.withV2Request(s.listKnowledgeBases))
+	s.mux.HandleFunc("POST /v2/knowledge/bases", s.withV2Request(s.createKnowledgeBase))
+	s.mux.HandleFunc("DELETE /v2/knowledge/bases/{base_id}", s.withV2Request(s.deleteKnowledgeBase))
+	s.mux.HandleFunc("GET /v2/knowledge/bases/{base_id}/documents", s.withV2Request(s.listKnowledgeDocuments))
+	s.mux.HandleFunc("POST /v2/knowledge/bases/{base_id}/documents", s.withV2Request(s.uploadKnowledgeDocument))
+	s.mux.HandleFunc("DELETE /v2/knowledge/documents/{document_id}", s.withV2Request(s.deleteKnowledgeDocument))
+	s.mux.HandleFunc("GET /v2/knowledge/services", s.withV2Request(s.listKnowledgeServices))
+	s.mux.HandleFunc("POST /v2/knowledge/services", s.withV2Request(s.createKnowledgeService))
+	s.mux.HandleFunc("GET /v2/knowledge/services/{service_id}", s.withV2Request(s.getKnowledgeService))
+	s.mux.HandleFunc("PATCH /v2/knowledge/services/{service_id}", s.withV2Request(s.updateKnowledgeService))
+	s.mux.HandleFunc("DELETE /v2/knowledge/services/{service_id}", s.withV2Request(s.deleteKnowledgeService))
+	s.mux.HandleFunc("POST /v2/knowledge/services/{service_id}/ask", s.withV2Request(s.askKnowledgeService))
+	s.mux.HandleFunc("GET /v2/knowledge/services/{service_id}/shares", s.withV2Request(s.listKnowledgeShares))
+	s.mux.HandleFunc("POST /v2/knowledge/services/{service_id}/shares", s.withV2Request(s.createKnowledgeShare))
+	s.mux.HandleFunc("DELETE /v2/knowledge/shares/{share_id}", s.withV2Request(s.deleteRevokedKnowledgeShare))
+	s.mux.HandleFunc("POST /v2/knowledge/shares/{share_id}/revoke", s.withV2Request(s.revokeKnowledgeShare))
+	s.mux.HandleFunc("GET /v2/public/knowledge-shares/{token}", s.withV2Request(s.getPublicKnowledgeShare))
+	s.mux.HandleFunc("POST /v2/public/knowledge-shares/{token}/ask", s.withV2Request(s.askPublicKnowledgeShare))
 }
 
 func (s *Server) streamSessionLiveEventsV2(w http.ResponseWriter, r *http.Request) {

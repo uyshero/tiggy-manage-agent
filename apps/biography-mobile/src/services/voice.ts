@@ -2,6 +2,7 @@ import type { BiographyProject } from "@/services/interview";
 import { decodePCM16LE, encodePCM16LE, encodeWAVPCM16, speechTurnGraceMs, SpeechTurnDetector, StreamingPCM16Resampler } from "@/services/browser-audio";
 import { noSpeechPromptTimeoutMs } from "@/domain/no-speech-policy";
 import { withBiographySpeechPace } from "@/services/speech-style";
+import { currentBiographyAccessToken, withBiographyAccessTokenForWebSocket } from "@/services/auth";
 
 export type VoiceEvent =
   | { type: "partial_transcript"; text: string }
@@ -215,7 +216,7 @@ class GatewayVoiceAdapter implements VoiceAdapter {
     if (this.socket?.readyState === WebSocket.OPEN) return Promise.resolve();
     if (this.connecting) return this.connecting;
     this.connecting = new Promise((resolve, reject) => {
-      const socket = new WebSocket(this.url);
+      const socket = new WebSocket(withBiographyAccessTokenForWebSocket(this.url));
       socket.binaryType = "arraybuffer";
       this.socket = socket;
       socket.addEventListener("open", () => {
@@ -883,7 +884,7 @@ export function createVoiceAdapter(nativeConfig?: Partial<NativeVoiceRuntimeConf
   if (plugin) {
     return new NativeVoiceAdapter(plugin, {
       gatewayURL: String(nativeConfig?.gatewayURL || gatewayURL).trim(),
-      shortLivedToken: nativeConfig?.shortLivedToken?.trim() || undefined,
+      shortLivedToken: nativeConfig?.shortLivedToken?.trim() || currentBiographyAccessToken() || undefined,
     });
   }
   if (gatewayURL) {

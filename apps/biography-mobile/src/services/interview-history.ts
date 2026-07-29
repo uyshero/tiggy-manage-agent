@@ -1,4 +1,5 @@
 import type { BiographyProject } from "@/services/interview";
+import { biographyScopedStorageKey } from "./auth";
 
 export interface LastInterviewSession {
   projectID: string;
@@ -6,11 +7,13 @@ export interface LastInterviewSession {
   durationSeconds: number;
 }
 
-const storageKey = "tma.biography.last_interview_session";
+function storageKey(): string {
+  return biographyScopedStorageKey("last_interview_session");
+}
 
 export function loadLastInterviewSession(): LastInterviewSession | null {
   try {
-    const value = uni.getStorageSync(storageKey) as LastInterviewSession | string | null;
+    const value = uni.getStorageSync(storageKey()) as LastInterviewSession | string | null;
     const parsed = typeof value === "string" ? JSON.parse(value) as LastInterviewSession : value;
     if (!parsed || !parsed.projectID || !Number.isFinite(parsed.endedAt) || !Number.isFinite(parsed.durationSeconds)) return null;
     return { ...parsed, durationSeconds: Math.max(0, Math.round(parsed.durationSeconds)) };
@@ -21,7 +24,7 @@ export function loadLastInterviewSession(): LastInterviewSession | null {
 
 export function saveLastInterviewSession(session: LastInterviewSession): void {
   try {
-    uni.setStorageSync(storageKey, session);
+    uni.setStorageSync(storageKey(), session);
   } catch {
     // Interviewing must continue even when local metadata cannot be cached.
   }

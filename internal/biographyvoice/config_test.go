@@ -57,6 +57,26 @@ func TestDoubaoConfigReusesTMAProviderSecretReference(t *testing.T) {
 	}
 }
 
+func TestOIDCAuthConfigRequiresIssuerAndAudience(t *testing.T) {
+	values := map[string]string{"TMA_BIOGRAPHY_AUTH_MODE": biographyAuthModeOIDC}
+	_, err := ConfigFromEnvironment(func(key string) string { return values[key] })
+	if err == nil || !strings.Contains(err.Error(), "issuer and audience") {
+		t.Fatalf("expected missing OIDC issuer/audience error, got %v", err)
+	}
+	values["TMA_BIOGRAPHY_AUTH_OIDC_ISSUER"] = "https://identity.example"
+	values["TMA_BIOGRAPHY_AUTH_OIDC_AUDIENCE"] = "biography-app"
+	values["TMA_BIOGRAPHY_AUTH_OIDC_CLIENT_ID"] = "biography-mobile"
+	config, err := ConfigFromEnvironment(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.AuthMode != biographyAuthModeOIDC || config.AuthOIDCIssuer != "https://identity.example" ||
+		config.AuthOIDCAudience != "biography-app" || config.AuthOIDCClientID != "biography-mobile" ||
+		config.AuthOIDCHTTPTimeout != 10*time.Second {
+		t.Fatalf("unexpected OIDC auth config: %+v", config)
+	}
+}
+
 func TestDoubaoConfigReadsSecretByEnvironmentReference(t *testing.T) {
 	values := map[string]string{
 		"TMA_BIOGRAPHY_VOICE_PROVIDER":           ProviderDoubao,

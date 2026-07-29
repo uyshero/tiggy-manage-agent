@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-//go:embed inspector/* app/* space/*
+//go:embed inspector/* app/* space/* knowledge/*
 var inspectorAssets embed.FS
 
 func inspectorAssetHandler() http.Handler {
@@ -19,6 +19,10 @@ func appAssetHandler() http.Handler {
 
 func spaceAssetHandler() http.Handler {
 	return assetHandler("space", "/space/assets/")
+}
+
+func knowledgeAssetHandler() http.Handler {
+	return assetHandler("knowledge", "/knowledge/assets/")
 }
 
 func assetHandler(assetRoot string, routePrefix string) http.Handler {

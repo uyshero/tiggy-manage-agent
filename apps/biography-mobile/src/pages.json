@@ -1,6 +1,13 @@
 {
   "pages": [
     {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom",
+        "backgroundColor": "#f6f8f5"
+      }
+    },
+    {
       "path": "pages/interview/index",
       "style": {
         "navigationStyle": "custom",

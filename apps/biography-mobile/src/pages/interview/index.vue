@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { interviewStartLabel, interviewStatusCopy, isInterviewActive, initialInterviewState, reduceInterviewState, type InterviewEvent } from "@/domain/interview-machine";
 import { shouldPauseAfterNoSpeech } from "@/domain/no-speech-policy";
+import { currentBiographyAccessToken, currentBiographyUser, ensureBiographyAuthenticated, fetchBiographyProgress, logoutBiography, type BiographyUser } from "@/services/auth";
 import { continueInterview, getEmptyProject, getInitialProject, openingInterviewPrompt, type Chapter } from "@/services/interview";
 import {
   buildNextInterviewPrompt,
@@ -36,6 +37,7 @@ const recordings = ref<StoredRecording[]>([]);
 const showRecordingManager = ref(false);
 const playingRecordingID = ref("");
 const lastInterviewSession = ref<LastInterviewSession | null>(loadLastInterviewSession());
+const currentUser = ref<BiographyUser | null>(currentBiographyUser());
 const talkButtonHeld = ref(false);
 const talkButtonCanceling = ref(false);
 const pendingTranscriptBuffer = ref("");
@@ -103,6 +105,9 @@ const sessionTimeValue = computed(() => {
 const nextInterviewPrompt = computed(() => buildNextInterviewPrompt(project.value));
 const recordingSummary = computed(() => recordings.value.length === 0 ? "还没有录音" : `已保存 ${recordings.value.length} 次采访`);
 const recordingEntrySummary = computed(() => recordings.value.length === 0 ? "未保存" : `${recordings.value.length} 次`);
+const showUserEntry = computed(() => Boolean(currentUser.value || currentBiographyAccessToken()));
+const currentUserName = computed(() => currentUser.value?.display_name || currentUser.value?.subject || "已登录");
+const currentUserInitial = computed(() => currentUserName.value.trim().slice(0, 1) || "我");
 const canHoldToTalk = computed(() => {
   const inHoldWindow = state.value.status === "ready" || state.value.status === "speaking" || Boolean(pendingTranscriptBuffer.value);
   if (!sessionStarted.value || !inHoldWindow) return false;
@@ -385,6 +390,35 @@ async function exportRecording(recording: StoredRecording) {
   anchor.click();
 }
 
+function confirmLogout() {
+  uni.showModal({
+    title: "退出登录？",
+    content: interviewActive.value
+      ? "会先保存并结束当前采访，再回到登录页。已保存的进度和录音不会删除。"
+      : "会回到登录页。已保存的进度和录音不会删除。",
+    confirmText: "退出",
+    confirmColor: "#b24932",
+    success: (result) => {
+      if (result.confirm) void performLogout();
+    },
+  });
+}
+
+async function performLogout() {
+  clearFollowupTimer();
+  if (interviewActive.value) saveCurrentInterviewSession();
+  try {
+    await voice.value?.finishRecordingSession();
+  } catch {
+    // 退出登录不应被录音收尾失败卡住。
+  }
+  unsubscribeVoice?.();
+  await voice.value?.dispose().catch(() => undefined);
+  logoutBiography();
+  currentUser.value = null;
+  uni.redirectTo({ url: "/pages/login/index" });
+}
+
 function closeRecordingManager() {
   stopRecordingPlayback();
   showRecordingManager.value = false;
@@ -665,8 +699,34 @@ function chapterClass(chapter: Chapter) {
 }
 
 onMounted(() => {
+  void initializeInterviewPage();
+});
+
+async function initializeInterviewPage() {
+  const authenticated = await ensureBiographyAuthenticated();
+  if (!authenticated) {
+    uni.redirectTo({ url: "/pages/login/index" });
+    return;
+  }
+  currentUser.value = currentBiographyUser();
+  const progress = await fetchBiographyProgress();
+  if (progress?.project) {
+    project.value = progress.project as typeof project.value;
+    if (progress.lastInterview) {
+      const endedAt = progress.lastInterview.endedAt
+        ? new Date(progress.lastInterview.endedAt).getTime()
+        : new Date(progress.updatedAt).getTime();
+      const session = {
+        projectID: project.value.id,
+        endedAt: Number.isFinite(endedAt) ? endedAt : Date.now(),
+        durationSeconds: progress.lastInterview.durationSeconds,
+      };
+      lastInterviewSession.value = session;
+      saveLastInterviewSession(session);
+    }
+  }
   voice.value = createVoiceAdapter();
-  if (voice.value.mode !== "mock") project.value = getEmptyProject();
+  if (voice.value.mode !== "mock" && !progress?.project) project.value = getEmptyProject();
   unsubscribeVoice = voice.value.subscribe((event) => void handleVoiceEvent(event));
   void voice.value.prepare().catch((error) => {
     dispatch({ type: "FAIL", message: error instanceof Error ? error.message : "语音服务暂时无法连接" });
@@ -675,7 +735,7 @@ onMounted(() => {
   elapsedTimer = setInterval(() => {
     if (sessionStarted.value && state.value.status !== "paused") elapsedSeconds.value += 1;
   }, 1000);
-});
+}
 
 onBeforeUnmount(() => {
   if (interviewActive.value) saveCurrentInterviewSession();
@@ -709,6 +769,10 @@ onBeforeUnmount(() => {
             <text class="recording-entry-title">录音</text>
             <text class="recording-entry-count">{{ recordingEntrySummary }}</text>
           </view>
+        </button>
+        <button v-if="showUserEntry" class="user-entry" aria-label="账号与退出登录" @click="confirmLogout">
+          <text class="user-avatar" aria-hidden="true">{{ currentUserInitial }}</text>
+          <text class="user-name">{{ currentUserName }}</text>
         </button>
         <view class="session-time">
           <view class="session-time-icon" aria-hidden="true" />
@@ -889,6 +953,43 @@ onBeforeUnmount(() => {
 .brand-mark view:nth-child(3) { height: 17px; }
 
 .topbar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+.user-entry {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 132px;
+  min-height: 48px;
+  margin: 0;
+  padding: 6px 12px 6px 7px;
+  border: 1px solid #e2e8e4;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #31463d;
+}
+.user-entry::after { border: 0; }
+.user-entry:active { transform: scale(0.98); }
+.user-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #e2f1ea;
+  color: #1f7257;
+  font-size: 14px;
+  font-weight: 900;
+}
+.user-name {
+  overflow: hidden;
+  min-width: 0;
+  color: #31463d;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .session-time {
   display: flex;
   align-items: center;
@@ -1329,6 +1430,8 @@ onBeforeUnmount(() => {
   .recordings-entry { min-width: 86px; min-height: 46px; padding: 6px 10px 6px 6px; gap: 7px; }
   .recording-entry-icon { width: 32px; height: 32px; }
   .recording-entry-count { display: none; }
+  .user-entry { width: 46px; min-height: 46px; padding: 6px; justify-content: center; }
+  .user-name { display: none; }
   .session-time { max-width: 104px; min-height: 46px; padding: 6px 9px 6px 6px; gap: 6px; }
   .session-time-icon { width: 28px; height: 28px; }
   .session-time-copy text:first-child { display: none; }

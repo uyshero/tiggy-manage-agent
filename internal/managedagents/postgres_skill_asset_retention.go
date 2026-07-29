@@ -327,7 +327,12 @@ const skillAssetCandidateQuery = `
 		) latest_ref ON TRUE
 		WHERE o.workspace_id = $1
 			AND ($4 = '' OR o.id = $4)
-			AND NOT EXISTS (SELECT 1 FROM session_artifacts sa WHERE sa.object_ref_id = o.id)
+			AND NOT EXISTS (
+				SELECT 1 FROM object_ref_links links
+				WHERE links.object_ref_id = o.id
+					AND links.workspace_id = o.workspace_id
+					AND links.owner_type NOT IN ('skill_asset', 'skill_package_file', 'skill_version')
+			)
 			AND (
 				(picked.object_ref_id IS NOT NULL AND NOT EXISTS (
 					SELECT 1 FROM asset_refs protected
@@ -671,25 +676,7 @@ func (s *PostgresStore) FinalizeSkillAssetGCItem(ctx context.Context, itemID str
 	result, err := tx.ExecContext(ctx, `
 		DELETE FROM object_refs o
 		WHERE o.id = $1
-			AND NOT EXISTS (SELECT 1 FROM session_artifacts sa WHERE sa.object_ref_id = o.id)
-			AND NOT EXISTS (
-				SELECT 1 FROM skills s
-				JOIN skill_versions sv ON sv.skill_id = s.id
-				CROSS JOIN LATERAL jsonb_array_elements(
-					CASE
-						WHEN jsonb_typeof(sv.assets_json) = 'array' THEN sv.assets_json
-						WHEN jsonb_typeof(sv.assets_json->'files') = 'array' THEN sv.assets_json->'files'
-						ELSE '[]'::jsonb
-					END
-				) asset
-				WHERE COALESCE(asset->>'object_ref_id', '') = o.id AND s.status <> 'archived'
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM skill_version_package_files spf
-				JOIN skill_versions sv ON sv.id = spf.skill_version_id
-				JOIN skills s ON s.id = sv.skill_id
-				WHERE spf.object_ref_id = o.id AND s.status <> 'archived'
-			)
+			AND NOT EXISTS (SELECT 1 FROM object_ref_links links WHERE links.object_ref_id = o.id)
 	`, item.Candidate.ObjectRefID)
 	if err != nil {
 		return skillretention.Tombstone{}, err

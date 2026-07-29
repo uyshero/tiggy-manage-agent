@@ -24,6 +24,11 @@ H5 会申请浏览器麦克风权限，将输入连续转换为 16 kHz PCM16，�
 24 kHz PCM16。部署时页面必须使用 HTTPS，网关必须使用 `wss://`。没有麦克风时可将
 `VITE_BIOGRAPHY_VOICE_DEBUG_TEXT` 临时设为 `true`，使用示例文字验证控制协议。
 生产 App 由 Kotlin/Swift 原生插件采集音频，任何长期 Token 都不能写入 `VITE_*` 变量。
+启用 `TMA_BIOGRAPHY_AUTH_MODE=oidc` 后，移动端会先读取 `/v1/auth/config`；若未配置
+`VITE_BIOGRAPHY_AUTH_LOGIN_URL`，H5 默认通过 OIDC discovery 发起 Authorization Code + PKCE
+登录，回跳后换取 token，再调用 `/v1/auth/me` 确认身份。若接入的是 TMA 统一登录层，也可以
+配置 `VITE_BIOGRAPHY_AUTH_LOGIN_URL`，由登录层在回跳地址中返回 `oidc_token` / `access_token`
+或标准 `code + state`。
 
 ## 配置
 
@@ -32,7 +37,14 @@ H5 会申请浏览器麦克风权限，将输入连续转换为 16 kHz PCM16，�
 | `TMA_BIOGRAPHY_VOICE_HTTP_ADDR` | `:8091` |
 | `TMA_BIOGRAPHY_VOICE_PROVIDER` | `mock`；生产使用 `doubao` |
 | `TMA_BIOGRAPHY_VOICE_CLIENT_TOKEN` | 可选的网关 Bearer Token |
-| `TMA_BIOGRAPHY_VOICE_ALLOWED_ORIGINS` | `localhost:*,127.0.0.1:*` |
+| `TMA_BIOGRAPHY_VOICE_ALLOWED_ORIGINS` | `localhost:*,127.0.0.1:*`；浏览器来源 host 白名单，同时用于 WebSocket 和 H5 REST CORS，例如 `app.example.com,localhost:*` |
+| `TMA_BIOGRAPHY_AUTH_MODE` | `disabled`；生产使用 `oidc` |
+| `TMA_BIOGRAPHY_AUTH_OIDC_ISSUER` | OIDC issuer；`oidc` 模式必填 |
+| `TMA_BIOGRAPHY_AUTH_OIDC_AUDIENCE` | 网关校验的 token audience；`oidc` 模式必填 |
+| `TMA_BIOGRAPHY_AUTH_OIDC_JWKS_URL` | 可选显式 JWKS 地址；不填则走 OIDC discovery |
+| `TMA_BIOGRAPHY_AUTH_OIDC_CLIENT_ID` | 暴露给移动端的公开 OIDC client id |
+| `TMA_BIOGRAPHY_AUTH_OIDC_SCOPES` | `openid,profile,email` |
+| `TMA_BIOGRAPHY_DATA_DIR` | `.tma-biography`；保存用户隔离后的项目进度 |
 | `TMA_LLM_API_KEY_ENV` | TMA 豆包 Provider 的 Key 变量名，默认 `TMA_LLM_API_KEY`；语音网关直接复用 |
 | `TMA_BIOGRAPHY_VOICE_DOUBAO_API_KEY_ENV` | 可选覆盖，仅用于特殊部署；常规部署不配置 |
 | `TMA_BIOGRAPHY_VOICE_DOUBAO_ASR_URL` | `wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async`，Agent Plan ASR 2.0 双流地址；实时采访不使用统一返回结果的 `bigmodel_nostream` |
@@ -84,8 +96,11 @@ TMA_BIOGRAPHY_TMA_ORGANIZER_AGENT_ID=agt_xxx
 TMA_BIOGRAPHY_TMA_ENVIRONMENT_ID=env_xxx
 ```
 
-生产环境必须使用 `wss://` 豆包地址、短期用户访问凭据、明确的 Origin allowlist 和
-独立网关鉴权。豆包 API Key 只允许从服务端 Secret/环境变量解析。ASR/TTS 与 TMA 对话
+生产环境必须使用 `wss://` 豆包地址、OIDC 用户凭据、明确的 Origin allowlist 和
+独立网关鉴权。登录由 OIDC Provider / TMA 登录层完成，不自建短信验证码；网关只校验
+Bearer token，并用 `iss + sub` 生成内部用户 ID，隔离自传项目、采访 session、录音、
+转写文本、章节整理结果、最近问题和待确认内容。前端不得传入或伪造 `userId`。
+豆包 API Key 只允许从服务端 Secret/环境变量解析。ASR/TTS 与 TMA 对话
 模型共用这一个 Key，但各自的 Resource ID、WebSocket 地址、TTS 模型和音色仍分开配置。
 网关与 TMA 主服务一样会先加载当前目录的 `.env`，shell 中已显式设置的变量优先。
 
@@ -135,3 +150,7 @@ App 始终保存后收到的版本，不会收到明文 TMA Session ID。恢复�
 `interview.project.updated` 与 TTS 事件相互独立，客户端不能假定两者的到达顺序。真实
 Provider 会使用服务端二进制帧返回 TTS 音频。每个连接只允许主会话循环写 WebSocket；
 后台整理结果通过内部通道交给主循环。取消事件必须清空尚未播放的音频，并保留已经播放到的文本边界。
+H5 WebSocket 无法设置自定义 `Authorization` header，因此 `oidc` 模式下可把当前 OIDC token
+放在 `access_token` 查询参数；原生 App 插件应优先使用 `Authorization: Bearer <token>`。
+App 本地的“上次采访”和录音列表同样按当前 OIDC 用户 ID 分区；退出登录会清空本机 token 和
+`resume_token`，但不会删除已保存的采访进度或录音文件。

@@ -966,6 +966,7 @@ func TestPostgresSkillAssetRetentionGCDeletesEligibleObjects(t *testing.T) {
 	archivedObject := seedObject("archived")
 	orphanObject := seedObject("orphan")
 	protectedObject := seedObject("protected")
+	linkedObject := seedObject("linked")
 	archivedSkill, err := store.CreateSkill(ctx, skills.CreateSkillInput{
 		WorkspaceID: workspaceID, Identifier: "archived-gc-skill", Title: "Archived GC Skill", CreatedBy: "integration-test",
 	})
@@ -993,11 +994,47 @@ func TestPostgresSkillAssetRetentionGCDeletesEligibleObjects(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create protected skill version: %v", err)
 	}
+	linkedAgent, err := store.CreateAgent(CreateAgentInput{
+		WorkspaceID: workspaceID, Name: "linked-gc-agent", Model: "test-model", System: "integration test",
+	})
+	if err != nil {
+		t.Fatalf("create linked artifact agent: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM agents WHERE id = $1`, linkedAgent.ID)
+	})
+	linkedEnvironment, err := store.CreateEnvironment(CreateEnvironmentInput{
+		WorkspaceID: workspaceID, Name: "linked-gc-env", Config: json.RawMessage(`{"type":"integration"}`),
+	})
+	if err != nil {
+		t.Fatalf("create linked artifact environment: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM environments WHERE id = $1`, linkedEnvironment.ID)
+	})
+	linkedSession, err := store.CreateSession(CreateSessionInput{
+		WorkspaceID: workspaceID, AgentID: linkedAgent.ID, EnvironmentID: linkedEnvironment.ID,
+		Title: "Linked GC protection", CreatedBy: "integration-test",
+	})
+	if err != nil {
+		t.Fatalf("create linked artifact session: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM sessions WHERE id = $1`, linkedSession.ID)
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM object_refs WHERE workspace_id = $1`, workspaceID)
+	})
+	if _, err := store.CreateSessionArtifact(CreateSessionArtifactInput{
+		SessionID: linkedSession.ID, ObjectRefID: linkedObject.ref.ID, Name: "linked.pdf",
+		ArtifactType: ArtifactTypeFile, CreatedBy: "integration-test",
+	}); err != nil {
+		t.Fatalf("create linked artifact: %v", err)
+	}
 	old := time.Now().UTC().Add(-48 * time.Hour)
 	if _, err := store.db.ExecContext(ctx, `UPDATE skills SET archived_at = $2 WHERE id = $1`, archivedSkill.ID, old); err != nil {
 		t.Fatalf("backdate archived skill: %v", err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE object_refs SET created_at = $2 WHERE id IN ($1, $3, $4)`, archivedObject.ref.ID, old, orphanObject.ref.ID, protectedObject.ref.ID); err != nil {
+	if _, err := store.db.ExecContext(ctx, `UPDATE object_refs SET created_at = $2 WHERE id IN ($1, $3, $4, $5)`,
+		archivedObject.ref.ID, old, orphanObject.ref.ID, protectedObject.ref.ID, linkedObject.ref.ID); err != nil {
 		t.Fatalf("backdate object refs: %v", err)
 	}
 
@@ -1034,6 +1071,9 @@ func TestPostgresSkillAssetRetentionGCDeletesEligibleObjects(t *testing.T) {
 		if candidate.ObjectRefID == protectedObject.ref.ID {
 			t.Fatalf("active skill object must not be a candidate: %#v", candidate)
 		}
+		if candidate.ObjectRefID == linkedObject.ref.ID {
+			t.Fatalf("linked artifact object must not be a candidate: %#v", candidate)
+		}
 	}
 
 	release, err := store.AcquireSkillAssetGCLock(ctx, workspaceID)
@@ -1064,6 +1104,9 @@ func TestPostgresSkillAssetRetentionGCDeletesEligibleObjects(t *testing.T) {
 	}
 	if _, err := store.GetObjectRef(protectedObject.ref.ID); err != nil {
 		t.Fatalf("protected object ref was removed: %v", err)
+	}
+	if _, err := store.GetObjectRef(linkedObject.ref.ID); err != nil {
+		t.Fatalf("linked artifact object ref was removed: %v", err)
 	}
 	tombstones, err := store.ListSkillAssetGCTombstones(ctx, skillretention.ListTombstonesInput{WorkspaceID: workspaceID, Limit: 10})
 	if err != nil || len(tombstones) != 2 {
@@ -2426,6 +2469,20 @@ func TestPostgresStoreObjectRefsAndSessionArtifacts(t *testing.T) {
 	}
 	if artifact.WorkspaceID != session.WorkspaceID || artifact.EnvironmentID != session.EnvironmentID {
 		t.Fatalf("unexpected artifact: %+v", artifact)
+	}
+	links, err := store.ListObjectRefLinks(object.ID)
+	if err != nil {
+		t.Fatalf("list object ref links: %v", err)
+	}
+	if len(links) != 1 || links[0].ObjectRefID != object.ID || links[0].OwnerType != "session_artifact" ||
+		links[0].OwnerID != artifact.ID || links[0].Role != ArtifactTypeFile {
+		t.Fatalf("unexpected object ref links: %+v", links)
+	}
+	if count, err := store.CountObjectRefLinks(object.ID); err != nil || count != 1 {
+		t.Fatalf("count object ref links: count=%d err=%v", count, err)
+	}
+	if err := store.DeleteObjectRef(object.ID); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), artifact.ID) {
+		t.Fatalf("expected referenced object delete conflict with owner detail, got %v", err)
 	}
 
 	artifacts, err := store.ListSessionArtifacts(session.ID)

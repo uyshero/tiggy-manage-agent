@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1546,7 +1545,7 @@ func (s *Server) getSpace(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getUserApp(w http.ResponseWriter, r *http.Request) {
 	if s.webLogin != nil {
 		if _, err := s.authenticator.authenticate(r); err != nil {
-			http.Redirect(w, r, "/auth/login?return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+			http.Redirect(w, r, s.oidcLoginRedirectURL(r.URL.RequestURI()), http.StatusFound)
 			return
 		}
 	}
@@ -2225,20 +2224,53 @@ func (s *Server) downloadObjectRef(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteObjectRef(w http.ResponseWriter, r *http.Request) {
 	objectRefID := r.PathValue("object_ref_id")
-	count, err := managedagents.CountSessionArtifactsByObjectRefWithContext(r.Context(), s.store, objectRefID)
-	if err != nil {
-		writeError(w, err)
+	links, err := managedagents.ListObjectRefLinksWithContext(r.Context(), s.store, objectRefID)
+	if err == nil && len(links) > 0 {
+		writeError(w, fmt.Errorf("%w: object ref is still referenced by %d owner(s): %s",
+			managedagents.ErrConflict, len(links), summarizeObjectRefLinks(links, 5)))
 		return
 	}
-	if count > 0 {
-		writeError(w, fmt.Errorf("%w: object ref is still referenced by %d artifact(s)", managedagents.ErrConflict, count))
-		return
+	if err != nil {
+		if !errors.Is(err, managedagents.ErrInvalid) {
+			writeError(w, err)
+			return
+		}
+		count, countErr := managedagents.CountObjectRefLinksWithContext(r.Context(), s.store, objectRefID)
+		if countErr != nil {
+			writeError(w, countErr)
+			return
+		}
+		if count > 0 {
+			writeError(w, fmt.Errorf("%w: object ref is still referenced by %d owner(s)", managedagents.ErrConflict, count))
+			return
+		}
 	}
 	if err := managedagents.DeleteObjectRefWithContext(r.Context(), s.store, objectRefID); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func summarizeObjectRefLinks(links []managedagents.ObjectRefLink, limit int) string {
+	if len(links) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(links) {
+		limit = len(links)
+	}
+	parts := make([]string, 0, limit+1)
+	for _, link := range links[:limit] {
+		item := link.OwnerType + "/" + link.OwnerID
+		if link.Role != "" {
+			item += "(" + link.Role + ")"
+		}
+		parts = append(parts, item)
+	}
+	if len(links) > limit {
+		parts = append(parts, fmt.Sprintf("and %d more", len(links)-limit))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (s *Server) deleteSessionArtifact(w http.ResponseWriter, r *http.Request) {

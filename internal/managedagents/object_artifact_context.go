@@ -1,6 +1,9 @@
 package managedagents
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type objectRefCreator interface {
 	CreateObjectRef(input CreateObjectRefInput) (ObjectRef, error)
@@ -12,6 +15,14 @@ type objectRefReader interface {
 
 type objectRefArtifactCounter interface {
 	CountSessionArtifactsByObjectRef(objectRefID string) (int, error)
+}
+
+type objectRefLinkCounter interface {
+	CountObjectRefLinks(objectRefID string) (int, error)
+}
+
+type objectRefLinkLister interface {
+	ListObjectRefLinks(objectRefID string) ([]ObjectRefLink, error)
 }
 
 type objectRefDeleter interface {
@@ -53,6 +64,29 @@ func CountSessionArtifactsByObjectRefWithContext(ctx context.Context, store obje
 		return scoped.CountSessionArtifactsByObjectRefContext(ctx, objectRefID)
 	}
 	return store.CountSessionArtifactsByObjectRef(objectRefID)
+}
+
+func CountObjectRefLinksWithContext(ctx context.Context, store any, objectRefID string) (int, error) {
+	if scoped, ok := store.(ObjectArtifactContextStore); ok {
+		return scoped.CountObjectRefLinksContext(ctx, objectRefID)
+	}
+	if counter, ok := store.(objectRefLinkCounter); ok {
+		return counter.CountObjectRefLinks(objectRefID)
+	}
+	if counter, ok := store.(objectRefArtifactCounter); ok {
+		return counter.CountSessionArtifactsByObjectRef(objectRefID)
+	}
+	return 0, fmt.Errorf("%w: object ref link counting is not supported", ErrInvalid)
+}
+
+func ListObjectRefLinksWithContext(ctx context.Context, store any, objectRefID string) ([]ObjectRefLink, error) {
+	if scoped, ok := store.(ObjectArtifactContextStore); ok {
+		return scoped.ListObjectRefLinksContext(ctx, objectRefID)
+	}
+	if lister, ok := store.(objectRefLinkLister); ok {
+		return lister.ListObjectRefLinks(objectRefID)
+	}
+	return nil, fmt.Errorf("%w: object ref link listing is not supported", ErrInvalid)
 }
 
 func DeleteObjectRefWithContext(ctx context.Context, store objectRefDeleter, id string) error {

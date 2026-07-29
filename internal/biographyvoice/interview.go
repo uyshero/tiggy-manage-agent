@@ -86,6 +86,7 @@ type InterviewReply struct {
 }
 
 type interviewConversation struct {
+	UserID                string
 	TMASessionID          string
 	TMAOrganizerSessionID string
 	ClientInstanceID      string

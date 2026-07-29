@@ -4488,6 +4488,9 @@ func TestDeleteObjectRefRequiresArtifactCleanup(t *testing.T) {
 	if response.Code != http.StatusConflict {
 		t.Fatalf("expected conflict when deleting referenced object, got %d: %s", response.Code, response.Body.String())
 	}
+	if body := response.Body.String(); !strings.Contains(body, "session_artifact") || !strings.Contains(body, "art_000001") {
+		t.Fatalf("expected referenced owner detail in conflict response, got %s", body)
+	}
 
 	request = httptest.NewRequest(http.MethodDelete, "/v1/sessions/"+session.ID+"/artifacts/art_000001", nil)
 	response = httptest.NewRecorder()

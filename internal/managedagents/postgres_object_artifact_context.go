@@ -105,9 +105,13 @@ func (s *PostgresStore) GetObjectRefContext(ctx context.Context, id string) (Obj
 }
 
 func (s *PostgresStore) CountSessionArtifactsByObjectRefContext(ctx context.Context, objectRefID string) (int, error) {
+	return s.CountObjectRefLinksContext(ctx, objectRefID)
+}
+
+func (s *PostgresStore) CountObjectRefLinksContext(ctx context.Context, objectRefID string) (int, error) {
 	scope, ok := DatabaseAccessScopeFromContext(ctx)
 	if !ok {
-		return s.CountSessionArtifactsByObjectRef(objectRefID)
+		return s.CountObjectRefLinks(objectRefID)
 	}
 	if objectRefID == "" {
 		return 0, fmt.Errorf("%w: object ref id is required", ErrInvalid)
@@ -138,6 +142,47 @@ func (s *PostgresStore) CountSessionArtifactsByObjectRefContext(ctx context.Cont
 	return count, nil
 }
 
+func (s *PostgresStore) ListObjectRefLinksContext(ctx context.Context, objectRefID string) ([]ObjectRefLink, error) {
+	scope, ok := DatabaseAccessScopeFromContext(ctx)
+	if !ok {
+		return s.ListObjectRefLinks(objectRefID)
+	}
+	if objectRefID == "" {
+		return nil, fmt.Errorf("%w: object ref id is required", ErrInvalid)
+	}
+	tx, _, err := s.beginDatabaseAccessScope(ctx, scope.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var objectVisible bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM object_refs WHERE id = $1 AND workspace_id = $2)
+	`, objectRefID, scope.WorkspaceID).Scan(&objectVisible); err != nil {
+		return nil, err
+	}
+	if !objectVisible {
+		return nil, ErrForbidden
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT object_ref_id, workspace_id, owner_type, owner_id, role, created_at
+		FROM object_ref_links
+		WHERE object_ref_id = $1 AND workspace_id = $2
+		ORDER BY created_at ASC, owner_type ASC, owner_id ASC, role ASC
+	`, objectRefID, scope.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	links, err := scanObjectRefLinks(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return links, nil
+}
+
 func (s *PostgresStore) DeleteObjectRefContext(ctx context.Context, id string) error {
 	scope, ok := DatabaseAccessScopeFromContext(ctx)
 	if !ok {
@@ -151,6 +196,13 @@ func (s *PostgresStore) DeleteObjectRefContext(ctx context.Context, id string) e
 		return err
 	}
 	defer tx.Rollback()
+	links, err := s.listObjectRefLinksTx(ctx, tx, id, scope.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	if len(links) > 0 {
+		return fmt.Errorf("%w: object ref is still referenced by %d owner(s): %s", ErrConflict, len(links), objectRefLinkSummary(links, 5))
+	}
 	result, err := tx.ExecContext(ctx, `DELETE FROM object_refs WHERE id = $1 AND workspace_id = $2`, id, scope.WorkspaceID)
 	if err != nil {
 		return err

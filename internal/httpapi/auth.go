@@ -707,6 +707,10 @@ func (s *Server) identityMiddleware(next http.Handler) http.Handler {
 		principal, err := s.authenticator.authenticate(r)
 		if err != nil {
 			s.auditAuthorizationDecision(r, Principal{AuthType: s.authenticator.config.Mode}, "denied", "authentication_failed", "", err)
+			if s.shouldRedirectUnauthenticatedToLogin(r) {
+				http.Redirect(w, r, s.oidcLoginRedirectURL(r.URL.RequestURI()), http.StatusFound)
+				return
+			}
 			w.Header().Set("WWW-Authenticate", `Bearer realm="tma"`)
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 			return
@@ -1033,9 +1037,36 @@ func isPublicRequest(r *http.Request) bool {
 	path := r.URL.Path
 	return path == "/" || path == "/health" || path == "/favicon.ico" || path == "/app" || path == "/app/" ||
 		path == "/v1/auth/config" || path == "/v2/auth/config" ||
-		path == "/inspector" || path == "/space" || strings.HasPrefix(path, "/auth/") ||
+		path == "/inspector" || path == "/space" || strings.HasPrefix(path, "/share/") || strings.HasPrefix(path, "/auth/") ||
 		strings.HasPrefix(path, "/app/assets/") || strings.HasPrefix(path, "/inspector/assets/") ||
-		strings.HasPrefix(path, "/space/assets/")
+		strings.HasPrefix(path, "/space/assets/") || strings.HasPrefix(path, "/knowledge/assets/") ||
+		strings.HasPrefix(path, "/v2/public/knowledge-shares/")
+}
+
+func (s *Server) shouldRedirectUnauthenticatedToLogin(r *http.Request) bool {
+	if s == nil || s.webLogin == nil || r == nil {
+		return false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	return r.URL.Path == "/knowledge"
+}
+
+func (s *Server) oidcLoginRedirectURL(returnTo string) string {
+	query := url.Values{}
+	if strings.TrimSpace(returnTo) != "" {
+		query.Set("return_to", returnTo)
+	}
+	fallback := url.URL{Path: "/auth/login", RawQuery: query.Encode()}
+	if s == nil || s.webLogin == nil {
+		return fallback.String()
+	}
+	callbackURL, err := url.Parse(s.webLogin.oauthConfig.RedirectURL)
+	if err != nil || callbackURL.Scheme == "" || callbackURL.Host == "" {
+		return fallback.String()
+	}
+	return (&url.URL{Scheme: callbackURL.Scheme, Host: callbackURL.Host, Path: "/auth/login", RawQuery: query.Encode()}).String()
 }
 
 func isWorkerCredentialRequest(r *http.Request) bool {

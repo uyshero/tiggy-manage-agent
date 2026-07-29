@@ -61,6 +61,8 @@ type SessionContextStore interface {
 type ObjectArtifactContextStore interface {
 	CreateObjectRefContext(ctx context.Context, input CreateObjectRefInput) (ObjectRef, error)
 	GetObjectRefContext(ctx context.Context, id string) (ObjectRef, error)
+	ListObjectRefLinksContext(ctx context.Context, objectRefID string) ([]ObjectRefLink, error)
+	CountObjectRefLinksContext(ctx context.Context, objectRefID string) (int, error)
 	CountSessionArtifactsByObjectRefContext(ctx context.Context, objectRefID string) (int, error)
 	DeleteObjectRefContext(ctx context.Context, id string) error
 	CreateSessionArtifactContext(ctx context.Context, input CreateSessionArtifactInput) (SessionArtifact, error)
@@ -144,6 +146,8 @@ type Store interface {
 	CreateObjectRef(input CreateObjectRefInput) (ObjectRef, error)
 	GetObjectRef(id string) (ObjectRef, error)
 	GetObjectRefScoped(id string, scope AccessScope) (ObjectRef, error)
+	ListObjectRefLinks(objectRefID string) ([]ObjectRefLink, error)
+	CountObjectRefLinks(objectRefID string) (int, error)
 	CountSessionArtifactsByObjectRef(objectRefID string) (int, error)
 	DeleteObjectRef(id string) error
 	CreateSessionArtifact(input CreateSessionArtifactInput) (SessionArtifact, error)

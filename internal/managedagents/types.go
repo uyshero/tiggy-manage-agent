@@ -752,6 +752,15 @@ type CreateObjectRefInput struct {
 	CreatedBy       string          `json:"created_by,omitempty"`
 }
 
+type ObjectRefLink struct {
+	ObjectRefID string    `json:"object_ref_id"`
+	WorkspaceID string    `json:"workspace_id"`
+	OwnerType   string    `json:"owner_type"`
+	OwnerID     string    `json:"owner_id"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 type SessionArtifact struct {
 	ID            string          `json:"id"`
 	WorkspaceID   string          `json:"workspace_id"`

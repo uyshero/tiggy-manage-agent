@@ -1,9 +1,13 @@
 package biographyvoice
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +16,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	jose "github.com/go-jose/go-jose/v4"
+	josejwt "github.com/go-jose/go-jose/v4/jwt"
 )
 
 func TestMockVoiceSessionProtocol(t *testing.T) {
@@ -69,6 +75,313 @@ func TestMockVoiceSessionCanDeferInterviewUntilFollowupRequest(t *testing.T) {
 	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInterviewFollowup, Text: "我想补充第一段\n这是补充内容"})
 	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "我听到了，正在想接下来问什么。")
 	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
+}
+
+func TestGatewayCORSUsesConfiguredOriginAllowlist(t *testing.T) {
+	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1:*", "app.example.com"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allowed := httptest.NewRecorder()
+	allowedRequest := httptest.NewRequest(http.MethodGet, "/v1/auth/config", nil)
+	allowedRequest.Header.Set("Origin", "http://127.0.0.1:5175")
+	server.Handler().ServeHTTP(allowed, allowedRequest)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("expected allowed CORS request, got %d", allowed.Code)
+	}
+	if got := allowed.Header().Get("Access-Control-Allow-Origin"); got != "http://127.0.0.1:5175" {
+		t.Fatalf("unexpected allow origin %q", got)
+	}
+	if !strings.Contains(allowed.Header().Get("Vary"), "Origin") {
+		t.Fatalf("expected Origin vary header, got %q", allowed.Header().Get("Vary"))
+	}
+
+	preflight := httptest.NewRecorder()
+	preflightRequest := httptest.NewRequest(http.MethodOptions, "/v1/progress", nil)
+	preflightRequest.Header.Set("Origin", "https://app.example.com")
+	preflightRequest.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	preflightRequest.Header.Set("Access-Control-Request-Headers", "authorization")
+	server.Handler().ServeHTTP(preflight, preflightRequest)
+	if preflight.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight success, got %d: %s", preflight.Code, preflight.Body.String())
+	}
+	if got := preflight.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") {
+		t.Fatalf("expected Authorization to be allowed, got %q", got)
+	}
+
+	denied := httptest.NewRecorder()
+	deniedRequest := httptest.NewRequest(http.MethodOptions, "/v1/progress", nil)
+	deniedRequest.Header.Set("Origin", "https://attacker.example")
+	server.Handler().ServeHTTP(denied, deniedRequest)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("expected denied preflight, got %d", denied.Code)
+	}
+	if got := denied.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("unexpected CORS allowance for denied origin %q", got)
+	}
+}
+
+func TestRecordingBackupIsPrivateToOIDCUser(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate OIDC test key: %v", err)
+	}
+	provider := newBiographyOIDCTestProvider(t)
+	provider.setKeys(biographyOIDCTestPublicJWK("bio-rsa", "RS256", &key.PublicKey))
+	tokenA := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss": provider.server.URL, "sub": "recording-user-a", "aud": "biography-mobile", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tokenB := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss": provider.server.URL, "sub": "recording-user-b", "aud": "biography-mobile", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	server, err := NewServer(Config{
+		HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"},
+		AuthMode: biographyAuthModeOIDC, AuthOIDCIssuer: provider.server.URL, AuthOIDCAudience: "biography-mobile",
+		AuthOIDCHTTPTimeout: 2 * time.Second, DataDir: t.TempDir(), RecordingMaxBytes: 1024,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var uploadBody bytes.Buffer
+	writer := multipart.NewWriter(&uploadBody)
+	metadata, err := json.Marshal(recordingUploadMetadata{
+		ProjectID: "book-a", ChapterID: "chapter-a", ChapterTitle: "童年", Transcript: "我记得院子里的梧桐树。",
+		DurationMS: 4_500, Title: "童年 · 第 1 次采访", CreatedAt: time.Now().UnixMilli(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.WriteField("metadata", string(metadata)); err != nil {
+		t.Fatal(err)
+	}
+	part, err := writer.CreateFormFile("audio", "recording.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio := []byte("RIFF-recording-private-audio")
+	if _, err := part.Write(audio); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	upload := httptest.NewRecorder()
+	uploadRequest := httptest.NewRequest(http.MethodPut, "/v1/recordings/recording-private-a/audio", &uploadBody)
+	uploadRequest.Header.Set("Authorization", "Bearer "+tokenA)
+	uploadRequest.Header.Set("Content-Type", writer.FormDataContentType())
+	server.Handler().ServeHTTP(upload, uploadRequest)
+	if upload.Code != http.StatusCreated {
+		t.Fatalf("expected recording upload to succeed, got %d: %s", upload.Code, upload.Body.String())
+	}
+
+	listA := httptest.NewRecorder()
+	listARequest := httptest.NewRequest(http.MethodGet, "/v1/recordings?project_id=book-a", nil)
+	listARequest.Header.Set("Authorization", "Bearer "+tokenA)
+	server.Handler().ServeHTTP(listA, listARequest)
+	if listA.Code != http.StatusOK {
+		t.Fatalf("expected owner list to succeed, got %d: %s", listA.Code, listA.Body.String())
+	}
+	var listPayload struct {
+		Recordings []storedRecording `json:"recordings"`
+	}
+	if err := json.NewDecoder(listA.Body).Decode(&listPayload); err != nil {
+		t.Fatal(err)
+	}
+	if len(listPayload.Recordings) != 1 || listPayload.Recordings[0].Transcript != "我记得院子里的梧桐树。" {
+		t.Fatalf("unexpected owner recording list: %+v", listPayload.Recordings)
+	}
+
+	foreignList := httptest.NewRecorder()
+	foreignListRequest := httptest.NewRequest(http.MethodGet, "/v1/recordings?project_id=book-a", nil)
+	foreignListRequest.Header.Set("Authorization", "Bearer "+tokenB)
+	server.Handler().ServeHTTP(foreignList, foreignListRequest)
+	if foreignList.Code != http.StatusOK || strings.Contains(foreignList.Body.String(), "梧桐树") {
+		t.Fatalf("foreign user must not see owner recordings: %d %s", foreignList.Code, foreignList.Body.String())
+	}
+
+	foreignDownload := httptest.NewRecorder()
+	foreignDownloadRequest := httptest.NewRequest(http.MethodGet, "/v1/recordings/recording-private-a/audio", nil)
+	foreignDownloadRequest.Header.Set("Authorization", "Bearer "+tokenB)
+	server.Handler().ServeHTTP(foreignDownload, foreignDownloadRequest)
+	if foreignDownload.Code != http.StatusNotFound {
+		t.Fatalf("expected cross-user audio download to be hidden, got %d", foreignDownload.Code)
+	}
+
+	ownerDownload := httptest.NewRecorder()
+	ownerDownloadRequest := httptest.NewRequest(http.MethodGet, "/v1/recordings/recording-private-a/audio", nil)
+	ownerDownloadRequest.Header.Set("Authorization", "Bearer "+tokenA)
+	server.Handler().ServeHTTP(ownerDownload, ownerDownloadRequest)
+	if ownerDownload.Code != http.StatusOK || !bytes.Equal(ownerDownload.Body.Bytes(), audio) {
+		t.Fatalf("expected owner audio download to match upload, got %d %q", ownerDownload.Code, ownerDownload.Body.Bytes())
+	}
+
+	rename := httptest.NewRecorder()
+	renameRequest := httptest.NewRequest(http.MethodPatch, "/v1/recordings/recording-private-a", strings.NewReader(`{"title":"院子里的梧桐树"}`))
+	renameRequest.Header.Set("Authorization", "Bearer "+tokenA)
+	renameRequest.Header.Set("Content-Type", "application/json")
+	server.Handler().ServeHTTP(rename, renameRequest)
+	if rename.Code != http.StatusOK || !strings.Contains(rename.Body.String(), "院子里的梧桐树") {
+		t.Fatalf("expected recording rename to succeed, got %d: %s", rename.Code, rename.Body.String())
+	}
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/v1/recordings/recording-private-a", nil)
+	deleteRequest.Header.Set("Authorization", "Bearer "+tokenA)
+	deleteResponse := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteResponse, deleteRequest)
+	if deleteResponse.Code != http.StatusNoContent {
+		t.Fatalf("expected recording deletion to succeed, got %d: %s", deleteResponse.Code, deleteResponse.Body.String())
+	}
+}
+
+func TestBiographyAuthFlowProtectsVoiceAndProgress(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate OIDC test key: %v", err)
+	}
+	provider := newBiographyOIDCTestProvider(t)
+	provider.setKeys(biographyOIDCTestPublicJWK("bio-rsa", "RS256", &key.PublicKey))
+	token := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss":  provider.server.URL,
+		"sub":  "oidc-user-1",
+		"aud":  "biography-mobile",
+		"exp":  time.Now().Add(time.Hour).Unix(),
+		"name": "王老师",
+	})
+	server, err := NewServer(Config{
+		HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"},
+		AuthMode: biographyAuthModeOIDC, AuthOIDCIssuer: provider.server.URL, AuthOIDCAudience: "biography-mobile",
+		AuthOIDCHTTPTimeout: 2 * time.Second, DataDir: t.TempDir(),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, response, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session", nil)
+	if err == nil || response == nil || response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized websocket, response=%v err=%v", response, err)
+	}
+
+	meRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/auth/me", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meRequest.Header.Set("Authorization", "Bearer "+token)
+	meResponse, err := http.DefaultClient.Do(meRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer meResponse.Body.Close()
+	if meResponse.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected me status: %s", meResponse.Status)
+	}
+	var me struct {
+		Authenticated bool       `json:"authenticated"`
+		User          publicUser `json:"user"`
+	}
+	if err := json.NewDecoder(meResponse.Body).Decode(&me); err != nil {
+		t.Fatal(err)
+	}
+	if !me.Authenticated || me.User.ID == "" || me.User.Subject != "oidc-user-1" || me.User.DisplayName != "王老师" {
+		t.Fatalf("unexpected OIDC me response: %+v", me)
+	}
+
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session?access_token="+token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.CloseNow()
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionStart, SessionID: "voice-auth"})
+	assertServerMessage(t, ctx, connection, ServerSessionReady, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewProject, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientASRDebugText, Text: "我想留给孩子看"})
+	assertServerMessage(t, ctx, connection, ServerASRPartial, "我想留给孩子看")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInputCommit})
+	assertServerMessage(t, ctx, connection, ServerASRFinal, "我想留给孩子看")
+	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionFinish})
+	assertServerMessageAllowing(t, ctx, connection, ServerSessionFinished, "", ServerProjectUpdated)
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/progress", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	progressResponse, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer progressResponse.Body.Close()
+	if progressResponse.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected progress status: %s", progressResponse.Status)
+	}
+	var progress BiographyProgress
+	if err := json.NewDecoder(progressResponse.Body).Decode(&progress); err != nil {
+		t.Fatal(err)
+	}
+	if progress.LastInterview == nil || progress.LastInterview.TranscriptCount == 0 || progress.Project.ID == "" {
+		t.Fatalf("progress was not isolated and persisted: %+v", progress)
+	}
+}
+
+func TestBiographyOIDCProgressIsIsolatedBetweenUsers(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate OIDC test key: %v", err)
+	}
+	provider := newBiographyOIDCTestProvider(t)
+	provider.setKeys(biographyOIDCTestPublicJWK("bio-rsa", "RS256", &key.PublicKey))
+	tokenA := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss": provider.server.URL, "sub": "user-a", "aud": "biography-mobile", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tokenB := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss": provider.server.URL, "sub": "user-b", "aud": "biography-mobile", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	server, err := NewServer(Config{
+		HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"},
+		AuthMode: biographyAuthModeOIDC, AuthOIDCIssuer: provider.server.URL, AuthOIDCAudience: "biography-mobile",
+		AuthOIDCHTTPTimeout: 2 * time.Second, DataDir: t.TempDir(),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session?access_token="+tokenA, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionStart, SessionID: "voice-user-a"})
+	assertServerMessage(t, ctx, connection, ServerSessionReady, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewProject, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientASRDebugText, Text: "这是 A 用户的私密内容"})
+	assertServerMessage(t, ctx, connection, ServerASRPartial, "这是 A 用户的私密内容")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInputCommit})
+	assertServerMessage(t, ctx, connection, ServerASRFinal, "这是 A 用户的私密内容")
+	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionFinish})
+	assertServerMessageAllowing(t, ctx, connection, ServerSessionFinished, "", ServerProjectUpdated)
+	connection.CloseNow()
+
+	progressA := getProgressWithToken(t, ctx, httpServer.URL, tokenA)
+	if progressA.LastInterview == nil || progressA.LastInterview.TranscriptCount != 1 {
+		t.Fatalf("expected user A progress to be saved: %+v", progressA)
+	}
+	progressB := getProgressWithToken(t, ctx, httpServer.URL, tokenB)
+	if progressB.LastInterview != nil || progressB.Project.OverallProgress != 0 || progressB.Project.ID != "biography_new" {
+		t.Fatalf("user B must not see user A progress: %+v", progressB)
+	}
 }
 
 func TestVoiceSessionRequiresConfiguredClientToken(t *testing.T) {
@@ -385,7 +698,7 @@ func TestServerPreparesEncryptedInterviewResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	conversation := &interviewConversation{Project: newBiographyProject()}
-	err = server.prepareInterviewConversation(t.Context(), conversation, ClientMessage{
+	err = server.prepareInterviewConversation(t.Context(), conversation, nil, ClientMessage{
 		ClientInstanceID: "device-1", ResumeToken: token,
 	})
 	if err != nil {
@@ -394,7 +707,7 @@ func TestServerPreparesEncryptedInterviewResume(t *testing.T) {
 	if engine.resumedSessionID != "session-resume" || conversation.ClientInstanceID != "device-1" || conversation.Project.OverallProgress != 32 {
 		t.Fatalf("unexpected resumed conversation: engine=%+v conversation=%+v", engine, conversation)
 	}
-	if err := server.prepareInterviewConversation(t.Context(), &interviewConversation{}, ClientMessage{
+	if err := server.prepareInterviewConversation(t.Context(), &interviewConversation{}, nil, ClientMessage{
 		ClientInstanceID: "device-2", ResumeToken: token,
 	}); err == nil {
 		t.Fatal("expected cross-device resume rejection")
@@ -408,7 +721,7 @@ func TestServerRestoresProjectFromAsyncUpdateToken(t *testing.T) {
 	}
 	asyncProject := initialBiographyProject()
 	asyncProject.OverallProgress = 77
-	token, err := codec.EncodeState("session-resume", "device-1", &asyncProject)
+	token, err := codec.EncodeState("session-resume", "device-1", "user-1", &asyncProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,13 +731,18 @@ func TestServerRestoresProjectFromAsyncUpdateToken(t *testing.T) {
 		interview: engine, resumeTokens: codec,
 	}
 	conversation := &interviewConversation{Project: newBiographyProject()}
-	if err := server.prepareInterviewConversation(t.Context(), conversation, ClientMessage{
+	if err := server.prepareInterviewConversation(t.Context(), conversation, &authenticatedUser{ID: "user-1"}, ClientMessage{
 		ClientInstanceID: "device-1", ResumeToken: token,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if conversation.projectSnapshot().OverallProgress != 77 {
 		t.Fatalf("async project snapshot was not restored: %+v", conversation.projectSnapshot())
+	}
+	if err := server.prepareInterviewConversation(t.Context(), &interviewConversation{Project: newBiographyProject()}, &authenticatedUser{ID: "user-2"}, ClientMessage{
+		ClientInstanceID: "device-1", ResumeToken: token,
+	}); err == nil {
+		t.Fatal("expected cross-user resume rejection")
 	}
 }
 
@@ -665,4 +983,82 @@ func assertDoubaoTurnEvents(t *testing.T, ctx context.Context, connection *webso
 		}
 		delete(pending, message.Type)
 	}
+}
+
+func getProgressWithToken(t *testing.T, ctx context.Context, baseURL string, token string) BiographyProgress {
+	t.Helper()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/progress", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected progress status: %s", response.Status)
+	}
+	var progress BiographyProgress
+	if err := json.NewDecoder(response.Body).Decode(&progress); err != nil {
+		t.Fatal(err)
+	}
+	return progress
+}
+
+type biographyOIDCTestProvider struct {
+	server *httptest.Server
+
+	mu   sync.RWMutex
+	keys []jose.JSONWebKey
+}
+
+func newBiographyOIDCTestProvider(t *testing.T) *biographyOIDCTestProvider {
+	t.Helper()
+	provider := &biographyOIDCTestProvider{}
+	provider.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			writeJSON(w, http.StatusOK, map[string]any{
+				"issuer":                 provider.server.URL,
+				"jwks_uri":               provider.server.URL + "/jwks",
+				"authorization_endpoint": provider.server.URL + "/authorize",
+				"token_endpoint":         provider.server.URL + "/token",
+			})
+		case "/jwks":
+			provider.mu.RLock()
+			keys := append([]jose.JSONWebKey(nil), provider.keys...)
+			provider.mu.RUnlock()
+			writeJSON(w, http.StatusOK, map[string]any{"keys": keys})
+		default:
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		}
+	}))
+	t.Cleanup(provider.server.Close)
+	return provider
+}
+
+func (p *biographyOIDCTestProvider) setKeys(keys ...jose.JSONWebKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.keys = append([]jose.JSONWebKey(nil), keys...)
+}
+
+func biographyOIDCTestPublicJWK(kid string, algorithm string, key any) jose.JSONWebKey {
+	return jose.JSONWebKey{Key: key, KeyID: kid, Algorithm: algorithm, Use: "sig"}
+}
+
+func signedBiographyOIDCTestToken(t *testing.T, key any, kid string, algorithm string, claims map[string]any) string {
+	t.Helper()
+	options := (&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", kid)
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.SignatureAlgorithm(algorithm), Key: key}, options)
+	if err != nil {
+		t.Fatalf("create %s signer: %v", algorithm, err)
+	}
+	token, err := josejwt.Signed(signer).Claims(claims).Serialize()
+	if err != nil {
+		t.Fatalf("sign %s token: %v", algorithm, err)
+	}
+	return token
 }

@@ -25,6 +25,7 @@ type routeContract struct {
 	RequestContentType    string
 	ResponseSchema        string
 	SuccessStatuses       []string
+	ErrorStatuses         []string
 	ContentType           string
 	Parameters            []contractParameter
 	IntegerPathParameters map[string]bool
@@ -99,10 +100,11 @@ var coreContracts = map[string]routeContract{
 	"get /v2/auth/me":                                                            {ResponseSchema: "AuthState"},
 	"get /v2/workbench-projects":                                                 {ResponseSchema: "WorkbenchProjectList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "plugin_id", In: "query"}}},
 	"post /v2/workbench-projects":                                                {RequestSchema: "CreateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject", SuccessStatuses: []string{"201"}},
-	"patch /v2/workbench-projects/{project_id}":                                  {RequestSchema: "UpdateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject"},
-	"post /v2/workbench-projects/{project_id}/sync":                              {ResponseSchema: "WorkbenchProject"},
-	"post /v2/workbench-projects/{project_id}/runtime/start":                     {ResponseSchema: "WorkbenchProject"},
-	"post /v2/workbench-projects/{project_id}/runtime/stop":                      {ResponseSchema: "WorkbenchProject"},
+	"patch /v2/workbench-projects/{project_id}":                                  {RequestSchema: "UpdateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/workbench-projects/{project_id}/sync":                              {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
+	"post /v2/workbench-projects/{project_id}/runtime/start":                     {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
+	"post /v2/workbench-projects/{project_id}/runtime/stop":                      {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
+	"post /v2/workbench-projects/{project_id}/runtime/run-cleaning":              {ResponseSchema: "WorkbenchProjectRunCleaningResponse", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"409", "503"}},
 	"get /v2/environment-variables":                                              {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"put /v2/environment-variables/{name}":                                       {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"delete /v2/environment-variables/{name}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -125,6 +127,22 @@ var coreContracts = map[string]routeContract{
 	"post /v2/llm-models/{provider_id}/{model}/test":                             {ResponseSchema: "LLMDiagnosticResult"},
 	"delete /v2/llm-models/{provider_id}/{model}":                                {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
 	"get /v2/llm-usage":                                                          {ResponseSchema: "LLMUsageAggregateReport"},
+	"get /v2/knowledge/bases":                                                    {ResponseSchema: "KnowledgeBaseList"},
+	"post /v2/knowledge/bases":                                                   {RequestSchema: "CreateKnowledgeBaseRequest", RequestRequired: true, ResponseSchema: "KnowledgeBase", SuccessStatuses: []string{"201"}},
+	"delete /v2/knowledge/bases/{base_id}":                                       {SuccessStatuses: []string{"204"}},
+	"get /v2/knowledge/bases/{base_id}/documents":                                {ResponseSchema: "KnowledgeDocumentList"},
+	"post /v2/knowledge/bases/{base_id}/documents":                               {RequestSchema: "UploadKnowledgeDocumentRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "KnowledgeDocumentUploadResult", SuccessStatuses: []string{"201"}},
+	"delete /v2/knowledge/documents/{document_id}":                               {SuccessStatuses: []string{"204"}},
+	"get /v2/knowledge/services":                                                 {ResponseSchema: "KnowledgeServiceList"},
+	"post /v2/knowledge/services":                                                {RequestSchema: "CreateKnowledgeServiceRequest", RequestRequired: true, ResponseSchema: "KnowledgeService", SuccessStatuses: []string{"201"}},
+	"get /v2/knowledge/services/{service_id}":                                    {ResponseSchema: "KnowledgeService"},
+	"delete /v2/knowledge/services/{service_id}":                                 {SuccessStatuses: []string{"204"}},
+	"post /v2/knowledge/services/{service_id}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
+	"get /v2/knowledge/services/{service_id}/shares":                             {ResponseSchema: "KnowledgeShareList"},
+	"post /v2/knowledge/services/{service_id}/shares":                            {RequestSchema: "CreateKnowledgeShareRequest", RequestRequired: true, ResponseSchema: "KnowledgeShareCreateResult", SuccessStatuses: []string{"201"}},
+	"post /v2/knowledge/shares/{share_id}/revoke":                                {SuccessStatuses: []string{"204"}},
+	"get /v2/public/knowledge-shares/{token}":                                    {ResponseSchema: "PublicKnowledgeShare"},
+	"post /v2/public/knowledge-shares/{token}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
 	"get /v2/mcp-servers":                                                        {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"post /v2/mcp-servers":                                                       {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
 	"get /v2/mcp-servers/runtime-status":                                         {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -248,6 +266,7 @@ var coreContracts = map[string]routeContract{
 	"post /v2/sessions/{session_id}/artifacts/upload":                            {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
 	"post /v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library": {RequestSchema: "CreateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem", SuccessStatuses: []string{"201"}},
 	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/download":             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream"},
+	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/preview":              {ResponseSchema: "BinaryContent", ContentType: "application/pdf", Parameters: []contractParameter{{Name: "format", In: "query"}}},
 	"delete /v2/sessions/{session_id}/artifacts/{artifact_id}":                   {SuccessStatuses: []string{"204"}},
 	"get /v2/sessions/{session_id}/deliberations":                                {ResponseSchema: "AgentDeliberationList"},
 	"get /v2/sessions/{session_id}/deliberations/{deliberation_id}":              {ResponseSchema: "AgentDeliberationResponse"},
@@ -297,6 +316,22 @@ func main() {
 		routes = append(routes, route{Method: strings.ToLower(match[1]), Path: path})
 	}
 	routes = append(routes,
+		route{Method: "get", Path: "/v2/knowledge/bases"},
+		route{Method: "post", Path: "/v2/knowledge/bases"},
+		route{Method: "delete", Path: "/v2/knowledge/bases/{base_id}"},
+		route{Method: "get", Path: "/v2/knowledge/bases/{base_id}/documents"},
+		route{Method: "post", Path: "/v2/knowledge/bases/{base_id}/documents"},
+		route{Method: "delete", Path: "/v2/knowledge/documents/{document_id}"},
+		route{Method: "get", Path: "/v2/knowledge/services"},
+		route{Method: "post", Path: "/v2/knowledge/services"},
+		route{Method: "get", Path: "/v2/knowledge/services/{service_id}"},
+		route{Method: "delete", Path: "/v2/knowledge/services/{service_id}"},
+		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/ask"},
+		route{Method: "get", Path: "/v2/knowledge/services/{service_id}/shares"},
+		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/shares"},
+		route{Method: "post", Path: "/v2/knowledge/shares/{share_id}/revoke"},
+		route{Method: "get", Path: "/v2/public/knowledge-shares/{token}"},
+		route{Method: "post", Path: "/v2/public/knowledge-shares/{token}/ask"},
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}"},
@@ -1524,6 +1559,7 @@ paths:
         path: {type: string, maxLength: 500}
         kind: {type: string, enum: [file, folder]}
         status: {type: string}
+        content: {type: string, maxLength: 1000000}
     WorkbenchProject:
       type: object
       required: [id, workspace_id, owner_id, plugin_id, name, repository_provider, repository_path, default_branch, sync_status, files, created_by, created_at, updated_at]
@@ -1579,6 +1615,30 @@ paths:
         notebook_url: {type: string, maxLength: 1000}
         active_file: {type: string, maxLength: 500}
         notebook_code: {type: string, maxLength: 1000000}
+        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
+    WorkbenchProjectRuntimeFile:
+      type: object
+      description: Output file materialized by a workbench runtime action.
+      required: [path, content]
+      properties:
+        path: {type: string, maxLength: 500, description: Project-relative output file path.}
+        content: {type: string, maxLength: 1000000, description: UTF-8 file content returned from the runtime workspace.}
+    WorkbenchProjectRunCleaningResult:
+      type: object
+      description: Result of executing the workbench R cleaning workflow.
+      required: [exit_code]
+      properties:
+        exit_code: {type: integer, format: int32, description: Runtime process exit code.}
+        stdout: {type: string, description: Standard output captured from the cleaning run.}
+        stderr: {type: string, description: Standard error captured from the cleaning run.}
+        files: {type: array, description: Output files returned from the runtime workspace, items: {$ref: "#/components/schemas/WorkbenchProjectRuntimeFile"}}
+    WorkbenchProjectRunCleaningResponse:
+      type: object
+      description: Response payload for a completed workbench data-cleaning run.
+      required: [project, result]
+      properties:
+        project: {$ref: "#/components/schemas/WorkbenchProject"}
+        result: {$ref: "#/components/schemas/WorkbenchProjectRunCleaningResult"}
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
@@ -1902,6 +1962,172 @@ paths:
     BinaryContent:
       type: string
       format: binary
+    KnowledgeBase:
+      type: object
+      required: [id, workspace_id, name, description, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        description: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        document_count: {type: integer, format: int32}
+    KnowledgeBaseList:
+      type: object
+      required: [knowledge_bases]
+      properties:
+        knowledge_bases:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeBase"}
+    CreateKnowledgeBaseRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        description: {type: string}
+    KnowledgeDocument:
+      type: object
+      required: [id, workspace_id, knowledge_base_id, object_ref_id, name, content_type, size_bytes, status, chunk_count, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        knowledge_base_id: {type: string}
+        object_ref_id: {type: string}
+        name: {type: string}
+        content_type: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        status: {type: string, enum: [processing, ready, failed]}
+        error_message: {type: string}
+        chunk_count: {type: integer, format: int32}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KnowledgeDocumentList:
+      type: object
+      required: [documents]
+      properties:
+        documents:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeDocument"}
+    UploadKnowledgeDocumentRequest:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, format: binary}
+        name: {type: string}
+        content_type: {type: string}
+    KnowledgeDocumentUploadResult:
+      type: object
+      required: [document, object_ref]
+      properties:
+        document: {$ref: "#/components/schemas/KnowledgeDocument"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+    KnowledgeService:
+      type: object
+      required: [id, workspace_id, name, scenario, knowledge_base_ids, allow_web_search, sensitive_terms, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
+        status: {type: string, enum: [active, disabled]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    KnowledgeServiceList:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeService"}
+    CreateKnowledgeServiceRequest:
+      type: object
+      required: [name, scenario]
+      properties:
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
+    KnowledgeShare:
+      type: object
+      required: [id, service_id, created_by, created_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        service_id: {type: string}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+    KnowledgeShareList:
+      type: object
+      required: [shares]
+      properties:
+        shares:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeShare"}
+    CreateKnowledgeShareRequest:
+      type: object
+      required: [expires_in]
+      properties:
+        expires_in: {type: string, enum: [1d, 7d, 1m, 1y, permanent]}
+    KnowledgeShareCreateResult:
+      type: object
+      required: [share]
+      properties:
+        share: {$ref: "#/components/schemas/KnowledgeShare"}
+        token: {type: string}
+        share_url: {type: string}
+    PublicKnowledgeShare:
+      type: object
+      required: [share, service]
+      properties:
+        share: {$ref: "#/components/schemas/KnowledgeShare"}
+        service: {$ref: "#/components/schemas/KnowledgeService"}
+    KnowledgeAskRequest:
+      type: object
+      required: [question]
+      properties:
+        question: {type: string}
+    KnowledgeAnswerSource:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [knowledge, web]}
+        title: {type: string}
+        url: {type: string}
+        document_id: {type: string}
+        content: {type: string}
+        score: {type: number, format: double}
+    KnowledgeAnswer:
+      type: object
+      required: [answer, refused, sources]
+      properties:
+        service: {$ref: "#/components/schemas/KnowledgeService"}
+        answer: {type: string}
+        refused: {type: boolean}
+        refusal_reason: {type: string}
+        sources:
+          type: array
+          items: {$ref: "#/components/schemas/KnowledgeAnswerSource"}
     ObjectRef:
       type: object
       required: [id, workspace_id, storage_provider, bucket, object_key, size_bytes, visibility, created_by, created_at]
@@ -3647,6 +3873,9 @@ func writeTypedResponses(w *bytes.Buffer, contract routeContract) {
 		if contract.ResponseSchema != "" {
 			fmt.Fprintf(w, "          content:\n            %s:\n              schema:\n                $ref: \"#/components/schemas/%s\"\n", contentType, contract.ResponseSchema)
 		}
+	}
+	for _, status := range contract.ErrorStatuses {
+		fmt.Fprintf(w, "        \"%s\":\n          description: API error\n          content:\n            application/json:\n              schema:\n                $ref: \"#/components/schemas/ErrorEnvelope\"\n", status)
 	}
 	fmt.Fprint(w, `        default:
           description: API error

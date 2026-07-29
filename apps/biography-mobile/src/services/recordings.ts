@@ -1,4 +1,5 @@
 import { encodeWAVPCM16 } from "./browser-audio";
+import { currentBiographyUserID } from "./auth";
 
 export interface RecordingInput {
   projectID: string;
@@ -23,6 +24,7 @@ export interface RecordingSegment {
 
 export interface StoredRecording extends RecordingInput {
   id: string;
+  ownerID: string;
   title: string;
   createdAt: number;
   sizeBytes: number;
@@ -79,12 +81,15 @@ export function formatRecordingDate(createdAt: number): string {
 }
 
 export async function listRecordings(projectID: string): Promise<StoredRecording[]> {
+  const ownerID = currentBiographyUserID();
   const database = await openDatabase();
   try {
     const transaction = database.transaction(storeName, "readonly");
     const index = transaction.objectStore(storeName).index("projectID");
     const recordings = await requestResult(index.getAll(projectID) as IDBRequest<StoredRecording[]>);
-    return recordings.sort((left, right) => right.createdAt - left.createdAt);
+    return recordings
+      .filter((recording) => (recording.ownerID || "anonymous") === ownerID)
+      .sort((left, right) => right.createdAt - left.createdAt);
   } finally {
     database.close();
   }
@@ -97,6 +102,7 @@ export async function saveRecording(input: RecordingInput): Promise<StoredRecord
   const recording: StoredRecording = {
     ...input,
     id: `recording-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    ownerID: currentBiographyUserID(),
     title: createRecordingTitle(input.chapterTitle, chapterCount),
     createdAt: Date.now(),
     sizeBytes: input.audio?.size || input.sizeBytes || 0,
