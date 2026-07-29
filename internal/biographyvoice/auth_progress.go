@@ -27,6 +27,7 @@ type authenticatedUser struct {
 	ID          string
 	Subject     string
 	DisplayName string
+	AccessToken string
 }
 
 type publicUser struct {
@@ -139,7 +140,7 @@ func (auth *authService) authenticateRequest(r *http.Request) (*authenticatedUse
 	if err != nil {
 		return nil, err
 	}
-	return &authenticatedUser{ID: user.ID, Subject: user.OIDCSubject, DisplayName: user.DisplayName}, nil
+	return &authenticatedUser{ID: user.ID, Subject: user.OIDCSubject, DisplayName: user.DisplayName, AccessToken: token}, nil
 }
 
 type biographyDataStore struct {

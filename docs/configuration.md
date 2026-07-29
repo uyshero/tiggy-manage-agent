@@ -111,6 +111,18 @@ Provider/Model 也可通过 API 管理。数据库只保存 API key 的环境变
 `USE_PATH_STYLE`、`ACCESS_KEY_ENV`、`SECRET_KEY_ENV` 和开发用 `ROOT_DIR`。生产使用 S3
 兼容存储、TLS、独立 Bucket、加密、版本化和最小权限；Server/Worker 不持有 Bucket 管理权限。
 
+对象写入后的数据库落库失败会进入 durable cleanup journal。后台重试使用
+`TMA_OBJECT_CLEANUP_WORKER_ENABLED`、`WORKER_INTERVAL_MS`、`BATCH_SIZE`、
+`LEASE_DURATION_MS`、`MAX_ATTEMPTS`、`RETRY_INITIAL_DELAY_MS` 和 `RETRY_MAX_DELAY_MS`。
+系统生成的唯一 key 可以自动删除；调用方指定的 key 或仍有数据库引用的对象记录为
+`blocked`，不会被后台任务直接删除。
+
+后台还会修复 Artifact 写入过程中因进程崩溃遗留的孤立 ObjectRef。扫描由
+`TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_ENABLED` 控制，`ORPHAN_GRACE_PERIOD_SECONDS` 默认为 86400，
+`ORPHAN_SWEEP_LIMIT` 默认为 100。只有 `metadata_json.object_lifecycle.class=managed`、
+超过 grace period 且没有 `object_ref_links` 的引用才会在同一事务中转入 cleanup journal；
+旧数据、Skill 资产和调用方指定的 key 不会被通用扫描删除。
+
 Cloud sandbox 使用 `TMA_CLOUD_SANDBOX_ROOT/DATA_ROOT/IMAGE`，网络由
 `TMA_CLOUD_SANDBOX_ALLOW_NETWORK` 和 Session policy 共同决定。Container/data 的 idle TTL、
 max lifetime 和 cleanup interval 使用同名前缀变量。生产不要挂载 Docker socket 给普通 Server。

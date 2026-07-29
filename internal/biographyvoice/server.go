@@ -84,6 +84,7 @@ func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server
 	server.mux.HandleFunc("GET /v1/recordings", server.recordings)
 	server.mux.HandleFunc("GET /v1/recordings/{recordingID}/audio", server.recordingAudio)
 	server.mux.HandleFunc("PUT /v1/recordings/{recordingID}/audio", server.recordingAudio)
+	server.mux.HandleFunc("POST /v1/recordings/{recordingID}/audio", server.recordingAudio)
 	server.mux.HandleFunc("PATCH /v1/recordings/{recordingID}", server.recording)
 	server.mux.HandleFunc("DELETE /v1/recordings/{recordingID}", server.recording)
 	server.mux.HandleFunc("GET /v1/voice/session", server.voiceSession)
@@ -167,7 +168,7 @@ func (server *Server) userProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil || server.store == nil {
-		project := initialBiographyProject()
+		project := newBiographyProject()
 		writeJSON(w, http.StatusOK, buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now()))
 		return
 	}
@@ -179,6 +180,14 @@ func (server *Server) userProgress(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		project := newBiographyProject()
 		progress = buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now())
+	} else if project, changed := removeLegacyEmptyChapterTemplate(progress.Project); changed {
+		progress.Project = project
+		progress.ActiveChapterTitles = activeChapterTitles(project)
+		progress.PendingConfirmation = ""
+		progress.UpdatedAt = time.Now()
+		if err := server.store.saveProgress(user.ID, progress); err != nil {
+			server.logger.Warn("biography progress migration failed", "error", server.safeProviderError(err))
+		}
 	}
 	writeJSON(w, http.StatusOK, progress)
 }
@@ -478,6 +487,29 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					continue
 				}
 				turns.start(transcript)
+			case ClientInterviewOrderSet:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				order := strings.TrimSpace(message.InterviewOrder)
+				if !validInterviewOrder(order) {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_interview_order", "interview order must be chronological, key_moments, or custom"); err != nil {
+						return err
+					}
+					continue
+				}
+				conversation.setInterviewOrder(order)
+				saveProgress(nil)
+				project := conversation.projectSnapshot()
+				if err := writeServerMessage(ctx, connection, ServerMessage{
+					Type: ServerProjectUpdated, SessionID: sessionID, Project: &project,
+					ResumeToken: server.interviewResumeToken(conversation, project),
+				}); err != nil {
+					return err
+				}
 			case ClientTTSStart:
 				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
 					if err := writeProtocolError(ctx, connection, sessionID, "invalid_tts_request", "active session and text are required"); err != nil {
@@ -761,6 +793,29 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					continue
 				}
 				turns.start(transcript)
+			case ClientInterviewOrderSet:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				order := strings.TrimSpace(message.InterviewOrder)
+				if !validInterviewOrder(order) {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_interview_order", "interview order must be chronological, key_moments, or custom"); err != nil {
+						return err
+					}
+					continue
+				}
+				conversation.setInterviewOrder(order)
+				saveProgress(nil)
+				project := conversation.projectSnapshot()
+				if err := writeServerMessage(ctx, connection, ServerMessage{
+					Type: ServerProjectUpdated, SessionID: sessionID, Project: &project,
+					ResumeToken: server.interviewResumeToken(conversation, project),
+				}); err != nil {
+					return err
+				}
 			case ClientTTSStart:
 				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
 					if err := writeProtocolError(ctx, connection, sessionID, "invalid_tts_request", "active session and text are required"); err != nil {
@@ -848,15 +903,13 @@ func (server *Server) safeProviderError(err error) error {
 }
 
 func (server *Server) newInterviewConversation() *interviewConversation {
-	if valueOrDefault(server.config.InterviewProvider, ProviderMock) == ProviderTMA {
-		return &interviewConversation{Project: newBiographyProject()}
-	}
-	return &interviewConversation{Project: initialBiographyProject()}
+	return &interviewConversation{Project: newBiographyProject()}
 }
 
 func (server *Server) prepareInterviewConversation(ctx context.Context, conversation *interviewConversation, user *authenticatedUser, message ClientMessage) error {
 	if user != nil {
 		conversation.UserID = user.ID
+		conversation.TMAAccessToken = user.AccessToken
 		if strings.TrimSpace(message.ResumeToken) == "" {
 			server.loadStoredConversation(conversation)
 		}
@@ -886,10 +939,11 @@ func (server *Server) prepareInterviewConversation(ctx context.Context, conversa
 		return err
 	}
 	if claims.Project != nil {
-		if err := validateBiographyProject(*claims.Project); err != nil {
+		project, _ := removeLegacyEmptyChapterTemplate(*claims.Project)
+		if err := validateBiographyProject(project); err != nil {
 			return fmt.Errorf("resume token contains invalid biography project: %w", err)
 		}
-		conversation.replaceProject(*claims.Project)
+		conversation.replaceProject(project)
 	}
 	return nil
 }
@@ -906,8 +960,18 @@ func (server *Server) loadStoredConversation(conversation *interviewConversation
 	if !ok {
 		return
 	}
-	if err := validateBiographyProject(progress.Project); err == nil {
-		conversation.replaceProject(progress.Project)
+	project, changed := removeLegacyEmptyChapterTemplate(progress.Project)
+	if changed {
+		progress.Project = project
+		progress.ActiveChapterTitles = activeChapterTitles(project)
+		progress.PendingConfirmation = ""
+		progress.UpdatedAt = time.Now()
+		if err := server.store.saveProgress(conversation.UserID, progress); err != nil {
+			server.logger.Warn("biography progress migration failed", "error", server.safeProviderError(err))
+		}
+	}
+	if err := validateBiographyProject(project); err == nil {
+		conversation.replaceProject(project)
 	}
 	conversation.projectMu.Lock()
 	conversation.RecentQuestions = append([]string(nil), progress.RecentQuestions...)

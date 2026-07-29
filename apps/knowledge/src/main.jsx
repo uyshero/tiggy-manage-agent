@@ -7,6 +7,7 @@ import {
   Database,
   ExternalLink,
   FileText,
+  Globe2,
   Link2,
   Loader2,
   Lock,
@@ -30,7 +31,7 @@ const expiryOptions = [
   ["permanent", "永久"]
 ];
 
-const emptyServiceDraft = { name: "", scenario: "", system_prompt: "", knowledge_base_ids: [], knowledge_document_ids: [], allow_web_search: false, sensitive_terms: "" };
+const emptyServiceDraft = { name: "", scenario: "", system_prompt: "", knowledge_base_ids: [], knowledge_document_ids: [], allow_web_search: true, sensitive_terms: "" };
 
 function serviceToDraft(service) {
   if (!service) return { ...emptyServiceDraft, knowledge_base_ids: [], knowledge_document_ids: [] };
@@ -40,7 +41,7 @@ function serviceToDraft(service) {
     system_prompt: service.system_prompt || "",
     knowledge_base_ids: service.knowledge_base_ids || [],
     knowledge_document_ids: service.knowledge_document_ids || [],
-    allow_web_search: false,
+    allow_web_search: !!service.allow_web_search,
     sensitive_terms: (service.sensitive_terms || []).join("\n")
   };
 }
@@ -48,7 +49,7 @@ function serviceToDraft(service) {
 function draftPayload(draft) {
   return {
     ...draft,
-    allow_web_search: false,
+    allow_web_search: !!draft.allow_web_search,
     knowledge_document_ids: draft.knowledge_document_ids || [],
     sensitive_terms: draft.sensitive_terms.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean)
   };
@@ -134,7 +135,7 @@ function ShareApp() {
                   <h2>{state.service?.name || "知识库服务"}</h2>
                   {state.service?.scenario ? <p>{state.service.scenario}</p> : null}
                 </div>
-                <span className="share-badge"><Search size={15} />知识库检索</span>
+                <span className="share-badge">{state.service?.allow_web_search ? <Globe2 size={15} /> : <Search size={15} />}{state.service?.allow_web_search ? "知识库 + 联网" : "知识库检索"}</span>
               </div>
               <div className="chat-log">
                 {messages.length ? messages.map((message, index) => (
@@ -462,7 +463,7 @@ function AdminApp() {
                   setActiveServiceID(service.id);
                   setServiceMode("detail");
                   setActiveServiceTab("config");
-                }}><strong>{service.name}</strong><span>知识库问答</span></button>)}
+                }}><strong>{service.name}</strong><span>{service.allow_web_search ? "知识库 + 联网" : "仅知识库"}</span></button>)}
               </div>
               <button type="button" className={serviceMode === "create" ? "add-service-button active" : "add-service-button"} onClick={() => {
                 setServiceMode("create");
@@ -478,12 +479,13 @@ function AdminApp() {
                   <SectionTitle icon={Plus} title="创建新服务" action={activeService ? (
                     <button type="button" className="secondary" onClick={() => setServiceMode("detail")}>取消</button>
                   ) : null} />
-                  <p className="panel-hint">先定义主要场景，再绑定知识库；服务只回答场景内且非敏感的问题。</p>
+                  <p className="panel-hint">先定义主要场景，再绑定知识库；开启联网后，知识库没命中也可用网上搜索回答。</p>
                   <div className="service-form">
                     <input value={serviceDraft.name} onChange={(event) => setServiceDraft({ ...serviceDraft, name: event.target.value })} placeholder="服务名称" />
                     <textarea value={serviceDraft.scenario} onChange={(event) => setServiceDraft({ ...serviceDraft, scenario: event.target.value })} placeholder="主要场景，例如：回答售后政策、内部制度、产品交付流程" />
                     <textarea value={serviceDraft.system_prompt} onChange={(event) => setServiceDraft({ ...serviceDraft, system_prompt: event.target.value })} placeholder="服务提示词，可选" />
                     <textarea value={serviceDraft.sensitive_terms} onChange={(event) => setServiceDraft({ ...serviceDraft, sensitive_terms: event.target.value })} placeholder="额外敏感词，逗号或换行分隔" />
+                    <label className="toggle"><input type="checkbox" checked={!!serviceDraft.allow_web_search} onChange={(event) => setServiceDraft({ ...serviceDraft, allow_web_search: event.target.checked })} /><Globe2 size={15} />允许联网搜索</label>
                     <KnowledgeScopeSelector bases={baseOptions} documentsByBase={documentsByBase} draft={serviceDraft} onChange={setServiceDraft} />
                     <button type="button" className="primary" onClick={createService} disabled={busy === "service" || !serviceDraft.name.trim() || !serviceDraft.scenario.trim()}><Plus size={16} />创建服务</button>
                   </div>
@@ -513,6 +515,7 @@ function AdminApp() {
                           <textarea value={serviceEditDraft.scenario} onChange={(event) => setServiceEditDraft({ ...serviceEditDraft, scenario: event.target.value })} placeholder="主要场景，例如：回答售后政策、内部制度、产品交付流程" />
                           <textarea value={serviceEditDraft.system_prompt} onChange={(event) => setServiceEditDraft({ ...serviceEditDraft, system_prompt: event.target.value })} placeholder="服务提示词，可选" />
                           <textarea value={serviceEditDraft.sensitive_terms} onChange={(event) => setServiceEditDraft({ ...serviceEditDraft, sensitive_terms: event.target.value })} placeholder="额外敏感词，逗号或换行分隔" />
+                          <label className="toggle"><input type="checkbox" checked={!!serviceEditDraft.allow_web_search} onChange={(event) => setServiceEditDraft({ ...serviceEditDraft, allow_web_search: event.target.checked })} /><Globe2 size={15} />允许联网搜索</label>
                           <KnowledgeScopeSelector bases={baseOptions} documentsByBase={documentsByBase} draft={serviceEditDraft} onChange={setServiceEditDraft} />
                           <div className="service-actions">
                             <button type="button" className="secondary danger" onClick={deleteService} disabled={busy === "delete-service"}><Trash2 size={16} />删除服务</button>
@@ -551,7 +554,7 @@ function AdminApp() {
 
                     {activeServiceTab === "debug" ? (
                       <div className="service-tab-panel qa-panel">
-                        <p className="panel-hint">在发布分享前先测试场景限制、敏感词拦截和知识库检索命中效果。</p>
+                        <p className="panel-hint">在发布分享前先测试场景限制、敏感词拦截、知识库检索和联网搜索效果。</p>
                         <ServiceSummary service={activeService} bases={bases} />
                         <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="输入测试问题" />
                         <button type="button" className="primary wide" onClick={ask} disabled={!activeServiceID || !question.trim() || busy === "ask"}><Send size={16} />测试问答</button>
@@ -639,7 +642,7 @@ function ServiceSummary({ service, bases }) {
       <p>{service.scenario}</p>
       <div>{names.map((name) => <span key={name}>{name}</span>)}</div>
       {documentCount ? <small>限定 {documentCount} 个文件</small> : null}
-      <small>仅使用知识库检索</small>
+      <small>{service.allow_web_search ? "知识库不足时允许联网搜索" : "仅使用知识库检索"}</small>
     </div>
   );
 }

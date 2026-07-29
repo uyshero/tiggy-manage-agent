@@ -26,7 +26,11 @@ func TestResumeTokenRoundTripRejectsWrongClientAndTampering(t *testing.T) {
 	if _, err := codec.Decode(token, "device-2", ""); err == nil {
 		t.Fatal("expected token to be bound to the client instance")
 	}
-	tampered := token[:len(token)-1] + "A"
+	replacement := "A"
+	if strings.HasSuffix(token, replacement) {
+		replacement = "B"
+	}
+	tampered := token[:len(token)-1] + replacement
 	if _, err := codec.Decode(tampered, "device-1", ""); err == nil {
 		t.Fatal("expected tampered token rejection")
 	}
@@ -54,7 +58,7 @@ func TestResumeTokenRoundTripsProjectState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	project := initialBiographyProject()
+	project := sampleBiographyProject()
 	project.OverallProgress = 68
 	token, err := codec.EncodeState("session-1", "device-1", "user-1", &project)
 	if err != nil {

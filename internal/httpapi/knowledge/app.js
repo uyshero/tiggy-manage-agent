@@ -12660,6 +12660,24 @@ const Database = createLucideIcon("Database", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Earth = createLucideIcon("Earth", [
+  ["path", { d: "M21.54 15H17a2 2 0 0 0-2 2v4.54", key: "1djwo0" }],
+  [
+    "path",
+    {
+      d: "M7 3.34V5a3 3 0 0 0 3 3a2 2 0 0 1 2 2c0 1.1.9 2 2 2a2 2 0 0 0 2-2c0-1.1.9-2 2-2h3.17",
+      key: "1tzkfa"
+    }
+  ],
+  ["path", { d: "M11 21.95V18a2 2 0 0 0-2-2a2 2 0 0 1-2-2v-1a2 2 0 0 0-2-2H2.05", key: "14pb5j" }],
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const ExternalLink = createLucideIcon("ExternalLink", [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
@@ -12854,7 +12872,7 @@ const expiryOptions = [
   ["1y", "1年"],
   ["permanent", "永久"]
 ];
-const emptyServiceDraft = { name: "", scenario: "", system_prompt: "", knowledge_base_ids: [], knowledge_document_ids: [], allow_web_search: false, sensitive_terms: "" };
+const emptyServiceDraft = { name: "", scenario: "", system_prompt: "", knowledge_base_ids: [], knowledge_document_ids: [], allow_web_search: true, sensitive_terms: "" };
 function serviceToDraft(service) {
   if (!service) return { ...emptyServiceDraft, knowledge_base_ids: [], knowledge_document_ids: [] };
   return {
@@ -12863,14 +12881,14 @@ function serviceToDraft(service) {
     system_prompt: service.system_prompt || "",
     knowledge_base_ids: service.knowledge_base_ids || [],
     knowledge_document_ids: service.knowledge_document_ids || [],
-    allow_web_search: false,
+    allow_web_search: !!service.allow_web_search,
     sensitive_terms: (service.sensitive_terms || []).join("\n")
   };
 }
 function draftPayload(draft) {
   return {
     ...draft,
-    allow_web_search: false,
+    allow_web_search: !!draft.allow_web_search,
     knowledge_document_ids: draft.knowledge_document_ids || [],
     sensitive_terms: draft.sensitive_terms.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean)
   };
@@ -12907,7 +12925,7 @@ function Shell({ children }) {
   ] });
 }
 function ShareApp() {
-  var _a, _b;
+  var _a, _b, _c, _d;
   const token = decodeURIComponent(window.location.pathname.replace(/^\/share\//, ""));
   const [state, setState] = reactExports.useState({ loading: true, share: null, service: null, error: "" });
   const [question, setQuestion] = reactExports.useState("");
@@ -12946,8 +12964,8 @@ function ShareApp() {
         ((_b = state.service) == null ? void 0 : _b.scenario) ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: state.service.scenario }) : null
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "share-badge", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Search, { size: 15 }),
-        "知识库检索"
+        ((_c = state.service) == null ? void 0 : _c.allow_web_search) ? /* @__PURE__ */ jsxRuntimeExports.jsx(Earth, { size: 15 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Search, { size: 15 }),
+        ((_d = state.service) == null ? void 0 : _d.allow_web_search) ? "知识库 + 联网" : "知识库检索"
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "chat-log", children: [
@@ -13298,7 +13316,7 @@ ${usedBy.join("、")}` : "";
               setActiveServiceTab("config");
             }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: service.name }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "知识库问答" })
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: service.allow_web_search ? "知识库 + 联网" : "仅知识库" })
             ] }, service.id)) }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: serviceMode === "create" ? "add-service-button active" : "add-service-button", onClick: () => {
               setServiceMode("create");
@@ -13313,12 +13331,17 @@ ${usedBy.join("、")}` : "";
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "service-editor-stack", children: serviceMode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "panel", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(SectionTitle, { icon: Plus, title: "创建新服务", action: activeService ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary", onClick: () => setServiceMode("detail"), children: "取消" }) : null }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-hint", children: "先定义主要场景，再绑定知识库；服务只回答场景内且非敏感的问题。" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-hint", children: "先定义主要场景，再绑定知识库；开启联网后，知识库没命中也可用网上搜索回答。" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "service-form", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: serviceDraft.name, onChange: (event) => setServiceDraft({ ...serviceDraft, name: event.target.value }), placeholder: "服务名称" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceDraft.scenario, onChange: (event) => setServiceDraft({ ...serviceDraft, scenario: event.target.value }), placeholder: "主要场景，例如：回答售后政策、内部制度、产品交付流程" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceDraft.system_prompt, onChange: (event) => setServiceDraft({ ...serviceDraft, system_prompt: event.target.value }), placeholder: "服务提示词，可选" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceDraft.sensitive_terms, onChange: (event) => setServiceDraft({ ...serviceDraft, sensitive_terms: event.target.value }), placeholder: "额外敏感词，逗号或换行分隔" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "toggle", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: !!serviceDraft.allow_web_search, onChange: (event) => setServiceDraft({ ...serviceDraft, allow_web_search: event.target.checked }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Earth, { size: 15 }),
+                "允许联网搜索"
+              ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(KnowledgeScopeSelector, { bases: baseOptions, documentsByBase, draft: serviceDraft, onChange: setServiceDraft }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "primary", onClick: createService$1, disabled: busy === "service" || !serviceDraft.name.trim() || !serviceDraft.scenario.trim(), children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 16 }),
@@ -13343,6 +13366,11 @@ ${usedBy.join("、")}` : "";
                   /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceEditDraft.scenario, onChange: (event) => setServiceEditDraft({ ...serviceEditDraft, scenario: event.target.value }), placeholder: "主要场景，例如：回答售后政策、内部制度、产品交付流程" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceEditDraft.system_prompt, onChange: (event) => setServiceEditDraft({ ...serviceEditDraft, system_prompt: event.target.value }), placeholder: "服务提示词，可选" }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: serviceEditDraft.sensitive_terms, onChange: (event) => setServiceEditDraft({ ...serviceEditDraft, sensitive_terms: event.target.value }), placeholder: "额外敏感词，逗号或换行分隔" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "toggle", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "checkbox", checked: !!serviceEditDraft.allow_web_search, onChange: (event) => setServiceEditDraft({ ...serviceEditDraft, allow_web_search: event.target.checked }) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(Earth, { size: 15 }),
+                    "允许联网搜索"
+                  ] }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx(KnowledgeScopeSelector, { bases: baseOptions, documentsByBase, draft: serviceEditDraft, onChange: setServiceEditDraft }),
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "service-actions", children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "secondary danger", onClick: deleteService$1, disabled: busy === "delete-service", children: [
@@ -13378,7 +13406,7 @@ ${usedBy.join("、")}` : "";
                 )) })
               ] }) : null,
               activeServiceTab === "debug" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "service-tab-panel qa-panel", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-hint", children: "在发布分享前先测试场景限制、敏感词拦截和知识库检索命中效果。" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "panel-hint", children: "在发布分享前先测试场景限制、敏感词拦截、知识库检索和联网搜索效果。" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(ServiceSummary, { service: activeService, bases }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: question, onChange: (event) => setQuestion(event.target.value), placeholder: "输入测试问题" }),
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", className: "primary wide", onClick: ask, disabled: !activeServiceID || !question.trim() || busy === "ask", children: [
@@ -13464,7 +13492,7 @@ function ServiceSummary({ service, bases }) {
       documentCount,
       " 个文件"
     ] }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "仅使用知识库检索" })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: service.allow_web_search ? "知识库不足时允许联网搜索" : "仅使用知识库检索" })
   ] });
 }
 function AnswerBlock({ answer }) {

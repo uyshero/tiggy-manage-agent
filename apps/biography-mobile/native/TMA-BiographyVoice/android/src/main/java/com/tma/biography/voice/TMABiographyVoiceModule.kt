@@ -212,6 +212,25 @@ class TMABiographyVoiceModule : UniModule() {
     }
 
     @UniJSMethod(uiThread = true)
+    fun setInterviewOrder(options: JSONObject?, callback: UniJSCallback) {
+        val order = options?.getString("interviewOrder")?.trim().orEmpty()
+        if (!connected) {
+            callback.invoke(result(false, "语音服务正在重新连接"))
+            return
+        }
+        if (order !in setOf("chronological", "key_moments", "custom")) {
+            callback.invoke(result(false, "采访方式无效"))
+            return
+        }
+        sendJSON(JSONObject().apply {
+            put("type", "interview.order.set")
+            put("session_id", currentSessionID)
+            put("interview_order", order)
+        })
+        callback.invoke(result(true))
+    }
+
+    @UniJSMethod(uiThread = true)
     fun playText(options: JSONObject?, callback: UniJSCallback) {
         val text = options?.getString("text")?.trim().orEmpty()
         if (!connected || text.isEmpty()) {
@@ -391,7 +410,11 @@ class TMABiographyVoiceModule : UniModule() {
                 emit("final_transcript", "text" to transcript)
                 resolvePendingRecording(transcript)
             }
-            "interview.project" -> message.getJSONObject("project")?.let { emit("project_loaded", "project" to it) }
+            "interview.project", "interview.project.updated" -> {
+                val resumeToken = message.getString("resume_token")?.trim().orEmpty()
+                if (resumeToken.isNotEmpty()) securePreferences.edit().putString(resumeTokenKey, resumeToken).apply()
+                message.getJSONObject("project")?.let { emit("project_loaded", "project" to it) }
+            }
             "interview.reply" -> {
                 val resumeToken = message.getString("resume_token")?.trim().orEmpty()
                 if (resumeToken.isNotEmpty()) securePreferences.edit().putString(resumeTokenKey, resumeToken).apply()

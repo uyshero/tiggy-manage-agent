@@ -48,6 +48,16 @@ const (
 	DefaultObjectStorageRootDir                    = "/private/tmp/tma-object-store"
 	DefaultObjectStorageAccessKeyEnv               = "TMA_OBJECT_STORAGE_ACCESS_KEY"
 	DefaultObjectStorageSecretKeyEnv               = "TMA_OBJECT_STORAGE_SECRET_KEY"
+	DefaultObjectCleanupWorkerEnabled              = true
+	DefaultObjectCleanupWorkerIntervalMS           = 30000
+	DefaultObjectCleanupBatchSize                  = 100
+	DefaultObjectCleanupLeaseDurationMS            = 60000
+	DefaultObjectCleanupMaxAttempts                = 8
+	DefaultObjectCleanupRetryInitialDelayMS        = 1000
+	DefaultObjectCleanupRetryMaxDelayMS            = 300000
+	DefaultObjectCleanupOrphanSweepEnabled         = true
+	DefaultObjectCleanupOrphanGracePeriodSec       = 86400
+	DefaultObjectCleanupOrphanSweepLimit           = 100
 	DefaultSkillsBinaryScannerProvider             = "builtin"
 	DefaultSkillsBinaryScannerTokenEnv             = "TMA_SKILLS_BINARY_SCANNER_TOKEN"
 	DefaultSkillsBinaryScannerTimeoutSec           = 30
@@ -193,6 +203,25 @@ type ObjectStorageConfig struct {
 	AccessKey    string
 	SecretKey    string
 	UsePathStyle bool
+	Cleanup      ObjectCleanupConfig
+}
+
+type ObjectCleanupConfig struct {
+	WorkerEnabled            bool
+	WorkerInterval           time.Duration
+	WorkerIntervalMillis     int
+	BatchSize                int
+	LeaseDuration            time.Duration
+	LeaseDurationMillis      int
+	MaxAttempts              int
+	RetryInitialDelay        time.Duration
+	RetryInitialDelayMillis  int
+	RetryMaxDelay            time.Duration
+	RetryMaxDelayMillis      int
+	OrphanSweepEnabled       bool
+	OrphanGracePeriod        time.Duration
+	OrphanGracePeriodSeconds int
+	OrphanSweepLimit         int
 }
 
 type SkillsConfig struct {
@@ -405,6 +434,18 @@ func FromEnv() (Config, error) {
 			AccessKeyEnv: envOrDefault("TMA_OBJECT_STORAGE_ACCESS_KEY_ENV", DefaultObjectStorageAccessKeyEnv),
 			SecretKeyEnv: envOrDefault("TMA_OBJECT_STORAGE_SECRET_KEY_ENV", DefaultObjectStorageSecretKeyEnv),
 			UsePathStyle: envBoolOrDefault("TMA_OBJECT_STORAGE_USE_PATH_STYLE", true),
+			Cleanup: ObjectCleanupConfig{
+				WorkerEnabled:            envBoolOrDefault("TMA_OBJECT_CLEANUP_WORKER_ENABLED", DefaultObjectCleanupWorkerEnabled),
+				WorkerIntervalMillis:     envIntOrDefault("TMA_OBJECT_CLEANUP_WORKER_INTERVAL_MS", DefaultObjectCleanupWorkerIntervalMS),
+				BatchSize:                envIntOrDefault("TMA_OBJECT_CLEANUP_BATCH_SIZE", DefaultObjectCleanupBatchSize),
+				LeaseDurationMillis:      envIntOrDefault("TMA_OBJECT_CLEANUP_LEASE_DURATION_MS", DefaultObjectCleanupLeaseDurationMS),
+				MaxAttempts:              envIntOrDefault("TMA_OBJECT_CLEANUP_MAX_ATTEMPTS", DefaultObjectCleanupMaxAttempts),
+				RetryInitialDelayMillis:  envIntOrDefault("TMA_OBJECT_CLEANUP_RETRY_INITIAL_DELAY_MS", DefaultObjectCleanupRetryInitialDelayMS),
+				RetryMaxDelayMillis:      envIntOrDefault("TMA_OBJECT_CLEANUP_RETRY_MAX_DELAY_MS", DefaultObjectCleanupRetryMaxDelayMS),
+				OrphanSweepEnabled:       envBoolOrDefault("TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_ENABLED", DefaultObjectCleanupOrphanSweepEnabled),
+				OrphanGracePeriodSeconds: envIntOrDefault("TMA_OBJECT_CLEANUP_ORPHAN_GRACE_PERIOD_SECONDS", DefaultObjectCleanupOrphanGracePeriodSec),
+				OrphanSweepLimit:         envIntOrDefault("TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_LIMIT", DefaultObjectCleanupOrphanSweepLimit),
+			},
 		},
 		Skills: SkillsConfig{
 			BinaryScanner: SkillsBinaryScannerConfig{
@@ -549,6 +590,11 @@ func FromEnv() (Config, error) {
 	config.Skills.BinaryScanner.Timeout = time.Duration(config.Skills.BinaryScanner.TimeoutSeconds) * time.Second
 	config.Skills.BinaryScanner.PollInterval = time.Duration(config.Skills.BinaryScanner.PollIntervalMillis) * time.Millisecond
 	config.Skills.AssetRetention.WorkerInterval = time.Duration(config.Skills.AssetRetention.WorkerIntervalSeconds) * time.Second
+	config.ObjectStore.Cleanup.WorkerInterval = time.Duration(config.ObjectStore.Cleanup.WorkerIntervalMillis) * time.Millisecond
+	config.ObjectStore.Cleanup.LeaseDuration = time.Duration(config.ObjectStore.Cleanup.LeaseDurationMillis) * time.Millisecond
+	config.ObjectStore.Cleanup.RetryInitialDelay = time.Duration(config.ObjectStore.Cleanup.RetryInitialDelayMillis) * time.Millisecond
+	config.ObjectStore.Cleanup.RetryMaxDelay = time.Duration(config.ObjectStore.Cleanup.RetryMaxDelayMillis) * time.Millisecond
+	config.ObjectStore.Cleanup.OrphanGracePeriod = time.Duration(config.ObjectStore.Cleanup.OrphanGracePeriodSeconds) * time.Second
 	config.ToolRuntime.ContainerIdleTTL = time.Duration(config.ToolRuntime.ContainerIdleTTLSeconds) * time.Second
 	config.ToolRuntime.ContainerMaxLifetime = time.Duration(config.ToolRuntime.ContainerMaxLifetimeSeconds) * time.Second
 	config.ToolRuntime.ContainerCleanupInterval = time.Duration(config.ToolRuntime.ContainerCleanupIntervalSeconds) * time.Second
@@ -583,6 +629,27 @@ func FromEnv() (Config, error) {
 	}
 	if config.LLM.RetryBaseDelayMillis < 1 || config.LLM.RetryBaseDelayMillis > 60000 {
 		return Config{}, errors.New("TMA_LLM_RETRY_BASE_DELAY_MS must be between 1 and 60000")
+	}
+	if config.ObjectStore.Cleanup.WorkerIntervalMillis < 100 || config.ObjectStore.Cleanup.WorkerIntervalMillis > 3600000 {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_WORKER_INTERVAL_MS must be between 100 and 3600000")
+	}
+	if config.ObjectStore.Cleanup.BatchSize < 1 || config.ObjectStore.Cleanup.BatchSize > 1000 {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_BATCH_SIZE must be between 1 and 1000")
+	}
+	if config.ObjectStore.Cleanup.LeaseDurationMillis <= config.ObjectStore.Cleanup.WorkerIntervalMillis {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_LEASE_DURATION_MS must exceed the worker interval")
+	}
+	if config.ObjectStore.Cleanup.MaxAttempts < 1 || config.ObjectStore.Cleanup.MaxAttempts > 100 {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_MAX_ATTEMPTS must be between 1 and 100")
+	}
+	if config.ObjectStore.Cleanup.RetryInitialDelayMillis < 1 || config.ObjectStore.Cleanup.RetryMaxDelayMillis < config.ObjectStore.Cleanup.RetryInitialDelayMillis {
+		return Config{}, errors.New("object cleanup retry delays are invalid")
+	}
+	if config.ObjectStore.Cleanup.OrphanGracePeriodSeconds < 60 || config.ObjectStore.Cleanup.OrphanGracePeriodSeconds > 2592000 {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_ORPHAN_GRACE_PERIOD_SECONDS must be between 60 and 2592000")
+	}
+	if config.ObjectStore.Cleanup.OrphanSweepLimit < 1 || config.ObjectStore.Cleanup.OrphanSweepLimit > 1000 {
+		return Config{}, errors.New("TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_LIMIT must be between 1 and 1000")
 	}
 	if err := config.ToolRuntime.ReadFileLimits.Validate(); err != nil {
 		return Config{}, err

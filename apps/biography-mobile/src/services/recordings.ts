@@ -29,6 +29,9 @@ export interface StoredRecording extends RecordingInput {
   createdAt: number;
   sizeBytes: number;
   segments?: RecordingSegment[];
+  /** Local storage remains the source of truth while the private backup is in flight. */
+  backupStatus?: "pending" | "synced" | "failed";
+  backupError?: string;
 }
 
 const databaseName = "tma-biography-recordings";
@@ -107,6 +110,8 @@ export async function saveRecording(input: RecordingInput): Promise<StoredRecord
     createdAt: Date.now(),
     sizeBytes: input.audio?.size || input.sizeBytes || 0,
     segments: [recordingSegment(input)],
+    backupStatus: "pending",
+    backupError: "",
   };
   const database = await openDatabase();
   try {
@@ -134,6 +139,8 @@ export async function appendRecordingSegment(existing: StoredRecording | undefin
         filePath: input.filePath,
         sizeBytes: segment.sizeBytes,
         segments: [segment],
+        backupStatus: "pending",
+        backupError: "",
       }
     : {
         ...existing,
@@ -141,6 +148,8 @@ export async function appendRecordingSegment(existing: StoredRecording | undefin
         durationMs: existing.durationMs + input.durationMs,
         sizeBytes: existing.sizeBytes + segment.sizeBytes,
         segments: [...previousSegments, segment],
+        backupStatus: "pending",
+        backupError: "",
       };
   const database = await openDatabase();
   try {
@@ -206,6 +215,29 @@ export async function deleteRecording(id: string): Promise<void> {
     const transaction = database.transaction(storeName, "readwrite");
     transaction.objectStore(storeName).delete(id);
     await transactionFinished(transaction);
+  } finally {
+    database.close();
+  }
+}
+
+export async function updateRecordingBackupStatus(
+  id: string,
+  status: NonNullable<StoredRecording["backupStatus"]>,
+  error = "",
+): Promise<StoredRecording | undefined> {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const recording = await requestResult(store.get(id) as IDBRequest<StoredRecording | undefined>);
+    if (!recording) {
+      await transactionFinished(transaction);
+      return undefined;
+    }
+    const updated: StoredRecording = { ...recording, backupStatus: status, backupError: error };
+    store.put(updated);
+    await transactionFinished(transaction);
+    return updated;
   } finally {
     database.close();
   }

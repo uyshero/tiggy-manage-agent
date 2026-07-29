@@ -3293,6 +3293,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 			{`DELETE FROM skill_marketplace_entries WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM skill_marketplace_policies WHERE workspace_id IN ($1, $2) OR organization_id = 'org_default'`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM session_artifacts WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
+			{`DELETE FROM object_cleanup_journal WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM observability_exporter_runs WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM operator_audit_log WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM security_audit_outbox WHERE workspace_id IN ($1, $2) OR id LIKE $3`, []any{alphaWorkspace, betaWorkspace, "saud_rls_" + suffix + "%"}},
@@ -3331,7 +3332,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
 		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, evaluation_rubrics, managed_environment_variables,
-			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_ref_links, object_refs,
+			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_cleanup_journal, object_ref_links, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
 		run_evaluations, session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
@@ -3355,7 +3356,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
 		tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
-			tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq, tma_run_evaluation_id_seq,
+			tma_object_cleanup_journal_id_seq, tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq, tma_run_evaluation_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,
 		tma_skill_asset_gc_run_id_seq, tma_skill_asset_gc_tombstone_id_seq,
 		tma_skill_asset_retention_policy_id_seq, tma_skill_asset_retention_policy_version_id_seq,
@@ -4715,7 +4716,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_cleanup_journal", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}
@@ -4899,6 +4900,12 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	assertCrossScopeInsertRejected("object_refs", `
 		INSERT INTO object_refs (id, workspace_id, bucket, object_key)
 		VALUES ('obj_raw_cross_scope', $1, 'rls-test', 'raw-cross-scope.txt')
+	`, betaWorkspace)
+	assertCrossScopeInsertRejected("object_cleanup_journal", `
+		INSERT INTO object_cleanup_journal (
+			id, workspace_id, storage_provider, bucket, object_key, reason, safe_to_delete, status
+		) VALUES ('ocj_raw_cross_scope', $1, 'localfs', 'rls-test', 'raw-cross-scope.txt',
+			'object_ref_create_failed', true, 'pending')
 	`, betaWorkspace)
 	assertCrossScopeInsertRejected("object_ref_links", `
 		INSERT INTO object_ref_links (object_ref_id, workspace_id, owner_type, owner_id, role)

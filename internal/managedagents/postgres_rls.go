@@ -432,6 +432,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('managed_environment_variables', 'managed_environment_variables_workspace_isolation'),
 				('mcp_registry_server_versions', 'mcp_registry_server_versions_workspace_isolation'),
 				('mcp_registry_servers', 'mcp_registry_servers_workspace_isolation'),
+				('object_cleanup_journal', 'object_cleanup_journal_workspace_isolation'),
 				('object_ref_links', 'object_ref_links_workspace_isolation'),
 				('object_refs', 'object_refs_workspace_isolation'),
 				('observability_exporter_runs', 'observability_exporter_runs_session_isolation'),
@@ -519,8 +520,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 55 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000096")
+	if checked != 56 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000100")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
@@ -538,6 +539,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_mcp_registry_server_id_seq'),
 				('tma_mcp_registry_version_id_seq'),
 				('tma_object_ref_id_seq'),
+				('tma_object_cleanup_journal_id_seq'),
 				('tma_observability_exporter_run_id_seq'),
 				('tma_operator_audit_id_seq'),
 				('tma_run_evaluation_id_seq'),
@@ -589,8 +591,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 34 {
-		return errors.New("tenant resource sequences are missing; apply migrations through 000090")
+	if checked != 35 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000100")
 	}
 	return nil
 }

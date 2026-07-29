@@ -68,7 +68,7 @@ func TestKnowledgeHTTPUploadAskAndPublicShare(t *testing.T) {
 		"allow_web_search": true,
 		"sensitive_terms": ["内部密钥", "报价底价"]
 	}`, http.StatusOK)
-	if updated.Name != "售后政策助手 V2" || updated.AllowWebSearch || updated.SystemPrompt == "" || len(updated.SensitiveTerms) != 2 {
+	if updated.Name != "售后政策助手 V2" || !updated.AllowWebSearch || updated.SystemPrompt == "" || len(updated.SensitiveTerms) != 2 {
 		t.Fatalf("unexpected updated service: %+v", updated)
 	}
 	service = updated

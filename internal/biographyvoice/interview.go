@@ -20,9 +20,16 @@ const BiographyInterviewerSystemPrompt = `你是一位受过人物采访训练�
 
 const BiographyOrganizerSystemPrompt = `你是一位严谨的中文传记编辑，负责在后台把用户的口述更新到自传项目中。
 你的任务是识别成书目标，整理章节进度，并评估事件、场景、感受、关系、人生选择、后来影响和今日回望等叙事材料。
+章节目录从空白开始。只能根据用户已经讲出的真实经历、人物、地点或他本人使用的说法创建和命名章节；不要预设“童年、求学、工作、家庭”等通用目录，也不要为了凑目录新增章节。材料还不足以形成章节时可以保留空目录。
 这是后台整理分支，不参与实时对话；只依据用户明确说过的内容工作，保留未被新信息改变的内容，不虚构事实，也不生成采访话术。
 章节整理和事实核验的具体方法由已启用的专业 Skills 提供。
 当请求要求 JSON 时，只输出符合指定结构的 JSON，不添加 Markdown 或额外解释。`
+
+const (
+	InterviewOrderChronological = "chronological"
+	InterviewOrderKeyMoments    = "key_moments"
+	InterviewOrderCustom        = "custom"
+)
 
 type BiographyBookGoal struct {
 	Type          string `json:"type"`
@@ -56,6 +63,7 @@ type BiographyProject struct {
 	ID                    string             `json:"id"`
 	OwnerName             string             `json:"ownerName"`
 	Title                 string             `json:"title"`
+	InterviewOrder        string             `json:"interviewOrder,omitempty"`
 	BookGoal              *BiographyBookGoal `json:"bookGoal,omitempty"`
 	OverallProgress       int                `json:"overallProgress"`
 	CompletedChapterCount int                `json:"completedChapterCount"`
@@ -71,6 +79,7 @@ type interviewChapterContext struct {
 }
 
 type interviewProjectContext struct {
+	InterviewOrder      string                    `json:"interviewOrder,omitempty"`
 	BookGoal            *BiographyBookGoal        `json:"bookGoal,omitempty"`
 	OverallProgress     int                       `json:"overallProgress"`
 	PendingConfirmation string                    `json:"pendingConfirmation,omitempty"`
@@ -87,6 +96,7 @@ type InterviewReply struct {
 
 type interviewConversation struct {
 	UserID                string
+	TMAAccessToken        string
 	TMASessionID          string
 	TMAOrganizerSessionID string
 	ClientInstanceID      string
@@ -102,6 +112,15 @@ type interviewEngine interface {
 	Resume(context.Context, *interviewConversation, string) error
 }
 
+func validInterviewOrder(order string) bool {
+	switch strings.TrimSpace(order) {
+	case InterviewOrderChronological, InterviewOrderKeyMoments, InterviewOrderCustom:
+		return true
+	default:
+		return false
+	}
+}
+
 type streamingInterviewEngine interface {
 	ContinueStreaming(context.Context, *interviewConversation, string, func(string) error) (InterviewReply, error)
 }
@@ -115,7 +134,7 @@ func (mockInterviewEngine) Resume(_ context.Context, _ *interviewConversation, _
 func (mockInterviewEngine) Continue(_ context.Context, conversation *interviewConversation, transcript string) (InterviewReply, error) {
 	project := conversation.projectSnapshot()
 	if project.ID == "" {
-		project = initialBiographyProject()
+		project = newBiographyProject()
 	}
 	reply := InterviewReply{Expression: "温和、真诚，语速稍慢，停顿自然", Project: project}
 	switch {
@@ -126,23 +145,30 @@ func (mockInterviewEngine) Continue(_ context.Context, conversation *interviewCo
 		reply.Text = "您把周师傅的严格和教会您的东西放在一起讲，这段关系很有分量。那时候您心里最强烈的感受是什么？"
 		reply.Expression = "温暖、有兴趣，具体承接刚才内容后轻轻追问，语速稍慢"
 	default:
-		reply.Text = "第一次离家去上海，这会是书里很有画面的一段。您还记得出门那天，家里或路上哪个画面最清楚吗？"
+		reply.Text = "您刚才这段经历很值得慢慢留下来。回到那个时候，您最先想起的是哪个画面？"
 	}
 	return reply, nil
 }
 
-func (mockInterviewEngine) Organize(_ context.Context, conversation *interviewConversation, _ string) (BiographyProject, error) {
+func (mockInterviewEngine) Organize(_ context.Context, conversation *interviewConversation, transcript string) (BiographyProject, error) {
 	project := conversation.projectSnapshot()
 	if project.ID == "" {
-		project = initialBiographyProject()
+		project = newBiographyProject()
+	}
+	if len(project.Chapters) == 0 && strings.TrimSpace(transcript) != "" {
+		project.Chapters = append(project.Chapters, newInterviewChapter(transcript, 1))
 	}
 	for index := range project.Chapters {
-		if project.Chapters[index].ID == "craft" {
-			project.Chapters[index].Progress = min(84, project.Chapters[index].Progress+12)
-			project.Chapters[index].Detail = "已经补充第一次离家和师傅的故事"
+		if project.Chapters[index].Status != "collecting" {
+			continue
 		}
+		project.Chapters[index].Progress = min(84, project.Chapters[index].Progress+12)
+		project.Chapters[index].Detail = "正在补充这段经历里的场景、感受和重要关系"
+		break
 	}
-	project.OverallProgress = min(48, project.OverallProgress+3)
+	if len(project.Chapters) > 0 {
+		project.OverallProgress = min(48, project.OverallProgress+3)
+	}
 	conversation.replaceProject(project)
 	return project, nil
 }
@@ -156,7 +182,24 @@ type tmaInterviewBackend interface {
 }
 
 type sdkTMABackend struct {
-	client *tma.Client
+	client  *tma.Client
+	baseURL string
+}
+
+type tmaBearerScopedBackend interface {
+	ForBearerToken(string) (tmaInterviewBackend, error)
+}
+
+func (backend sdkTMABackend) ForBearerToken(token string) (tmaInterviewBackend, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return backend, nil
+	}
+	client, err := tma.NewClient(backend.baseURL, tma.WithBearerToken(token))
+	if err != nil {
+		return nil, err
+	}
+	return sdkTMABackend{client: client, baseURL: backend.baseURL}, nil
 }
 
 func (backend sdkTMABackend) CreateSession(ctx context.Context, request tma.CreateSessionRequest) (string, error) {
@@ -228,7 +271,7 @@ func newInterviewEngine(config Config) (interviewEngine, error) {
 		return nil, err
 	}
 	return &tmaInterviewEngine{
-		backend: sdkTMABackend{client: client}, agentID: config.TMAAgentID,
+		backend: sdkTMABackend{client: client, baseURL: config.TMABaseURL}, agentID: config.TMAAgentID,
 		organizerAgentID: valueOrDefault(config.TMAOrganizerAgentID, config.TMAAgentID),
 		environmentID:    config.TMAEnvironmentID, workspaceID: config.TMAWorkspaceID, ownerID: config.TMAOwnerID,
 		interviewThinking:                  config.TMAInterviewThinking,
@@ -249,9 +292,13 @@ func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, convers
 	if err := engine.ensureInterviewSession(ctx, conversation); err != nil {
 		return InterviewReply{}, err
 	}
+	backend, err := engine.backendForConversation(conversation)
+	if err != nil {
+		return InterviewReply{}, err
+	}
 	project := conversation.projectSnapshot()
 	if project.ID == "" {
-		project = initialBiographyProject()
+		project = newBiographyProject()
 		conversation.replaceProject(project)
 	}
 	prompt, err := buildInterviewPrompt(transcript, project, conversation.recentQuestionsSnapshot())
@@ -259,7 +306,7 @@ func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, convers
 		return InterviewReply{}, err
 	}
 	var output json.RawMessage
-	if streaming, ok := engine.backend.(tmaStreamingInterviewBackend); ok && onText != nil {
+	if streaming, ok := backend.(tmaStreamingInterviewBackend); ok && onText != nil {
 		var streamed strings.Builder
 		lastPreview := ""
 		output, err = streaming.RunStreaming(ctx, conversation.TMASessionID, prompt, func(delta string) error {
@@ -272,7 +319,7 @@ func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, convers
 			return onText(preview)
 		})
 	} else {
-		output, err = engine.backend.Run(ctx, conversation.TMASessionID, prompt)
+		output, err = backend.Run(ctx, conversation.TMASessionID, prompt)
 	}
 	if err != nil {
 		return InterviewReply{}, fmt.Errorf("run TMA interview turn: %w", err)
@@ -341,8 +388,12 @@ func extractPartialInterviewText(raw string) string {
 }
 
 func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *interviewConversation, transcript string) (BiographyProject, error) {
+	backend, err := engine.backendForConversation(conversation)
+	if err != nil {
+		return BiographyProject{}, err
+	}
 	if conversation.TMAOrganizerSessionID == "" {
-		sessionID, err := engine.backend.CreateSession(ctx, tma.CreateSessionRequest{
+		sessionID, err := backend.CreateSession(ctx, tma.CreateSessionRequest{
 			WorkspaceID: engine.workspaceID, OwnerID: engine.ownerID, AgentID: engine.organizerAgentID,
 			EnvironmentID: engine.environmentID, Title: "自传章节整理",
 		})
@@ -356,7 +407,7 @@ func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *in
 	if err != nil {
 		return BiographyProject{}, err
 	}
-	output, err := engine.backend.Run(ctx, conversation.TMAOrganizerSessionID, prompt)
+	output, err := backend.Run(ctx, conversation.TMAOrganizerSessionID, prompt)
 	if err != nil {
 		return BiographyProject{}, fmt.Errorf("run TMA biography organizer: %w", err)
 	}
@@ -364,6 +415,9 @@ func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *in
 	if err != nil {
 		return BiographyProject{}, err
 	}
+	// Interview order belongs to the user, not the background organizer. Retain
+	// the setting even if an older organizer prompt omits it.
+	updated.InterviewOrder = current.InterviewOrder
 	conversation.replaceProject(updated)
 	return updated, nil
 }
@@ -371,17 +425,21 @@ func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *in
 func (engine *tmaInterviewEngine) Resume(ctx context.Context, conversation *interviewConversation, sessionID string) error {
 	conversation.sessionMu.Lock()
 	defer conversation.sessionMu.Unlock()
-	session, err := engine.backend.GetSession(ctx, sessionID)
+	backend, err := engine.backendForConversation(conversation)
+	if err != nil {
+		return err
+	}
+	session, err := backend.GetSession(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("get TMA interview session: %w", err)
 	}
 	if session.AgentID != engine.agentID {
 		return fmt.Errorf("TMA session does not belong to the biography interviewer")
 	}
-	if err := engine.configureInterviewSession(ctx, sessionID); err != nil {
+	if err := engine.configureInterviewSession(ctx, conversation, sessionID); err != nil {
 		return fmt.Errorf("configure thinking for resumed TMA interview session: %w", err)
 	}
-	events, err := engine.backend.ListEvents(ctx, sessionID)
+	events, err := backend.ListEvents(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("list TMA interview events: %w", err)
 	}
@@ -408,21 +466,25 @@ func (engine *tmaInterviewEngine) ensureInterviewSession(ctx context.Context, co
 	if conversation.TMASessionID != "" {
 		return nil
 	}
-	sessionID, err := engine.backend.CreateSession(ctx, tma.CreateSessionRequest{
+	backend, err := engine.backendForConversation(conversation)
+	if err != nil {
+		return err
+	}
+	sessionID, err := backend.CreateSession(ctx, tma.CreateSessionRequest{
 		WorkspaceID: engine.workspaceID, OwnerID: engine.ownerID, AgentID: engine.agentID,
 		EnvironmentID: engine.environmentID, Title: "自传采访",
 	})
 	if err != nil {
 		return fmt.Errorf("create TMA interview session: %w", err)
 	}
-	if err := engine.configureInterviewSession(ctx, sessionID); err != nil {
+	if err := engine.configureInterviewSession(ctx, conversation, sessionID); err != nil {
 		return fmt.Errorf("configure TMA interview session: %w", err)
 	}
 	conversation.TMASessionID = sessionID
 	return nil
 }
 
-func (engine *tmaInterviewEngine) configureInterviewSession(ctx context.Context, sessionID string) error {
+func (engine *tmaInterviewEngine) configureInterviewSession(ctx context.Context, conversation *interviewConversation, sessionID string) error {
 	threshold := engine.interviewCompactionThreshold
 	if threshold <= 0 {
 		threshold = 8000
@@ -431,9 +493,20 @@ func (engine *tmaInterviewEngine) configureInterviewSession(ctx context.Context,
 	if summaryMaxChars <= 0 {
 		summaryMaxChars = 4000
 	}
-	return engine.backend.ConfigureInterviewSession(
+	backend, err := engine.backendForConversation(conversation)
+	if err != nil {
+		return err
+	}
+	return backend.ConfigureInterviewSession(
 		ctx, sessionID, valueOrDefault(engine.interviewThinking, "disabled"), threshold, summaryMaxChars,
 	)
+}
+
+func (engine *tmaInterviewEngine) backendForConversation(conversation *interviewConversation) (tmaInterviewBackend, error) {
+	if scoped, ok := engine.backend.(tmaBearerScopedBackend); ok {
+		return scoped.ForBearerToken(conversation.TMAAccessToken)
+	}
+	return engine.backend, nil
 }
 
 func buildInterviewPrompt(transcript string, project BiographyProject, recentQuestions []string) (string, error) {
@@ -451,7 +524,8 @@ func buildInterviewPrompt(transcript string, project BiographyProject, recentQue
 - 按需要先用一句简短的肯定、表扬、共情、复述或安静承接，让用户感觉被认真听见；不要求每轮都显性表扬。
 - 肯定和表扬必须基于用户刚说的具体内容，例如细节、选择、关系、价值或讲述本身；避免机械套话，尤其不要反复使用“您真不容易”“您太棒了”。
 - 遇到痛苦、羞愧、创伤、失去或冲突经历，以理解、陪伴、允许停顿和询问是否愿意继续为主，不做空泛表扬。
-- 然后只问一个开放问题。优先补充对未来成书最重要的场景、感受、关系、选择、影响或今日回望，不要默认沿时间线问“后来呢”。
+- 然后只问一个开放问题。优先补充对未来成书最重要的场景、感受、关系、选择、影响或今日回望。
+- 必须遵循当前项目的 interviewOrder 作为默认采访方向：chronological 时优先顺着人生阶段慢慢往前走；key_moments 时优先追问最值得留给读者的转折、关系或重要故事；custom 时由用户决定先后，不要把他拉回时间线。无论哪种方式，用户临时跳到别的经历、修改旧内容或补充历史问题时，都自然承接，不要纠正或阻止。
 - 如果用户提到不确定的时间、地点、人物或关系，用温和方式确认，接受“记不清”。
 - 用户本轮可能是在补充刚才或历史问题的答案，尤其是出现“补充一下”“刚才”“上一段”“我再说一点”等表达时；先把它当作补充理解，不要重复问已问过的问题。
 - 不要重复 recentQuestions 中的问题，也不要换个说法问同一件事。若用户已经回答了其中一个问题，承接补充后追问另一个仍缺的维度。
@@ -465,7 +539,8 @@ func buildInterviewPrompt(transcript string, project BiographyProject, recentQue
 
 func buildInterviewProjectContext(project BiographyProject, recentQuestions []string) interviewProjectContext {
 	brief := interviewProjectContext{
-		BookGoal: project.BookGoal, OverallProgress: project.OverallProgress,
+		InterviewOrder: project.InterviewOrder,
+		BookGoal:       project.BookGoal, OverallProgress: project.OverallProgress,
 		PendingConfirmation: project.PendingConfirmation,
 		AvailableChapters:   make([]string, 0, len(project.Chapters)),
 		ActiveChapters:      make([]interviewChapterContext, 0, len(project.Chapters)),
@@ -494,8 +569,10 @@ func buildProjectUpdatePrompt(transcript string, project BiographyProject) (stri
 	}
 	return fmt.Sprintf(`这是异步章节整理任务，不要生成采访话术。根据本轮口述更新自传项目，保留未被新信息改变的内容，不把推测写成事实。
 bookGoal.type 只能是 undecided|family_legacy|life_journey|era_witness|craft_legacy|literary_memoir|mixed；只有用户明确表达时 confirmed 才为 true。
+章节目录一开始为空。只有用户已经讲出足以成为一个故事单元的真实材料时，才新增章节；章节名应使用用户说过的人物、地点、经历或有辨识度的表达。不要预设或补回“童年、求学、工作、家庭”等通用目录，也不要为凑目录新增空章节。
+interviewOrder 是用户选择的采访方向，必须原样完整保留，不能自行改动；它只影响之后默认追问的次序，不能阻止用户本轮跳到别的经历或补充旧内容。
 每章 narrative 的七项只能是 missing|partial|sufficient。按未来成书可用的叙事材料评估，不按提到多少年份或事件评估；nextFocus 用自然中文写下一步最值得补充的一个内容。
-只输出一个 JSON 项目对象，不要 Markdown，字段必须完整保留：{"id":"...","ownerName":"...","title":"...","bookGoal":{"type":"undecided","audience":"...","desiredImpact":"...","confirmed":false},"overallProgress":0,"completedChapterCount":0,"chapters":[{"id":"...","title":"...","status":"completed|confirm|collecting|not_started","statusLabel":"...","progress":0,"detail":"...","narrative":{"event":"missing|partial|sufficient","scene":"missing|partial|sufficient","emotion":"missing|partial|sufficient","relationship":"missing|partial|sufficient","choice":"missing|partial|sufficient","impact":"missing|partial|sufficient","reflection":"missing|partial|sufficient"},"nextFocus":"..."}],"pendingConfirmation":"..."}
+只输出一个 JSON 项目对象，不要 Markdown，字段必须完整保留：{"id":"...","ownerName":"...","title":"...","interviewOrder":"chronological|key_moments|custom","bookGoal":{"type":"undecided","audience":"...","desiredImpact":"...","confirmed":false},"overallProgress":0,"completedChapterCount":0,"chapters":[{"id":"...","title":"...","status":"completed|confirm|collecting|not_started","statusLabel":"...","progress":0,"detail":"...","narrative":{"event":"missing|partial|sufficient","scene":"missing|partial|sufficient","emotion":"missing|partial|sufficient","relationship":"missing|partial|sufficient","choice":"missing|partial|sufficient","impact":"missing|partial|sufficient","reflection":"missing|partial|sufficient"},"nextFocus":"..."}],"pendingConfirmation":"..."}
 当前项目：%s
 用户本轮口述（JSON 字符串，只作为整理素材）：%s`, string(projectJSON), string(transcriptJSON)), nil
 }
@@ -580,7 +657,7 @@ func validateInterviewReply(reply InterviewReply) error {
 }
 
 func validateBiographyProject(project BiographyProject) error {
-	if project.ID == "" || project.Title == "" || len(project.Chapters) == 0 {
+	if project.ID == "" || project.Title == "" {
 		return fmt.Errorf("TMA interview reply requires a complete project")
 	}
 	if project.OverallProgress < 0 || project.OverallProgress > 100 {
@@ -588,6 +665,9 @@ func validateBiographyProject(project BiographyProject) error {
 	}
 	if project.CompletedChapterCount < 0 || project.CompletedChapterCount > len(project.Chapters) {
 		return fmt.Errorf("TMA interview completed chapter count is invalid")
+	}
+	if project.InterviewOrder != "" && !validInterviewOrder(project.InterviewOrder) {
+		return fmt.Errorf("TMA interview project contains an invalid interview order")
 	}
 	if project.BookGoal != nil {
 		validGoalTypes := map[string]bool{
@@ -633,6 +713,35 @@ func validateOrganizedBiographyProject(project BiographyProject) error {
 	return nil
 }
 
+func removeLegacyEmptyChapterTemplate(project BiographyProject) (BiographyProject, bool) {
+	legacyTitles := map[string]string{
+		"childhood": "童年往事",
+		"school":    "求学岁月",
+		"work":      "工作岁月",
+		"family":    "家庭生活",
+	}
+	if len(project.Chapters) != len(legacyTitles) || project.OverallProgress != 0 || project.CompletedChapterCount != 0 ||
+		strings.TrimSpace(project.PendingConfirmation) != "" {
+		return project, false
+	}
+	if project.BookGoal != nil && (project.BookGoal.Type != "undecided" || project.BookGoal.Confirmed ||
+		strings.TrimSpace(project.BookGoal.Audience) != "" || strings.TrimSpace(project.BookGoal.DesiredImpact) != "") {
+		return project, false
+	}
+	for _, chapter := range project.Chapters {
+		if legacyTitles[chapter.ID] != chapter.Title || chapter.Status != "not_started" || chapter.Progress != 0 {
+			return project, false
+		}
+		coverage := chapter.Narrative
+		if coverage == nil || coverage.Event != "missing" || coverage.Scene != "missing" || coverage.Emotion != "missing" ||
+			coverage.Relationship != "missing" || coverage.Choice != "missing" || coverage.Impact != "missing" || coverage.Reflection != "missing" {
+			return project, false
+		}
+	}
+	project.Chapters = []Chapter{}
+	return project, true
+}
+
 func (conversation *interviewConversation) projectSnapshot() BiographyProject {
 	conversation.projectMu.RLock()
 	defer conversation.projectMu.RUnlock()
@@ -642,6 +751,12 @@ func (conversation *interviewConversation) projectSnapshot() BiographyProject {
 func (conversation *interviewConversation) replaceProject(project BiographyProject) {
 	conversation.projectMu.Lock()
 	conversation.Project = cloneBiographyProject(project)
+	conversation.projectMu.Unlock()
+}
+
+func (conversation *interviewConversation) setInterviewOrder(order string) {
+	conversation.projectMu.Lock()
+	conversation.Project.InterviewOrder = order
 	conversation.projectMu.Unlock()
 }
 
@@ -670,31 +785,11 @@ func (conversation *interviewConversation) recordQuestion(question string) {
 	}
 }
 
-func initialBiographyProject() BiographyProject {
-	return BiographyProject{
-		ID: "bio_demo", OwnerName: "王叔", Title: "我的人生故事",
-		BookGoal:        &BiographyBookGoal{Type: "family_legacy", Audience: "子女和孙辈", DesiredImpact: "记住家里怎样一步步走到今天", Confirmed: true},
-		OverallProgress: 32, CompletedChapterCount: 1,
-		PendingConfirmation: "父亲当年工作的具体地点",
-		Chapters: []Chapter{
-			{ID: "childhood", Title: "童年往事", Status: "completed", StatusLabel: "已完成", Progress: 100, Detail: "已经确认并整理成稿", Narrative: narrativeCoverage("sufficient", "sufficient", "sufficient", "sufficient", "partial", "sufficient", "sufficient"), NextFocus: "有新回忆时再补充童年里的重要选择"},
-			{ID: "school", Title: "求学岁月", Status: "confirm", StatusLabel: "待确认", Progress: 72, Detail: "还有 2 处细节需要确认", Narrative: narrativeCoverage("sufficient", "partial", "partial", "partial", "missing", "partial", "missing"), NextFocus: "确认父亲工作的地点，再谈那段经历后来带来的影响"},
-			{ID: "craft", Title: "学木工的日子", Status: "collecting", StatusLabel: "讲述中", Progress: 46, Detail: "正在收集师傅和第一次工作的故事", Narrative: narrativeCoverage("partial", "partial", "partial", "sufficient", "partial", "missing", "missing"), NextFocus: "补充第一次独立完成木器时的感受和后来影响"},
-			{ID: "family", Title: "成家以后", Status: "not_started", StatusLabel: "未开始", Progress: 0, Detail: "还没有开始讲述", Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing"), NextFocus: "等待开始讲述家庭生活中的重要记忆"},
-		},
-	}
-}
-
 func newBiographyProject() BiographyProject {
 	return BiographyProject{
 		ID: "biography_new", Title: "我的人生故事",
 		BookGoal: &BiographyBookGoal{Type: "undecided"},
-		Chapters: []Chapter{
-			newEmptyChapter("childhood", "童年往事"),
-			newEmptyChapter("school", "求学岁月"),
-			newEmptyChapter("work", "工作岁月"),
-			newEmptyChapter("family", "家庭生活"),
-		},
+		Chapters: []Chapter{},
 	}
 }
 
@@ -721,10 +816,19 @@ func narrativeCoverage(event, scene, emotion, relationship, choice, impact, refl
 	}
 }
 
-func newEmptyChapter(id, title string) Chapter {
+func newInterviewChapter(transcript string, sequence int) Chapter {
+	text := strings.Join(strings.Fields(strings.TrimSpace(transcript)), "")
+	characters := []rune(text)
+	if len(characters) > 14 {
+		text = string(characters[:14]) + "…"
+	}
+	if text == "" {
+		text = "刚才这段经历"
+	}
 	return Chapter{
-		ID: id, Title: title, Status: "not_started", StatusLabel: "未开始", Detail: "等待您慢慢讲述",
-		Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing"),
-		NextFocus: "等待开始讲述这一阶段最想留下的记忆",
+		ID: fmt.Sprintf("chapter-%d", sequence), Title: fmt.Sprintf("关于“%s”的故事", text),
+		Status: "collecting", StatusLabel: "讲述中", Progress: 15, Detail: "正在收集这段经历里的场景和感受",
+		Narrative: narrativeCoverage("partial", "missing", "missing", "missing", "missing", "missing", "missing"),
+		NextFocus: "补充当时最清楚的一个画面和内心感受",
 	}
 }

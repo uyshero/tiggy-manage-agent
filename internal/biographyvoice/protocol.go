@@ -6,6 +6,7 @@ const (
 	ClientInputCommit       = "input.commit"
 	ClientInputCancel       = "input.cancel"
 	ClientInterviewFollowup = "interview.followup"
+	ClientInterviewOrderSet = "interview.order.set"
 	ClientTTSStart          = "tts.start"
 	ClientTTSCancel         = "tts.cancel"
 	ClientSessionPing       = "session.ping"
@@ -34,6 +35,7 @@ type ClientMessage struct {
 	ResumeToken      string `json:"resume_token,omitempty"`
 	Text             string `json:"text,omitempty"`
 	Expression       string `json:"expression,omitempty"`
+	InterviewOrder   string `json:"interview_order,omitempty"`
 	DeferInterview   bool   `json:"defer_interview,omitempty"`
 }
 

@@ -91,7 +91,7 @@ describe("biography OIDC auth", () => {
     storage.set("tma.biography.auth.oidc_state", "state-1");
     storage.set("tma.biography.auth.oidc_code_verifier", "verifier-1");
     storage.set("tma.biography.auth.oidc_redirect_uri", "https://app.example/pages/login/index");
-    installWindow("?code=code-1&state=state-1&foo=bar");
+    installWindow("?code=code-1&state=state-1&session_state=server-session&iss=https%3A%2F%2Fissuer.example&foo=bar");
 
     const replaceState = vi.mocked(window.history.replaceState);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

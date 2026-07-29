@@ -1,4 +1,4 @@
-import type { BiographyProject } from "@/services/interview";
+import type { BiographyProject, InterviewOrder } from "@/services/interview";
 import { decodePCM16LE, encodePCM16LE, encodeWAVPCM16, speechTurnGraceMs, SpeechTurnDetector, StreamingPCM16Resampler } from "@/services/browser-audio";
 import { noSpeechPromptTimeoutMs } from "@/domain/no-speech-policy";
 import { withBiographySpeechPace } from "@/services/speech-style";
@@ -27,6 +27,7 @@ export interface VoiceAdapter {
   stopListening(options?: { deferInterview?: boolean }): Promise<void>;
   cancelListening(): Promise<void>;
   requestFollowup(transcript: string): Promise<void>;
+  setInterviewOrder(order: InterviewOrder): Promise<void>;
   playText(text: string, expression: string): Promise<void>;
   cancelPlayback(): Promise<void>;
   finishRecordingSession(): Promise<void>;
@@ -179,6 +180,11 @@ class GatewayVoiceAdapter implements VoiceAdapter {
   async requestFollowup(transcript: string) {
     await this.ensureConnected();
     this.send({ type: "interview.followup", text: transcript });
+  }
+
+  async setInterviewOrder(order: InterviewOrder) {
+    await this.ensureConnected();
+    this.send({ type: "interview.order.set", interview_order: order });
   }
 
   async playText(text: string, expression: string) {
@@ -704,6 +710,7 @@ interface NativeVoicePlugin {
   stopListening(options: Record<string, unknown>, callback: (result: NativeCallResult) => void): void;
   cancelListening(callback: (result: NativeCallResult) => void): void;
   requestFollowup(options: { text: string }, callback: (result: NativeCallResult) => void): void;
+  setInterviewOrder(options: { interviewOrder: InterviewOrder }, callback: (result: NativeCallResult) => void): void;
   playText(options: { text: string; expression: string }, callback: (result: NativeCallResult) => void): void;
   cancelPlayback(callback: (result: NativeCallResult) => void): void;
   finishRecordingSession(callback: (result: NativeCallResult) => void): void;
@@ -762,6 +769,11 @@ class NativeVoiceAdapter implements VoiceAdapter {
   async requestFollowup(transcript: string) {
     await this.ensureConfigured();
     await this.call((done) => this.plugin.requestFollowup({ text: transcript }, done));
+  }
+
+  async setInterviewOrder(order: InterviewOrder) {
+    await this.ensureConfigured();
+    await this.call((done) => this.plugin.setInterviewOrder({ interviewOrder: order }, done));
   }
 
   async playText(text: string, expression: string) {
@@ -846,6 +858,8 @@ class MockVoiceAdapter implements VoiceAdapter {
     if (!transcript.trim()) return;
     this.emit({ type: "assistant_reply_delta", text: "我听到了，正在想接下来问什么。" });
   }
+
+  async setInterviewOrder(_order: InterviewOrder) {}
 
   async playText(_text: string, _expression: string) {
     this.emit({ type: "playback_started" });

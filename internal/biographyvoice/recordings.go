@@ -66,7 +66,7 @@ func (server *Server) recordingAudio(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		server.downloadRecordingAudio(w, r, user.ID, recordingID)
-	case http.MethodPut:
+	case http.MethodPut, http.MethodPost:
 		server.uploadRecordingAudio(w, r, user.ID, recordingID)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

@@ -194,7 +194,10 @@ export async function completeBiographyOIDCCallbackFromURL(): Promise<BiographyU
     cleanBiographyOIDCCallbackURL();
     return saveBiographyOIDCToken(callback.token);
   }
-  if (!callback.code) return null;
+  if (!callback.code) {
+    cleanBiographyOIDCCallbackURL();
+    return null;
+  }
   const expectedState = readStringStorage(oidcStateStorageKey);
   if (!expectedState || callback.state !== expectedState) {
     cleanBiographyOIDCCallbackURL();
@@ -361,7 +364,7 @@ function readBiographyOIDCCallbackFromURL(): { code: string; state: string; toke
 function cleanBiographyOIDCCallbackURL() {
   // #ifdef H5
   const search = new URLSearchParams(window.location.search);
-  for (const key of ["code", "state", "error", "error_description", "oidc_token", "access_token", "id_token"]) {
+  for (const key of ["code", "state", "error", "error_description", "oidc_token", "access_token", "id_token", "session_state", "iss"]) {
     search.delete(key);
   }
   const cleanPath = `${window.location.pathname}${search.toString() ? `?${search.toString()}` : ""}`;

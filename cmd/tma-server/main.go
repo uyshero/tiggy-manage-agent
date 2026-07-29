@@ -26,6 +26,7 @@ import (
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/mcp"
+	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
@@ -245,6 +246,12 @@ func main() {
 	}
 	stopObservabilityRetry := startObservabilityExporterRetry(config.Observability.ExporterRetry, store, logger)
 	stopSecurityAuditWorker := startSecurityAuditWorker(securityAuditPipeline)
+	stopObjectCleanup := func() {}
+	if cleanupStore, ok := store.(objectcleanup.Store); ok {
+		stopObjectCleanup = startObjectCleanup(config.ObjectStore.Cleanup, cleanupStore, objectStore, logger)
+	} else {
+		logger.Warn("object cleanup worker disabled: store does not support cleanup journal")
+	}
 	stopSkillAssetGC := func() {}
 	if retentionStore, ok := store.(skillretention.Store); ok {
 		stopSkillAssetGC = startSkillAssetGC(config.Skills.AssetRetention, retentionStore, objectStore, logger)
@@ -272,6 +279,7 @@ func main() {
 	stopAgentScheduler()
 	stopTraceIndexRetention()
 	stopSkillAssetGC()
+	stopObjectCleanup()
 	stopObservabilityRetry()
 	stopWorkerReaper()
 	stopWorkerWorkReaper()
@@ -371,6 +379,68 @@ func startSkillAssetGC(config serverconfig.SkillsAssetRetentionConfig, store ski
 		}
 	}()
 	logger.Info("skill asset GC worker enabled", "interval", config.WorkerInterval)
+	return cancel
+}
+
+func startObjectCleanup(config serverconfig.ObjectCleanupConfig, store objectcleanup.Store, objectStore objectstore.Client, logger *slog.Logger) func() {
+	if !config.WorkerEnabled {
+		logger.Info("object cleanup worker disabled")
+		return func() {}
+	}
+	hostname, _ := os.Hostname()
+	workerID := fmt.Sprintf("%s:%d", hostname, os.Getpid())
+	service, err := objectcleanup.NewService(store, objectStore, objectcleanup.Config{
+		WorkerID: workerID, BatchSize: config.BatchSize, LeaseDuration: config.LeaseDuration,
+		MaxAttempts: config.MaxAttempts, RetryInitialDelay: config.RetryInitialDelay,
+		RetryMaxDelay:      config.RetryMaxDelay,
+		OrphanSweepEnabled: config.OrphanSweepEnabled, OrphanGracePeriod: config.OrphanGracePeriod,
+		OrphanSweepLimit: config.OrphanSweepLimit,
+	})
+	if err != nil {
+		logger.Error("object cleanup worker configuration invalid", "error", err)
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	runAll := func() {
+		workspaceIDs, err := store.ListObjectCleanupWorkspaceIDs(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				logger.Warn("object cleanup workspace listing failed", "error", err)
+			}
+			return
+		}
+		for _, workspaceID := range workspaceIDs {
+			if ctx.Err() != nil {
+				return
+			}
+			result, err := service.RunWorkspace(ctx, workspaceID)
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Warn("object cleanup run failed", "workspace_id", workspaceID, "error", err)
+				}
+				continue
+			}
+			if result.Staged > 0 || result.Claimed > 0 {
+				logger.Info("object cleanup run completed", "workspace_id", workspaceID,
+					"staged", result.Staged, "claimed", result.Claimed, "completed", result.Completed,
+					"retried", result.Retried, "dead_letter", result.DeadLetter)
+			}
+		}
+	}
+	go func() {
+		runAll()
+		ticker := time.NewTicker(config.WorkerInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				runAll()
+			}
+		}
+	}()
+	logger.Info("object cleanup worker enabled", "interval", config.WorkerInterval, "batch_size", config.BatchSize)
 	return cancel
 }
 

@@ -53,6 +53,27 @@ type Client interface {
 	PresignGetObject(ctx context.Context, input PresignGetObjectInput) (PresignedURL, error)
 }
 
+// ProviderForClient reports the durable provider name that should be stored
+// alongside an object reference. Concrete client types are used as a fallback
+// because callers may construct local clients without setting Config.Provider.
+func ProviderForClient(client Client) string {
+	if configured, ok := client.(interface{ Config() Config }); ok {
+		if provider := normalizeProvider(configured.Config().Provider); provider != "" {
+			return provider
+		}
+	}
+	switch client.(type) {
+	case *S3Client:
+		return ProviderS3
+	case *LocalFSClient:
+		return ProviderLocalFS
+	case NoopClient, *NoopClient:
+		return ProviderNoop
+	default:
+		return ""
+	}
+}
+
 type PutObjectInput struct {
 	Bucket         string
 	Key            string

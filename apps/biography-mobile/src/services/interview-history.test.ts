@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getEmptyProject, getInitialProject } from "./interview";
+import { getEmptyProject } from "./interview";
 import { buildNextInterviewPrompt, buildPreviousInterviewGuidance, formatInterviewDuration, formatInterviewMoment } from "./interview-history";
 
 describe("interview history", () => {
@@ -10,8 +10,14 @@ describe("interview history", () => {
   });
 
   it("guides the narrator back to the chapter that was in progress", () => {
-    const project = getInitialProject();
-    expect(buildPreviousInterviewGuidance(project)).toContain("上次我们讲到“学木工的日子”");
+    const project = getEmptyProject();
+    project.overallProgress = 32;
+    project.pendingConfirmation = "父亲当年工作的具体地点";
+    project.chapters = [
+      { id: "shanghai", title: "第一次去上海", status: "confirm", statusLabel: "待确认", progress: 72, detail: "还有细节需要确认", nextFocus: "补充第一次独立生活时的感受和后来影响" },
+      { id: "craft", title: "跟周师傅学手艺", status: "collecting", statusLabel: "讲述中", progress: 46, detail: "正在收集师傅和第一次工作的故事", nextFocus: "补充第一次独立完成木器时的感受和后来影响" },
+    ];
+    expect(buildPreviousInterviewGuidance(project)).toContain("上次我们讲到“跟周师傅学手艺”");
     expect(buildNextInterviewPrompt(project)).toContain("父亲当年工作的具体地点");
 
     project.pendingConfirmation = "";

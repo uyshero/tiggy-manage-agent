@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { continueInterview, getEmptyProject, getInitialProject, openingInterviewPrompt } from "./interview";
+import { continueInterview, getEmptyProject, getInitialProject, openingInterviewPrompt, openingPromptForInterviewOrder } from "./interview";
 
 describe("interview opening", () => {
   it("introduces a professional biography interview before asking one question", () => {
@@ -12,6 +12,19 @@ describe("interview opening", () => {
     expect(openingInterviewPrompt).toContain("想停");
     expect(openingInterviewPrompt.length).toBeLessThanOrEqual(120);
     expect(openingInterviewPrompt.endsWith("？")).toBe(true);
+  });
+
+  it("starts a new biography without a preset chapter outline", () => {
+    expect(getInitialProject().chapters).toEqual([]);
+    expect(getEmptyProject().chapters).toEqual([]);
+    expect(getEmptyProject().interviewOrder).toBeUndefined();
+  });
+
+  it("uses the selected order for the first spoken question without blocking later additions", () => {
+    expect(openingPromptForInterviewOrder("chronological")).toContain("小时候");
+    expect(openingPromptForInterviewOrder("chronological")).toContain("跳到别的经历");
+    expect(openingPromptForInterviewOrder("key_moments")).toContain("重点故事");
+    expect(openingPromptForInterviewOrder("custom")).toContain("顺序由您来定");
   });
 
   it("answers with empathy before asking about feelings", async () => {

@@ -77,6 +77,38 @@ func TestMockVoiceSessionCanDeferInterviewUntilFollowupRequest(t *testing.T) {
 	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
 }
 
+func TestMockVoiceSessionStoresInterviewOrder(t *testing.T) {
+	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.CloseNow()
+
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionStart, SessionID: "voice-order"})
+	assertServerMessage(t, ctx, connection, ServerSessionReady, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewProject, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInterviewOrderSet, InterviewOrder: InterviewOrderKeyMoments})
+	updated := readServerTextMessage(t, ctx, connection)
+	if updated.Type != ServerProjectUpdated || updated.Project == nil || updated.Project.InterviewOrder != InterviewOrderKeyMoments {
+		t.Fatalf("interview order was not saved: %+v", updated)
+	}
+
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInterviewOrderSet, InterviewOrder: "random"})
+	invalid := readServerTextMessage(t, ctx, connection)
+	if invalid.Type != ServerError || invalid.Code != "invalid_interview_order" {
+		t.Fatalf("invalid interview order was not rejected: %+v", invalid)
+	}
+}
+
 func TestGatewayCORSUsesConfiguredOriginAllowlist(t *testing.T) {
 	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1:*", "app.example.com"}}, nil)
 	if err != nil {
@@ -679,7 +711,7 @@ func (engine *recordingInterviewEngine) Organize(_ context.Context, conversation
 func (engine *recordingInterviewEngine) Resume(_ context.Context, conversation *interviewConversation, sessionID string) error {
 	engine.resumedSessionID = sessionID
 	conversation.TMASessionID = sessionID
-	conversation.Project = initialBiographyProject()
+	conversation.Project = sampleBiographyProject()
 	return nil
 }
 
@@ -719,7 +751,7 @@ func TestServerRestoresProjectFromAsyncUpdateToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	asyncProject := initialBiographyProject()
+	asyncProject := sampleBiographyProject()
 	asyncProject.OverallProgress = 77
 	token, err := codec.EncodeState("session-resume", "device-1", "user-1", &asyncProject)
 	if err != nil {
@@ -856,7 +888,7 @@ func TestProjectUpdateWorkerRunsTasksInOrder(t *testing.T) {
 	defer cancel()
 	engine := &orderedOrganizerEngine{release: make(chan struct{})}
 	server := &Server{config: Config{InterviewTimeout: time.Second}, interview: engine}
-	tasks, results := server.startProjectUpdateWorker(ctx, &interviewConversation{Project: initialBiographyProject()})
+	tasks, results := server.startProjectUpdateWorker(ctx, &interviewConversation{Project: sampleBiographyProject()})
 	if err := enqueueProjectUpdate(ctx, tasks, "第一段"); err != nil {
 		t.Fatal(err)
 	}

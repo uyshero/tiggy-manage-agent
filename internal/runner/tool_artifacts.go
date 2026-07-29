@@ -344,59 +344,43 @@ func (r ToolArtifactRecorder) persistArtifactObject(ctx context.Context, session
 	}
 	checksum := sha256.Sum256(content)
 	checksumHex := hex.EncodeToString(checksum[:])
-	putResult, err := r.ObjectStore.PutObject(ctx, objectstore.PutObjectInput{
-		Bucket:         bucket,
-		Key:            objectKey,
-		Body:           bytes.NewReader(content),
-		ContentType:    contentType,
-		SizeBytes:      int64(len(content)),
-		ChecksumSHA256: checksumHex,
-		Metadata: map[string]string{
-			"session_id": sessionID,
-			"turn_id":    turnID,
-			"call_id":    call.ID,
-			"tool":       tools.ModelToolName(call.Identifier, call.APIName),
+	return managedagents.PersistSessionArtifactObject(databaseCtx, r.Store, r.ObjectStore, managedagents.PersistSessionArtifactObjectInput{
+		DeleteObjectOnFailure: true,
+		PutObject: objectstore.PutObjectInput{
+			Bucket:         bucket,
+			Key:            objectKey,
+			Body:           bytes.NewReader(content),
+			ContentType:    contentType,
+			SizeBytes:      int64(len(content)),
+			ChecksumSHA256: checksumHex,
+			Metadata: map[string]string{
+				"session_id": sessionID,
+				"turn_id":    turnID,
+				"call_id":    call.ID,
+				"tool":       tools.ModelToolName(call.Identifier, call.APIName),
+			},
+		},
+		ObjectRef: managedagents.CreateObjectRefInput{
+			WorkspaceID: session.WorkspaceID,
+			ContentType: contentType,
+			SizeBytes:   int64(len(content)),
+			Visibility:  managedagents.ObjectVisibilitySession,
+			Metadata:    metadata,
+			CreatedBy:   "system",
+		},
+		SessionArtifact: managedagents.CreateSessionArtifactInput{
+			WorkspaceID:   session.WorkspaceID,
+			SessionID:     sessionID,
+			EnvironmentID: session.EnvironmentID,
+			TurnID:        turnID,
+			ToolCallID:    call.ID,
+			Name:          artifactName,
+			Description:   description,
+			ArtifactType:  artifactType,
+			Metadata:      metadata,
+			CreatedBy:     "system",
 		},
 	})
-	if err != nil {
-		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
-	}
-
-	objectRef, err := managedagents.CreateObjectRefWithContext(databaseCtx, r.Store, managedagents.CreateObjectRefInput{
-		WorkspaceID:     session.WorkspaceID,
-		StorageProvider: managedagents.ObjectStorageProviderS3,
-		Bucket:          putResult.Bucket,
-		ObjectKey:       putResult.Key,
-		ObjectVersion:   putResult.Version,
-		ContentType:     contentType,
-		SizeBytes:       int64(len(content)),
-		ChecksumSHA256:  putResult.ChecksumSHA256,
-		ETag:            putResult.ETag,
-		Visibility:      managedagents.ObjectVisibilitySession,
-		Metadata:        metadata,
-		CreatedBy:       "system",
-	})
-	if err != nil {
-		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
-	}
-
-	artifact, err := managedagents.CreateSessionArtifactWithContext(databaseCtx, r.Store, managedagents.CreateSessionArtifactInput{
-		WorkspaceID:   session.WorkspaceID,
-		SessionID:     sessionID,
-		EnvironmentID: session.EnvironmentID,
-		ObjectRefID:   objectRef.ID,
-		TurnID:        turnID,
-		ToolCallID:    call.ID,
-		Name:          artifactName,
-		Description:   description,
-		ArtifactType:  artifactType,
-		Metadata:      metadata,
-		CreatedBy:     "system",
-	})
-	if err != nil {
-		return managedagents.ObjectRef{}, managedagents.SessionArtifact{}, err
-	}
-	return objectRef, artifact, nil
 }
 
 func artifactRef(sessionID string, artifact managedagents.SessionArtifact, objectRef managedagents.ObjectRef) tools.ArtifactRef {

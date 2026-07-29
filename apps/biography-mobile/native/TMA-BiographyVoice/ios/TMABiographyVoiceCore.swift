@@ -169,6 +169,22 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
         }
     }
 
+    public func setInterviewOrder(_ options: NSDictionary, completion: @escaping (NSDictionary) -> Void) {
+        stateQueue.async {
+            let order = (options["interviewOrder"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard self.connected else {
+                self.complete(completion, false, "语音服务正在重新连接")
+                return
+            }
+            guard ["chronological", "key_moments", "custom"].contains(order) else {
+                self.complete(completion, false, "采访方式无效")
+                return
+            }
+            self.sendJSON(["type": "interview.order.set", "session_id": self.sessionID, "interview_order": order])
+            self.complete(completion, true, nil)
+        }
+    }
+
     public func playText(_ options: NSDictionary, completion: @escaping (NSDictionary) -> Void) {
         stateQueue.async {
             let text = (options["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -363,7 +379,10 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
             let transcript = message["text"] as? String ?? ""
             emit("final_transcript", ["text": transcript])
             resolvePendingRecording(transcript)
-        case "interview.project":
+        case "interview.project", "interview.project.updated":
+            if let token = message["resume_token"] as? String, !token.isEmpty {
+                Self.writeKeychain(Self.resumeTokenAccount, token)
+            }
             if let project = message["project"] { emit("project_loaded", ["project": project]) }
         case "interview.reply":
             if let token = message["resume_token"] as? String, !token.isEmpty {

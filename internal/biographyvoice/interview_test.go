@@ -26,6 +26,50 @@ type fakeInterviewBackend struct {
 	thinkingErr               error
 }
 
+type bearerScopedInterviewBackend struct {
+	*fakeInterviewBackend
+	tokens []string
+}
+
+func sampleBiographyProject() BiographyProject {
+	project := newBiographyProject()
+	project.BookGoal = &BiographyBookGoal{Type: "family_legacy", Audience: "子女和孙辈", DesiredImpact: "记住家里的故事", Confirmed: true}
+	project.OverallProgress = 32
+	project.CompletedChapterCount = 1
+	project.Chapters = []Chapter{{
+		ID: "shanghai", Title: "第一次去上海", Status: "completed", StatusLabel: "已完成", Progress: 100,
+		Detail: "已经确认并整理成稿", Narrative: narrativeCoverage("sufficient", "sufficient", "sufficient", "sufficient", "partial", "sufficient", "sufficient"),
+		NextFocus: "有新回忆时再补充这段经历里的重要选择",
+	}}
+	return project
+}
+
+func TestBiographyStartsWithoutPresetChaptersAndMigratesEmptyTemplate(t *testing.T) {
+	if project := newBiographyProject(); len(project.Chapters) != 0 {
+		t.Fatalf("new biography should not contain preset chapters: %+v", project.Chapters)
+	}
+	legacy := newBiographyProject()
+	legacy.Chapters = []Chapter{
+		{ID: "childhood", Title: "童年往事", Status: "not_started", StatusLabel: "未开始", Detail: "等待您慢慢讲述", Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing")},
+		{ID: "school", Title: "求学岁月", Status: "not_started", StatusLabel: "未开始", Detail: "等待您慢慢讲述", Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing")},
+		{ID: "work", Title: "工作岁月", Status: "not_started", StatusLabel: "未开始", Detail: "等待您慢慢讲述", Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing")},
+		{ID: "family", Title: "家庭生活", Status: "not_started", StatusLabel: "未开始", Detail: "等待您慢慢讲述", Narrative: narrativeCoverage("missing", "missing", "missing", "missing", "missing", "missing", "missing")},
+	}
+	migrated, changed := removeLegacyEmptyChapterTemplate(legacy)
+	if !changed || len(migrated.Chapters) != 0 {
+		t.Fatalf("legacy empty chapter template was not removed: changed=%t chapters=%+v", changed, migrated.Chapters)
+	}
+	legacy.Chapters[0].Status = "collecting"
+	if _, changed := removeLegacyEmptyChapterTemplate(legacy); changed {
+		t.Fatal("a chapter with real progress must not be removed during migration")
+	}
+}
+
+func (backend *bearerScopedInterviewBackend) ForBearerToken(token string) (tmaInterviewBackend, error) {
+	backend.tokens = append(backend.tokens, token)
+	return backend.fakeInterviewBackend, nil
+}
+
 func (backend *fakeInterviewBackend) ConfigureInterviewSession(_ context.Context, _ string, mode string, threshold int, summaryMaxChars int) error {
 	backend.thinkingModes = append(backend.thinkingModes, mode)
 	backend.compactionThresholds = append(backend.compactionThresholds, threshold)
@@ -69,10 +113,24 @@ func (backend *fakeInterviewBackend) ListEvents(_ context.Context, _ string) ([]
 	return backend.events, backend.err
 }
 
+func TestTMAInterviewEngineScopesRequestsToTheAuthenticatedUserToken(t *testing.T) {
+	base := &fakeInterviewBackend{}
+	backend := &bearerScopedInterviewBackend{fakeInterviewBackend: base}
+	engine := &tmaInterviewEngine{backend: backend}
+
+	selected, err := engine.backendForConversation(&interviewConversation{TMAAccessToken: "user-access-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected != base || len(backend.tokens) != 1 || backend.tokens[0] != "user-access-token" {
+		t.Fatalf("TMA backend did not receive the authenticated token: selected=%T tokens=%v", selected, backend.tokens)
+	}
+}
+
 func TestTMAInterviewEngineSeparatesLiveReplyAndProjectUpdateSessions(t *testing.T) {
 	reply := InterviewReply{
 		Text: "那天是谁送您出门的？", Expression: "温和、关切，语速稍慢",
-		Project: initialBiographyProject(),
+		Project: sampleBiographyProject(),
 	}
 	reply.Project.OverallProgress = 35
 	spokenJSON, err := json.Marshal(map[string]string{"text": reply.Text, "expression": reply.Expression})
@@ -95,9 +153,10 @@ func TestTMAInterviewEngineSeparatesLiveReplyAndProjectUpdateSessions(t *testing
 		workspaceID: "workspace-1", ownerID: "user-1",
 	}
 	conversation := &interviewConversation{
-		Project:         initialBiographyProject(),
+		Project:         sampleBiographyProject(),
 		RecentQuestions: []string{"出门那天是谁送您去车站？"},
 	}
+	conversation.Project.InterviewOrder = InterviewOrderChronological
 
 	got, err := engine.Continue(t.Context(), conversation, "那年我十九岁，第一次去上海。")
 	if err != nil {
@@ -110,7 +169,8 @@ func TestTMAInterviewEngineSeparatesLiveReplyAndProjectUpdateSessions(t *testing
 		t.Fatalf("unexpected session request: %+v", backend.request)
 	}
 	if !strings.Contains(backend.prompt, "第一次去上海") || !strings.Contains(backend.prompt, `"overallProgress":32`) ||
-		!strings.Contains(backend.prompt, "不要默认沿时间线") || !strings.Contains(backend.prompt, `"bookGoal"`) {
+		!strings.Contains(backend.prompt, `"interviewOrder":"chronological"`) || !strings.Contains(backend.prompt, "custom 时由用户决定先后") ||
+		!strings.Contains(backend.prompt, `"bookGoal"`) {
 		t.Fatalf("prompt did not include transcript and current project: %s", backend.prompt)
 	}
 	if !strings.Contains(backend.prompt, "实时采访分支") || !strings.Contains(backend.prompt, "不要整理、重写或更新章节") ||
@@ -143,6 +203,9 @@ func TestTMAInterviewEngineSeparatesLiveReplyAndProjectUpdateSessions(t *testing
 	if !strings.Contains(backend.prompt, `"narrative"`) || !strings.Contains(backend.prompt, "missing|partial|sufficient") {
 		t.Fatalf("organizer prompt did not require narrative coverage: %s", backend.prompt)
 	}
+	if !strings.Contains(backend.prompt, `"interviewOrder":"chronological"`) || !strings.Contains(backend.prompt, "必须原样完整保留") {
+		t.Fatalf("organizer prompt did not preserve interview order: %s", backend.prompt)
+	}
 
 	if _, err := engine.Continue(t.Context(), conversation, "是我父亲送的。"); err != nil {
 		t.Fatal(err)
@@ -152,8 +215,44 @@ func TestTMAInterviewEngineSeparatesLiveReplyAndProjectUpdateSessions(t *testing
 	}
 }
 
+func TestInterviewOrderValidationAndOrganizerPreservation(t *testing.T) {
+	project := sampleBiographyProject()
+	project.InterviewOrder = InterviewOrderKeyMoments
+	if err := validateBiographyProject(project); err != nil {
+		t.Fatalf("valid interview order rejected: %v", err)
+	}
+	project.InterviewOrder = "random"
+	if err := validateBiographyProject(project); err == nil || !strings.Contains(err.Error(), "interview order") {
+		t.Fatalf("invalid interview order was accepted: %v", err)
+	}
+
+	current := sampleBiographyProject()
+	current.InterviewOrder = InterviewOrderCustom
+	organized := sampleBiographyProject()
+	organized.InterviewOrder = InterviewOrderChronological
+	projectJSON, err := json.Marshal(organized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": string(projectJSON)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := &tmaInterviewEngine{backend: &fakeInterviewBackend{output: output}, organizerAgentID: "agent-organizer"}
+	conversation := &interviewConversation{Project: current}
+	updated, err := engine.Organize(t.Context(), conversation, "我想补充一件小时候的事")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.InterviewOrder != InterviewOrderCustom || conversation.projectSnapshot().InterviewOrder != InterviewOrderCustom {
+		t.Fatalf("organizer changed the user's interview order: updated=%q project=%q", updated.InterviewOrder, conversation.projectSnapshot().InterviewOrder)
+	}
+}
+
 func TestDecodeInterviewReplyAcceptsJSONFenceAndRejectsInvalidProgress(t *testing.T) {
-	reply := InterviewReply{Text: "请继续讲。", Expression: "温和", Project: initialBiographyProject()}
+	reply := InterviewReply{Text: "请继续讲。", Expression: "温和", Project: sampleBiographyProject()}
 	replyJSON, err := json.Marshal(reply)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +295,7 @@ func TestExtractPartialInterviewText(t *testing.T) {
 }
 
 func TestTMAInterviewEngineResumesLatestValidatedProject(t *testing.T) {
-	reply := InterviewReply{Text: "请继续讲。", Expression: "温和", Project: initialBiographyProject()}
+	reply := InterviewReply{Text: "请继续讲。", Expression: "温和", Project: sampleBiographyProject()}
 	reply.Project.OverallProgress = 61
 	replyJSON, _ := json.Marshal(reply)
 	messageJSON, _ := json.Marshal(map[string]any{
@@ -225,7 +324,7 @@ func TestTMAInterviewEngineResumesLatestValidatedProject(t *testing.T) {
 }
 
 func TestOrganizedProjectRequiresBookGoalAndNarrativeCoverage(t *testing.T) {
-	legacy := initialBiographyProject()
+	legacy := sampleBiographyProject()
 	legacy.BookGoal = nil
 	for index := range legacy.Chapters {
 		legacy.Chapters[index].Narrative = nil
@@ -238,7 +337,7 @@ func TestOrganizedProjectRequiresBookGoalAndNarrativeCoverage(t *testing.T) {
 		t.Fatalf("expected organizer to require a book goal, got %v", err)
 	}
 
-	project := initialBiographyProject()
+	project := sampleBiographyProject()
 	project.Chapters[0].Narrative.Emotion = "unknown"
 	if err := validateOrganizedBiographyProject(project); err == nil || !strings.Contains(err.Error(), "narrative coverage") {
 		t.Fatalf("expected invalid narrative coverage to be rejected, got %v", err)
@@ -246,7 +345,7 @@ func TestOrganizedProjectRequiresBookGoalAndNarrativeCoverage(t *testing.T) {
 }
 
 func TestCloneBiographyProjectCopiesNarrativeState(t *testing.T) {
-	original := initialBiographyProject()
+	original := sampleBiographyProject()
 	cloned := cloneBiographyProject(original)
 	cloned.BookGoal.Audience = "朋友"
 	cloned.Chapters[0].Narrative.Emotion = "missing"

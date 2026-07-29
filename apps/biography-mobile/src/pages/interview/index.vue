@@ -3,7 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { interviewStartLabel, interviewStatusCopy, isInterviewActive, initialInterviewState, reduceInterviewState, type InterviewEvent } from "@/domain/interview-machine";
 import { shouldPauseAfterNoSpeech } from "@/domain/no-speech-policy";
 import { currentBiographyAccessToken, currentBiographyUser, ensureBiographyAuthenticated, fetchBiographyProgress, logoutBiography, type BiographyUser } from "@/services/auth";
-import { continueInterview, getEmptyProject, getInitialProject, openingInterviewPrompt, type Chapter } from "@/services/interview";
+import {
+  continueInterview,
+  getEmptyProject,
+  getInitialProject,
+  openingPromptForInterviewOrder,
+  type Chapter,
+  type InterviewOrder,
+} from "@/services/interview";
 import {
   buildNextInterviewPrompt,
   buildPreviousInterviewGuidance,
@@ -22,15 +29,17 @@ import {
   recordingAudioBlob,
   recordingFilePaths,
   renameRecording,
+  updateRecordingBackupStatus,
   type StoredRecording,
 } from "@/services/recordings";
+import { uploadRecordingBackup } from "@/services/recording-backup";
 import { createVoiceAdapter, type VoiceAdapter, type VoiceEvent } from "@/services/voice";
 
 const state = ref({ ...initialInterviewState });
 const project = ref(getInitialProject());
 const voice = ref<VoiceAdapter | null>(null);
 const elapsedSeconds = ref(0);
-const showChapters = ref(true);
+const showChapters = ref(false);
 const sessionStarted = ref(false);
 const voiceOperationPending = ref(false);
 const recordings = ref<StoredRecording[]>([]);
@@ -62,6 +71,13 @@ let finishRecordingAfterNextSegment = false;
 let recordingPlayer: ReturnType<typeof uni.createInnerAudioContext> | null = null;
 let recordingPlaybackQueue: string[] = [];
 const recordingURLs = new Map<string, string>();
+const recordingBackupQueues = new Map<string, Promise<void>>();
+
+const interviewOrderOptions: Array<{ value: InterviewOrder; label: string; description: string }> = [
+  { value: "chronological", label: "从小到大", description: "顺着人生阶段，慢慢往前讲" },
+  { value: "key_moments", label: "重点故事", description: "先讲最想留给家人的经历" },
+  { value: "custom", label: "自己定顺序", description: "现在最想讲哪段，就从哪段开始" },
+];
 
 const statusCopy = computed(() => interviewStatusCopy[state.value.status]);
 const elapsedLabel = computed(() => {
@@ -86,11 +102,27 @@ const currentCaption = computed(() => {
       : "本次采访已经保存。准备好后，我们可以从刚才的话题继续。";
   }
   if (state.value.assistantText) return state.value.assistantText;
-  if (project.value.overallProgress === 0) return openingInterviewPrompt;
+  if (!sessionStarted.value && !project.value.interviewOrder) {
+    return "这本人生书不会预先排好章节。先选一种讲述方式；之后随时可以跳到别的回忆补充。";
+  }
+  if (project.value.overallProgress === 0) return openingPromptForInterviewOrder(project.value.interviewOrder);
+  if (!sessionStarted.value) {
+    const activeChapter = project.value.chapters.find((chapter) => chapter.status === "collecting")
+      || project.value.chapters.find((chapter) => chapter.status === "confirm");
+    return `上次我们讲到“${activeChapter?.title || "刚才的话题"}”。这次可以从这里接着讲，也可以补充其他内容。`;
+  }
   return buildPreviousInterviewGuidance(project.value);
 });
 const interviewActive = computed(() => isInterviewActive(state.value.status, sessionStarted.value));
-const showStartButton = computed(() => !sessionStarted.value || state.value.status === "paused" || state.value.status === "error");
+const showOrderChooser = computed(() => !sessionStarted.value && !project.value.interviewOrder);
+const selectedInterviewOrderLabel = computed(() => interviewOrderOptions.find((option) => option.value === project.value.interviewOrder)?.label || "");
+const showStartButton = computed(() => !showOrderChooser.value && (!sessionStarted.value || state.value.status === "paused" || state.value.status === "error"));
+const showHoldTalkButton = computed(() => sessionStarted.value && (
+  talkButtonHeld.value ||
+  Boolean(pendingTranscriptBuffer.value) ||
+  state.value.status === "ready" ||
+  state.value.status === "speaking"
+));
 const primaryLabel = computed(() => interviewStartLabel(state.value.status, sessionStarted.value));
 const sessionTimeTitle = computed(() => {
   if (interviewActive.value) return "本次采访";
@@ -254,21 +286,60 @@ async function handleVoiceEvent(event: VoiceEvent) {
 async function refreshRecordings() {
   try {
     recordings.value = await listRecordings(project.value.id);
+    recordings.value
+      .filter((recording) => recording.backupStatus !== "synced")
+      .forEach((recording) => void queueRecordingBackup(recording));
   } catch {
     recordings.value = [];
   }
 }
 
+function replaceRecording(updated: StoredRecording | undefined) {
+  if (!updated) return;
+  recordings.value = recordings.value.map((recording) => recording.id === updated.id ? updated : recording);
+}
+
+function queueRecordingBackup(recording: StoredRecording) {
+  const previous = recordingBackupQueues.get(recording.id) || Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      const pending = await updateRecordingBackupStatus(recording.id, "pending");
+      replaceRecording(pending);
+      await uploadRecordingBackup(recording);
+      const synced = await updateRecordingBackupStatus(recording.id, "synced");
+      replaceRecording(synced);
+    })
+    .catch(async (error) => {
+      const message = error instanceof Error ? error.message : "录音备份暂时没有完成";
+      const failed = await updateRecordingBackupStatus(recording.id, "failed", message);
+      replaceRecording(failed);
+    })
+    .finally(() => {
+      if (recordingBackupQueues.get(recording.id) === next) recordingBackupQueues.delete(recording.id);
+    });
+  recordingBackupQueues.set(recording.id, next);
+}
+
+function recordingBackupLabel(recording: StoredRecording): string {
+  if (recording.backupStatus === "synced") return "已安全备份";
+  if (recording.backupStatus === "failed") return "备份未完成";
+  return "正在备份";
+}
+
+function retryRecordingBackup(recording: StoredRecording) {
+  void queueRecordingBackup(recording);
+}
+
 async function storeVoiceRecording(event: Extract<VoiceEvent, { type: "recording_ready" }>) {
   const chapter = project.value.chapters.find((item) => item.status === "collecting")
-    || project.value.chapters.find((item) => item.status === "confirm")
-    || project.value.chapters[0];
+    || project.value.chapters.find((item) => item.status === "confirm");
   try {
     const existing = recordings.value.find((item) => item.id === activeRecordingID);
     const recording = await appendRecordingSegment(existing, {
       projectID: project.value.id,
-      chapterID: chapter?.id || "uncategorized",
-      chapterTitle: chapter?.title || "未分类",
+      chapterID: chapter?.id || "interview",
+      chapterTitle: chapter?.title || "本次采访",
       transcript: event.transcript,
       durationMs: event.durationMs,
       audio: event.audio,
@@ -285,6 +356,7 @@ async function storeVoiceRecording(event: Extract<VoiceEvent, { type: "recording
       recordings.value = [recording, ...recordings.value];
       uni.showToast({ title: "正在记录本次采访", icon: "none" });
     }
+    void queueRecordingBackup(recording);
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : "录音保存失败", icon: "none" });
   }
@@ -601,6 +673,21 @@ async function beginOpeningPrompt() {
   }
 }
 
+async function selectInterviewOrder(order: InterviewOrder) {
+  if (voiceOperationPending.value || !voice.value) return;
+  voiceOperationPending.value = true;
+  try {
+    await voice.value.setInterviewOrder(order);
+    project.value = { ...project.value, interviewOrder: order };
+  } catch (error) {
+    dispatch({ type: "FAIL", message: error instanceof Error ? error.message : "采访方式暂时无法保存" });
+    return;
+  } finally {
+    voiceOperationPending.value = false;
+  }
+  await beginOpeningPrompt();
+}
+
 async function interruptAssistant() {
   if (voiceOperationPending.value) return;
   voiceOperationPending.value = true;
@@ -797,9 +884,27 @@ onBeforeUnmount(() => {
           <text class="status-detail">{{ statusCopy.detail }}</text>
         </view>
 
-        <scroll-view scroll-y class="conversation-scroll" :show-scrollbar="false">
+        <scroll-view scroll-y :class="['conversation-scroll', { compact: !sessionStarted && currentCaption.length < 120 }]" :show-scrollbar="false">
           <text class="conversation-text">{{ currentCaption }}</text>
         </scroll-view>
+
+        <view v-if="showOrderChooser" class="interview-order-chooser">
+          <text class="order-chooser-title">想先怎么讲？</text>
+          <text class="order-chooser-detail">这只决定默认采访方向，之后随时都能补充别的经历。</text>
+          <view class="interview-order-options">
+            <button
+              v-for="option in interviewOrderOptions"
+              :key="option.value"
+              class="interview-order-option"
+              :disabled="voiceOperationPending"
+              @click="selectInterviewOrder(option.value)"
+            >
+              <text class="interview-order-label">{{ option.label }}</text>
+              <text class="interview-order-description">{{ option.description }}</text>
+            </button>
+          </view>
+        </view>
+        <text v-else-if="selectedInterviewOrderLabel" class="interview-order-summary">采访方式：{{ selectedInterviewOrderLabel }}</text>
 
         <view class="primary-zone">
           <button v-if="showStartButton" class="primary-voice-button" :disabled="voiceOperationPending" @click="primaryAction">
@@ -807,6 +912,7 @@ onBeforeUnmount(() => {
             <text>{{ primaryLabel }}</text>
           </button>
           <view
+            v-if="showHoldTalkButton"
             :class="['hold-talk-button', { active: talkButtonHeld, canceling: talkButtonCanceling, disabled: holdTalkDisabled }]"
             role="button"
             aria-label="按住话筒说话"
@@ -827,7 +933,7 @@ onBeforeUnmount(() => {
             />
             <text>{{ talkButtonHeld ? (talkButtonCanceling ? "取消发送" : "松开发送") : "按住说话" }}</text>
           </view>
-          <text class="hold-talk-hint">{{ holdHint }}</text>
+          <text v-if="showHoldTalkButton" class="hold-talk-hint">{{ holdHint }}</text>
           <button v-if="sessionStarted && state.status !== 'paused'" class="end-session-button" :disabled="voiceOperationPending" @click="confirmEndInterview">
             <text class="end-session-icon" aria-hidden="true">✓</text>
             <text>结束今天</text>
@@ -841,13 +947,14 @@ onBeforeUnmount(() => {
             <text class="section-kicker">这本书已经完成</text>
             <text class="progress-value">{{ project.overallProgress }}%</text>
           </view>
-          <button class="progress-toggle" @click="showChapters = !showChapters">{{ showChapters ? "收起章节" : "查看章节" }}</button>
+          <button v-if="project.chapters.length > 0" class="progress-toggle" @click="showChapters = !showChapters">{{ showChapters ? "收起章节" : "查看章节" }}</button>
+          <text v-else class="progress-empty-label">章节会随讲述整理</text>
         </view>
         <view class="progress-track"><view :style="{ width: `${project.overallProgress}%` }" /></view>
         <text class="progress-summary">{{ progressSummary }}</text>
       </view>
 
-      <view v-if="showChapters" class="chapter-list">
+      <view v-if="showChapters && project.chapters.length > 0" class="chapter-list">
         <view v-for="chapter in project.chapters" :key="chapter.id" class="chapter-row">
           <view class="chapter-index">{{ project.chapters.indexOf(chapter) + 1 }}</view>
           <view class="chapter-copy">
@@ -889,9 +996,10 @@ onBeforeUnmount(() => {
             </button>
             <view class="recording-copy">
               <text class="recording-title">{{ recording.title }}</text>
-              <text class="recording-meta">{{ formatRecordingDate(recording.createdAt) }} · {{ formatRecordingDuration(recording.durationMs) }}</text>
+              <text class="recording-meta">{{ formatRecordingDate(recording.createdAt) }} · {{ formatRecordingDuration(recording.durationMs) }} · {{ recordingBackupLabel(recording) }}</text>
               <text class="recording-transcript">{{ recording.transcript }}</text>
               <view class="recording-actions">
+                <button v-if="recording.backupStatus === 'failed'" class="retry-recording" @click="retryRecordingBackup(recording)">重新备份</button>
                 <button @click="editRecordingTitle(recording)">改名</button>
                 <button @click="exportRecording(recording)">导出</button>
                 <button class="delete-recording" @click="confirmDeleteRecording(recording)">删除</button>
@@ -1084,8 +1192,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 445px;
-  padding: 16px 0 28px;
+  min-height: 400px;
+  padding: 16px 0 22px;
   text-align: center;
 }
 
@@ -1125,9 +1233,10 @@ onBeforeUnmount(() => {
 
 .conversation-scroll {
   width: min(100%, 620px);
-  height: 186px;
+  height: 152px;
   margin-bottom: 2px;
 }
+.conversation-scroll.compact { height: 106px; }
 
 .conversation-text {
   display: block;
@@ -1140,21 +1249,51 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.primary-zone { display: grid; justify-items: center; gap: 12px; margin-top: 22px; }
+.interview-order-chooser {
+  display: grid;
+  width: min(100%, 620px);
+  gap: 6px;
+  margin-top: 12px;
+  text-align: left;
+}
+.order-chooser-title { color: #30443a; font-size: 18px; font-weight: 850; }
+.order-chooser-detail { color: #748078; font-size: 13px; line-height: 1.45; }
+.interview-order-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.interview-order-option {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-height: 84px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #c8dad0;
+  border-radius: 8px;
+  background: #fff;
+  color: #29463a;
+  text-align: left;
+}
+.interview-order-option::after { border: 0; }
+.interview-order-option:active { border-color: #1f7257; background: #edf7f1; }
+.interview-order-option[disabled] { opacity: 0.55; }
+.interview-order-label { font-size: 16px; font-weight: 850; line-height: 1.2; }
+.interview-order-description { color: #718078; font-size: 12px; line-height: 1.4; }
+.interview-order-summary { min-height: 20px; margin-top: 12px; color: #60786c; font-size: 13px; font-weight: 750; }
+
+.primary-zone { display: grid; justify-items: center; gap: 12px; margin-top: 18px; }
 
 .primary-voice-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-width: 190px;
-  min-height: 58px;
-  padding: 0 24px;
+  min-width: 226px;
+  min-height: 64px;
+  padding: 0 28px;
   border: 0;
   border-radius: 8px;
   background: #1f7257;
   color: #fff;
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 750;
   box-shadow: 0 8px 20px rgba(31, 114, 87, 0.2);
 }
@@ -1176,8 +1315,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   gap: 8px;
-  width: 142px;
-  height: 142px;
+  width: 156px;
+  height: 156px;
   margin-top: 6px;
   border: 1px solid #b9d1c6;
   border-radius: 50%;
@@ -1196,7 +1335,7 @@ onBeforeUnmount(() => {
 }
 .hold-talk-button.canceling { background: #a4493d; border-color: #a4493d; color: #fff; }
 .hold-talk-button.disabled { opacity: 0.44; box-shadow: none; pointer-events: none; }
-.hold-talk-button text { font-size: 17px; font-weight: 800; line-height: 1; }
+.hold-talk-button text { font-size: 18px; font-weight: 800; line-height: 1; }
 
 .hold-mic-icon {
   width: 54px;
@@ -1275,6 +1414,7 @@ onBeforeUnmount(() => {
   color: #1f7257;
   font-weight: 800;
 }
+.progress-empty-label { color: #74827a; font-size: 13px; font-weight: 700; }
 .progress-track,
 .chapter-track { overflow: hidden; background: #e5eae6; }
 .progress-track { height: 8px; margin: 14px 0 10px; border-radius: 4px; }
@@ -1417,7 +1557,7 @@ onBeforeUnmount(() => {
 
 @media (min-width: 700px) {
   .interview-main { padding-top: 32px; }
-  .conversation-stage { min-height: 485px; }
+  .conversation-stage { min-height: 450px; }
   .progress-band,
   .chapter-list,
   .next-choice { margin-left: 12px; margin-right: 12px; }
@@ -1436,8 +1576,11 @@ onBeforeUnmount(() => {
   .session-time-icon { width: 28px; height: 28px; }
   .session-time-copy text:first-child { display: none; }
   .session-time-value { font-size: 13px; }
-  .conversation-scroll { height: 168px; }
+  .conversation-scroll { height: 142px; }
+  .conversation-scroll.compact { height: 100px; }
   .conversation-text { font-size: 20px; line-height: 1.5; }
+  .interview-order-options { grid-template-columns: 1fr; gap: 8px; }
+  .interview-order-option { min-height: 60px; grid-template-columns: 108px minmax(0, 1fr); align-items: center; }
   .recording-sheet { max-height: 92dvh; }
   .recording-scroll { max-height: calc(92dvh - 86px); }
 }

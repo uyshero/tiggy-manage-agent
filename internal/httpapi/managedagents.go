@@ -3010,6 +3010,7 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	objectKey := r.FormValue("object_key")
+	deleteObjectOnFailure := objectKey == ""
 	if objectKey == "" {
 		objectKey = defaultUploadObjectKey(session, header.Filename)
 	}
@@ -3023,53 +3024,40 @@ func (s *Server) uploadSessionArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	putResult, err := s.objectStore.PutObject(r.Context(), objectstore.PutObjectInput{
-		Bucket:         bucket,
-		Key:            objectKey,
-		Body:           bytes.NewReader(content),
-		ContentType:    contentType,
-		SizeBytes:      int64(len(content)),
-		ChecksumSHA256: checksumHex,
-	})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-
-	objectRef, err := managedagents.CreateObjectRefWithContext(r.Context(), s.store, managedagents.CreateObjectRefInput{
-		WorkspaceID:     session.WorkspaceID,
-		StorageProvider: managedagents.ObjectStorageProviderS3,
-		Bucket:          fallbackString(putResult.Bucket, bucket),
-		ObjectKey:       fallbackString(putResult.Key, objectKey),
-		ObjectVersion:   putResult.Version,
-		ContentType:     contentType,
-		SizeBytes:       int64(len(content)),
-		ChecksumSHA256:  fallbackString(putResult.ChecksumSHA256, checksumHex),
-		ETag:            putResult.ETag,
-		Visibility:      fallbackString(r.FormValue("visibility"), managedagents.ObjectVisibilityWorkspace),
-		Metadata:        metadata,
-		CreatedBy:       requestActorID(r, fallbackString(r.FormValue("created_by"), "system")),
-	})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-
 	name := r.FormValue("name")
 	if name == "" {
 		name = safeArtifactFileName(header.Filename)
 	}
-	artifact, err := managedagents.CreateSessionArtifactWithContext(r.Context(), s.store, managedagents.CreateSessionArtifactInput{
-		SessionID:     sessionID,
-		EnvironmentID: r.FormValue("environment_id"),
-		ObjectRefID:   objectRef.ID,
-		TurnID:        r.FormValue("turn_id"),
-		ToolCallID:    r.FormValue("tool_call_id"),
-		Name:          name,
-		Description:   r.FormValue("description"),
-		ArtifactType:  fallbackString(r.FormValue("artifact_type"), managedagents.ArtifactTypeFile),
-		Metadata:      metadata,
-		CreatedBy:     requestActorID(r, fallbackString(r.FormValue("created_by"), "system")),
+	createdBy := requestActorID(r, fallbackString(r.FormValue("created_by"), "system"))
+	objectRef, artifact, err := managedagents.PersistSessionArtifactObject(r.Context(), s.store, s.objectStore, managedagents.PersistSessionArtifactObjectInput{
+		DeleteObjectOnFailure: deleteObjectOnFailure,
+		PutObject: objectstore.PutObjectInput{
+			Bucket:         bucket,
+			Key:            objectKey,
+			Body:           bytes.NewReader(content),
+			ContentType:    contentType,
+			SizeBytes:      int64(len(content)),
+			ChecksumSHA256: checksumHex,
+		},
+		ObjectRef: managedagents.CreateObjectRefInput{
+			WorkspaceID: session.WorkspaceID,
+			ContentType: contentType,
+			SizeBytes:   int64(len(content)),
+			Visibility:  fallbackString(r.FormValue("visibility"), managedagents.ObjectVisibilityWorkspace),
+			Metadata:    metadata,
+			CreatedBy:   createdBy,
+		},
+		SessionArtifact: managedagents.CreateSessionArtifactInput{
+			SessionID:     sessionID,
+			EnvironmentID: r.FormValue("environment_id"),
+			TurnID:        r.FormValue("turn_id"),
+			ToolCallID:    r.FormValue("tool_call_id"),
+			Name:          name,
+			Description:   r.FormValue("description"),
+			ArtifactType:  fallbackString(r.FormValue("artifact_type"), managedagents.ArtifactTypeFile),
+			Metadata:      metadata,
+			CreatedBy:     createdBy,
+		},
 	})
 	if err != nil {
 		writeError(w, err)

@@ -30,6 +30,7 @@ import (
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/objectstore"
+	"tiggy-manage-agent/internal/tools"
 )
 
 const (
@@ -335,7 +336,7 @@ func (s *Server) createKnowledgeService(w http.ResponseWriter, r *http.Request) 
 	}
 	item, err := store.CreateKnowledgeService(r.Context(), managedagents.CreateKnowledgeServiceInput{
 		WorkspaceID: requestWorkspaceID(r, managedagents.DefaultWorkspaceID), Name: request.Name, Scenario: request.Scenario,
-		SystemPrompt: request.SystemPrompt, KnowledgeBaseIDs: request.KnowledgeBaseIDs, AllowWebSearch: false,
+		SystemPrompt: request.SystemPrompt, KnowledgeBaseIDs: request.KnowledgeBaseIDs, AllowWebSearch: request.AllowWebSearch,
 		KnowledgeDocumentIDs: request.KnowledgeDocumentIDs, SensitiveTerms: request.SensitiveTerms, CreatedBy: requestActorID(r, "system"),
 	})
 	if err != nil {
@@ -372,7 +373,7 @@ func (s *Server) updateKnowledgeService(w http.ResponseWriter, r *http.Request) 
 	}
 	item, err := store.UpdateKnowledgeService(r.Context(), requestWorkspaceID(r, managedagents.DefaultWorkspaceID), r.PathValue("service_id"), managedagents.UpdateKnowledgeServiceInput{
 		Name: request.Name, Scenario: request.Scenario, SystemPrompt: request.SystemPrompt,
-		KnowledgeBaseIDs: request.KnowledgeBaseIDs, AllowWebSearch: false,
+		KnowledgeBaseIDs: request.KnowledgeBaseIDs, AllowWebSearch: request.AllowWebSearch,
 		KnowledgeDocumentIDs: request.KnowledgeDocumentIDs, SensitiveTerms: request.SensitiveTerms,
 	})
 	if err != nil {
@@ -557,21 +558,52 @@ func (s *Server) answerKnowledgeQuestion(ctx context.Context, store managedagent
 	}
 	sources := knowledgeSourcesFromSearch(searchResults)
 	if len(searchResults) == 0 {
+		if service.AllowWebSearch {
+			webSources := searchKnowledgeWeb(ctx, question, 5)
+			if len(webSources) > 0 {
+				answer := s.answerKnowledgeFromSources(ctx, service, question, webSources)
+				_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, false, "", len(webSources))
+				return knowledgeAnswerResponse{Answer: answer, Sources: visibleKnowledgeAnswerSources(webSources)}, nil
+			}
+		}
 		answer := "抱歉，知识库中没有找到相关内容，当前对话服务不能回答。"
+		if service.AllowWebSearch {
+			answer = "抱歉，知识库中没有找到相关内容，联网搜索也没有可用结果，当前对话服务不能回答。"
+		}
 		_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, true, "no_knowledge", 0)
 		return knowledgeAnswerResponse{Answer: answer, Refused: true, RefusalReason: "no_knowledge", Sources: []knowledgeAnswerSource{}}, nil
 	}
 	if !knowledgeQuestionInScope(question, service, searchResults) {
+		if service.AllowWebSearch {
+			webSources := searchKnowledgeWeb(ctx, question, 5)
+			if len(webSources) > 0 {
+				answer := s.answerKnowledgeFromSources(ctx, service, question, webSources)
+				_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, false, "", len(webSources))
+				return knowledgeAnswerResponse{Answer: answer, Sources: visibleKnowledgeAnswerSources(webSources)}, nil
+			}
+		}
 		answer := "抱歉，这个问题超出了当前对话服务定义的主要场景范围。"
 		_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, true, "out_of_scope", len(sources))
 		return knowledgeAnswerResponse{Answer: answer, Refused: true, RefusalReason: "out_of_scope", Sources: visibleKnowledgeAnswerSources(sources)}, nil
 	}
+	answer := s.answerKnowledgeFromSources(ctx, service, question, sources)
+	if service.AllowWebSearch && knowledgeAnswerLooksInsufficient(answer) {
+		webSources := searchKnowledgeWeb(ctx, question, 5)
+		if len(webSources) > 0 {
+			sources = append(sources, webSources...)
+			answer = s.answerKnowledgeFromSources(ctx, service, question, sources)
+		}
+	}
+	_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, false, "", len(sources))
+	return knowledgeAnswerResponse{Answer: answer, Sources: visibleKnowledgeAnswerSources(sources)}, nil
+}
+
+func (s *Server) answerKnowledgeFromSources(ctx context.Context, service managedagents.KnowledgeService, question string, sources []knowledgeAnswerSource) string {
 	answer := s.generateKnowledgeAnswer(ctx, service, question, sources)
 	if strings.TrimSpace(answer) == "" {
 		answer = extractiveKnowledgeAnswer(question, sources)
 	}
-	_ = store.RecordKnowledgeQuestion(ctx, service.WorkspaceID, service.ID, shareID, question, answer, false, "", len(sources))
-	return knowledgeAnswerResponse{Answer: answer, Sources: visibleKnowledgeAnswerSources(sources)}, nil
+	return answer
 }
 
 func (s *Server) embedKnowledgeText(ctx context.Context, workspaceID string, text string) embeddingResult {
@@ -663,7 +695,7 @@ func (s *Server) generateKnowledgeAnswer(ctx context.Context, service managedage
 	contextText := formatKnowledgeSourcesForPrompt(sources, 10000)
 	system := strings.TrimSpace(service.SystemPrompt)
 	if system == "" {
-		system = "你是一个企业知识库问答助手。只回答服务场景内的问题，只依据给定知识库资料回答，不使用外部知识，不编造。"
+		system = "你是一个企业知识库问答助手。只回答服务场景内的问题，只依据给定知识库资料和联网搜索摘要回答，不编造。"
 	}
 	prompt := fmt.Sprintf("服务场景：%s\n\n资料：\n%s\n\n用户问题：%s\n\n请用中文简洁回答。若资料不足，请明确说明资料不足。不要在答案中列出或引用知识库文件名、文档 ID 或来源编号。", service.Scenario, contextText, question)
 	response, err := manager.Generate(ctx, llm.Request{MaxOutputTokens: 800, Messages: []llm.Message{
@@ -1041,6 +1073,177 @@ func knowledgeSourcesFromSearch(results []managedagents.KnowledgeSearchResult) [
 	return sources
 }
 
+func searchKnowledgeWeb(ctx context.Context, question string, limit int) []knowledgeAnswerSource {
+	searchCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	response, err := tools.DefaultWebService().Search(searchCtx, tools.WebSearchRequest{Query: question, Limit: limit})
+	if err == nil {
+		sources := knowledgeSourcesFromWebResults(response.Results)
+		if len(sources) > 0 {
+			return sources
+		}
+	}
+	return searchKnowledgeBing(ctx, question, limit)
+}
+
+func knowledgeSourcesFromWebResults(results []tools.WebSearchResult) []knowledgeAnswerSource {
+	sources := make([]knowledgeAnswerSource, 0, len(results))
+	for index, result := range results {
+		content := strings.TrimSpace(result.Snippet)
+		if content == "" {
+			content = strings.TrimSpace(result.Title)
+		}
+		if content == "" {
+			continue
+		}
+		score := 0.01
+		if index < 5 {
+			score = 0.1 - float64(index)*0.01
+		}
+		sources = append(sources, knowledgeAnswerSource{
+			Type:    "web",
+			Title:   strings.TrimSpace(result.Title),
+			URL:     strings.TrimSpace(result.URL),
+			Content: content,
+			Score:   score,
+		})
+	}
+	return sources
+}
+
+func searchKnowledgeBing(ctx context.Context, question string, limit int) []knowledgeAnswerSource {
+	if limit <= 0 {
+		limit = 5
+	}
+	searchCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	target := "https://www.bing.com/search?q=" + url.QueryEscape(question)
+	request, err := http.NewRequestWithContext(searchCtx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil
+	}
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 Chrome/120 Safari/537.36")
+	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	response, err := (&http.Client{Timeout: 6 * time.Second}).Do(request)
+	if err != nil {
+		return nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil
+	}
+	root, err := html.Parse(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return nil
+	}
+	items := make([]knowledgeAnswerSource, 0, limit)
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if len(items) >= limit || node == nil {
+			return
+		}
+		if node.Type == html.ElementNode && node.Data == "li" && htmlClassContains(node, "b_algo") {
+			if source := bingResultFromNode(node, len(items)); source.Content != "" {
+				items = append(items, source)
+			}
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(root)
+	return items
+}
+
+func bingResultFromNode(node *html.Node, index int) knowledgeAnswerSource {
+	heading := firstHTMLDescendant(node, func(candidate *html.Node) bool {
+		return candidate.Type == html.ElementNode && candidate.Data == "h2"
+	})
+	link := firstHTMLDescendant(heading, func(candidate *html.Node) bool {
+		return candidate.Type == html.ElementNode && candidate.Data == "a"
+	})
+	title := normalizeKnowledgeText(htmlNodeText(link))
+	href := strings.TrimSpace(htmlAttr(link, "href"))
+	if strings.HasPrefix(href, "/") {
+		href = "https://www.bing.com" + href
+	}
+	caption := firstHTMLDescendant(node, func(candidate *html.Node) bool {
+		return candidate.Type == html.ElementNode && htmlClassContains(candidate, "b_caption")
+	})
+	snippet := normalizeKnowledgeText(htmlNodeText(caption))
+	if snippet == "" {
+		snippet = title
+	}
+	if title == "" && snippet == "" {
+		return knowledgeAnswerSource{}
+	}
+	score := 0.01
+	if index < 5 {
+		score = 0.1 - float64(index)*0.01
+	}
+	return knowledgeAnswerSource{Type: "web", Title: title, URL: href, Content: snippet, Score: score}
+}
+
+func htmlClassContains(node *html.Node, className string) bool {
+	classes := strings.Fields(htmlAttr(node, "class"))
+	for _, item := range classes {
+		if item == className {
+			return true
+		}
+	}
+	return false
+}
+
+func htmlAttr(node *html.Node, name string) string {
+	if node == nil {
+		return ""
+	}
+	for _, attr := range node.Attr {
+		if attr.Key == name {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+func firstHTMLDescendant(node *html.Node, match func(*html.Node) bool) *html.Node {
+	if node == nil {
+		return nil
+	}
+	if match(node) {
+		return node
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if found := firstHTMLDescendant(child, match); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func htmlNodeText(node *html.Node) string {
+	if node == nil {
+		return ""
+	}
+	var builder strings.Builder
+	var walk func(*html.Node)
+	walk = func(candidate *html.Node) {
+		if candidate.Type == html.ElementNode && (candidate.Data == "script" || candidate.Data == "style" || candidate.Data == "noscript") {
+			return
+		}
+		if candidate.Type == html.TextNode {
+			builder.WriteString(candidate.Data)
+			builder.WriteByte(' ')
+		}
+		for child := candidate.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(node)
+	return builder.String()
+}
+
 func visibleKnowledgeAnswerSources(sources []knowledgeAnswerSource) []knowledgeAnswerSource {
 	visible := make([]knowledgeAnswerSource, 0, len(sources))
 	for _, source := range sources {
@@ -1259,6 +1462,23 @@ func extractiveKnowledgeAnswer(question string, sources []knowledgeAnswerSource)
 	}
 	_ = question
 	return builder.String()
+}
+
+func knowledgeAnswerLooksInsufficient(answer string) bool {
+	lower := strings.ToLower(strings.TrimSpace(answer))
+	if lower == "" {
+		return true
+	}
+	markers := []string{
+		"资料不足", "信息不足", "无法提供", "无法确定", "无法回答", "没有找到", "未找到",
+		"not enough information", "insufficient information", "cannot answer",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func publicKnowledgeService(service managedagents.KnowledgeService) managedagents.KnowledgeService {

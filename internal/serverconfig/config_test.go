@@ -60,6 +60,16 @@ var configEnvKeys = []string{
 	"TMA_OBJECT_STORAGE_ACCESS_KEY_CUSTOM",
 	"TMA_OBJECT_STORAGE_SECRET_KEY_CUSTOM",
 	"TMA_OBJECT_STORAGE_USE_PATH_STYLE",
+	"TMA_OBJECT_CLEANUP_WORKER_ENABLED",
+	"TMA_OBJECT_CLEANUP_WORKER_INTERVAL_MS",
+	"TMA_OBJECT_CLEANUP_BATCH_SIZE",
+	"TMA_OBJECT_CLEANUP_LEASE_DURATION_MS",
+	"TMA_OBJECT_CLEANUP_MAX_ATTEMPTS",
+	"TMA_OBJECT_CLEANUP_RETRY_INITIAL_DELAY_MS",
+	"TMA_OBJECT_CLEANUP_RETRY_MAX_DELAY_MS",
+	"TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_ENABLED",
+	"TMA_OBJECT_CLEANUP_ORPHAN_GRACE_PERIOD_SECONDS",
+	"TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_LIMIT",
 	"TMA_SKILLS_BINARY_SCANNER_PROVIDER",
 	"TMA_SKILLS_BINARY_SCANNER_ENDPOINT",
 	"TMA_SKILLS_BINARY_SCANNER_TOKEN_ENV",
@@ -385,6 +395,9 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	}
 	if config.ObjectStore.Provider != DefaultObjectStorageProvider {
 		t.Fatalf("expected default object storage provider %q, got %q", DefaultObjectStorageProvider, config.ObjectStore.Provider)
+	}
+	if config.ObjectStore.Cleanup.WorkerEnabled != DefaultObjectCleanupWorkerEnabled || config.ObjectStore.Cleanup.WorkerIntervalMillis != DefaultObjectCleanupWorkerIntervalMS || config.ObjectStore.Cleanup.BatchSize != DefaultObjectCleanupBatchSize || config.ObjectStore.Cleanup.LeaseDurationMillis != DefaultObjectCleanupLeaseDurationMS || config.ObjectStore.Cleanup.MaxAttempts != DefaultObjectCleanupMaxAttempts || config.ObjectStore.Cleanup.RetryInitialDelayMillis != DefaultObjectCleanupRetryInitialDelayMS || config.ObjectStore.Cleanup.RetryMaxDelayMillis != DefaultObjectCleanupRetryMaxDelayMS || config.ObjectStore.Cleanup.OrphanSweepEnabled != DefaultObjectCleanupOrphanSweepEnabled || config.ObjectStore.Cleanup.OrphanGracePeriodSeconds != DefaultObjectCleanupOrphanGracePeriodSec || config.ObjectStore.Cleanup.OrphanSweepLimit != DefaultObjectCleanupOrphanSweepLimit {
+		t.Fatalf("unexpected default object cleanup config: %+v", config.ObjectStore.Cleanup)
 	}
 	if config.ObjectStore.Endpoint != DefaultObjectStorageEndpoint {
 		t.Fatalf("expected default object storage endpoint %q, got %q", DefaultObjectStorageEndpoint, config.ObjectStore.Endpoint)
@@ -976,6 +989,9 @@ func TestFromEnvParsesObjectStorageConfig(t *testing.T) {
 	t.Setenv("TMA_OBJECT_STORAGE_ACCESS_KEY_CUSTOM", "access")
 	t.Setenv("TMA_OBJECT_STORAGE_SECRET_KEY_CUSTOM", "secret")
 	t.Setenv("TMA_OBJECT_STORAGE_USE_PATH_STYLE", "false")
+	t.Setenv("TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_ENABLED", "false")
+	t.Setenv("TMA_OBJECT_CLEANUP_ORPHAN_GRACE_PERIOD_SECONDS", "3600")
+	t.Setenv("TMA_OBJECT_CLEANUP_ORPHAN_SWEEP_LIMIT", "25")
 
 	config, err := FromEnv()
 	if err != nil {
@@ -999,6 +1015,9 @@ func TestFromEnvParsesObjectStorageConfig(t *testing.T) {
 	}
 	if config.ObjectStore.UsePathStyle {
 		t.Fatal("expected object storage use path style false")
+	}
+	if config.ObjectStore.Cleanup.OrphanSweepEnabled || config.ObjectStore.Cleanup.OrphanGracePeriod != time.Hour || config.ObjectStore.Cleanup.OrphanSweepLimit != 25 {
+		t.Fatalf("unexpected object orphan sweep config: %+v", config.ObjectStore.Cleanup)
 	}
 }
 
