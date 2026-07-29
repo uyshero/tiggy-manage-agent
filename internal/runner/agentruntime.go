@@ -184,7 +184,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		managedEnvironment = mergeRuntimeSkillEnvironment(managedEnvironment, materializedSkills)
 		toolExecution.Context.Environment = managedEnvironment
 	}
-	toolExecution.Registry = execution.SelectTurnTools(toolExecution.Registry, toolExecution.Policy, execution.TurnToolSelection{
+	selectedRegistry, selectionReport := execution.SelectTurnToolsWithReport(toolExecution.Registry, toolExecution.Policy, execution.TurnToolSelection{
 		UserPayload:     request.UserPayload,
 		History:         selectionHistory,
 		SummaryText:     config.SummaryText,
@@ -192,6 +192,14 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		HasActivePlan:   hasActiveTaskPlan,
 		HasImages:       len(imageParts) > 0,
 		SkillContext:    resolvedSkills.Rendered,
+	})
+	toolExecution.Registry = selectedRegistry
+	observability.RecordToolSelectionMetric(observability.ToolSelectionMetricInput{
+		Mode:               selectionReport.Mode,
+		CandidateToolCount: selectionReport.CandidateToolCount, SelectedToolCount: selectionReport.SelectedToolCount,
+		CandidateSchemaBytes: selectionReport.CandidateSchemaBytes, SelectedSchemaBytes: selectionReport.SelectedSchemaBytes,
+		CandidateSchemaTokens: selectionReport.CandidateSchemaTokens, SelectedSchemaTokens: selectionReport.SelectedSchemaTokens,
+		Triggers: selectionReport.Triggers,
 	})
 	permissionRules, err := tools.ResolvePermissionRules(config.RuntimeSettings, config.Tools, config.WorkspaceToolPolicy)
 	if err != nil {

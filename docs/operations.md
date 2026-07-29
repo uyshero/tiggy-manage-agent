@@ -15,6 +15,9 @@ completion validation、exporter、Agent Core 和 lease。固定进程级指标�
 
 - `tma_agent_core_events_total{event,idempotency}`：压缩恢复、工具重放、indeterminate、预算耗尽。
 - `tma_worker_lease_events_total{event}`：lease lost、inactive renewal 和 renewal failure。
+- `tma_tool_selection_runs_total{mode}`：渐进式或显式工具选择评估次数。
+- `tma_tool_selection_schema_tokens_total{mode,set}`：候选/选中 schema 的累计估算 token；两者差值用于
+  评估上下文节省，配合 `tma_tool_selection_triggers_total{mode,trigger}` 观察有限枚举触发分布。
 - completion validation 与 security audit outbox 的计数、积压和 dead letter。
 
 标签不能包含 subject、workspace、session、turn、路径、工具参数或其他高基数/敏感值。逐身份

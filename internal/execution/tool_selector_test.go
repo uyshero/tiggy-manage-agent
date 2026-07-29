@@ -3,6 +3,8 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 
 	"tiggy-manage-agent/internal/managedagents"
@@ -10,7 +12,7 @@ import (
 )
 
 func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
-	selected := SelectTurnTools(tools.DefaultRegistry(), tools.ConfigPolicy{}, TurnToolSelection{
+	selected, report := SelectTurnToolsWithReport(tools.DefaultRegistry(), tools.ConfigPolicy{}, TurnToolSelection{
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"帮我整理项目中的配置文件"}]}`),
 	})
 	names := selectedToolNames(selected)
@@ -25,6 +27,12 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 	if len(selectedSchemas)*2 >= len(fullSchemas) {
 		t.Fatalf("ordinary turn schemas should use less than half of the full registry: selected=%d full=%d tools=%#v", len(selectedSchemas), len(fullSchemas), names)
 	}
+	if report.Mode != "progressive" || report.CandidateToolCount <= report.SelectedToolCount || report.CandidateSchemaBytes != len(fullSchemas) || report.SelectedSchemaBytes != len(selectedSchemas) || report.CandidateSchemaTokens <= report.SelectedSchemaTokens {
+		t.Fatalf("unexpected progressive selection report: %#v", report)
+	}
+	if len(report.Triggers) != 0 {
+		t.Fatalf("ordinary request should not record specialized triggers: %#v", report)
+	}
 
 	assertSelected(t, names, "default_read_file", true)
 	assertSelected(t, names, "interaction_ask_user", true)
@@ -38,6 +46,26 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 	assertSelected(t, names, "web_search", false)
 	assertSelected(t, names, "skills_search", false)
 	assertSelected(t, names, "agent_spawn", false)
+}
+
+func TestSelectTurnToolsReportUsesBoundedTriggerNames(t *testing.T) {
+	_, report := SelectTurnToolsWithReport(tools.DefaultRegistry(), tools.ConfigPolicy{}, TurnToolSelection{
+		UserPayload:   json.RawMessage(`{"content":[{"type":"text","text":"制定多步骤计划并分析图片"}]}`),
+		HasActivePlan: true,
+		HasImages:     true,
+		SkillContext:  json.RawMessage(`{"instructions":"Use web_search and interaction_request_upload."}`),
+	})
+	joined := strings.Join(report.Triggers, ",")
+	for _, expected := range []string{"active_plan", "image_attachment", "image_request", "task_request", "upload_skill", "web_skill"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("selection report lost trigger %q: %#v", expected, report)
+		}
+	}
+	for _, sensitive := range []string{"制定多步骤计划", "web_search", "interaction_request_upload"} {
+		if strings.Contains(joined, sensitive) {
+			t.Fatalf("selection report leaked source text %q: %#v", sensitive, report)
+		}
+	}
 }
 
 func TestSelectTurnToolsAddsRelevantCapabilityDomains(t *testing.T) {
@@ -137,7 +165,7 @@ func TestSelectTurnToolsLoadsDomainsRequiredBySkillInstructions(t *testing.T) {
 
 func TestSelectTurnToolsKeepsPlatformDefaultsForExplicitConfiguration(t *testing.T) {
 	registry, policy := tools.DefaultRegistry().Configured(json.RawMessage(`{"tools":["web_search"]}`))
-	selected := SelectTurnTools(registry, policy, TurnToolSelection{
+	selected, report := SelectTurnToolsWithReport(registry, policy, TurnToolSelection{
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"只整理本地文件"}]}`),
 	})
 	names := selectedToolNames(selected)
@@ -147,16 +175,22 @@ func TestSelectTurnToolsKeepsPlatformDefaultsForExplicitConfiguration(t *testing
 			t.Fatalf("expected platform default %q to remain enabled, got %#v", name, names)
 		}
 	}
+	if report.Mode != "explicit" || report.CandidateToolCount != report.SelectedToolCount || !reflect.DeepEqual(report.Triggers, []string{"explicit_config"}) {
+		t.Fatalf("unexpected explicit selection report: %#v", report)
+	}
 }
 
 func TestSelectTurnToolsAllowsExplicitlyToollessAgent(t *testing.T) {
 	registry, policy := tools.DefaultRegistry().Configured(json.RawMessage(`{"disable_platform_defaults":true}`))
-	selected := SelectTurnTools(registry, policy, TurnToolSelection{
+	selected, report := SelectTurnToolsWithReport(registry, policy, TurnToolSelection{
 		UserPayload:     json.RawMessage(`{"content":[{"type":"text","text":"进行一次语音采访"}]}`),
 		HasActiveSkills: true,
 	})
 	if names := selectedToolNames(selected); len(names) != 0 {
 		t.Fatalf("expected explicitly tool-less agent, got %#v", names)
+	}
+	if report.Mode != "explicit" || report.CandidateToolCount != 0 || report.SelectedSchemaBytes != 0 || report.SelectedSchemaTokens != 0 {
+		t.Fatalf("unexpected tool-less selection report: %#v", report)
 	}
 }
 

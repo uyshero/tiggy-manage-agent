@@ -2,10 +2,12 @@ package execution
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/tokenestimate"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -27,26 +29,65 @@ type TurnToolSelection struct {
 	SkillContext    json.RawMessage
 }
 
+type ToolSelectionReport struct {
+	Mode                  string   `json:"mode"`
+	CandidateToolCount    int      `json:"candidate_tool_count"`
+	SelectedToolCount     int      `json:"selected_tool_count"`
+	CandidateSchemaBytes  int      `json:"candidate_schema_bytes"`
+	SelectedSchemaBytes   int      `json:"selected_schema_bytes"`
+	CandidateSchemaTokens int      `json:"candidate_schema_tokens"`
+	SelectedSchemaTokens  int      `json:"selected_schema_tokens"`
+	Triggers              []string `json:"triggers,omitempty"`
+}
+
 // SelectTurnTools keeps the common tool surface small while preserving every
 // explicitly configured or extension-provided tool. Selection is frozen for
 // the whole durable turn by Agent Core's tool snapshot.
 func SelectTurnTools(registry tools.Registry, policy tools.ConfigPolicy, request TurnToolSelection) tools.Registry {
+	selected, _ := SelectTurnToolsWithReport(registry, policy, request)
+	return selected
+}
+
+func SelectTurnToolsWithReport(registry tools.Registry, policy tools.ConfigPolicy, request TurnToolSelection) (tools.Registry, ToolSelectionReport) {
+	report := ToolSelectionReport{Mode: "progressive"}
+	report.CandidateToolCount, report.CandidateSchemaBytes, report.CandidateSchemaTokens = toolSelectionSchemaStats(registry)
 	if policy.Explicit {
-		return registry
+		report.Mode = "explicit"
+		report.Triggers = []string{"explicit_config"}
+		report.SelectedToolCount = report.CandidateToolCount
+		report.SelectedSchemaBytes = report.CandidateSchemaBytes
+		report.SelectedSchemaTokens = report.CandidateSchemaTokens
+		return registry, report
 	}
 
 	text := toolSelectionText(request.UserPayload, request.History, request.SummaryText)
 	skillText := strings.ToLower(string(request.SkillContext))
-	wantsWeb := containsAny(text, webIntentSignals) || containsAny(skillText, webToolSignals)
+	webFromRequest := containsAny(text, webIntentSignals)
+	webFromSkill := containsAny(skillText, webToolSignals)
+	wantsWeb := webFromRequest || webFromSkill
 	wantsSkillManagement := containsAny(text, skillIntentSignals)
-	wantsImages := request.HasImages || containsAny(text, imageIntentSignals) || containsAny(skillText, imageToolSignals)
-	wantsUpload := containsAny(text, uploadIntentSignals) || containsAny(skillText, uploadToolSignals)
-	wantsTaskPlan := request.HasActivePlan || containsAny(text, taskPlanIntentSignals) || containsAny(skillText, taskToolSignals)
+	imagesFromRequest := containsAny(text, imageIntentSignals)
+	imagesFromSkill := containsAny(skillText, imageToolSignals)
+	wantsImages := request.HasImages || imagesFromRequest || imagesFromSkill
+	uploadFromRequest := containsAny(text, uploadIntentSignals)
+	uploadFromSkill := containsAny(skillText, uploadToolSignals)
+	wantsUpload := uploadFromRequest || uploadFromSkill
+	taskFromRequest := containsAny(text, taskPlanIntentSignals)
+	taskFromSkill := containsAny(skillText, taskToolSignals)
+	wantsTaskPlan := request.HasActivePlan || taskFromRequest || taskFromSkill
 	wantsDiscussion := containsAny(text, discussionIntentSignals)
 	wantsGroup := wantsDiscussion || containsAny(text, groupIntentSignals)
 	wantsAgent := wantsGroup || containsAny(text, agentIntentSignals)
+	report.Triggers = toolSelectionTriggers(toolSelectionTriggerInput{
+		WebFromRequest: webFromRequest, WebFromSkill: webFromSkill,
+		SkillManagement: wantsSkillManagement,
+		ImagesAttached:  request.HasImages, ImagesFromRequest: imagesFromRequest, ImagesFromSkill: imagesFromSkill,
+		UploadFromRequest: uploadFromRequest, UploadFromSkill: uploadFromSkill,
+		ActivePlan: request.HasActivePlan, TaskFromRequest: taskFromRequest, TaskFromSkill: taskFromSkill,
+		Agent: wantsAgent, Group: wantsGroup, Discussion: wantsDiscussion,
+	})
 
-	return registry.FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
+	selected := registry.FilterAPIs(func(manifest tools.Manifest, api tools.API) bool {
 		switch manifest.Identifier {
 		case tools.DefaultIdentifier, tools.ArtifactIdentifier:
 			return true
@@ -87,6 +128,49 @@ func SelectTurnTools(registry tools.Registry, policy tools.ConfigPolicy, request
 			return true
 		}
 	})
+	report.SelectedToolCount, report.SelectedSchemaBytes, report.SelectedSchemaTokens = toolSelectionSchemaStats(selected)
+	return selected, report
+}
+
+type toolSelectionTriggerInput struct {
+	WebFromRequest, WebFromSkill               bool
+	SkillManagement                            bool
+	ImagesAttached, ImagesFromRequest          bool
+	ImagesFromSkill                            bool
+	UploadFromRequest, UploadFromSkill         bool
+	ActivePlan, TaskFromRequest, TaskFromSkill bool
+	Agent, Group, Discussion                   bool
+}
+
+func toolSelectionTriggers(input toolSelectionTriggerInput) []string {
+	values := map[string]bool{
+		"web_request": input.WebFromRequest, "web_skill": input.WebFromSkill,
+		"skill_management": input.SkillManagement,
+		"image_attachment": input.ImagesAttached, "image_request": input.ImagesFromRequest, "image_skill": input.ImagesFromSkill,
+		"upload_request": input.UploadFromRequest, "upload_skill": input.UploadFromSkill,
+		"active_plan": input.ActivePlan, "task_request": input.TaskFromRequest, "task_skill": input.TaskFromSkill,
+		"agent_request": input.Agent, "group_request": input.Group, "discussion_request": input.Discussion,
+	}
+	triggers := make([]string, 0, len(values))
+	for value, selected := range values {
+		if selected {
+			triggers = append(triggers, value)
+		}
+	}
+	sort.Strings(triggers)
+	return triggers
+}
+
+func toolSelectionSchemaStats(registry tools.Registry) (count int, bytes int, tokens int) {
+	modelTools := registry.ModelTools()
+	if len(modelTools) == 0 {
+		return 0, 0, 0
+	}
+	encoded, err := json.Marshal(modelTools)
+	if err != nil {
+		return len(modelTools), 0, 0
+	}
+	return len(modelTools), len(encoded), tokenestimate.Text(string(encoded))
 }
 
 func toolSelectionText(payload json.RawMessage, history []managedagents.ConversationMessage, summary string) string {

@@ -1466,6 +1466,7 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		AgentCore:             observability.AgentCoreMetricsSnapshot(),
 		AgentCoreDurability:   observability.AgentCoreDurabilityMetricsSnapshot(),
 		WorkerLeases:          observability.WorkerLeaseMetricsSnapshot(),
+		ToolSelections:        observability.ToolSelectionMetricsSnapshot(),
 	}
 	if s.authorizationAudit != nil {
 		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()

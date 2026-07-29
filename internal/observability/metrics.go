@@ -33,6 +33,7 @@ type MetricsSnapshot struct {
 	AgentCore              []AgentCoreRuntimeMetric
 	AgentCoreDurability    []AgentCoreDurabilityMetric
 	WorkerLeases           []WorkerLeaseMetric
+	ToolSelections         []ToolSelectionMetric
 }
 
 type AuthorizationDecisionMetric struct {
@@ -60,8 +61,43 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeFilesystemRuntimeMetrics(&builder, snapshot.FilesystemTools)
 	writeAgentCoreMetrics(&builder, snapshot.AgentCore, snapshot.WorkerLeases)
 	writeAgentCoreDurabilityMetrics(&builder, snapshot.AgentCoreDurability)
+	writeToolSelectionMetrics(&builder, snapshot.ToolSelections)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeToolSelectionMetrics(builder *strings.Builder, metrics []ToolSelectionMetric) {
+	if len(metrics) == 0 {
+		return
+	}
+	writeMetricHelp(builder, "tma_tool_selection_runs_total", "Process-local tool selection evaluations by bounded exposure mode.")
+	writeMetricType(builder, "tma_tool_selection_runs_total", "counter")
+	writeMetricHelp(builder, "tma_tool_selection_tools_total", "Cumulative candidate and selected native tool schemas evaluated by the selector.")
+	writeMetricType(builder, "tma_tool_selection_tools_total", "counter")
+	writeMetricHelp(builder, "tma_tool_selection_schema_bytes_total", "Cumulative candidate and selected native tool schema bytes evaluated by the selector.")
+	writeMetricType(builder, "tma_tool_selection_schema_bytes_total", "counter")
+	writeMetricHelp(builder, "tma_tool_selection_schema_tokens_total", "Cumulative estimated candidate and selected native tool schema tokens evaluated by the selector.")
+	writeMetricType(builder, "tma_tool_selection_schema_tokens_total", "counter")
+	writeMetricHelp(builder, "tma_tool_selection_triggers_total", "Process-local tool selection evaluations by bounded trigger; source text is never used as a label.")
+	writeMetricType(builder, "tma_tool_selection_triggers_total", "counter")
+	for _, metric := range metrics {
+		labels := map[string]string{"mode": metric.Mode}
+		writeMetric(builder, "tma_tool_selection_runs_total", labels, metric.Runs)
+		writeMetric(builder, "tma_tool_selection_tools_total", withLabel(labels, "set", "candidate"), metric.CandidateTools)
+		writeMetric(builder, "tma_tool_selection_tools_total", withLabel(labels, "set", "selected"), metric.SelectedTools)
+		writeMetric(builder, "tma_tool_selection_schema_bytes_total", withLabel(labels, "set", "candidate"), metric.CandidateSchemaBytes)
+		writeMetric(builder, "tma_tool_selection_schema_bytes_total", withLabel(labels, "set", "selected"), metric.SelectedSchemaBytes)
+		writeMetric(builder, "tma_tool_selection_schema_tokens_total", withLabel(labels, "set", "candidate"), metric.CandidateSchemaTokens)
+		writeMetric(builder, "tma_tool_selection_schema_tokens_total", withLabel(labels, "set", "selected"), metric.SelectedSchemaTokens)
+		triggers := make([]string, 0, len(metric.TriggerCounts))
+		for trigger := range metric.TriggerCounts {
+			triggers = append(triggers, trigger)
+		}
+		sort.Strings(triggers)
+		for _, trigger := range triggers {
+			writeMetric(builder, "tma_tool_selection_triggers_total", withLabel(labels, "trigger", trigger), metric.TriggerCounts[trigger])
+		}
+	}
 }
 
 func writeAgentCoreDurabilityMetrics(builder *strings.Builder, metrics []AgentCoreDurabilityMetric) {
