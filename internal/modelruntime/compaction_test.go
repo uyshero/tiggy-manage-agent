@@ -46,7 +46,7 @@ func TestEstimateCoreMessagesIgnoresDurableToolState(t *testing.T) {
 }
 
 func TestCompactionPreservesArtifactReferencesInsteadOfCopyingLargeResults(t *testing.T) {
-	model := &recordingCompactionModel{}
+	model := &recordingCompactionModel{summary: "Continue work without repeating any Artifact ID."}
 	compactor := LLMCompactor{Model: model, SummaryMaxChars: 12000}
 	state := agentcore.State{
 		SessionID: "session_1", TurnID: "turn_1",
@@ -62,8 +62,13 @@ func TestCompactionPreservesArtifactReferencesInsteadOfCopyingLargeResults(t *te
 	if err != nil {
 		t.Fatalf("compact: %v", err)
 	}
-	if result.Summary != "Continue from Artifact art_123." || len(model.request.Messages) != 2 {
+	if len(model.request.Messages) != 2 {
 		t.Fatalf("unexpected compaction result=%#v request=%#v", result, model.request)
+	}
+	for _, expected := range []string{compactionArtifactReferenceProtocol, "art_123", "next_offset_bytes", "4096", "artifact_read"} {
+		if !strings.Contains(result.Summary, expected) {
+			t.Fatalf("runtime-preserved summary is missing %q: %s", expected, result.Summary)
+		}
 	}
 	instruction := model.request.Messages[0].Content[0].Text
 	for _, expected := range []string{"Preserve Artifact IDs", "paging cursors", "instead of copying"} {
@@ -73,6 +78,51 @@ func TestCompactionPreservesArtifactReferencesInsteadOfCopyingLargeResults(t *te
 	}
 	if !strings.Contains(model.request.Messages[1].Content[0].Text, "art_123") {
 		t.Fatalf("compaction input lost Artifact reference: %#v", model.request.Messages[1])
+	}
+}
+
+func TestCompactionPreservesLatestArtifactReadCursorFromDurableState(t *testing.T) {
+	model := &recordingCompactionModel{summary: strings.Repeat("Detailed model summary. ", 200)}
+	state := agentcore.State{
+		SessionID: "session_1", TurnID: "turn_1",
+		Messages: []coremodel.Message{
+			{
+				ID: "tool_result_1", Role: coremodel.RoleTool, Visibility: coremodel.VisibilityInternal,
+				Content: []coremodel.Content{{Type: coremodel.ContentToolResult, ToolResult: &coremodel.ToolResult{
+					CallID: "call_1", Name: "default_run_command",
+					Content: []coremodel.Content{{Type: coremodel.ContentText, Text: `{"context":{"content_artifact_id":"art_page","next_offset_bytes":8192}}`}},
+				}}},
+			},
+			{
+				ID: "tool_result_2", Role: coremodel.RoleTool, Visibility: coremodel.VisibilityInternal,
+				Content: []coremodel.Content{{Type: coremodel.ContentToolResult, ToolResult: &coremodel.ToolResult{
+					CallID: "call_2", Name: "artifact_read",
+					Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "bounded page"}},
+					State:   []byte(`{"artifact":{"artifact_id":"art_page"},"offset_bytes":8192,"returned_bytes":8192,"next_offset_bytes":16384,"eof":false}`),
+				}}},
+			},
+		},
+	}
+	result, err := (LLMCompactor{Model: model, SummaryMaxChars: 1200}).Compact(t.Context(), state, "compact_cursor")
+	if err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if len([]rune(result.Summary)) > 1200 {
+		t.Fatalf("summary exceeded configured bound: chars=%d", len([]rune(result.Summary)))
+	}
+	for _, expected := range []string{`"artifact_id":"art_page"`, `"next_offset_bytes":16384`, `"eof":false`, `"tool":"artifact_read"`, `"call_id":"call_2"`} {
+		if !strings.Contains(result.Summary, expected) {
+			t.Fatalf("summary lost latest Artifact cursor field %s: %s", expected, result.Summary)
+		}
+	}
+}
+
+func TestTruncateCompactionSummaryHonorsMaximumIncludingMarker(t *testing.T) {
+	for _, maximum := range []int{8, 64, 128} {
+		result := truncateCompactionSummary(strings.Repeat("x", 1000), maximum)
+		if len([]rune(result)) > maximum {
+			t.Fatalf("truncateCompactionSummary exceeded %d characters: %d", maximum, len([]rune(result)))
+		}
 	}
 }
 
@@ -125,12 +175,17 @@ func TestCompactionKeepsLargeToolResultsWithoutArtifactReferences(t *testing.T) 
 
 type recordingCompactionModel struct {
 	request coremodel.Request
+	summary string
 }
 
 func (m *recordingCompactionModel) Generate(_ context.Context, request coremodel.Request, _ agentcore.DeltaSink) (coremodel.Response, error) {
 	m.request = request
+	summary := m.summary
+	if summary == "" {
+		summary = "Continue from Artifact art_123."
+	}
 	return coremodel.Response{
-		Message:    coremodel.Message{Role: coremodel.RoleAssistant, Content: []coremodel.Content{{Type: coremodel.ContentText, Text: "Continue from Artifact art_123."}}},
+		Message:    coremodel.Message{Role: coremodel.RoleAssistant, Content: []coremodel.Content{{Type: coremodel.ContentText, Text: summary}}},
 		StopReason: coremodel.StopReasonComplete,
 	}, nil
 }

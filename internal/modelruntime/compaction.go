@@ -39,7 +39,8 @@ func (c LLMCompactor) Compact(ctx context.Context, state agentcore.State, attemp
 	if c.Model == nil {
 		return agentcore.CompactionResult{}, errors.New("compaction model is required")
 	}
-	raw, err := json.Marshal(projectCompactionMessages(state.Messages))
+	projectedMessages := projectCompactionMessages(state.Messages)
+	raw, err := json.Marshal(projectedMessages)
 	if err != nil {
 		return agentcore.CompactionResult{}, fmt.Errorf("encode compaction messages: %w", err)
 	}
@@ -67,10 +68,10 @@ func (c LLMCompactor) Compact(ctx context.Context, state agentcore.State, attemp
 		return agentcore.CompactionResult{}, errors.New("compaction model returned an incomplete or tool-calling response")
 	}
 	summary := strings.TrimSpace(flattenModelContent(response.Message.Content))
-	summary = truncateCompactionSummary(summary, c.SummaryMaxChars)
 	if summary == "" {
 		return agentcore.CompactionResult{}, errors.New("compaction model returned an empty summary")
 	}
+	summary = preserveCompactionArtifactReferences(summary, collectCompactionArtifactReferences(projectedMessages), c.SummaryMaxChars)
 	estimated := tokenestimate.Text(summary)
 	if latest, ok := latestPublicUserMessage(state.Messages); ok {
 		rawLatest, _ := json.Marshal(latest)
@@ -82,7 +83,194 @@ func (c LLMCompactor) Compact(ctx context.Context, state agentcore.State, attemp
 const (
 	compactionToolResultMaxChars = 4096
 	compactionToolStateMaxBytes  = 4096
+	compactionArtifactMaxChars   = 4096
 )
+
+const compactionArtifactReferenceProtocol = "tma.compaction_artifact_references.v1"
+
+type compactionArtifactReference struct {
+	ArtifactID      string `json:"artifact_id"`
+	NextOffsetBytes *int64 `json:"next_offset_bytes,omitempty"`
+	EOF             *bool  `json:"eof,omitempty"`
+	Tool            string `json:"tool,omitempty"`
+	CallID          string `json:"call_id,omitempty"`
+	lastSeen        int
+}
+
+func collectCompactionArtifactReferences(messages []coremodel.Message) []compactionArtifactReference {
+	references := map[string]compactionArtifactReference{}
+	sequence := 0
+	for _, message := range messages {
+		for _, content := range message.Content {
+			if content.Type != coremodel.ContentToolResult || content.ToolResult == nil {
+				continue
+			}
+			result := content.ToolResult
+			for _, nested := range result.Content {
+				if nested.Type != coremodel.ContentText {
+					continue
+				}
+				var value any
+				if json.Unmarshal([]byte(nested.Text), &value) == nil {
+					collectCompactionArtifactValue(value, result.Name, result.CallID, references, &sequence, 0)
+				}
+			}
+			if len(result.State) > 0 {
+				var value any
+				if json.Unmarshal(result.State, &value) == nil {
+					collectCompactionArtifactValue(value, result.Name, result.CallID, references, &sequence, 0)
+				}
+			}
+		}
+	}
+	collected := make([]compactionArtifactReference, 0, len(references))
+	for _, reference := range references {
+		collected = append(collected, reference)
+	}
+	sort.Slice(collected, func(i, j int) bool {
+		if collected[i].lastSeen != collected[j].lastSeen {
+			return collected[i].lastSeen > collected[j].lastSeen
+		}
+		return collected[i].ArtifactID < collected[j].ArtifactID
+	})
+	return collected
+}
+
+func collectCompactionArtifactValue(
+	value any,
+	toolName string,
+	callID string,
+	references map[string]compactionArtifactReference,
+	sequence *int,
+	depth int,
+) {
+	if depth > 8 {
+		return
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		artifactIDs := compactionArtifactIDsInObject(typed)
+		nextOffset, hasNextOffset := compactionJSONInt64(typed["next_offset_bytes"])
+		eof, hasEOF := typed["eof"].(bool)
+		for _, artifactID := range artifactIDs {
+			(*sequence)++
+			reference := references[artifactID]
+			reference.ArtifactID = artifactID
+			reference.Tool = toolName
+			reference.CallID = callID
+			reference.lastSeen = *sequence
+			if hasNextOffset {
+				cursor := nextOffset
+				reference.NextOffsetBytes = &cursor
+			}
+			if hasEOF {
+				ended := eof
+				reference.EOF = &ended
+				if ended {
+					reference.NextOffsetBytes = nil
+				}
+			}
+			references[artifactID] = reference
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			collectCompactionArtifactValue(typed[key], toolName, callID, references, sequence, depth+1)
+		}
+	case []any:
+		for _, item := range typed {
+			collectCompactionArtifactValue(item, toolName, callID, references, sequence, depth+1)
+		}
+	}
+}
+
+func compactionArtifactIDsInObject(value map[string]any) []string {
+	seen := map[string]bool{}
+	for _, key := range []string{"artifact_id", "result_artifact_id", "content_artifact_id", "state_artifact_id"} {
+		if artifactID, ok := value[key].(string); ok && strings.TrimSpace(artifactID) != "" {
+			seen[strings.TrimSpace(artifactID)] = true
+		}
+	}
+	if artifact, ok := value["artifact"].(map[string]any); ok {
+		if artifactID, ok := artifact["artifact_id"].(string); ok && strings.TrimSpace(artifactID) != "" {
+			seen[strings.TrimSpace(artifactID)] = true
+		}
+	}
+	artifactIDs := make([]string, 0, len(seen))
+	for artifactID := range seen {
+		artifactIDs = append(artifactIDs, artifactID)
+	}
+	sort.Strings(artifactIDs)
+	return artifactIDs
+}
+
+func compactionJSONInt64(value any) (int64, bool) {
+	number, ok := value.(float64)
+	if !ok || number < 0 || number != float64(int64(number)) {
+		return 0, false
+	}
+	return int64(number), true
+}
+
+func preserveCompactionArtifactReferences(summary string, references []compactionArtifactReference, maximum int) string {
+	maximum = positiveCompactionInt(maximum, 12000)
+	if len(references) == 0 {
+		return truncateCompactionSummary(summary, maximum)
+	}
+	appendixBudget := min(compactionArtifactMaxChars, maximum/3)
+	appendix := buildCompactionArtifactAppendix(references, appendixBudget)
+	if appendix == "" {
+		return truncateCompactionSummary(summary, maximum)
+	}
+	separator := "\n\n"
+	summaryBudget := maximum - len([]rune(appendix)) - len([]rune(separator))
+	if summaryBudget <= 0 {
+		return truncateCompactionSummary(appendix, maximum)
+	}
+	summary = truncateCompactionSummary(summary, summaryBudget)
+	if strings.TrimSpace(summary) == "" {
+		return appendix
+	}
+	return summary + separator + appendix
+}
+
+func buildCompactionArtifactAppendix(references []compactionArtifactReference, maximum int) string {
+	if maximum <= 0 {
+		return ""
+	}
+	type appendix struct {
+		ProtocolVersion string                        `json:"protocol_version"`
+		Instruction     string                        `json:"instruction"`
+		Artifacts       []compactionArtifactReference `json:"artifacts"`
+		Omitted         int                           `json:"omitted,omitempty"`
+	}
+	value := appendix{
+		ProtocolVersion: compactionArtifactReferenceProtocol,
+		Instruction:     "Runtime-preserved recovery references. Use artifact_read with next_offset_bytes when details are needed.",
+	}
+	for _, reference := range references {
+		candidate := value
+		candidate.Artifacts = append(append([]compactionArtifactReference(nil), value.Artifacts...), reference)
+		candidate.Omitted = len(references) - len(candidate.Artifacts)
+		encoded, err := json.Marshal(candidate)
+		if err != nil || len([]rune(string(encoded))) > maximum {
+			break
+		}
+		value = candidate
+	}
+	if len(value.Artifacts) == 0 {
+		return ""
+	}
+	value.Omitted = len(references) - len(value.Artifacts)
+	encoded, err := json.Marshal(value)
+	if err != nil || len([]rune(string(encoded))) > maximum {
+		return ""
+	}
+	return string(encoded)
+}
 
 func projectCompactionMessages(messages []coremodel.Message) []coremodel.Message {
 	projected := make([]coremodel.Message, len(messages))
@@ -266,7 +454,11 @@ func truncateCompactionSummary(value string, maximum int) string {
 	if len(runes) <= maximum {
 		return string(runes)
 	}
-	return strings.TrimSpace(string(runes[:maximum])) + "\n[Compaction summary truncated.]"
+	marker := []rune("\n[Compaction summary truncated.]")
+	if maximum <= len(marker) {
+		return string(runes[:maximum])
+	}
+	return strings.TrimSpace(string(runes[:maximum-len(marker)])) + string(marker)
 }
 
 func positiveCompactionInt(value, fallback int) int {
