@@ -263,6 +263,9 @@ func TestAgentScheduleCRUDAndRunNow(t *testing.T) {
 	if created.AgentID != agent.ID || created.EnvironmentID == "" || created.NextRunAt == nil {
 		t.Fatalf("unexpected created schedule: %#v", created)
 	}
+	if created.ApprovalMode != managedagents.AgentScheduleApprovalRequestApproval {
+		t.Fatalf("default approval mode = %q, want %q", created.ApprovalMode, managedagents.AgentScheduleApprovalRequestApproval)
+	}
 	list := getJSON[struct {
 		Schedules []managedagents.AgentSchedule `json:"schedules"`
 	}](t, server, "/v1/agents/"+agent.ID+"/schedules")
@@ -280,6 +283,17 @@ func TestAgentScheduleCRUDAndRunNow(t *testing.T) {
 	}](t, server, "/v1/agents/"+agent.ID+"/schedules/"+created.ID+"/run", `{}`)
 	if run.Session == nil || run.Session.ID == "" || run.RunID == "" || run.Status != managedagents.AgentScheduleRunDispatched || len(runner.starts) != 1 {
 		t.Fatalf("unexpected run response=%#v requests=%d", run, len(runner.starts))
+	}
+	var scheduledPayload struct {
+		RuntimeSettingsOverride struct {
+			InterventionMode string `json:"intervention_mode"`
+		} `json:"runtime_settings_override"`
+	}
+	if err := json.Unmarshal(runner.starts[0].UserPayload, &scheduledPayload); err != nil {
+		t.Fatalf("decode scheduled payload: %v", err)
+	}
+	if scheduledPayload.RuntimeSettingsOverride.InterventionMode != managedagents.AgentScheduleApprovalRequestApproval {
+		t.Fatalf("scheduled intervention mode = %q, want parked approval", scheduledPayload.RuntimeSettingsOverride.InterventionMode)
 	}
 	deleteResponse := httptest.NewRecorder()
 	server.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/v1/agents/"+agent.ID+"/schedules/"+created.ID, nil))

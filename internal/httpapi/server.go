@@ -21,6 +21,8 @@ import (
 	"tiggy-manage-agent/internal/skillmarketplace"
 	"tiggy-manage-agent/internal/skillretention"
 	"tiggy-manage-agent/internal/tools"
+	"tiggy-manage-agent/internal/workbenchprojects"
+	"tiggy-manage-agent/internal/workbenchruntime"
 )
 
 const serviceName = "tiggy-manage-agent"
@@ -50,6 +52,8 @@ type Server struct {
 	subagentPolicy     SubagentPolicy
 	skillsToolService  tools.SkillsToolService
 	skillRetention     *skillretention.Service
+	workbenchProjects  workbenchprojects.Provisioner
+	workbenchRuntime   workbenchruntime.Provisioner
 	documentPreviewer  documentPreviewConverter
 }
 
@@ -131,6 +135,18 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		subagentPolicy:     subagentPolicy,
 		documentPreviewer:  defaultDocumentPreviewConverter(),
 	}
+	projectProvisioner, provisionerErr := workbenchprojects.GitLabProvisionerFromEnv(nil)
+	if provisionerErr != nil {
+		logger.Warn("GitLab workbench project provisioning disabled", "error", provisionerErr)
+	} else if projectProvisioner != nil {
+		server.workbenchProjects = projectProvisioner
+	}
+	runtimeProvisioner, runtimeErr := workbenchruntime.DockerProvisionerFromEnv(nil)
+	if runtimeErr != nil {
+		logger.Warn("R Notebook runtime provisioning disabled", "error", runtimeErr)
+	} else if runtimeProvisioner != nil {
+		server.workbenchRuntime = runtimeProvisioner
+	}
 	tools.SetDefaultAgentToolService(newAgentToolService(store, turnRunner, logger, subagentPolicy))
 	server.skillsToolService = newSkillsToolServiceWithDependenciesAndBinaryScanner(
 		store,
@@ -187,6 +203,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/logout", s.logoutOIDCLogin)
 	s.mux.HandleFunc("GET /v1/auth/me", s.getCurrentPrincipal)
 	s.mux.HandleFunc("GET /v1/auth/config", s.getAuthClientConfiguration)
+	s.mux.HandleFunc("GET /v1/workbench-projects", s.listWorkbenchProjects)
+	s.mux.HandleFunc("POST /v1/workbench-projects", s.createWorkbenchProject)
+	s.mux.HandleFunc("PATCH /v1/workbench-projects/{project_id}", s.updateWorkbenchProject)
+	s.mux.HandleFunc("POST /v1/workbench-projects/{project_id}/sync", s.syncWorkbenchProject)
+	s.mux.HandleFunc("POST /v1/workbench-projects/{project_id}/runtime/start", s.startWorkbenchProjectRuntime)
+	s.mux.HandleFunc("POST /v1/workbench-projects/{project_id}/runtime/stop", s.stopWorkbenchProjectRuntime)
+	s.mux.HandleFunc("POST /v1/workbench-projects/{project_id}/runtime/run-cleaning", s.runWorkbenchProjectCleaning)
 	s.mux.HandleFunc("GET /v1/agent/task-group-templates", s.listTaskGroupTemplates)
 	s.mux.HandleFunc("GET /v1/task-templates", s.listWorkbenchTaskTemplates)
 	s.mux.HandleFunc("GET /v1/agent/discussion-strategies", s.listAgentDiscussionStrategies)

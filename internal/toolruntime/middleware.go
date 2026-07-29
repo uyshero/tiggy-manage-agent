@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"tiggy-manage-agent/internal/agentcore"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -31,26 +32,26 @@ func freezeMiddleware(middlewares []ToolMiddleware) ([]ToolMiddleware, []Middlew
 	seen := make(map[string]bool, len(frozen))
 	for index, middleware := range frozen {
 		if middleware == nil {
-			return nil, nil, "", tools.NewToolContractError("invalid_tool_middleware", fmt.Errorf("tool middleware %d is nil", index))
+			return nil, nil, "", tools.NewToolContractError(agentcore.ToolFatalInvalidMiddleware, fmt.Errorf("tool middleware %d is nil", index))
 		}
 		descriptor := middleware.Descriptor()
 		descriptor.ID = strings.TrimSpace(strings.ToLower(descriptor.ID))
 		descriptor.Version = strings.TrimSpace(descriptor.Version)
 		if !middlewareIDPattern.MatchString(descriptor.ID) {
-			return nil, nil, "", tools.NewToolContractError("invalid_tool_middleware", fmt.Errorf("tool middleware %d has invalid id %q", index, descriptor.ID))
+			return nil, nil, "", tools.NewToolContractError(agentcore.ToolFatalInvalidMiddleware, fmt.Errorf("tool middleware %d has invalid id %q", index, descriptor.ID))
 		}
 		if descriptor.Version == "" || len(descriptor.Version) > 120 {
-			return nil, nil, "", tools.NewToolContractError("invalid_tool_middleware", fmt.Errorf("tool middleware %q requires a 1-120 character version", descriptor.ID))
+			return nil, nil, "", tools.NewToolContractError(agentcore.ToolFatalInvalidMiddleware, fmt.Errorf("tool middleware %q requires a 1-120 character version", descriptor.ID))
 		}
 		if seen[descriptor.ID] {
-			return nil, nil, "", tools.NewToolContractError("invalid_tool_middleware", fmt.Errorf("duplicate tool middleware id %q", descriptor.ID))
+			return nil, nil, "", tools.NewToolContractError(agentcore.ToolFatalInvalidMiddleware, fmt.Errorf("duplicate tool middleware id %q", descriptor.ID))
 		}
 		seen[descriptor.ID] = true
 		descriptors[index] = descriptor
 	}
 	encoded, err := json.Marshal(descriptors)
 	if err != nil {
-		return nil, nil, "", tools.NewToolContractError("invalid_tool_middleware", fmt.Errorf("encode tool middleware contract: %w", err))
+		return nil, nil, "", tools.NewToolContractError(agentcore.ToolFatalInvalidMiddleware, fmt.Errorf("encode tool middleware contract: %w", err))
 	}
 	sum := sha256.Sum256(encoded)
 	return frozen, descriptors, "sha256:" + hex.EncodeToString(sum[:]), nil

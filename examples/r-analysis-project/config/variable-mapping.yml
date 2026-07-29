@@ -1,15 +1,69 @@
 version: 1
-fields:
-  患者编号: patient_id
-  随访时间（月）: followup_month
-  结局状态: event
-  治疗方案: treatment
-  年龄: age
-  疾病分期: stage
-values:
+rule_source:
+  skill: skills/r-survival-data-cleaning/SKILL.md
+  mode: agent_inferred_with_human_confirmation
+dataset:
+  raw_path: data/raw/随访数据.csv
+  encoding: UTF-8
+  output_object: followup
+variables:
+  patient_id:
+    source: "患者编号"
+    type: "字符"
+    semantic_role: "患者唯一标识"
+    transform_guidance: "确认是否一人一行；重复编号需要说明合并/保留策略"
+    value_map: {}
+    unresolved_values: []
+  followup_month:
+    source: "随访月数"
+    type: "数值"
+    semantic_role: "生存时间"
+    transform_guidance: "确认时间单位，必要时从天/年转换为月，并保留转换说明"
+    value_map: {}
+    unresolved_values: []
   event:
-    death: [死亡, 已死亡, 事件发生]
-    censored: [存活, 失访, 删失, 未发生]
+    source: "结局"
+    type: "0/1"
+    semantic_role: "事件/删失"
+    transform_guidance: "事件和删失不能硬猜；死亡、复发、进展、失访要按研究终点确认"
+    value_map: {}
+    unresolved_values: []
   treatment:
-    new: [新方案, 新药组, 试验组]
-    standard: [常规治疗, 标准组, 对照组]
+    source: "治疗组"
+    type: "分类"
+    semantic_role: "分组变量"
+    transform_guidance: "根据样本值和研究设计推断分组，不确定时生成待确认项"
+    value_map: {}
+    unresolved_values: []
+  age:
+    source: "年龄"
+    type: "数值"
+    semantic_role: "协变量"
+    transform_guidance: "是否进入 Cox 模型由研究目标决定，异常年龄需列出"
+    value_map: {}
+    unresolved_values: []
+  stage:
+    source: "分期"
+    type: "有序分类"
+    semantic_role: "协变量/分层变量"
+    transform_guidance: "统一中文、罗马数字和数字分期；无法识别的值进入待确认项"
+    value_map: {}
+    unresolved_values: []
+  sex:
+    source: "性别"
+    type: "分类"
+    semantic_role: "协变量"
+    transform_guidance: "按样本值生成映射，非男/女取值不要直接丢弃"
+    value_map: {}
+    unresolved_values: []
+quality_checks:
+  required:
+    - patient_id_unique
+    - followup_month_non_negative
+    - event_binary_0_1
+    - required_survival_fields_not_missing
+  agent_should_expand: true
+confirmation_required:
+  - event_definition
+  - censoring_definition
+  - ambiguous_value_maps

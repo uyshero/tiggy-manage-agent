@@ -726,10 +726,10 @@ func (r MCPRuntime) lookupOriginalName(apiName string) (string, bool) {
 	return "", false
 }
 
-func mcpToolRisk(annotations mcppkg.ToolAnnotations) string {
-	if annotations.ReadOnlyHint && !annotations.DestructiveHint {
-		return ToolRiskRead
-	}
+func mcpToolRisk(_ mcppkg.ToolAnnotations) string {
+	// MCP annotations are supplied by the remote server and are not a trust
+	// boundary. They may increase operator awareness, but must not downgrade an
+	// external invocation into the approval-free read-only class.
 	return ToolRiskWrite
 }
 

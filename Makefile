@@ -277,7 +277,7 @@ migrate-up:
 	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
 
 generate-sql-baseline:
-	sh scripts/generate_sql_baseline.sh 000092
+	sh scripts/generate_sql_baseline.sh 000095
 
 verify-sql-baseline: generate-sql-baseline
-	sh scripts/verify_sql_baseline.sh sql/baselines/000092_baseline.sql
+	sh scripts/verify_sql_baseline.sh sql/baselines/000095_baseline.sql

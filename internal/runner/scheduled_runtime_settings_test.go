@@ -33,10 +33,23 @@ func TestRuntimeSettingsForTurnAppliesScheduledOverrideWithoutMutatingBase(t *te
 	}
 }
 
+func TestRuntimeSettingsForTurnParksScheduledApproval(t *testing.T) {
+	base := json.RawMessage(`{"intervention_mode":"approve_for_me","human_interaction":{"enabled":true}}`)
+	payload := json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"request_approval","human_interaction":{"enabled":false,"fallback":"fail"}}}`)
+
+	got := runtimeSettingsForTurn(base, payload)
+	if tools.ParseInterventionMode(got) != tools.InterventionModeRequestApproval {
+		t.Fatalf("expected scheduled turn to wait for approval, got %s", got)
+	}
+	if execution.HumanInteractionEnabled(got) {
+		t.Fatalf("expected scheduled clarification requests to remain disabled, got %s", got)
+	}
+}
+
 func TestRuntimeSettingsForTurnRejectsUnsafeScheduledOverrides(t *testing.T) {
 	base := json.RawMessage(`{"intervention_mode":"request_approval","human_interaction":{"enabled":true}}`)
 	tests := []json.RawMessage{
-		json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"request_approval","human_interaction":{"enabled":false,"fallback":"fail"}}}`),
+		json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"auto_approve","human_interaction":{"enabled":false,"fallback":"fail"}}}`),
 		json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"full_access","human_interaction":{"enabled":true,"fallback":"fail"}}}`),
 		json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"full_access","human_interaction":{"enabled":false,"fallback":"assistant_message"}}}`),
 		json.RawMessage(`{"runtime_settings_override":{"intervention_mode":"full_access"}}`),

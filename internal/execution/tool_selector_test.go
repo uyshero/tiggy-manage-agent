@@ -108,6 +108,17 @@ func TestSelectTurnToolsKeepsPlatformDefaultsForExplicitConfiguration(t *testing
 	}
 }
 
+func TestSelectTurnToolsAllowsExplicitlyToollessAgent(t *testing.T) {
+	registry, policy := tools.DefaultRegistry().Configured(json.RawMessage(`{"disable_platform_defaults":true}`))
+	selected := SelectTurnTools(registry, policy, TurnToolSelection{
+		UserPayload:     json.RawMessage(`{"content":[{"type":"text","text":"进行一次语音采访"}]}`),
+		HasActiveSkills: true,
+	})
+	if names := selectedToolNames(selected); len(names) != 0 {
+		t.Fatalf("expected explicitly tool-less agent, got %#v", names)
+	}
+}
+
 func TestSelectTurnToolsPreservesExtensionNamespaces(t *testing.T) {
 	registry := tools.DefaultRegistry()
 	registry.Register(selectorExtensionRuntime{})

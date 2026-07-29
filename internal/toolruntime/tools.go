@@ -12,6 +12,7 @@ import (
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/managedagents"
 	coremodel "tiggy-manage-agent/internal/model"
+	"tiggy-manage-agent/internal/toolresult"
 	"tiggy-manage-agent/internal/tools"
 )
 
@@ -38,7 +39,7 @@ func (r ToolRuntime) Preflight(ctx context.Context, state agentcore.State, calls
 			continue
 		}
 		if validationError := r.Snapshot.registry.ValidateCallArguments(call); validationError != nil {
-			if validationError.Type == "invalid_tool_schema" {
+			if validationError.Type == toolresult.CodeInvalidToolSchema {
 				return agentcore.ToolBatchPlan{}, tools.NewToolContractError(
 					validationError.Type, fmt.Errorf("%s: %s", validationError.Type, validationError.Message),
 				)
@@ -91,7 +92,7 @@ func (r ToolRuntime) Preflight(ctx context.Context, state agentcore.State, calls
 			continue
 		}
 		if validationError := r.Snapshot.registry.ValidateCallArguments(call); validationError != nil {
-			if validationError.Type == "invalid_tool_schema" {
+			if validationError.Type == toolresult.CodeInvalidToolSchema {
 				return agentcore.ToolBatchPlan{}, tools.NewToolContractError(
 					validationError.Type, fmt.Errorf("%s: %s", validationError.Type, validationError.Message),
 				)
@@ -185,16 +186,16 @@ func (r ToolRuntime) ValidateExecution(_ context.Context, state agentcore.State,
 		return err
 	}
 	if strings.TrimSpace(plan.RegistryRevision) == "" {
-		return agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool registry revision is missing from durable preflight"))
+		return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool registry revision is missing from durable preflight"))
 	}
 	if r.Snapshot.registryRevision == "" || r.Snapshot.registryRevision != plan.RegistryRevision {
-		return agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool registry changed after durable preflight"))
+		return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool registry changed after durable preflight"))
 	}
 	if strings.TrimSpace(plan.PolicyRevision) == "" || strings.TrimSpace(r.Snapshot.policyRevision) == "" {
-		return agentcore.NewToolFatalError("tool_policy_changed", errors.New("tool policy revision is missing from durable execution"))
+		return agentcore.NewToolFatalError(agentcore.ToolFatalPolicyChanged, errors.New("tool policy revision is missing from durable execution"))
 	}
 	if strings.TrimSpace(plan.MiddlewareRevision) == "" || plan.MiddlewareRevision != r.Snapshot.middlewareRevision {
-		return agentcore.NewToolFatalError("tool_middleware_changed", errors.New("tool middleware chain changed after durable preflight"))
+		return agentcore.NewToolFatalError(agentcore.ToolFatalMiddlewareChanged, errors.New("tool middleware chain changed after durable preflight"))
 	}
 	for _, planned := range plan.Calls {
 		if planned.ApprovalState == agentcore.ToolApprovalRejected {
@@ -206,12 +207,12 @@ func (r ToolRuntime) ValidateExecution(_ context.Context, state agentcore.State,
 		})
 		if planned.ValidationState == agentcore.ToolValidationUnsupportedTool || planned.ValidationState == agentcore.ToolValidationUnsupportedToolAPI {
 			executionError := unsupportedToolError(r.Snapshot.registry, call)
-			expectedType := "unsupported_tool_api"
+			expectedType := toolresult.CodeUnsupportedToolAPI
 			if planned.ValidationState == agentcore.ToolValidationUnsupportedTool {
-				expectedType = "unsupported_tool"
+				expectedType = toolresult.CodeUnsupportedTool
 			}
 			if executionError.Type != expectedType {
-				return agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool registry changed after durable preflight"))
+				return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool registry changed after durable preflight"))
 			}
 			continue
 		}
@@ -220,21 +221,21 @@ func (r ToolRuntime) ValidateExecution(_ context.Context, state agentcore.State,
 			if planned.Call.ArgumentsError != "" {
 				continue
 			}
-			if validationError == nil || validationError.Type != "invalid_tool_arguments" {
-				return agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool validation changed after durable preflight"))
+			if validationError == nil || validationError.Type != toolresult.CodeInvalidToolArguments {
+				return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool validation changed after durable preflight"))
 			}
 			continue
 		}
 		if validationError != nil {
-			return agentcore.NewToolFatalError("tool_registry_changed", fmt.Errorf("%s: %s", validationError.Type, validationError.Message))
+			return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, fmt.Errorf("%s: %s", validationError.Type, validationError.Message))
 		}
 		manifest, api, ok := r.Snapshot.registry.GetAPI(call.Identifier, call.APIName)
 		if !ok {
-			return agentcore.NewToolFatalError("tool_registry_changed", fmt.Errorf("tool registry changed after durable preflight: unsupported tool %q", planned.Call.Name))
+			return agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, fmt.Errorf("tool registry changed after durable preflight: unsupported tool %q", planned.Call.Name))
 		}
 		decision := r.Snapshot.policy.EvaluateCall(manifest, api, call, r.executionContext(state))
 		if plan.PolicyRevision == r.Snapshot.policyRevision && !sameToolPermissionDecision(planned.Permission, agentCoreToolPermissionDecision(decision)) {
-			return agentcore.NewToolFatalError("tool_policy_changed", errors.New("tool permission decision changed after durable preflight"))
+			return agentcore.NewToolFatalError(agentcore.ToolFatalPolicyChanged, errors.New("tool permission decision changed after durable preflight"))
 		}
 	}
 	return nil
@@ -246,7 +247,7 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 	}
 	executor, err := wrapMiddlewareExecutor(r.Snapshot.middlewares, snapshotExecutor(r.Snapshot.registry, r.Executor))
 	if err != nil {
-		return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("invalid_tool_middleware", err)
+		return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalInvalidMiddleware, err)
 	}
 	results := make([]coremodel.ToolResult, 0, len(plan.Calls))
 	for _, planned := range plan.Calls {
@@ -260,12 +261,12 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 		})
 		if planned.ValidationState == agentcore.ToolValidationUnsupportedTool || planned.ValidationState == agentcore.ToolValidationUnsupportedToolAPI {
 			executionError := unsupportedToolError(r.Snapshot.registry, call)
-			expectedType := "unsupported_tool_api"
+			expectedType := toolresult.CodeUnsupportedToolAPI
 			if planned.ValidationState == agentcore.ToolValidationUnsupportedTool {
-				expectedType = "unsupported_tool"
+				expectedType = toolresult.CodeUnsupportedTool
 			}
 			if executionError.Type != expectedType {
-				return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool registry changed after durable preflight"))
+				return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool registry changed after durable preflight"))
 			}
 			results = append(results, recoverableToolResult(planned.Call, call, executionError))
 			continue
@@ -274,18 +275,18 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 		if planned.ValidationState == agentcore.ToolValidationInvalidArguments {
 			if planned.Call.ArgumentsError != "" {
 				results = append(results, recoverableToolResult(planned.Call, call, &tools.ExecutionError{
-					Type: "invalid_tool_arguments", Message: planned.Call.ArgumentsError,
+					Type: toolresult.CodeInvalidToolArguments, Message: planned.Call.ArgumentsError,
 				}))
 				continue
 			}
-			if validationError == nil || validationError.Type != "invalid_tool_arguments" {
-				return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_registry_changed", errors.New("tool validation changed after durable preflight"))
+			if validationError == nil || validationError.Type != toolresult.CodeInvalidToolArguments {
+				return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, errors.New("tool validation changed after durable preflight"))
 			}
 			results = append(results, recoverableToolResult(planned.Call, call, validationError))
 			continue
 		}
 		if validationError != nil {
-			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_registry_changed", fmt.Errorf("%s: %s", validationError.Type, validationError.Message))
+			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, fmt.Errorf("%s: %s", validationError.Type, validationError.Message))
 		}
 		if result, ok, err := resolvedParkingInteraction(call, plan.Interactions); ok {
 			if err != nil {
@@ -296,12 +297,12 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 		}
 		manifest, api, ok := r.Snapshot.registry.GetAPI(call.Identifier, call.APIName)
 		if !ok {
-			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_registry_changed", fmt.Errorf("tool registry changed after durable preflight: unsupported tool %q", planned.Call.Name))
+			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalRegistryChanged, fmt.Errorf("tool registry changed after durable preflight: unsupported tool %q", planned.Call.Name))
 		}
 		decision := r.Snapshot.policy.EvaluateCall(manifest, api, call, r.executionContext(state))
 		currentPermission := agentCoreToolPermissionDecision(decision)
 		if plan.PolicyRevision == r.Snapshot.policyRevision && !sameToolPermissionDecision(planned.Permission, currentPermission) {
-			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError("tool_policy_changed", errors.New("tool permission decision changed after durable preflight"))
+			return agentcore.ToolBatchResult{}, agentcore.NewToolFatalError(agentcore.ToolFatalPolicyChanged, errors.New("tool permission decision changed after durable preflight"))
 		}
 		if planned.Disposition == agentcore.ToolDispositionDenied || (!decision.Allowed && !decision.Required) {
 			denied := tools.PermissionDeniedResult(call, decision)
@@ -355,15 +356,20 @@ func (r ToolRuntime) Execute(ctx context.Context, state agentcore.State, plan ag
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return agentcore.ToolBatchResult{}, err
 			}
-			message := tools.RedactEnvironmentText(err.Error(), r.ExecutionContext.Environment)
+			rawMessage := err.Error()
+			message := tools.RedactEnvironmentText(rawMessage, r.ExecutionContext.Environment)
+			redacted := message != rawMessage
 			if executionContext.Progress != nil {
 				executionContext.Progress(ctx, tools.ToolProgress{Stage: "failed", Message: "Tool execution failed."})
 			}
 			failed := tools.ExecutionResult{
 				ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
-				Content: message,
-				State:   json.RawMessage(`{"status":"failed","error_type":"tool_execution_failed"}`),
-				Error:   &tools.ExecutionError{Type: "tool_execution_failed", Message: message},
+				Content:     message,
+				State:       json.RawMessage(`{"status":"failed","error_type":"` + toolresult.CodeToolExecutionFailed + `"}`),
+				Error:       &tools.ExecutionError{Type: toolresult.CodeToolExecutionFailed, Message: message, Recoverable: true, Retryable: true, Redacted: redacted},
+				Recoverable: true,
+				Retryable:   true,
+				Redacted:    redacted,
 			}
 			results = append(results, coremodel.ToolResult{
 				CallID: planned.Call.ID, Name: planned.Call.Name,
@@ -410,16 +416,20 @@ func snapshotExecutor(registry tools.Registry, executor tools.Executor) tools.Ex
 
 func unsupportedToolError(registry tools.Registry, call tools.Call) *tools.ExecutionError {
 	if _, ok := registry.Get(call.Identifier); !ok {
-		return &tools.ExecutionError{Type: "unsupported_tool", Message: fmt.Sprintf("unsupported tool %q", call.Identifier)}
+		return &tools.ExecutionError{Type: toolresult.CodeUnsupportedTool, Message: fmt.Sprintf("unsupported tool %q", call.Identifier)}
 	}
-	return &tools.ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", tools.ModelToolName(call.Identifier, call.APIName))}
+	return &tools.ExecutionError{Type: toolresult.CodeUnsupportedToolAPI, Message: fmt.Sprintf("unsupported tool api %q", tools.ModelToolName(call.Identifier, call.APIName))}
 }
 
 func recoverableToolResult(call coremodel.ToolCall, normalized tools.Call, executionError *tools.ExecutionError) coremodel.ToolResult {
 	state, _ := json.Marshal(map[string]any{"status": "failed", "error_type": executionError.Type})
 	failed := tools.ExecutionResult{
 		ID: normalized.ID, Identifier: normalized.Identifier, APIName: normalized.APIName,
-		Content: executionError.Message, State: state, Error: executionError,
+		Content: executionError.Message, State: state,
+		Error:       &tools.ExecutionError{Type: executionError.Type, Message: executionError.Message, Recoverable: true, Retryable: true, Redacted: executionError.Redacted},
+		Recoverable: true,
+		Retryable:   true,
+		Redacted:    executionError.Redacted,
 	}
 	return coremodel.ToolResult{
 		CallID: call.ID, Name: call.Name,
@@ -433,7 +443,7 @@ func approvalRequiredToolResult(call coremodel.ToolCall, normalized tools.Call, 
 	if reason := strings.TrimSpace(decision.Reason); reason != "" {
 		message += " Reason: " + reason + "."
 	}
-	return recoverableToolResult(call, normalized, &tools.ExecutionError{Type: "tool_approval_required", Message: message})
+	return recoverableToolResult(call, normalized, &tools.ExecutionError{Type: toolresult.CodeToolApprovalRequired, Message: message})
 }
 
 func hasApprovedToolInteraction(interactions []agentcore.RequiredInteraction, callID string) bool {

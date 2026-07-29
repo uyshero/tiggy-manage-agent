@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/model"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 var (
@@ -339,8 +340,12 @@ func (e *Engine) awaitModel(ctx context.Context, state State) (State, *Outcome, 
 			failed, failErr := e.failFrom(ctx, state, next, "invalid_model_response", "model stopped for a tool call without returning one", false)
 			return State{}, &failed, failErr
 		}
-		next.PendingCompletion = &PendingCompletion{MessageID: message.ID}
-		next.Phase = PhaseValidatingCompletion
+		if messageHasOnlyThinking(message) {
+			next.Phase = PhaseAwaitingModel
+		} else {
+			next.PendingCompletion = &PendingCompletion{MessageID: message.ID}
+			next.Phase = PhaseValidatingCompletion
+		}
 	}
 	committed, err = e.commit(ctx, state, next, RuntimeEvent{
 		Type:    EventModelResponded,
@@ -472,7 +477,7 @@ func (e *Engine) preflightTools(ctx context.Context, state State) (State, *Outco
 		code := codedErrorCode(err)
 		message := "tool preflight infrastructure failed"
 		if code == "" {
-			code = "tool_preflight_failed"
+			code = ToolFatalPreflightFailed
 			message = "tool preflight failed"
 		}
 		failed, failErr := e.fail(ctx, state, code, message, false)
@@ -566,7 +571,7 @@ func (e *Engine) executePreparedToolCalls(ctx context.Context, state State, plan
 		if err != nil {
 			return State{}, nil, err
 		}
-		code, message := toolRuntimeFailure(fatalErr, "invalid_tool_results", "tool runtime returned invalid results")
+		code, message := toolRuntimeFailure(fatalErr, ToolFatalInvalidResults, "tool runtime returned invalid results")
 		failed, failErr := e.fail(context.WithoutCancel(ctx), state, code, message, false)
 		return State{}, &failed, failErr
 	}
@@ -1035,7 +1040,7 @@ func (e *Engine) executeToolCall(ctx context.Context, state State, plan ToolBatc
 	executed, err := e.ports.Tools.Execute(ctx, state.Clone(), single)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return toolCallOutcome{planned: planned, result: failedToolResult(planned, "tool_execution_canceled", "Tool execution was canceled.", true), status: ToolCallFailed, canceled: true}
+			return toolCallOutcome{planned: planned, result: failedToolResult(planned, toolresult.CodeToolExecutionCanceled, "Tool execution was canceled.", true), status: ToolCallFailed, canceled: true}
 		}
 		var toolFatal *ToolFatalError
 		if errors.As(err, &toolFatal) {
@@ -1157,37 +1162,50 @@ func bindToolIdempotencyKeys(state State, plan *ToolBatchPlan) {
 }
 
 func rejectedToolResult(planned PlannedToolCall) model.ToolResult {
+	message := "Tool execution was rejected by the required approver."
+	state := json.RawMessage(`{"status":"rejected"}`)
 	return model.ToolResult{
 		CallID: planned.Call.ID, Name: planned.Call.Name,
-		Content: []model.Content{{Type: model.ContentText, Text: "Tool execution was rejected by the required approver."}},
-		State:   json.RawMessage(`{"status":"rejected"}`), IsError: true,
+		Content: []model.Content{{Type: model.ContentText, Text: toolResultEnvelopeText(planned, toolresult.CodeToolExecutionRejected, message, state, false, false)}},
+		State:   state, IsError: true,
 	}
 }
 
 func indeterminateToolResult(planned PlannedToolCall, message string) model.ToolResult {
-	return failedToolResult(planned, "tool_execution_indeterminate", message, false)
+	return failedToolResult(planned, toolresult.CodeToolExecutionIndeterminate, message, false)
 }
 
 func toolErrorResult(planned PlannedToolCall, err error) model.ToolResult {
-	code := "tool_execution_failed"
+	code := toolresult.CodeToolExecutionFailed
 	message := "Tool execution failed. Retry or use another approach."
 	retryable := true
+	redacted := true
 	var visible *ToolResultError
 	if errors.As(err, &visible) {
 		code = visible.Code()
 		message = visible.Error()
 		retryable = visible.Retryable()
+		redacted = false
 	}
-	return failedToolResult(planned, code, message, retryable)
+	return failedToolResultWithRedaction(planned, code, message, retryable, redacted)
 }
 
 func failedToolResult(planned PlannedToolCall, code, message string, retryable bool) model.ToolResult {
+	return failedToolResultWithRedaction(planned, code, message, retryable, false)
+}
+
+func failedToolResultWithRedaction(planned PlannedToolCall, code, message string, retryable bool, redacted bool) model.ToolResult {
 	state, _ := json.Marshal(map[string]any{"status": "failed", "error_type": code, "idempotency_key": planned.IdempotencyKey})
 	return model.ToolResult{
 		CallID: planned.Call.ID, Name: planned.Call.Name,
-		Content: []model.Content{{Type: model.ContentText, Text: message}},
+		Content: []model.Content{{Type: model.ContentText, Text: toolResultEnvelopeText(planned, code, message, state, retryable, redacted)}},
 		State:   state, IsError: true, Retryable: retryable,
 	}
+}
+
+func toolResultEnvelopeText(planned PlannedToolCall, code, message string, state json.RawMessage, retryable bool, redacted bool) string {
+	err := toolresult.NormalizeError(code, message, true, retryable, redacted)
+	return toolresult.FailureMessage(planned.Call.ID, planned.Call.Name, err.Message, state, err)
 }
 
 func (e *Engine) validateCompletion(ctx context.Context, state State) (State, *Outcome, error) {
@@ -1501,6 +1519,18 @@ func toolCalls(message model.Message) []model.ToolCall {
 		}
 	}
 	return calls
+}
+
+func messageHasOnlyThinking(message model.Message) bool {
+	if len(message.Content) == 0 {
+		return false
+	}
+	for _, content := range message.Content {
+		if content.Type != model.ContentThinking || content.Thinking == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func markTruncatedToolCalls(message *model.Message) {

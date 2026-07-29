@@ -16,6 +16,7 @@ Current capabilities:
 - React Workbench (`/app`) and trace/operations Inspector (`/inspector`)
 - Local/cloud sandbox capabilities, worker-backed `local_system` tools, and process tool plugins
 - Agent-bound stdio and Streamable HTTP MCP servers, web search/crawl, and approval flows
+- Scheduled tasks that can park risky tool approvals and resume after a human decision
 - OIDC/JWKS, JWT, or trusted-gateway authentication with workspace-scoped RBAC and audit export
 - Subagents, persistent task groups, fan-out/fan-in reducers, and bounded multi-agent deliberation
 

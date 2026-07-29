@@ -2404,6 +2404,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/workbench-projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_workbench_projects"];
+        put?: never;
+        post: operations["post_v2_workbench_projects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/workbench-projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["patch_v2_workbench_projects_by_project_id"];
+        trace?: never;
+    };
+    "/v2/workbench-projects/{project_id}/runtime/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_workbench_projects_by_project_id_runtime_start"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/workbench-projects/{project_id}/runtime/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_workbench_projects_by_project_id_runtime_stop"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/workbench-projects/{project_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_workbench_projects_by_project_id_sync"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/worker-work": {
         parameters: {
             query?: never;
@@ -2659,7 +2739,7 @@ export interface components {
             /** Format: int32 */
             percent?: number;
             /** @enum {string} */
-            operation: "append" | "reset" | "update";
+            operation: "append" | "update" | "reset";
             /** @enum {string} */
             content_format: "markdown" | "text";
             text: string;
@@ -2762,7 +2842,7 @@ export interface components {
             session_mode: "new_session" | "existing_session";
             target_session_id?: string;
             /** @enum {string} */
-            approval_mode: "approve_for_me" | "full_access";
+            approval_mode: "request_approval" | "approve_for_me" | "full_access";
             name: string;
             prompt: string;
             cron_expression: string;
@@ -2791,7 +2871,7 @@ export interface components {
             session_mode?: "new_session" | "existing_session";
             target_session_id?: string;
             /** @enum {string} */
-            approval_mode?: "approve_for_me" | "full_access";
+            approval_mode?: "request_approval" | "approve_for_me" | "full_access";
             name: string;
             prompt: string;
             cron_expression: string;
@@ -2808,7 +2888,7 @@ export interface components {
             session_mode?: "new_session" | "existing_session";
             target_session_id?: string;
             /** @enum {string} */
-            approval_mode?: "approve_for_me" | "full_access";
+            approval_mode?: "request_approval" | "approve_for_me" | "full_access";
         };
         RunAgentScheduleResponse: {
             schedule: components["schemas"]["AgentSchedule"];
@@ -3248,6 +3328,12 @@ export interface components {
         UpdateSessionRuntimeSettingsRequest: {
             llm_provider?: string;
             llm_model?: string;
+            /** @description Controls provider reasoning for this Session when supported. */
+            llm_thinking?: "enabled" | "disabled";
+            /** @description Compacts conversation context when estimated input reaches this token count. */
+            agent_core_compaction_threshold_tokens?: number;
+            /** @description Maximum character count retained in a compacted conversation summary. */
+            agent_core_compaction_summary_max_chars?: number;
             intervention_mode?: string;
             permission_rules?: components["schemas"]["PermissionRule"][];
             cloud_sandbox_root?: string;
@@ -3802,6 +3888,66 @@ export interface components {
             object_ref: components["schemas"]["ObjectRef"];
             artifact: components["schemas"]["Artifact"];
             workspace_path?: string;
+        };
+        WorkbenchProjectFile: {
+            path: string;
+            /** @enum {string} */
+            kind: "file" | "folder";
+            status?: string;
+        };
+        WorkbenchProject: {
+            id: string;
+            workspace_id: string;
+            owner_id: string;
+            plugin_id: string;
+            name: string;
+            objective?: string;
+            /** @enum {string} */
+            repository_provider: "gitlab";
+            repository_path: string;
+            repository_id?: string;
+            repository_url?: string;
+            default_branch: string;
+            /** @enum {string} */
+            sync_status: "local" | "syncing" | "synced" | "error";
+            sync_error?: string;
+            notebook_url?: string;
+            runtime_id?: string;
+            /** @enum {string} */
+            runtime_status?: "unconfigured" | "starting" | "running" | "stopped" | "error";
+            runtime_url?: string;
+            runtime_error?: string;
+            /** Format: date-time */
+            runtime_started_at?: string | null;
+            active_file?: string;
+            notebook_code?: string;
+            files: components["schemas"]["WorkbenchProjectFile"][];
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkbenchProjectList: {
+            projects: components["schemas"]["WorkbenchProject"][];
+            gitlab_configured: boolean;
+        };
+        CreateWorkbenchProjectRequest: {
+            workspace_id?: string;
+            plugin_id: string;
+            name: string;
+            objective?: string;
+            repository_path: string;
+            notebook_url?: string;
+            notebook_code?: string;
+        };
+        UpdateWorkbenchProjectRequest: {
+            workspace_id?: string;
+            name?: string;
+            objective?: string;
+            notebook_url?: string;
+            active_file?: string;
+            notebook_code?: string;
         };
         AchievementLibraryItem: {
             id: string;
@@ -11965,6 +12111,199 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceSpanDetail"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_workbench_projects: {
+        parameters: {
+            query?: {
+                workspace_id?: string;
+                plugin_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProjectList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_workbench_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkbenchProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProject"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    patch_v2_workbench_projects_by_project_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkbenchProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProject"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_workbench_projects_by_project_id_runtime_start: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProject"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_workbench_projects_by_project_id_runtime_stop: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProject"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_workbench_projects_by_project_id_sync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkbenchProject"];
                 };
             };
             /** @description API error */

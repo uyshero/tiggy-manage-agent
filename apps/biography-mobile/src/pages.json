@@ -1,0 +1,17 @@
+{
+  "pages": [
+    {
+      "path": "pages/interview/index",
+      "style": {
+        "navigationStyle": "custom",
+        "backgroundColor": "#f6f8f5"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "人生书",
+    "navigationBarBackgroundColor": "#f6f8f5",
+    "backgroundColor": "#f6f8f5"
+  }
+}

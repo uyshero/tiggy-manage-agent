@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/model"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 type ToolBatchPlan struct {
@@ -45,9 +46,9 @@ type ToolValidationState string
 
 const (
 	ToolValidationValid              ToolValidationState = "valid"
-	ToolValidationInvalidArguments   ToolValidationState = "invalid_arguments"
-	ToolValidationUnsupportedTool    ToolValidationState = "unsupported_tool"
-	ToolValidationUnsupportedToolAPI ToolValidationState = "unsupported_tool_api"
+	ToolValidationInvalidArguments   ToolValidationState = toolresult.CodeInvalidToolArguments
+	ToolValidationUnsupportedTool    ToolValidationState = toolresult.CodeUnsupportedTool
+	ToolValidationUnsupportedToolAPI ToolValidationState = toolresult.CodeUnsupportedToolAPI
 )
 
 type ToolApprovalState string

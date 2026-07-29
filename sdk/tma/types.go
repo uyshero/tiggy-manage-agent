@@ -237,16 +237,19 @@ type CreateSessionRequest struct {
 }
 
 type UpdateSessionRuntimeSettingsRequest struct {
-	LLMProvider             *string                          `json:"llm_provider,omitempty"`
-	LLMModel                *string                          `json:"llm_model,omitempty"`
-	InterventionMode        *string                          `json:"intervention_mode,omitempty"`
-	CloudSandboxRoot        *string                          `json:"cloud_sandbox_root,omitempty"`
-	CloudSandboxImage       *string                          `json:"cloud_sandbox_image,omitempty"`
-	AllowNetwork            *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
-	AgentConfigUpdatePolicy *string                          `json:"agent_config_update_policy,omitempty"`
-	HumanInteraction        *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
-	CompletionGate          *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
-	PermissionRules         []PermissionRule                 `json:"permission_rules,omitempty"`
+	LLMProvider                        *string                          `json:"llm_provider,omitempty"`
+	LLMModel                           *string                          `json:"llm_model,omitempty"`
+	LLMThinking                        *string                          `json:"llm_thinking,omitempty"`
+	AgentCoreCompactionThresholdTokens *int                             `json:"agent_core_compaction_threshold_tokens,omitempty"`
+	AgentCoreCompactionSummaryMaxChars *int                             `json:"agent_core_compaction_summary_max_chars,omitempty"`
+	InterventionMode                   *string                          `json:"intervention_mode,omitempty"`
+	CloudSandboxRoot                   *string                          `json:"cloud_sandbox_root,omitempty"`
+	CloudSandboxImage                  *string                          `json:"cloud_sandbox_image,omitempty"`
+	AllowNetwork                       *bool                            `json:"cloud_sandbox_allow_network,omitempty"`
+	AgentConfigUpdatePolicy            *string                          `json:"agent_config_update_policy,omitempty"`
+	HumanInteraction                   *HumanInteractionRuntimeSettings `json:"human_interaction,omitempty"`
+	CompletionGate                     *CompletionGateRuntimeSettings   `json:"completion_gate,omitempty"`
+	PermissionRules                    []PermissionRule                 `json:"permission_rules,omitempty"`
 }
 
 type PermissionRule struct {

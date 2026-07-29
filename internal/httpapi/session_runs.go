@@ -405,6 +405,17 @@ func (s *Server) applySessionRuntimeSettingsPatch(ctx context.Context, session m
 		settings["llm_provider"] = providerID
 		settings["llm_model"] = modelName
 	}
+	if request.LLMThinking != nil {
+		mode := strings.ToLower(strings.TrimSpace(*request.LLMThinking))
+		if mode == "" {
+			delete(settings, "llm_thinking")
+		} else {
+			if mode != "enabled" && mode != "disabled" {
+				return managedagents.Session{}, fmt.Errorf("%w: unsupported llm_thinking %q", managedagents.ErrInvalid, mode)
+			}
+			settings["llm_thinking"] = mode
+		}
+	}
 	if request.InterventionMode != nil {
 		mode, ok := tools.NormalizeInterventionMode(*request.InterventionMode)
 		if !ok {

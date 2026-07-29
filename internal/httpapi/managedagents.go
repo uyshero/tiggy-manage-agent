@@ -111,6 +111,7 @@ type sessionRuntimeSettingsRequest struct {
 	ExpectedRevision                   int64                   `json:"-"`
 	LLMProvider                        *string                 `json:"llm_provider"`
 	LLMModel                           *string                 `json:"llm_model"`
+	LLMThinking                        *string                 `json:"llm_thinking"`
 	Model                              *string                 `json:"model"`
 	InterventionMode                   *string                 `json:"intervention_mode"`
 	PermissionRules                    *[]tools.PermissionRule `json:"permission_rules"`

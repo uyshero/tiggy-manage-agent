@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	AgentScheduleApprovalApproveForMe = "approve_for_me"
-	AgentScheduleApprovalFullAccess   = "full_access"
-	AgentScheduleSessionNew           = "new_session"
-	AgentScheduleSessionExisting      = "existing_session"
+	AgentScheduleApprovalRequestApproval = "request_approval"
+	AgentScheduleApprovalApproveForMe    = "approve_for_me"
+	AgentScheduleApprovalFullAccess      = "full_access"
+	AgentScheduleSessionNew              = "new_session"
+	AgentScheduleSessionExisting         = "existing_session"
 
 	AgentScheduleRunPending        = "pending"
 	AgentScheduleRunWaitingSession = "waiting_session"
@@ -123,9 +124,9 @@ func NormalizeAgentScheduleModes(sessionMode, targetSessionID, approvalMode stri
 	}
 	approvalMode = strings.ToLower(strings.TrimSpace(approvalMode))
 	if approvalMode == "" {
-		approvalMode = AgentScheduleApprovalApproveForMe
+		approvalMode = AgentScheduleApprovalRequestApproval
 	}
-	if approvalMode != AgentScheduleApprovalApproveForMe && approvalMode != AgentScheduleApprovalFullAccess {
+	if approvalMode != AgentScheduleApprovalRequestApproval && approvalMode != AgentScheduleApprovalApproveForMe && approvalMode != AgentScheduleApprovalFullAccess {
 		return "", "", "", fmt.Errorf("%w: unsupported approval_mode %q", ErrInvalid, approvalMode)
 	}
 	return sessionMode, targetSessionID, approvalMode, nil

@@ -1,0 +1,2 @@
+-keep public class com.tma.biography.voice.** { *; }
+-keep public class * extends io.dcloud.feature.uniapp.common.UniModule { *; }

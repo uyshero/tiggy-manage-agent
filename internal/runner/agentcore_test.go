@@ -22,6 +22,15 @@ func TestAgentCoreBudgetDefaultsToOneHundredRounds(t *testing.T) {
 	}
 }
 
+func TestAgentCoreRouteIncludesSessionThinkingMode(t *testing.T) {
+	route := agentCoreRoute(managedagents.AgentRuntimeConfig{
+		LLMProvider: "ark", LLMModel: "doubao", RuntimeSettings: json.RawMessage(`{"llm_thinking":"disabled"}`),
+	})
+	if string(route.Parameters) != `{"thinking":{"type":"disabled"}}` {
+		t.Fatalf("route parameters = %s", route.Parameters)
+	}
+}
+
 func TestAgentRuntimeTurnExecutorRunsDurableCore(t *testing.T) {
 	t.Parallel()
 

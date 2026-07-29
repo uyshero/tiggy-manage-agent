@@ -1,0 +1,932 @@
+package biographyvoice
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+const maxVoiceFrameBytes = 1024 * 1024
+
+var (
+	errInterviewInterrupted          = errors.New("interview turn interrupted")
+	errInterviewFirstResponseTimeout = errors.New("interview first response timeout")
+	errInterviewTotalTimeout         = errors.New("interview total timeout")
+	errProjectUpdateQueueFull        = errors.New("biography project update queue is full")
+)
+
+type Server struct {
+	config       Config
+	logger       *slog.Logger
+	mux          *http.ServeMux
+	doubaoDialer doubaoDialer
+	interview    interviewEngine
+	resumeTokens *resumeTokenCodec
+}
+
+func NewServer(config Config, logger *slog.Logger) (*Server, error) {
+	return newServer(config, logger, defaultDoubaoDialer)
+}
+
+func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if dialer == nil {
+		dialer = defaultDoubaoDialer
+	}
+	interview, err := newInterviewEngine(config)
+	if err != nil {
+		return nil, err
+	}
+	var resumeTokens *resumeTokenCodec
+	if valueOrDefault(config.InterviewProvider, ProviderMock) == ProviderTMA {
+		resumeTokens, err = newResumeTokenCodec(config.ResumeSigningKey, config.ResumeTTL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	server := &Server{
+		config: config, logger: logger, mux: http.NewServeMux(), doubaoDialer: dialer,
+		interview: interview, resumeTokens: resumeTokens,
+	}
+	server.mux.HandleFunc("GET /healthz", server.health)
+	server.mux.HandleFunc("GET /v1/voice/session", server.voiceSession)
+	return server, nil
+}
+
+func (server *Server) Handler() http.Handler {
+	return server.mux
+}
+
+func (server *Server) health(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "provider": server.config.Provider})
+}
+
+func (server *Server) voiceSession(w http.ResponseWriter, r *http.Request) {
+	if !server.authorized(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	connection, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: server.config.AllowedOrigins})
+	if err != nil {
+		server.logger.Warn("biography voice websocket accept failed", "error", err)
+		return
+	}
+	connection.SetReadLimit(maxVoiceFrameBytes)
+	defer connection.CloseNow()
+
+	var serveErr error
+	if server.config.Provider == ProviderDoubao {
+		serveErr = server.serveDoubaoSession(r.Context(), connection)
+	} else {
+		serveErr = server.serveMockSession(r.Context(), connection)
+	}
+	if serveErr != nil && !isExpectedClose(serveErr) {
+		server.logger.Warn("biography voice session failed", "provider", server.config.Provider, "error", server.safeProviderError(serveErr))
+	}
+}
+
+func (server *Server) authorized(r *http.Request) bool {
+	expected := server.config.ClientToken
+	if expected == "" {
+		return true
+	}
+	provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	return len(provided) == len(expected) && subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
+type inboundFrame struct {
+	messageType websocket.MessageType
+	payload     []byte
+	err         error
+}
+
+type projectUpdateResult struct {
+	project BiographyProject
+	err     error
+}
+
+type interviewTurnEvent struct {
+	id         uint64
+	message    *ServerMessage
+	transcript string
+	done       bool
+	accepted   bool
+	failed     bool
+}
+
+type interviewTurnController struct {
+	server       *Server
+	ctx          context.Context
+	conversation *interviewConversation
+	events       chan interviewTurnEvent
+	nextID       uint64
+	activeID     uint64
+	cancel       context.CancelCauseFunc
+	failures     int
+	openUntil    time.Time
+}
+
+func newInterviewTurnController(ctx context.Context, server *Server, conversation *interviewConversation) *interviewTurnController {
+	return &interviewTurnController{
+		server: server, ctx: ctx, conversation: conversation, events: make(chan interviewTurnEvent, 64),
+	}
+}
+
+func (controller *interviewTurnController) start(transcript string) {
+	controller.cancelActive(false)
+	controller.nextID++
+	controller.activeID = controller.nextID
+	turnID := controller.activeID
+	controller.events <- interviewTurnEvent{
+		id: turnID,
+		message: &ServerMessage{
+			Type: ServerInterviewDelta,
+			Text: "我听到了，正在想接下来问什么。",
+		},
+	}
+
+	if time.Now().Before(controller.openUntil) {
+		message := controller.server.interviewFallbackMessage(controller.conversation, interviewFallbackQuestion(transcript))
+		controller.events <- interviewTurnEvent{id: turnID, message: &message}
+		controller.events <- interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true, failed: true}
+		return
+	}
+
+	turnCtx, cancel := context.WithCancelCause(controller.ctx)
+	controller.cancel = cancel
+	go controller.server.runInterviewTurn(turnCtx, cancel, turnID, controller.conversation, transcript, controller.events)
+}
+
+func (controller *interviewTurnController) cancelActive(notify bool) *ServerMessage {
+	if controller.cancel == nil && controller.activeID == 0 {
+		return nil
+	}
+	if controller.cancel != nil {
+		controller.cancel(errInterviewInterrupted)
+	}
+	controller.cancel = nil
+	controller.activeID = 0
+	if !notify {
+		return nil
+	}
+	message := ServerMessage{Type: ServerInterviewCanceled}
+	return &message
+}
+
+func (controller *interviewTurnController) handle(event interviewTurnEvent) (string, *ServerMessage) {
+	if event.id == 0 || event.id != controller.activeID {
+		return "", nil
+	}
+	if !event.done {
+		return "", event.message
+	}
+	controller.cancel = nil
+	controller.activeID = 0
+	if event.failed {
+		controller.failures++
+		if controller.failures >= 3 {
+			controller.openUntil = time.Now().Add(30 * time.Second)
+			controller.failures = 0
+		}
+	} else {
+		controller.failures = 0
+		controller.openUntil = time.Time{}
+	}
+	if event.accepted {
+		return event.transcript, nil
+	}
+	return "", nil
+}
+
+func (server *Server) serveMockSession(ctx context.Context, connection *websocket.Conn) error {
+	inbound := make(chan inboundFrame, 1)
+	go readFrames(ctx, connection, inbound)
+
+	var sessionID string
+	var debugTranscript string
+	var audioBytes int64
+	var ttsTimer *time.Timer
+	var ttsFinished <-chan time.Time
+	conversation := server.newInterviewConversation()
+	projectTasks, projectUpdates := server.startProjectUpdateWorker(ctx, conversation)
+	turns := newInterviewTurnController(ctx, server, conversation)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event := <-turns.events:
+			transcript, message := turns.handle(event)
+			if message != nil {
+				message.SessionID = sessionID
+				if err := writeServerMessage(ctx, connection, *message); err != nil {
+					return err
+				}
+			}
+			if transcript != "" {
+				if err := enqueueProjectUpdate(ctx, projectTasks, transcript); err != nil {
+					server.logger.Warn("biography project update deferred", "error", err)
+				}
+			}
+		case update := <-projectUpdates:
+			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
+				return err
+			}
+		case <-ttsFinished:
+			ttsFinished = nil
+			if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSFinished, SessionID: sessionID}); err != nil {
+				return err
+			}
+		case frame := <-inbound:
+			if frame.err != nil {
+				return frame.err
+			}
+			if frame.messageType == websocket.MessageBinary {
+				if message := turns.cancelActive(true); message != nil {
+					message.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *message); err != nil {
+						return err
+					}
+				}
+				audioBytes += int64(len(frame.payload))
+				continue
+			}
+			var message ClientMessage
+			if err := json.Unmarshal(frame.payload, &message); err != nil {
+				if err := writeProtocolError(ctx, connection, sessionID, "invalid_json", "message must be valid JSON"); err != nil {
+					return err
+				}
+				continue
+			}
+			switch message.Type {
+			case ClientSessionStart:
+				if strings.TrimSpace(message.SessionID) == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_id_required", "session_id is required"); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := server.prepareInterviewConversation(ctx, conversation, message); err != nil {
+					server.logger.Warn("biography interview resume rejected", "error", server.safeProviderError(err))
+					if writeErr := writeProtocolError(ctx, connection, sessionID, "resume_invalid", "上次采访暂时无法恢复，请重新开始"); writeErr != nil {
+						return writeErr
+					}
+					continue
+				}
+				sessionID = strings.TrimSpace(message.SessionID)
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
+					return err
+				}
+				project := conversation.projectSnapshot()
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerInterviewProject, SessionID: sessionID, Project: &project}); err != nil {
+					return err
+				}
+			case ClientASRDebugText:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				debugTranscript = strings.TrimSpace(message.Text)
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerASRPartial, SessionID: sessionID, Text: debugTranscript}); err != nil {
+					return err
+				}
+			case ClientInputCommit:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				transcript := debugTranscript
+				if transcript == "" {
+					transcript = "已收到一段语音"
+				}
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerASRFinal, SessionID: sessionID, Text: transcript, AudioBytes: audioBytes}); err != nil {
+					return err
+				}
+				if !message.DeferInterview {
+					turns.start(transcript)
+				}
+				debugTranscript = ""
+				audioBytes = 0
+			case ClientInputCancel:
+				debugTranscript = ""
+				audioBytes = 0
+			case ClientInterviewFollowup:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				transcript := strings.TrimSpace(message.Text)
+				if transcript == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "empty_transcript", "transcript is required"); err != nil {
+						return err
+					}
+					continue
+				}
+				turns.start(transcript)
+			case ClientTTSStart:
+				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_tts_request", "active session and text are required"); err != nil {
+						return err
+					}
+					continue
+				}
+				if ttsTimer != nil {
+					ttsTimer.Stop()
+				}
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSStarted, SessionID: sessionID}); err != nil {
+					return err
+				}
+				ttsTimer = time.NewTimer(350 * time.Millisecond)
+				ttsFinished = ttsTimer.C
+			case ClientTTSCancel:
+				if message := turns.cancelActive(true); message != nil {
+					message.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *message); err != nil {
+						return err
+					}
+				}
+				if ttsTimer != nil {
+					ttsTimer.Stop()
+				}
+				ttsFinished = nil
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSCanceled, SessionID: sessionID}); err != nil {
+					return err
+				}
+			case ClientSessionPing:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionPong, SessionID: sessionID}); err != nil {
+					return err
+				}
+			case ClientSessionFinish:
+				turns.cancelActive(false)
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionFinished, SessionID: sessionID}); err != nil {
+					return err
+				}
+				return connection.Close(websocket.StatusNormalClosure, "session finished")
+			default:
+				if err := writeProtocolError(ctx, connection, sessionID, "unknown_message_type", "unknown message type"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func (server *Server) serveDoubaoSession(ctx context.Context, connection *websocket.Conn) error {
+	inbound := make(chan inboundFrame, 1)
+	upstream := make(chan doubaoUpstreamEvent, 64)
+	go readFrames(ctx, connection, inbound)
+
+	var sessionID string
+	var asr *doubaoASRStream
+	var tts *doubaoTTSStream
+	conversation := server.newInterviewConversation()
+	projectTasks, projectUpdates := server.startProjectUpdateWorker(ctx, conversation)
+	turns := newInterviewTurnController(ctx, server, conversation)
+	defer func() {
+		turns.cancelActive(false)
+		if asr != nil {
+			_ = asr.Close()
+		}
+		if tts != nil {
+			_ = tts.Close()
+		}
+	}()
+
+	providerError := func(source string, err error) error {
+		server.logger.Warn("doubao voice upstream failed", "source", source, "error", server.safeProviderError(err))
+		return writeServerMessage(ctx, connection, ServerMessage{
+			Type: ServerError, SessionID: sessionID, Code: "voice_provider_error",
+			Message: "语音服务暂时不可用，请稍后重试", Retryable: true,
+		})
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case turnEvent := <-turns.events:
+			transcript, message := turns.handle(turnEvent)
+			if message != nil {
+				message.SessionID = sessionID
+				if err := writeServerMessage(ctx, connection, *message); err != nil {
+					return err
+				}
+			}
+			if transcript != "" {
+				if err := enqueueProjectUpdate(ctx, projectTasks, transcript); err != nil {
+					server.logger.Warn("biography project update deferred", "error", err)
+				}
+			}
+		case update := <-projectUpdates:
+			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
+				return err
+			}
+		case event := <-upstream:
+			isCurrentASR := asr != nil && event.StreamID == asr.id
+			isCurrentTTS := tts != nil && event.StreamID == tts.id
+			if !isCurrentASR && !isCurrentTTS {
+				continue
+			}
+			if event.Err != nil {
+				if isCurrentASR && errors.Is(event.Err, errDoubaoASRNoTranscript) {
+					_ = asr.Close()
+					asr = nil
+					if err := writeServerMessage(ctx, connection, ServerMessage{
+						Type: ServerError, SessionID: sessionID, Code: "no_speech",
+						Message: "我刚才没有听到内容，您想好了可以慢慢说一遍。", Retryable: true,
+					}); err != nil {
+						return err
+					}
+					continue
+				}
+				source := "TTS"
+				if isCurrentASR {
+					source = "ASR"
+					_ = asr.Close()
+					asr = nil
+				} else {
+					_ = tts.Close()
+					tts = nil
+				}
+				if err := providerError(source, event.Err); err != nil {
+					return err
+				}
+				continue
+			}
+			if len(event.Audio) > 0 && isCurrentTTS {
+				if err := connection.Write(ctx, websocket.MessageBinary, event.Audio); err != nil {
+					return err
+				}
+				continue
+			}
+			switch event.Type {
+			case ServerASRPartial:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: event.Type, SessionID: sessionID, Text: event.Text}); err != nil {
+					return err
+				}
+			case ServerASRFinal:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: event.Type, SessionID: sessionID, Text: event.Text}); err != nil {
+					return err
+				}
+				deferInterview := asr.deferInterview
+				_ = asr.Close()
+				asr = nil
+				if !deferInterview {
+					turns.start(event.Text)
+				}
+			case ServerTTSStarted:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: event.Type, SessionID: sessionID}); err != nil {
+					return err
+				}
+			case ServerTTSFinished, ServerTTSCanceled:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: event.Type, SessionID: sessionID}); err != nil {
+					return err
+				}
+				_ = tts.Close()
+				tts = nil
+			}
+		case frame := <-inbound:
+			if frame.err != nil {
+				return frame.err
+			}
+			if frame.messageType == websocket.MessageBinary {
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				if message := turns.cancelActive(true); message != nil {
+					message.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *message); err != nil {
+						return err
+					}
+				}
+				if asr == nil {
+					opened, err := openDoubaoASR(ctx, server.config, sessionID, server.doubaoDialer, upstream)
+					if err != nil {
+						if writeErr := providerError("ASR", err); writeErr != nil {
+							return writeErr
+						}
+						continue
+					}
+					asr = opened
+				}
+				if err := asr.SendAudio(ctx, frame.payload); err != nil {
+					_ = asr.Close()
+					asr = nil
+					if writeErr := providerError("ASR", err); writeErr != nil {
+						return writeErr
+					}
+				}
+				continue
+			}
+
+			var message ClientMessage
+			if err := json.Unmarshal(frame.payload, &message); err != nil {
+				if err := writeProtocolError(ctx, connection, sessionID, "invalid_json", "message must be valid JSON"); err != nil {
+					return err
+				}
+				continue
+			}
+			switch message.Type {
+			case ClientSessionStart:
+				if strings.TrimSpace(message.SessionID) == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_id_required", "session_id is required"); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := server.prepareInterviewConversation(ctx, conversation, message); err != nil {
+					server.logger.Warn("biography interview resume rejected", "error", server.safeProviderError(err))
+					if writeErr := writeProtocolError(ctx, connection, sessionID, "resume_invalid", "上次采访暂时无法恢复，请重新开始"); writeErr != nil {
+						return writeErr
+					}
+					continue
+				}
+				sessionID = strings.TrimSpace(message.SessionID)
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
+					return err
+				}
+				project := conversation.projectSnapshot()
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerInterviewProject, SessionID: sessionID, Project: &project}); err != nil {
+					return err
+				}
+			case ClientInputCommit:
+				if asr == nil {
+					if err := writeProtocolError(ctx, connection, sessionID, "no_audio", "no active audio input"); err != nil {
+						return err
+					}
+					continue
+				}
+				asr.deferInterview = message.DeferInterview
+				if err := asr.Commit(ctx); err != nil {
+					_ = asr.Close()
+					asr = nil
+					if writeErr := providerError("ASR", err); writeErr != nil {
+						return writeErr
+					}
+				}
+			case ClientInputCancel:
+				if asr != nil {
+					_ = asr.Close()
+					asr = nil
+				}
+			case ClientInterviewFollowup:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				transcript := strings.TrimSpace(message.Text)
+				if transcript == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "empty_transcript", "transcript is required"); err != nil {
+						return err
+					}
+					continue
+				}
+				turns.start(transcript)
+			case ClientTTSStart:
+				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_tts_request", "active session and text are required"); err != nil {
+						return err
+					}
+					continue
+				}
+				if tts != nil {
+					_ = tts.Cancel(ctx)
+					_ = tts.Close()
+					tts = nil
+				}
+				opened, err := openDoubaoTTS(ctx, server.config, sessionID, strings.TrimSpace(message.Text), message.Expression, server.doubaoDialer, upstream)
+				if err != nil {
+					if writeErr := providerError("TTS", err); writeErr != nil {
+						return writeErr
+					}
+					continue
+				}
+				tts = opened
+			case ClientTTSCancel:
+				if message := turns.cancelActive(true); message != nil {
+					message.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *message); err != nil {
+						return err
+					}
+				}
+				if tts == nil {
+					if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSCanceled, SessionID: sessionID}); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := tts.Cancel(ctx); err != nil {
+					_ = tts.Close()
+					tts = nil
+					if writeErr := providerError("TTS", err); writeErr != nil {
+						return writeErr
+					}
+				}
+			case ClientSessionPing:
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionPong, SessionID: sessionID}); err != nil {
+					return err
+				}
+			case ClientSessionFinish:
+				turns.cancelActive(false)
+				if asr != nil {
+					_ = asr.Close()
+					asr = nil
+				}
+				if tts != nil {
+					_ = tts.Close()
+					tts = nil
+				}
+				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionFinished, SessionID: sessionID}); err != nil {
+					return err
+				}
+				return connection.Close(websocket.StatusNormalClosure, "session finished")
+			default:
+				if err := writeProtocolError(ctx, connection, sessionID, "unknown_message_type", "unknown message type"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+}
+
+func (server *Server) safeProviderError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := err.Error()
+	if secret := strings.TrimSpace(server.config.DoubaoAPIKey); secret != "" {
+		message = strings.ReplaceAll(message, secret, "[REDACTED]")
+	}
+	if secret := strings.TrimSpace(server.config.TMAAuthToken); secret != "" {
+		message = strings.ReplaceAll(message, secret, "[REDACTED]")
+	}
+	return errors.New(message)
+}
+
+func (server *Server) newInterviewConversation() *interviewConversation {
+	if valueOrDefault(server.config.InterviewProvider, ProviderMock) == ProviderTMA {
+		return &interviewConversation{Project: newBiographyProject()}
+	}
+	return &interviewConversation{Project: initialBiographyProject()}
+}
+
+func (server *Server) prepareInterviewConversation(ctx context.Context, conversation *interviewConversation, message ClientMessage) error {
+	if valueOrDefault(server.config.InterviewProvider, ProviderMock) != ProviderTMA {
+		return nil
+	}
+	clientInstanceID := strings.TrimSpace(message.ClientInstanceID)
+	if clientInstanceID == "" || len(clientInstanceID) > 128 {
+		return errors.New("client instance ID is required for TMA interview sessions")
+	}
+	conversation.ClientInstanceID = clientInstanceID
+	if strings.TrimSpace(message.ResumeToken) == "" {
+		return nil
+	}
+	claims, err := server.resumeTokens.Decode(message.ResumeToken, clientInstanceID)
+	if err != nil {
+		return err
+	}
+	resumeCtx, cancel := context.WithTimeout(ctx, server.config.InterviewTimeout)
+	defer cancel()
+	if err := server.interview.Resume(resumeCtx, conversation, claims.TMASessionID); err != nil {
+		return err
+	}
+	if claims.Project != nil {
+		if err := validateBiographyProject(*claims.Project); err != nil {
+			return fmt.Errorf("resume token contains invalid biography project: %w", err)
+		}
+		conversation.replaceProject(*claims.Project)
+	}
+	return nil
+}
+
+func (server *Server) runInterviewTurn(
+	ctx context.Context,
+	cancel context.CancelCauseFunc,
+	turnID uint64,
+	conversation *interviewConversation,
+	transcript string,
+	events chan<- interviewTurnEvent,
+) {
+	firstResponseTimeout := server.config.InterviewFirstResponseTimeout
+	if firstResponseTimeout <= 0 {
+		firstResponseTimeout = 6 * time.Second
+	}
+	totalTimeout := server.config.InterviewTimeout
+	if totalTimeout <= 0 {
+		totalTimeout = 45 * time.Second
+	}
+	var firstResponseOnce sync.Once
+	var firstResponse *time.Timer
+	firstResponse = time.AfterFunc(firstResponseTimeout, func() {
+		firstResponseOnce.Do(func() { cancel(errInterviewFirstResponseTimeout) })
+	})
+	total := time.AfterFunc(totalTimeout, func() { cancel(errInterviewTotalTimeout) })
+	defer firstResponse.Stop()
+	defer total.Stop()
+
+	emit := func(event interviewTurnEvent) bool {
+		select {
+		case events <- event:
+			return true
+		default:
+		}
+		select {
+		case events <- event:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	markResponding := func() {
+		firstResponseOnce.Do(func() { firstResponse.Stop() })
+	}
+
+	var reply InterviewReply
+	var err error
+	if streaming, ok := server.interview.(streamingInterviewEngine); ok {
+		reply, err = streaming.ContinueStreaming(ctx, conversation, transcript, func(text string) error {
+			markResponding()
+			if emit(interviewTurnEvent{id: turnID, message: &ServerMessage{Type: ServerInterviewDelta, Text: text}}) {
+				return nil
+			}
+			return context.Cause(ctx)
+		})
+	} else {
+		reply, err = server.interview.Continue(ctx, conversation, transcript)
+	}
+	markResponding()
+	if err != nil {
+		cause := context.Cause(ctx)
+		if errors.Is(cause, errInterviewInterrupted) {
+			_ = emit(interviewTurnEvent{id: turnID, done: true})
+			return
+		}
+		server.logger.Warn("biography interview turn failed", "provider", valueOrDefault(server.config.InterviewProvider, ProviderMock), "error", server.safeProviderError(err))
+		text := "刚才连接有些慢，这段我已经记下了。您可以接着讲，我会在后台继续整理。"
+		if errors.Is(cause, errInterviewFirstResponseTimeout) || errors.Is(cause, errInterviewTotalTimeout) || errors.Is(err, context.DeadlineExceeded) {
+			text = interviewFallbackQuestion(transcript)
+		}
+		message := server.interviewFallbackMessage(conversation, text)
+		_ = emit(interviewTurnEvent{id: turnID, message: &message})
+		_ = emit(interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true, failed: true})
+		return
+	}
+	message := server.interviewReplyMessage(conversation, reply)
+	_ = emit(interviewTurnEvent{id: turnID, message: &message})
+	_ = emit(interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true})
+}
+
+func (server *Server) interviewReplyMessage(conversation *interviewConversation, reply InterviewReply) ServerMessage {
+	conversation.recordQuestion(reply.Text)
+	resumeToken := server.interviewResumeToken(conversation, reply.Project)
+	return ServerMessage{
+		Type: ServerInterviewReply, Text: reply.Text, Expression: reply.Expression,
+		Project: &reply.Project, ResumeToken: resumeToken,
+	}
+}
+
+func (server *Server) interviewFallbackMessage(conversation *interviewConversation, text string) ServerMessage {
+	conversation.recordQuestion(text)
+	project := conversation.projectSnapshot()
+	return ServerMessage{
+		Type: ServerInterviewReply, Text: text,
+		Expression: "温和、简短、让对方放心，语速稍慢", Project: &project,
+		ResumeToken: server.interviewResumeToken(conversation, project),
+	}
+}
+
+func interviewFallbackQuestion(transcript string) string {
+	switch {
+	case strings.Contains(transcript, "师傅") || strings.Contains(transcript, "老师"):
+		return "我先接着问一个简单的。您刚才提到这位师傅，最记得他教您的哪个动作或规矩？"
+	case strings.Contains(transcript, "父亲") || strings.Contains(transcript, "爸爸"):
+		return "我先接着问一个简单的。说到您父亲，您脑子里最先浮出来的是他的哪个样子？"
+	case strings.Contains(transcript, "上海") || strings.Contains(transcript, "离开家") || strings.Contains(transcript, "出门"):
+		return "我先接着问一个简单的。您到上海或离家出门那一刻，第一眼最记得的是什么？"
+	default:
+		return "我先接着问一个简单的。回到刚才那段经历里，您现在最清楚记得的一个画面是什么？"
+	}
+}
+
+func (server *Server) interviewResumeToken(conversation *interviewConversation, project BiographyProject) string {
+	if server.resumeTokens == nil || strings.TrimSpace(conversation.TMASessionID) == "" {
+		return ""
+	}
+	resumeToken, err := server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, &project)
+	if err != nil {
+		server.logger.Warn("biography resume token creation failed", "error", server.safeProviderError(err))
+		return ""
+	}
+	return resumeToken
+}
+
+func (server *Server) startProjectUpdateWorker(ctx context.Context, conversation *interviewConversation) (chan<- string, <-chan projectUpdateResult) {
+	tasks := make(chan string, 16)
+	results := make(chan projectUpdateResult, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case transcript := <-tasks:
+				timeout := server.config.InterviewTimeout
+				if timeout <= 0 {
+					timeout = 90 * time.Second
+				}
+				updateCtx, cancel := context.WithTimeout(ctx, timeout)
+				project, err := server.interview.Organize(updateCtx, conversation, transcript)
+				cancel()
+				select {
+				case results <- projectUpdateResult{project: project, err: err}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return tasks, results
+}
+
+func enqueueProjectUpdate(ctx context.Context, tasks chan<- string, transcript string) error {
+	select {
+	case tasks <- transcript:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return errProjectUpdateQueueFull
+	}
+}
+
+func (server *Server) writeProjectUpdate(ctx context.Context, connection *websocket.Conn, sessionID string, conversation *interviewConversation, update projectUpdateResult) error {
+	if update.err != nil {
+		server.logger.Warn("biography project update failed", "provider", valueOrDefault(server.config.InterviewProvider, ProviderMock), "error", server.safeProviderError(update.err))
+		return nil
+	}
+	resumeToken := ""
+	if server.resumeTokens != nil {
+		var err error
+		resumeToken, err = server.resumeTokens.EncodeState(conversation.TMASessionID, conversation.ClientInstanceID, &update.project)
+		if err != nil {
+			server.logger.Warn("biography project resume token creation failed", "error", server.safeProviderError(err))
+			return nil
+		}
+	}
+	return writeServerMessage(ctx, connection, ServerMessage{
+		Type: ServerProjectUpdated, SessionID: sessionID, Project: &update.project, ResumeToken: resumeToken,
+	})
+}
+
+func readFrames(ctx context.Context, connection *websocket.Conn, output chan<- inboundFrame) {
+	for {
+		messageType, payload, err := connection.Read(ctx)
+		output <- inboundFrame{messageType: messageType, payload: payload, err: err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func writeProtocolError(ctx context.Context, connection *websocket.Conn, sessionID string, code string, message string) error {
+	return writeServerMessage(ctx, connection, ServerMessage{Type: ServerError, SessionID: sessionID, Code: code, Message: message})
+}
+
+func writeServerMessage(ctx context.Context, connection *websocket.Conn, message ServerMessage) error {
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	return connection.Write(ctx, websocket.MessageText, payload)
+}
+
+func isExpectedClose(err error) bool {
+	status := websocket.CloseStatus(err)
+	return errors.Is(err, context.Canceled) || status == websocket.StatusNormalClosure || status == websocket.StatusGoingAway
+}

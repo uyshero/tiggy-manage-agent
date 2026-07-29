@@ -17,6 +17,7 @@ import (
 
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/llm"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const (
@@ -245,24 +246,24 @@ func (r ImageRuntime) Execute(ctx context.Context, call Call, executionContext E
 func (r ImageRuntime) generate(ctx context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
 	var input imageGenerateRequest
 	if err := json.Unmarshal(call.Arguments, &input); err != nil {
-		return failedResult(call, "invalid_arguments", err.Error()), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, err.Error()), nil
 	}
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	if input.Prompt == "" {
-		return failedResult(call, "invalid_arguments", "prompt is required"), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, "prompt is required"), nil
 	}
 	finalPrompt, promptErr := buildImageGenerationPrompt(input)
 	if promptErr != nil {
 		return failedResult(call, "invalid_image_prompt", promptErr.Error()), nil
 	}
 	if len(input.InputImages) > maxImageInputs {
-		return failedResult(call, "invalid_arguments", fmt.Sprintf("input_images must contain at most %d images", maxImageInputs)), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("input_images must contain at most %d images", maxImageInputs)), nil
 	}
 	if input.Count == 0 {
 		input.Count = 1
 	}
 	if input.Count < 1 || input.Count > maxGeneratedImages {
-		return failedResult(call, "invalid_arguments", fmt.Sprintf("count must be between 1 and %d", maxGeneratedImages)), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("count must be between 1 and %d", maxGeneratedImages)), nil
 	}
 	apiKey := strings.TrimSpace(executionContext.Environment[shuyouAPIKeyEnvironment])
 	if apiKey == "" {
@@ -285,7 +286,7 @@ func (r ImageRuntime) generate(ctx context.Context, call Call, executionContext 
 		path := strings.TrimSpace(promptInput.Path)
 		imageURL := strings.TrimSpace(promptInput.URL)
 		if path != "" && imageURL != "" {
-			return failedResult(call, "invalid_arguments", "each input image must use exactly one of path or url"), nil
+			return failedResult(call, toolresult.CodeInvalidToolArguments, "each input image must use exactly one of path or url"), nil
 		}
 		if path != "" {
 			image, err := workspaceImage(ctx, executionContext, path)
@@ -301,7 +302,7 @@ func (r ImageRuntime) generate(ctx context.Context, call Call, executionContext 
 	maskPath := strings.TrimSpace(input.MaskPath)
 	maskURL := strings.TrimSpace(input.MaskURL)
 	if maskPath != "" && maskURL != "" {
-		return failedResult(call, "invalid_arguments", "use only one of mask_path or mask_url"), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, "use only one of mask_path or mask_url"), nil
 	}
 	if maskPath != "" {
 		mask, err := workspaceImage(ctx, executionContext, input.MaskPath)
@@ -644,14 +645,14 @@ func (r ImageRuntime) analyze(ctx context.Context, call Call, executionContext E
 	}
 	var input imageAnalyzeRequest
 	if err := json.Unmarshal(call.Arguments, &input); err != nil {
-		return failedResult(call, "invalid_arguments", err.Error()), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, err.Error()), nil
 	}
 	if len(input.Paths)+len(input.ImageURLs) == 0 {
-		return failedResult(call, "invalid_arguments", "at least one path or image_url is required"), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, "at least one path or image_url is required"), nil
 	}
 	imageCount := len(input.Paths) + len(input.ImageURLs)
 	if imageCount > maxImageInputs {
-		return failedResult(call, "invalid_arguments", fmt.Sprintf("at most %d images may be analyzed", maxImageInputs)), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("at most %d images may be analyzed", maxImageInputs)), nil
 	}
 	prompt := strings.TrimSpace(input.Prompt)
 	if prompt == "" {

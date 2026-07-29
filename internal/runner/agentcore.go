@@ -420,7 +420,23 @@ func agentCoreRoute(config managedagents.AgentRuntimeConfig) coremodel.Route {
 		ModelID:               config.LLMModel,
 		CatalogRevision:       fmt.Sprintf("model:%s:%d", config.LLMModel, modelRevision),
 		CredentialRef:         config.LLMAPIKeyEnv,
+		Parameters:            agentCoreModelParameters(config.RuntimeSettings),
 	}
+}
+
+func agentCoreModelParameters(settings json.RawMessage) json.RawMessage {
+	var configured struct {
+		LLMThinking string `json:"llm_thinking"`
+	}
+	if len(settings) == 0 || json.Unmarshal(settings, &configured) != nil {
+		return nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(configured.LLMThinking))
+	if mode != "enabled" && mode != "disabled" {
+		return nil
+	}
+	parameters, _ := json.Marshal(map[string]any{"thinking": map[string]string{"type": mode}})
+	return parameters
 }
 
 func validateAgentCoreBindings(state agentcore.State, route coremodel.Route, definitions []coremodel.ToolDefinition) error {

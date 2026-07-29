@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const (
@@ -157,7 +159,7 @@ func PermissionDeniedResult(call Call, decision InterventionDecision) ExecutionR
 	}
 	state, _ := json.Marshal(map[string]any{
 		"status":          "failed",
-		"error_type":      "permission_denied",
+		"error_type":      toolresult.CodePermissionDenied,
 		"reason":          decision.Reason,
 		"matched_rule_id": decision.MatchedRuleID,
 		"rule_source":     decision.RuleSource,
@@ -166,7 +168,7 @@ func PermissionDeniedResult(call Call, decision InterventionDecision) ExecutionR
 	return ExecutionResult{
 		ID: call.ID, Identifier: call.Identifier, APIName: call.APIName,
 		Content: message, State: state,
-		Error: &ExecutionError{Type: "permission_denied", Message: message},
+		Error: &ExecutionError{Type: toolresult.CodePermissionDenied, Message: message},
 	}
 }
 

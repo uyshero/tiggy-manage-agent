@@ -637,7 +637,10 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 		Authorization string
 		Model         string `json:"model"`
 		MaxTokens     int    `json:"max_tokens"`
-		Messages      []struct {
+		Thinking      *struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
+		Messages []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
@@ -664,7 +667,7 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 	}
 
 	response, err := client.Generate(t.Context(), Request{
-		Model: "test-model", MaxOutputTokens: 16384,
+		Model: "test-model", ThinkingMode: "disabled", MaxOutputTokens: 16384,
 		Messages: []Message{
 			{
 				Role: "system",
@@ -697,6 +700,9 @@ func TestOpenAICompatibleClientGeneratesAssistantMessage(t *testing.T) {
 	}
 	if captured.MaxTokens != 16384 {
 		t.Fatalf("expected max_tokens=16384, got %d", captured.MaxTokens)
+	}
+	if captured.Thinking == nil || captured.Thinking.Type != "disabled" {
+		t.Fatalf("expected thinking.type=disabled, got %#v", captured.Thinking)
 	}
 	if len(captured.Messages) != 2 || captured.Messages[0].Role != "system" || captured.Messages[1].Content != "hello" {
 		t.Fatalf("unexpected messages: %#v", captured.Messages)

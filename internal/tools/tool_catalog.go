@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const ToolCatalogIdentifier = NamespaceToolCatalog
@@ -56,7 +58,7 @@ func (ToolCatalogRuntime) Manifest() Manifest {
 func (ToolCatalogRuntime) Execute(_ context.Context, call Call, executionContext ExecutionContext) (ExecutionResult, error) {
 	var request ToolCatalogInspectRequest
 	if err := json.Unmarshal(call.Arguments, &request); err != nil {
-		return failedResult(call, "invalid_arguments", fmt.Sprintf("decode inspect arguments: %v", err)), nil
+		return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("decode inspect arguments: %v", err)), nil
 	}
 	registry := executionContext.ToolRegistry
 	if len(registry.runtimes) == 0 {

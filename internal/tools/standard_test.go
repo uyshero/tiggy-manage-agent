@@ -190,6 +190,53 @@ func TestContextResultMessageTruncatesContentAndState(t *testing.T) {
 	}
 }
 
+func TestResultMessageIncludesRecoverableErrorFlags(t *testing.T) {
+	result := ExecutionResult{
+		ID:         "call_1",
+		Identifier: DefaultIdentifier,
+		APIName:    "run_command",
+		Content:    "Tool execution failed. Retry or use another approach.",
+		State:      json.RawMessage(`{"status":"failed","error_type":"tool_execution_failed"}`),
+		Error: &ExecutionError{
+			Type:        "tool_execution_failed",
+			Message:     "Tool execution failed. Retry or use another approach.",
+			Recoverable: true,
+			Retryable:   true,
+			Redacted:    true,
+		},
+		Recoverable: true,
+		Retryable:   true,
+		Redacted:    true,
+	}
+	var payload struct {
+		ProtocolVersion string `json:"protocol_version"`
+		ID              string `json:"id"`
+		Identifier      string `json:"identifier"`
+		APIName         string `json:"api_name"`
+		Success         bool   `json:"success"`
+		Recoverable     bool   `json:"recoverable"`
+		Retryable       bool   `json:"retryable"`
+		Redacted        bool   `json:"redacted"`
+		Error           struct {
+			Type        string `json:"type"`
+			Message     string `json:"message"`
+			Recoverable bool   `json:"recoverable"`
+			Retryable   bool   `json:"retryable"`
+			Redacted    bool   `json:"redacted"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(ResultMessage(result)), &payload); err != nil {
+		t.Fatalf("decode result message: %v", err)
+	}
+	if payload.ProtocolVersion != ToolResultProtocolVersion || payload.ID != result.ID || payload.Identifier != result.Identifier || payload.APIName != result.APIName {
+		t.Fatalf("unexpected result identity: %+v", payload)
+	}
+	if payload.Success || !payload.Recoverable || !payload.Retryable || !payload.Redacted ||
+		payload.Error.Type != "tool_execution_failed" || !payload.Error.Recoverable || !payload.Error.Retryable || !payload.Error.Redacted {
+		t.Fatalf("recoverable error flags missing from result message: %+v", payload)
+	}
+}
+
 func TestObservableResultDataTruncatesContentAndState(t *testing.T) {
 	result := ExecutionResult{
 		ID:         "call_1",

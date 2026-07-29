@@ -4569,6 +4569,227 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects:
+    get:
+      summary: List workbench projects
+      description: Returns workbench projects for the current workspace and optional plugin scope.
+      operationId: get_v2_workbench_projects
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: plugin_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProjectList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      summary: Create a workbench project
+      description: Creates a new workbench project draft and, when configured, provisions its backing repository/template.
+      operationId: post_v2_workbench_projects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkbenchProjectRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}:
+    patch:
+      summary: Update a workbench project
+      description: Updates editable project metadata, notebook content, active file, or persisted project files.
+      operationId: patch_v2_workbench_projects_by_project_id
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateWorkbenchProjectRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/runtime/start:
+    post:
+      summary: Start workbench runtime
+      description: Starts the managed R notebook runtime for the target workbench project.
+      operationId: post_v2_workbench_projects_by_project_id_runtime_start
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        "503":
+          description: R Notebook runtime provisioning is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/runtime/stop:
+    post:
+      summary: Stop workbench runtime
+      description: Stops the managed R notebook runtime for the target workbench project.
+      operationId: post_v2_workbench_projects_by_project_id_runtime_stop
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        "503":
+          description: R Notebook runtime provisioning is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/runtime/run-cleaning:
+    post:
+      summary: Run workbench data cleaning
+      description: Executes the project's R-based cleaning workflow inside the managed runtime and persists the generated report and output files.
+      operationId: post_v2_workbench_projects_by_project_id_runtime_run_cleaning
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProjectRunCleaningResponse"
+        "409":
+          description: R Runtime must already be running before data cleaning can execute
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: R Notebook runtime provisioning is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/workbench-projects/{project_id}/sync:
+    post:
+      summary: Sync workbench project
+      description: Provisions or re-syncs the workbench project to its backing GitLab repository when repository provisioning is available.
+      operationId: post_v2_workbench_projects_by_project_id_sync
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkbenchProject"
+        "503":
+          description: GitLab project provisioning is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/worker-work:
     post:
       operationId: post_v2_worker_work
@@ -4948,7 +5169,7 @@ components:
         tool: {type: string}
         stage: {type: string}
         percent: {type: integer, format: int32, minimum: 0, maximum: 100}
-        operation: {type: string, enum: [append, reset, update]}
+        operation: {type: string, enum: [append, update, reset]}
         content_format: {type: string, enum: [markdown, text]}
         text: {type: string}
         created_at: {type: string, format: date-time}
@@ -5015,6 +5236,7 @@ components:
         version: {type: integer, format: int32}
         llm_provider: {type: string}
         llm_model: {type: string}
+        llm_thinking: {type: string, enum: [enabled, disabled], description: Controls provider reasoning for this Session when supported.}
         system: {type: string}
         tools: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         mcp: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
@@ -5047,7 +5269,7 @@ components:
         environment_id: {type: string}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -5073,7 +5295,7 @@ components:
         environment_id: {type: string}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -5089,7 +5311,7 @@ components:
         enabled: {type: boolean}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
     RunAgentScheduleResponse:
       type: object
       required: [schedule, run_id, status]
@@ -5479,6 +5701,9 @@ components:
       properties:
         llm_provider: {type: string}
         llm_model: {type: string}
+        llm_thinking: {type: string, enum: [enabled, disabled], description: Controls provider reasoning for this Session when supported.}
+        agent_core_compaction_threshold_tokens: {type: integer, minimum: 0, description: Compacts conversation context when estimated input reaches this token count.}
+        agent_core_compaction_summary_max_chars: {type: integer, minimum: 1, description: Maximum character count retained in a compacted conversation summary.}
         intervention_mode: {type: string}
         permission_rules:
           type: array
@@ -6044,6 +6269,98 @@ components:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
         workspace_path: {type: string}
+    WorkbenchProjectFile:
+      type: object
+      description: A persisted workbench project file or folder entry.
+      required: [path, kind]
+      properties:
+        path: {type: string, maxLength: 500, description: Project-relative path.}
+        kind: {type: string, enum: [file, folder], description: Entry kind in the project tree.}
+        status: {type: string, description: Optional file status such as clean or modified.}
+        content: {type: string, maxLength: 1000000, description: File content when the entry represents a file.}
+    WorkbenchProject:
+      type: object
+      description: Persisted workbench project metadata, runtime state, and project files.
+      required: [id, workspace_id, owner_id, plugin_id, name, repository_provider, repository_path, default_branch, sync_status, files, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        owner_id: {type: string}
+        plugin_id: {type: string, maxLength: 240}
+        name: {type: string, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        repository_provider: {type: string, enum: [gitlab]}
+        repository_path: {type: string, maxLength: 240}
+        repository_id: {type: string}
+        repository_url: {type: string, maxLength: 1000}
+        default_branch: {type: string, maxLength: 120}
+        sync_status: {type: string, enum: [local, syncing, synced, error]}
+        sync_error: {type: string}
+        notebook_url: {type: string, maxLength: 1000}
+        runtime_id: {type: string}
+        runtime_status: {type: string, enum: [unconfigured, starting, running, stopped, error]}
+        runtime_url: {type: string, maxLength: 1000}
+        runtime_error: {type: string}
+        runtime_started_at: {type: string, format: date-time, nullable: true}
+        active_file: {type: string, maxLength: 500}
+        notebook_code: {type: string, maxLength: 1000000}
+        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    WorkbenchProjectList:
+      type: object
+      description: Workbench project list response.
+      required: [projects, gitlab_configured]
+      properties:
+        projects: {type: array, items: {$ref: "#/components/schemas/WorkbenchProject"}}
+        gitlab_configured: {type: boolean}
+    CreateWorkbenchProjectRequest:
+      type: object
+      description: Request body for creating a workbench project.
+      required: [plugin_id, name, repository_path]
+      properties:
+        workspace_id: {type: string}
+        plugin_id: {type: string, maxLength: 240}
+        name: {type: string, minLength: 1, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        repository_path: {type: string, minLength: 1, maxLength: 240}
+        notebook_url: {type: string, maxLength: 1000}
+        notebook_code: {type: string, maxLength: 1000000}
+    UpdateWorkbenchProjectRequest:
+      type: object
+      description: Request body for updating workbench project metadata or files.
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        notebook_url: {type: string, maxLength: 1000}
+        active_file: {type: string, maxLength: 500}
+        notebook_code: {type: string, maxLength: 1000000}
+        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
+    WorkbenchProjectRuntimeFile:
+      type: object
+      description: Output file materialized by a workbench runtime action.
+      required: [path, content]
+      properties:
+        path: {type: string, maxLength: 500, description: Project-relative output file path.}
+        content: {type: string, maxLength: 1000000, description: UTF-8 file content returned from the runtime workspace.}
+    WorkbenchProjectRunCleaningResult:
+      type: object
+      description: Result of executing the workbench R cleaning workflow.
+      required: [exit_code]
+      properties:
+        exit_code: {type: integer, format: int32, description: Runtime process exit code.}
+        stdout: {type: string, description: Standard output captured from the cleaning run.}
+        stderr: {type: string, description: Standard error captured from the cleaning run.}
+        files: {type: array, description: Output files returned from the runtime workspace, items: {$ref: "#/components/schemas/WorkbenchProjectRuntimeFile"}}
+    WorkbenchProjectRunCleaningResponse:
+      type: object
+      description: Response payload for a completed workbench data-cleaning run.
+      required: [project, result]
+      properties:
+        project: {$ref: "#/components/schemas/WorkbenchProject"}
+        result: {$ref: "#/components/schemas/WorkbenchProjectRunCleaningResult"}
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]

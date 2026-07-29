@@ -25533,6 +25533,15 @@ const SquareTerminal = createLucideIcon("SquareTerminal", [
   ["path", { d: "M11 13h4", key: "1p7l4v" }],
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" }]
 ]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Square = createLucideIcon("Square", [
+  ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }]
+]);
 const nativeFetch = window.fetch.bind(window);
 let refreshRequest = null;
 function isAuthenticationRoute(request) {
@@ -30760,6 +30769,23 @@ function durableEventReplacesLiveReply(event, liveReply) {
   const data = eventData$1(event);
   return Number(data.tool_round || 0) === Number(liveReply.toolRound || 0) && Boolean(String(data.text || "").trim());
 }
+function clipboardHasPlainText(clipboard) {
+  if (!clipboard) return false;
+  const types2 = Array.from(clipboard.types || []).map((type) => String(type).toLowerCase());
+  if (types2.includes("text/plain")) return true;
+  if (typeof clipboard.getData !== "function") return false;
+  try {
+    return clipboard.getData("text/plain") !== "";
+  } catch {
+    return false;
+  }
+}
+function clipboardImageFiles(clipboard) {
+  if (!clipboard) return [];
+  const itemImages = Array.from(clipboard.items || []).filter((item) => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
+  if (itemImages.length) return itemImages;
+  return Array.from(clipboard.files || []).filter((file) => String(file.type || "").toLowerCase().startsWith("image/"));
+}
 function eventPayload(event) {
   return (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
 }
@@ -32012,7 +32038,7 @@ const textExtensions = /* @__PURE__ */ new Set([
   "yaml",
   "yml"
 ]);
-let xlsxModulePromise;
+let xlsxModulePromise$1;
 function plainMetadata(artifact) {
   const value = artifact == null ? void 0 : artifact.metadata;
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -32126,9 +32152,9 @@ function throwIfAborted(signal) {
   error.name = "AbortError";
   throw error;
 }
-function loadXLSXModule() {
-  if (!xlsxModulePromise) xlsxModulePromise = __vitePreload(() => import("./xlsx.js"), true ? [] : void 0);
-  return xlsxModulePromise;
+function loadXLSXModule$1() {
+  if (!xlsxModulePromise$1) xlsxModulePromise$1 = __vitePreload(() => import("./xlsx.js"), true ? [] : void 0);
+  return xlsxModulePromise$1;
 }
 function disposeObjectURL(revokeObjectURL, objectUrl) {
   let disposed = false;
@@ -32145,7 +32171,7 @@ async function spreadsheetPreview(response, contentLength, context, options) {
   }
   const buffer = await response.arrayBuffer();
   throwIfAborted(context.signal);
-  const xlsx = await (options.loadXLSXModule || loadXLSXModule)();
+  const xlsx = await (options.loadXLSXModule || loadXLSXModule$1)();
   const rowLimit = options.maxSpreadsheetRows || MAX_SPREADSHEET_PREVIEW_ROWS;
   const columnLimit = options.maxSpreadsheetColumns || MAX_SPREADSHEET_PREVIEW_COLUMNS;
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true, sheetRows: rowLimit + 1 });
@@ -33295,7 +33321,49 @@ const manifest$2 = {
   permissions: permissions$2,
   contributes: contributes$2
 };
+const R_SURVIVAL_DATA_CLEANING_SKILL_PATH = "skills/r-survival-data-cleaning/SKILL.md";
+const R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT = `# R 生存分析数据清洗 Skill
+
+## 适用场景
+
+当用户需要把中文随访表、临床观察表、Excel/CSV 病例数据整理成可用于 Kaplan-Meier、log-rank、Cox 回归或后续生存分析的数据集时，使用本 Skill。
+
+## 工作原则
+
+- 不把字段名、取值映射和删失规则视为固定事实；先读取用户数据、字段说明和 \`config/variable-mapping.yml\`。
+- 对医学/业务含义不确定的取值，生成“待确认项”，不要擅自归类。
+- 原始数据必须保留，不覆盖；清洗结果写入 \`data/processed/\`。
+- 任何会改变样本量、事件状态、随访时间的操作，都要在清洗报告里说明数量和原因。
+- 生成的 R 代码应尽量参数化，优先从配置文件读取字段映射、候选取值和质量检查。
+
+## 最小标准变量
+
+- \`patient_id\`：患者唯一编号，用于去重和追踪。
+- \`followup_month\`：随访时间，数值型，单位必须明确。
+- \`event\`：事件状态，二分类；1 表示事件发生，0 表示删失/未发生。
+- \`treatment\`：分组变量，可为空，但若用于 KM/Cox 分组必须可解释。
+
+常见协变量包括 \`age\`、\`sex\`、\`stage\`，但是否纳入模型由研究目标决定。
+
+## 执行流程
+
+1. 读取原始文件结构、编码、列名和样本值。
+2. 根据用户目标建立字段映射草案。
+3. 识别事件、删失、失访、复发、死亡、进展等取值含义。
+4. 生成或更新 \`config/variable-mapping.yml\`。
+5. 生成或更新 \`R/clean-data.R\`。
+6. 执行质量检查：编号唯一性、时间非负、事件 0/1、关键字段缺失、异常取值、清洗前后样本量。
+7. 输出清洗摘要、风险点和待确认问题。
+
+## 交付物
+
+- \`config/variable-mapping.yml\`：字段映射、候选取值、待确认项和质量检查声明。
+- \`R/clean-data.R\`：可运行清洗脚本。
+- \`data/processed/followup_clean.csv\`：标准化后的分析数据。
+- \`reports/data-cleaning-summary.md\`：清洗摘要和质量检查结果。
+`;
 const STORAGE_PREFIX$1 = "tma.plugin.com.tma.r-survival-workbench.projects.v1";
+const R_SURVIVAL_WORKBENCH_PLUGIN_ID = "com.tma.r-survival-workbench";
 const DEFAULT_NOTEBOOK_CODE = `library(survival)
 library(ggsurvfit)
 
@@ -33316,6 +33384,14 @@ const DEFAULT_PROJECT_FILES = Object.freeze([
   Object.freeze({ path: "R/survival-model.R", kind: "file", status: "clean" }),
   Object.freeze({ path: "config", kind: "folder" }),
   Object.freeze({ path: "config/variable-mapping.yml", kind: "file", status: "clean" }),
+  Object.freeze({ path: "skills", kind: "folder" }),
+  Object.freeze({ path: "skills/r-survival-data-cleaning", kind: "folder" }),
+  Object.freeze({
+    path: R_SURVIVAL_DATA_CLEANING_SKILL_PATH,
+    kind: "file",
+    status: "clean",
+    content: R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT
+  }),
   Object.freeze({ path: "reports", kind: "folder" }),
   Object.freeze({ path: "renv.lock", kind: "file", status: "clean" })
 ]);
@@ -33336,7 +33412,7 @@ function normalizedScope$1(scope) {
     userId: requiredText$1(scope == null ? void 0 : scope.userId, "scope.userId", 240)
   };
 }
-function clone(value) {
+function clone$1(value) {
   return JSON.parse(JSON.stringify(value));
 }
 function projectID$1(randomID2) {
@@ -33358,7 +33434,10 @@ function normalizeProject(value) {
       branch: optionalText$1(value.branch, 120) || "main",
       activeFile: optionalText$1(value.activeFile, 500) || "notebooks/survival-analysis.ipynb",
       notebookCode: typeof value.notebookCode === "string" ? value.notebookCode : DEFAULT_NOTEBOOK_CODE,
-      files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({ ...file })) : clone(DEFAULT_PROJECT_FILES),
+      files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({
+        ...file,
+        content: typeof file.content === "string" ? file.content : ""
+      })) : clone$1(DEFAULT_PROJECT_FILES),
       createdAt: requiredText$1(value.createdAt, "project.createdAt", 80),
       updatedAt: requiredText$1(value.updatedAt, "project.updatedAt", 80)
     };
@@ -33404,18 +33483,18 @@ function createAnalysisWorkspaceRepository(options = {}) {
       branch: "main",
       activeFile: "notebooks/survival-analysis.ipynb",
       notebookCode: DEFAULT_NOTEBOOK_CODE,
-      files: clone(DEFAULT_PROJECT_FILES),
+      files: clone$1(DEFAULT_PROJECT_FILES),
       createdAt: timestamp,
       updatedAt: timestamp
     };
     const projects = read();
     projects.push(project);
     write(projects);
-    return clone(project);
+    return clone$1(project);
   }
   function ensureExample() {
     const projects = read();
-    if (projects.length) return clone(projects[0]);
+    if (projects.length) return clone$1(projects[0]);
     return create2({
       name: "肿瘤患者生存分析",
       objective: "完成中文随访数据清洗、Kaplan-Meier 分析和 Cox 回归",
@@ -33423,7 +33502,7 @@ function createAnalysisWorkspaceRepository(options = {}) {
     });
   }
   function list2() {
-    return read().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).map(clone);
+    return read().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).map(clone$1);
   }
   function update(id2, patch2) {
     const projects = read();
@@ -33440,11 +33519,859 @@ function createAnalysisWorkspaceRepository(options = {}) {
     if (!next) throw new Error("project update is invalid");
     projects[index2] = next;
     write(projects);
-    return clone(next);
+    return clone$1(next);
   }
   return Object.freeze({ key, create: create2, ensureExample, list: list2, update });
 }
+function remoteProject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid workbench project response");
+  const runtimeURL = optionalText$1(value.runtime_url, 1e3);
+  return {
+    id: requiredText$1(value.id, "project.id", 240),
+    name: requiredText$1(value.name, "project.name", 120),
+    objective: optionalText$1(value.objective, 1200),
+    repositoryPath: requiredText$1(value.repository_path, "project.repository_path", 240),
+    gitlabURL: optionalText$1(value.repository_url, 1e3),
+    notebookURL: runtimeURL || optionalText$1(value.notebook_url, 1e3),
+    runtimeID: optionalText$1(value.runtime_id, 240),
+    runtimeStatus: ["unconfigured", "starting", "running", "stopped", "error"].includes(value.runtime_status) ? value.runtime_status : "unconfigured",
+    runtimeURL,
+    runtimeError: optionalText$1(value.runtime_error, 4e3),
+    runtimeStartedAt: optionalText$1(value.runtime_started_at, 80),
+    gitStatus: ["local", "syncing", "synced", "error"].includes(value.sync_status) ? value.sync_status : "local",
+    gitError: optionalText$1(value.sync_error, 4e3),
+    branch: optionalText$1(value.default_branch, 120) || "main",
+    activeFile: optionalText$1(value.active_file, 500) || "notebooks/survival-analysis.ipynb",
+    notebookCode: typeof value.notebook_code === "string" ? value.notebook_code : DEFAULT_NOTEBOOK_CODE,
+    files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({
+      ...file,
+      content: typeof file.content === "string" ? file.content : ""
+    })) : clone$1(DEFAULT_PROJECT_FILES),
+    createdAt: requiredText$1(value.created_at, "project.created_at", 80),
+    updatedAt: requiredText$1(value.updated_at, "project.updated_at", 80),
+    persistence: "backend"
+  };
+}
+function remotePatch(patch2) {
+  const result = {};
+  if (Object.hasOwn(patch2, "name")) result.name = patch2.name;
+  if (Object.hasOwn(patch2, "objective")) result.objective = patch2.objective;
+  if (Object.hasOwn(patch2, "notebookURL")) result.notebook_url = patch2.notebookURL;
+  if (Object.hasOwn(patch2, "activeFile")) result.active_file = patch2.activeFile;
+  if (Object.hasOwn(patch2, "notebookCode")) result.notebook_code = patch2.notebookCode;
+  if (Object.hasOwn(patch2, "files")) result.files = patch2.files;
+  return result;
+}
+function createAnalysisWorkspaceClient(options = {}) {
+  var _a2;
+  const request = (_a2 = options.http) == null ? void 0 : _a2.request;
+  if (typeof request !== "function") throw new Error("a scoped HTTP service is required");
+  const scope = normalizedScope$1(options.scope);
+  const query = new URLSearchParams({ workspace_id: scope.workspaceId, plugin_id: R_SURVIVAL_WORKBENCH_PLUGIN_ID });
+  const projectQuery = new URLSearchParams({ workspace_id: scope.workspaceId });
+  function projectPath(id2, suffix = "") {
+    return `/v2/workbench-projects/${encodeURIComponent(id2)}${suffix}?${projectQuery}`;
+  }
+  async function list2() {
+    const response = await request(`/v2/workbench-projects?${query}`);
+    return {
+      projects: Array.isArray(response == null ? void 0 : response.projects) ? response.projects.map(remoteProject) : [],
+      gitLabConfigured: (response == null ? void 0 : response.gitlab_configured) === true
+    };
+  }
+  async function create2(input) {
+    const name2 = requiredText$1(input == null ? void 0 : input.name, "project.name", 120);
+    const repositoryPath = optionalText$1(input == null ? void 0 : input.repositoryPath, 240) || name2.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "r-analysis";
+    const created = await request("/v2/workbench-projects", {
+      method: "POST",
+      body: {
+        workspace_id: scope.workspaceId,
+        plugin_id: R_SURVIVAL_WORKBENCH_PLUGIN_ID,
+        name: name2,
+        objective: optionalText$1(input == null ? void 0 : input.objective, 1200),
+        repository_path: repositoryPath,
+        notebook_url: optionalText$1(input == null ? void 0 : input.notebookURL, 1e3),
+        notebook_code: typeof (input == null ? void 0 : input.notebookCode) === "string" ? input.notebookCode : DEFAULT_NOTEBOOK_CODE
+      }
+    });
+    return remoteProject(created);
+  }
+  async function update(id2, patch2) {
+    const updated = await request(projectPath(id2), {
+      method: "PATCH",
+      body: remotePatch(patch2 || {})
+    });
+    return remoteProject(updated);
+  }
+  async function sync(id2) {
+    const updated = await request(projectPath(id2, "/sync"), { method: "POST" });
+    return remoteProject(updated);
+  }
+  async function startRuntime(id2) {
+    const started = await request(projectPath(id2, "/runtime/start"), { method: "POST" });
+    return remoteProject(started);
+  }
+  async function stopRuntime(id2) {
+    const stopped = await request(projectPath(id2, "/runtime/stop"), { method: "POST" });
+    return remoteProject(stopped);
+  }
+  async function runCleaning(id2) {
+    const response = await request(projectPath(id2, "/runtime/run-cleaning"), { method: "POST" });
+    return {
+      project: remoteProject(response.project),
+      result: response.result || { exit_code: 0 }
+    };
+  }
+  return Object.freeze({ create: create2, list: list2, runCleaning, sync, startRuntime, stopRuntime, update });
+}
 const repositories$1 = /* @__PURE__ */ new Map();
+const EXCEL_FILE_PATTERN = /\.(xlsx|xls)$/i;
+let xlsxModulePromise;
+const DEFAULT_CLEANING_FIELD_MAPPING = Object.freeze([
+  Object.freeze({ source: "患者编号", target: "patient_id", type: "字符", semanticRole: "患者唯一标识", hint: "确认是否一人一行；重复编号需要说明合并/保留策略" }),
+  Object.freeze({ source: "治疗组", target: "treatment", type: "分类", semanticRole: "分组变量", hint: "根据样本值和研究设计推断分组，不确定时生成待确认项" }),
+  Object.freeze({ source: "随访月数", target: "followup_month", type: "数值", semanticRole: "生存时间", hint: "确认时间单位，必要时从天/年转换为月，并保留转换说明" }),
+  Object.freeze({ source: "结局", target: "event", type: "0/1", semanticRole: "事件/删失", hint: "事件和删失不能硬猜；死亡、复发、进展、失访要按研究终点确认" }),
+  Object.freeze({ source: "年龄", target: "age", type: "数值", semanticRole: "协变量", hint: "是否进入 Cox 模型由研究目标决定，异常年龄需列出" }),
+  Object.freeze({ source: "分期", target: "stage", type: "有序分类", semanticRole: "协变量/分层变量", hint: "统一中文、罗马数字和数字分期；无法识别的值进入待确认项" }),
+  Object.freeze({ source: "性别", target: "sex", type: "分类", semanticRole: "协变量", hint: "按样本值生成映射，非男/女取值不要直接丢弃" })
+]);
+const DEFAULT_RAW_FOLLOWUP_CSV = `患者编号,治疗组,随访月数,结局,年龄,分期,性别
+P001,新治疗,18,死亡,62,III期,男
+P002,标准治疗,24,存活,55,II期,女
+P003,试验组,11,进展,48,四期,女性
+P004,对照组,30,无事件,71,I期,男性
+P005,新治疗,7,复发,66,III期,女
+P006,标准治疗,20,失访,59,II期,男
+`;
+function isExcelFile(file) {
+  return EXCEL_FILE_PATTERN.test((file == null ? void 0 : file.name) || "");
+}
+function loadXLSXModule() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = __vitePreload(() => import("./xlsx.js"), true ? [] : void 0);
+  }
+  return xlsxModulePromise;
+}
+function getExcelSheetPreview(xlsx, workbook, sheetName) {
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet) return [];
+  return xlsx.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, raw: false, defval: "" }).slice(0, 10).map((row) => row.map((cell) => String(cell ?? "")));
+}
+async function readExcelImportDraft(file) {
+  const buffer = await file.arrayBuffer();
+  const xlsx = await loadXLSXModule();
+  const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
+  const selectedSheet = workbook.SheetNames[0];
+  if (!selectedSheet) throw new Error("Excel 文件没有可读取的工作表");
+  return {
+    fileName: file.name,
+    workbook,
+    selectedSheet,
+    sheetNames: workbook.SheetNames,
+    previewRows: getExcelSheetPreview(xlsx, workbook, selectedSheet),
+    xlsx
+  };
+}
+function buildExcelSheetImport(draft) {
+  if (!(draft == null ? void 0 : draft.selectedSheet)) throw new Error("请选择要导入的 Excel 工作表");
+  const worksheet = draft.workbook.Sheets[draft.selectedSheet];
+  if (!worksheet) throw new Error(`找不到工作表：${draft.selectedSheet}`);
+  return {
+    content: draft.xlsx.utils.sheet_to_csv(worksheet, { blankrows: false }),
+    sourceName: `${draft.fileName} · ${draft.selectedSheet}`
+  };
+}
+async function readRawDataFile(file, encoding) {
+  if (isExcelFile(file)) {
+    throw new Error("Excel 文件需要先选择工作表并预览后导入");
+  }
+  const buffer = await file.arrayBuffer();
+  const labels = encoding === "GBK" ? ["gb18030", "gbk"] : ["utf-8"];
+  for (const label of labels) {
+    try {
+      return { content: new TextDecoder(label).decode(buffer).replace(/^\uFEFF/, ""), sourceName: file.name };
+    } catch {
+    }
+  }
+  return { content: await file.text(), sourceName: file.name };
+}
+function normalizeColumnName(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s_\-()（）[\]【】/\\.:：]/g, "");
+}
+function normalizeSampleValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+function parseCSVRows(content2, maxRows = 12) {
+  const text2 = String(content2 || "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let index2 = 0; index2 < text2.length; index2 += 1) {
+    const char = text2[index2];
+    if (char === '"') {
+      if (inQuotes && text2[index2 + 1] === '"') {
+        cell += '"';
+        index2 += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && char === ",") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (!inQuotes && (char === "\n" || char === "\r")) {
+      if (char === "\r" && text2[index2 + 1] === "\n") index2 += 1;
+      row.push(cell);
+      if (row.some((item) => String(item || "").trim())) rows.push(row);
+      row = [];
+      cell = "";
+      if (rows.length >= maxRows) break;
+      continue;
+    }
+    cell += char;
+  }
+  if (rows.length < maxRows && (cell.length || row.length)) {
+    row.push(cell);
+    if (row.some((item) => String(item || "").trim())) rows.push(row);
+  }
+  return rows;
+}
+function confidenceLabel(score) {
+  if (score >= 10) return "高";
+  if (score >= 6) return "中";
+  if (score >= 4) return "低";
+  return "";
+}
+function scoreColumnForTarget(column, target) {
+  const header = normalizeColumnName(column.name);
+  const samples = column.samples.map(normalizeSampleValue).filter(Boolean);
+  const distinctSamples = new Set(samples);
+  const numericValues = samples.map((value) => Number.parseFloat(value)).filter((value) => Number.isFinite(value));
+  const numericRatio = samples.length ? numericValues.length / samples.length : 0;
+  const reasons = [];
+  let score = 0;
+  const addHeaderScore = (patterns, points, reason) => {
+    if (patterns.some((pattern) => pattern.test(header))) {
+      score += points;
+      reasons.push(reason);
+      return true;
+    }
+    return false;
+  };
+  const addSampleScore = (condition, points, reason) => {
+    if (condition) {
+      score += points;
+      reasons.push(reason);
+    }
+  };
+  if (target === "patient_id") {
+    addHeaderScore([/患者编号/, /病历号/, /病例号/, /受试者编号/, /patientid/, /^id$/, /subjectid/], 8, "表头像患者编号");
+    addSampleScore(samples.length >= 2 && distinctSamples.size === samples.length, 2, "样本值基本唯一");
+    addSampleScore(samples.some((value) => /^[a-z]+\d+$/i.test(value)), 2, "样本值像病例编号");
+  }
+  if (target === "treatment") {
+    addHeaderScore([/治疗组/, /分组/, /组别/, /治疗方案/, /treatment/, /arm/, /group/], 8, "表头像分组列");
+    addSampleScore(samples.some((value) => /新治疗|标准治疗|对照|试验|treat|control|arm/i.test(value)), 3, "样本值像治疗分组");
+  }
+  if (target === "followup_month") {
+    addHeaderScore([/随访月数/, /随访时间/, /生存时间/, /观察时间/, /followup/, /month/, /months/, /time/, /^os$/, /^pfs$/, /^dfs$/], 8, "表头像随访时间");
+    addSampleScore(numericRatio >= 0.8, 3, "样本值大多是数字");
+    addSampleScore(numericValues.some((value) => value >= 1 && value <= 240), 2, "取值范围像月数");
+  }
+  if (target === "event") {
+    addHeaderScore([/结局/, /事件/, /状态/, /终点/, /event/, /status/, /outcome/], 8, "表头像结局列");
+    addSampleScore(samples.some((value) => /死亡|存活|无事件|进展|复发|失访|删失|event|alive|dead/.test(value)), 4, "样本值像事件/删失");
+    addSampleScore(samples.length > 0 && samples.every((value) => ["0", "1"].includes(value)), 3, "样本值已经是 0/1");
+  }
+  if (target === "age") {
+    addHeaderScore([/年龄/, /^age$/], 8, "表头像年龄列");
+    addSampleScore(numericRatio >= 0.8, 2, "样本值大多是数字");
+    addSampleScore(numericValues.some((value) => value >= 18 && value <= 100), 2, "取值范围像年龄");
+  }
+  if (target === "stage") {
+    addHeaderScore([/分期/, /^stage$/, /tnm/], 8, "表头像分期列");
+    addSampleScore(samples.some((value) => /i期|ii期|iii期|iv期|一期|二期|三期|四期|ⅰ|ⅱ|ⅲ|ⅳ|stage/i.test(value)), 4, "样本值像肿瘤分期");
+  }
+  if (target === "sex") {
+    addHeaderScore([/性别/, /^sex$/, /^gender$/], 8, "表头像性别列");
+    addSampleScore(samples.some((value) => /男|女|male|female/.test(value)), 4, "样本值像性别");
+  }
+  return { score, reasons };
+}
+function detectFieldSuggestions(content2) {
+  const rows = parseCSVRows(content2, 10);
+  if (!rows.length) return { columns: [], suggestions: [], previewRows: [] };
+  const headers = rows[0].map((value, index2) => String(value || "").trim() || `未命名列${index2 + 1}`);
+  const dataRows = rows.slice(1);
+  const columns = headers.map((name2, index2) => ({
+    name: name2,
+    index: index2,
+    samples: dataRows.map((row) => String(row[index2] || "").trim()).filter(Boolean).slice(0, 4)
+  }));
+  const targets = DEFAULT_CLEANING_FIELD_MAPPING.map((field) => field.target);
+  const candidates = [];
+  for (const column of columns) {
+    for (const target of targets) {
+      const result = scoreColumnForTarget(column, target);
+      if (result.score >= 4) candidates.push({ ...result, target, source: column.name });
+    }
+  }
+  candidates.sort((left, right) => right.score - left.score || left.source.localeCompare(right.source));
+  const usedTargets = /* @__PURE__ */ new Set();
+  const usedSources = /* @__PURE__ */ new Set();
+  const suggestions = [];
+  for (const candidate of candidates) {
+    if (usedTargets.has(candidate.target) || usedSources.has(candidate.source)) continue;
+    usedTargets.add(candidate.target);
+    usedSources.add(candidate.source);
+    suggestions.push({
+      target: candidate.target,
+      source: candidate.source,
+      confidence: confidenceLabel(candidate.score),
+      score: candidate.score,
+      reasons: candidate.reasons
+    });
+  }
+  return {
+    columns,
+    suggestions: suggestions.sort((left, right) => targets.indexOf(left.target) - targets.indexOf(right.target)),
+    previewRows: rows.slice(0, 6)
+  };
+}
+function inferCategoricalValue(target, rawValue) {
+  const value = String(rawValue || "").trim();
+  const normalized = normalizeSampleValue(rawValue).replace(/\s+/g, "");
+  if (!value) return null;
+  if (target === "treatment") {
+    if (/标准治疗|对照组|对照|标准|control|standard/.test(normalized)) return { suggested: "standard", reason: "像标准治疗/对照组" };
+    if (/新治疗|试验组|实验组|试验|实验|new|treat/.test(normalized)) return { suggested: "new", reason: "像新治疗/试验组" };
+    return { suggested: "", reason: "治疗分组含义待确认" };
+  }
+  if (target === "event") {
+    if (/^(1|死亡|复发|进展|事件|阳性|dead|event|progression|relapse)$/.test(normalized)) return { suggested: "1", reason: "像事件发生" };
+    if (/^(0|存活|无事件|失访|删失|阴性|alive|censor|censored|none)$/.test(normalized)) return { suggested: "0", reason: "像删失/未发生事件" };
+    return { suggested: "", reason: "事件还是删失需要确认" };
+  }
+  if (target === "stage") {
+    if (/^(iv期|四期|ⅳ|iv|4期|4)$/.test(normalized)) return { suggested: "IV", reason: "像 IV 期" };
+    if (/^(iii期|三期|ⅲ|iii|3期|3)$/.test(normalized)) return { suggested: "III", reason: "像 III 期" };
+    if (/^(ii期|二期|ⅱ|ii|2期|2)$/.test(normalized)) return { suggested: "II", reason: "像 II 期" };
+    if (/^(i期|一期|ⅰ|i|1期|1)$/.test(normalized)) return { suggested: "I", reason: "像 I 期" };
+    return { suggested: "", reason: "分期写法不确定" };
+  }
+  if (target === "sex") {
+    if (/^(男|男性|male|m)$/.test(normalized)) return { suggested: "male", reason: "像男性" };
+    if (/^(女|女性|female|f)$/.test(normalized)) return { suggested: "female", reason: "像女性" };
+    return { suggested: "", reason: "性别取值待确认" };
+  }
+  return null;
+}
+function detectValueSuggestions(content2, fields) {
+  const rows = parseCSVRows(content2, 40);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((value, index2) => String(value || "").trim() || `未命名列${index2 + 1}`);
+  const indexByHeader = new Map(headers.map((header, index2) => [header, index2]));
+  const normalizedIndexByHeader = new Map(headers.map((header, index2) => [normalizeColumnName(header), index2]));
+  const categoricalTargets = ["treatment", "event", "stage", "sex"];
+  return fields.filter((field) => categoricalTargets.includes(field.target) && String(field.source || "").trim()).map((field) => {
+    const source = String(field.source || "").trim();
+    const columnIndex = indexByHeader.get(source) ?? normalizedIndexByHeader.get(normalizeColumnName(source));
+    if (columnIndex === void 0) return null;
+    const distinctValues = [];
+    const seen2 = /* @__PURE__ */ new Set();
+    for (const row of rows.slice(1)) {
+      const raw = String(row[columnIndex] || "").trim();
+      if (!raw || seen2.has(raw)) continue;
+      seen2.add(raw);
+      distinctValues.push(raw);
+      if (distinctValues.length >= 10) break;
+    }
+    const suggestions = distinctValues.map((raw) => {
+      const inferred = inferCategoricalValue(field.target, raw);
+      return inferred ? { raw, ...inferred } : null;
+    }).filter(Boolean);
+    if (!suggestions.length) return null;
+    return {
+      target: field.target,
+      source,
+      suggestions,
+      mappedCount: suggestions.filter((item) => item.suggested).length,
+      unresolvedCount: suggestions.filter((item) => !item.suggested).length
+    };
+  }).filter(Boolean);
+}
+function rString(value) {
+  return JSON.stringify(String(value || ""));
+}
+function buildRNamedVector(valueSuggestions, target) {
+  var _a2, _b;
+  const targetSuggestions = ((_b = (_a2 = (valueSuggestions || []).find((item) => item.target === target)) == null ? void 0 : _a2.suggestions) == null ? void 0 : _b.filter((item) => item.suggested)) || [];
+  if (!targetSuggestions.length) return "character()";
+  return `c(${targetSuggestions.map((item) => `${rString(item.raw)} = ${rString(item.suggested)}`).join(", ")})`;
+}
+function buildRStringVector(valueSuggestions, target) {
+  var _a2, _b, _c;
+  const unresolved = ((_c = (_b = (_a2 = (valueSuggestions || []).find((item) => item.target === target)) == null ? void 0 : _a2.suggestions) == null ? void 0 : _b.filter((item) => !item.suggested)) == null ? void 0 : _c.map((item) => item.raw)) || [];
+  if (!unresolved.length) return "character()";
+  return `c(${unresolved.map((item) => rString(item)).join(", ")})`;
+}
+function buildRCharacterVector(values) {
+  if (!values.length) return "character()";
+  return `c(${values.map((item) => rString(item)).join(", ")})`;
+}
+function buildDataCleaningRCode(fields, options = {}) {
+  const source = (target) => {
+    var _a2;
+    return ((_a2 = fields.find((field) => field.target === target)) == null ? void 0 : _a2.source) || target;
+  };
+  const encoding = options.encoding === "GBK" ? "GBK" : "UTF-8";
+  const valueSuggestions = options.valueSuggestions || [];
+  const treatmentValueMap = buildRNamedVector(valueSuggestions, "treatment");
+  const eventValueMap = buildRNamedVector(valueSuggestions, "event");
+  const stageValueMap = buildRNamedVector(valueSuggestions, "stage");
+  const sexValueMap = buildRNamedVector(valueSuggestions, "sex");
+  const unresolvedEventValues = buildRStringVector(valueSuggestions, "event");
+  const unresolvedTreatmentValues = buildRStringVector(valueSuggestions, "treatment");
+  const unresolvedStageValues = buildRStringVector(valueSuggestions, "stage");
+  const unresolvedSexValues = buildRStringVector(valueSuggestions, "sex");
+  const mappingTargets = buildRCharacterVector(fields.map((field) => field.target));
+  const mappingSources = buildRCharacterVector(fields.map((field) => field.source || field.target));
+  return `# 规则来源：${R_SURVIVAL_DATA_CLEANING_SKILL_PATH}
+# 说明：脚本优先使用当前项目推断出的 value_map，再用轻量兜底规则补足；最终规则仍应由 Skill 和分析目标校正。
+
+raw_path <- "data/raw/随访数据.csv"
+raw_path_fallback <- "data/raw/followup.csv"
+output_path <- "data/processed/followup_clean.csv"
+input_encoding <- Sys.getenv("FOLLOWUP_ENCODING", ${rString(encoding)})
+
+if (!file.exists(raw_path) || file.info(raw_path)$size == 0) {
+  raw_path <- raw_path_fallback
+}
+if (!file.exists(raw_path) || file.info(raw_path)$size == 0) {
+  stop(paste("缺少原始数据文件:", raw_path))
+}
+
+read_followup_csv <- function(path, encoding) {
+  if (identical(encoding, "GBK")) {
+    return(read.csv(path, fileEncoding = "GBK", check.names = FALSE, stringsAsFactors = FALSE))
+  }
+  read.csv(path, check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+raw_followup <- read_followup_csv(raw_path, input_encoding)
+
+column <- function(name) {
+  if (!name %in% names(raw_followup)) stop(paste("缺少字段:", name))
+  raw_followup[[name]]
+}
+
+squish <- function(x) trimws(gsub("\\\\s+", " ", as.character(x)))
+parse_number <- function(x) suppressWarnings(as.numeric(gsub("[^0-9.+-]", "", as.character(x))))
+map_by_dictionary <- function(values, dictionary) {
+  normalized <- squish(values)
+  if (!length(dictionary)) {
+    return(rep(NA_character_, length(normalized)))
+  }
+  unname(dictionary[normalized])
+}
+prefer_mapping <- function(primary, fallback) {
+  result <- as.character(primary)
+  fallback <- as.character(fallback)
+  missing <- is.na(result) | result == ""
+  result[missing] <- fallback[missing]
+  result
+}
+collect_unresolved <- function(raw_values, cleaned_values, expected_unresolved = character()) {
+  pending <- sort(unique(raw_values[(is.na(cleaned_values) | cleaned_values == "") & !is.na(raw_values) & nzchar(raw_values)]))
+  pending <- unique(c(expected_unresolved, pending))
+  pending[nzchar(pending)]
+}
+cat_md <- function(...) cat(..., sep = "")
+md_section <- function(title) cat_md("## ", title, "\\n\\n")
+md_bullet <- function(label, value) cat_md("- ", label, "：", value, "\\n")
+md_values <- function(values) {
+  if (!length(values)) return("无")
+  paste(sprintf("\`%s\`", values), collapse = "、")
+}
+
+treatment_value_map <- ${treatmentValueMap}
+event_value_map <- ${eventValueMap}
+stage_value_map <- ${stageValueMap}
+sex_value_map <- ${sexValueMap}
+event_unresolved_seed <- ${unresolvedEventValues}
+treatment_unresolved_seed <- ${unresolvedTreatmentValues}
+stage_unresolved_seed <- ${unresolvedStageValues}
+sex_unresolved_seed <- ${unresolvedSexValues}
+mapping_targets <- ${mappingTargets}
+mapping_sources <- ${mappingSources}
+
+patient_id_raw <- as.character(column(${rString(source("patient_id"))}))
+treatment_raw <- squish(column(${rString(source("treatment"))}))
+event_raw <- squish(column(${rString(source("event"))}))
+stage_raw <- squish(column(${rString(source("stage"))}))
+sex_raw <- squish(column(${rString(source("sex"))}))
+treatment_exact <- map_by_dictionary(treatment_raw, treatment_value_map)
+event_exact <- map_by_dictionary(event_raw, event_value_map)
+stage_exact <- map_by_dictionary(stage_raw, stage_value_map)
+sex_exact <- map_by_dictionary(sex_raw, sex_value_map)
+
+treatment_fallback <- ifelse(grepl("新|试验", treatment_raw), "new", ifelse(grepl("标准|对照", treatment_raw), "standard", NA))
+event_fallback <- ifelse(event_raw %in% c("死亡", "复发", "进展", "1"), "1", ifelse(event_raw %in% c("存活", "无事件", "失访", "0"), "0", NA))
+stage_fallback <- ifelse(grepl("IV期|四期|Ⅳ", stage_raw), "IV",
+  ifelse(grepl("III期|三期|Ⅲ", stage_raw), "III",
+    ifelse(grepl("II期|二期|Ⅱ", stage_raw), "II",
+      ifelse(grepl("I期|一期|Ⅰ", stage_raw), "I", NA))))
+sex_fallback <- ifelse(grepl("男", sex_raw), "male", ifelse(grepl("女", sex_raw), "female", NA))
+
+treatment_clean <- prefer_mapping(treatment_exact, treatment_fallback)
+event_clean <- suppressWarnings(as.integer(prefer_mapping(event_exact, event_fallback)))
+stage_clean <- prefer_mapping(stage_exact, stage_fallback)
+sex_clean <- prefer_mapping(sex_exact, sex_fallback)
+
+raw_row_count <- nrow(raw_followup)
+followup <- data.frame(
+  patient_id = patient_id_raw,
+  treatment = treatment_clean,
+  followup_month = parse_number(column(${rString(source("followup_month"))})),
+  event = event_clean,
+  age = parse_number(column(${rString(source("age"))})),
+  stage = stage_clean,
+  sex = sex_clean,
+  stringsAsFactors = FALSE
+)
+
+duplicate_removed <- sum(duplicated(followup$patient_id))
+followup <- followup[!duplicated(followup$patient_id), ]
+
+missing_patient_id <- is.na(followup$patient_id) | !nzchar(trimws(followup$patient_id))
+missing_followup <- is.na(followup$followup_month)
+missing_event <- is.na(followup$event)
+negative_followup <- !is.na(followup$followup_month) & followup$followup_month < 0
+invalid_mask <- missing_patient_id | missing_followup | missing_event | negative_followup
+invalid_removed <- sum(invalid_mask)
+followup <- followup[!invalid_mask, ]
+
+event_unresolved <- collect_unresolved(event_raw, as.character(event_clean), event_unresolved_seed)
+treatment_unresolved <- collect_unresolved(treatment_raw, treatment_clean, treatment_unresolved_seed)
+stage_unresolved <- collect_unresolved(stage_raw, stage_clean, stage_unresolved_seed)
+sex_unresolved <- collect_unresolved(sex_raw, sex_clean, sex_unresolved_seed)
+
+dir.create("data/processed", recursive = TRUE, showWarnings = FALSE)
+write.csv(followup, output_path, row.names = FALSE, fileEncoding = "UTF-8")
+
+cat_md("# 数据清洗执行报告\\n\\n")
+md_section("执行结果")
+md_bullet("原始行数", raw_row_count)
+md_bullet("输出行数", nrow(followup))
+md_bullet("重复编号移除", duplicate_removed)
+md_bullet("无效记录移除", invalid_removed)
+md_bullet("输出文件", sprintf("\`%s\`", output_path))
+cat_md("\\n")
+
+md_section("字段映射")
+for (index in seq_along(mapping_targets)) {
+  cat_md("- \`", mapping_targets[[index]], "\` <- \`", mapping_sources[[index]], "\`\\n")
+}
+cat_md("\\n")
+
+md_section("质量检查")
+md_bullet("patient_id_unique", if (anyDuplicated(followup$patient_id) == 0) "通过" else "失败")
+md_bullet("followup_month_non_negative", if (all(followup$followup_month >= 0, na.rm = TRUE)) "通过" else "失败")
+md_bullet("event_binary_0_1", if (all(followup$event %in% c(0L, 1L), na.rm = TRUE)) "通过" else "失败")
+md_bullet("required_survival_fields_not_missing", if (all(!is.na(followup$patient_id) & nzchar(followup$patient_id) & !is.na(followup$followup_month) & !is.na(followup$event))) "通过" else "失败")
+md_bullet("缺失 patient_id", sum(missing_patient_id))
+md_bullet("缺失 followup_month", sum(missing_followup))
+md_bullet("缺失 event", sum(missing_event))
+md_bullet("负数随访时间", sum(negative_followup))
+cat_md("\\n")
+
+md_section("待确认取值")
+cat_md("### 结局\\n\\n", md_values(event_unresolved), "\\n\\n")
+cat_md("### 治疗组\\n\\n", md_values(treatment_unresolved), "\\n\\n")
+cat_md("### 分期\\n\\n", md_values(stage_unresolved), "\\n\\n")
+cat_md("### 性别\\n\\n", md_values(sex_unresolved), "\\n\\n")
+
+md_section("数据概览")
+summary_text <- paste(capture.output(summary(followup)), collapse = "\\n")
+cat_md("\`\`\`text\\n", summary_text, "\\n\`\`\`\\n")`;
+}
+function buildVariableMappingYAML(fields, options = {}) {
+  const encoding = options.encoding === "GBK" ? "GBK" : "UTF-8";
+  const valueSuggestions = new Map((options.valueSuggestions || []).map((item) => [item.target, item]));
+  const lines = [
+    "version: 1",
+    "rule_source:",
+    `  skill: ${R_SURVIVAL_DATA_CLEANING_SKILL_PATH}`,
+    "  mode: agent_inferred_with_human_confirmation",
+    "dataset:",
+    "  raw_path: data/raw/随访数据.csv",
+    `  encoding: ${encoding}`,
+    "  output_object: followup",
+    "variables:"
+  ];
+  for (const field of fields) {
+    const valueSuggestion = valueSuggestions.get(field.target);
+    const mappedSuggestions = (valueSuggestion == null ? void 0 : valueSuggestion.suggestions.filter((item) => item.suggested)) || [];
+    const unresolvedSuggestions = (valueSuggestion == null ? void 0 : valueSuggestion.suggestions.filter((item) => !item.suggested).map((item) => item.raw)) || [];
+    lines.push(
+      `  ${field.target}:`,
+      `    source: ${JSON.stringify(field.source || "")}`,
+      `    type: ${JSON.stringify(field.type || "")}`,
+      `    semantic_role: ${JSON.stringify(field.semanticRole || "")}`,
+      `    transform_guidance: ${JSON.stringify(field.hint || "")}`
+    );
+    if (mappedSuggestions.length) {
+      lines.push("    value_map:");
+      for (const suggestion of mappedSuggestions) {
+        lines.push(`      ${JSON.stringify(suggestion.raw)}: ${JSON.stringify(suggestion.suggested)}`);
+      }
+    } else {
+      lines.push("    value_map: {}");
+    }
+    if (unresolvedSuggestions.length) {
+      lines.push("    unresolved_values:");
+      for (const value of unresolvedSuggestions) {
+        lines.push(`      - ${JSON.stringify(value)}`);
+      }
+    } else {
+      lines.push("    unresolved_values: []");
+    }
+  }
+  lines.push(
+    "quality_checks:",
+    "  required:",
+    "    - patient_id_unique",
+    "    - followup_month_non_negative",
+    "    - event_binary_0_1",
+    "    - required_survival_fields_not_missing",
+    "  agent_should_expand: true",
+    "confirmation_required:",
+    "  - event_definition",
+    "  - censoring_definition",
+    "  - ambiguous_value_maps"
+  );
+  return `${lines.join("\n")}
+`;
+}
+function parseMarkdownBulletSection(text2, title) {
+  const section = extractMarkdownSection(text2, title);
+  if (!section) return [];
+  return section.split("\n").map((line) => line.trim()).filter((line) => line.startsWith("- ")).map((line) => line.slice(2).trim());
+}
+function extractMarkdownSection(text2, title) {
+  var _a2, _b;
+  const value = String(text2 || "");
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`## ${escaped}\\n\\n([\\s\\S]*?)(?=\\n## |$)`);
+  return ((_b = (_a2 = value.match(pattern)) == null ? void 0 : _a2[1]) == null ? void 0 : _b.trim()) || "";
+}
+function parsePendingValueSection(text2) {
+  const section = extractMarkdownSection(text2, "待确认取值");
+  if (!section) return [];
+  const pattern = /###\s+([^\n]+)\n\n([\s\S]*?)(?=\n###\s+|$)/g;
+  const items = [];
+  let match;
+  while (match = pattern.exec(section)) {
+    const label = String(match[1] || "").trim();
+    const values = String(match[2] || "").trim();
+    if (!label || !values || values === "无") continue;
+    items.push(`${label}：${values}`);
+  }
+  return items;
+}
+function summarizeCleaningReport(reportText) {
+  const report = String(reportText || "").trim();
+  if (!report) {
+    return {
+      available: false,
+      execution: [],
+      qualityChecks: [],
+      pendingValues: [],
+      runtimeMeta: [],
+      sourceText: ""
+    };
+  }
+  return {
+    available: true,
+    execution: parseMarkdownBulletSection(report, "执行结果"),
+    qualityChecks: parseMarkdownBulletSection(report, "质量检查"),
+    pendingValues: parsePendingValueSection(report),
+    runtimeMeta: parseMarkdownBulletSection(report, "运行元数据"),
+    sourceText: report
+  };
+}
+function formatCleaningReportContext(reportSummary) {
+  if (!(reportSummary == null ? void 0 : reportSummary.available)) return "暂无最新数据清洗报告";
+  const sections = [];
+  if (reportSummary.execution.length) {
+    sections.push([
+      "[最近一次清洗执行结果]",
+      ...reportSummary.execution.map((item) => `- ${item}`)
+    ].join("\n"));
+  }
+  if (reportSummary.qualityChecks.length) {
+    sections.push([
+      "[最近一次质量检查]",
+      ...reportSummary.qualityChecks.map((item) => `- ${item}`)
+    ].join("\n"));
+  }
+  if (reportSummary.pendingValues.length) {
+    sections.push([
+      "[最近一次待确认取值]",
+      ...reportSummary.pendingValues.map((item) => `- ${item}`)
+    ].join("\n"));
+  }
+  if (reportSummary.runtimeMeta.length) {
+    sections.push([
+      "[最近一次运行元数据]",
+      ...reportSummary.runtimeMeta.map((item) => `- ${item}`)
+    ].join("\n"));
+  }
+  sections.push("[最近一次完整报告]\n```markdown\n" + reportSummary.sourceText + "\n```");
+  return sections.join("\n\n");
+}
+function reportValueForPrefix(items, prefix) {
+  const match = (items || []).find((item) => item.startsWith(`${prefix}：`));
+  return match ? match.slice(prefix.length + 1).trim() : "";
+}
+function survivalCleaningSkillContent(project) {
+  var _a2;
+  return ((_a2 = projectFile(project, R_SURVIVAL_DATA_CLEANING_SKILL_PATH)) == null ? void 0 : _a2.content) || R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT;
+}
+function buildSurvivalCleaningAgentPrompt({ project, fields, encoding, mappingYAML, code: code2, request, valueSuggestions = [], reportSummary }) {
+  const mapping = fields.map((field) => [
+    `- ${field.source || "未填写"} -> ${field.target}`,
+    `  类型：${field.type}`,
+    `  语义：${field.semanticRole}`,
+    `  提示：${field.hint}`
+  ].join("\n")).join("\n");
+  const valueSuggestionText = valueSuggestions.length ? valueSuggestions.map((item) => [
+    `- ${item.target} <- ${item.source}`,
+    ...item.suggestions.map((suggestion) => `  - ${suggestion.raw} -> ${suggestion.suggested || "待确认"} (${suggestion.reason})`)
+  ].join("\n")).join("\n") : "暂无自动值映射建议";
+  return [
+    "请按项目内 Skill 执行，不要把当前默认映射当成固定规则。",
+    "",
+    `[Skill 文件] ${R_SURVIVAL_DATA_CLEANING_SKILL_PATH}`,
+    "```markdown",
+    survivalCleaningSkillContent(project),
+    "```",
+    "",
+    "[当前项目]",
+    `项目：${(project == null ? void 0 : project.name) || ""}`,
+    `目标：${(project == null ? void 0 : project.objective) || "未填写"}`,
+    `文件编码：${encoding}`,
+    "",
+    "[字段映射草案]",
+    mapping,
+    "",
+    "[样本值映射建议]",
+    valueSuggestionText,
+    "",
+    "[最近一次数据清洗报告]",
+    formatCleaningReportContext(reportSummary),
+    "",
+    "[variable-mapping.yml 草案]",
+    "```yaml",
+    mappingYAML,
+    "```",
+    "",
+    "[当前 R 清洗脚本草案]",
+    "```r",
+    code2,
+    "```",
+    "",
+    "[请输出]",
+    "1. 需要向用户确认的问题",
+    "2. 如需更新映射配置，请严格使用以下格式：",
+    "### config/variable-mapping.yml",
+    "```yaml",
+    "# 完整文件内容",
+    "```",
+    "3. 如需更新清洗脚本，请严格使用以下格式：",
+    "### R/clean-data.R",
+    "```r",
+    "# 完整文件内容",
+    "```",
+    "4. 清洗后应生成的质量检查摘要",
+    "",
+    `[用户请求] ${request}`
+  ].join("\n");
+}
+function suggestedFilePathFromFence(info, before, content2) {
+  const context = `${info || ""}
+${before || ""}`;
+  const explicit = context.match(/(?:path|file)\s*=\s*["']?(config\/variable-mapping\.ya?ml|R\/clean-data\.R)["']?/i);
+  if (explicit) return explicit[1].replace(/yaml$/i, "yml").replace(/^r\//i, "R/");
+  if (/config\/variable-mapping\.ya?ml/i.test(context)) return "config/variable-mapping.yml";
+  if (/R\/clean-data\.R/i.test(context)) return "R/clean-data.R";
+  const language = String(info || "").trim().toLowerCase();
+  if (/^ya?ml\b/.test(language) && /rule_source:|variables:|quality_checks:/.test(content2)) return "config/variable-mapping.yml";
+  if (/^r\b/.test(language) && /library\(|<-|clean_followup|followup/.test(content2)) return "R/clean-data.R";
+  return "";
+}
+function extractSuggestedProjectFiles(text2) {
+  const value = String(text2 || "");
+  const files = [];
+  const seen2 = /* @__PURE__ */ new Set();
+  const pattern = /```([^\n`]*)\n([\s\S]*?)```/g;
+  let match;
+  while (match = pattern.exec(value)) {
+    const info = match[1] || "";
+    const content2 = (match[2] || "").trim();
+    if (!content2) continue;
+    const before = value.slice(Math.max(0, match.index - 260), match.index);
+    const path2 = suggestedFilePathFromFence(info, before, content2);
+    if (!path2 || seen2.has(path2)) continue;
+    seen2.add(path2);
+    files.push({ path: path2, content: content2 });
+  }
+  return files;
+}
+function splitLinesForDiff(value) {
+  return String(value || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+}
+function buildSuggestedFileDiff(currentContent, nextContent) {
+  const currentLines = splitLinesForDiff(currentContent);
+  const nextLines = splitLinesForDiff(nextContent);
+  let prefix = 0;
+  while (prefix < currentLines.length && prefix < nextLines.length && currentLines[prefix] === nextLines[prefix]) {
+    prefix += 1;
+  }
+  let suffix = 0;
+  while (suffix < currentLines.length - prefix && suffix < nextLines.length - prefix && currentLines[currentLines.length - 1 - suffix] === nextLines[nextLines.length - 1 - suffix]) {
+    suffix += 1;
+  }
+  const currentChanged = currentLines.slice(prefix, currentLines.length - suffix);
+  const nextChanged = nextLines.slice(prefix, nextLines.length - suffix);
+  return {
+    changed: currentChanged.length > 0 || nextChanged.length > 0,
+    startLine: prefix + 1,
+    currentChanged,
+    nextChanged
+  };
+}
+function snapshotProjectForUndo(project, label) {
+  if (!project) return null;
+  return {
+    label: String(label || "上一步修改"),
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    projectID: project.id,
+    activeFile: project.activeFile || "",
+    notebookCode: project.notebookCode || "",
+    files: clone(project.files || [])
+  };
+}
+function formatUndoTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
 function repositoryFor$1(scope) {
   const key = `${scope.workspaceId}:${scope.userId}`;
   if (!repositories$1.has(key)) {
@@ -33452,10 +34379,16 @@ function repositoryFor$1(scope) {
   }
   return repositories$1.get(key);
 }
+function backendClientFor(context) {
+  return createAnalysisWorkspaceClient({ http: context.http, scope: context.scope });
+}
+function localProjects(repository) {
+  return repository.list().map((project) => ({ ...project, persistence: "local" }));
+}
 function projectForm$1() {
   return {
     title: "新建分析项目",
-    description: "创建本地项目草稿；GitLab 和远程 Notebook 地址可在项目设置中补充。",
+    description: "创建后端项目；已配置 GitLab Connector 时会自动建立私有仓库并提交分析模板。",
     schema: {
       type: "object",
       required: ["name"],
@@ -33463,7 +34396,6 @@ function projectForm$1() {
         name: { type: "string", title: "项目名称", description: "例如：肿瘤患者生存分析" },
         objective: { type: "string", format: "textarea", title: "分析目标" },
         repositoryPath: { type: "string", title: "GitLab 项目路径", description: "例如：survival-analysis" },
-        gitlabURL: { type: "string", title: "GitLab 项目地址", description: "后端连接器创建项目后写入" },
         notebookURL: { type: "string", title: "JupyterLab 地址", description: "开发环境可使用 http://127.0.0.1:18888/lab" }
       }
     },
@@ -33478,22 +34410,35 @@ function settingsForm(project) {
     schema: {
       type: "object",
       properties: {
-        gitlabURL: { type: "string", title: "GitLab 项目地址" },
         notebookURL: { type: "string", title: "JupyterLab 地址" }
       }
     },
     initialValues: {
-      gitlabURL: project.gitlabURL || "",
       notebookURL: project.notebookURL || ""
     },
     submitLabel: "保存连接"
   };
 }
-function statusLabel(status) {
-  if (status === "synced") return "GitLab 已同步";
-  if (status === "syncing") return "正在同步";
-  if (status === "error") return "同步失败";
-  return "本地草稿";
+function statusLabel(project) {
+  if (project.persistence === "local") return "本地示例";
+  if (project.gitStatus === "synced") return "GitLab 已同步";
+  if (project.gitStatus === "syncing") return "正在同步";
+  if (project.gitStatus === "error") return "同步失败";
+  return "GitLab 待配置";
+}
+function runtimeLabel(project) {
+  switch (project.runtimeStatus) {
+    case "running":
+      return "R Runtime 已运行";
+    case "starting":
+      return "R Runtime 启动中";
+    case "stopped":
+      return "R Runtime 已停止";
+    case "error":
+      return "R Runtime 启动失败";
+    default:
+      return project.notebookURL ? "R Runtime 已配置" : "R Runtime 待连接";
+  }
 }
 function fileIcon(path2, kind2) {
   if (kind2 === "folder") return /* @__PURE__ */ jsxRuntimeExports.jsx(Folder, { "aria-hidden": "true" });
@@ -33506,6 +34451,45 @@ function fileIcon(path2, kind2) {
 }
 function basename(path2) {
   return String(path2 || "").split("/").filter(Boolean).at(-1) || path2;
+}
+function projectFile(project, path2) {
+  var _a2;
+  return ((_a2 = project == null ? void 0 : project.files) == null ? void 0 : _a2.find((file) => file.path === path2 && file.kind === "file")) || null;
+}
+function displayCodeForProject(project) {
+  if (!project) return "";
+  const file = projectFile(project, project.activeFile);
+  if (file == null ? void 0 : file.content) return file.content;
+  return project.notebookCode || "";
+}
+function withProjectFileContent(files, path2, content2) {
+  const normalizedPath = String(path2 || "").trim();
+  let updated = false;
+  const next = (Array.isArray(files) ? files : []).map((file) => {
+    if (file.path !== normalizedPath || file.kind !== "file") return file;
+    updated = true;
+    return { ...file, content: content2, status: "modified" };
+  });
+  if (!updated && normalizedPath) {
+    const folders = normalizedPath.split("/").slice(0, -1);
+    let prefix = "";
+    for (const folder of folders) {
+      prefix = prefix ? `${prefix}/${folder}` : folder;
+      if (!next.some((file) => file.path === prefix)) next.push({ path: prefix, kind: "folder" });
+    }
+    next.push({ path: normalizedPath, kind: "file", status: "modified", content: content2 });
+  }
+  return next;
+}
+function languageForPath(path2) {
+  if (path2.endsWith(".R")) return "R";
+  if (path2.endsWith(".yml") || path2.endsWith(".yaml")) return "YAML";
+  if (path2.endsWith(".md")) return "Markdown";
+  if (path2.endsWith(".json") || path2.endsWith(".ipynb")) return "JSON";
+  return "Text";
+}
+function selectedFileTitle(path2) {
+  return path2 || "未选择文件";
 }
 function eventText$1(event) {
   const payload2 = (event == null ? void 0 : event.payload) || {};
@@ -33631,13 +34615,53 @@ function NotebookPreview({ code: code2, onCodeChange, onCodeSave, onOpenRuntime,
     ] })
   ] });
 }
+function FileEditor({ code: code2, dirty, highlighted, path: path2, saving, onAskAI, onCodeChange, onCodeSave, onOpenRuntime, runtimeAvailable }) {
+  const language = languageForPath(path2);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-file-editor", "aria-label": "文件编辑器", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: `analysis-file-editor-card ${highlighted ? "spotlight" : ""}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "analysis-file-editor-header", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "analysis-status neutral", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" }),
+          language
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: selectedFileTitle(path2) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "直接修改当前项目文件；保存后会进入项目文件内容，Runtime / GitLab 同步会使用这一版。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-file-editor-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `analysis-status ${dirty ? "syncing" : "neutral"}`, children: dirty ? "未保存" : "已保存" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", onClick: onAskAI, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+          "让助手检查"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: !runtimeAvailable, onClick: onOpenRuntime, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { "aria-hidden": "true" }),
+          "去 JupyterLab 运行"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: !dirty || saving, onClick: onCodeSave, children: [
+          saving ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }),
+          "保存文件"
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "textarea",
+      {
+        className: "analysis-file-code-editor",
+        spellCheck: "false",
+        value: code2,
+        onChange: (event) => onCodeChange(event.target.value),
+        "aria-label": `${path2} 文件内容`
+      }
+    )
+  ] }) });
+}
 function RuntimeFrame({ project }) {
   if (!project.notebookURL) {
     return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-runtime-empty", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Server, { "aria-hidden": "true" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "远程 JupyterLab 未连接" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "项目设置中配置同源代理地址，或使用开发环境地址。" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: "http://127.0.0.1:18888/lab" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: project.runtimeStatus === "stopped" ? "R Runtime 已停止" : "远程 JupyterLab 未连接" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.runtimeStatus === "stopped" ? "可以重新启动远程运行环境，继续执行 Notebook。" : "项目设置中配置同源代理地址，或使用开发环境地址。" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: project.runtimeStatus === "stopped" ? "重新点击启动 Runtime" : "http://127.0.0.1:18888/lab" })
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -33650,27 +34674,436 @@ function RuntimeFrame({ project }) {
     }
   );
 }
+function DataCleaningWorkbench({
+  detectedColumns,
+  detectedSuggestions,
+  encoding,
+  fields,
+  generatedCode,
+  importingRawData,
+  onApplyDetectedMapping,
+  onApplyMapping,
+  onApplySkill,
+  onApplyTemplate,
+  onAskAI,
+  onEncodingChange,
+  onFieldSourceChange,
+  onImportError,
+  onImportRawData,
+  onDraftFailedChecks,
+  onDraftPendingValues,
+  onInspectCleaningImpact,
+  onInspectFailedChecks,
+  onInspectPendingValues,
+  onInspectSummary,
+  onWriteSampleData,
+  onRunCleaning,
+  rawDataFile,
+  runningCleaning,
+  savingSampleData,
+  saving,
+  savingMapping,
+  savingSkill,
+  skillInstalled,
+  valueSuggestions,
+  cleaningReportSummary
+}) {
+  var _a2;
+  const uploadInputRef = reactExports.useRef(null);
+  const [excelImportDraft, setExcelImportDraft] = reactExports.useState(null);
+  const [pastedRawData, setPastedRawData] = reactExports.useState("");
+  const rawDataLines = (rawDataFile == null ? void 0 : rawDataFile.content) ? rawDataFile.content.trim().split(/\r?\n/).length : 0;
+  const detectedCount = detectedSuggestions.length;
+  const pendingCount = ((_a2 = cleaningReportSummary == null ? void 0 : cleaningReportSummary.pendingValues) == null ? void 0 : _a2.length) || 0;
+  const failedChecks = ((cleaningReportSummary == null ? void 0 : cleaningReportSummary.qualityChecks) || []).filter((item) => /失败$/.test(item));
+  const outputRows = reportValueForPrefix(cleaningReportSummary == null ? void 0 : cleaningReportSummary.execution, "输出行数");
+  const invalidRemoved = reportValueForPrefix(cleaningReportSummary == null ? void 0 : cleaningReportSummary.execution, "无效记录移除");
+  const duplicateRemoved = reportValueForPrefix(cleaningReportSummary == null ? void 0 : cleaningReportSummary.execution, "重复编号移除");
+  const excelPreviewRows = (excelImportDraft == null ? void 0 : excelImportDraft.previewRows) || [];
+  const excelPreviewColumnCount = Math.max(1, ...excelPreviewRows.map((row) => row.length));
+  const changeExcelSheet = (sheetName) => {
+    setExcelImportDraft((draft) => {
+      if (!draft) return draft;
+      return {
+        ...draft,
+        selectedSheet: sheetName,
+        previewRows: getExcelSheetPreview(draft.xlsx, draft.workbook, sheetName)
+      };
+    });
+  };
+  const confirmExcelImport = async () => {
+    try {
+      const imported = buildExcelSheetImport(excelImportDraft);
+      if (!imported.content.trim()) {
+        throw new Error("当前工作表没有可导入的数据");
+      }
+      await onImportRawData(imported.content, imported.sourceName);
+      setExcelImportDraft(null);
+    } catch (error) {
+      onImportError(error);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-workbench", "aria-label": "数据清洗与中文字段映射", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-hero", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "analysis-status neutral", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sheet, { "aria-hidden": "true" }),
+          "CSV / Excel 中文随访表"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "先把中文业务字段整理成生存分析可运行的数据集" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+          "目标输出是 ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: "followup" }),
+          " 数据框；具体事件、删失、分组和异常值规则交给项目 Skill 与智能体共同生成。"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "analysis-cleaning-encoding", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "文件编码" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: encoding, onChange: (event) => onEncodingChange(event.target.value), "aria-label": "原始数据文件编码", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "UTF-8", children: "UTF-8" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "GBK", children: "GBK / 中文 Windows" })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", onClick: onAskAI, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+          "按 Skill 生成方案"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: savingSkill, onClick: onApplySkill, children: [
+          savingSkill ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" }),
+          skillInstalled ? "刷新 Skill" : "写入 Skill"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: savingMapping, onClick: onApplyMapping, children: [
+          savingMapping ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" }),
+          "写入映射配置"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: savingSampleData, onClick: onWriteSampleData, children: [
+          savingSampleData ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Sheet, { "aria-hidden": "true" }),
+          "写入示例数据"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: saving, onClick: onApplyTemplate, children: [
+          saving ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CodeXml, { "aria-hidden": "true" }),
+          "写入 R/clean-data.R"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: runningCleaning, onClick: onRunCleaning, children: [
+          runningCleaning ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { "aria-hidden": "true" }),
+          "运行清洗流程"
+        ] })
+      ] })
+    ] }),
+    (cleaningReportSummary == null ? void 0 : cleaningReportSummary.available) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-report-summary", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-summary-card highlight", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-cleaning-summary-label", children: "最新清洗结果" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: outputRows ? `${outputRows} 行可用于分析` : "已生成最新报告" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: failedChecks.length ? `有 ${failedChecks.length} 项检查未通过` : "当前质量检查没有失败项" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-summary-action", type: "button", onClick: onInspectSummary, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+          "让助手解读"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-summary-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-cleaning-summary-label", children: "记录处理" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
+          duplicateRemoved || "0",
+          " 条重复编号"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+          invalidRemoved || "0",
+          " 条记录因关键缺失或非法时间被移除"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-summary-action", type: "button", onClick: onInspectCleaningImpact, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+          "分析清洗影响"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-summary-card warn", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-cleaning-summary-label", children: "待确认值" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("strong", { children: [
+          pendingCount,
+          " 类待确认项"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: pendingCount ? cleaningReportSummary.pendingValues.slice(0, 2).join("；") : "当前没有待确认取值" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-summary-action", type: "button", disabled: !pendingCount, onClick: onInspectPendingValues, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+          "处理待确认值"
+        ] })
+      ] })
+    ] }) : null,
+    (cleaningReportSummary == null ? void 0 : cleaningReportSummary.available) && (failedChecks.length || pendingCount) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-card analysis-cleaning-report-alerts", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-card-title-inline", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "0. 最新报告关注点" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "来自最近一次清洗执行" })
+      ] }),
+      failedChecks.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-alert-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "失败的质量检查" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { children: failedChecks.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: item }, item)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-alert-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-alert-action", type: "button", onClick: onInspectFailedChecks, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+            "让助手给修复建议"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-alert-action", type: "button", onClick: onDraftFailedChecks, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(CodeXml, { "aria-hidden": "true" }),
+            "生成脚本修订"
+          ] })
+        ] })
+      ] }) : null,
+      pendingCount ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-alert-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "待确认取值" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { children: cleaningReportSummary.pendingValues.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: item }, item)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-alert-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-alert-action", type: "button", onClick: onInspectPendingValues, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+            "生成处理建议"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary analysis-cleaning-alert-action", type: "button", onClick: onDraftPendingValues, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" }),
+            "生成映射草案"
+          ] })
+        ] })
+      ] }) : null
+    ] }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-grid", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-card analysis-cleaning-skill-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "规则来源：项目 Skill" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { children: [
+            "把通用方法论放在 ",
+            /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: R_SURVIVAL_DATA_CLEANING_SKILL_PATH }),
+            "，让智能体根据原始数据样本和研究目标生成具体规则。"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `analysis-status ${skillInstalled ? "synced" : "neutral"}`, children: skillInstalled ? "项目已包含" : "当前项目待写入" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "1. 导入原始数据" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "支持中文列名、CSV/TXT 和 Excel；Excel 会先选择工作表并预览，再保留为原始表，后续生成标准分析表。" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-dropzone", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "data/raw/随访数据.csv" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: (rawDataFile == null ? void 0 : rawDataFile.content) ? `已导入 ${rawDataLines} 行，可继续运行清洗流程` : "可上传 CSV/Excel、粘贴表格文本，或先写入示例数据跑通流程" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            ref: uploadInputRef,
+            type: "file",
+            accept: ".csv,.txt,.xlsx,.xls,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel",
+            hidden: true,
+            onChange: async (event) => {
+              var _a3;
+              const file = (_a3 = event.target.files) == null ? void 0 : _a3[0];
+              event.target.value = "";
+              if (!file) return;
+              try {
+                if (isExcelFile(file)) {
+                  const draft = await readExcelImportDraft(file);
+                  setExcelImportDraft(draft);
+                  return;
+                }
+                setExcelImportDraft(null);
+                const imported = await readRawDataFile(file, encoding);
+                await onImportRawData(imported.content, imported.sourceName);
+              } catch (error) {
+                onImportError(error);
+              }
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-raw-data-actions", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: importingRawData, onClick: () => {
+            var _a3;
+            return (_a3 = uploadInputRef.current) == null ? void 0 : _a3.click();
+          }, children: [
+            importingRawData ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" }),
+            "上传数据文件"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: importingRawData || !pastedRawData.trim(), onClick: () => {
+            setExcelImportDraft(null);
+            onImportRawData(pastedRawData, "粘贴导入");
+          }, children: [
+            importingRawData ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }),
+            "导入粘贴内容"
+          ] })
+        ] }),
+        excelImportDraft ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-excel-import", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-excel-import-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: excelImportDraft.fileName }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "预览前 10 行，确认后写入 data/raw/随访数据.csv" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", onClick: () => setExcelImportDraft(null), children: "取消" })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "analysis-excel-sheet-picker", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "工作表" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: excelImportDraft.selectedSheet, onChange: (event) => changeExcelSheet(event.target.value), children: excelImportDraft.sheetNames.map((sheetName) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: sheetName, children: sheetName }, sheetName)) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-excel-preview", "aria-label": "Excel 工作表预览", children: excelPreviewRows.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("table", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: excelPreviewRows.map((row, rowIndex) => /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: Array.from({ length: excelPreviewColumnCount }).map((_, columnIndex) => /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: row[columnIndex] || "" }, columnIndex)) }, `${excelImportDraft.selectedSheet}-${rowIndex}`)) }) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "当前工作表没有可预览的数据。" }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: importingRawData || !excelPreviewRows.length, onClick: confirmExcelImport, children: [
+            importingRawData ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }),
+            "确认导入当前工作表"
+          ] })
+        ] }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "textarea",
+          {
+            className: "analysis-raw-data-paste",
+            value: pastedRawData,
+            onChange: (event) => setPastedRawData(event.target.value),
+            placeholder: "也可以直接粘贴 CSV 文本，例如：患者编号,治疗组,随访月数,结局...",
+            "aria-label": "粘贴原始随访数据"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-card-title-inline", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "2. 自动识别建议" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: detectedCount ? `已识别 ${detectedCount} 个字段` : "导入后自动生成" })
+        ] }),
+        detectedSuggestions.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-detected-columns", children: detectedColumns.map((column) => /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "analysis-detected-column-chip", children: column.name }, column.name)) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-detected-list", children: detectedSuggestions.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-detected-item", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-detected-item-header", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: item.target }) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `analysis-status ${item.confidence === "高" ? "synced" : "neutral"}`, children: [
+                "置信度 ",
+                item.confidence
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-detected-item-source", children: item.source }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-detected-item-meta", children: item.reasons.join("，") })
+          ] }, item.target)) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", onClick: onApplyDetectedMapping, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }),
+            "套用识别结果"
+          ] })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "导入 CSV 或 Excel 后，会根据表头和前几行样本推荐字段映射。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "这里只给推荐，不直接决定事件/删失等业务含义。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "业务规则仍由 Skill 指导智能体结合样本值生成。" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-card-title-inline", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "3. 样本值映射建议" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: valueSuggestions.length ? "写入映射配置时会一并保存" : "套用字段后自动生成" })
+        ] }),
+        valueSuggestions.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-value-suggestion-list", children: valueSuggestions.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-value-suggestion-item", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-value-suggestion-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: item.target }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.source })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-value-suggestion-tags", children: item.suggestions.map((suggestion) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              className: `analysis-value-suggestion-tag ${suggestion.suggested ? "mapped" : "pending"}`,
+              children: [
+                suggestion.raw,
+                " → ",
+                suggestion.suggested || "待确认"
+              ]
+            },
+            `${item.target}-${suggestion.raw}`
+          )) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-value-suggestion-meta", children: item.suggestions.map((suggestion) => `${suggestion.raw}：${suggestion.reason}`).join("；") })
+        ] }, item.target)) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "当前只对分组、事件、分期、性别生成值映射建议。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "无法确定业务含义的值会进入待确认，不会被静默归类。" })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: "analysis-cleaning-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "4. 质量检查" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "基础检查保留：编号唯一、随访时间非负、事件 0/1、关键字段非空。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "业务规则由 Skill 指导智能体结合样本值生成。" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: "事件/删失/失访等不确定含义进入待确认列表。" })
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-card analysis-cleaning-table-card", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-card-title", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "5. 中文字段 → 标准变量" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "生存分析最小字段集" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "analysis-cleaning-table", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "原始中文列" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "标准变量" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "类型" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "智能体提示" })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: fields.map((field) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              type: "text",
+              value: field.source,
+              onChange: (event) => onFieldSourceChange(field.target, event.target.value),
+              "aria-label": `${field.target} 的原始中文列名`
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: field.target }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: field.type }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: field.hint })
+        ] }, field.target)) })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "analysis-cleaning-code-card", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-cleaning-card-title", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: "6. 自动生成 R 清洗代码" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "可写入项目并在 JupyterLab 运行" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: generatedCode }) })
+    ] })
+  ] });
+}
 const plugin$2 = {
   id: "com.tma.r-survival-workbench",
   activate(context) {
-    const repository = repositoryFor$1(context.scope);
-    context.commands.register("com.tma.r-survival-workbench.create-project", async (input) => repository.create(input));
+    const client2 = backendClientFor(context);
+    context.commands.register("com.tma.r-survival-workbench.create-project", async (input) => client2.create({ ...input, notebookCode: DEFAULT_NOTEBOOK_CODE }));
   }
 };
 function RSurvivalWorkbenchPage({ context }) {
+  var _a2, _b, _c;
   const repository = reactExports.useMemo(() => repositoryFor$1(context.scope), [context]);
+  const backendClient = reactExports.useMemo(() => backendClientFor(context), [context]);
   const [projects, setProjects] = reactExports.useState(() => {
     repository.ensureExample();
-    return repository.list();
+    return localProjects(repository);
   });
   const [projectID2, setProjectID] = reactExports.useState(() => {
-    var _a2;
-    return ((_a2 = projects[0]) == null ? void 0 : _a2.id) || "";
+    var _a3;
+    return ((_a3 = projects[0]) == null ? void 0 : _a3.id) || "";
   });
   const project = projects.find((item) => item.id === projectID2) || projects[0] || null;
+  const rawDataContent = ((_a2 = projectFile(project, "data/raw/随访数据.csv")) == null ? void 0 : _a2.content) || "";
+  const latestCleaningReport = ((_b = projectFile(project, "reports/data-cleaning-summary.md")) == null ? void 0 : _b.content) || "";
   const [selectedFile, setSelectedFile] = reactExports.useState(() => (project == null ? void 0 : project.activeFile) || "");
   const [code2, setCode] = reactExports.useState(() => (project == null ? void 0 : project.notebookCode) || "");
   const [centerView, setCenterView] = reactExports.useState("notebook");
+  const [cleaningFields, setCleaningFields] = reactExports.useState(() => DEFAULT_CLEANING_FIELD_MAPPING.map((field) => ({ ...field })));
+  const [cleaningEncoding, setCleaningEncoding] = reactExports.useState("UTF-8");
+  const detectedFieldProfile = reactExports.useMemo(
+    () => detectFieldSuggestions(rawDataContent),
+    [rawDataContent]
+  );
+  const detectedValueSuggestions = reactExports.useMemo(
+    () => detectValueSuggestions(rawDataContent, cleaningFields),
+    [cleaningFields, rawDataContent]
+  );
+  const cleaningCode = reactExports.useMemo(
+    () => buildDataCleaningRCode(cleaningFields, { encoding: cleaningEncoding, valueSuggestions: detectedValueSuggestions }),
+    [cleaningEncoding, cleaningFields, detectedValueSuggestions]
+  );
+  const mappingYAML = reactExports.useMemo(
+    () => buildVariableMappingYAML(cleaningFields, { encoding: cleaningEncoding, valueSuggestions: detectedValueSuggestions }),
+    [cleaningEncoding, cleaningFields, detectedValueSuggestions]
+  );
+  const cleaningReportSummary = reactExports.useMemo(
+    () => summarizeCleaningReport(latestCleaningReport),
+    [latestCleaningReport]
+  );
   const [sessions2, setSessions] = reactExports.useState([]);
   const [sessionID, setSessionID] = reactExports.useState("");
   const [sessionLoading, setSessionLoading] = reactExports.useState(true);
@@ -33679,17 +35112,170 @@ function RSurvivalWorkbenchPage({ context }) {
     { id: "welcome", role: "assistant", text: "选择一个 TMA Session 后，可结合当前项目和 R 代码继续分析。" }
   ]);
   const [sending, setSending] = reactExports.useState(false);
+  const [projectAction, setProjectAction] = reactExports.useState("");
+  const [gitLabConfigured, setGitLabConfigured] = reactExports.useState(false);
   const sendAbortRef = reactExports.useRef(null);
-  function refreshProjects(preferredID = projectID2) {
-    const next = repository.list();
-    setProjects(next);
-    if (preferredID) setProjectID(preferredID);
+  const chatMessagesRef = reactExports.useRef(null);
+  const [highlightedMessageID, setHighlightedMessageID] = reactExports.useState("");
+  const [expandedDiffKeys, setExpandedDiffKeys] = reactExports.useState([]);
+  const fileTreeRef = reactExports.useRef(null);
+  const [spotlightFilePath, setSpotlightFilePath] = reactExports.useState("");
+  const [undoHistory, setUndoHistory] = reactExports.useState([]);
+  function toggleDiffPreview(key) {
+    setExpandedDiffKeys((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   }
+  function buildAssistantContextPrompt(text2) {
+    return [
+      "[R 语言生存分析工作台上下文]",
+      `项目：${(project == null ? void 0 : project.name) || ""}`,
+      `目标：${(project == null ? void 0 : project.objective) || "未填写"}`,
+      `当前文件：${selectedFile || (project == null ? void 0 : project.activeFile) || ""}`,
+      `[项目 Skill] ${R_SURVIVAL_DATA_CLEANING_SKILL_PATH}`,
+      survivalCleaningSkillContent(project),
+      "",
+      "[最近一次数据清洗报告]",
+      formatCleaningReportContext(cleaningReportSummary),
+      "",
+      "当前 R 代码：",
+      code2,
+      "",
+      "如果你建议改项目文件，请使用可写回格式：",
+      "### config/variable-mapping.yml",
+      "```yaml",
+      "# 完整文件内容",
+      "```",
+      "### R/clean-data.R",
+      "```r",
+      "# 完整文件内容",
+      "```",
+      "",
+      `[用户请求] ${text2}`
+    ].join("\n");
+  }
+  async function submitAssistantPrompt(text2, options = {}) {
+    var _a3;
+    const messageText = String(text2 || "").trim();
+    if (!messageText) return false;
+    const {
+      fallbackTitle = "已填入助手问题",
+      fallbackMessage = "右侧输入框已更新，可直接发送。",
+      successTitle = "问题已发送给助手",
+      expectSuggestedFiles = false
+    } = options;
+    if (!project || !sessionID || sending) {
+      setPrompt(messageText);
+      context.notifications.show({
+        level: "info",
+        title: fallbackTitle,
+        message: !project ? "当前还没有可用项目，已先放入输入框。" : !sessionID ? "请先选择关联任务，问题已先放入输入框。" : fallbackMessage
+      });
+      return false;
+    }
+    const userMessage = { id: `user-${Date.now()}`, role: "user", text: messageText };
+    const pendingID = `assistant-${Date.now()}`;
+    setMessages((current) => [...current, userMessage, { id: pendingID, role: "assistant", text: "正在分析…", pending: true }]);
+    setPrompt("");
+    setSending(true);
+    (_a3 = sendAbortRef.current) == null ? void 0 : _a3.abort();
+    const controller = new AbortController();
+    sendAbortRef.current = controller;
+    const contextualPrompt = buildAssistantContextPrompt(messageText);
+    try {
+      const started = await context.http.request(`/v2/sessions/${encodeURIComponent(sessionID)}/runs`, {
+        method: "POST",
+        signal: controller.signal,
+        body: { input: { content: [{ type: "text", text: contextualPrompt }], attachments: [] } }
+      });
+      context.notifications.show({ level: "success", title: successTitle, message: "右侧助手已开始分析。" });
+      const reply = await waitForAgentReply(context, sessionID, started.run.id, controller.signal);
+      if (expectSuggestedFiles && extractSuggestedProjectFiles(reply).length) {
+        setHighlightedMessageID(pendingID);
+      }
+      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: reply, pending: false } : message));
+      return true;
+    } catch (error) {
+      if ((error == null ? void 0 : error.name) === "AbortError") return false;
+      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: error.message || String(error), pending: false, error: true } : message));
+      return false;
+    } finally {
+      if (sendAbortRef.current === controller) sendAbortRef.current = null;
+      setSending(false);
+    }
+  }
+  async function refreshProjects(preferredID = projectID2) {
+    var _a3, _b2;
+    const response = await backendClient.list();
+    setGitLabConfigured(response.gitLabConfigured);
+    const next = [...response.projects, ...localProjects(repository)];
+    setProjects(next);
+    const preferred = next.find((item) => item.id === preferredID);
+    if ((preferred == null ? void 0 : preferred.persistence) === "backend") setProjectID(preferredID);
+    else setProjectID(((_a3 = next.find((item) => item.persistence === "backend")) == null ? void 0 : _a3.id) || (preferred == null ? void 0 : preferred.id) || ((_b2 = next[0]) == null ? void 0 : _b2.id) || "");
+    return next;
+  }
+  function replaceProject(updated) {
+    setProjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+  }
+  function commitUndoSnapshot(snapshot) {
+    if (!snapshot) return;
+    setUndoHistory((current) => [snapshot, ...current].slice(0, 20));
+  }
+  async function undoProjectMutation(index2 = 0) {
+    const snapshot = undoHistory[index2];
+    if (!snapshot || !project || snapshot.projectID !== project.id) {
+      context.notifications.show({ level: "info", title: "没有可撤销内容", message: "当前项目还没有可回退的自动写入操作。" });
+      return;
+    }
+    setProjectAction("undo");
+    try {
+      const patch2 = {
+        activeFile: snapshot.activeFile,
+        notebookCode: snapshot.notebookCode,
+        files: snapshot.files
+      };
+      const restored = project.persistence === "backend" ? await backendClient.update(project.id, patch2) : { ...repository.update(project.id, patch2), persistence: "local" };
+      replaceProject(restored);
+      setUndoHistory((current) => current.slice(index2 + 1));
+      setSelectedFile(snapshot.activeFile);
+      setCode(displayCodeForProject(restored));
+      setSpotlightFilePath(snapshot.activeFile);
+      if (snapshot.activeFile === "R/clean-data.R" || snapshot.activeFile === "config/variable-mapping.yml") setCenterView("cleaning");
+      else setCenterView("notebook");
+      context.notifications.show({ level: "success", title: "已撤销上一步", message: snapshot.label });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "撤销失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function undoLastProjectMutation() {
+    await undoProjectMutation(0);
+  }
+  reactExports.useEffect(() => {
+    let active = true;
+    backendClient.list().then((response) => {
+      if (!active) return;
+      setGitLabConfigured(response.gitLabConfigured);
+      const next = [...response.projects, ...localProjects(repository)];
+      setProjects(next);
+      setProjectID((current) => {
+        var _a3, _b2;
+        const selected = next.find((item) => item.id === current);
+        if ((selected == null ? void 0 : selected.persistence) === "backend") return current;
+        return ((_a3 = next.find((item) => item.persistence === "backend")) == null ? void 0 : _a3.id) || (selected == null ? void 0 : selected.id) || ((_b2 = next[0]) == null ? void 0 : _b2.id) || "";
+      });
+    }).catch((error) => {
+      if (active) context.notifications.show({ level: "error", title: "项目加载失败", message: error.message || String(error) });
+    });
+    return () => {
+      active = false;
+    };
+  }, [backendClient, context, repository]);
   reactExports.useEffect(() => {
     if (!project) return;
     setSelectedFile(project.activeFile);
-    setCode(project.notebookCode);
-  }, [project == null ? void 0 : project.id]);
+    setCode(displayCodeForProject(project));
+  }, [project == null ? void 0 : project.id, project == null ? void 0 : project.updatedAt]);
   reactExports.useEffect(() => {
     let active = true;
     setSessionLoading(true);
@@ -33698,8 +35284,8 @@ function RSurvivalWorkbenchPage({ context }) {
       const next = Array.isArray(items) ? items : [];
       setSessions(next);
       setSessionID((current) => {
-        var _a2;
-        return current || ((_a2 = next[0]) == null ? void 0 : _a2.id) || "";
+        var _a3;
+        return current || ((_a3 = next[0]) == null ? void 0 : _a3.id) || "";
       });
     }).catch((error) => {
       if (active) context.notifications.show({ level: "error", title: "任务加载失败", message: error.message || String(error) });
@@ -33707,89 +35293,375 @@ function RSurvivalWorkbenchPage({ context }) {
       if (active) setSessionLoading(false);
     });
     return () => {
-      var _a2;
+      var _a3;
       active = false;
-      (_a2 = sendAbortRef.current) == null ? void 0 : _a2.abort();
+      (_a3 = sendAbortRef.current) == null ? void 0 : _a3.abort();
     };
   }, [context]);
+  reactExports.useEffect(() => {
+    const container = chatMessagesRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+  reactExports.useEffect(() => {
+    if (!spotlightFilePath) return void 0;
+    const timer = window.setTimeout(() => setSpotlightFilePath(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [spotlightFilePath]);
+  reactExports.useEffect(() => {
+    if (!spotlightFilePath) return;
+    const container = fileTreeRef.current;
+    const target = container == null ? void 0 : container.querySelector(`[data-file-path="${CSS.escape(spotlightFilePath)}"]`);
+    if (target) target.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [spotlightFilePath, project == null ? void 0 : project.id]);
   async function createProject() {
     const values = await context.dialog.form(projectForm$1());
     if (!values) return;
-    const created = await context.commands.execute("com.tma.r-survival-workbench.create-project", values);
-    refreshProjects(created.id);
-    setSelectedFile(created.activeFile);
-    setCode(created.notebookCode);
-    context.notifications.show({ level: "success", title: "分析项目已创建", message: created.name });
+    setProjectAction("create");
+    try {
+      const created = await context.commands.execute("com.tma.r-survival-workbench.create-project", values);
+      await refreshProjects(created.id);
+      setSelectedFile(created.activeFile);
+      setCode(created.notebookCode);
+      context.notifications.show({
+        level: created.gitStatus === "error" ? "error" : "success",
+        title: created.gitStatus === "synced" ? "项目与 GitLab 已创建" : "分析项目已创建",
+        message: created.gitError || created.name
+      });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "项目创建失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
   }
   async function configureProject() {
     if (!project) return;
     const values = await context.dialog.form(settingsForm(project));
     if (!values) return;
-    const updated = repository.update(project.id, values);
-    refreshProjects(updated.id);
-    context.notifications.show({ level: "success", title: "项目连接已保存", message: updated.name });
+    setProjectAction("settings");
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, values) : { ...repository.update(project.id, values), persistence: "local" };
+      replaceProject(updated);
+      context.notifications.show({ level: "success", title: "项目连接已保存", message: updated.name });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "项目设置保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
   }
   function selectFile(file) {
     if (file.kind === "folder" || !project) return;
     setSelectedFile(file.path);
-    repository.update(project.id, { activeFile: file.path });
+    setCode(file.content || (file.path.endsWith(".ipynb") ? project.notebookCode : ""));
+    if (file.path === "R/clean-data.R" || file.path === "config/variable-mapping.yml") setCenterView("cleaning");
+    else if (file.path.endsWith(".ipynb") || file.path.endsWith(".R")) setCenterView("notebook");
+    if (project.persistence === "backend") {
+      backendClient.update(project.id, { activeFile: file.path }).then(replaceProject).catch((error) => {
+        context.notifications.show({ level: "error", title: "文件状态保存失败", message: error.message || String(error) });
+      });
+    } else {
+      replaceProject({ ...repository.update(project.id, { activeFile: file.path }), persistence: "local" });
+    }
   }
-  function saveCode() {
-    if (!project || code2 === project.notebookCode) return;
-    const updated = repository.update(project.id, { notebookCode: code2 });
-    refreshProjects(updated.id);
+  function updateCleaningFieldSource(target, source) {
+    setCleaningFields((current) => current.map((field) => field.target === target ? { ...field, source } : field));
+  }
+  function applyDetectedFieldMapping() {
+    if (!detectedFieldProfile.suggestions.length) {
+      context.notifications.show({ level: "info", title: "暂无可套用的识别结果", message: "请先导入包含表头和样本数据的 CSV 或 Excel。" });
+      return;
+    }
+    const suggestionMap = new Map(detectedFieldProfile.suggestions.map((item) => [item.target, item.source]));
+    setCleaningFields((current) => current.map((field) => suggestionMap.has(field.target) ? { ...field, source: suggestionMap.get(field.target) } : field));
+    context.notifications.show({
+      level: "success",
+      title: "识别结果已套用",
+      message: detectedFieldProfile.suggestions.map((item) => `${item.target} ← ${item.source}`).join("，")
+    });
+  }
+  async function applyCleaningTemplate(generatedCode = cleaningCode) {
+    if (!project) return;
+    const undoSnapshot = snapshotProjectForUndo(project, "撤销写入 R/clean-data.R");
+    const nextCode = generatedCode;
+    const nextFiles = withProjectFileContent(project.files, "R/clean-data.R", nextCode);
+    setProjectAction("save");
+    setSelectedFile("R/clean-data.R");
+    setCode(nextCode);
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: "R/clean-data.R", files: nextFiles }) : { ...repository.update(project.id, { activeFile: "R/clean-data.R", files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      context.notifications.show({ level: "success", title: "清洗模板已写入", message: "已保存到当前项目，可切到 JupyterLab 运行。" });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "清洗模板保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function applyMappingTemplate(generatedYAML = mappingYAML) {
+    if (!project) return;
+    const undoSnapshot = snapshotProjectForUndo(project, "撤销写入 config/variable-mapping.yml");
+    const nextFiles = withProjectFileContent(project.files, "config/variable-mapping.yml", generatedYAML);
+    setProjectAction("save-mapping");
+    setSelectedFile("config/variable-mapping.yml");
+    setCode(generatedYAML);
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: "config/variable-mapping.yml", files: nextFiles }) : { ...repository.update(project.id, { activeFile: "config/variable-mapping.yml", files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      context.notifications.show({ level: "success", title: "映射配置已写入", message: "已保存到 config/variable-mapping.yml。" });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "映射配置保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function applySkillTemplate(skillContent = R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT) {
+    if (!project) return;
+    const undoSnapshot = snapshotProjectForUndo(project, `撤销写入 ${R_SURVIVAL_DATA_CLEANING_SKILL_PATH}`);
+    const nextFiles = withProjectFileContent(project.files, R_SURVIVAL_DATA_CLEANING_SKILL_PATH, skillContent);
+    setProjectAction("save-skill");
+    setSelectedFile(R_SURVIVAL_DATA_CLEANING_SKILL_PATH);
+    setCode(skillContent);
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: R_SURVIVAL_DATA_CLEANING_SKILL_PATH, files: nextFiles }) : { ...repository.update(project.id, { activeFile: R_SURVIVAL_DATA_CLEANING_SKILL_PATH, files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      context.notifications.show({ level: "success", title: "Skill 已写入项目", message: R_SURVIVAL_DATA_CLEANING_SKILL_PATH });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "Skill 保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function writeSampleRawData(sampleCSV = DEFAULT_RAW_FOLLOWUP_CSV) {
+    if (!project) return;
+    const undoSnapshot = snapshotProjectForUndo(project, "撤销写入示例原始数据");
+    const nextFiles = withProjectFileContent(project.files, "data/raw/随访数据.csv", sampleCSV);
+    setProjectAction("save-sample-data");
+    setSelectedFile("data/raw/随访数据.csv");
+    setCode(sampleCSV);
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: "data/raw/随访数据.csv", files: nextFiles }) : { ...repository.update(project.id, { activeFile: "data/raw/随访数据.csv", files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      setCenterView("notebook");
+      context.notifications.show({ level: "success", title: "示例数据已写入", message: "已保存到 data/raw/随访数据.csv。" });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "示例数据保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function importRawData(content2, sourceName = "原始数据") {
+    if (!project) return;
+    const normalized = String(content2 || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (!normalized.trim()) {
+      context.notifications.show({ level: "info", title: "原始数据为空", message: "请选择非空 CSV/TXT 文件，或粘贴表格文本。" });
+      return;
+    }
+    const undoSnapshot = snapshotProjectForUndo(project, `撤销导入原始数据（${sourceName}）`);
+    const nextFiles = withProjectFileContent(project.files, "data/raw/随访数据.csv", normalized);
+    setProjectAction("import-raw-data");
+    setSelectedFile("data/raw/随访数据.csv");
+    setCode(normalized);
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: "data/raw/随访数据.csv", files: nextFiles }) : { ...repository.update(project.id, { activeFile: "data/raw/随访数据.csv", files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      setCenterView("notebook");
+      context.notifications.show({ level: "success", title: "原始数据已导入", message: `${sourceName} 已保存到 data/raw/随访数据.csv。` });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "原始数据导入失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function applySuggestedFiles(suggestedFiles) {
+    if (!project) return;
+    if (!suggestedFiles.length) {
+      context.notifications.show({ level: "info", title: "没有可写回的文件", message: "助手回复中未找到明确的项目文件代码块。" });
+      return;
+    }
+    const undoSnapshot = snapshotProjectForUndo(project, `撤销助手写回（${suggestedFiles.map((file) => basename(file.path)).join("、")}）`);
+    const first = suggestedFiles[0];
+    const nextFiles = suggestedFiles.reduce(
+      (files, file) => withProjectFileContent(files, file.path, file.content),
+      project.files
+    );
+    setProjectAction("apply-ai-files");
+    setSelectedFile(first.path);
+    setCode(first.content);
+    setSpotlightFilePath(first.path);
+    if (first.path === "R/clean-data.R" || first.path === "config/variable-mapping.yml") setCenterView("cleaning");
+    else setCenterView("notebook");
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, { activeFile: first.path, files: nextFiles }) : { ...repository.update(project.id, { activeFile: first.path, files: nextFiles }), persistence: "local" };
+      replaceProject(updated);
+      commitUndoSnapshot(undoSnapshot);
+      setHighlightedMessageID("");
+      context.notifications.show({
+        level: "success",
+        title: "助手建议已写回",
+        message: suggestedFiles.map((file) => file.path).join("、")
+      });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "助手建议写回失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function applySuggestedFilesFromReply(replyText) {
+    const suggestedFiles = extractSuggestedProjectFiles(replyText);
+    await applySuggestedFiles(suggestedFiles);
+  }
+  async function saveCode() {
+    if (!project) return;
+    const selected = selectedFile || project.activeFile;
+    const selectedProjectFile = projectFile(project, selected);
+    const nextPatch = selectedProjectFile && !selected.endsWith(".ipynb") ? { files: withProjectFileContent(project.files, selected, code2), activeFile: selected } : { notebookCode: code2, activeFile: selected };
+    if (!nextPatch.files && code2 === project.notebookCode) return;
+    if (nextPatch.files && (selectedProjectFile == null ? void 0 : selectedProjectFile.content) === code2 && selected === project.activeFile) return;
+    setProjectAction("save");
+    try {
+      const updated = project.persistence === "backend" ? await backendClient.update(project.id, nextPatch) : { ...repository.update(project.id, nextPatch), persistence: "local" };
+      replaceProject(updated);
+      context.notifications.show({ level: "success", title: selected.endsWith(".ipynb") ? "Notebook 已保存" : "文件已保存", message: selected });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "Notebook 保存失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function syncProject() {
+    if (!project || project.persistence !== "backend") {
+      context.notifications.show({ level: "info", title: "本地示例", message: "新建后端项目后可连接 GitLab。" });
+      return;
+    }
+    if (!gitLabConfigured) {
+      context.notifications.show({ level: "info", title: "GitLab 待配置", message: "请在服务端配置 TMA_GITLAB_TOKEN 后重试。" });
+      return;
+    }
+    setProjectAction("sync");
+    try {
+      const updated = await backendClient.sync(project.id);
+      replaceProject(updated);
+      context.notifications.show({
+        level: updated.gitStatus === "synced" ? "success" : "error",
+        title: updated.gitStatus === "synced" ? "GitLab 同步完成" : "GitLab 同步失败",
+        message: updated.gitError || updated.gitlabURL || updated.name
+      });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function startRuntime() {
+    if (!project || project.persistence !== "backend") return;
+    setProjectAction("runtime-start");
+    try {
+      const updated = await backendClient.startRuntime(project.id);
+      replaceProject(updated);
+      if (updated.runtimeStatus === "error") {
+        context.notifications.show({ level: "error", title: "Runtime 启动失败", message: updated.runtimeError || "R Runtime 启动失败" });
+        return;
+      }
+      setCenterView("runtime");
+      context.notifications.show({ level: "success", title: "Runtime 已启动", message: updated.runtimeURL || updated.notebookURL || updated.name });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "Runtime 启动失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function stopRuntime() {
+    if (!project || project.persistence !== "backend") return;
+    setProjectAction("runtime-stop");
+    try {
+      const updated = await backendClient.stopRuntime(project.id);
+      replaceProject(updated);
+      context.notifications.show({ level: "success", title: "Runtime 已停止", message: updated.name });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "Runtime 停止失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
+  }
+  async function runCleaningWorkflow() {
+    var _a3, _b2, _c2;
+    if (!project) return;
+    if (project.persistence !== "backend") {
+      context.notifications.show({ level: "info", title: "需要后端项目", message: "请先新建项目；本地示例不能启动 R Runtime。" });
+      return;
+    }
+    setProjectAction("run-cleaning");
+    try {
+      let files = withProjectFileContent(project.files, "R/clean-data.R", cleaningCode);
+      files = withProjectFileContent(files, "config/variable-mapping.yml", mappingYAML);
+      if (!projectFile({ files }, R_SURVIVAL_DATA_CLEANING_SKILL_PATH)) {
+        files = withProjectFileContent(files, R_SURVIVAL_DATA_CLEANING_SKILL_PATH, R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT);
+      }
+      let updated = await backendClient.update(project.id, { activeFile: "R/clean-data.R", files });
+      replaceProject(updated);
+      if (updated.runtimeStatus !== "running") {
+        updated = await backendClient.startRuntime(updated.id);
+        replaceProject(updated);
+        if (updated.runtimeStatus === "error") {
+          context.notifications.show({ level: "error", title: "Runtime 启动失败", message: updated.runtimeError || "R Runtime 启动失败" });
+          return;
+        }
+      }
+      const response = await backendClient.runCleaning(updated.id);
+      replaceProject(response.project);
+      const reportFile = projectFile(response.project, "reports/data-cleaning-summary.md");
+      setSelectedFile("reports/data-cleaning-summary.md");
+      setCode((reportFile == null ? void 0 : reportFile.content) || ((_a3 = response.result) == null ? void 0 : _a3.stdout) || "");
+      setCenterView("notebook");
+      setMessages((current) => {
+        var _a4, _b3;
+        return [...current, {
+          id: `assistant-cleaning-${Date.now()}`,
+          role: "assistant",
+          text: ((_a4 = response.result) == null ? void 0 : _a4.exit_code) === 0 ? "清洗流程执行完成，报告已写入 reports/data-cleaning-summary.md。" : `清洗流程执行失败，退出码 ${((_b3 = response.result) == null ? void 0 : _b3.exit_code) ?? "未知"}；错误日志已写入 reports/data-cleaning-summary.md。`
+        }];
+      });
+      context.notifications.show({
+        level: ((_b2 = response.result) == null ? void 0 : _b2.exit_code) === 0 ? "success" : "error",
+        title: ((_c2 = response.result) == null ? void 0 : _c2.exit_code) === 0 ? "清洗流程完成" : "清洗流程失败",
+        message: "报告已保存到 reports/data-cleaning-summary.md"
+      });
+    } catch (error) {
+      context.notifications.show({ level: "error", title: "清洗流程运行失败", message: error.message || String(error) });
+    } finally {
+      setProjectAction("");
+    }
   }
   async function refreshSessions() {
-    var _a2;
+    var _a3;
     setSessionLoading(true);
     try {
       const next = await context.tasks.list({ workspaceId: context.scope.workspaceId, includeArchived: false, limit: 40 });
       setSessions(Array.isArray(next) ? next : []);
-      if (!sessionID && ((_a2 = next == null ? void 0 : next[0]) == null ? void 0 : _a2.id)) setSessionID(next[0].id);
+      if (!sessionID && ((_a3 = next == null ? void 0 : next[0]) == null ? void 0 : _a3.id)) setSessionID(next[0].id);
     } finally {
       setSessionLoading(false);
     }
   }
   async function sendMessage(event) {
-    var _a2;
     event.preventDefault();
-    const text2 = prompt.trim();
-    if (!text2 || !sessionID || !project || sending) return;
-    const userMessage = { id: `user-${Date.now()}`, role: "user", text: text2 };
-    const pendingID = `assistant-${Date.now()}`;
-    setMessages((current) => [...current, userMessage, { id: pendingID, role: "assistant", text: "正在分析…", pending: true }]);
-    setPrompt("");
-    setSending(true);
-    (_a2 = sendAbortRef.current) == null ? void 0 : _a2.abort();
-    const controller = new AbortController();
-    sendAbortRef.current = controller;
-    const contextualPrompt = [
-      "[R 语言生存分析工作台上下文]",
-      `项目：${project.name}`,
-      `目标：${project.objective || "未填写"}`,
-      `当前文件：${selectedFile || project.activeFile}`,
-      "当前 R 代码：",
-      code2,
-      "",
-      `[用户请求] ${text2}`
-    ].join("\n");
-    try {
-      const started = await context.http.request(`/v2/sessions/${encodeURIComponent(sessionID)}/runs`, {
-        method: "POST",
-        signal: controller.signal,
-        body: { input: { content: [{ type: "text", text: contextualPrompt }], attachments: [] } }
-      });
-      const reply = await waitForAgentReply(context, sessionID, started.run.id, controller.signal);
-      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: reply, pending: false } : message));
-    } catch (error) {
-      if ((error == null ? void 0 : error.name) === "AbortError") return;
-      setMessages((current) => current.map((message) => message.id === pendingID ? { ...message, text: error.message || String(error), pending: false, error: true } : message));
-    } finally {
-      if (sendAbortRef.current === controller) sendAbortRef.current = null;
-      setSending(false);
-    }
+    await submitAssistantPrompt(prompt, {
+      fallbackTitle: "请先补充问题",
+      fallbackMessage: "右侧输入框已更新，可直接发送。",
+      successTitle: "消息已发送给助手"
+    });
   }
   if (!project) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-workbench-empty", children: "没有可用项目。" });
+  const runtimeAvailable = project.persistence === "backend";
+  const activeProjectFile = projectFile(project, selectedFile || project.activeFile);
+  const rawDataFile = projectFile(project, "data/raw/随访数据.csv");
+  const skillInstalled = Boolean(projectFile(project, R_SURVIVAL_DATA_CLEANING_SKILL_PATH));
+  const projectUndoHistory = undoHistory.filter((item) => item.projectID === project.id).slice(0, 6);
+  const showFileEditor = Boolean(activeProjectFile && !(selectedFile || project.activeFile).endsWith(".ipynb") && centerView === "notebook");
+  const fileDirty = activeProjectFile ? code2 !== (activeProjectFile.content || "") : code2 !== (project.notebookCode || "");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "analysis-workbench-toolbar", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-project-picker", children: [
@@ -33798,15 +35670,40 @@ function RSurvivalWorkbenchPage({ context }) {
           /* @__PURE__ */ jsxRuntimeExports.jsx("select", { id: "analysis-project-select", value: project.id, onChange: (event) => setProjectID(event.target.value), children: projects.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.id, children: item.name }, item.id)) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { "aria-hidden": "true" })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `analysis-status ${project.gitStatus}`, children: statusLabel(project.gitStatus) })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `analysis-status ${project.gitStatus}`, title: project.gitError || "", children: statusLabel(project) })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-workbench-actions", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", onClick: configureProject, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: "secondary",
+            type: "button",
+            disabled: Boolean(projectAction) || !undoHistory.length,
+            onClick: undoLastProjectMutation,
+            title: ((_c = undoHistory[0]) == null ? void 0 : _c.label) || "没有可撤销内容",
+            "aria-label": "撤销上一步写入",
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" }),
+              "撤销上一步"
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: Boolean(projectAction), onClick: configureProject, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { "aria-hidden": "true" }),
           "项目设置"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: createProject, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { "aria-hidden": "true" }),
+        runtimeAvailable ? project.runtimeStatus === "running" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: Boolean(projectAction), onClick: stopRuntime, title: project.runtimeError || "停止 R Runtime", "aria-label": "停止 R Runtime", children: [
+          projectAction === "runtime-stop" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Square, { "aria-hidden": "true" }),
+          "停止 Runtime"
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: Boolean(projectAction), onClick: startRuntime, title: project.runtimeStatus === "error" ? project.runtimeError || "重试启动 R Runtime" : "启动 R Runtime", "aria-label": "启动 R Runtime", children: [
+          projectAction === "runtime-start" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { "aria-hidden": "true" }),
+          "启动 Runtime"
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: true, title: "本地示例不可启动 Runtime", "aria-label": "启动 R Runtime", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Play, { "aria-hidden": "true" }),
+          "启动 Runtime"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: Boolean(projectAction), onClick: createProject, children: [
+          projectAction === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { "aria-hidden": "true" }),
           "新建项目"
         ] })
       ] })
@@ -33818,25 +35715,27 @@ function RSurvivalWorkbenchPage({ context }) {
             /* @__PURE__ */ jsxRuntimeExports.jsx(PanelLeft, { "aria-hidden": "true" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "项目目录" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "analysis-icon-button", type: "button", onClick: () => context.notifications.show({ level: "info", title: "GitLab 同步", message: project.gitlabURL ? "GitLab Connector 将在后端阶段接管同步。" : "请先配置 GitLab 项目地址。" }), "aria-label": "刷新项目目录", title: "刷新项目目录", children: /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" }) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "analysis-icon-button", type: "button", disabled: Boolean(projectAction), onClick: () => syncProject().catch((error) => context.notifications.show({ level: "error", title: "GitLab 同步失败", message: error.message || String(error) })), "aria-label": "同步 GitLab 项目", title: "同步 GitLab 项目", children: projectAction === "sync" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" }) })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-repository-meta", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(GitBranch, { "aria-hidden": "true" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.branch }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: project.repositoryPath })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-file-tree", role: "tree", "aria-label": "项目目录", children: project.files.map((file) => {
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-file-tree", role: "tree", "aria-label": "项目目录", ref: fileTreeRef, children: project.files.map((file) => {
           const depth = Math.max(0, file.path.split("/").length - 1);
           const active = file.path === selectedFile;
+          const spotlighted = file.path === spotlightFilePath;
           return /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "button",
             {
-              className: `analysis-file-row ${active ? "active" : ""}`,
+              className: `analysis-file-row ${active ? "active" : ""} ${spotlighted ? "spotlight" : ""}`,
               style: { "--analysis-file-depth": depth },
               type: "button",
               role: "treeitem",
               "aria-selected": active,
               onClick: () => selectFile(file),
+              "data-file-path": file.path,
               children: [
                 fileIcon(file.path, file.kind),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: basename(file.path) }),
@@ -33849,10 +35748,34 @@ function RSurvivalWorkbenchPage({ context }) {
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-git-summary", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(GitCommitHorizontal, { "aria-hidden": "true" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "待提交变更" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "1" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: project.gitStatus === "synced" ? "仓库状态" : "待提交变更" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.files.filter((file) => file.status === "modified").length })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Notebook 代码将在 GitLab Connector 接入后生成 Diff 和检查点。" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: project.gitStatus === "synced" ? "R 生存分析模板已提交到 GitLab。" : project.persistence === "backend" ? "项目已由后端保存，可在配置 GitLab 后重试同步。" : "本地示例仅用于预览，新建项目将由后端持久化。" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-undo-history", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-undo-history-header", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "撤销历史" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: projectUndoHistory.length ? `最近 ${projectUndoHistory.length} 次` : "暂无" })
+          ] }),
+          projectUndoHistory.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-undo-history-list", children: projectUndoHistory.map((entry2, index2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              type: "button",
+              className: "analysis-undo-history-item",
+              disabled: Boolean(projectAction),
+              onClick: () => undoProjectMutation(index2),
+              title: entry2.label,
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: index2 === 0 ? "上一步" : `回退到第 ${index2 + 1} 步前` }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: entry2.label })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("time", { children: formatUndoTimestamp(entry2.createdAt) })
+              ]
+            },
+            `${entry2.createdAt}-${index2}`
+          )) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "analysis-undo-history-empty", children: "自动写入后，这里会保留最近几次可回退操作。" })
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("main", { className: "analysis-notebook-pane", children: [
@@ -33862,17 +35785,40 @@ function RSurvivalWorkbenchPage({ context }) {
               /* @__PURE__ */ jsxRuntimeExports.jsx(FileCode2, { "aria-hidden": "true" }),
               "Notebook"
             ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: centerView === "cleaning" ? "active" : "", type: "button", role: "tab", "aria-selected": centerView === "cleaning", onClick: () => setCenterView("cleaning"), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(Sheet, { "aria-hidden": "true" }),
+              "数据清洗"
+            ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: centerView === "runtime" ? "active" : "", type: "button", role: "tab", "aria-selected": centerView === "runtime", onClick: () => setCenterView("runtime"), children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(SquareTerminal, { "aria-hidden": "true" }),
               "JupyterLab"
             ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-runtime-state", children: [
-            project.notebookURL ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { "aria-hidden": "true" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: project.notebookURL ? "R Runtime 已配置" : "R Runtime 待连接" })
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `analysis-runtime-state ${project.runtimeStatus || ""}`, children: [
+            project.runtimeStatus === "running" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }) : project.runtimeStatus === "starting" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : project.runtimeStatus === "error" ? /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { "aria-hidden": "true" }) : project.runtimeStatus === "stopped" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Square, { "aria-hidden": "true" }) : project.notebookURL ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(CircleAlert, { "aria-hidden": "true" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { title: project.runtimeError || "", children: runtimeLabel(project) })
           ] })
         ] }),
-        centerView === "notebook" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        showFileEditor ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          FileEditor,
+          {
+            code: code2,
+            dirty: fileDirty,
+            highlighted: (selectedFile || project.activeFile) === spotlightFilePath,
+            path: selectedFile || project.activeFile,
+            saving: projectAction === "save",
+            onAskAI: () => {
+              setPrompt(`请检查当前项目文件 ${selectedFile || project.activeFile} 的内容，指出语法、数据清洗和生存分析流程风险。
+
+文件内容：
+${code2}`);
+            },
+            onCodeChange: setCode,
+            onCodeSave: saveCode,
+            onOpenRuntime: () => setCenterView("runtime"),
+            runtimeAvailable: Boolean(project.notebookURL)
+          }
+        ) : centerView === "notebook" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
           NotebookPreview,
           {
             code: code2,
@@ -33880,6 +35826,114 @@ function RSurvivalWorkbenchPage({ context }) {
             onCodeSave: saveCode,
             onOpenRuntime: () => setCenterView("runtime"),
             runtimeAvailable: Boolean(project.notebookURL)
+          }
+        ) : centerView === "cleaning" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          DataCleaningWorkbench,
+          {
+            detectedColumns: detectedFieldProfile.columns,
+            detectedSuggestions: detectedFieldProfile.suggestions,
+            encoding: cleaningEncoding,
+            fields: cleaningFields,
+            generatedCode: cleaningCode,
+            importingRawData: projectAction === "import-raw-data",
+            rawDataFile,
+            onApplyDetectedMapping: applyDetectedFieldMapping,
+            onInspectCleaningImpact: () => submitAssistantPrompt([
+              "请基于最近一次数据清洗报告，评估清洗对后续生存分析的影响。",
+              "",
+              "重点说明：",
+              "1. 重复编号移除和无效记录移除是否会影响样本代表性；",
+              "2. 是否需要补做缺失值或异常值处理；",
+              "3. 下一步最值得优先处理的风险。"
+            ].join("\n"), {
+              fallbackTitle: "已填入清洗影响分析问题",
+              successTitle: "已发送清洗影响分析问题"
+            }),
+            onInspectFailedChecks: () => submitAssistantPrompt([
+              "请根据最近一次数据清洗报告中的失败质量检查，给出修复建议。",
+              "",
+              "请输出：",
+              "1. 每个失败检查的可能原因；",
+              "2. 推荐修改的数据映射或 R 清洗脚本；",
+              "3. 如果需要改项目文件，请用可写回格式输出。"
+            ].join("\n"), {
+              fallbackTitle: "已填入质量检查修复问题",
+              successTitle: "已发送质量检查修复问题"
+            }),
+            onInspectPendingValues: () => submitAssistantPrompt([
+              "请根据最近一次数据清洗报告中的待确认取值，生成处理建议。",
+              "",
+              "请按字段逐项说明：",
+              "1. 这些取值更像事件、删失还是未知；",
+              "2. 建议写入 variable-mapping.yml 的 value_map / unresolved_values；",
+              "3. 仍需用户确认的问题。"
+            ].join("\n"), {
+              fallbackTitle: "已填入待确认值处理问题",
+              successTitle: "已发送待确认值处理问题"
+            }),
+            onDraftPendingValues: () => submitAssistantPrompt([
+              "请根据最近一次数据清洗报告中的待确认取值，直接生成下一版映射配置草案。",
+              "",
+              "要求：",
+              "1. 优先输出 `### config/variable-mapping.yml` 的完整内容；",
+              "2. 对不确定取值保留到 unresolved_values；",
+              "3. 如仍需用户确认，请先列出最少问题，再给草案。"
+            ].join("\n"), {
+              fallbackTitle: "已填入映射草案生成问题",
+              successTitle: "已发送映射草案生成问题",
+              expectSuggestedFiles: true
+            }),
+            onInspectSummary: () => submitAssistantPrompt([
+              "请解读最近一次数据清洗报告。",
+              "",
+              "请用简洁中文总结：",
+              "1. 当前数据是否已适合进入生存分析；",
+              "2. 最主要的质量风险；",
+              "3. 接下来建议先做哪一步。"
+            ].join("\n"), {
+              fallbackTitle: "已填入报告解读问题",
+              successTitle: "已发送报告解读问题"
+            }),
+            onDraftFailedChecks: () => submitAssistantPrompt([
+              "请根据最近一次数据清洗报告中的失败质量检查，直接生成清洗脚本修订稿。",
+              "",
+              "要求：",
+              "1. 优先输出 `### R/clean-data.R` 的完整内容；",
+              "2. 需要时也可同时输出 `### config/variable-mapping.yml`；",
+              "3. 修订应优先解决失败检查，并保留待确认项。"
+            ].join("\n"), {
+              fallbackTitle: "已填入脚本修订生成问题",
+              successTitle: "已发送脚本修订生成问题",
+              expectSuggestedFiles: true
+            }),
+            saving: projectAction === "save",
+            savingMapping: projectAction === "save-mapping",
+            savingSampleData: projectAction === "save-sample-data",
+            savingSkill: projectAction === "save-skill",
+            skillInstalled,
+            valueSuggestions: detectedValueSuggestions,
+            onApplyMapping: () => applyMappingTemplate(mappingYAML),
+            onApplySkill: () => applySkillTemplate(),
+            onApplyTemplate: () => applyCleaningTemplate(cleaningCode),
+            onImportError: (error) => context.notifications.show({ level: "error", title: "原始数据读取失败", message: error.message || String(error) }),
+            onImportRawData: importRawData,
+            onWriteSampleData: () => writeSampleRawData(),
+            onRunCleaning: runCleaningWorkflow,
+            runningCleaning: projectAction === "run-cleaning",
+            onAskAI: () => {
+              setPrompt(buildSurvivalCleaningAgentPrompt({
+                project,
+                fields: cleaningFields,
+                encoding: cleaningEncoding,
+                mappingYAML,
+                reportSummary: cleaningReportSummary,
+                valueSuggestions: detectedValueSuggestions,
+                code: cleaningCode,
+                request: "请按 Skill 为当前中文随访数据生成下一版数据清洗方案，不确定的医学/业务规则列为待确认项。"
+              }));
+            },
+            onEncodingChange: setCleaningEncoding,
+            onFieldSourceChange: updateCleaningFieldSource
           }
         ) : /* @__PURE__ */ jsxRuntimeExports.jsx(RuntimeFrame, { project })
       ] }),
@@ -33919,14 +35973,67 @@ function RSurvivalWorkbenchPage({ context }) {
             )
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-chat-messages", "aria-live": "polite", children: messages.map((message) => /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: `analysis-chat-message ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""}`, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-            message.role === "assistant" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: message.role === "assistant" ? "分析助手" : "你" })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: message.text }),
-          message.pending ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : null
-        ] }, message.id)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-chat-messages", "aria-live": "polite", ref: chatMessagesRef, children: messages.map((message) => {
+          const suggestedFiles = message.role === "assistant" && !message.pending && !message.error ? extractSuggestedProjectFiles(message.text) : [];
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("article", { className: `analysis-chat-message ${message.role} ${message.pending ? "pending" : ""} ${message.error ? "error" : ""} ${message.id === highlightedMessageID ? "highlighted" : ""}`, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+              message.role === "assistant" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Bot, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Sparkles, { "aria-hidden": "true" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: message.role === "assistant" ? "分析助手" : "你" })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: message.text }),
+            suggestedFiles.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `analysis-chat-message-actions ${message.id === highlightedMessageID ? "highlighted" : ""}`, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: suggestedFiles.map((file) => file.path).join("、") }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", disabled: Boolean(projectAction), onClick: () => applySuggestedFilesFromReply(message.text), children: [
+                projectAction === "apply-ai-files" ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }),
+                "全部写回"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-chat-message-file-actions", children: suggestedFiles.map((file) => {
+                var _a3;
+                const currentContent = ((_a3 = projectFile(project, file.path)) == null ? void 0 : _a3.content) || "";
+                const diff = buildSuggestedFileDiff(currentContent, file.content);
+                const diffKey = `${message.id}:${file.path}`;
+                const expanded = expandedDiffKeys.includes(diffKey);
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-chat-message-file-card", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                    "button",
+                    {
+                      type: "button",
+                      className: "secondary",
+                      disabled: Boolean(projectAction),
+                      onClick: () => applySuggestedFiles([file]),
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(FileText, { "aria-hidden": "true" }),
+                        "只写回 ",
+                        basename(file.path)
+                      ]
+                    }
+                  ),
+                  diff.changed ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-chat-message-diff", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-chat-message-diff-header", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                        "第 ",
+                        diff.startLine,
+                        " 行附近有变化"
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "secondary", onClick: () => toggleDiffPreview(diffKey), children: expanded ? "收起完整内容" : "展开完整内容" })
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-chat-message-diff-grid", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "当前" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: (expanded ? currentContent : diff.currentChanged.slice(0, 8).join("\n")) || "(空)" })
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "建议" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { children: (expanded ? file.content : diff.nextChanged.slice(0, 8).join("\n")) || "(空)" })
+                      ] })
+                    ] })
+                  ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-chat-message-diff unchanged", children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "与当前文件一致" }) })
+                ] }, file.path);
+              }) })
+            ] }) : null,
+            message.pending ? /* @__PURE__ */ jsxRuntimeExports.jsx(LoaderCircle, { className: "analysis-spin", "aria-hidden": "true" }) : null
+          ] }, message.id);
+        }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "analysis-chat-composer", onSubmit: sendMessage, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("textarea", { value: prompt, onChange: (event) => setPrompt(event.target.value), placeholder: "结合当前 Notebook 继续分析…", "aria-label": "发送给分析助手" }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -35215,6 +37322,7 @@ const workbenchArtifactService = Object.freeze({
 });
 const workbenchScopedHTTPService = Object.freeze({
   async request(path2, options = {}) {
+    var _a2;
     const target = String(path2 || "").trim();
     if (!target.startsWith("/v2/") || target.startsWith("//")) {
       throw new Error("Plugin HTTP requests must target the scoped /v2 API.");
@@ -35227,7 +37335,10 @@ const workbenchScopedHTTPService = Object.freeze({
     const response = await fetch(target, requestOptions2);
     const contentType = response.headers.get("Content-Type") || "";
     const body = contentType.includes("json") ? await response.json() : await response.text();
-    if (!response.ok) throw new Error(typeof body === "string" ? body : (body == null ? void 0 : body.error) || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const message = typeof body === "string" ? body : ((_a2 = body == null ? void 0 : body.error) == null ? void 0 : _a2.message) || (body == null ? void 0 : body.error) || `HTTP ${response.status}`;
+      throw new Error(typeof message === "string" ? message : `HTTP ${response.status}`);
+    }
     return body;
   }
 });
@@ -38210,6 +40321,15 @@ const schedulePresets = [
   { value: "0 */6 * * *", label: "每 6 小时" },
   { value: "0 9 * * 1", label: "每周一 09:00" }
 ];
+const scheduleApprovalModes = [
+  { value: "request_approval", label: "等待人工审批" },
+  { value: "approve_for_me", label: "自动审批" },
+  { value: "full_access", label: "完全访问" }
+];
+function scheduleApprovalLabel(value) {
+  var _a2;
+  return ((_a2 = scheduleApprovalModes.find((item) => item.value === value)) == null ? void 0 : _a2.label) || "等待人工审批";
+}
 function newScheduleDraft() {
   return {
     name: "",
@@ -38218,7 +40338,7 @@ function newScheduleDraft() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
     session_mode: "new_session",
     target_session_id: "",
-    approval_mode: "approve_for_me",
+    approval_mode: "request_approval",
     enabled: true
   };
 }
@@ -38267,7 +40387,7 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
       timezone: schedule.timezone || "UTC",
       session_mode: schedule.session_mode || "new_session",
       target_session_id: schedule.target_session_id || "",
-      approval_mode: schedule.approval_mode || "approve_for_me",
+      approval_mode: schedule.approval_mode || "request_approval",
       enabled: schedule.enabled !== false
     });
   }
@@ -38367,10 +40487,7 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "审批方式" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: draft.approval_mode, onChange: (event) => setDraft((current) => ({ ...current, approval_mode: event.target.value })), children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "approve_for_me", children: "替我审批" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "full_access", children: "完全访问" })
-        ] })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: draft.approval_mode, onChange: (event) => setDraft((current) => ({ ...current, approval_mode: event.target.value })), children: scheduleApprovalModes.map((item) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: item.value, children: item.label }, item.value)) })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "agent-editor-field", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Session 方式" }),
@@ -38428,7 +40545,7 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-meta", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: schedule.session_mode === "existing_session" ? "绑定已有 Session" : "每次新建 Session" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: schedule.approval_mode === "full_access" ? "完全访问" : "替我审批" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: scheduleApprovalLabel(schedule.approval_mode) })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: schedule.prompt }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "agent-schedule-meta", children: [
@@ -38442,7 +40559,7 @@ function AgentScheduleManager({ agent: agent2, onOpenSession }) {
               " · ",
               schedule.last_run_status || "unknown"
             ] }) : null,
-            schedule.last_session_id ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "link-button", type: "button", onClick: () => onOpenSession({ id: schedule.last_session_id }), children: "查看结果" }) : null
+            schedule.last_session_id ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "link-button", type: "button", onClick: () => onOpenSession({ id: schedule.last_session_id }), children: schedule.approval_mode === "request_approval" ? "查看审批/结果" : "查看结果" }) : null
           ] }),
           schedule.last_error ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "agent-version-error", children: schedule.last_error }) : null
         ] }),
@@ -42354,9 +44471,8 @@ function WorkbenchApp() {
   function handleComposerPaste(event) {
     const clipboard = event.clipboardData;
     if (!clipboard) return;
-    const itemImages = Array.from(clipboard.items || []).filter((item) => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
-    const images = itemImages.length ? itemImages : Array.from(clipboard.files || []).filter((file) => String(file.type || "").toLowerCase().startsWith("image/"));
-    if (!images.length) return;
+    const images = clipboardImageFiles(clipboard);
+    if (!images.length || clipboardHasPlainText(clipboard)) return;
     event.preventDefault();
     addComposerFiles(images.map((file, index2) => clipboardImageFile(file, index2)));
     setStatus(images.length === 1 ? "已从剪贴板添加图片" : `已从剪贴板添加 ${images.length} 张图片`);

@@ -98,8 +98,23 @@ func TestToolRuntimeReturnsInvalidArgumentsToModel(t *testing.T) {
 			if len(result.Results) != 1 || !result.Results[0].IsError || !result.Results[0].Retryable {
 				t.Fatalf("result = %+v", result)
 			}
-			if text := result.Results[0].Content[0].Text; !strings.Contains(text, `"protocol_version":"tma.tool_result.v1"`) || !strings.Contains(text, `"type":"invalid_tool_arguments"`) {
-				t.Fatalf("invalid arguments did not use the structured tool result envelope: %s", text)
+			var payload struct {
+				ProtocolVersion string `json:"protocol_version"`
+				Recoverable     bool   `json:"recoverable"`
+				Retryable       bool   `json:"retryable"`
+				Error           struct {
+					Type        string `json:"type"`
+					Recoverable bool   `json:"recoverable"`
+					Retryable   bool   `json:"retryable"`
+				} `json:"error"`
+			}
+			text := result.Results[0].Content[0].Text
+			if err := json.Unmarshal([]byte(text), &payload); err != nil {
+				t.Fatalf("invalid arguments returned malformed envelope: %v: %s", err, text)
+			}
+			if payload.ProtocolVersion != tools.ToolResultProtocolVersion || payload.Error.Type != "invalid_tool_arguments" ||
+				!payload.Recoverable || !payload.Retryable || !payload.Error.Recoverable || !payload.Error.Retryable {
+				t.Fatalf("invalid arguments did not use the recoverable tool result envelope: %+v", payload)
 			}
 		})
 	}
@@ -139,8 +154,22 @@ func TestToolRuntimeReturnsUnknownToolsToModel(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 			text := result.Results[0].Content[0].Text
-			if !strings.Contains(text, `"protocol_version":"tma.tool_result.v1"`) || !strings.Contains(text, `"type":"`+test.errorType+`"`) {
-				t.Fatalf("unknown tool did not use the structured tool result envelope: %s", text)
+			var payload struct {
+				ProtocolVersion string `json:"protocol_version"`
+				Recoverable     bool   `json:"recoverable"`
+				Retryable       bool   `json:"retryable"`
+				Error           struct {
+					Type        string `json:"type"`
+					Recoverable bool   `json:"recoverable"`
+					Retryable   bool   `json:"retryable"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(text), &payload); err != nil {
+				t.Fatalf("unknown tool returned malformed envelope: %v: %s", err, text)
+			}
+			if payload.ProtocolVersion != tools.ToolResultProtocolVersion || payload.Error.Type != test.errorType ||
+				!payload.Recoverable || !payload.Retryable || !payload.Error.Recoverable || !payload.Error.Retryable {
+				t.Fatalf("unknown tool did not use the recoverable tool result envelope: %+v", payload)
 			}
 		})
 	}

@@ -40,6 +40,26 @@ func TestSessionRuntimeSettingsPersistsValidatedPermissionRules(t *testing.T) {
 	}
 }
 
+func TestSessionRuntimeSettingsPersistsValidatedLLMThinking(t *testing.T) {
+	store := newTestStore()
+	agent := mustCreateAgentForSubagentTest(t, store, "thinking-agent")
+	environment := mustCreateEnvironmentForSubagentTest(t, store)
+	session := mustCreateSessionForSubagentTest(t, store, agent.ID, environment.ID, "Thinking")
+	server := &Server{store: store}
+	disabled := "disabled"
+
+	updated, err := server.applySessionRuntimeSettingsPatch(t.Context(), session, sessionRuntimeSettingsRequest{LLMThinking: &disabled})
+	var settings map[string]any
+	decodeErr := json.Unmarshal(updated.RuntimeSettings, &settings)
+	if err != nil || decodeErr != nil || settings["llm_thinking"] != "disabled" {
+		t.Fatalf("persist llm_thinking: session=%+v err=%v", updated, err)
+	}
+	invalid := "deep"
+	if _, err := server.applySessionRuntimeSettingsPatch(t.Context(), updated, sessionRuntimeSettingsRequest{LLMThinking: &invalid}); err == nil {
+		t.Fatal("unsupported llm_thinking was accepted")
+	}
+}
+
 func TestRerunSessionPreservesConfigSnapshotAndAllowsModelOverride(t *testing.T) {
 	store := newTestStore()
 	for _, model := range []string{"fake-v1", "fake-v2"} {

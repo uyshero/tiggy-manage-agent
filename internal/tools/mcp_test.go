@@ -45,10 +45,10 @@ func TestLoadMCPRuntimeBuildsManifestAndExecutesTool(t *testing.T) {
 	if len(manifest.API) != 2 {
 		t.Fatalf("expected 2 APIs, got %#v", manifest.API)
 	}
-	if manifest.API[0].Name != "read_file" || manifest.API[0].APIName != "readFile" || manifest.API[0].Risk != ToolRiskRead {
+	if manifest.API[0].Name != "read_file" || manifest.API[0].APIName != "readFile" || manifest.API[0].Risk != ToolRiskWrite || manifest.API[0].ApprovalPolicy != ApprovalPolicyAlways || manifest.API[0].ApprovalReason != InterventionReasonExternalWrite {
 		t.Fatalf("unexpected readFile api mapping: %#v", manifest.API[0])
 	}
-	if manifest.API[1].Name != "search_web" || manifest.API[1].APIName != "search-web" {
+	if manifest.API[1].Name != "search_web" || manifest.API[1].APIName != "search-web" || manifest.API[1].Risk != ToolRiskWrite || manifest.API[1].ApprovalPolicy != ApprovalPolicyAlways {
 		t.Fatalf("unexpected search-web api mapping: %#v", manifest.API[1])
 	}
 
@@ -66,6 +66,20 @@ func TestLoadMCPRuntimeBuildsManifestAndExecutesTool(t *testing.T) {
 	}
 	if !strings.Contains(string(result.State), `"tool_name":"readFile"`) {
 		t.Fatalf("unexpected state: %s", result.State)
+	}
+}
+
+func TestMCPReadOnlyHintCannotLowerExternalToolRisk(t *testing.T) {
+	t.Parallel()
+
+	for _, annotations := range []mcppkg.ToolAnnotations{
+		{},
+		{ReadOnlyHint: true},
+		{ReadOnlyHint: true, DestructiveHint: true},
+	} {
+		if risk := mcpToolRisk(annotations); risk != ToolRiskWrite {
+			t.Fatalf("mcpToolRisk(%+v) = %q, want %q", annotations, risk, ToolRiskWrite)
+		}
 	}
 }
 

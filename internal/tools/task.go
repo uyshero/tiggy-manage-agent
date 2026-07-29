@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const TaskIdentifier = NamespaceTask
@@ -94,7 +95,7 @@ func (TaskRuntime) Execute(ctx context.Context, call Call, executionContext Exec
 	case TaskAPICreatePlan:
 		var input managedagents.CreateSessionTaskPlanInput
 		if err := json.Unmarshal(call.Arguments, &input); err != nil {
-			return failedResult(call, "invalid_arguments", fmt.Sprintf("decode create_plan arguments: %v", err)), nil
+			return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("decode create_plan arguments: %v", err)), nil
 		}
 		input.TurnID = executionContext.TurnID
 		result, err := service.CreatePlan(ctx, sessionID, input)
@@ -105,7 +106,7 @@ func (TaskRuntime) Execute(ctx context.Context, call Call, executionContext Exec
 	case TaskAPIUpdateItems:
 		var input managedagents.UpdateSessionTaskItemsInput
 		if err := json.Unmarshal(call.Arguments, &input); err != nil {
-			return failedResult(call, "invalid_arguments", fmt.Sprintf("decode update_items arguments: %v", err)), nil
+			return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("decode update_items arguments: %v", err)), nil
 		}
 		input.TurnID = executionContext.TurnID
 		result, err := service.UpdateItems(ctx, sessionID, input)
@@ -122,7 +123,7 @@ func (TaskRuntime) Execute(ctx context.Context, call Call, executionContext Exec
 	case TaskAPICompletePlan, TaskAPICancelPlan:
 		var input managedagents.FinishSessionTaskPlanInput
 		if err := json.Unmarshal(call.Arguments, &input); err != nil {
-			return failedResult(call, "invalid_arguments", fmt.Sprintf("decode %s arguments: %v", call.APIName, err)), nil
+			return failedResult(call, toolresult.CodeInvalidToolArguments, fmt.Sprintf("decode %s arguments: %v", call.APIName, err)), nil
 		}
 		input.TurnID = executionContext.TurnID
 		var result managedagents.SessionTaskPlanResult

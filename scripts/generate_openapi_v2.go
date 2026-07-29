@@ -97,6 +97,12 @@ var coreContracts = map[string]routeContract{
 	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                     {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201", "202"}},
 	"get /v2/auth/config":                                                        {ResponseSchema: "AuthClientConfiguration"},
 	"get /v2/auth/me":                                                            {ResponseSchema: "AuthState"},
+	"get /v2/workbench-projects":                                                 {ResponseSchema: "WorkbenchProjectList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "plugin_id", In: "query"}}},
+	"post /v2/workbench-projects":                                                {RequestSchema: "CreateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject", SuccessStatuses: []string{"201"}},
+	"patch /v2/workbench-projects/{project_id}":                                  {RequestSchema: "UpdateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject"},
+	"post /v2/workbench-projects/{project_id}/sync":                              {ResponseSchema: "WorkbenchProject"},
+	"post /v2/workbench-projects/{project_id}/runtime/start":                     {ResponseSchema: "WorkbenchProject"},
+	"post /v2/workbench-projects/{project_id}/runtime/stop":                      {ResponseSchema: "WorkbenchProject"},
 	"get /v2/environment-variables":                                              {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"put /v2/environment-variables/{name}":                                       {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"delete /v2/environment-variables/{name}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -415,7 +421,7 @@ paths:
         tool: {type: string}
         stage: {type: string}
         percent: {type: integer, format: int32, minimum: 0, maximum: 100}
-        operation: {type: string, enum: [append, update]}
+        operation: {type: string, enum: [append, update, reset]}
         content_format: {type: string, enum: [markdown, text]}
         text: {type: string}
         created_at: {type: string, format: date-time}
@@ -514,7 +520,7 @@ paths:
         environment_id: {type: string}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -540,7 +546,7 @@ paths:
         environment_id: {type: string}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
         name: {type: string}
         prompt: {type: string}
         cron_expression: {type: string}
@@ -556,7 +562,7 @@ paths:
         enabled: {type: boolean}
         session_mode: {type: string, enum: [new_session, existing_session]}
         target_session_id: {type: string}
-        approval_mode: {type: string, enum: [approve_for_me, full_access]}
+        approval_mode: {type: string, enum: [request_approval, approve_for_me, full_access]}
     RunAgentScheduleResponse:
       type: object
       required: [schedule, run_id, status]
@@ -1511,6 +1517,68 @@ paths:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
         workspace_path: {type: string}
+    WorkbenchProjectFile:
+      type: object
+      required: [path, kind]
+      properties:
+        path: {type: string, maxLength: 500}
+        kind: {type: string, enum: [file, folder]}
+        status: {type: string}
+    WorkbenchProject:
+      type: object
+      required: [id, workspace_id, owner_id, plugin_id, name, repository_provider, repository_path, default_branch, sync_status, files, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        owner_id: {type: string}
+        plugin_id: {type: string, maxLength: 240}
+        name: {type: string, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        repository_provider: {type: string, enum: [gitlab]}
+        repository_path: {type: string, maxLength: 240}
+        repository_id: {type: string}
+        repository_url: {type: string, maxLength: 1000}
+        default_branch: {type: string, maxLength: 120}
+        sync_status: {type: string, enum: [local, syncing, synced, error]}
+        sync_error: {type: string}
+        notebook_url: {type: string, maxLength: 1000}
+        runtime_id: {type: string}
+        runtime_status: {type: string, enum: [unconfigured, starting, running, stopped, error]}
+        runtime_url: {type: string, maxLength: 1000}
+        runtime_error: {type: string}
+        runtime_started_at: {type: string, format: date-time, nullable: true}
+        active_file: {type: string, maxLength: 500}
+        notebook_code: {type: string, maxLength: 1000000}
+        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    WorkbenchProjectList:
+      type: object
+      required: [projects, gitlab_configured]
+      properties:
+        projects: {type: array, items: {$ref: "#/components/schemas/WorkbenchProject"}}
+        gitlab_configured: {type: boolean}
+    CreateWorkbenchProjectRequest:
+      type: object
+      required: [plugin_id, name, repository_path]
+      properties:
+        workspace_id: {type: string}
+        plugin_id: {type: string, maxLength: 240}
+        name: {type: string, minLength: 1, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        repository_path: {type: string, minLength: 1, maxLength: 240}
+        notebook_url: {type: string, maxLength: 1000}
+        notebook_code: {type: string, maxLength: 1000000}
+    UpdateWorkbenchProjectRequest:
+      type: object
+      properties:
+        workspace_id: {type: string}
+        name: {type: string, minLength: 1, maxLength: 120}
+        objective: {type: string, maxLength: 1200}
+        notebook_url: {type: string, maxLength: 1000}
+        active_file: {type: string, maxLength: 500}
+        notebook_code: {type: string, maxLength: 1000000}
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]

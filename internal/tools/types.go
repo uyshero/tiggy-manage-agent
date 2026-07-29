@@ -13,13 +13,14 @@ import (
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const (
 	ExecutorServer               = "server"
 	ManifestProtocolVersion      = "tma.tools.manifest.v1"
 	ToolCallProtocolVersion      = "tma.tool_call.v2"
-	ToolResultProtocolVersion    = "tma.tool_result.v1"
+	ToolResultProtocolVersion    = toolresult.ProtocolVersion
 	MaxTransportedArtifactBytes  = 8 << 20
 	DefaultResultContextMaxChars = 12000
 	DefaultResultStateMaxBytes   = 12000
@@ -135,6 +136,9 @@ type ExecutionResult struct {
 	ArtifactError       string           `json:"artifact_error,omitempty"`
 	PendingIntervention bool             `json:"pending_intervention,omitempty"`
 	Error               *ExecutionError  `json:"error,omitempty"`
+	Recoverable         bool             `json:"recoverable,omitempty"`
+	Retryable           bool             `json:"retryable,omitempty"`
+	Redacted            bool             `json:"redacted,omitempty"`
 }
 
 type ArtifactExport struct {
@@ -157,8 +161,11 @@ type ArtifactRef struct {
 }
 
 type ExecutionError struct {
-	Type    string `json:"type"`
-	Message string `json:"message"`
+	Type        string `json:"type"`
+	Message     string `json:"message"`
+	Recoverable bool   `json:"recoverable,omitempty"`
+	Retryable   bool   `json:"retryable,omitempty"`
+	Redacted    bool   `json:"redacted,omitempty"`
 }
 
 type ResultContextOptions struct {
@@ -241,9 +248,10 @@ type Registry struct {
 }
 
 type ConfigPolicy struct {
-	Explicit            bool
-	Runtime             string
-	EnabledToolPatterns []string
+	Explicit                bool
+	DisablePlatformDefaults bool
+	Runtime                 string
+	EnabledToolPatterns     []string
 }
 
 type AvailableCapabilities struct {
@@ -340,9 +348,11 @@ func (r Registry) Configured(raw json.RawMessage) (Registry, ConfigPolicy) {
 	configured := Registry{runtimes: make(map[string]Runtime)}
 	enabledTools := map[string]bool{}
 	enabledAPIs := map[string]map[string]bool{}
-	for _, identifier := range platformDefaultToolIdentifiers {
-		if _, ok := r.Get(identifier); ok {
-			enabledTools[identifier] = true
+	if !policy.DisablePlatformDefaults {
+		for _, identifier := range platformDefaultToolIdentifiers {
+			if _, ok := r.Get(identifier); ok {
+				enabledTools[identifier] = true
+			}
 		}
 	}
 	for _, pattern := range policy.EnabledToolPatterns {
@@ -471,14 +481,16 @@ func ParseConfigPolicy(raw json.RawMessage) ConfigPolicy {
 		return policy
 	}
 	var object struct {
-		EnabledTools []string `json:"enabled_tools"`
-		Tools        []string `json:"tools"`
-		Runtime      string   `json:"runtime"`
+		EnabledTools            []string `json:"enabled_tools"`
+		Tools                   []string `json:"tools"`
+		Runtime                 string   `json:"runtime"`
+		DisablePlatformDefaults bool     `json:"disable_platform_defaults"`
 	}
 	if err := json.Unmarshal(raw, &object); err != nil {
 		return ConfigPolicy{}
 	}
 	policy.EnabledToolPatterns = cleanStringList(object.EnabledTools)
+	policy.DisablePlatformDefaults = object.DisablePlatformDefaults
 	if len(policy.EnabledToolPatterns) == 0 {
 		policy.EnabledToolPatterns = cleanStringList(object.Tools)
 	}
@@ -738,10 +750,10 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 	}
 	runtime, ok := registry.Get(call.Identifier)
 	if !ok {
-		return failedResult(call, "unsupported_tool", fmt.Sprintf("unsupported tool %q", call.Identifier)), nil
+		return failedResult(call, toolresult.CodeUnsupportedTool, fmt.Sprintf("unsupported tool %q", call.Identifier)), nil
 	}
 	if validationError := registry.ValidateCallArguments(call); validationError != nil {
-		if validationError.Type == "invalid_tool_schema" {
+		if validationError.Type == toolresult.CodeInvalidToolSchema {
 			return ExecutionResult{}, fmt.Errorf("%s: %s", validationError.Type, validationError.Message)
 		}
 		return failedResult(call, validationError.Type, validationError.Message), nil
@@ -754,7 +766,7 @@ func (e RegistryExecutor) Execute(ctx context.Context, call Call, executionConte
 
 	result, err := runtime.Execute(ctx, call, executionContext)
 	if err != nil {
-		return failedResult(call, "tool_execution_failed", redactEnvironmentText(err.Error(), executionContext.Environment)), nil
+		return failedResult(call, toolresult.CodeToolExecutionFailed, redactEnvironmentText(err.Error(), executionContext.Environment)), nil
 	}
 	result = redactExecutionResultEnvironment(result, executionContext.Environment)
 	if result.Identifier == "" {
@@ -952,31 +964,30 @@ func splitBuiltinModelToolName(name string) (string, string) {
 func ResultMessage(result ExecutionResult) string {
 	encoded, err := json.Marshal(ResultData(result))
 	if err != nil {
-		return `{"success":false,"error":{"type":"encode_failed","message":"encode tool result failed"}}`
+		return toolresult.Message(toolresult.Envelope{Error: &toolresult.Error{Type: toolresult.CodeEncodeFailed, Message: "encode tool result failed", Recoverable: true}})
 	}
 	return string(encoded)
 }
 
 func ResultData(result ExecutionResult) map[string]any {
-	return map[string]any{
-		"protocol_version":     ToolResultProtocolVersion,
-		"id":                   result.ID,
-		"identifier":           result.Identifier,
-		"api_name":             result.APIName,
-		"content":              result.Content,
-		"state":                rawJSONObject(result.State),
-		"artifacts":            result.Artifacts,
-		"artifact_error":       result.ArtifactError,
-		"pending_intervention": result.PendingIntervention,
-		"error":                result.Error,
-		"success":              result.Error == nil,
-	}
+	return toolresult.Data(toolresult.Envelope{
+		ID:                  result.ID,
+		Identifier:          result.Identifier,
+		APIName:             result.APIName,
+		Content:             result.Content,
+		State:               rawJSONObject(result.State),
+		Artifacts:           result.Artifacts,
+		ArtifactError:       result.ArtifactError,
+		PendingIntervention: result.PendingIntervention,
+		Error:               executionResultEnvelopeError(result),
+		Success:             result.Error == nil,
+	})
 }
 
 func ContextResultMessage(result ExecutionResult, options ResultContextOptions) string {
 	encoded, err := json.Marshal(ObservableResultData(result, options))
 	if err != nil {
-		return `{"success":false,"error":{"type":"encode_failed","message":"encode tool result failed"}}`
+		return toolresult.Message(toolresult.Envelope{Error: &toolresult.Error{Type: toolresult.CodeEncodeFailed, Message: "encode tool result failed", Recoverable: true}})
 	}
 	return string(encoded)
 }
@@ -1031,20 +1042,33 @@ func ObservableResultData(result ExecutionResult, options ResultContextOptions) 
 			}
 		}
 	}
-	return map[string]any{
-		"protocol_version":     ToolResultProtocolVersion,
-		"id":                   result.ID,
-		"identifier":           result.Identifier,
-		"api_name":             result.APIName,
-		"content":              content,
-		"state":                state,
-		"artifacts":            result.Artifacts,
-		"artifact_error":       result.ArtifactError,
-		"pending_intervention": result.PendingIntervention,
-		"error":                result.Error,
-		"success":              result.Error == nil,
-		"context":              context,
+	return toolresult.Data(toolresult.Envelope{
+		ID:                  result.ID,
+		Identifier:          result.Identifier,
+		APIName:             result.APIName,
+		Content:             content,
+		State:               state,
+		Artifacts:           result.Artifacts,
+		ArtifactError:       result.ArtifactError,
+		PendingIntervention: result.PendingIntervention,
+		Error:               executionResultEnvelopeError(result),
+		Success:             result.Error == nil,
+		Context:             context,
+	})
+}
+
+func executionResultEnvelopeError(result ExecutionResult) *toolresult.Error {
+	if result.Error == nil {
+		return nil
 	}
+	recoverable := result.Recoverable || result.Error.Recoverable
+	if !recoverable {
+		recoverable = true
+	}
+	retryable := result.Retryable || result.Error.Retryable
+	redacted := result.Redacted || result.Error.Redacted
+	err := toolresult.NormalizeError(result.Error.Type, result.Error.Message, recoverable, retryable, redacted)
+	return &err
 }
 
 func firstResultArtifact(artifacts []ArtifactRef) ArtifactRef {

@@ -27,7 +27,7 @@ func runtimeSettingsForTurn(base, userPayload json.RawMessage) json.RawMessage {
 		return append(json.RawMessage(nil), base...)
 	}
 	mode := strings.ToLower(strings.TrimSpace(override.InterventionMode))
-	if mode != tools.InterventionModeApproveForMe && mode != tools.InterventionModeFullAccess {
+	if mode != tools.InterventionModeRequestApproval && mode != tools.InterventionModeApproveForMe && mode != tools.InterventionModeFullAccess {
 		return append(json.RawMessage(nil), base...)
 	}
 	if override.HumanInteraction == nil || override.HumanInteraction.Enabled == nil || *override.HumanInteraction.Enabled {

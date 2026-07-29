@@ -40,3 +40,36 @@ func TestNormalizeAgentScheduleRejectsInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeAgentScheduleModesApprovalModes(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+		valid    bool
+	}{
+		{name: "safe default", expected: AgentScheduleApprovalRequestApproval, valid: true},
+		{name: "park for approval", input: AgentScheduleApprovalRequestApproval, expected: AgentScheduleApprovalRequestApproval, valid: true},
+		{name: "auto approve", input: AgentScheduleApprovalApproveForMe, expected: AgentScheduleApprovalApproveForMe, valid: true},
+		{name: "full access", input: AgentScheduleApprovalFullAccess, expected: AgentScheduleApprovalFullAccess, valid: true},
+		{name: "unsupported", input: "auto_approve", valid: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, approvalMode, err := NormalizeAgentScheduleModes(AgentScheduleSessionNew, "", test.input)
+			if !test.valid {
+				if err == nil {
+					t.Fatalf("expected invalid approval mode %q to fail", test.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeAgentScheduleModes() error = %v", err)
+			}
+			if approvalMode != test.expected {
+				t.Fatalf("approval mode = %q, want %q", approvalMode, test.expected)
+			}
+		})
+	}
+}

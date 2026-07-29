@@ -58,8 +58,9 @@ const (
 
 // Defines values for AgentScheduleApprovalMode.
 const (
-	AgentScheduleApprovalModeApproveForMe AgentScheduleApprovalMode = "approve_for_me"
-	AgentScheduleApprovalModeFullAccess   AgentScheduleApprovalMode = "full_access"
+	AgentScheduleApprovalModeApproveForMe    AgentScheduleApprovalMode = "approve_for_me"
+	AgentScheduleApprovalModeFullAccess      AgentScheduleApprovalMode = "full_access"
+	AgentScheduleApprovalModeRequestApproval AgentScheduleApprovalMode = "request_approval"
 )
 
 // Defines values for AgentScheduleLastRunStatus.
@@ -105,8 +106,9 @@ const (
 
 // Defines values for CreateAgentScheduleRequestApprovalMode.
 const (
-	CreateAgentScheduleRequestApprovalModeApproveForMe CreateAgentScheduleRequestApprovalMode = "approve_for_me"
-	CreateAgentScheduleRequestApprovalModeFullAccess   CreateAgentScheduleRequestApprovalMode = "full_access"
+	CreateAgentScheduleRequestApprovalModeApproveForMe    CreateAgentScheduleRequestApprovalMode = "approve_for_me"
+	CreateAgentScheduleRequestApprovalModeFullAccess      CreateAgentScheduleRequestApprovalMode = "full_access"
+	CreateAgentScheduleRequestApprovalModeRequestApproval CreateAgentScheduleRequestApprovalMode = "request_approval"
 )
 
 // Defines values for CreateAgentScheduleRequestSessionMode.
@@ -709,8 +711,9 @@ const (
 
 // Defines values for UpdateAgentScheduleRequestApprovalMode.
 const (
-	UpdateAgentScheduleRequestApprovalModeApproveForMe UpdateAgentScheduleRequestApprovalMode = "approve_for_me"
-	UpdateAgentScheduleRequestApprovalModeFullAccess   UpdateAgentScheduleRequestApprovalMode = "full_access"
+	UpdateAgentScheduleRequestApprovalModeApproveForMe    UpdateAgentScheduleRequestApprovalMode = "approve_for_me"
+	UpdateAgentScheduleRequestApprovalModeFullAccess      UpdateAgentScheduleRequestApprovalMode = "full_access"
+	UpdateAgentScheduleRequestApprovalModeRequestApproval UpdateAgentScheduleRequestApprovalMode = "request_approval"
 )
 
 // Defines values for UpdateAgentScheduleRequestSessionMode.
@@ -723,6 +726,34 @@ const (
 const (
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyFollowLatest UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "follow_latest"
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyPinned       UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "pinned"
+)
+
+// Defines values for WorkbenchProjectRepositoryProvider.
+const (
+	Gitlab WorkbenchProjectRepositoryProvider = "gitlab"
+)
+
+// Defines values for WorkbenchProjectRuntimeStatus.
+const (
+	WorkbenchProjectRuntimeStatusError        WorkbenchProjectRuntimeStatus = "error"
+	WorkbenchProjectRuntimeStatusRunning      WorkbenchProjectRuntimeStatus = "running"
+	WorkbenchProjectRuntimeStatusStarting     WorkbenchProjectRuntimeStatus = "starting"
+	WorkbenchProjectRuntimeStatusStopped      WorkbenchProjectRuntimeStatus = "stopped"
+	WorkbenchProjectRuntimeStatusUnconfigured WorkbenchProjectRuntimeStatus = "unconfigured"
+)
+
+// Defines values for WorkbenchProjectSyncStatus.
+const (
+	WorkbenchProjectSyncStatusError   WorkbenchProjectSyncStatus = "error"
+	WorkbenchProjectSyncStatusLocal   WorkbenchProjectSyncStatus = "local"
+	WorkbenchProjectSyncStatusSynced  WorkbenchProjectSyncStatus = "synced"
+	WorkbenchProjectSyncStatusSyncing WorkbenchProjectSyncStatus = "syncing"
+)
+
+// Defines values for WorkbenchProjectFileKind.
+const (
+	File   WorkbenchProjectFileKind = "file"
+	Folder WorkbenchProjectFileKind = "folder"
 )
 
 // Defines values for WorkspacePermissionRuleArgument.
@@ -1500,6 +1531,17 @@ type CreateSkillVersionRequest struct {
 	SourceRef      *string        `json:"source_ref,omitempty"`
 	SourceRevision *string        `json:"source_revision,omitempty"`
 	SourceUrl      *string        `json:"source_url,omitempty"`
+}
+
+// CreateWorkbenchProjectRequest defines model for CreateWorkbenchProjectRequest.
+type CreateWorkbenchProjectRequest struct {
+	Name           string  `json:"name"`
+	NotebookCode   *string `json:"notebook_code,omitempty"`
+	NotebookUrl    *string `json:"notebook_url,omitempty"`
+	Objective      *string `json:"objective,omitempty"`
+	PluginId       string  `json:"plugin_id"`
+	RepositoryPath string  `json:"repository_path"`
+	WorkspaceId    *string `json:"workspace_id,omitempty"`
 }
 
 // DynamicJSONValue Extension JSON whose shape is selected by the surrounding event, schema, provider, or runtime contract.
@@ -4130,6 +4172,8 @@ type UpdateSessionMetadataRequest struct {
 
 // UpdateSessionRuntimeSettingsRequest defines model for UpdateSessionRuntimeSettingsRequest.
 type UpdateSessionRuntimeSettingsRequest struct {
+	AgentCoreCompactionSummaryMaxChars *int `json:"agent_core_compaction_summary_max_chars,omitempty"`
+	AgentCoreCompactionThresholdTokens *int `json:"agent_core_compaction_threshold_tokens,omitempty"`
 	// AgentConfigUpdatePolicy Defaults to follow_latest.
 	AgentConfigUpdatePolicy  *UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy `json:"agent_config_update_policy,omitempty"`
 	CloudSandboxAllowNetwork *bool                                                       `json:"cloud_sandbox_allow_network,omitempty"`
@@ -4140,11 +4184,22 @@ type UpdateSessionRuntimeSettingsRequest struct {
 	InterventionMode         *string                                                     `json:"intervention_mode,omitempty"`
 	LlmModel                 *string                                                     `json:"llm_model,omitempty"`
 	LlmProvider              *string                                                     `json:"llm_provider,omitempty"`
+	LlmThinking              *string                                                     `json:"llm_thinking,omitempty"`
 	PermissionRules          *[]PermissionRule                                           `json:"permission_rules,omitempty"`
 }
 
 // UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy Defaults to follow_latest.
 type UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy string
+
+// UpdateWorkbenchProjectRequest defines model for UpdateWorkbenchProjectRequest.
+type UpdateWorkbenchProjectRequest struct {
+	ActiveFile   *string `json:"active_file,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	NotebookCode *string `json:"notebook_code,omitempty"`
+	NotebookUrl  *string `json:"notebook_url,omitempty"`
+	Objective    *string `json:"objective,omitempty"`
+	WorkspaceId  *string `json:"workspace_id,omitempty"`
+}
 
 // UpdateWorkspaceToolPermissionPolicyRequest defines model for UpdateWorkspaceToolPermissionPolicyRequest.
 type UpdateWorkspaceToolPermissionPolicyRequest struct {
@@ -4183,6 +4238,60 @@ type WorkInvocation struct {
 	ProtocolVersion string                  `json:"protocol_version"`
 	Risk            *string                 `json:"risk,omitempty"`
 	Runtime         *string                 `json:"runtime,omitempty"`
+}
+
+// WorkbenchProject defines model for WorkbenchProject.
+type WorkbenchProject struct {
+	ActiveFile         *string                            `json:"active_file,omitempty"`
+	CreatedAt          time.Time                          `json:"created_at"`
+	CreatedBy          string                             `json:"created_by"`
+	DefaultBranch      string                             `json:"default_branch"`
+	Files              []WorkbenchProjectFile             `json:"files"`
+	Id                 string                             `json:"id"`
+	Name               string                             `json:"name"`
+	NotebookCode       *string                            `json:"notebook_code,omitempty"`
+	NotebookUrl        *string                            `json:"notebook_url,omitempty"`
+	Objective          *string                            `json:"objective,omitempty"`
+	OwnerId            string                             `json:"owner_id"`
+	PluginId           string                             `json:"plugin_id"`
+	RepositoryId       *string                            `json:"repository_id,omitempty"`
+	RepositoryPath     string                             `json:"repository_path"`
+	RepositoryProvider WorkbenchProjectRepositoryProvider `json:"repository_provider"`
+	RepositoryUrl      *string                            `json:"repository_url,omitempty"`
+	RuntimeError       *string                            `json:"runtime_error,omitempty"`
+	RuntimeId          *string                            `json:"runtime_id,omitempty"`
+	RuntimeStartedAt   *time.Time                         `json:"runtime_started_at"`
+	RuntimeStatus      *WorkbenchProjectRuntimeStatus     `json:"runtime_status,omitempty"`
+	RuntimeUrl         *string                            `json:"runtime_url,omitempty"`
+	SyncError          *string                            `json:"sync_error,omitempty"`
+	SyncStatus         WorkbenchProjectSyncStatus         `json:"sync_status"`
+	UpdatedAt          time.Time                          `json:"updated_at"`
+	WorkspaceId        string                             `json:"workspace_id"`
+}
+
+// WorkbenchProjectRepositoryProvider defines model for WorkbenchProject.RepositoryProvider.
+type WorkbenchProjectRepositoryProvider string
+
+// WorkbenchProjectRuntimeStatus defines model for WorkbenchProject.RuntimeStatus.
+type WorkbenchProjectRuntimeStatus string
+
+// WorkbenchProjectSyncStatus defines model for WorkbenchProject.SyncStatus.
+type WorkbenchProjectSyncStatus string
+
+// WorkbenchProjectFile defines model for WorkbenchProjectFile.
+type WorkbenchProjectFile struct {
+	Kind   WorkbenchProjectFileKind `json:"kind"`
+	Path   string                   `json:"path"`
+	Status *string                  `json:"status,omitempty"`
+}
+
+// WorkbenchProjectFileKind defines model for WorkbenchProjectFile.Kind.
+type WorkbenchProjectFileKind string
+
+// WorkbenchProjectList defines model for WorkbenchProjectList.
+type WorkbenchProjectList struct {
+	GitlabConfigured bool               `json:"gitlab_configured"`
+	Projects         []WorkbenchProject `json:"projects"`
 }
 
 // Worker defines model for Worker.
@@ -4613,6 +4722,12 @@ type GetV2TracesByTraceIdSpansBySpanIdParams struct {
 	SearchLimit *int32 `form:"search_limit,omitempty" json:"search_limit,omitempty"`
 }
 
+// GetV2WorkbenchProjectsParams defines parameters for GetV2WorkbenchProjects.
+type GetV2WorkbenchProjectsParams struct {
+	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	PluginId    *string `form:"plugin_id,omitempty" json:"plugin_id,omitempty"`
+}
+
 // GetV2WorkersParams defines parameters for GetV2Workers.
 type GetV2WorkersParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
@@ -4822,6 +4937,12 @@ type PostV2SkillsBySkillIdVersionsJSONRequestBody = CreateSkillVersionRequest
 
 // PostV2SubagentsReapOrphansJSONRequestBody defines body for PostV2SubagentsReapOrphans for application/json ContentType.
 type PostV2SubagentsReapOrphansJSONRequestBody = ReapOrphanSubagentsRequest
+
+// PostV2WorkbenchProjectsJSONRequestBody defines body for PostV2WorkbenchProjects for application/json ContentType.
+type PostV2WorkbenchProjectsJSONRequestBody = CreateWorkbenchProjectRequest
+
+// PatchV2WorkbenchProjectsByProjectIdJSONRequestBody defines body for PatchV2WorkbenchProjectsByProjectId for application/json ContentType.
+type PatchV2WorkbenchProjectsByProjectIdJSONRequestBody = UpdateWorkbenchProjectRequest
 
 // PostV2WorkerWorkJSONRequestBody defines body for PostV2WorkerWork for application/json ContentType.
 type PostV2WorkerWorkJSONRequestBody = EnqueueWorkerWorkRequest
@@ -5790,6 +5911,28 @@ type ClientInterface interface {
 
 	// GetV2TracesByTraceIdSpansBySpanId request
 	GetV2TracesByTraceIdSpansBySpanId(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2WorkbenchProjects request
+	GetV2WorkbenchProjects(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2WorkbenchProjectsWithBody request with any body
+	PostV2WorkbenchProjectsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2WorkbenchProjects(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchV2WorkbenchProjectsByProjectIdWithBody request with any body
+	PatchV2WorkbenchProjectsByProjectIdWithBody(ctx context.Context, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchV2WorkbenchProjectsByProjectId(ctx context.Context, projectId string, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2WorkbenchProjectsByProjectIdRuntimeStart request
+	PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2WorkbenchProjectsByProjectIdRuntimeStop request
+	PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2WorkbenchProjectsByProjectIdSync request
+	PostV2WorkbenchProjectsByProjectIdSync(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2WorkerWorkWithBody request with any body
 	PostV2WorkerWorkWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -8840,6 +8983,102 @@ func (c *Client) GetV2TracesByTraceId(ctx context.Context, traceId string, param
 
 func (c *Client) GetV2TracesByTraceIdSpansBySpanId(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2TracesByTraceIdSpansBySpanIdRequest(c.Server, traceId, spanId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2WorkbenchProjects(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2WorkbenchProjectsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkbenchProjectsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkbenchProjectsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkbenchProjects(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkbenchProjectsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2WorkbenchProjectsByProjectIdWithBody(ctx context.Context, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2WorkbenchProjectsByProjectId(ctx context.Context, projectId string, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2WorkbenchProjectsByProjectIdRequest(c.Server, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2WorkbenchProjectsByProjectIdSync(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2WorkbenchProjectsByProjectIdSyncRequest(c.Server, projectId)
 	if err != nil {
 		return nil, err
 	}
@@ -17867,6 +18106,260 @@ func NewGetV2TracesByTraceIdSpansBySpanIdRequest(server string, traceId string, 
 	return req, nil
 }
 
+// NewGetV2WorkbenchProjectsRequest generates requests for GetV2WorkbenchProjects
+func NewGetV2WorkbenchProjectsRequest(server string, params *GetV2WorkbenchProjectsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.WorkspaceId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.PluginId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "plugin_id", runtime.ParamLocationQuery, *params.PluginId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2WorkbenchProjectsRequest calls the generic PostV2WorkbenchProjects builder with application/json body
+func NewPostV2WorkbenchProjectsRequest(server string, body PostV2WorkbenchProjectsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2WorkbenchProjectsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2WorkbenchProjectsRequestWithBody generates requests for PostV2WorkbenchProjects with any type of body
+func NewPostV2WorkbenchProjectsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPatchV2WorkbenchProjectsByProjectIdRequest calls the generic PatchV2WorkbenchProjectsByProjectId builder with application/json body
+func NewPatchV2WorkbenchProjectsByProjectIdRequest(server string, projectId string, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody generates requests for PatchV2WorkbenchProjectsByProjectId with any type of body
+func NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(server string, projectId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest generates requests for PostV2WorkbenchProjectsByProjectIdRuntimeStart
+func NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest(server string, projectId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/runtime/start", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest generates requests for PostV2WorkbenchProjectsByProjectIdRuntimeStop
+func NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest(server string, projectId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/runtime/stop", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2WorkbenchProjectsByProjectIdSyncRequest generates requests for PostV2WorkbenchProjectsByProjectIdSync
+func NewPostV2WorkbenchProjectsByProjectIdSyncRequest(server string, projectId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/sync", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPostV2WorkerWorkRequest calls the generic PostV2WorkerWork builder with application/json body
 func NewPostV2WorkerWorkRequest(server string, body PostV2WorkerWorkJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -19190,6 +19683,28 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2TracesByTraceIdSpansBySpanIdWithResponse request
 	GetV2TracesByTraceIdSpansBySpanIdWithResponse(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*GetV2TracesByTraceIdSpansBySpanIdResponse, error)
+
+	// GetV2WorkbenchProjectsWithResponse request
+	GetV2WorkbenchProjectsWithResponse(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*GetV2WorkbenchProjectsResponse, error)
+
+	// PostV2WorkbenchProjectsWithBodyWithResponse request with any body
+	PostV2WorkbenchProjectsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error)
+
+	PostV2WorkbenchProjectsWithResponse(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error)
+
+	// PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse request with any body
+	PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse(ctx context.Context, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error)
+
+	PatchV2WorkbenchProjectsByProjectIdWithResponse(ctx context.Context, projectId string, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error)
+
+	// PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse request
+	PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error)
+
+	// PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse request
+	PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error)
+
+	// PostV2WorkbenchProjectsByProjectIdSyncWithResponse request
+	PostV2WorkbenchProjectsByProjectIdSyncWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error)
 
 	// PostV2WorkerWorkWithBodyWithResponse request with any body
 	PostV2WorkerWorkWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkerWorkResponse, error)
@@ -23496,6 +24011,144 @@ func (r GetV2TracesByTraceIdSpansBySpanIdResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2WorkbenchProjectsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkbenchProjectList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2WorkbenchProjectsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2WorkbenchProjectsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2WorkbenchProjectsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *WorkbenchProject
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2WorkbenchProjectsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2WorkbenchProjectsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchV2WorkbenchProjectsByProjectIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkbenchProject
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchV2WorkbenchProjectsByProjectIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchV2WorkbenchProjectsByProjectIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkbenchProject
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkbenchProject
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2WorkbenchProjectsByProjectIdSyncResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkbenchProject
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2WorkbenchProjectsByProjectIdSyncResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2WorkbenchProjectsByProjectIdSyncResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2WorkerWorkResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -26001,6 +26654,76 @@ func (c *ClientWithResponses) GetV2TracesByTraceIdSpansBySpanIdWithResponse(ctx 
 		return nil, err
 	}
 	return ParseGetV2TracesByTraceIdSpansBySpanIdResponse(rsp)
+}
+
+// GetV2WorkbenchProjectsWithResponse request returning *GetV2WorkbenchProjectsResponse
+func (c *ClientWithResponses) GetV2WorkbenchProjectsWithResponse(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*GetV2WorkbenchProjectsResponse, error) {
+	rsp, err := c.GetV2WorkbenchProjects(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2WorkbenchProjectsResponse(rsp)
+}
+
+// PostV2WorkbenchProjectsWithBodyWithResponse request with arbitrary body returning *PostV2WorkbenchProjectsResponse
+func (c *ClientWithResponses) PostV2WorkbenchProjectsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error) {
+	rsp, err := c.PostV2WorkbenchProjectsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkbenchProjectsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2WorkbenchProjectsWithResponse(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error) {
+	rsp, err := c.PostV2WorkbenchProjects(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkbenchProjectsResponse(rsp)
+}
+
+// PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse request with arbitrary body returning *PatchV2WorkbenchProjectsByProjectIdResponse
+func (c *ClientWithResponses) PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse(ctx context.Context, projectId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
+	rsp, err := c.PatchV2WorkbenchProjectsByProjectIdWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchV2WorkbenchProjectsByProjectIdWithResponse(ctx context.Context, projectId string, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
+	rsp, err := c.PatchV2WorkbenchProjectsByProjectId(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp)
+}
+
+// PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse request returning *PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse
+func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error) {
+	rsp, err := c.PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse(rsp)
+}
+
+// PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse request returning *PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse
+func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error) {
+	rsp, err := c.PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse(rsp)
+}
+
+// PostV2WorkbenchProjectsByProjectIdSyncWithResponse request returning *PostV2WorkbenchProjectsByProjectIdSyncResponse
+func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdSyncWithResponse(ctx context.Context, projectId string, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error) {
+	rsp, err := c.PostV2WorkbenchProjectsByProjectIdSync(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2WorkbenchProjectsByProjectIdSyncResponse(rsp)
 }
 
 // PostV2WorkerWorkWithBodyWithResponse request with arbitrary body returning *PostV2WorkerWorkResponse
@@ -32218,6 +32941,204 @@ func ParseGetV2TracesByTraceIdSpansBySpanIdResponse(rsp *http.Response) (*GetV2T
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest TraceSpanDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2WorkbenchProjectsResponse parses an HTTP response from a GetV2WorkbenchProjectsWithResponse call
+func ParseGetV2WorkbenchProjectsResponse(rsp *http.Response) (*GetV2WorkbenchProjectsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2WorkbenchProjectsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkbenchProjectList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2WorkbenchProjectsResponse parses an HTTP response from a PostV2WorkbenchProjectsWithResponse call
+func ParsePostV2WorkbenchProjectsResponse(rsp *http.Response) (*PostV2WorkbenchProjectsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2WorkbenchProjectsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest WorkbenchProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchV2WorkbenchProjectsByProjectIdResponse parses an HTTP response from a PatchV2WorkbenchProjectsByProjectIdWithResponse call
+func ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp *http.Response) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchV2WorkbenchProjectsByProjectIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkbenchProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse call
+func ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkbenchProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse call
+func ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkbenchProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2WorkbenchProjectsByProjectIdSyncResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdSyncWithResponse call
+func ParsePostV2WorkbenchProjectsByProjectIdSyncResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2WorkbenchProjectsByProjectIdSyncResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkbenchProject
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

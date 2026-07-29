@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"tiggy-manage-agent/internal/toolresult"
+
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -165,11 +167,11 @@ func validateManifestIntegrity(identifier string, manifest Manifest) error {
 		}
 		seenAPIs[name] = struct{}{}
 		if _, err := CompileJSONSchema(api.Parameters); err != nil {
-			return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema is invalid for %s: %w", ModelToolName(identifier, name), err)
+			return newToolContractErrorf(toolresult.CodeInvalidToolSchema, toolresult.CodeInvalidToolSchema+": tool argument schema is invalid for %s: %w", ModelToolName(identifier, name), err)
 		}
 		if manifest.Type == "builtin" {
 			if err := validateBuiltinFileReferenceDeclarations(api.Parameters); err != nil {
-				return newToolContractErrorf("invalid_tool_schema", "invalid_tool_schema: tool argument schema for %s has invalid file declarations: %w", ModelToolName(identifier, name), err)
+				return newToolContractErrorf(toolresult.CodeInvalidToolSchema, toolresult.CodeInvalidToolSchema+": tool argument schema for %s has invalid file declarations: %w", ModelToolName(identifier, name), err)
 			}
 		}
 	}
@@ -183,19 +185,19 @@ func (r Registry) ValidateCallArguments(call Call) *ExecutionError {
 	call = r.ResolveCall(call)
 	_, api, ok := r.GetAPI(call.Identifier, call.APIName)
 	if !ok {
-		return &ExecutionError{Type: "unsupported_tool_api", Message: fmt.Sprintf("unsupported tool api %q", ModelToolName(call.Identifier, call.APIName))}
+		return &ExecutionError{Type: toolresult.CodeUnsupportedToolAPI, Message: fmt.Sprintf("unsupported tool api %q", ModelToolName(call.Identifier, call.APIName))}
 	}
 
 	instance, err := decodeToolArguments(call.Arguments)
 	if err != nil {
-		return &ExecutionError{Type: "invalid_tool_arguments", Message: err.Error()}
+		return &ExecutionError{Type: toolresult.CodeInvalidToolArguments, Message: err.Error()}
 	}
 	schema, err := CompileJSONSchema(api.Parameters)
 	if err != nil {
-		return &ExecutionError{Type: "invalid_tool_schema", Message: fmt.Sprintf("tool argument schema is invalid for %s: %v", ModelToolName(call.Identifier, call.APIName), err)}
+		return &ExecutionError{Type: toolresult.CodeInvalidToolSchema, Message: fmt.Sprintf("tool argument schema is invalid for %s: %v", ModelToolName(call.Identifier, call.APIName), err)}
 	}
 	if err := schema.Validate(instance); err != nil {
-		return &ExecutionError{Type: "invalid_tool_arguments", Message: schemaValidationMessage(err, "tool arguments")}
+		return &ExecutionError{Type: toolresult.CodeInvalidToolArguments, Message: schemaValidationMessage(err, "tool arguments")}
 	}
 	return nil
 }

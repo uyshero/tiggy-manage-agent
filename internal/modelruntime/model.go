@@ -111,16 +111,43 @@ func toLLMRequest(request coremodel.Request, route ResolvedRoute) (llm.Request, 
 			},
 		}
 	}
+	thinkingMode, err := routeThinkingMode(request.Route.Parameters)
+	if err != nil {
+		return llm.Request{}, err
+	}
 	return llm.Request{
 		Provider:        route.Provider,
 		ProviderType:    route.ProviderType,
 		Model:           route.Model,
 		BaseURL:         route.BaseURL,
 		APIKey:          route.APIKey,
+		ThinkingMode:    thinkingMode,
 		MaxOutputTokens: request.MaxOutputTokens,
 		Messages:        messages,
 		Tools:           tools,
 	}, nil
+}
+
+func routeThinkingMode(parameters json.RawMessage) (string, error) {
+	if len(parameters) == 0 || string(parameters) == "null" {
+		return "", nil
+	}
+	var configured struct {
+		Thinking *struct {
+			Type string `json:"type"`
+		} `json:"thinking"`
+	}
+	if err := json.Unmarshal(parameters, &configured); err != nil {
+		return "", fmt.Errorf("decode model route parameters: %w", err)
+	}
+	if configured.Thinking == nil {
+		return "", nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(configured.Thinking.Type))
+	if mode != "enabled" && mode != "disabled" {
+		return "", fmt.Errorf("unsupported model route thinking mode %q", mode)
+	}
+	return mode, nil
 }
 
 func toLLMMessage(message coremodel.Message) (llm.Message, error) {

@@ -88,6 +88,7 @@ type Request struct {
 	Model           string    `json:"model,omitempty"`
 	BaseURL         string    `json:"-"`
 	APIKey          string    `json:"-"`
+	ThinkingMode    string    `json:"-"`
 	MaxOutputTokens int       `json:"max_output_tokens,omitempty"`
 	Messages        []Message `json:"messages"`
 	Tools           []Tool    `json:"tools,omitempty"`
@@ -1035,11 +1036,16 @@ func (c OpenAICompatibleClient) generate(ctx context.Context, request Request, s
 		return Response{}, fmt.Errorf("llm model is required")
 	}
 
+	thinking, err := openAIThinkingForRequest(request.ThinkingMode)
+	if err != nil {
+		return Response{}, err
+	}
 	body, err := json.Marshal(openAIChatRequest{
 		Model:         model,
 		MaxTokens:     request.MaxOutputTokens,
 		Messages:      openAIMessages(request.Messages),
 		Tools:         openAITools(request.Tools),
+		Thinking:      thinking,
 		Stream:        stream,
 		StreamOptions: openAIStreamOptionsForRequest(stream),
 	})
@@ -1258,8 +1264,24 @@ type openAIChatRequest struct {
 	MaxTokens     int                  `json:"max_tokens,omitempty"`
 	Messages      []openAIMessage      `json:"messages"`
 	Tools         []openAITool         `json:"tools,omitempty"`
+	Thinking      *openAIThinking      `json:"thinking,omitempty"`
 	Stream        bool                 `json:"stream,omitempty"`
 	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIThinking struct {
+	Type string `json:"type"`
+}
+
+func openAIThinkingForRequest(mode string) (*openAIThinking, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		return nil, nil
+	}
+	if mode != "enabled" && mode != "disabled" {
+		return nil, fmt.Errorf("unsupported llm thinking mode %q", mode)
+	}
+	return &openAIThinking{Type: mode}, nil
 }
 
 type openAIStreamOptions struct {

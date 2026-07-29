@@ -1,4 +1,10 @@
+import {
+  R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT,
+  R_SURVIVAL_DATA_CLEANING_SKILL_PATH
+} from "./survivalSkill.js";
+
 const STORAGE_PREFIX = "tma.plugin.com.tma.r-survival-workbench.projects.v1";
+export const R_SURVIVAL_WORKBENCH_PLUGIN_ID = "com.tma.r-survival-workbench";
 
 export const DEFAULT_NOTEBOOK_CODE = `library(survival)
 library(ggsurvfit)
@@ -21,6 +27,14 @@ export const DEFAULT_PROJECT_FILES = Object.freeze([
   Object.freeze({ path: "R/survival-model.R", kind: "file", status: "clean" }),
   Object.freeze({ path: "config", kind: "folder" }),
   Object.freeze({ path: "config/variable-mapping.yml", kind: "file", status: "clean" }),
+  Object.freeze({ path: "skills", kind: "folder" }),
+  Object.freeze({ path: "skills/r-survival-data-cleaning", kind: "folder" }),
+  Object.freeze({
+    path: R_SURVIVAL_DATA_CLEANING_SKILL_PATH,
+    kind: "file",
+    status: "clean",
+    content: R_SURVIVAL_DATA_CLEANING_SKILL_CONTENT
+  }),
   Object.freeze({ path: "reports", kind: "folder" }),
   Object.freeze({ path: "renv.lock", kind: "file", status: "clean" })
 ]);
@@ -68,7 +82,10 @@ function normalizeProject(value) {
       branch: optionalText(value.branch, 120) || "main",
       activeFile: optionalText(value.activeFile, 500) || "notebooks/survival-analysis.ipynb",
       notebookCode: typeof value.notebookCode === "string" ? value.notebookCode : DEFAULT_NOTEBOOK_CODE,
-      files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({ ...file })) : clone(DEFAULT_PROJECT_FILES),
+      files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({
+        ...file,
+        content: typeof file.content === "string" ? file.content : ""
+      })) : clone(DEFAULT_PROJECT_FILES),
       createdAt: requiredText(value.createdAt, "project.createdAt", 80),
       updatedAt: requiredText(value.updatedAt, "project.updatedAt", 80)
     };
@@ -162,4 +179,116 @@ export function createAnalysisWorkspaceRepository(options = {}) {
   }
 
   return Object.freeze({ key, create, ensureExample, list, update });
+}
+
+function remoteProject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid workbench project response");
+  const runtimeURL = optionalText(value.runtime_url, 1000);
+  return {
+    id: requiredText(value.id, "project.id", 240),
+    name: requiredText(value.name, "project.name", 120),
+    objective: optionalText(value.objective, 1200),
+    repositoryPath: requiredText(value.repository_path, "project.repository_path", 240),
+    gitlabURL: optionalText(value.repository_url, 1000),
+    notebookURL: runtimeURL || optionalText(value.notebook_url, 1000),
+    runtimeID: optionalText(value.runtime_id, 240),
+    runtimeStatus: ["unconfigured", "starting", "running", "stopped", "error"].includes(value.runtime_status) ? value.runtime_status : "unconfigured",
+    runtimeURL,
+    runtimeError: optionalText(value.runtime_error, 4000),
+    runtimeStartedAt: optionalText(value.runtime_started_at, 80),
+    gitStatus: ["local", "syncing", "synced", "error"].includes(value.sync_status) ? value.sync_status : "local",
+    gitError: optionalText(value.sync_error, 4000),
+    branch: optionalText(value.default_branch, 120) || "main",
+    activeFile: optionalText(value.active_file, 500) || "notebooks/survival-analysis.ipynb",
+    notebookCode: typeof value.notebook_code === "string" ? value.notebook_code : DEFAULT_NOTEBOOK_CODE,
+    files: Array.isArray(value.files) && value.files.length ? value.files.map((file) => ({
+      ...file,
+      content: typeof file.content === "string" ? file.content : ""
+    })) : clone(DEFAULT_PROJECT_FILES),
+    createdAt: requiredText(value.created_at, "project.created_at", 80),
+    updatedAt: requiredText(value.updated_at, "project.updated_at", 80),
+    persistence: "backend"
+  };
+}
+
+function remotePatch(patch) {
+  const result = {};
+  if (Object.hasOwn(patch, "name")) result.name = patch.name;
+  if (Object.hasOwn(patch, "objective")) result.objective = patch.objective;
+  if (Object.hasOwn(patch, "notebookURL")) result.notebook_url = patch.notebookURL;
+  if (Object.hasOwn(patch, "activeFile")) result.active_file = patch.activeFile;
+  if (Object.hasOwn(patch, "notebookCode")) result.notebook_code = patch.notebookCode;
+  if (Object.hasOwn(patch, "files")) result.files = patch.files;
+  return result;
+}
+
+export function createAnalysisWorkspaceClient(options = {}) {
+  const request = options.http?.request;
+  if (typeof request !== "function") throw new Error("a scoped HTTP service is required");
+  const scope = normalizedScope(options.scope);
+  const query = new URLSearchParams({ workspace_id: scope.workspaceId, plugin_id: R_SURVIVAL_WORKBENCH_PLUGIN_ID });
+  const projectQuery = new URLSearchParams({ workspace_id: scope.workspaceId });
+
+  function projectPath(id, suffix = "") {
+    return `/v2/workbench-projects/${encodeURIComponent(id)}${suffix}?${projectQuery}`;
+  }
+
+  async function list() {
+    const response = await request(`/v2/workbench-projects?${query}`);
+    return {
+      projects: Array.isArray(response?.projects) ? response.projects.map(remoteProject) : [],
+      gitLabConfigured: response?.gitlab_configured === true
+    };
+  }
+
+  async function create(input) {
+    const name = requiredText(input?.name, "project.name", 120);
+    const repositoryPath = optionalText(input?.repositoryPath, 240) || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "r-analysis";
+    const created = await request("/v2/workbench-projects", {
+      method: "POST",
+      body: {
+        workspace_id: scope.workspaceId,
+        plugin_id: R_SURVIVAL_WORKBENCH_PLUGIN_ID,
+        name,
+        objective: optionalText(input?.objective, 1200),
+        repository_path: repositoryPath,
+        notebook_url: optionalText(input?.notebookURL, 1000),
+        notebook_code: typeof input?.notebookCode === "string" ? input.notebookCode : DEFAULT_NOTEBOOK_CODE
+      }
+    });
+    return remoteProject(created);
+  }
+
+  async function update(id, patch) {
+    const updated = await request(projectPath(id), {
+      method: "PATCH",
+      body: remotePatch(patch || {})
+    });
+    return remoteProject(updated);
+  }
+
+  async function sync(id) {
+    const updated = await request(projectPath(id, "/sync"), { method: "POST" });
+    return remoteProject(updated);
+  }
+
+  async function startRuntime(id) {
+    const started = await request(projectPath(id, "/runtime/start"), { method: "POST" });
+    return remoteProject(started);
+  }
+
+  async function stopRuntime(id) {
+    const stopped = await request(projectPath(id, "/runtime/stop"), { method: "POST" });
+    return remoteProject(stopped);
+  }
+
+  async function runCleaning(id) {
+    const response = await request(projectPath(id, "/runtime/run-cleaning"), { method: "POST" });
+    return {
+      project: remoteProject(response.project),
+      result: response.result || { exit_code: 0 }
+    };
+  }
+
+  return Object.freeze({ create, list, runCleaning, sync, startRuntime, stopRuntime, update });
 }

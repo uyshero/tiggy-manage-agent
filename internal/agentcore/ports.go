@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tiggy-manage-agent/internal/model"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 type DeltaSink func(model.Delta) error
@@ -45,6 +46,17 @@ type ToolFatalError struct {
 	Cause error
 }
 
+const (
+	ToolFatalInvalidMiddleware = "invalid_tool_middleware"
+	ToolFatalInvalidPlan       = "invalid_tool_plan"
+	ToolFatalInvalidResults    = "invalid_tool_results"
+	ToolFatalMiddlewareChanged = "tool_middleware_changed"
+	ToolFatalPolicyChanged     = "tool_policy_changed"
+	ToolFatalPreflightFailed   = "tool_preflight_failed"
+	ToolFatalRegistryChanged   = "tool_registry_changed"
+	ToolFatalRuntimeFailed     = "tool_runtime_failed"
+)
+
 // ToolResultError is a recoverable tool failure whose code and message are
 // explicitly safe to return to the model. Cause remains available through the
 // error chain for runtime diagnostics and must not be placed in model context.
@@ -58,7 +70,7 @@ type ToolResultError struct {
 func NewToolResultError(code, message string, retryable bool, cause error) *ToolResultError {
 	code = strings.TrimSpace(code)
 	if code == "" {
-		code = "tool_execution_failed"
+		code = toolresult.CodeToolExecutionFailed
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -83,7 +95,7 @@ func (e *ToolResultError) Unwrap() error {
 
 func (e *ToolResultError) Code() string {
 	if e == nil || e.code == "" {
-		return "tool_execution_failed"
+		return toolresult.CodeToolExecutionFailed
 	}
 	return e.code
 }
@@ -115,7 +127,7 @@ func (e *ToolFatalError) Unwrap() error {
 
 func (e *ToolFatalError) ErrorCode() string {
 	if e == nil || strings.TrimSpace(e.Code) == "" {
-		return "tool_runtime_failed"
+		return ToolFatalRuntimeFailed
 	}
 	return strings.TrimSpace(e.Code)
 }

@@ -16,6 +16,7 @@ Tiggy Manage Agent 是 Agent Cloud Runtime 项目的 Go 实现。它不只是一
 - React Workbench（`/app`）和 Trace/运维 Inspector（`/inspector`）
 - 本地/云端沙箱能力、Worker 承载的 `local_system` 工具和进程工具插件
 - Agent 绑定的 stdio、Streamable HTTP MCP Server、Web 搜索/抓取和审批流程
+- 可停放危险操作审批并在人工处理后恢复的定时任务
 - OIDC/JWKS、JWT 或可信网关认证，Workspace 级 RBAC 和审计导出
 - Subagent、持久化 Task Group、fan-out/fan-in Reducer 和有边界的多 Agent 讨论
 

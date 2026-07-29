@@ -17,6 +17,7 @@ import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
 import { retainedProcessText } from "./chatTimelineRetention.js";
 import { durableEventReplacesLiveReply } from "./chatLiveReply.js";
+import { clipboardHasPlainText, clipboardImageFiles } from "./composerClipboard.js";
 import { conversationFinalFileArtifacts, finalAgentMessageArtifacts } from "./artifactAssociations.js";
 import {
   appendSessionMessageQueue,
@@ -93,7 +94,10 @@ const workbenchScopedHTTPService = Object.freeze({
     const response = await fetch(target, requestOptions);
     const contentType = response.headers.get("Content-Type") || "";
     const body = contentType.includes("json") ? await response.json() : await response.text();
-    if (!response.ok) throw new Error(typeof body === "string" ? body : body?.error || `HTTP ${response.status}`);
+    if (!response.ok) {
+      const message = typeof body === "string" ? body : body?.error?.message || body?.error || `HTTP ${response.status}`;
+      throw new Error(typeof message === "string" ? message : `HTTP ${response.status}`);
+    }
     return body;
   }
 });
@@ -3195,6 +3199,16 @@ const schedulePresets = [
   { value: "0 9 * * 1", label: "每周一 09:00" }
 ];
 
+const scheduleApprovalModes = [
+  { value: "request_approval", label: "等待人工审批" },
+  { value: "approve_for_me", label: "自动审批" },
+  { value: "full_access", label: "完全访问" }
+];
+
+function scheduleApprovalLabel(value) {
+  return scheduleApprovalModes.find((item) => item.value === value)?.label || "等待人工审批";
+}
+
 function newScheduleDraft() {
   return {
     name: "",
@@ -3203,7 +3217,7 @@ function newScheduleDraft() {
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
     session_mode: "new_session",
     target_session_id: "",
-    approval_mode: "approve_for_me",
+    approval_mode: "request_approval",
     enabled: true
   };
 }
@@ -3256,7 +3270,7 @@ function AgentScheduleManager({ agent, onOpenSession }) {
       timezone: schedule.timezone || "UTC",
 		session_mode: schedule.session_mode || "new_session",
 		target_session_id: schedule.target_session_id || "",
-		approval_mode: schedule.approval_mode || "approve_for_me",
+		approval_mode: schedule.approval_mode || "request_approval",
       enabled: schedule.enabled !== false
     });
   }
@@ -3364,8 +3378,7 @@ function AgentScheduleManager({ agent, onOpenSession }) {
 		<label className="agent-editor-field">
 			<span>审批方式</span>
 			<select value={draft.approval_mode} onChange={(event) => setDraft((current) => ({ ...current, approval_mode: event.target.value }))}>
-				<option value="approve_for_me">替我审批</option>
-				<option value="full_access">完全访问</option>
+				{scheduleApprovalModes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
 			</select>
 		</label>
 		<label className="agent-editor-field">
@@ -3408,12 +3421,12 @@ function AgentScheduleManager({ agent, onOpenSession }) {
                 <Pill value={schedule.enabled ? "enabled" : "disabled"} />
               </div>
               <div className="agent-schedule-cron"><code>{schedule.cron_expression}</code><span>{schedule.timezone}</span></div>
-				<div className="agent-schedule-meta"><span>{schedule.session_mode === "existing_session" ? "绑定已有 Session" : "每次新建 Session"}</span><span>{schedule.approval_mode === "full_access" ? "完全访问" : "替我审批"}</span></div>
+				<div className="agent-schedule-meta"><span>{schedule.session_mode === "existing_session" ? "绑定已有 Session" : "每次新建 Session"}</span><span>{scheduleApprovalLabel(schedule.approval_mode)}</span></div>
               <p>{schedule.prompt}</p>
               <div className="agent-schedule-meta">
                 <span>下次 {schedule.next_run_at ? formatTime(schedule.next_run_at) : "未安排"}</span>
                 {schedule.last_run_at ? <span>上次 {formatTime(schedule.last_run_at)} · {schedule.last_run_status || "unknown"}</span> : null}
-                {schedule.last_session_id ? <button className="link-button" type="button" onClick={() => onOpenSession({ id: schedule.last_session_id })}>查看结果</button> : null}
+                {schedule.last_session_id ? <button className="link-button" type="button" onClick={() => onOpenSession({ id: schedule.last_session_id })}>{schedule.approval_mode === "request_approval" ? "查看审批/结果" : "查看结果"}</button> : null}
               </div>
               {schedule.last_error ? <div className="agent-version-error">{schedule.last_error}</div> : null}
             </div>
@@ -7425,14 +7438,8 @@ function WorkbenchApp() {
   function handleComposerPaste(event) {
     const clipboard = event.clipboardData;
     if (!clipboard) return;
-    const itemImages = Array.from(clipboard.items || [])
-      .filter((item) => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter(Boolean);
-    const images = itemImages.length
-      ? itemImages
-      : Array.from(clipboard.files || []).filter((file) => String(file.type || "").toLowerCase().startsWith("image/"));
-    if (!images.length) return;
+    const images = clipboardImageFiles(clipboard);
+    if (!images.length || clipboardHasPlainText(clipboard)) return;
     event.preventDefault();
     addComposerFiles(images.map((file, index) => clipboardImageFile(file, index)));
     setStatus(images.length === 1 ? "已从剪贴板添加图片" : `已从剪贴板添加 ${images.length} 张图片`);

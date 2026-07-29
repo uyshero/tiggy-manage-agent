@@ -39,6 +39,18 @@ TMA_OBJECT_STORAGE_ROOT_DIR=.tma/objects
 生产必须显式配置 issuer、audience、算法和 Workspace 映射；不能从未验证 header 直接接受
 身份。Web session secret、JWT secret 和 gateway token 必须使用独立高熵值。
 
+## 扩展工作台与 GitLab
+
+| 变量 | 用途 |
+| --- | --- |
+| `TMA_GITLAB_TOKEN` | 服务端项目 Provisioner Token，需要创建项目和提交文件的 `api` 权限 |
+| `TMA_GITLAB_API_URL` | GitLab API v4 地址，默认 `https://gitlab.com/api/v4` |
+| `TMA_GITLAB_NAMESPACE_ID` | 可选的目标 Group/User namespace 数字 ID |
+| `TMA_GITLAB_PROJECT_VISIBILITY` | `private`（默认）或 `internal` |
+
+未配置 `TMA_GITLAB_TOKEN` 时，工作台项目仍保存到 PostgreSQL，但状态保持为 `local`，不会
+伪报 GitLab 同步成功。Token 只从服务端 Secret/环境变量读取，不返回浏览器、不写入项目表。
+
 ## Turn、Agent Core 与子 Agent
 
 | 变量族 | 用途 |

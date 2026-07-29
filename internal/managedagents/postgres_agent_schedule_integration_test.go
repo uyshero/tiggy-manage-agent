@@ -68,6 +68,9 @@ func TestPostgresAgentScheduleCRUDAndClaim(t *testing.T) {
 	if created.NextRunAt == nil {
 		t.Fatal("expected next run")
 	}
+	if created.ApprovalMode != AgentScheduleApprovalRequestApproval {
+		t.Fatalf("default approval mode = %q, want %q", created.ApprovalMode, AgentScheduleApprovalRequestApproval)
+	}
 	items, err := store.ListAgentSchedules(ctx, agent.ID)
 	if err != nil || len(items) != 1 {
 		t.Fatalf("list schedules: items=%+v err=%v", items, err)

@@ -8,6 +8,16 @@ import (
 	coremodel "tiggy-manage-agent/internal/model"
 )
 
+func TestRouteThinkingMode(t *testing.T) {
+	mode, err := routeThinkingMode(json.RawMessage(`{"thinking":{"type":"disabled"}}`))
+	if err != nil || mode != "disabled" {
+		t.Fatalf("route thinking mode = %q, err=%v", mode, err)
+	}
+	if _, err := routeThinkingMode(json.RawMessage(`{"thinking":{"type":"deep"}}`)); err == nil {
+		t.Fatal("unsupported route thinking mode was accepted")
+	}
+}
+
 func TestFromLLMResponseConvertsSeedTextToolCall(t *testing.T) {
 	response := fromLLMResponse("attempt_1", llm.Response{Message: llm.Message{
 		Role: "assistant",

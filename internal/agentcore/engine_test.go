@@ -49,6 +49,68 @@ func TestEngineCompletesWithoutTools(t *testing.T) {
 	}
 }
 
+func TestEngineContinuesAfterThinkingOnlyResponse(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	modelPort := modeltest.NewScriptedModel(
+		modeltest.ModelStep{Response: model.Response{
+			Message: model.Message{ID: "thinking_1", Content: []model.Content{{
+				Type: model.ContentThinking, Thinking: &model.ThinkingBlock{Text: "I should inspect the request before answering."},
+			}}},
+			StopReason: model.StopReasonComplete,
+		}},
+		modeltest.ModelStep{
+			Assert: func(request model.Request) error {
+				for _, message := range request.Messages {
+					if message.ID == "thinking_1" && message.Visibility == model.VisibilityInternal && len(message.Content) == 1 && message.Content[0].Type == model.ContentThinking {
+						return nil
+					}
+				}
+				return errors.New("thinking-only response was not preserved for the next model call")
+			},
+			Response: textResponse("answer_2", "done", model.Usage{}),
+		},
+	)
+	engine, _ := newEngine(t, state, modelPort, nil, nil, nil)
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil || outcome.Status != agentcore.OutcomeCompleted {
+		t.Fatalf("Run() outcome = %+v err = %v", outcome, err)
+	}
+	if outcome.FinalMessage == nil || outcome.FinalMessage.ID != "answer_2" || outcome.FinalMessage.Visibility != model.VisibilityPublic {
+		t.Fatalf("final message = %+v", outcome.FinalMessage)
+	}
+	if modelPort.Remaining() != 0 || outcome.State.Round != 2 || outcome.State.ModelAttempts != 2 {
+		t.Fatalf("rounds=%d model attempts=%d remaining=%d", outcome.State.Round, outcome.State.ModelAttempts, modelPort.Remaining())
+	}
+}
+
+func TestEngineThinkingOnlyResponseStillHonorsRoundBudget(t *testing.T) {
+	t.Parallel()
+
+	state := initialState(100)
+	state.Budget.Limit.MaxRounds = 1
+	modelPort := modeltest.NewScriptedModel(modeltest.ModelStep{Response: model.Response{
+		Message: model.Message{ID: "thinking_1", Content: []model.Content{{
+			Type: model.ContentThinking, Thinking: &model.ThinkingBlock{Text: "More reasoning is needed."},
+		}}},
+		StopReason: model.StopReasonComplete,
+	}})
+	engine, _ := newEngine(t, state, modelPort, nil, nil, nil)
+
+	outcome, err := engine.Run(context.Background(), state)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != agentcore.OutcomeFailed || outcome.Failure == nil || outcome.Failure.Code != "budget_exhausted" {
+		t.Fatalf("Run() outcome = %+v", outcome)
+	}
+	if outcome.State.Round != 1 || outcome.State.ModelAttempts != 1 || modelPort.Remaining() != 0 {
+		t.Fatalf("rounds=%d model attempts=%d remaining=%d", outcome.State.Round, outcome.State.ModelAttempts, modelPort.Remaining())
+	}
+}
+
 func TestMemoryDurabilityStateOwnershipContract(t *testing.T) {
 	t.Parallel()
 
@@ -449,22 +511,26 @@ func TestEngineConvertsToolPortFailureAndPreservesPartialResults(t *testing.T) {
 		modeltest.ModelStep{
 			Assert: func(request model.Request) error {
 				results := map[string]bool{}
-				failureText := ""
 				for _, message := range request.Messages {
 					for _, content := range message.Content {
 						if content.ToolResult != nil {
 							results[content.ToolResult.CallID] = content.ToolResult.IsError
-							if content.ToolResult.CallID == "call_fail" && len(content.ToolResult.Content) > 0 {
-								failureText = content.ToolResult.Content[0].Text
+							if content.ToolResult.CallID == "call_fail" {
+								envelope, err := parseToolResultEnvelope(content.ToolResult)
+								if err != nil {
+									return err
+								}
+								rawText := content.ToolResult.Content[0].Text
+								if envelope.Error.Type != "tool_execution_failed" || !envelope.Redacted || !envelope.Recoverable ||
+									!strings.Contains(rawText, "Tool execution failed") || strings.Contains(rawText, "remote tool") {
+									return fmt.Errorf("unsafe default tool error envelope = %+v raw=%q", envelope, rawText)
+								}
 							}
 						}
 					}
 				}
 				if !results["call_fail"] || results["call_ok"] {
 					return fmt.Errorf("partial tool results = %v", results)
-				}
-				if !strings.Contains(failureText, "Tool execution failed") || strings.Contains(failureText, "remote tool") {
-					return fmt.Errorf("unsafe default tool error text = %q", failureText)
 				}
 				return nil
 			},
@@ -506,8 +572,13 @@ func TestEngineReturnsExplicitToolResultErrorToModel(t *testing.T) {
 						if result == nil || result.CallID != call.ID {
 							continue
 						}
+						envelope, err := parseToolResultEnvelope(result)
+						if err != nil {
+							return err
+						}
 						text := result.Content[0].Text
-						if !result.IsError || result.Retryable || !strings.Contains(text, "Database temporarily unavailable") ||
+						if !result.IsError || result.Retryable || envelope.Error.Type != "database_unavailable" ||
+							envelope.Redacted || envelope.Retryable || !strings.Contains(text, "Database temporarily unavailable") ||
 							strings.Contains(text, "internal-secret") || !strings.Contains(string(result.State), "database_unavailable") {
 							return fmt.Errorf("typed tool result = %+v", result)
 						}
@@ -688,7 +759,14 @@ func TestEngineRecoversRejectedStartedToolWithoutIndeterminateResult(t *testing.
 		Assert: func(request model.Request) error {
 			for _, message := range request.Messages {
 				for _, content := range message.Content {
-					if content.ToolResult != nil && content.ToolResult.CallID == planned.Call.ID && content.ToolResult.IsError && string(content.ToolResult.State) == `{"status":"rejected"}` {
+					if content.ToolResult == nil || content.ToolResult.CallID != planned.Call.ID || !content.ToolResult.IsError || string(content.ToolResult.State) != `{"status":"rejected"}` {
+						continue
+					}
+					envelope, err := parseToolResultEnvelope(content.ToolResult)
+					if err != nil {
+						return err
+					}
+					if envelope.Error.Type == "tool_execution_rejected" && envelope.State["status"] == "rejected" {
 						return nil
 					}
 				}
@@ -1060,7 +1138,14 @@ func TestEngineDoesNotSendRejectedToolToExecutor(t *testing.T) {
 			Assert: func(request model.Request) error {
 				for _, message := range request.Messages {
 					for _, content := range message.Content {
-						if content.ToolResult != nil && content.ToolResult.CallID == call.ID && content.ToolResult.IsError && string(content.ToolResult.State) == `{"status":"rejected"}` {
+						if content.ToolResult == nil || content.ToolResult.CallID != call.ID || !content.ToolResult.IsError || string(content.ToolResult.State) != `{"status":"rejected"}` {
+							continue
+						}
+						envelope, err := parseToolResultEnvelope(content.ToolResult)
+						if err != nil {
+							return err
+						}
+						if envelope.Error.Type == "tool_execution_rejected" && envelope.State["status"] == "rejected" {
 							return nil
 						}
 					}
@@ -1647,6 +1732,53 @@ func successfulResults(plan agentcore.ToolBatchPlan) agentcore.ToolBatchResult {
 		}
 	}
 	return agentcore.ToolBatchResult{Results: results}
+}
+
+type toolResultEnvelopeForTest struct {
+	ProtocolVersion string                         `json:"protocol_version"`
+	ID              string                         `json:"id"`
+	APIName         string                         `json:"api_name"`
+	Content         string                         `json:"content"`
+	State           map[string]any                 `json:"state"`
+	Error           toolResultEnvelopeErrorForTest `json:"error"`
+	Success         bool                           `json:"success"`
+	Recoverable     bool                           `json:"recoverable"`
+	Retryable       bool                           `json:"retryable,omitempty"`
+	Redacted        bool                           `json:"redacted,omitempty"`
+}
+
+type toolResultEnvelopeErrorForTest struct {
+	Type        string `json:"type"`
+	Message     string `json:"message"`
+	Recoverable bool   `json:"recoverable"`
+	Retryable   bool   `json:"retryable,omitempty"`
+	Redacted    bool   `json:"redacted,omitempty"`
+}
+
+func parseToolResultEnvelope(result *model.ToolResult) (toolResultEnvelopeForTest, error) {
+	if result == nil {
+		return toolResultEnvelopeForTest{}, errors.New("tool result is missing")
+	}
+	if len(result.Content) != 1 || result.Content[0].Type != model.ContentText || strings.TrimSpace(result.Content[0].Text) == "" {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("tool result content is not a single text envelope: %+v", result.Content)
+	}
+	var envelope toolResultEnvelopeForTest
+	if err := json.Unmarshal([]byte(result.Content[0].Text), &envelope); err != nil {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("decode tool result envelope: %w: %s", err, result.Content[0].Text)
+	}
+	if envelope.ProtocolVersion != toolpkg.ToolResultProtocolVersion {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("tool result protocol_version = %q", envelope.ProtocolVersion)
+	}
+	if envelope.ID != result.CallID || envelope.APIName != result.Name {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("tool result envelope identity = id:%q api:%q, want id:%q api:%q", envelope.ID, envelope.APIName, result.CallID, result.Name)
+	}
+	if envelope.Success || !envelope.Recoverable || !envelope.Error.Recoverable || strings.TrimSpace(envelope.Error.Type) == "" || strings.TrimSpace(envelope.Error.Message) == "" {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("tool result envelope error fields are invalid: %+v", envelope)
+	}
+	if result.Retryable != envelope.Retryable || envelope.Error.Retryable != envelope.Retryable || envelope.Error.Redacted != envelope.Redacted {
+		return toolResultEnvelopeForTest{}, fmt.Errorf("tool result envelope flags are inconsistent: result=%+v envelope=%+v", result, envelope)
+	}
+	return envelope, nil
 }
 
 type recordingLive struct {

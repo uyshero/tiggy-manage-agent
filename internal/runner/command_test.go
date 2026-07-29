@@ -1,27 +1,36 @@
 package runner
 
 import (
+	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
+
+	"tiggy-manage-agent/internal/capability"
 )
 
 const commandTestTimeout = 15 * time.Second
 
 func TestCommandTurnExecutorReturnsAgentPayload(t *testing.T) {
-	command := writeExecutable(t, `#!/bin/sh
-input=$(cat)
-case "$input" in
-  *'"protocol_version":"tma.command.v1"'*hello*) printf '{"protocol_version":"tma.command.v1","content":[{"type":"text","text":"command: hello"}]}' ;;
-  *) printf '{"protocol_version":"tma.command.v1","content":[{"type":"text","text":"missing input"}]}' ;;
-esac
-`)
-
 	executor := CommandTurnExecutor{
-		Command: command,
+		Command: "agent-command",
 		Timeout: commandTestTimeout,
+		Provider: commandTestProvider{
+			stdout: `{"protocol_version":"tma.command.v1","content":[{"type":"text","text":"command: hello"}]}`,
+			assertRequest: func(request capability.RunCommandRequest) {
+				t.Helper()
+				if request.Command != "agent-command" {
+					t.Fatalf("expected command to be forwarded, got %q", request.Command)
+				}
+				var input CommandTurnInput
+				if err := json.Unmarshal(request.Stdin, &input); err != nil {
+					t.Fatalf("decode stdin: %v", err)
+				}
+				if input.ProtocolVersion != CommandTurnProtocolVersion || input.SessionID != "sesn_000001" || input.TurnID != "turn_000001" || !json.Valid(input.UserPayload) {
+					t.Fatalf("unexpected command input: %+v", input)
+				}
+			},
+		},
 	}
 	result, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -38,13 +47,10 @@ esac
 }
 
 func TestCommandTurnExecutorRejectsMissingOutputProtocolVersion(t *testing.T) {
-	command := writeExecutable(t, `#!/bin/sh
-printf '{"content":[{"type":"text","text":"legacy output"}]}'
-`)
-
 	executor := CommandTurnExecutor{
-		Command: command,
-		Timeout: commandTestTimeout,
+		Command:  "agent-command",
+		Timeout:  commandTestTimeout,
+		Provider: commandTestProvider{stdout: `{"content":[{"type":"text","text":"legacy output"}]}`},
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -57,13 +63,10 @@ printf '{"content":[{"type":"text","text":"legacy output"}]}'
 }
 
 func TestCommandTurnExecutorRejectsInvalidJSON(t *testing.T) {
-	command := writeExecutable(t, `#!/bin/sh
-printf 'not-json'
-`)
-
 	executor := CommandTurnExecutor{
-		Command: command,
-		Timeout: commandTestTimeout,
+		Command:  "agent-command",
+		Timeout:  commandTestTimeout,
+		Provider: commandTestProvider{stdout: "not-json"},
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -76,13 +79,10 @@ printf 'not-json'
 }
 
 func TestCommandTurnExecutorRejectsUnsupportedOutputProtocolVersion(t *testing.T) {
-	command := writeExecutable(t, `#!/bin/sh
-printf '{"protocol_version":"tma.command.v2","content":[]}'
-`)
-
 	executor := CommandTurnExecutor{
-		Command: command,
-		Timeout: commandTestTimeout,
+		Command:  "agent-command",
+		Timeout:  commandTestTimeout,
+		Provider: commandTestProvider{stdout: `{"protocol_version":"tma.command.v2","content":[]}`},
 	}
 	_, err := executor.RunTurn(t.Context(), TurnRequest{
 		SessionID:   "sesn_000001",
@@ -94,12 +94,18 @@ printf '{"protocol_version":"tma.command.v2","content":[]}'
 	}
 }
 
-func writeExecutable(t *testing.T, body string) string {
-	t.Helper()
+type commandTestProvider struct {
+	capability.UnavailableProvider
 
-	path := filepath.Join(t.TempDir(), "executor.sh")
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatalf("write executor: %v", err)
+	stdout        string
+	stderr        string
+	exitCode      int
+	assertRequest func(capability.RunCommandRequest)
+}
+
+func (p commandTestProvider) RunCommand(_ context.Context, request capability.RunCommandRequest) (capability.CommandResult, error) {
+	if p.assertRequest != nil {
+		p.assertRequest(request)
 	}
-	return path
+	return capability.CommandResult{Status: "completed", ExitCode: p.exitCode, Stdout: p.stdout, Stderr: p.stderr}, nil
 }

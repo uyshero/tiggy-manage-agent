@@ -27,6 +27,17 @@ retry 状态；长文本、文件名和错误码不能撑破容器。
 
 Workbench 使用 TypeScript SDK 访问公开 API，不直接依赖 Server 内部 payload 或数据库字段。
 
+## 定时任务审批
+
+新建定时任务默认使用 `request_approval`。当工具策略要求审批时，Agent Core 将调用写入
+durable journal 和 `session_interventions`，Turn 进入 `waiting_approval` 并释放 Lease；用户可从
+任务的最后 Session 打开待审批卡片，稍后批准或拒绝。决定落库后 Runner 使用既有 continuation
+恢复同一 Turn，不重新执行已经完成的工具调用。
+
+`approve_for_me` 和 `full_access` 继续作为显式选项，并保留已有任务的原配置。定时任务中的
+澄清、表单和文件补充仍保持关闭并按 `fail` 处理；Parked Approval 只改变危险工具调用的审批
+方式，不扩大无人值守任务的人机交互范围。
+
 ## Inspector
 
 Inspector 以 `session_id` 和可选 `turn_id` 为入口，提供：
@@ -88,9 +99,10 @@ Plugin 和路由；宿主只负责目录、路由、认证、权限、Dialog、N
 当前 `com.tma.r-survival-workbench` 提供 R 语言生存分析，项目、Notebook 布局和分析交互均
 保留在插件包内。
 
-当前前端闭环包括项目草稿、Git 风格目录、Notebook 预览、远程 JupyterLab 地址和关联 TMA
-Session 的 Agent 对话。R/Jupyter 运行环境位于 `deploy/r-notebook-runtime`，GitLab 初始化模板
-位于 `examples/r-analysis-project`。生产接入继续遵守以下边界：
+当前闭环包括后端项目持久化、Git 风格目录、Notebook 保存、远程 JupyterLab 地址和关联 TMA
+Session 的 Agent 对话。配置 `TMA_GITLAB_TOKEN` 后，新建项目会创建私有 GitLab 仓库并提交
+`examples/r-analysis-project` 模板；未配置时保留为可重试的待同步项目。R/Jupyter 运行环境
+位于 `deploy/r-notebook-runtime`。生产接入继续遵守以下边界：
 
 - GitLab Token 进入 Secret/环境变量体系，不进入插件 localStorage 或项目元数据。
 - JupyterLab 通过 TMA 同源 HTTP/WebSocket 代理访问，不直接暴露无认证端口。

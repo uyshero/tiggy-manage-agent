@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/toolresult"
 )
 
 const fileReferenceSchemaKeyword = "x-tma-file-ref"
@@ -25,7 +26,7 @@ func (r Registry) ResolveCallFileReferences(ctx context.Context, call Call, exec
 	}
 	var schema map[string]any
 	if err := json.Unmarshal(api.Parameters, &schema); err != nil {
-		return call, &ExecutionError{Type: "invalid_tool_schema", Message: fmt.Sprintf("decode file reference schema: %v", err)}
+		return call, &ExecutionError{Type: toolresult.CodeInvalidToolSchema, Message: fmt.Sprintf("decode file reference schema: %v", err)}
 	}
 	var arguments map[string]any
 	if len(call.Arguments) == 0 {
