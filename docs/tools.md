@@ -10,6 +10,11 @@ preflight 和 execute 必须来自同一不可变 Snapshot。
 `Available tools` 只放 compact catalog（identifier、function_name、短描述、risk、
 capabilities），不重复完整 manifest、parameters 或长 system_role。需要更多执行细节时应依赖
 原生 schema、工具结果和专用 inspect/read 类工具，而不是把所有工具说明预先塞进上下文。
+未显式配置工具时，Runtime 还会在 durable turn 开始前根据当前请求、续接历史、活跃 Skill、
+用户图片和已有任务计划做领域级选择。文件、Artifact 恢复、`interaction_ask_user` 和
+`tool_catalog_inspect` 作为通用闭环常驻；图片、任务计划、上传、计划审批、Web、Skills 和子 Agent
+只在意图或状态需要时加入。选中的 Registry、schema 和权限策略仍由同一 Snapshot 冻结，同一
+turn 的重试与人工恢复不能动态扩权。
 `tool_catalog_inspect` 是只读按需入口，可用 `function_name` 读取当前 frozen registry 中某个
 model-visible 工具的完整 manifest/API 元数据；默认 hidden 或当前不可用的 API 不可通过它绕出。
 模型应先使用 compact catalog 和原生 function schema；仅当两者仍不足以说明某个工具的 workflow、

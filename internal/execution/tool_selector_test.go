@@ -14,15 +14,25 @@ func TestSelectTurnToolsKeepsOnlyCommonBuiltinsForOrdinaryTurn(t *testing.T) {
 		UserPayload: json.RawMessage(`{"content":[{"type":"text","text":"帮我整理项目中的配置文件"}]}`),
 	})
 	names := selectedToolNames(selected)
-	if len(names) != 19 {
-		t.Fatalf("expected 19 common model tools, got %d: %#v", len(names), names)
+	selectedSchemas, err := json.Marshal(selected.ModelTools())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullSchemas, err := json.Marshal(tools.DefaultRegistry().ModelTools())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selectedSchemas)*2 >= len(fullSchemas) {
+		t.Fatalf("ordinary turn schemas should use less than half of the full registry: selected=%d full=%d tools=%#v", len(selectedSchemas), len(fullSchemas), names)
 	}
 
 	assertSelected(t, names, "default_read_file", true)
 	assertSelected(t, names, "interaction_ask_user", true)
-	assertSelected(t, names, "task_create_plan", true)
-	assertSelected(t, names, "image_generate", true)
-	assertSelected(t, names, "image_analyze", true)
+	assertSelected(t, names, "interaction_request_upload", false)
+	assertSelected(t, names, "interaction_request_plan_approval", false)
+	assertSelected(t, names, "task_create_plan", false)
+	assertSelected(t, names, "image_generate", false)
+	assertSelected(t, names, "image_analyze", false)
 	assertSelected(t, names, "tool_catalog_inspect", true)
 	assertSelected(t, names, "artifact_read", true)
 	assertSelected(t, names, "web_search", false)
@@ -38,6 +48,9 @@ func TestSelectTurnToolsAddsRelevantCapabilityDomains(t *testing.T) {
 		excluded []string
 	}{
 		{name: "web", message: "搜索一下今天的最新新闻", included: []string{"web_search", "web_crawl"}, excluded: []string{"agent_spawn"}},
+		{name: "images", message: "分析这张图片并生成一张新海报", included: []string{"image_generate", "image_analyze"}, excluded: []string{"task_create_plan"}},
+		{name: "upload", message: "请求用户上传一份 PDF 附件", included: []string{"interaction_request_upload"}, excluded: []string{"interaction_request_plan_approval"}},
+		{name: "task plan", message: "制定一个多步骤执行计划", included: []string{"task_create_plan", "task_update_items", "interaction_request_plan_approval"}, excluded: []string{"image_generate"}},
 		{name: "skills", message: "从技能市场安装并启用一个 PDF skill", included: []string{"skills_search", "skills_install", "skills_enable"}, excluded: []string{"agent_spawn"}},
 		{name: "subagents", message: "把工作并行委派给几个子智能体", included: []string{"agent_spawn", "agent_send_message", "agent_collect_result"}, excluded: []string{"agent_run_group", "agent_start_discussion"}},
 		{name: "group", message: "用任务组批量委派这些工作", included: []string{"agent_spawn", "agent_run_group", "agent_collect_group"}, excluded: []string{"agent_start_discussion"}},
@@ -58,6 +71,20 @@ func TestSelectTurnToolsAddsRelevantCapabilityDomains(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSelectTurnToolsKeepsStatefulDomainsWhenContextRequiresThem(t *testing.T) {
+	selected := SelectTurnTools(tools.DefaultRegistry(), tools.ConfigPolicy{}, TurnToolSelection{
+		UserPayload:   json.RawMessage(`{"content":[{"type":"text","text":"继续"}]}`),
+		HasActivePlan: true,
+		HasImages:     true,
+	})
+	names := selectedToolNames(selected)
+
+	assertSelected(t, names, "task_get_plan", true)
+	assertSelected(t, names, "task_complete_plan", true)
+	assertSelected(t, names, "interaction_request_plan_approval", true)
+	assertSelected(t, names, "image_analyze", true)
 }
 
 func TestSelectTurnToolsUsesRecentUserContextForContinuation(t *testing.T) {
@@ -93,6 +120,19 @@ func TestSelectTurnToolsKeepsActiveSkillInspectionAndSkillRequiredWeb(t *testing
 	assertSelected(t, names, "skills_read_asset", true)
 	assertSelected(t, names, "skills_install", false)
 	assertSelected(t, names, "web_search", true)
+}
+
+func TestSelectTurnToolsLoadsDomainsRequiredBySkillInstructions(t *testing.T) {
+	selected := SelectTurnTools(tools.DefaultRegistry(), tools.ConfigPolicy{}, TurnToolSelection{
+		UserPayload:     json.RawMessage(`{"content":[{"type":"text","text":"执行当前技能"}]}`),
+		HasActiveSkills: true,
+		SkillContext:    json.RawMessage(`{"instructions":"Call image_generate, then maintain progress with task_create_plan."}`),
+	})
+	names := selectedToolNames(selected)
+
+	assertSelected(t, names, "image_generate", true)
+	assertSelected(t, names, "task_create_plan", true)
+	assertSelected(t, names, "interaction_request_plan_approval", true)
 }
 
 func TestSelectTurnToolsKeepsPlatformDefaultsForExplicitConfiguration(t *testing.T) {

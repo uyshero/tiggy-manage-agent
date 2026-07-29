@@ -108,6 +108,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, err
 	}
+	hasActiveTaskPlan := strings.TrimSpace(taskPlanContext) != ""
 	selectionHistory, err := e.resolveConversationHistory(ctx, request.SessionID, request.UserEventSeq)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
@@ -188,6 +189,8 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		History:         selectionHistory,
 		SummaryText:     config.SummaryText,
 		HasActiveSkills: len(resolvedSkills.Skills) > 0,
+		HasActivePlan:   hasActiveTaskPlan,
+		HasImages:       len(imageParts) > 0,
 		SkillContext:    resolvedSkills.Rendered,
 	})
 	permissionRules, err := tools.ResolvePermissionRules(config.RuntimeSettings, config.Tools, config.WorkspaceToolPolicy)
