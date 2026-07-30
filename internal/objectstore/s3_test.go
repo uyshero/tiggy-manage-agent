@@ -144,6 +144,98 @@ func TestS3ClientObjectURLStyles(t *testing.T) {
 	}
 }
 
+func TestS3ClientStatObjectUsesHeadAndExactVersion(t *testing.T) {
+	client := newTestS3Client(t, "http://127.0.0.1:9000")
+	client.httpClient = &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodHead {
+			t.Fatalf("expected HEAD, got %s", request.Method)
+		}
+		if request.URL.Path != "/tma-artifacts/wksp-1/report.docx" || request.URL.Query().Get("versionId") != "version-7" {
+			t.Fatalf("unexpected stat URL: %s", request.URL.String())
+		}
+		return fakeS3Response(http.StatusOK, map[string]string{
+			"Content-Length":             "42",
+			"Content-Type":               "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"ETag":                       `"etag-7"`,
+			"Last-Modified":              "Wed, 29 Jul 2026 08:30:00 GMT",
+			"x-amz-version-id":           "version-7",
+			"x-amz-meta-checksum_sha256": "checksum-7",
+			"x-amz-meta-source":          "artifact",
+		}, ""), nil
+	})}
+
+	info, err := client.StatObject(context.Background(), StatObjectInput{
+		Bucket: "tma-artifacts", Key: "wksp-1/report.docx", Version: "version-7",
+	})
+	if err != nil {
+		t.Fatalf("stat object: %v", err)
+	}
+	if info.Version != "version-7" || info.SizeBytes != 42 || info.ETag != "etag-7" || info.ChecksumSHA256 != "checksum-7" {
+		t.Fatalf("unexpected object info: %+v", info)
+	}
+	if info.Metadata["source"] != "artifact" || info.LastModified.IsZero() {
+		t.Fatalf("missing stat metadata: %+v", info)
+	}
+}
+
+func TestS3ClientStatObjectDistinguishesMissingFromProviderErrors(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		statusCode  int
+		wantMissing bool
+	}{
+		{name: "missing", statusCode: http.StatusNotFound, wantMissing: true},
+		{name: "provider error", statusCode: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := newTestS3Client(t, "http://127.0.0.1:9000")
+			client.httpClient = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return fakeS3Response(test.statusCode, nil, "provider response"), nil
+			})}
+			_, err := client.StatObject(context.Background(), StatObjectInput{Bucket: "tma-artifacts", Key: "wksp-1/missing.bin"})
+			if errors.Is(err, ErrNotFound) != test.wantMissing {
+				t.Fatalf("unexpected error classification: %v", err)
+			}
+			if err == nil {
+				t.Fatal("expected stat error")
+			}
+		})
+	}
+}
+
+func TestS3ClientListObjectsV2ParsesContinuationPage(t *testing.T) {
+	client := newTestS3Client(t, "http://127.0.0.1:9000/base")
+	client.httpClient = &http.Client{Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/base/tma-artifacts" {
+			t.Fatalf("unexpected list request: %s %s", request.Method, request.URL.String())
+		}
+		query := request.URL.Query()
+		if query.Get("list-type") != "2" || query.Get("max-keys") != "2" || query.Get("prefix") != "wksp-1/" || query.Get("continuation-token") != "token-1" {
+			t.Fatalf("unexpected list query: %v", query)
+		}
+		return fakeS3Response(http.StatusOK, map[string]string{"Content-Type": "application/xml"}, `
+			<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+				<IsTruncated>true</IsTruncated>
+				<NextContinuationToken>token-2</NextContinuationToken>
+				<Contents><Key>wksp-1/a.txt</Key><LastModified>2026-07-29T08:30:00.000Z</LastModified><ETag>&quot;etag-a&quot;</ETag><Size>11</Size></Contents>
+				<Contents><Key>wksp-1/b.txt</Key><LastModified>2026-07-29T08:31:00.000Z</LastModified><ETag>&quot;etag-b&quot;</ETag><Size>22</Size></Contents>
+			</ListBucketResult>`), nil
+	})}
+
+	page, err := client.ListObjects(context.Background(), ListObjectsInput{
+		Bucket: "tma-artifacts", Prefix: "wksp-1/", Cursor: "token-1", Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("list objects: %v", err)
+	}
+	if !page.Truncated || page.NextCursor != "token-2" || len(page.Objects) != 2 {
+		t.Fatalf("unexpected page: %+v", page)
+	}
+	if page.Objects[0].Key != "wksp-1/a.txt" || page.Objects[0].ETag != "etag-a" || page.Objects[0].SizeBytes != 11 || page.Objects[0].LastModified.IsZero() {
+		t.Fatalf("unexpected first object: %+v", page.Objects[0])
+	}
+}
+
 func newTestS3Client(t *testing.T, endpoint string) *S3Client {
 	t.Helper()
 	client, err := NewS3Client(Config{
@@ -164,6 +256,12 @@ type fakeS3Object struct {
 	body        []byte
 	contentType string
 	metadata    map[string]string
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }
 
 func newFakeS3Transport(t *testing.T) http.RoundTripper {

@@ -84,6 +84,14 @@ export type LLMDiagnosticResult = Schema["LLMDiagnosticResult"];
 export type LLMUsageAggregateReport = Schema["LLMUsageAggregateReport"];
 export type ObjectRef = Schema["ObjectRef"];
 export type CreateObjectRefRequest = Schema["CreateObjectRefRequest"];
+export type ObjectCleanupJob = Schema["ObjectCleanupJob"];
+export type ObjectCleanupStats = Schema["ObjectCleanupStats"];
+export type ApproveObjectCleanupRequest = Schema["ApproveObjectCleanupRequest"];
+export type ObjectReconciliationPreviewRequest = Schema["ObjectReconciliationPreviewRequest"];
+export type ObjectReconciliationReport = Schema["ObjectReconciliationReport"];
+export type ObjectReconciliationFinding = Schema["ObjectReconciliationFinding"];
+export type ObjectReconciliationArtifactRequest = Schema["ObjectReconciliationArtifactRequest"];
+export type ObjectReconciliationArtifactExport = Schema["ObjectReconciliationArtifactExport"];
 export type Worker = Schema["Worker"];
 export type ReapExpiredWorkersRequest = Schema["ReapExpiredWorkersRequest"];
 export type ReapExpiredWorkersResult = Schema["ReapExpiredWorkersResult"];
@@ -215,6 +223,15 @@ export interface WorkerListQuery {
 }
 
 export interface MCPServerQuery { workspaceId?: string }
+
+export interface ObjectCleanupListQuery {
+  workspaceId?: string;
+  status?: "pending" | "processing" | "completed" | "blocked" | "dead_letter";
+  reason?: string;
+  createdFrom?: Date | string;
+  createdTo?: Date | string;
+  limit?: number;
+}
 
 export interface OperatorAuditQuery {
   workspaceId?: string;

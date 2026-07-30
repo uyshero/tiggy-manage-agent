@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  biographyOIDCLogoutURL,
   biographyScopedStorageKey,
   completeBiographyOIDCCallbackFromURL,
   currentBiographyAccessToken,
@@ -149,11 +150,45 @@ describe("biography OIDC auth", () => {
     expect(currentBiographyUser()).toEqual(user);
     expect(storage.has("tma.biography.auth.oidc_state")).toBe(false);
     expect(storage.has("tma.biography.auth.oidc_code_verifier")).toBe(false);
+    expect(storage.get("tma.biography.auth.oidc_id_token")).toBe("header.payload.signature");
     expect(replaceState).toHaveBeenCalledWith({}, expect.any(String), "/pages/login/index?foo=bar");
+  });
+
+  it("builds the provider logout URL with the ID token and login return URL", async () => {
+    storage.set("tma.biography.auth.oidc_id_token", "id.header.signature");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://bio.example/v1/auth/config") {
+        return jsonResponse({
+          enabled: true,
+          mode: "oidc",
+          oidc: {
+            issuer: "https://issuer.example",
+            audience: "biography-mobile",
+            client_id: "biography-app",
+          },
+        });
+      }
+      if (url === "https://issuer.example/.well-known/openid-configuration") {
+        return jsonResponse({
+          authorization_endpoint: "https://issuer.example/authorize",
+          end_session_endpoint: "https://issuer.example/logout",
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }));
+
+    const logoutURL = new URL(await biographyOIDCLogoutURL());
+
+    expect(logoutURL.origin + logoutURL.pathname).toBe("https://issuer.example/logout");
+    expect(logoutURL.searchParams.get("client_id")).toBe("biography-app");
+    expect(logoutURL.searchParams.get("id_token_hint")).toBe("id.header.signature");
+    expect(logoutURL.searchParams.get("post_logout_redirect_uri")).toBe("https://app.example/pages/login/index");
   });
 
   it("scopes local keys by OIDC user and clears credentials on logout", () => {
     storage.set("tma.biography.auth.oidc_token", "header.payload.signature");
+    storage.set("tma.biography.auth.oidc_id_token", "id.header.signature");
     storage.set("tma.biography.auth.user", { id: "usr_a", subject: "user-a" });
     storage.set("tma.biography.resume_token", "resume-secret");
 
@@ -166,6 +201,7 @@ describe("biography OIDC auth", () => {
     expect(currentBiographyAccessToken()).toBe("");
     expect(currentBiographyUser()).toBeNull();
     expect(storage.has("tma.biography.resume_token")).toBe(false);
+    expect(storage.has("tma.biography.auth.oidc_id_token")).toBe(false);
     expect(biographyScopedStorageKey("last_interview_session")).toBe("tma.biography.anonymous.last_interview_session");
   });
 });

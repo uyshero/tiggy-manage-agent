@@ -967,7 +967,7 @@ func newBiographyProject() BiographyProject {
 
 func cloneBiographyProject(project BiographyProject) BiographyProject {
 	copy := project
-	copy.Chapters = append([]Chapter(nil), project.Chapters...)
+	copy.Chapters = append(make([]Chapter, 0, len(project.Chapters)), project.Chapters...)
 	if project.BookGoal != nil {
 		bookGoal := *project.BookGoal
 		copy.BookGoal = &bookGoal

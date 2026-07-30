@@ -20,6 +20,15 @@ VITE_BIOGRAPHY_VOICE_DEBUG_TEXT=false \
 npm run dev:h5
 ```
 
+App 默认在最终转写后保留 `650ms` 的补充窗口，再请求下一句采访话术。可通过
+`VITE_BIOGRAPHY_FOLLOWUP_DELAY_MS` 调整为 `250-3000ms`；实时对话建议保持在
+`500-800ms`，只有明确需要连续分段口述时才适当调高。
+
+真实豆包会话会以 `biography voice latency` 记录关键延迟阶段：`llm_first_text`、
+`llm_complete`、`tts_session_ready`、`tts_first_audio` 和
+`asr_final_to_first_audio`。优化时优先观察最后一项的 p50/p95，并结合前四项定位
+等待发生在模型生成、TTS 握手还是首音频返回。
+
 H5 会申请浏览器麦克风权限，将输入连续转换为 16 kHz PCM16，并播放网关返回的
 24 kHz PCM16。部署时页面必须使用 HTTPS，网关必须使用 `wss://`。没有麦克风时可将
 `VITE_BIOGRAPHY_VOICE_DEBUG_TEXT` 临时设为 `true`，使用示例文字验证控制协议。
@@ -110,8 +119,11 @@ Bearer token，并用 `iss + sub` 生成内部用户 ID，隔离自传项目、�
 模型共用这一个 Key，但各自的 Resource ID、WebSocket 地址、TTS 模型和音色仍分开配置。
 网关与 TMA 主服务一样会先加载当前目录的 `.env`，shell 中已显式设置的变量优先。
 
-TMA 采访采用实时、后台两条通道。实时通道只生成下一句追问和 TTS 情感指令，写出
-`interview.reply` 后即可开始合成语音，不等待章节整理。每个 WebSocket 连接另有一个有序的
+TMA 采访采用实时、后台两条通道。实时通道只生成下一句追问和 TTS 情感指令。结构化输出固定先
+给出 `needsRetry` 和完整情感指令；控制字段就绪后，网关会把生成中的完整句子作为多个
+`TaskRequest` 追加到同一个豆包双向 TTS Session，全文结束后才发送 `FinishSession`。因此首句
+可以在最终 `interview.reply` 之前开始合成，同时不会朗读控制状态尚未确定的文本，也不等待章节整理。
+每个 WebSocket 连接另有一个有序的
 后台整理队列，使用独立 TMA Session 逐条处理已经确认的口述，完成后推送
 `interview.project.updated`。网关会校验章节必填字段及 `0-100` 进度范围；整理失败只记录
 服务端日志，不打断正在进行的采访，也不会用无效输出覆盖 App 中的项目状态。
@@ -146,8 +158,9 @@ App 始终保存后收到的版本，不会收到明文 TMA Session ID。恢复�
 - `session.ready`
 - `asr.partial` / `asr.final`
 - `interview.project`：当前自传项目初始状态
-- `interview.reply.delta`：TMA 生成中的采访话术预览，供页面提前显示
-- `interview.reply`：立即返回的采访话术、情感指令和当前章节快照
+- `interview.reply.delta`：TMA 生成中的采访话术预览；控制字段完整时可携带 `speech_ready`
+- `interview.reply`：最终采访话术、情感指令和当前章节快照；`speech_started=true` 表示网关已启动
+  本轮 TTS，客户端不得再次发送同一全文的 `tts.start`
 - `interview.project.updated`：后台整理完成后的最新章节进度和恢复令牌
 - `tts.started` / `tts.finished` / `tts.canceled`
 - `session.finished`

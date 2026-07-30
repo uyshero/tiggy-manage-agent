@@ -165,6 +165,7 @@ func recordObjectCleanup(ctx context.Context, store any, client objectstore.Clie
 		Bucket:          fallbackObjectWriteValue(put.Bucket, input.Bucket),
 		ObjectKey:       fallbackObjectWriteValue(put.Key, input.Key),
 		ObjectVersion:   put.Version,
+		SizeBytes:       fallbackObjectWriteSize(put.SizeBytes, input.SizeBytes),
 		Reason:          reason,
 		SafeToDelete:    safeToDelete,
 		LastError:       cause.Error(),
@@ -174,6 +175,13 @@ func recordObjectCleanup(ctx context.Context, store any, client objectstore.Clie
 		return fmt.Errorf("record object cleanup journal: %w", err)
 	}
 	return nil
+}
+
+func fallbackObjectWriteSize(value int64, fallback int64) int64 {
+	if value > 0 {
+		return value
+	}
+	return fallback
 }
 
 func deleteStoredObjectAfterFailure(ctx context.Context, client objectstore.Client, put objectstore.PutObjectResult, input objectstore.PutObjectInput) error {

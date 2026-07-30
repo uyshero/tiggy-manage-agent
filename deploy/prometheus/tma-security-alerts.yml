@@ -190,3 +190,33 @@ groups:
         annotations:
           summary: TMA Agent Core compaction recovery rate is high
           description: More than half of at least three compactions required recovery in the last fifteen minutes, indicating worker churn or an unstable execution environment.
+
+      - alert: TMAObjectCleanupDeadLetters
+        expr: tma_object_cleanup_jobs{status="dead_letter"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA object cleanup jobs require manual retry
+          description: One or more object cleanup jobs exhausted automatic retries. Inspect the provider error and use the audited retry endpoint after correcting the dependency.
+
+      - alert: TMAObjectCleanupBlocked
+        expr: tma_object_cleanup_jobs{status="blocked"} > 0
+        for: 30m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA object cleanup jobs require ownership review
+          description: Object cleanup jobs remain blocked because automatic deletion could not prove key ownership or reference safety.
+
+      - alert: TMAObjectCleanupBacklogAging
+        expr: tma_object_cleanup_oldest_pending_age_seconds > 900
+        for: 10m
+        labels:
+          severity: warning
+          service: tiggy-manage-agent
+        annotations:
+          summary: TMA object cleanup backlog is aging
+          description: The oldest pending object cleanup job has remained outstanding for more than fifteen minutes. Check worker health, provider connectivity, and cleanup leases.

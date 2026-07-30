@@ -53,6 +53,14 @@ type Client interface {
 	PresignGetObject(ctx context.Context, input PresignGetObjectInput) (PresignedURL, error)
 }
 
+// InventoryClient is an optional read-only extension used by reconciliation.
+// Keeping it separate avoids forcing upload-only test and plugin clients to
+// implement provider inventory operations.
+type InventoryClient interface {
+	StatObject(ctx context.Context, input StatObjectInput) (ObjectInfo, error)
+	ListObjects(ctx context.Context, input ListObjectsInput) (ListObjectsResult, error)
+}
+
 // ProviderForClient reports the durable provider name that should be stored
 // alongside an object reference. Concrete client types are used as a fallback
 // because callers may construct local clients without setting Config.Provider.
@@ -109,6 +117,37 @@ type GetObjectResult struct {
 	ChecksumSHA256 string
 	ETag           string
 	Metadata       map[string]string
+}
+
+type StatObjectInput struct {
+	Bucket  string
+	Key     string
+	Version string
+}
+
+type ListObjectsInput struct {
+	Bucket string
+	Prefix string
+	Cursor string
+	Limit  int
+}
+
+type ObjectInfo struct {
+	Bucket         string            `json:"bucket"`
+	Key            string            `json:"key"`
+	Version        string            `json:"version,omitempty"`
+	ContentType    string            `json:"content_type,omitempty"`
+	SizeBytes      int64             `json:"size_bytes"`
+	ChecksumSHA256 string            `json:"checksum_sha256,omitempty"`
+	ETag           string            `json:"etag,omitempty"`
+	LastModified   time.Time         `json:"last_modified,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+type ListObjectsResult struct {
+	Objects    []ObjectInfo `json:"objects"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+	Truncated  bool         `json:"truncated"`
 }
 
 type DeleteObjectInput struct {

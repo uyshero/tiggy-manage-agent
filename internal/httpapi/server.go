@@ -16,6 +16,7 @@ import (
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
 	"tiggy-manage-agent/internal/skillmarketplace"
@@ -224,6 +225,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/observability/retry", s.requireControlAuth(s.retryObservabilityExporters))
 	s.mux.HandleFunc("GET /v1/observability/security-audit/integrity-keys", s.requireControlAuth(s.getSecurityAuditIntegrityKeyStatus))
 	s.mux.HandleFunc("POST /v1/observability/security-audit/replay", s.requireControlAuth(s.replaySecurityAuditDeadLetters))
+	s.mux.HandleFunc("GET /v1/object-cleanup/jobs", s.requireControlAuth(s.listObjectCleanupJobs))
+	s.mux.HandleFunc("GET /v1/object-cleanup/stats", s.requireControlAuth(s.getObjectCleanupStats))
+	s.mux.HandleFunc("POST /v1/object-cleanup/jobs/{job_id}/retry", s.requireControlAuth(s.retryObjectCleanupJob))
+	s.mux.HandleFunc("POST /v1/object-cleanup/jobs/{job_id}/approve", s.requireAdminAuth(s.approveBlockedObjectCleanupJob))
+	s.mux.HandleFunc("POST /v1/object-cleanup/reconciliation/preview", s.requireControlAuth(s.previewObjectReconciliation))
+	s.mux.HandleFunc("POST /v1/object-cleanup/reconciliation/artifacts", s.requireControlAuth(s.exportObjectReconciliationArtifact))
 
 	s.mux.HandleFunc("GET /v1/llm-providers", s.listLLMProviders)
 	s.mux.HandleFunc("POST /v1/llm-providers", s.requireControlAuth(s.createLLMProvider))
@@ -622,6 +629,9 @@ func writeError(w http.ResponseWriter, err error) {
 
 	switch {
 	case errors.Is(err, managedagents.ErrInvalid):
+		status = http.StatusBadRequest
+		message = err.Error()
+	case errors.Is(err, objectcleanup.ErrInvalid):
 		status = http.StatusBadRequest
 		message = err.Error()
 	case errors.Is(err, managedagents.ErrForbidden):

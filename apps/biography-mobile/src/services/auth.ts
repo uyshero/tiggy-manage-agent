@@ -36,6 +36,7 @@ export interface BiographyProgressSnapshot {
 interface OIDCDiscovery {
   authorization_endpoint: string;
   token_endpoint?: string;
+  end_session_endpoint?: string;
 }
 
 interface OIDCTokenResponse {
@@ -47,10 +48,13 @@ interface OIDCTokenResponse {
 }
 
 const authTokenStorageKey = "tma.biography.auth.oidc_token";
+const oidcIDTokenStorageKey = "tma.biography.auth.oidc_id_token";
 const authUserStorageKey = "tma.biography.auth.user";
 const oidcStateStorageKey = "tma.biography.auth.oidc_state";
 const oidcVerifierStorageKey = "tma.biography.auth.oidc_code_verifier";
 const oidcRedirectStorageKey = "tma.biography.auth.oidc_redirect_uri";
+const oidcLogoutEndpointStorageKey = "tma.biography.auth.oidc_logout_endpoint";
+const oidcClientIDStorageKey = "tma.biography.auth.oidc_client_id";
 const resumeTokenStorageKey = "tma.biography.resume_token";
 
 function readStorage<T>(key: string): T | null {
@@ -120,6 +124,7 @@ function saveBiographyAuth(token: string, user: BiographyUser) {
 
 export function clearBiographyAuth() {
   writeStorage(authTokenStorageKey, "");
+  writeStorage(oidcIDTokenStorageKey, "");
   writeStorage(authUserStorageKey, null);
 }
 
@@ -128,6 +133,8 @@ export function logoutBiography() {
   writeStorage(oidcStateStorageKey, "");
   writeStorage(oidcVerifierStorageKey, "");
   writeStorage(oidcRedirectStorageKey, "");
+  writeStorage(oidcLogoutEndpointStorageKey, "");
+  writeStorage(oidcClientIDStorageKey, "");
   writeStorage(resumeTokenStorageKey, "");
 }
 
@@ -169,6 +176,7 @@ export async function startBiographyOIDCLogin(returnTo?: string): Promise<string
   if (!oidc?.issuer) throw new Error("统一身份认证配置暂时不可用，请稍后再试");
   if (!oidc.client_id) throw new Error("请先配置 OIDC client_id");
   const discovery = await discoverBiographyOIDC(oidc.issuer);
+  saveOIDCLogoutMetadata(discovery, oidc.client_id);
   const state = randomBase64URL(24);
   const verifier = randomBase64URL(64);
   const challenge = await sha256Base64URL(verifier);
@@ -215,6 +223,7 @@ export async function completeBiographyOIDCCallbackFromURL(): Promise<BiographyU
   const redirectURI = readStringStorage(oidcRedirectStorageKey) || biographyOIDCRedirectURL();
   if (!verifier) throw new Error("登录会话已过期，请重新登录");
   const discovery = await discoverBiographyOIDC(oidc.issuer);
+  saveOIDCLogoutMetadata(discovery, oidc.client_id);
   if (!discovery.token_endpoint) throw new Error("OIDC Provider 未提供 token_endpoint");
 
   const body = new URLSearchParams();
@@ -246,7 +255,38 @@ export async function completeBiographyOIDCCallbackFromURL(): Promise<BiographyU
   writeStorage(oidcStateStorageKey, "");
   writeStorage(oidcVerifierStorageKey, "");
   writeStorage(oidcRedirectStorageKey, "");
-  return saveBiographyOIDCToken(token);
+  const user = await saveBiographyOIDCToken(token);
+  writeStorage(oidcIDTokenStorageKey, String(payload.id_token || "").trim());
+  return user;
+}
+
+export async function biographyOIDCLogoutURL(returnTo?: string): Promise<string> {
+  const idToken = readStringStorage(oidcIDTokenStorageKey);
+  const cachedEndpoint = readStringStorage(oidcLogoutEndpointStorageKey);
+  const cachedClientID = readStringStorage(oidcClientIDStorageKey);
+  if (cachedEndpoint && cachedClientID) {
+    return buildOIDCLogoutURL(cachedEndpoint, cachedClientID, idToken, returnTo);
+  }
+  const config = await fetchBiographyAuthConfig();
+  const oidc = config.oidc;
+  if (!config.enabled || !oidc?.issuer || !oidc.client_id) return "";
+  const discovery = await discoverBiographyOIDC(oidc.issuer);
+  if (!discovery.end_session_endpoint) return "";
+  saveOIDCLogoutMetadata(discovery, oidc.client_id);
+  return buildOIDCLogoutURL(discovery.end_session_endpoint, oidc.client_id, idToken, returnTo);
+}
+
+function saveOIDCLogoutMetadata(discovery: OIDCDiscovery, clientID: string) {
+  writeStorage(oidcLogoutEndpointStorageKey, String(discovery.end_session_endpoint || "").trim());
+  writeStorage(oidcClientIDStorageKey, clientID.trim());
+}
+
+function buildOIDCLogoutURL(endpoint: string, clientID: string, idToken: string, returnTo?: string): string {
+  const logoutURL = new URL(endpoint);
+  logoutURL.searchParams.set("client_id", clientID);
+  logoutURL.searchParams.set("post_logout_redirect_uri", returnTo || biographyOIDCRedirectURL());
+  if (idToken) logoutURL.searchParams.set("id_token_hint", idToken);
+  return logoutURL.toString();
 }
 
 export async function fetchBiographyProgress(): Promise<BiographyProgressSnapshot | null> {

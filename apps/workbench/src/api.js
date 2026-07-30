@@ -690,6 +690,30 @@ export function retryObservability(options = {}) {
   return coreSDK.observability.retry(options.signal);
 }
 
+export async function objectCleanupJobs(filters = {}, options = {}) {
+  return { jobs: await coreSDK.objectCleanup.list(filters, options.signal) };
+}
+
+export function objectCleanupStats(workspaceId = "", options = {}) {
+  return coreSDK.objectCleanup.stats(workspaceId || undefined, options.signal);
+}
+
+export function previewObjectReconciliation(input, options = {}) {
+  return coreSDK.objectCleanup.previewReconciliation(input || {}, options.signal);
+}
+
+export function exportObjectReconciliationArtifact(input, options = {}) {
+  return coreSDK.objectCleanup.exportReconciliationArtifact(input || {}, options.signal);
+}
+
+export function retryObjectCleanup(jobId, workspaceId = "", options = {}) {
+  return coreSDK.objectCleanup.retry(jobId, workspaceId || undefined, options.signal);
+}
+
+export function approveObjectCleanup(jobId, workspaceId = "", confirm = "", options = {}) {
+  return coreSDK.objectCleanup.approve(jobId, confirm, workspaceId || undefined, options.signal);
+}
+
 export function taskGroupTemplates(options = {}) {
   return coreSDK.orchestration.taskGroupTemplates(options.signal);
 }

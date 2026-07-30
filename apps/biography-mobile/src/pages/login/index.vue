@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { onLoad } from "@dcloudio/uni-app";
 import {
   biographyDevTokenInputEnabled,
   clearBiographyAuth,
@@ -13,10 +14,16 @@ import {
 const oidcToken = ref("");
 const loading = ref(false);
 const errorMessage = ref("");
+const loggedOut = ref(false);
 const devTokenInputEnabled = biographyDevTokenInputEnabled();
+
+onLoad((query) => {
+  loggedOut.value = query?.loggedOut === "1";
+});
 
 onMounted(async () => {
   clearBiographyAuthIfLegacyPhoneLogin();
+  if (loggedOut.value) return;
   try {
     const user = await completeBiographyOIDCCallbackFromURL();
     if (user) {
@@ -42,6 +49,7 @@ async function startOIDCLogin() {
   loading.value = true;
   let url = "";
   try {
+    loggedOut.value = false;
     url = await startBiographyOIDCLogin();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "统一身份认证暂时不可用";
@@ -94,12 +102,14 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
   <view class="login-page">
     <view class="login-card" :class="{ compact: !errorMessage && !devTokenInputEnabled }">
       <view class="brand-mark"><view /><view /><view /></view>
-      <text v-if="!errorMessage" class="login-title">正在打开统一登录</text>
-      <text v-if="!errorMessage" class="login-subtitle">请稍候，马上跳转。</text>
+      <text v-if="loggedOut" class="login-title">已退出登录</text>
+      <text v-else-if="!errorMessage" class="login-title">正在打开统一登录</text>
+      <text v-if="loggedOut" class="login-subtitle">您的采访内容已经保留。</text>
+      <text v-else-if="!errorMessage" class="login-subtitle">请稍候，马上跳转。</text>
       <text v-if="errorMessage" class="error-message">{{ errorMessage }}</text>
 
-      <button v-if="errorMessage" class="login-button" :disabled="loading" @click="startOIDCLogin">
-        {{ loading ? "正在打开" : "重新打开统一登录" }}
+      <button v-if="loggedOut || errorMessage" class="login-button" :disabled="loading" @click="startOIDCLogin">
+        {{ loading ? "正在打开" : loggedOut ? "重新登录" : "重新打开统一登录" }}
       </button>
 
       <view v-if="devTokenInputEnabled" class="dev-token-panel">

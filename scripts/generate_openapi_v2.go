@@ -136,11 +136,13 @@ var coreContracts = map[string]routeContract{
 	"get /v2/knowledge/services":                                                 {ResponseSchema: "KnowledgeServiceList"},
 	"post /v2/knowledge/services":                                                {RequestSchema: "CreateKnowledgeServiceRequest", RequestRequired: true, ResponseSchema: "KnowledgeService", SuccessStatuses: []string{"201"}},
 	"get /v2/knowledge/services/{service_id}":                                    {ResponseSchema: "KnowledgeService"},
+	"patch /v2/knowledge/services/{service_id}":                                  {RequestSchema: "UpdateKnowledgeServiceRequest", RequestRequired: true, ResponseSchema: "KnowledgeService"},
 	"delete /v2/knowledge/services/{service_id}":                                 {SuccessStatuses: []string{"204"}},
 	"post /v2/knowledge/services/{service_id}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
 	"get /v2/knowledge/services/{service_id}/shares":                             {ResponseSchema: "KnowledgeShareList"},
 	"post /v2/knowledge/services/{service_id}/shares":                            {RequestSchema: "CreateKnowledgeShareRequest", RequestRequired: true, ResponseSchema: "KnowledgeShareCreateResult", SuccessStatuses: []string{"201"}},
 	"post /v2/knowledge/shares/{share_id}/revoke":                                {SuccessStatuses: []string{"204"}},
+	"delete /v2/knowledge/shares/{share_id}":                                     {SuccessStatuses: []string{"204"}},
 	"get /v2/public/knowledge-shares/{token}":                                    {ResponseSchema: "PublicKnowledgeShare"},
 	"post /v2/public/knowledge-shares/{token}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
 	"get /v2/mcp-servers":                                                        {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -163,6 +165,12 @@ var coreContracts = map[string]routeContract{
 	"get /v2/object-refs/{object_ref_id}":                                        {ResponseSchema: "ObjectRef"},
 	"delete /v2/object-refs/{object_ref_id}":                                     {SuccessStatuses: []string{"204"}},
 	"get /v2/object-refs/{object_ref_id}/download":                               {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "session_id", In: "query"}}},
+	"get /v2/object-cleanup/jobs":                                                {ResponseSchema: "ObjectCleanupJobList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "reason", In: "query"}, {Name: "created_from", In: "query", Type: "string", Format: "date-time"}, {Name: "created_to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/object-cleanup/stats":                                               {ResponseSchema: "ObjectCleanupStats", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/jobs/{job_id}/retry":                                {ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/jobs/{job_id}/approve":                              {RequestSchema: "ApproveObjectCleanupRequest", RequestRequired: true, ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/reconciliation/preview":                             {RequestSchema: "ObjectReconciliationPreviewRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationReport"},
+	"post /v2/object-cleanup/reconciliation/artifacts":                           {RequestSchema: "ObjectReconciliationArtifactRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationArtifactExport", SuccessStatuses: []string{"201"}},
 	"get /v2/observability/status":                                               {ResponseSchema: "ObservabilityStatus"},
 	"post /v2/observability/retry":                                               {ResponseSchema: "ObservabilityRetryResult"},
 	"get /v2/observability/security-audit/integrity-keys":                        {ResponseSchema: "SecurityAuditIntegrityKeyStatus"},
@@ -325,11 +333,13 @@ func main() {
 		route{Method: "get", Path: "/v2/knowledge/services"},
 		route{Method: "post", Path: "/v2/knowledge/services"},
 		route{Method: "get", Path: "/v2/knowledge/services/{service_id}"},
+		route{Method: "patch", Path: "/v2/knowledge/services/{service_id}"},
 		route{Method: "delete", Path: "/v2/knowledge/services/{service_id}"},
 		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/ask"},
 		route{Method: "get", Path: "/v2/knowledge/services/{service_id}/shares"},
 		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/shares"},
 		route{Method: "post", Path: "/v2/knowledge/shares/{share_id}/revoke"},
+		route{Method: "delete", Path: "/v2/knowledge/shares/{share_id}"},
 		route{Method: "get", Path: "/v2/public/knowledge-shares/{token}"},
 		route{Method: "post", Path: "/v2/public/knowledge-shares/{token}/ask"},
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs"},
@@ -2065,6 +2075,20 @@ paths:
         sensitive_terms:
           type: array
           items: {type: string}
+    UpdateKnowledgeServiceRequest:
+      type: object
+      required: [name, scenario]
+      properties:
+        name: {type: string}
+        scenario: {type: string}
+        system_prompt: {type: string}
+        knowledge_base_ids:
+          type: array
+          items: {type: string}
+        allow_web_search: {type: boolean}
+        sensitive_terms:
+          type: array
+          items: {type: string}
     KnowledgeShare:
       type: object
       required: [id, service_id, created_by, created_at]
@@ -2072,6 +2096,7 @@ paths:
         id: {type: string}
         workspace_id: {type: string}
         service_id: {type: string}
+        share_url: {type: string}
         expires_at: {type: string, format: date-time}
         revoked_at: {type: string, format: date-time}
         created_by: {type: string}
@@ -2162,6 +2187,160 @@ paths:
         visibility: {type: string}
         metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         created_by: {type: string}
+    ObjectCleanupJob:
+      type: object
+      required: [id, workspace_id, storage_provider, bucket, object_key, size_bytes, reason, safe_to_delete, status, attempt_count, next_attempt_at, object_was_missing, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        object_ref_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        object_key: {type: string}
+        object_version: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        reason: {type: string}
+        safe_to_delete: {type: boolean}
+        status: {type: string, enum: [pending, processing, completed, blocked, dead_letter]}
+        attempt_count: {type: integer, format: int32}
+        next_attempt_at: {type: string, format: date-time}
+        lease_owner: {type: string}
+        lease_expires_at: {type: string, format: date-time}
+        last_error: {type: string}
+        object_was_missing: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+    ObjectCleanupJobList:
+      type: object
+      required: [jobs]
+      properties:
+        jobs: {type: array, items: {$ref: "#/components/schemas/ObjectCleanupJob"}}
+    ObjectCleanupStatusStats:
+      type: object
+      required: [status, jobs, bytes, attempts, retried_jobs, missing_objects, deleted_bytes]
+      properties:
+        status: {type: string, enum: [pending, processing, completed, blocked, dead_letter]}
+        jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        attempts: {type: integer, format: int64, maximum: 9007199254740991}
+        retried_jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        missing_objects: {type: integer, format: int64, maximum: 9007199254740991}
+        deleted_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+    ObjectCleanupStats:
+      type: object
+      required: [workspace_id, statuses, oldest_pending_age_seconds, orphans_staged, total_attempts, total_retried_jobs, total_deleted_bytes]
+      properties:
+        workspace_id: {type: string}
+        statuses: {type: array, items: {$ref: "#/components/schemas/ObjectCleanupStatusStats"}}
+        oldest_pending_at: {type: string, format: date-time}
+        oldest_pending_age_seconds: {type: integer, format: int64, maximum: 9007199254740991}
+        orphans_staged: {type: integer, format: int64, maximum: 9007199254740991}
+        total_attempts: {type: integer, format: int64, maximum: 9007199254740991}
+        total_retried_jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        total_deleted_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+    ApproveObjectCleanupRequest:
+      type: object
+      required: [confirm]
+      additionalProperties: false
+      properties:
+        confirm: {type: string, description: "Must equal DELETE followed by a space and the cleanup job ID."}
+    ObjectReconciliationPreviewRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        provider_cursor: {type: string}
+        limit: {type: integer, format: int32, minimum: 1, maximum: 500}
+    ObjectReconciliationArtifactRequest:
+      type: object
+      required: [session_id]
+      additionalProperties: false
+      properties:
+        session_id: {type: string}
+        name: {type: string}
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        provider_cursor: {type: string}
+        limit: {type: integer, format: int32, minimum: 1, maximum: 500}
+    ObjectReconciliationScanSide:
+      type: object
+      required: [scanned, truncated]
+      properties:
+        scanned: {type: integer, format: int32}
+        truncated: {type: boolean}
+        next_cursor: {type: string}
+    ObjectReconciliationScan:
+      type: object
+      required: [object_refs, provider_objects]
+      properties:
+        object_refs: {$ref: "#/components/schemas/ObjectReconciliationScanSide"}
+        provider_objects: {$ref: "#/components/schemas/ObjectReconciliationScanSide"}
+    ObjectReconciliationSummary:
+      type: object
+      required: [total, missing_objects, orphan_objects, metadata_mismatches, provider_errors]
+      properties:
+        total: {type: integer, format: int32}
+        missing_objects: {type: integer, format: int32}
+        orphan_objects: {type: integer, format: int32}
+        metadata_mismatches: {type: integer, format: int32}
+        provider_errors: {type: integer, format: int32}
+    ObjectReconciliationMetadata:
+      type: object
+      required: [size_bytes]
+      properties:
+        version: {type: string}
+        content_type: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        checksum_sha256: {type: string}
+        etag: {type: string}
+        last_modified: {type: string, format: date-time}
+    ObjectReconciliationDifference:
+      type: object
+      required: [field, expected, actual]
+      properties:
+        field: {type: string, enum: [version, content_type, size_bytes, checksum_sha256, etag]}
+        expected: {type: string}
+        actual: {type: string}
+    ObjectReconciliationFinding:
+      type: object
+      required: [kind, message, remediation]
+      properties:
+        kind: {type: string, enum: [missing_object, orphan_object, metadata_mismatch, provider_error]}
+        object_ref_id: {type: string}
+        object_key: {type: string}
+        object_version: {type: string}
+        expected: {$ref: "#/components/schemas/ObjectReconciliationMetadata"}
+        actual: {$ref: "#/components/schemas/ObjectReconciliationMetadata"}
+        differences: {type: array, items: {$ref: "#/components/schemas/ObjectReconciliationDifference"}}
+        message: {type: string}
+        remediation: {type: string}
+    ObjectReconciliationReport:
+      type: object
+      required: [dry_run, workspace_id, storage_provider, bucket, prefix, generated_at, scan, summary, findings]
+      properties:
+        dry_run: {type: boolean}
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        generated_at: {type: string, format: date-time}
+        scan: {$ref: "#/components/schemas/ObjectReconciliationScan"}
+        summary: {$ref: "#/components/schemas/ObjectReconciliationSummary"}
+        findings: {type: array, items: {$ref: "#/components/schemas/ObjectReconciliationFinding"}}
+    ObjectReconciliationArtifactExport:
+      type: object
+      required: [report, object_ref, artifact, workspace_path]
+      properties:
+        report: {$ref: "#/components/schemas/ObjectReconciliationReport"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+        workspace_path: {type: string}
     TurnTrace:
       type: object
       required: [session_id, turn_id, steps]

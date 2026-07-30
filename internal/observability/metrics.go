@@ -8,6 +8,7 @@ import (
 
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/mcp"
+	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/skillmarketplace"
 	"tiggy-manage-agent/internal/skillretention"
 )
@@ -34,6 +35,7 @@ type MetricsSnapshot struct {
 	AgentCoreDurability    []AgentCoreDurabilityMetric
 	WorkerLeases           []WorkerLeaseMetric
 	ToolSelections         []ToolSelectionMetric
+	ObjectCleanup          objectcleanup.Stats
 }
 
 type AuthorizationDecisionMetric struct {
@@ -62,8 +64,59 @@ func PrometheusText(snapshot MetricsSnapshot) string {
 	writeAgentCoreMetrics(&builder, snapshot.AgentCore, snapshot.WorkerLeases)
 	writeAgentCoreDurabilityMetrics(&builder, snapshot.AgentCoreDurability)
 	writeToolSelectionMetrics(&builder, snapshot.ToolSelections)
+	writeObjectCleanupMetrics(&builder, snapshot.ObjectCleanup)
 	writeTraceMetrics(&builder, snapshot.Trace, snapshot.Events, snapshot.Interventions)
 	return builder.String()
+}
+
+func writeObjectCleanupMetrics(builder *strings.Builder, stats objectcleanup.Stats) {
+	if stats.WorkspaceID == "" {
+		return
+	}
+	writeMetricHelp(builder, "tma_object_cleanup_jobs", "Durable object cleanup jobs by bounded status.")
+	writeMetricType(builder, "tma_object_cleanup_jobs", "gauge")
+	writeMetricHelp(builder, "tma_object_cleanup_bytes", "Object bytes represented by durable cleanup jobs by bounded status.")
+	writeMetricType(builder, "tma_object_cleanup_bytes", "gauge")
+	writeMetricHelp(builder, "tma_object_cleanup_attempts", "Delete attempts currently recorded by the durable cleanup journal.")
+	writeMetricType(builder, "tma_object_cleanup_attempts", "gauge")
+	writeMetricHelp(builder, "tma_object_cleanup_retried_jobs", "Cleanup jobs that required more than one delete attempt.")
+	writeMetricType(builder, "tma_object_cleanup_retried_jobs", "gauge")
+	writeMetricHelp(builder, "tma_object_cleanup_missing_objects", "Completed cleanup jobs whose object was already missing.")
+	writeMetricType(builder, "tma_object_cleanup_missing_objects", "gauge")
+	byStatus := make(map[string]objectcleanup.StatusStats, len(stats.Statuses))
+	var totalJobs int64
+	for _, item := range stats.Statuses {
+		byStatus[item.Status] = item
+		totalJobs += item.Jobs
+	}
+	for _, status := range []string{
+		objectcleanup.StatusPending, objectcleanup.StatusProcessing, objectcleanup.StatusBlocked,
+		objectcleanup.StatusCompleted, objectcleanup.StatusDeadLetter,
+	} {
+		item := byStatus[status]
+		labels := map[string]string{"status": status}
+		writeMetric(builder, "tma_object_cleanup_jobs", labels, item.Jobs)
+		writeMetric(builder, "tma_object_cleanup_bytes", labels, item.Bytes)
+		writeMetric(builder, "tma_object_cleanup_attempts", labels, item.Attempts)
+		writeMetric(builder, "tma_object_cleanup_retried_jobs", labels, item.RetriedJobs)
+		writeMetric(builder, "tma_object_cleanup_missing_objects", labels, item.MissingObjects)
+	}
+	writeMetricHelp(builder, "tma_object_cleanup_oldest_pending_age_seconds", "Age of the oldest pending object cleanup job.")
+	writeMetricType(builder, "tma_object_cleanup_oldest_pending_age_seconds", "gauge")
+	writeMetric(builder, "tma_object_cleanup_oldest_pending_age_seconds", nil, stats.OldestPendingAge)
+	writeMetricHelp(builder, "tma_object_cleanup_orphans_staged", "Managed orphan ObjectRefs staged in the durable cleanup journal.")
+	writeMetricType(builder, "tma_object_cleanup_orphans_staged", "gauge")
+	writeMetric(builder, "tma_object_cleanup_orphans_staged", nil, stats.OrphansStaged)
+	writeMetricHelp(builder, "tma_object_cleanup_deleted_bytes", "Bytes successfully deleted by completed cleanup jobs.")
+	writeMetricType(builder, "tma_object_cleanup_deleted_bytes", "gauge")
+	writeMetric(builder, "tma_object_cleanup_deleted_bytes", nil, stats.TotalDeletedBytes)
+	writeMetricHelp(builder, "tma_object_cleanup_retry_ratio", "Fraction of durable cleanup jobs that required more than one delete attempt.")
+	writeMetricType(builder, "tma_object_cleanup_retry_ratio", "gauge")
+	retryRatio := float64(0)
+	if totalJobs > 0 {
+		retryRatio = float64(stats.TotalRetriedJobs) / float64(totalJobs)
+	}
+	writeFloatMetric(builder, "tma_object_cleanup_retry_ratio", nil, retryRatio)
 }
 
 func writeToolSelectionMetrics(builder *strings.Builder, metrics []ToolSelectionMetric) {

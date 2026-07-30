@@ -13,6 +13,7 @@ import { LLMService } from "./services/llm.js";
 import { MCPService } from "./services/mcp.js";
 import { MarketplaceService } from "./services/marketplace.js";
 import { ObjectRefsService } from "./services/object-refs.js";
+import { ObjectCleanupService } from "./services/object-cleanup.js";
 import { OrchestrationService } from "./services/orchestration.js";
 import { RunsService } from "./services/runs.js";
 import { SessionsService } from "./services/sessions.js";
@@ -37,6 +38,7 @@ export class TMAClient {
   readonly orchestration: OrchestrationService;
   readonly llm: LLMService;
   readonly objectRefs: ObjectRefsService;
+  readonly objectCleanup: ObjectCleanupService;
   readonly workers: WorkersService;
   readonly workerWork: WorkerWorkService;
   readonly mcp: MCPService;
@@ -62,6 +64,7 @@ export class TMAClient {
     this.orchestration = new OrchestrationService(transport);
     this.llm = new LLMService(transport);
     this.objectRefs = new ObjectRefsService(transport);
+    this.objectCleanup = new ObjectCleanupService(transport);
     this.workers = new WorkersService(transport);
     this.workerWork = new WorkerWorkService(transport);
     this.mcp = new MCPService(transport);

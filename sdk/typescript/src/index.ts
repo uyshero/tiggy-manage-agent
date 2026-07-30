@@ -10,6 +10,7 @@ export { LLMService } from "./services/llm.js";
 export { MarketplaceService } from "./services/marketplace.js";
 export { MCPService } from "./services/mcp.js";
 export { ObjectRefsService } from "./services/object-refs.js";
+export { ObjectCleanupService } from "./services/object-cleanup.js";
 export { ObservabilityService, AuditService, EnvironmentVariablesService } from "./services/administration.js";
 export { OrchestrationService } from "./services/orchestration.js";
 export { RunHandle, RunsService } from "./services/runs.js";

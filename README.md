@@ -61,6 +61,11 @@ Expected response:
 
 ## Layout
 
+The repository split roadmap and dependency boundaries are documented in
+[Repository Split](./docs/repository-split.md). The codebase is still a monorepo;
+the target is six independently releasable projects: Platform, Worker Runtime,
+Console, Knowledge, Biography, and SDK.
+
 ```text
 cmd/tma-server/          HTTP server entrypoint
 cmd/tma-worker/          Long-running worker entrypoint

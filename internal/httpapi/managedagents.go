@@ -22,6 +22,7 @@ import (
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
 	"tiggy-manage-agent/internal/runner"
@@ -1467,6 +1468,14 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 		AgentCoreDurability:   observability.AgentCoreDurabilityMetricsSnapshot(),
 		WorkerLeases:          observability.WorkerLeaseMetricsSnapshot(),
 		ToolSelections:        observability.ToolSelectionMetricsSnapshot(),
+	}
+	if cleanupStore, ok := s.store.(objectcleanup.OperationsStore); ok {
+		stats, err := cleanupStore.GetObjectCleanupStats(r.Context(), workspaceID, time.Now().UTC())
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		snapshot.ObjectCleanup = stats
 	}
 	if s.authorizationAudit != nil {
 		snapshot.AuthorizationDecisions = s.authorizationAudit.snapshot()

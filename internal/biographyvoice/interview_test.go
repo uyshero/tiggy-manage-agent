@@ -1,6 +1,7 @@
 package biographyvoice
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -105,6 +106,14 @@ func TestMockOrganizerUpdatesTheFocusedChapter(t *testing.T) {
 func TestBiographyStartsWithoutPresetChaptersAndMigratesEmptyTemplate(t *testing.T) {
 	if project := newBiographyProject(); len(project.Chapters) != 0 {
 		t.Fatalf("new biography should not contain preset chapters: %+v", project.Chapters)
+	}
+	cloned := cloneBiographyProject(newBiographyProject())
+	payload, err := json.Marshal(cloned)
+	if err != nil {
+		t.Fatalf("marshal empty biography project: %v", err)
+	}
+	if !bytes.Contains(payload, []byte(`"chapters":[]`)) {
+		t.Fatalf("empty chapters must serialize as an array: %s", payload)
 	}
 	legacy := newBiographyProject()
 	legacy.Chapters = []Chapter{

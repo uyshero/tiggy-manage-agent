@@ -12,12 +12,16 @@ import { buildToolCallLifecycles, liveToolProgressAfterEvent, normalizeToolTimel
 import { groupMCPRuntimeStates, mcpRuntimeFailureLabel, mcpRuntimeStateLabel, summarizeMCPRuntimeStates } from "./mcpRuntimeStatus.js";
 import { gitLabDockerMCPDraft } from "./mcpPresets.js";
 import { runtimeFailurePresentation } from "./runtimeFailures.js";
+import { contextCompactionFailureDedupeKey, contextCompactionPresentation, isContextCompactionEvent } from "./contextCompactionEvents.js";
 import { buildHumanInputResponse, canSubmitHumanInput, objectRecord } from "./interactionForms.js";
 import { latestTaskPlan } from "./taskPlanEvents.js";
 import { shouldSyncSessionForEvent } from "./sessionSyncEvents.js";
 import { retainedProcessText } from "./chatTimelineRetention.js";
 import { durableEventReplacesLiveReply } from "./chatLiveReply.js";
 import { clipboardHasPlainText, clipboardImageFiles } from "./composerClipboard.js";
+import MarkdownCodeBlock from "./MarkdownCodeBlock.jsx";
+import ObjectCleanupSettings from "./ObjectCleanupSettings.jsx";
+import { artifactPreviewErrorMessage } from "./artifactPreviewErrors.js";
 import { conversationFinalFileArtifacts, finalAgentMessageArtifacts } from "./artifactAssociations.js";
 import {
   appendSessionMessageQueue,
@@ -3900,6 +3904,8 @@ function SettingsPage({
     switch (activeSection) {
       case "environment":
         return <EnvironmentVariablesSettings canManageWorkspaceVariables={canManageWorkspaceVariables} workspaceID={workspaceID} />;
+      case "object-cleanup":
+        return <ObjectCleanupSettings canApprove={(principal?.roles || []).includes("admin")} workspaceID={workspaceID} />;
       case "models":
         return <ModelManagementSettings onCatalogChanged={onModelCatalogChanged} onOpenEnvironment={() => setActiveSection("environment")} workspaceID={workspaceID} />;
       case "skills":
@@ -4592,6 +4598,9 @@ const chatTimelineStatusEventTypes = new Set([
   "runtime.started",
   "runtime.llm_request",
   "runtime.llm_response",
+  "runtime.context_compacting",
+  "runtime.context_compacted",
+  "runtime.context_compaction_failed",
   "runtime.skills_resolving",
   "runtime.skills_resolved",
   "runtime.turn_completing",
@@ -4646,6 +4655,10 @@ const chatTimelineInternalEventTypes = new Set([
 function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = true, transientThinkingAfterSeq = 0 } = {}) {
   const sorted = [...(sourceEvents || [])].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
+  const explicitCompactionFailures = new Set(sorted
+    .filter((event) => event.type === "runtime.context_compaction_failed")
+    .map((event) => contextCompactionFailureDedupeKey(event))
+    .filter(Boolean));
   const compacted = [];
   let internalEvents = [];
 
@@ -4681,6 +4694,7 @@ function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = tr
 
   for (const event of sorted) {
     const callID = toolCallID(event);
+    if (event.type === "runtime.failed" && explicitCompactionFailures.has(contextCompactionFailureDedupeKey(event))) continue;
     if (chatTimelineInternalEventTypes.has(event.type)) {
       internalEvents.push(event);
       continue;
@@ -5389,6 +5403,17 @@ function ProcessEventCard({
     status = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warning" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "running" : "completed";
     statusLabel = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
     defaultExpanded = status === "running";
+  } else if (isContextCompactionEvent(event)) {
+    const compaction = contextCompactionPresentation(event, { active });
+    title = compaction.title;
+    metaLabel = compaction.metaLabel;
+    preview = compaction.detail;
+    detailObject = compaction.detailObject;
+    contextItems = compaction.contextItems;
+    tone = compaction.tone;
+    status = compaction.status;
+    statusLabel = compaction.statusLabel;
+    defaultExpanded = compaction.defaultExpanded;
   } else if (event.type === "runtime.thinking") {
     title = active ? "思考中" : "思考";
     metaLabel = "思考";
@@ -5915,7 +5940,8 @@ function MarkdownMessage({ text, streaming = false }) {
 				remarkPlugins={[remarkGfm]}
 				skipHtml
 				components={{
-					a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />
+					a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+					pre: MarkdownCodeBlock
 				}}
 			>
 				{String(text || "")}
@@ -6669,6 +6695,9 @@ function WorkbenchApp() {
       { key: "space", title: "LLM Space", description: "运行对比、数据集与批量评测", keywords: "space llm evaluation experiment dataset compare 评测 实验 数据集 对比", href: "/space" },
       { key: "inspector", title: "Inspector", description: "调试与观察入口", keywords: "inspector trace debug" }
     ];
+    if ((principal?.roles || []).some((role) => role === "operator" || role === "admin")) {
+      sections.splice(3, 0, { key: "object-cleanup", title: "对象存储", description: "清理队列、死信与删除审批", keywords: "object storage cleanup dead letter approval 对象存储 清理 死信 审批" });
+    }
     const query = settingsSearch.trim().toLowerCase();
     if (!query) return sections;
     return sections.filter((section) => (
@@ -6676,7 +6705,7 @@ function WorkbenchApp() {
       section.description.toLowerCase().includes(query) ||
       section.keywords.toLowerCase().includes(query)
     ));
-  }, [settingsSearch]);
+  }, [principal, settingsSearch]);
   const settingsAgents = useMemo(() => {
     const base = [...availableAgents];
     return base.sort((left, right) => {
@@ -8077,7 +8106,7 @@ function WorkbenchApp() {
       setArtifactPreview({ resource, status: "ready", ...preview });
     } catch (error) {
       if (isPreviewCancelledError(error)) return;
-      setArtifactPreview({ resource, status: "error", error: error.message });
+      setArtifactPreview({ resource, status: "error", error: artifactPreviewErrorMessage(error) });
     }
   }
 
@@ -9097,7 +9126,7 @@ function WorkbenchApp() {
                   const nextEvent = renderedChatTimelineEvents[eventIndex + 1];
                   const toolLifecycle = toolCallLifecycles.get(toolCallID(event));
                   const terminalToolEvent = terminalToolLifecycleEvent(toolLifecycle);
-                  const isLatestActiveEvent = eventIndex === renderedChatTimelineEvents.length - 1 && ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus);
+                  const isLatestActiveEvent = eventIndex === renderedChatTimelineEvents.length - 1 && ["running", "interrupting", "provisioning", "compacting"].includes(effectiveSessionStatus);
                   return (
                     <ProcessEventCard
                       active={isLatestActiveEvent}

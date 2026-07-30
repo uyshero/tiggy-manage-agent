@@ -6,6 +6,7 @@ import {
   agentConfigVersions,
   agentToolingHealth,
   agents,
+  approveObjectCleanup,
   approveIntervention,
   archiveMarketplacePolicy,
   archiveSession,
@@ -39,6 +40,7 @@ import {
   events,
   enableSkill,
   exportAgent,
+  exportObjectReconciliationArtifact,
   importAgent,
   interventions,
   interruptSession,
@@ -52,6 +54,9 @@ import {
   mcpServers,
   mcpServerVersions,
   observabilityStatus,
+  objectCleanupJobs,
+  objectCleanupStats,
+  previewObjectReconciliation,
   objectRefDownloadPath,
   previewInternalSkillsMarketplace,
   previewSkillAssetGC,
@@ -60,6 +65,7 @@ import {
   publishSkillAssetRetentionPolicyVersion,
   rejectIntervention,
   retryObservability,
+  retryObjectCleanup,
   rerunSession,
   restoreSession,
   restoreMCPServerVersion,
@@ -122,6 +128,41 @@ function response(body = {}) {
     json: async () => body
   };
 }
+
+test("Object cleanup operations use the typed SDK and encode identifiers and filters", async () => {
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options = {}) => {
+    requests.push({ path: String(path), options });
+    if (String(path).includes("/stats")) return response({ workspace_id: "workspace/1", statuses: [] });
+    if (options.method === "GET") return response({ jobs: [{ id: "job/1" }] });
+    return response({ id: "job/1", status: "pending" });
+  };
+  try {
+    const listed = await objectCleanupJobs({ workspaceId: "workspace/1", status: "dead_letter", limit: 20 });
+    const stats = await objectCleanupStats("workspace/1");
+		await previewObjectReconciliation({ workspace_id: "workspace/1", prefix: "workspace/1/reports/", limit: 50 });
+		await exportObjectReconciliationArtifact({ session_id: "session/1", workspace_id: "workspace/1", prefix: "workspace/1/reports/", limit: 50 });
+    await retryObjectCleanup("job/1", "workspace/1");
+    await approveObjectCleanup("job/1", "workspace/1", "DELETE job/1");
+    assert.equal(listed.jobs[0].id, "job/1");
+    assert.equal(stats.workspace_id, "workspace/1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(requests.map(({ path, options }) => `${options.method} ${path}`), [
+    "GET http://localhost/v2/object-cleanup/jobs?workspace_id=workspace%2F1&status=dead_letter&limit=20",
+    "GET http://localhost/v2/object-cleanup/stats?workspace_id=workspace%2F1",
+		"POST http://localhost/v2/object-cleanup/reconciliation/preview",
+		"POST http://localhost/v2/object-cleanup/reconciliation/artifacts",
+    "POST http://localhost/v2/object-cleanup/jobs/job%2F1/retry?workspace_id=workspace%2F1",
+    "POST http://localhost/v2/object-cleanup/jobs/job%2F1/approve?workspace_id=workspace%2F1"
+  ]);
+	assert.deepEqual(JSON.parse(requests[2].options.body), { workspace_id: "workspace/1", prefix: "workspace/1/reports/", limit: 50 });
+	assert.deepEqual(JSON.parse(requests[3].options.body), { session_id: "session/1", workspace_id: "workspace/1", prefix: "workspace/1/reports/", limit: 50 });
+	assert.deepEqual(JSON.parse(requests[5].options.body), { confirm: "DELETE job/1" });
+});
 
 test("LLM control-plane writes use typed v2 SDK methods and exact revision headers", async () => {
   const requests = [];

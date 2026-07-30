@@ -1221,9 +1221,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /v2/knowledge/shares/{share_id}/revoke:
-    post:
-      operationId: post_v2_knowledge_shares_by_share_id_revoke
+  /v2/knowledge/shares/{share_id}:
+    delete:
+      operationId: delete_v2_knowledge_shares_by_share_id
       parameters:
         - name: share_id
           in: path
@@ -1238,9 +1238,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /v2/knowledge/shares/{share_id}:
-    delete:
-      operationId: delete_v2_knowledge_shares_by_share_id
+  /v2/knowledge/shares/{share_id}/revoke:
+    post:
+      operationId: post_v2_knowledge_shares_by_share_id_revoke
       parameters:
         - name: share_id
           in: path
@@ -1797,6 +1797,168 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MCPRestoreResult"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/jobs:
+    get:
+      operationId: get_v2_object_cleanup_jobs
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: status
+          in: query
+          required: false
+          schema: {type: string}
+        - name: reason
+          in: query
+          required: false
+          schema: {type: string}
+        - name: created_from
+          in: query
+          required: false
+          schema: {type: string, format: date-time}
+        - name: created_to
+          in: query
+          required: false
+          schema: {type: string, format: date-time}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, format: int32}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectCleanupJobList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/jobs/{job_id}/approve:
+    post:
+      operationId: post_v2_object_cleanup_jobs_by_job_id_approve
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveObjectCleanupRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectCleanupJob"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/jobs/{job_id}/retry:
+    post:
+      operationId: post_v2_object_cleanup_jobs_by_job_id_retry
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectCleanupJob"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/reconciliation/artifacts:
+    post:
+      operationId: post_v2_object_cleanup_reconciliation_artifacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObjectReconciliationArtifactRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectReconciliationArtifactExport"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/reconciliation/preview:
+    post:
+      operationId: post_v2_object_cleanup_reconciliation_preview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ObjectReconciliationPreviewRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectReconciliationReport"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/object-cleanup/stats:
+    get:
+      operationId: get_v2_object_cleanup_stats
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectCleanupStats"
         default:
           description: API error
           content:
@@ -7251,6 +7413,160 @@ components:
         visibility: {type: string}
         metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         created_by: {type: string}
+    ObjectCleanupJob:
+      type: object
+      required: [id, workspace_id, storage_provider, bucket, object_key, size_bytes, reason, safe_to_delete, status, attempt_count, next_attempt_at, object_was_missing, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        object_ref_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        object_key: {type: string}
+        object_version: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        reason: {type: string}
+        safe_to_delete: {type: boolean}
+        status: {type: string, enum: [pending, processing, completed, blocked, dead_letter]}
+        attempt_count: {type: integer, format: int32}
+        next_attempt_at: {type: string, format: date-time}
+        lease_owner: {type: string}
+        lease_expires_at: {type: string, format: date-time}
+        last_error: {type: string}
+        object_was_missing: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+    ObjectCleanupJobList:
+      type: object
+      required: [jobs]
+      properties:
+        jobs: {type: array, items: {$ref: "#/components/schemas/ObjectCleanupJob"}}
+    ObjectCleanupStatusStats:
+      type: object
+      required: [status, jobs, bytes, attempts, retried_jobs, missing_objects, deleted_bytes]
+      properties:
+        status: {type: string, enum: [pending, processing, completed, blocked, dead_letter]}
+        jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        attempts: {type: integer, format: int64, maximum: 9007199254740991}
+        retried_jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        missing_objects: {type: integer, format: int64, maximum: 9007199254740991}
+        deleted_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+    ObjectCleanupStats:
+      type: object
+      required: [workspace_id, statuses, oldest_pending_age_seconds, orphans_staged, total_attempts, total_retried_jobs, total_deleted_bytes]
+      properties:
+        workspace_id: {type: string}
+        statuses: {type: array, items: {$ref: "#/components/schemas/ObjectCleanupStatusStats"}}
+        oldest_pending_at: {type: string, format: date-time}
+        oldest_pending_age_seconds: {type: integer, format: int64, maximum: 9007199254740991}
+        orphans_staged: {type: integer, format: int64, maximum: 9007199254740991}
+        total_attempts: {type: integer, format: int64, maximum: 9007199254740991}
+        total_retried_jobs: {type: integer, format: int64, maximum: 9007199254740991}
+        total_deleted_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+    ApproveObjectCleanupRequest:
+      type: object
+      required: [confirm]
+      additionalProperties: false
+      properties:
+        confirm: {type: string, description: "Must equal DELETE followed by a space and the cleanup job ID."}
+    ObjectReconciliationPreviewRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        provider_cursor: {type: string}
+        limit: {type: integer, format: int32, minimum: 1, maximum: 500}
+    ObjectReconciliationArtifactRequest:
+      type: object
+      required: [session_id]
+      additionalProperties: false
+      properties:
+        session_id: {type: string}
+        name: {type: string}
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        provider_cursor: {type: string}
+        limit: {type: integer, format: int32, minimum: 1, maximum: 500}
+    ObjectReconciliationScanSide:
+      type: object
+      required: [scanned, truncated]
+      properties:
+        scanned: {type: integer, format: int32}
+        truncated: {type: boolean}
+        next_cursor: {type: string}
+    ObjectReconciliationScan:
+      type: object
+      required: [object_refs, provider_objects]
+      properties:
+        object_refs: {$ref: "#/components/schemas/ObjectReconciliationScanSide"}
+        provider_objects: {$ref: "#/components/schemas/ObjectReconciliationScanSide"}
+    ObjectReconciliationSummary:
+      type: object
+      required: [total, missing_objects, orphan_objects, metadata_mismatches, provider_errors]
+      properties:
+        total: {type: integer, format: int32}
+        missing_objects: {type: integer, format: int32}
+        orphan_objects: {type: integer, format: int32}
+        metadata_mismatches: {type: integer, format: int32}
+        provider_errors: {type: integer, format: int32}
+    ObjectReconciliationMetadata:
+      type: object
+      required: [size_bytes]
+      properties:
+        version: {type: string}
+        content_type: {type: string}
+        size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        checksum_sha256: {type: string}
+        etag: {type: string}
+        last_modified: {type: string, format: date-time}
+    ObjectReconciliationDifference:
+      type: object
+      required: [field, expected, actual]
+      properties:
+        field: {type: string, enum: [version, content_type, size_bytes, checksum_sha256, etag]}
+        expected: {type: string}
+        actual: {type: string}
+    ObjectReconciliationFinding:
+      type: object
+      required: [kind, message, remediation]
+      properties:
+        kind: {type: string, enum: [missing_object, orphan_object, metadata_mismatch, provider_error]}
+        object_ref_id: {type: string}
+        object_key: {type: string}
+        object_version: {type: string}
+        expected: {$ref: "#/components/schemas/ObjectReconciliationMetadata"}
+        actual: {$ref: "#/components/schemas/ObjectReconciliationMetadata"}
+        differences: {type: array, items: {$ref: "#/components/schemas/ObjectReconciliationDifference"}}
+        message: {type: string}
+        remediation: {type: string}
+    ObjectReconciliationReport:
+      type: object
+      required: [dry_run, workspace_id, storage_provider, bucket, prefix, generated_at, scan, summary, findings]
+      properties:
+        dry_run: {type: boolean}
+        workspace_id: {type: string}
+        storage_provider: {type: string}
+        bucket: {type: string}
+        prefix: {type: string}
+        generated_at: {type: string, format: date-time}
+        scan: {$ref: "#/components/schemas/ObjectReconciliationScan"}
+        summary: {$ref: "#/components/schemas/ObjectReconciliationSummary"}
+        findings: {type: array, items: {$ref: "#/components/schemas/ObjectReconciliationFinding"}}
+    ObjectReconciliationArtifactExport:
+      type: object
+      required: [report, object_ref, artifact, workspace_path]
+      properties:
+        report: {$ref: "#/components/schemas/ObjectReconciliationReport"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+        workspace_path: {type: string}
     TurnTrace:
       type: object
       required: [session_id, turn_id, steps]

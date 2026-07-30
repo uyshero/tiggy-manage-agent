@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { interviewStartLabel, interviewStatusCopy, isInterviewActive, initialInterviewState, reduceInterviewState, type InterviewEvent } from "@/domain/interview-machine";
 import { shouldPauseAfterNoSpeech } from "@/domain/no-speech-policy";
 import { resolveFollowupDelayMs } from "@/domain/response-timing";
-import { currentBiographyAccessToken, currentBiographyUser, ensureBiographyAuthenticated, fetchBiographyProgress, logoutBiography, type BiographyUser } from "@/services/auth";
+import { biographyOIDCLogoutURL, currentBiographyAccessToken, currentBiographyUser, currentBiographyUserID, ensureBiographyAuthenticated, fetchBiographyProgress, logoutBiography, type BiographyUser } from "@/services/auth";
 import {
   continueInterview,
   getEmptyProject,
@@ -39,6 +39,7 @@ import { createVoiceAdapter, type VoiceAdapter, type VoiceEvent } from "@/servic
 
 const state = ref({ ...initialInterviewState });
 const project = ref(getInitialProject());
+const interviewOrderChosen = ref(false);
 const voice = ref<VoiceAdapter | null>(null);
 const elapsedSeconds = ref(0);
 const showChapters = ref(false);
@@ -155,7 +156,7 @@ const currentCaption = computed(() => {
   return buildPreviousInterviewGuidance(project.value);
 });
 const interviewActive = computed(() => isInterviewActive(state.value.status, sessionStarted.value));
-const showOrderChooser = computed(() => !sessionStarted.value && !project.value.interviewOrder);
+const showOrderChooser = computed(() => !sessionStarted.value && !interviewOrderChosen.value && !project.value.interviewOrder);
 const selectedInterviewOrderLabel = computed(() => interviewOrderOptions.find((option) => option.value === project.value.interviewOrder)?.label || "");
 const showStartButton = computed(() => !showOrderChooser.value && (!sessionStarted.value || state.value.status === "paused" || state.value.status === "error" || state.value.status === "reconnecting"));
 const showHoldTalkButton = computed(() => sessionStarted.value && (
@@ -227,9 +228,37 @@ function dispatch(event: InterviewEvent) {
 }
 
 function applyProject(nextProject: typeof project.value) {
-  project.value = nextProject;
-  if (selectedChapterID.value && !nextProject.chapters.some((chapter) => chapter.id === selectedChapterID.value)) {
+  const normalizedProject = {
+    ...getEmptyProject(),
+    ...nextProject,
+    chapters: Array.isArray(nextProject.chapters) ? nextProject.chapters : [],
+  };
+  const rememberedOrder = loadInterviewOrder(normalizedProject.id);
+  const projectWithOrder = !normalizedProject.interviewOrder && rememberedOrder
+    ? { ...normalizedProject, interviewOrder: rememberedOrder }
+    : normalizedProject;
+  if (projectWithOrder.interviewOrder) saveInterviewOrder(projectWithOrder.id, projectWithOrder.interviewOrder);
+  if (projectWithOrder.interviewOrder) interviewOrderChosen.value = true;
+  project.value = projectWithOrder;
+  if (selectedChapterID.value && !projectWithOrder.chapters.some((chapter) => chapter.id === selectedChapterID.value)) {
     selectedChapterID.value = "";
+  }
+}
+
+function interviewOrderStorageKey(projectID: string): string {
+  return `tma.biography.interview_order.${currentBiographyUserID()}:${projectID || "biography_new"}`;
+}
+
+function loadInterviewOrder(projectID: string): InterviewOrder | undefined {
+  const saved = String(uni.getStorageSync(interviewOrderStorageKey(projectID)) || "").trim();
+  return interviewOrderOptions.some((option) => option.value === saved) ? saved as InterviewOrder : undefined;
+}
+
+function saveInterviewOrder(projectID: string, order: InterviewOrder) {
+  try {
+    uni.setStorageSync(interviewOrderStorageKey(projectID), order);
+  } catch {
+    // The remote project remains the durable source when local storage is unavailable.
   }
 }
 
@@ -764,16 +793,28 @@ function confirmLogout() {
 async function performLogout() {
   clearFollowupTimer();
   if (interviewActive.value) saveCurrentInterviewSession();
-  try {
-    await voice.value?.finishRecordingSession();
-  } catch {
-    // 退出登录不应被录音收尾失败卡住。
-  }
+  const providerLogoutURLPromise = biographyOIDCLogoutURL().catch(() => "");
   unsubscribeVoice?.();
-  await voice.value?.dispose().catch(() => undefined);
+  unsubscribeVoice = undefined;
+  const adapter = voice.value;
+  voice.value = null;
   logoutBiography();
   currentUser.value = null;
-  uni.redirectTo({ url: "/pages/login/index" });
+  void adapter?.finishRecordingSession()
+    .catch(() => undefined)
+    .then(() => adapter.dispose())
+    .catch(() => undefined);
+  const providerLogoutURL = await Promise.race([
+    providerLogoutURLPromise,
+    new Promise<string>((resolve) => setTimeout(() => resolve(""), 2_000)),
+  ]);
+  // #ifdef H5
+  if (providerLogoutURL) {
+    window.location.replace(providerLogoutURL);
+    return;
+  }
+  // #endif
+  uni.redirectTo({ url: "/pages/login/index?loggedOut=1" });
 }
 
 function closeRecordingManager() {
@@ -971,12 +1012,15 @@ async function selectInterviewOrder(order: InterviewOrder) {
     return;
   }
   const previousOrder = project.value.interviewOrder;
+  interviewOrderChosen.value = true;
   project.value = { ...project.value, interviewOrder: order };
+  saveInterviewOrder(project.value.id, order);
   voiceOperationPending.value = true;
   try {
     await voice.value.setInterviewOrder(order);
   } catch (error) {
     project.value = { ...project.value, interviewOrder: previousOrder };
+    interviewOrderChosen.value = Boolean(previousOrder);
     dispatch({ type: "FAIL", message: error instanceof Error ? error.message : "采访方式暂时无法保存" });
     uni.showToast({ title: "暂时没保存成功，请再点一次", icon: "none" });
     return;
@@ -1127,7 +1171,7 @@ async function initializeInterviewPage() {
   currentUser.value = currentBiographyUser();
   const progress = await fetchBiographyProgress();
   if (progress?.project) {
-    project.value = progress.project as typeof project.value;
+    applyProject(progress.project as typeof project.value);
     pendingTranscriptCount.value = progress.pendingTranscripts?.length || 0;
     if (progress.lastInterview) {
       const endedAt = progress.lastInterview.endedAt
@@ -1146,7 +1190,10 @@ async function initializeInterviewPage() {
   if (voice.value.mode !== "mock" && !progress?.project) project.value = getEmptyProject();
   unsubscribeVoice = voice.value.subscribe((event) => void handleVoiceEvent(event));
   void voice.value.prepare()
-    .then(() => setServiceStatus("network", "ready", "采访服务已连接"))
+    .then(async () => {
+      setServiceStatus("network", "ready", "采访服务已连接");
+      if (project.value.interviewOrder) await voice.value?.setInterviewOrder(project.value.interviewOrder);
+    })
     .catch((error) => {
       const message = error instanceof Error ? error.message : "语音服务暂时无法连接";
       setServiceStatus("network", "retry", message);
@@ -1228,7 +1275,7 @@ onBeforeUnmount(() => {
               :class="['interview-order-option', { selected: project.interviewOrder === option.value, disabled: voiceOperationPending }]"
               role="button"
               :aria-disabled="voiceOperationPending"
-              @tap="selectInterviewOrder(option.value)"
+              @click="selectInterviewOrder(option.value)"
             >
               <text class="interview-order-label">{{ option.label }}</text>
               <text class="interview-order-description">{{ option.description }}</text>

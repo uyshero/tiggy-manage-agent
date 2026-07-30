@@ -20,7 +20,16 @@ RUN apk add --no-cache ca-certificates tzdata \
     && adduser -u 10001 -S -D -H -G tma tma
 WORKDIR /opt/tma
 
-FROM runtime-base AS server
+FROM runtime-base AS server-base
+ARG APK_REPOSITORY=
+USER root
+RUN if [ -n "${APK_REPOSITORY}" ]; then \
+        sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${APK_REPOSITORY}#g" /etc/apk/repositories; \
+    fi \
+    && apk add --no-cache font-noto-cjk libreoffice-writer
+USER 10001:10001
+
+FROM server-base AS server
 COPY --from=build /out/tma-server /usr/local/bin/tma-server
 USER 10001:10001
 EXPOSE 8080
@@ -28,7 +37,7 @@ ENTRYPOINT ["/usr/local/bin/tma-server"]
 
 # Docker single-host deployments use this target for the current cloud_sandbox
 # provider. Access to the Docker socket is equivalent to host-root access.
-FROM runtime-base AS server-docker
+FROM server-base AS server-docker
 USER root
 RUN apk add --no-cache docker-cli
 COPY --from=build /out/tma-server /usr/local/bin/tma-server

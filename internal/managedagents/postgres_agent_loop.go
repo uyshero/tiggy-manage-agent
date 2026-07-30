@@ -516,7 +516,9 @@ func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx 
 		if err != nil {
 			return nil, fmt.Errorf("encode agent loop runtime event: %w", err)
 		}
-		inputs = append(inputs, sessionEventAppend{Type: string(runtimeEvent.Type), Payload: payload})
+		for _, eventType := range agentLoopPublicRuntimeEventTypes(runtimeEvent) {
+			inputs = append(inputs, sessionEventAppend{Type: eventType, Payload: payload})
+		}
 		if progressData, ok := agentLoopProgressMessageData(state, runtimeEvent); ok {
 			progressPayload, err := json.Marshal(map[string]any{
 				"turn_id":       state.TurnID,
@@ -531,6 +533,47 @@ func appendAgentLoopRuntimeEvents(ctx context.Context, store *PostgresStore, tx 
 		}
 	}
 	return store.appendEventsTx(ctx, tx, state.SessionID, inputs, now)
+}
+
+func agentLoopPublicRuntimeEventTypes(runtimeEvent agentcore.RuntimeEvent) []string {
+	eventType := string(runtimeEvent.Type)
+	switch runtimeEvent.Type {
+	case agentcore.EventContextCompacting:
+		eventType = EventRuntimeContextCompacting
+	case agentcore.EventContextCompacted:
+		eventType = EventRuntimeContextCompacted
+	}
+
+	eventTypes := []string{eventType}
+	if runtimeEvent.Type == agentcore.EventRuntimeFailed && agentLoopContextCompactionFailure(runtimeEvent.Payload) {
+		eventTypes = append(eventTypes, EventRuntimeContextCompactionFailed)
+	}
+	return eventTypes
+}
+
+func agentLoopContextCompactionFailure(payload any) bool {
+	var failure agentcore.Failure
+	switch value := payload.(type) {
+	case agentcore.Failure:
+		failure = value
+	case *agentcore.Failure:
+		if value == nil {
+			return false
+		}
+		failure = *value
+	default:
+		raw, err := json.Marshal(payload)
+		if err != nil || json.Unmarshal(raw, &failure) != nil {
+			return false
+		}
+	}
+
+	switch failure.Code {
+	case "context_compaction_failed", "invalid_compaction_result", "invalid_compaction_usage":
+		return true
+	default:
+		return false
+	}
 }
 
 func agentLoopProgressMessageData(state agentcore.State, runtimeEvent agentcore.RuntimeEvent) (map[string]any, bool) {

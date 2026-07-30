@@ -19,6 +19,8 @@ completion validation、exporter、Agent Core 和 lease。固定进程级指标�
 - `tma_tool_selection_schema_tokens_total{mode,set}`：候选/选中 schema 的累计估算 token；两者差值用于
   评估上下文节省，配合 `tma_tool_selection_triggers_total{mode,trigger}` 观察有限枚举触发分布。
 - completion validation 与 security audit outbox 的计数、积压和 dead letter。
+- `tma_object_cleanup_jobs{status}`、`tma_object_cleanup_oldest_pending_age_seconds` 和
+  `tma_object_cleanup_deleted_bytes`：对象清理积压、延迟和已删除字节。
 
 标签不能包含 subject、workspace、session、turn、路径、工具参数或其他高基数/敏感值。逐身份
 调查使用结构化审计日志。
@@ -50,6 +52,17 @@ scope 路由，不能把 exporter token 写入 payload。
 - Worker lease lost/renewal failure。
 - audit persistence/export failure、dead letter、积压和 key rotation blocker。
 - PostgreSQL、对象存储、LLM Provider 和 MCP/Web egress 失败率。
+
+## 对象清理运维
+
+Operator 可以通过 `GET /v2/object-cleanup/jobs` 按 `workspace_id`、`status`、`reason`、
+`created_from`、`created_to` 查询 journal，并通过 `GET /v2/object-cleanup/stats` 查看积压。
+`POST /v2/object-cleanup/jobs/{job_id}/retry` 只能重试 `dead_letter`。
+
+`blocked` 任务必须使用 Admin 身份调用 `POST /v2/object-cleanup/jobs/{job_id}/approve`，
+请求体为 `{"confirm":"DELETE <job_id>"}`。数据库会在同一事务中再次检查 ObjectRef 链接、
+managed 生命周期和存储位置；仍有链接或标识不匹配时拒绝批准。重试和批准都写入
+Operator Audit，不应直接修改 journal 状态。
 
 告警阈值必须经过 staging 压测校准；不要用包含 session/用户 ID 的 Prometheus label 提升定位能力。
 

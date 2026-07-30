@@ -30,6 +30,7 @@ type Job struct {
 	Bucket           string     `json:"bucket"`
 	ObjectKey        string     `json:"object_key"`
 	ObjectVersion    string     `json:"object_version,omitempty"`
+	SizeBytes        int64      `json:"size_bytes"`
 	Reason           string     `json:"reason"`
 	SafeToDelete     bool       `json:"safe_to_delete"`
 	Status           string     `json:"status"`
@@ -51,10 +52,53 @@ type EnqueueInput struct {
 	Bucket          string
 	ObjectKey       string
 	ObjectVersion   string
+	SizeBytes       int64
 	Reason          string
 	SafeToDelete    bool
 	LastError       string
 	CreatedAt       time.Time
+}
+
+type ListInput struct {
+	WorkspaceID string
+	Status      string
+	Reason      string
+	CreatedFrom time.Time
+	CreatedTo   time.Time
+	Limit       int
+}
+
+type RetryInput struct {
+	WorkspaceID string
+	JobID       string
+	Now         time.Time
+}
+
+type ApproveInput struct {
+	WorkspaceID string
+	JobID       string
+	Now         time.Time
+}
+
+type StatusStats struct {
+	Status         string `json:"status"`
+	Jobs           int64  `json:"jobs"`
+	Bytes          int64  `json:"bytes"`
+	Attempts       int64  `json:"attempts"`
+	RetriedJobs    int64  `json:"retried_jobs"`
+	MissingObjects int64  `json:"missing_objects"`
+	DeletedBytes   int64  `json:"deleted_bytes"`
+}
+
+type Stats struct {
+	WorkspaceID       string        `json:"workspace_id"`
+	Statuses          []StatusStats `json:"statuses"`
+	OldestPendingAt   *time.Time    `json:"oldest_pending_at,omitempty"`
+	OldestPendingAge  int64         `json:"oldest_pending_age_seconds"`
+	OrphansStaged     int64         `json:"orphans_staged"`
+	TotalAttempts     int64         `json:"total_attempts"`
+	TotalRetriedJobs  int64         `json:"total_retried_jobs"`
+	TotalDeletedBytes int64         `json:"total_deleted_bytes"`
 }
 
 type ClaimInput struct {
@@ -101,6 +145,13 @@ type Store interface {
 	CompleteObjectCleanup(context.Context, CompleteInput) error
 	FailObjectCleanup(context.Context, FailInput) error
 	ListObjectCleanupWorkspaceIDs(context.Context) ([]string, error)
+}
+
+type OperationsStore interface {
+	ListObjectCleanup(context.Context, ListInput) ([]Job, error)
+	GetObjectCleanupStats(context.Context, string, time.Time) (Stats, error)
+	RetryObjectCleanup(context.Context, RetryInput) (Job, error)
+	ApproveBlockedObjectCleanup(context.Context, ApproveInput) (Job, error)
 }
 
 type WorkspaceContextProvider interface {

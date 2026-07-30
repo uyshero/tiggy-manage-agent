@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +73,80 @@ func TestLocalFSClientPutGetDeleteRoundTrip(t *testing.T) {
 	if _, err := client.GetObject(context.Background(), GetObjectInput{Bucket: "artifacts", Key: "wksp/session/output.txt"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
+}
+
+func TestLocalFSClientInventorySupportsPrefixPaginationAndVersion(t *testing.T) {
+	root := t.TempDir()
+	client, err := NewLocalFSClient(Config{RootDir: root})
+	if err != nil {
+		t.Fatalf("new localfs client: %v", err)
+	}
+	put := func(key, body string) PutObjectResult {
+		t.Helper()
+		result, err := client.PutObject(context.Background(), PutObjectInput{
+			Bucket: "artifacts", Key: key, Body: strings.NewReader(body), ContentType: "text/plain",
+			Metadata: map[string]string{"source": "inventory-test"},
+		})
+		if err != nil {
+			t.Fatalf("put %s: %v", key, err)
+		}
+		return result
+	}
+	first := put("wksp-1/a.txt", "a")
+	put("wksp-1/b.txt", "bb")
+	put("wksp-1/c.txt", "ccc")
+	put("wksp-2/ignored.txt", "ignored")
+
+	page, err := client.ListObjects(context.Background(), ListObjectsInput{Bucket: "artifacts", Prefix: "wksp-1/", Limit: 2})
+	if err != nil {
+		t.Fatalf("list first page: %v", err)
+	}
+	if keys := objectInfoKeys(page.Objects); !reflect.DeepEqual(keys, []string{"wksp-1/a.txt", "wksp-1/b.txt"}) {
+		t.Fatalf("unexpected first page keys: %v", keys)
+	}
+	if !page.Truncated || page.NextCursor != "wksp-1/b.txt" {
+		t.Fatalf("unexpected first page cursor: %+v", page)
+	}
+
+	next, err := client.ListObjects(context.Background(), ListObjectsInput{
+		Bucket: "artifacts", Prefix: "wksp-1/", Cursor: page.NextCursor, Limit: 2,
+	})
+	if err != nil {
+		t.Fatalf("list second page: %v", err)
+	}
+	if keys := objectInfoKeys(next.Objects); !reflect.DeepEqual(keys, []string{"wksp-1/c.txt"}) || next.Truncated || next.NextCursor != "" {
+		t.Fatalf("unexpected second page: %+v", next)
+	}
+
+	info, err := client.StatObject(context.Background(), StatObjectInput{Bucket: first.Bucket, Key: first.Key, Version: first.Version})
+	if err != nil {
+		t.Fatalf("stat exact version: %v", err)
+	}
+	if info.Version != first.Version || info.ChecksumSHA256 != first.ChecksumSHA256 || info.Metadata["source"] != "inventory-test" {
+		t.Fatalf("unexpected object info: %+v", info)
+	}
+	if _, err := client.StatObject(context.Background(), StatObjectInput{Bucket: first.Bucket, Key: first.Key, Version: "stale-version"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected stale version to be missing, got %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "artifacts", "wksp-1", "standalone.meta.json"), []byte("not a sidecar"), 0o644); err != nil {
+		t.Fatalf("write standalone object: %v", err)
+	}
+	all, err := client.ListObjects(context.Background(), ListObjectsInput{Bucket: "artifacts", Prefix: "wksp-1/", Limit: 10})
+	if err != nil {
+		t.Fatalf("list with standalone meta file: %v", err)
+	}
+	if keys := objectInfoKeys(all.Objects); !reflect.DeepEqual(keys, []string{"wksp-1/a.txt", "wksp-1/b.txt", "wksp-1/c.txt", "wksp-1/standalone.meta.json"}) {
+		t.Fatalf("sidecars must be excluded without hiding real .meta.json objects: %v", keys)
+	}
+}
+
+func objectInfoKeys(objects []ObjectInfo) []string {
+	keys := make([]string, 0, len(objects))
+	for _, object := range objects {
+		keys = append(keys, object.Key)
+	}
+	return keys
 }
 
 func TestNoopClientReturnsNotConfigured(t *testing.T) {

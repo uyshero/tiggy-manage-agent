@@ -10,6 +10,7 @@ import {
   MarketplaceService,
   MCPService,
   ObjectRefsService,
+  ObjectCleanupService,
   ObservabilityService,
   OrchestrationService,
   RunHandle,
@@ -23,6 +24,8 @@ import {
   WorkspaceToolPermissionsService,
   type CreateSkillRequest,
   type LLMDiagnosticResult,
+  type ObjectReconciliationReport,
+  type ObjectReconciliationArtifactExport,
   type SessionListQuery,
   type TMAClientOptions,
   type ToolPermissionAuditPage,
@@ -43,6 +46,7 @@ const services: [
   InterventionsService,
   ArtifactsService,
   ObjectRefsService,
+  ObjectCleanupService,
   LLMService,
   WorkersService,
   WorkerWorkService,
@@ -64,6 +68,7 @@ const services: [
   client.interventions,
   client.artifacts,
   client.objectRefs,
+  client.objectCleanup,
   client.llm,
   client.workers,
   client.workerWork,
@@ -98,6 +103,8 @@ const modelDiagnostic: Promise<LLMDiagnosticResult> = client.llm.testModel("prov
 client.skills.create(skillRequest);
 client.workspaceToolPermissions.evaluate("workspace/1", { tool: "default_read_file", path: "/workspace/README.md" });
 const permissionAudit: Promise<ToolPermissionAuditPage> = client.audit.listToolPermissions("session/1", { decision: "ask", limit: 20, cursor: "next" });
+const reconciliation: Promise<ObjectReconciliationReport> = client.objectCleanup.previewReconciliation({ workspace_id: "workspace/1", limit: 50 });
+const reconciliationArtifact: Promise<ObjectReconciliationArtifactExport> = client.objectCleanup.exportReconciliationArtifact({ session_id: "session/1", workspace_id: "workspace/1", limit: 50 });
 const handle: Promise<RunHandle> = client.runs.start("session/1", { input: { text: "run" } });
 const rawPaths: paths | undefined = undefined;
 
@@ -115,3 +122,4 @@ void rawPaths;
 void providerDiagnostic;
 void modelDiagnostic;
 void permissionAudit;
+void reconciliation;

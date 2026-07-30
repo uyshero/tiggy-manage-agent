@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,6 +231,116 @@ func (c *LocalFSClient) DeleteObject(ctx context.Context, input DeleteObjectInpu
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (c *LocalFSClient) StatObject(ctx context.Context, input StatObjectInput) (ObjectInfo, error) {
+	result, err := c.GetObject(ctx, GetObjectInput{Bucket: input.Bucket, Key: input.Key, Version: input.Version})
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	if result.Body != nil {
+		_ = result.Body.Close()
+	}
+	if input.Version != "" && result.Version != "" && result.Version != input.Version {
+		return ObjectInfo{}, ErrNotFound
+	}
+	objectPath, _, err := c.paths(input.Bucket, input.Key)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	stat, err := os.Stat(objectPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ObjectInfo{}, ErrNotFound
+		}
+		return ObjectInfo{}, err
+	}
+	if result.SizeBytes == 0 && stat.Size() > 0 {
+		result.SizeBytes = stat.Size()
+	}
+	return ObjectInfo{
+		Bucket: result.Bucket, Key: result.Key, Version: result.Version,
+		ContentType: result.ContentType, SizeBytes: result.SizeBytes,
+		ChecksumSHA256: result.ChecksumSHA256, ETag: result.ETag,
+		LastModified: stat.ModTime().UTC(), Metadata: cloneStringMap(result.Metadata),
+	}, nil
+}
+
+func (c *LocalFSClient) ListObjects(ctx context.Context, input ListObjectsInput) (ListObjectsResult, error) {
+	if err := ValidateBucketName(input.Bucket); err != nil {
+		return ListObjectsResult{}, err
+	}
+	if input.Prefix != "" {
+		if err := ValidateObjectKey(input.Prefix); err != nil {
+			return ListObjectsResult{}, err
+		}
+	}
+	if input.Limit <= 0 {
+		input.Limit = 100
+	}
+	if input.Limit > 1000 {
+		return ListObjectsResult{}, fmt.Errorf("%w: object list limit must not exceed 1000", ErrInvalid)
+	}
+	bucketRoot := filepath.Join(c.root, input.Bucket)
+	if _, err := os.Stat(bucketRoot); os.IsNotExist(err) {
+		return ListObjectsResult{Objects: []ObjectInfo{}}, nil
+	} else if err != nil {
+		return ListObjectsResult{}, err
+	}
+	objects := make([]ObjectInfo, 0, input.Limit+1)
+	err := filepath.WalkDir(bucketRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		keyPath, err := filepath.Rel(bucketRoot, path)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(keyPath)
+		if isLocalFSMetadataSidecar(path, key) || strings.Contains(filepath.Base(path), ".object-") || strings.Contains(filepath.Base(path), ".meta-") {
+			return nil
+		}
+		if !strings.HasPrefix(key, input.Prefix) || (input.Cursor != "" && key <= input.Cursor) {
+			return nil
+		}
+		info, err := c.StatObject(ctx, StatObjectInput{Bucket: input.Bucket, Key: key})
+		if err != nil {
+			return err
+		}
+		objects = append(objects, info)
+		if len(objects) > input.Limit {
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return ListObjectsResult{}, err
+	}
+	result := ListObjectsResult{Objects: objects}
+	if len(result.Objects) > input.Limit {
+		result.Objects = result.Objects[:input.Limit]
+		result.Truncated = true
+		result.NextCursor = result.Objects[len(result.Objects)-1].Key
+	}
+	return result, nil
+}
+
+func isLocalFSMetadataSidecar(path string, key string) bool {
+	if !strings.HasSuffix(key, ".meta.json") {
+		return false
+	}
+	metadata, err := readLocalFSMetadata(path)
+	if err != nil || metadata.Key == "" || metadata.Key+".meta.json" != key {
+		return false
+	}
+	_, err = os.Stat(strings.TrimSuffix(path, ".meta.json"))
+	return err == nil
 }
 
 // PresignGetObject 在 localfs 下返回 file:// 绝对路径，仅用于开发/本机调试。

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,15 +53,27 @@ func (c libreOfficeDocumentPreviewConverter) ConvertDOCXToPDF(ctx context.Contex
 	}
 	defer os.RemoveAll(tmpDir)
 
-	inputName := safeArtifactFileName(input.Filename)
-	if !isDOCXName(inputName) {
-		inputName = "document.docx"
-	}
+	inputName := "document.docx"
 	inputPath := filepath.Join(tmpDir, inputName)
 	if err := os.WriteFile(inputPath, input.Content, 0600); err != nil {
 		return nil, err
 	}
-	command := exec.CommandContext(ctx, binary, "--headless", "--convert-to", "pdf", "--outdir", tmpDir, inputPath)
+	profileURL := (&url.URL{Scheme: "file", Path: filepath.Join(tmpDir, "profile")}).String()
+	command := exec.CommandContext(
+		ctx,
+		binary,
+		"--headless",
+		"--nologo",
+		"--nodefault",
+		"--nofirststartwizard",
+		"-env:UserInstallation="+profileURL,
+		"--convert-to",
+		"pdf",
+		"--outdir",
+		tmpDir,
+		inputPath,
+	)
+	command.Env = append(os.Environ(), "HOME="+tmpDir, "TMPDIR="+tmpDir)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("convert DOCX preview: %w: %s", err, strings.TrimSpace(string(output)))

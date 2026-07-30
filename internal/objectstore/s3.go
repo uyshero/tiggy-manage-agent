@@ -6,6 +6,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -214,6 +215,134 @@ func (c *S3Client) DeleteObject(ctx context.Context, input DeleteObjectInput) er
 		return s3StatusError(resp)
 	}
 	return nil
+}
+
+func (c *S3Client) StatObject(ctx context.Context, input StatObjectInput) (ObjectInfo, error) {
+	if err := ValidateBucketName(input.Bucket); err != nil {
+		return ObjectInfo{}, err
+	}
+	if err := ValidateObjectKey(input.Key); err != nil {
+		return ObjectInfo{}, err
+	}
+	objectURL := c.objectURL(input.Bucket, input.Key)
+	if input.Version != "" {
+		query := objectURL.Query()
+		query.Set("versionId", input.Version)
+		objectURL.RawQuery = query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, objectURL.String(), nil)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	c.signRequest(req, emptyPayloadSHA256, c.now().UTC())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return ObjectInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return ObjectInfo{}, ErrNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return ObjectInfo{}, s3StatusError(resp)
+	}
+	return objectInfoFromS3Headers(input.Bucket, input.Key, resp.Header), nil
+}
+
+func (c *S3Client) ListObjects(ctx context.Context, input ListObjectsInput) (ListObjectsResult, error) {
+	if err := ValidateBucketName(input.Bucket); err != nil {
+		return ListObjectsResult{}, err
+	}
+	if input.Prefix != "" {
+		if err := ValidateObjectKey(input.Prefix); err != nil {
+			return ListObjectsResult{}, err
+		}
+	}
+	if input.Limit <= 0 {
+		input.Limit = 100
+	}
+	if input.Limit > 1000 {
+		return ListObjectsResult{}, fmt.Errorf("%w: object list limit must not exceed 1000", ErrInvalid)
+	}
+	bucketURL := c.objectURL(input.Bucket, "")
+	query := bucketURL.Query()
+	query.Set("list-type", "2")
+	query.Set("max-keys", strconv.Itoa(input.Limit))
+	if input.Prefix != "" {
+		query.Set("prefix", input.Prefix)
+	}
+	if input.Cursor != "" {
+		query.Set("continuation-token", input.Cursor)
+	}
+	bucketURL.RawQuery = query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, bucketURL.String(), nil)
+	if err != nil {
+		return ListObjectsResult{}, err
+	}
+	c.signRequest(req, emptyPayloadSHA256, c.now().UTC())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return ListObjectsResult{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ListObjectsResult{}, s3StatusError(resp)
+	}
+	var page struct {
+		IsTruncated           bool   `xml:"IsTruncated"`
+		NextContinuationToken string `xml:"NextContinuationToken"`
+		Contents              []struct {
+			Key          string    `xml:"Key"`
+			ETag         string    `xml:"ETag"`
+			Size         int64     `xml:"Size"`
+			LastModified time.Time `xml:"LastModified"`
+		} `xml:"Contents"`
+	}
+	if err := xml.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return ListObjectsResult{}, fmt.Errorf("decode s3 object listing: %w", err)
+	}
+	result := ListObjectsResult{Objects: make([]ObjectInfo, 0, len(page.Contents)), NextCursor: page.NextContinuationToken, Truncated: page.IsTruncated}
+	for _, item := range page.Contents {
+		result.Objects = append(result.Objects, ObjectInfo{
+			Bucket: input.Bucket, Key: item.Key, SizeBytes: item.Size,
+			ETag: trimS3ETag(item.ETag), LastModified: item.LastModified.UTC(),
+		})
+	}
+	return result, nil
+}
+
+func objectInfoFromS3Headers(bucket string, key string, headers http.Header) ObjectInfo {
+	metadata := map[string]string{}
+	for name, values := range headers {
+		lower := strings.ToLower(name)
+		if strings.HasPrefix(lower, "x-amz-meta-") && len(values) > 0 {
+			metadata[strings.TrimPrefix(lower, "x-amz-meta-")] = values[0]
+		}
+	}
+	if len(metadata) == 0 {
+		metadata = nil
+	}
+	lastModified, _ := http.ParseTime(headers.Get("Last-Modified"))
+	return ObjectInfo{
+		Bucket: bucket, Key: key, Version: headers.Get("x-amz-version-id"),
+		ContentType: headers.Get("Content-Type"), SizeBytes: parseS3ContentLength(headers.Get("Content-Length")),
+		ChecksumSHA256: firstNonEmptyS3Metadata(metadata, "checksum_sha256", "checksum-sha256"),
+		ETag:           trimS3ETag(headers.Get("ETag")), LastModified: lastModified.UTC(), Metadata: metadata,
+	}
+}
+
+func parseS3ContentLength(value string) int64 {
+	parsed, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	return parsed
+}
+
+func firstNonEmptyS3Metadata(metadata map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(metadata[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (c *S3Client) PresignGetObject(ctx context.Context, input PresignGetObjectInput) (PresignedURL, error) {

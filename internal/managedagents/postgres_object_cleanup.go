@@ -12,14 +12,14 @@ import (
 
 const objectCleanupColumns = `
 	id, workspace_id, object_ref_id, storage_provider, bucket, object_key, object_version,
-	reason, safe_to_delete, status, attempt_count, next_attempt_at, lease_owner,
+	size_bytes, reason, safe_to_delete, status, attempt_count, next_attempt_at, lease_owner,
 	lease_expires_at, last_error, object_was_missing, created_at, updated_at, completed_at
 `
 
 const objectCleanupReturningColumns = `
 	journal.id, journal.workspace_id, journal.object_ref_id, journal.storage_provider,
-	journal.bucket, journal.object_key, journal.object_version, journal.reason,
-	journal.safe_to_delete, journal.status, journal.attempt_count, journal.next_attempt_at,
+	journal.bucket, journal.object_key, journal.object_version, journal.size_bytes,
+	journal.reason, journal.safe_to_delete, journal.status, journal.attempt_count, journal.next_attempt_at,
 	journal.lease_owner, journal.lease_expires_at, journal.last_error,
 	journal.object_was_missing, journal.created_at, journal.updated_at, journal.completed_at
 `
@@ -44,7 +44,7 @@ func (s *PostgresStore) EnqueueObjectCleanup(ctx context.Context, input objectcl
 	input.ObjectVersion = strings.TrimSpace(input.ObjectVersion)
 	input.Reason = strings.TrimSpace(input.Reason)
 	input.LastError = truncateObjectCleanupError(input.LastError)
-	if input.WorkspaceID == "" || input.StorageProvider == "" || input.Bucket == "" || input.ObjectKey == "" || input.Reason == "" {
+	if input.WorkspaceID == "" || input.StorageProvider == "" || input.Bucket == "" || input.ObjectKey == "" || input.Reason == "" || input.SizeBytes < 0 {
 		return objectcleanup.Job{}, fmt.Errorf("%w: incomplete object cleanup identity", objectcleanup.ErrInvalid)
 	}
 	if input.CreatedAt.IsZero() {
@@ -66,12 +66,13 @@ func (s *PostgresStore) EnqueueObjectCleanup(ctx context.Context, input objectcl
 	job, err := scanObjectCleanupJob(tx.QueryRowContext(ctx, `
 		INSERT INTO object_cleanup_journal (
 			id, workspace_id, object_ref_id, storage_provider, bucket, object_key, object_version,
-			reason, safe_to_delete, status, next_attempt_at, last_error, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $11, $11)
+			size_bytes, reason, safe_to_delete, status, next_attempt_at, last_error, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $12, $12)
 		ON CONFLICT (workspace_id, storage_provider, bucket, object_key, object_version)
 			WHERE status IN ('pending', 'processing', 'blocked', 'dead_letter')
 		DO UPDATE SET
 			object_ref_id = CASE WHEN EXCLUDED.object_ref_id <> '' THEN EXCLUDED.object_ref_id ELSE object_cleanup_journal.object_ref_id END,
+			size_bytes = GREATEST(object_cleanup_journal.size_bytes, EXCLUDED.size_bytes),
 			reason = EXCLUDED.reason,
 			safe_to_delete = object_cleanup_journal.safe_to_delete OR EXCLUDED.safe_to_delete,
 			attempt_count = CASE WHEN object_cleanup_journal.status = 'processing' THEN object_cleanup_journal.attempt_count ELSE 0 END,
@@ -85,7 +86,7 @@ func (s *PostgresStore) EnqueueObjectCleanup(ctx context.Context, input objectcl
 			updated_at = EXCLUDED.updated_at
 		RETURNING `+objectCleanupColumns,
 		id, scope.WorkspaceID, input.ObjectRefID, input.StorageProvider, input.Bucket, input.ObjectKey,
-		input.ObjectVersion, input.Reason, input.SafeToDelete, status, input.CreatedAt, input.LastError))
+		input.ObjectVersion, input.SizeBytes, input.Reason, input.SafeToDelete, status, input.CreatedAt, input.LastError))
 	if err != nil {
 		return objectcleanup.Job{}, err
 	}
@@ -108,7 +109,7 @@ func (s *PostgresStore) StageOrphanObjectCleanup(ctx context.Context, input obje
 
 	rows, err := tx.QueryContext(ctx, `
 		SELECT object_ref.id, object_ref.storage_provider, object_ref.bucket,
-			object_ref.object_key, object_ref.object_version
+			object_ref.object_key, object_ref.object_version, object_ref.size_bytes
 		FROM object_refs object_ref
 		WHERE object_ref.workspace_id = $1
 			AND object_ref.created_at <= $2
@@ -126,11 +127,12 @@ func (s *PostgresStore) StageOrphanObjectCleanup(ctx context.Context, input obje
 	}
 	type orphanObject struct {
 		id, provider, bucket, key, version string
+		sizeBytes                          int64
 	}
 	orphans := []orphanObject{}
 	for rows.Next() {
 		var orphan orphanObject
-		if err := rows.Scan(&orphan.id, &orphan.provider, &orphan.bucket, &orphan.key, &orphan.version); err != nil {
+		if err := rows.Scan(&orphan.id, &orphan.provider, &orphan.bucket, &orphan.key, &orphan.version, &orphan.sizeBytes); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -152,12 +154,13 @@ func (s *PostgresStore) StageOrphanObjectCleanup(ctx context.Context, input obje
 		job, err := scanObjectCleanupJob(tx.QueryRowContext(ctx, `
 			INSERT INTO object_cleanup_journal (
 				id, workspace_id, object_ref_id, storage_provider, bucket, object_key, object_version,
-				reason, safe_to_delete, status, next_attempt_at, created_at, updated_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, 'pending', $9, $9, $9)
+				size_bytes, reason, safe_to_delete, status, next_attempt_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, 'pending', $10, $10, $10)
 			ON CONFLICT (workspace_id, storage_provider, bucket, object_key, object_version)
 				WHERE status IN ('pending', 'processing', 'blocked', 'dead_letter')
 			DO UPDATE SET
 				object_ref_id = EXCLUDED.object_ref_id,
+				size_bytes = GREATEST(object_cleanup_journal.size_bytes, EXCLUDED.size_bytes),
 				reason = EXCLUDED.reason,
 				safe_to_delete = TRUE,
 				attempt_count = CASE WHEN object_cleanup_journal.status = 'processing' THEN object_cleanup_journal.attempt_count ELSE 0 END,
@@ -167,7 +170,7 @@ func (s *PostgresStore) StageOrphanObjectCleanup(ctx context.Context, input obje
 				updated_at = EXCLUDED.updated_at
 			RETURNING `+objectCleanupColumns,
 			id, scope.WorkspaceID, orphan.id, orphan.provider, orphan.bucket, orphan.key,
-			orphan.version, objectcleanup.ReasonManagedObjectOrphaned, input.Now))
+			orphan.version, orphan.sizeBytes, objectcleanup.ReasonManagedObjectOrphaned, input.Now))
 		if err != nil {
 			return nil, err
 		}
@@ -313,7 +316,7 @@ func scanObjectCleanupJob(scanner rowScanner) (objectcleanup.Job, error) {
 	var job objectcleanup.Job
 	if err := scanner.Scan(
 		&job.ID, &job.WorkspaceID, &job.ObjectRefID, &job.StorageProvider, &job.Bucket,
-		&job.ObjectKey, &job.ObjectVersion, &job.Reason, &job.SafeToDelete, &job.Status,
+		&job.ObjectKey, &job.ObjectVersion, &job.SizeBytes, &job.Reason, &job.SafeToDelete, &job.Status,
 		&job.AttemptCount, &job.NextAttemptAt, &job.LeaseOwner, &job.LeaseExpiresAt,
 		&job.LastError, &job.ObjectWasMissing, &job.CreatedAt, &job.UpdatedAt, &job.CompletedAt,
 	); err == sql.ErrNoRows {

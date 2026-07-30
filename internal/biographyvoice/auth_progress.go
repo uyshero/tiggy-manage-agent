@@ -356,15 +356,15 @@ func buildBiographyProgress(project BiographyProject, recentQuestions []string, 
 		}
 	}
 	return BiographyProgress{
-		Project: project, LastInterview: last, ActiveChapterTitles: activeChapterTitles(project),
+		Project: cloneBiographyProject(project), LastInterview: last, ActiveChapterTitles: activeChapterTitles(project),
 		PendingConfirmation: strings.TrimSpace(project.PendingConfirmation),
-		PendingTranscripts:  append([]string(nil), pendingTranscripts...),
-		RecentQuestions:     append([]string(nil), recentQuestions...), UpdatedAt: now,
+		PendingTranscripts:  append(make([]string, 0, len(pendingTranscripts)), pendingTranscripts...),
+		RecentQuestions:     append(make([]string, 0, len(recentQuestions)), recentQuestions...), UpdatedAt: now,
 	}
 }
 
 func activeChapterTitles(project BiographyProject) []string {
-	var titles []string
+	titles := make([]string, 0)
 	for _, chapter := range project.Chapters {
 		if chapter.Status == "collecting" || chapter.Status == "confirm" {
 			titles = append(titles, chapter.Title)

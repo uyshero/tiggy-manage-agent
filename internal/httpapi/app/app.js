@@ -25284,9 +25284,29 @@ const CircleAlert = createLucideIcon("CircleAlert", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const CircleCheck = createLucideIcon("CircleCheck", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const CircleDot = createLucideIcon("CircleDot", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Clock3 = createLucideIcon("Clock3", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["polyline", { points: "12 6 12 12 16.5 12", key: "1aq6pp" }]
 ]);
 /**
  * @license lucide-react v0.468.0 - ISC
@@ -25314,11 +25334,61 @@ const CodeXml = createLucideIcon("CodeXml", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Copy = createLucideIcon("Copy", [
+  ["rect", { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2", key: "17jyea" }],
+  ["path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2", key: "zix9uf" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Database = createLucideIcon("Database", [
+  ["ellipse", { cx: "12", cy: "5", rx: "9", ry: "3", key: "msslwz" }],
+  ["path", { d: "M3 5V19A9 3 0 0 0 21 19V5", key: "1wlel7" }],
+  ["path", { d: "M3 12A9 3 0 0 0 21 12", key: "mv7ke4" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Download = createLucideIcon("Download", [
+  ["path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: "ih7n3h" }],
+  ["polyline", { points: "7 10 12 15 17 10", key: "2ggqvy" }],
+  ["line", { x1: "12", x2: "12", y1: "15", y2: "3", key: "1vk2je" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const FileCode2 = createLucideIcon("FileCode2", [
   ["path", { d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4", key: "1pf5j1" }],
   ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
   ["path", { d: "m5 12-3 3 3 3", key: "oke12k" }],
   ["path", { d: "m9 18 3-3-3-3", key: "112psh" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const FileJson = createLucideIcon("FileJson", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "1rqfz7" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "tnqrlb" }],
+  [
+    "path",
+    { d: "M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1 1 1 0 0 1 1 1v1a1 1 0 0 0 1 1", key: "1oajmo" }
+  ],
+  [
+    "path",
+    { d: "M14 18a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1 1 1 0 0 1-1-1v-1a1 1 0 0 0-1-1", key: "mpwhp6" }
+  ]
 ]);
 /**
  * @license lucide-react v0.468.0 - ISC
@@ -25387,6 +25457,24 @@ const GitCommitHorizontal = createLucideIcon("GitCommitHorizontal", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const HardDrive = createLucideIcon("HardDrive", [
+  ["line", { x1: "22", x2: "2", y1: "12", y2: "12", key: "1y58io" }],
+  [
+    "path",
+    {
+      d: "M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z",
+      key: "oot6mr"
+    }
+  ],
+  ["line", { x1: "6", x2: "6.01", y1: "16", y2: "16", key: "sgf278" }],
+  ["line", { x1: "10", x2: "10.01", y1: "16", y2: "16", key: "1l4acy" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const LoaderCircle = createLucideIcon("LoaderCircle", [
   ["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]
 ]);
@@ -25439,6 +25527,47 @@ const RefreshCw = createLucideIcon("RefreshCw", [
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
   ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
   ["path", { d: "M8 16H3v5", key: "1cv678" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const RotateCcw = createLucideIcon("RotateCcw", [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Save = createLucideIcon("Save", [
+  [
+    "path",
+    {
+      d: "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+      key: "1c8476"
+    }
+  ],
+  ["path", { d: "M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7", key: "1ydtos" }],
+  ["path", { d: "M7 3v4a1 1 0 0 0 1 1h7", key: "t51u73" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const ScanSearch = createLucideIcon("ScanSearch", [
+  ["path", { d: "M3 7V5a2 2 0 0 1 2-2h2", key: "aa7l1z" }],
+  ["path", { d: "M17 3h2a2 2 0 0 1 2 2v2", key: "4qcy5o" }],
+  ["path", { d: "M21 17v2a2 2 0 0 1-2 2h-2", key: "6vwrx8" }],
+  ["path", { d: "M7 21H5a2 2 0 0 1-2-2v-2", key: "ioqczr" }],
+  ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }],
+  ["path", { d: "m16 16-1.9-1.9", key: "1dq9hf" }]
 ]);
 /**
  * @license lucide-react v0.468.0 - ISC
@@ -25509,6 +25638,22 @@ const Sheet = createLucideIcon("Sheet", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const ShieldCheck = createLucideIcon("ShieldCheck", [
+  [
+    "path",
+    {
+      d: "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
+      key: "oel41y"
+    }
+  ],
+  ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Sparkles = createLucideIcon("Sparkles", [
   [
     "path",
@@ -25541,6 +25686,33 @@ const SquareTerminal = createLucideIcon("SquareTerminal", [
  */
 const Square = createLucideIcon("Square", [
   ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const TriangleAlert = createLucideIcon("TriangleAlert", [
+  [
+    "path",
+    {
+      d: "m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3",
+      key: "wmoenq"
+    }
+  ],
+  ["path", { d: "M12 9v4", key: "juzpu7" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+]);
+/**
+ * @license lucide-react v0.468.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const X = createLucideIcon("X", [
+  ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
+  ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
 ]);
 const nativeFetch = window.fetch.bind(window);
 let refreshRequest = null;
@@ -26796,6 +26968,10 @@ class ArtifactsService extends ServiceBase {
   download(sessionId, artifactId, signal) {
     return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/download`, signal ? { signal } : {});
   }
+  preview(sessionId, artifactId, format = "pdf", signal) {
+    const query = format ? `?format=${encodeURIComponent(format)}` : "";
+    return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/preview${query}`, signal ? { signal } : {});
+  }
   async delete(sessionId, artifactId, signal) {
     await this.transport.request("DELETE", artifactPath(sessionId, artifactId), signal ? { signal } : {});
   }
@@ -27210,6 +27386,45 @@ class ObjectRefsService extends ServiceBase {
 function objectRefPath(objectRefId) {
   return resourcePath("/v2/object-refs", objectRefId);
 }
+class ObjectCleanupService extends ServiceBase {
+  previewReconciliation(input, signal) {
+    return this.transport.requestJSON("POST", "/v2/object-cleanup/reconciliation/preview", input, signal ? { signal } : {});
+  }
+  exportReconciliationArtifact(input, signal) {
+    return this.transport.requestJSON("POST", "/v2/object-cleanup/reconciliation/artifacts", input, signal ? { signal } : {});
+  }
+  list(query = {}, signal) {
+    const path2 = withQuery("/v2/object-cleanup/jobs", {
+      workspace_id: query.workspaceId,
+      status: query.status,
+      reason: query.reason,
+      created_from: dateQueryValue(query.createdFrom),
+      created_to: dateQueryValue(query.createdTo),
+      limit: query.limit
+    });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.jobs);
+  }
+  stats(workspaceId, signal) {
+    const path2 = withQuery("/v2/object-cleanup/stats", { workspace_id: workspaceId });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {});
+  }
+  retry(jobId, workspaceId, signal) {
+    const path2 = withQuery(`${objectCleanupJobPath(jobId)}/retry`, { workspace_id: workspaceId });
+    return this.transport.requestJSON("POST", path2, void 0, signal ? { signal } : {});
+  }
+  approve(jobId, confirm, workspaceId, signal) {
+    const path2 = withQuery(`${objectCleanupJobPath(jobId)}/approve`, { workspace_id: workspaceId });
+    return this.transport.requestJSON("POST", path2, { confirm }, signal ? { signal } : {});
+  }
+}
+function objectCleanupJobPath(jobId) {
+  return resourcePath("/v2/object-cleanup/jobs", jobId);
+}
+function dateQueryValue(value) {
+  if (!value)
+    return void 0;
+  return value instanceof Date ? value.toISOString() : value;
+}
 class OrchestrationService extends ServiceBase {
   taskGroupTemplates(signal) {
     return this.transport.requestJSON("GET", "/v2/agent/task-group-templates", void 0, signal ? { signal } : {});
@@ -27485,6 +27700,7 @@ class TMAClient {
     __publicField(this, "orchestration");
     __publicField(this, "llm");
     __publicField(this, "objectRefs");
+    __publicField(this, "objectCleanup");
     __publicField(this, "workers");
     __publicField(this, "workerWork");
     __publicField(this, "mcp");
@@ -27508,6 +27724,7 @@ class TMAClient {
     this.orchestration = new OrchestrationService(transport);
     this.llm = new LLMService(transport);
     this.objectRefs = new ObjectRefsService(transport);
+    this.objectCleanup = new ObjectCleanupService(transport);
     this.workers = new WorkersService(transport);
     this.workerWork = new WorkerWorkService(transport);
     this.mcp = new MCPService(transport);
@@ -27997,6 +28214,24 @@ function streamSessionLiveEvents(sessionId, options = {}) {
 async function interventions(sessionId, status) {
   return { interventions: await coreSDK.interventions.list(sessionId, status) };
 }
+async function objectCleanupJobs(filters = {}, options = {}) {
+  return { jobs: await coreSDK.objectCleanup.list(filters, options.signal) };
+}
+function objectCleanupStats(workspaceId = "", options = {}) {
+  return coreSDK.objectCleanup.stats(workspaceId || void 0, options.signal);
+}
+function previewObjectReconciliation(input, options = {}) {
+  return coreSDK.objectCleanup.previewReconciliation(input || {}, options.signal);
+}
+function exportObjectReconciliationArtifact(input, options = {}) {
+  return coreSDK.objectCleanup.exportReconciliationArtifact(input || {}, options.signal);
+}
+function retryObjectCleanup(jobId, workspaceId = "", options = {}) {
+  return coreSDK.objectCleanup.retry(jobId, workspaceId || void 0, options.signal);
+}
+function approveObjectCleanup(jobId, workspaceId = "", confirm = "", options = {}) {
+  return coreSDK.objectCleanup.approve(jobId, confirm, workspaceId || void 0, options.signal);
+}
 function taskTemplates() {
   return getJSON("/v1/task-templates");
 }
@@ -28339,12 +28574,12 @@ function shortHash(value, size = 12) {
   const text2 = String(value || "");
   return text2.length > size ? `${text2.slice(0, size)}...` : text2 || "-";
 }
-function formatDate$1(value) {
+function formatDate$2(value) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("zh-CN", { hour12: false });
 }
-function formatBytes(value) {
+function formatBytes$1(value) {
   const bytes = Number(value || 0);
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
@@ -28827,7 +29062,7 @@ function InstalledSkillsView({
             /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "对象路径" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { title: version2.package_root, children: version2.package_root || "数据库兼容存储" }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "发布时间" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: formatDate$1(version2.created_at) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: formatDate$2(version2.created_at) })
           ] }),
           version2.source_url ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { href: version2.source_url, target: "_blank", rel: "noreferrer", children: "查看来源" }) : null,
           version2.package_object_ref_id ? /* @__PURE__ */ jsxRuntimeExports.jsx("a", { href: skillPackageDownloadPath(selectedSkill.id, version2.version), target: "_blank", rel: "noreferrer", children: "下载文件包" }) : null,
@@ -28930,7 +29165,7 @@ function MarketplaceView({ onSkillsChanged, sessionID }) {
           path: "SKILL.md",
           size: offlineFile.size,
           verified: true,
-          description: `${formatBytes(offlineFile.size)} · ${((_b2 = upload.artifact) == null ? void 0 : _b2.id) || "artifact"}`
+          description: `${formatBytes$1(offlineFile.size)} · ${((_b2 = upload.artifact) == null ? void 0 : _b2.id) || "artifact"}`
         };
         if (!candidate.artifact_id) throw new Error("ZIP 上传后未返回 artifact ID。");
         setCandidates([candidate]);
@@ -29468,7 +29703,7 @@ function MarketplaceManagementView({ skills: skills2, workspaceID }) {
           /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
             entry2.category || "未分类",
             " · ",
-            formatDate$1(entry2.updated_at)
+            formatDate$2(entry2.updated_at)
           ] })
         ] }, entry2.id)),
         !visibleEntries.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skills-empty compact", children: "当前筛选下没有市场条目。" }) : null
@@ -29539,7 +29774,7 @@ function MarketplaceManagementView({ skills: skills2, workspaceID }) {
           /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "创建人" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: selected.created_by }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "最后更新" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: formatDate$1(selected.updated_at) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: formatDate$2(selected.updated_at) })
         ] }) : null,
         !creating && ["pending_review", "published"].includes(selected == null ? void 0 : selected.status) ? /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "market-transition-note", children: [
           selected.status === "pending_review" ? "审核意见" : "下架原因",
@@ -29693,7 +29928,7 @@ function PolicyView({ workspaceID }) {
             "v",
             policy.current_version,
             " · ",
-            formatDate$1(policy.created_at)
+            formatDate$2(policy.created_at)
           ] })
         ] }, policy.id)),
         !loading && !policies.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skills-empty", children: "当前使用 Server 默认策略。" }) : null
@@ -29890,7 +30125,7 @@ function StorageView({ workspaceID }) {
       setPreview(response);
       setMessage({
         tone: response.candidate_count ? "warn" : "ok",
-        text: `预览完成：${response.candidate_count} 个候选，${formatBytes(response.candidate_bytes)}。`
+        text: `预览完成：${response.candidate_count} 个候选，${formatBytes$1(response.candidate_bytes)}。`
       });
     } catch (error) {
       setMessage({ tone: "danger", text: error.message });
@@ -29940,7 +30175,7 @@ function StorageView({ workspaceID }) {
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Reclaimed" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatBytes(runs.reduce((sum, run) => sum + Number(run.bytes_deleted || 0), 0)) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatBytes$1(runs.reduce((sum, run) => sum + Number(run.bytes_deleted || 0), 0)) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
           tombstones.length,
           " tombstones"
@@ -29979,7 +30214,7 @@ function StorageView({ workspaceID }) {
       /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "skills-section-heading", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Dry-run inventory" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: preview ? `${preview.candidate_count} 个候选 · ${formatBytes(preview.candidate_bytes)}` : "尚未预览" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: preview ? `${preview.candidate_count} 个候选 · ${formatBytes$1(preview.candidate_bytes)}` : "尚未预览" })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "storage-actions", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: Boolean(busy), onClick: previewGC, children: busy === "preview" ? "扫描中" : "预览" }),
@@ -30005,7 +30240,7 @@ function StorageView({ workspaceID }) {
           " ",
           candidate.scan_version || ""
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatBytes(candidate.size_bytes) })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatBytes$1(candidate.size_bytes) })
       ] }, candidate.object_ref_id)) }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skills-empty compact", children: preview ? "没有达到保留期限且可安全删除的对象。" : "运行预览后显示候选对象。" })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "storage-history-grid", children: [
@@ -30022,7 +30257,7 @@ function StorageView({ workspaceID }) {
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: run.id }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
-                formatDate$1(run.started_at),
+                formatDate$2(run.started_at),
                 " · ",
                 run.policy_source
               ] })
@@ -30032,7 +30267,7 @@ function StorageView({ workspaceID }) {
               run.deleted_count,
               " deleted"
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes(run.bytes_deleted) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes$1(run.bytes_deleted) })
           ] }, run.id)),
           !runs.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skills-empty compact", children: "暂无 GC 运行记录。" }) : null
         ] })
@@ -30055,8 +30290,8 @@ function StorageView({ workspaceID }) {
                 shortHash(item.checksum_sha256)
               ] })
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes(item.size_bytes) }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatDate$1(item.deleted_at) })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatBytes$1(item.size_bytes) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatDate$2(item.deleted_at) })
           ] }, item.id)),
           !tombstones.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "skills-empty compact", children: "暂无 tombstone。" }) : null
         ] })
@@ -30178,7 +30413,7 @@ function normalizeToolTimelineEvents(events2) {
   for (const event of source) {
     if ((event == null ? void 0 : event.type) !== "tool.batch_planned") continue;
     for (const item of arrayValue((_b = (_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data) == null ? void 0 : _b.calls)) {
-      const call = objectValue$4(item == null ? void 0 : item.call);
+      const call = objectValue$5(item == null ? void 0 : item.call);
       const callID = String(call.id || "").trim();
       if (callID) plannedCalls.set(callID, { call, item });
     }
@@ -30189,24 +30424,24 @@ function normalizeToolTimelineEvents(events2) {
     if ((event == null ? void 0 : event.type) === "tool.batch_planned") {
       const calls = arrayValue((_d = (_c = event == null ? void 0 : event.payload) == null ? void 0 : _c.data) == null ? void 0 : _d.calls);
       calls.forEach((item, index2) => {
-        const call = objectValue$4(item == null ? void 0 : item.call);
+        const call = objectValue$5(item == null ? void 0 : item.call);
         const callID = String(call.id || "").trim();
         if (!callID || nativeCalls.has(callID)) return;
         normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
           identifier: call.name,
-          arguments: objectValue$4(call.arguments),
+          arguments: objectValue$5(call.arguments),
           approval_state: item.approval_state,
           approval_source: item.approval_source,
           disposition: item.disposition,
           execution_mode: item.execution_mode,
-          permission: objectValue$4(item.permission),
+          permission: objectValue$5(item.permission),
           side_effect: item.side_effect
         }, index2, calls.length));
       });
       continue;
     }
     if ((event == null ? void 0 : event.type) === "tool.call_started") {
-      const data = objectValue$4((_e = event == null ? void 0 : event.payload) == null ? void 0 : _e.data);
+      const data = objectValue$5((_e = event == null ? void 0 : event.payload) == null ? void 0 : _e.data);
       const callID = String(data.call_id || "").trim();
       if (!callID || nativeCalls.has(callID) || plannedCalls.has(callID)) continue;
       normalized.push(runtimeToolEvent(event, "runtime.tool_call", callID, {
@@ -30217,19 +30452,19 @@ function normalizeToolTimelineEvents(events2) {
       continue;
     }
     if ((event == null ? void 0 : event.type) === "tool.call_result") {
-      const data = objectValue$4((_f = event == null ? void 0 : event.payload) == null ? void 0 : _f.data);
-      const result = objectValue$4(data.result);
+      const data = objectValue$5((_f = event == null ? void 0 : event.payload) == null ? void 0 : _f.data);
+      const result = objectValue$5(data.result);
       const callID = String(data.call_id || result.call_id || "").trim();
       if (!callID || nativeResults.has(callID)) continue;
       const planned = ((_g = plannedCalls.get(callID)) == null ? void 0 : _g.call) || {};
       normalized.push(runtimeToolEvent(event, "runtime.tool_result", callID, {
         identifier: data.name || result.name || planned.name,
-        arguments: objectValue$4(planned.arguments),
+        arguments: objectValue$5(planned.arguments),
         success: toolResultSucceeded(data.status, result),
         content: toolResultContent(result.content),
-        state: objectValue$4(result.state),
+        state: objectValue$5(result.state),
         artifacts: arrayValue(result.artifacts),
-        error: objectValue$4(result.error),
+        error: objectValue$5(result.error),
         duration_ms: durationMillis(data.started_at, data.completed_at)
       }));
     }
@@ -30238,11 +30473,11 @@ function normalizeToolTimelineEvents(events2) {
 }
 function toolApprovalPresentation(event, lifecycle) {
   var _a2, _b, _c, _d;
-  const data = objectValue$4((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
+  const data = objectValue$5((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
   const decision = lifecycle == null ? void 0 : lifecycle.decision;
-  const decisionData = objectValue$4((_b = decision == null ? void 0 : decision.payload) == null ? void 0 : _b.data);
-  const requiredData = objectValue$4((_d = (_c = lifecycle == null ? void 0 : lifecycle.required) == null ? void 0 : _c.payload) == null ? void 0 : _d.data);
-  const permission = objectValue$4(data.permission);
+  const decisionData = objectValue$5((_b = decision == null ? void 0 : decision.payload) == null ? void 0 : _b.data);
+  const requiredData = objectValue$5((_d = (_c = lifecycle == null ? void 0 : lifecycle.required) == null ? void 0 : _c.payload) == null ? void 0 : _d.data);
+  const permission = objectValue$5(data.permission);
   const state = String(data.approval_state || "").trim().toLowerCase();
   const source = approvalSourceLabel(decisionData.approval_source || data.approval_source);
   const reason = approvalReason(decisionData.decision_reason || requiredData.reason || permission.reason);
@@ -30316,8 +30551,8 @@ function buildToolCallLifecycles(events2) {
 }
 function toolResultFailurePresentation(event) {
   var _a2, _b;
-  const data = objectValue$4((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
-  const error = objectValue$4(data.error);
+  const data = objectValue$5((_a2 = event == null ? void 0 : event.payload) == null ? void 0 : _a2.data);
+  const error = objectValue$5(data.error);
   const status = String(data.status || "").trim().toLowerCase();
   const failed = data.success === false || Object.keys(error).length > 0 || [
     "failed",
@@ -30328,7 +30563,7 @@ function toolResultFailurePresentation(event) {
   ].includes(status);
   if (!failed) return null;
   const contentResult = parseToolResultContent(data.content);
-  const contentError = objectValue$4(contentResult.error);
+  const contentError = objectValue$5(contentResult.error);
   const message = firstText(
     error.message,
     contentError.message,
@@ -30356,7 +30591,7 @@ function runtimeToolEvent(source, type, callID, data, index2 = 0, count = 1) {
     type,
     seq: baseSeq + (index2 + 1) / (Math.max(count, 1) + 1),
     payload: {
-      ...objectValue$4(source == null ? void 0 : source.payload),
+      ...objectValue$5(source == null ? void 0 : source.payload),
       data: { id: callID, call_id: callID, ...data }
     }
   };
@@ -30364,21 +30599,21 @@ function runtimeToolEvent(source, type, callID, data, index2 = 0, count = 1) {
 function toolResultSucceeded(status, result) {
   const normalized = String(status || "").trim().toLowerCase();
   if (["failed", "error", "rejected", "canceled", "cancelled"].includes(normalized)) return false;
-  if (Object.keys(objectValue$4(result.error)).length) return false;
+  if (Object.keys(objectValue$5(result.error)).length) return false;
   return true;
 }
 function toolResultContent(content2) {
   if (typeof content2 === "string") return content2;
   return arrayValue(content2).map((item) => {
     if (typeof item === "string") return item;
-    const part = objectValue$4(item);
+    const part = objectValue$5(item);
     return String(part.text || part.content || "");
   }).filter(Boolean).join("\n");
 }
 function parseToolResultContent(content2) {
   if (typeof content2 !== "string" || !content2.trim().startsWith("{")) return {};
   try {
-    return objectValue$4(JSON.parse(content2));
+    return objectValue$5(JSON.parse(content2));
   } catch {
     return {};
   }
@@ -30408,7 +30643,7 @@ function durationMillis(startedAt, completedAt) {
   const completed = new Date(completedAt || "").getTime();
   return Number.isFinite(started) && Number.isFinite(completed) && completed > started ? completed - started : 0;
 }
-function objectValue$4(value) {
+function objectValue$5(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function arrayValue(value) {
@@ -30565,7 +30800,7 @@ const failureDescriptions = Object.freeze({
   invalid_model_request: "模型无法处理当前请求，请检查模型及输入配置。",
   completion_validator_failed: "任务完成校验失败，请重试。"
 });
-function objectValue$3(value) {
+function objectValue$4(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function cleanText(value) {
@@ -30583,13 +30818,13 @@ function inferredProviderError(code2, message) {
   };
 }
 function runtimeFailurePresentation(value) {
-  const root2 = objectValue$3(value);
-  const data = objectValue$3(root2.data);
-  const nestedError = objectValue$3(data.error);
+  const root2 = objectValue$4(value);
+  const data = objectValue$4(root2.data);
+  const nestedError = objectValue$4(data.error);
   const failure = Object.keys(nestedError).length ? nestedError : data;
   const code2 = cleanText(failure.code || root2.code);
   const original = cleanText(failure.message || root2.reason || root2.error_message || root2.message) || "执行过程中出现未知错误。";
-  const structuredProviderError = objectValue$3(failure.provider_error || data.provider_error || root2.provider_error);
+  const structuredProviderError = objectValue$4(failure.provider_error || data.provider_error || root2.provider_error);
   const providerError = Object.keys(structuredProviderError).length ? structuredProviderError : inferredProviderError(code2, original);
   const mappedDescription = failureDescriptions[code2] || "";
   if (Object.keys(providerError).length) {
@@ -30604,6 +30839,102 @@ function runtimeFailurePresentation(value) {
   const originalDetail = showOriginal ? ` 原始错误：${original}` : "";
   const codeSuffix = code2 ? `（错误代码：${code2}）` : "";
   return { code: code2, description: description2, original, providerError: {}, detail: `${description2}${originalDetail}${codeSuffix}` };
+}
+const eventTypes = /* @__PURE__ */ new Set([
+  "runtime.context_compacting",
+  "runtime.context_compacted",
+  "runtime.context_compaction_failed"
+]);
+function objectValue$3(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function eventData$2(event) {
+  return objectValue$3(objectValue$3(event == null ? void 0 : event.payload).data);
+}
+function isContextCompactionEvent(event) {
+  return eventTypes.has(event == null ? void 0 : event.type);
+}
+function contextCompactionFailureDedupeKey(event) {
+  const root2 = objectValue$3(event == null ? void 0 : event.payload);
+  const data = eventData$2(event);
+  const isExplicitFailure = (event == null ? void 0 : event.type) === "runtime.context_compaction_failed";
+  const isCompactionRuntimeFailure = (event == null ? void 0 : event.type) === "runtime.failed" && [
+    "context_compaction_failed",
+    "invalid_compaction_result",
+    "invalid_compaction_usage"
+  ].includes(String(data.code || ""));
+  if (!isExplicitFailure && !isCompactionRuntimeFailure) return "";
+  const turnID = String(root2.turn_id || "");
+  const revision = String(root2.loop_revision ?? "");
+  return turnID && revision ? `${turnID}:${revision}` : "";
+}
+function contextCompactionPresentation(event, { active = false } = {}) {
+  const data = eventData$2(event);
+  switch (event == null ? void 0 : event.type) {
+    case "runtime.context_compacting": {
+      const attempt = Number(data.number || 0);
+      return {
+        title: "开始压缩上下文",
+        detail: attempt > 0 ? `正在进行第 ${attempt} 次上下文压缩，完成后自动继续任务。` : "正在压缩历史上下文，完成后自动继续任务。",
+        metaLabel: "上下文管理",
+        tone: "tool",
+        status: active ? "running" : "completed",
+        statusLabel: active ? "压缩中" : "已开始",
+        defaultExpanded: active,
+        contextItems: [
+          ...attempt > 0 ? [{ label: "尝试次数", value: String(attempt) }] : [],
+          ...data.id ? [{ label: "尝试 ID", value: String(data.id) }] : []
+        ],
+        detailObject: {
+          attempt_number: attempt || void 0,
+          attempt_id: data.id || void 0
+        }
+      };
+    }
+    case "runtime.context_compacted": {
+      const estimatedInputTokens = Number(data.estimated_input_tokens);
+      const hasEstimate = Number.isFinite(estimatedInputTokens) && estimatedInputTokens >= 0;
+      return {
+        title: "上下文压缩完成",
+        detail: hasEstimate ? `压缩后预计包含 ${estimatedInputTokens.toLocaleString()} 个输入 token，任务将继续执行。` : "历史上下文已压缩，任务将继续执行。",
+        metaLabel: "上下文管理",
+        tone: "ok",
+        status: "completed",
+        statusLabel: "完成",
+        defaultExpanded: false,
+        contextItems: [
+          ...hasEstimate ? [{ label: "预计输入 Token", value: estimatedInputTokens.toLocaleString() }] : [],
+          ...data.attempt_id ? [{ label: "尝试 ID", value: String(data.attempt_id) }] : []
+        ],
+        detailObject: {
+          estimated_input_tokens: hasEstimate ? estimatedInputTokens : void 0,
+          attempt_id: data.attempt_id || void 0,
+          usage: Object.keys(objectValue$3(data.usage)).length ? data.usage : void 0
+        }
+      };
+    }
+    case "runtime.context_compaction_failed": {
+      const failure = runtimeFailurePresentation(event == null ? void 0 : event.payload);
+      return {
+        title: "上下文压缩失败",
+        detail: failure.detail,
+        metaLabel: "上下文管理",
+        tone: "error",
+        status: "error",
+        statusLabel: "失败",
+        defaultExpanded: true,
+        contextItems: failure.code ? [{ label: "错误代码", value: failure.code }] : [],
+        detailObject: {
+          error_code: failure.code || void 0,
+          description: failure.description,
+          original_error: failure.original,
+          ...Object.keys(failure.providerError).length ? { provider_error: failure.providerError } : {}
+        }
+      };
+    }
+    default:
+      return null;
+  }
 }
 function objectRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -30785,6 +31116,666 @@ function clipboardImageFiles(clipboard) {
   const itemImages = Array.from(clipboard.items || []).filter((item) => item.kind === "file" && String(item.type || "").toLowerCase().startsWith("image/")).map((item) => item.getAsFile()).filter(Boolean);
   if (itemImages.length) return itemImages;
   return Array.from(clipboard.files || []).filter((file) => String(file.type || "").toLowerCase().startsWith("image/"));
+}
+function renderedCodeText(value) {
+  return Array.isArray(value) ? value.map((item) => renderedCodeText(item)).join("") : value == null || typeof value === "boolean" ? "" : String(value);
+}
+function markdownCodeText(value) {
+  const text2 = renderedCodeText(value);
+  return text2.endsWith("\n") ? text2.slice(0, -1) : text2;
+}
+function markdownCodeLanguage(className) {
+  const match = /(?:^|\s)language-([^\s]+)/.exec(String(className || ""));
+  return (match == null ? void 0 : match[1]) || "";
+}
+async function copyTextToClipboard(text2, environment2 = globalThis) {
+  var _a2;
+  const clipboard = (_a2 = environment2 == null ? void 0 : environment2.navigator) == null ? void 0 : _a2.clipboard;
+  if (typeof (clipboard == null ? void 0 : clipboard.writeText) === "function") {
+    try {
+      await clipboard.writeText(String(text2 || ""));
+      return;
+    } catch {
+    }
+  }
+  const document2 = environment2 == null ? void 0 : environment2.document;
+  if (!(document2 == null ? void 0 : document2.body) || typeof document2.createElement !== "function" || typeof document2.execCommand !== "function") {
+    throw new Error("Clipboard access is unavailable.");
+  }
+  const textarea = document2.createElement("textarea");
+  textarea.value = String(text2 || "");
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document2.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document2.execCommand("copy")) throw new Error("Copy command was rejected.");
+  } finally {
+    textarea.remove();
+  }
+}
+function MarkdownCodeBlock({ node: _node, children, ...props }) {
+  var _a2, _b;
+  const [copyState, setCopyState] = reactExports.useState("idle");
+  const resetTimerRef = reactExports.useRef(null);
+  const codeElement = React.Children.toArray(children).find((child) => React.isValidElement(child));
+  const codeText2 = markdownCodeText(((_a2 = codeElement == null ? void 0 : codeElement.props) == null ? void 0 : _a2.children) ?? children);
+  const language = markdownCodeLanguage((_b = codeElement == null ? void 0 : codeElement.props) == null ? void 0 : _b.className);
+  const copied = copyState === "copied";
+  const failed = copyState === "failed";
+  const label = copied ? "代码已复制" : failed ? "复制失败，点击重试" : "复制代码";
+  reactExports.useEffect(() => () => window.clearTimeout(resetTimerRef.current), []);
+  async function handleCopy() {
+    window.clearTimeout(resetTimerRef.current);
+    try {
+      await copyTextToClipboard(codeText2);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+    resetTimerRef.current = window.setTimeout(() => setCopyState("idle"), 1800);
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "message-code-block", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "message-code-toolbar", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: language || "代码" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          className: `message-code-copy ${copyState}`,
+          type: "button",
+          title: label,
+          "aria-label": label,
+          onClick: handleCopy,
+          children: copied ? /* @__PURE__ */ jsxRuntimeExports.jsx(Check, { "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Copy, { "aria-hidden": "true" })
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "message-code-copy-status", role: "status", "aria-live": "polite", children: copied ? "已复制" : failed ? "复制失败" : "" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("pre", { ...props, children })
+  ] });
+}
+const statusOrder = ["pending", "processing", "blocked", "dead_letter", "completed"];
+const statusLabels = {
+  pending: "待处理",
+  processing: "处理中",
+  blocked: "待批准",
+  dead_letter: "死信",
+  completed: "已完成"
+};
+const reasonLabels = {
+  object_ref_create_failed: "ObjectRef 创建失败",
+  artifact_create_failed: "Artifact 创建失败",
+  object_ref_rollback_failed: "ObjectRef 回滚失败",
+  unsafe_custom_key: "自定义 Key 未确认",
+  managed_object_orphaned: "托管对象孤儿"
+};
+const reconciliationLabels = {
+  missing_object: "对象缺失",
+  orphan_object: "孤儿对象",
+  metadata_mismatch: "元数据不一致",
+  provider_error: "Provider 错误"
+};
+const differenceLabels = {
+  version: "版本",
+  content_type: "内容类型",
+  size_bytes: "大小",
+  checksum_sha256: "SHA-256",
+  etag: "ETag"
+};
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index2 = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const amount = bytes / 1024 ** index2;
+  return `${amount >= 10 || index2 === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index2]}`;
+}
+function formatAge(seconds) {
+  const value = Math.max(0, Number(seconds || 0));
+  if (value < 60) return `${Math.round(value)} 秒`;
+  if (value < 3600) return `${Math.round(value / 60)} 分钟`;
+  if (value < 86400) return `${(value / 3600).toFixed(value < 36e3 ? 1 : 0)} 小时`;
+  return `${(value / 86400).toFixed(value < 864e3 ? 1 : 0)} 天`;
+}
+function formatDate$1(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+function requestFilters(workspaceID, filters) {
+  return {
+    workspaceId: workspaceID,
+    ...filters.status ? { status: filters.status } : {},
+    ...filters.reason.trim() ? { reason: filters.reason.trim() } : {},
+    ...filters.createdFrom ? { createdFrom: new Date(filters.createdFrom) } : {},
+    ...filters.createdTo ? { createdTo: new Date(filters.createdTo) } : {},
+    limit: 100
+  };
+}
+function CleanupStatus({ status }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `object-cleanup-status ${status || "unknown"}`, children: statusLabels[status] || status || "未知" });
+}
+function ApprovalDialog({ busy, job, onApprove, onClose }) {
+  const expected = `DELETE ${job.id}`;
+  const [confirm, setConfirm] = reactExports.useState("");
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "object-cleanup-dialog-backdrop", role: "presentation", onMouseDown: (event) => {
+    if (!busy && event.target === event.currentTarget) onClose();
+  }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "object-cleanup-dialog", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "object-cleanup-dialog-title", onSubmit: (event) => {
+    event.preventDefault();
+    if (confirm === expected) onApprove(confirm);
+  }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "object-cleanup-dialog-icon", children: /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { "aria-hidden": "true" }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { id: "object-cleanup-dialog-title", children: "批准永久删除对象" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "批准后任务会进入待处理队列，Worker 将从对象存储永久删除该文件。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary icon-button", type: "button", title: "关闭", "aria-label": "关闭批准窗口", disabled: busy, onClick: onClose, children: /* @__PURE__ */ jsxRuntimeExports.jsx(X, {}) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("dl", { className: "object-cleanup-dialog-facts", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "对象" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("dd", { children: [
+          job.bucket,
+          "/",
+          job.object_key
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "Provider" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: job.storage_provider })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "大小" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: formatBytes(job.size_bytes) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dt", { children: "原因" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("dd", { children: reasonLabels[job.reason] || job.reason })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "object-cleanup-confirm-field", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+        "输入 ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: expected }),
+        " 确认"
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("input", { autoFocus: true, autoComplete: "off", spellCheck: "false", value: confirm, onChange: (event) => setConfirm(event.target.value) })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("footer", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: busy, onClick: onClose, children: "取消" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "object-cleanup-danger-button", type: "submit", disabled: busy || confirm !== expected, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ShieldCheck, {}),
+        busy ? "批准中..." : "批准删除"
+      ] })
+    ] })
+  ] }) });
+}
+function ObjectCleanupSettings({ canApprove = false, workspaceID = "" }) {
+  var _a2, _b, _c, _d, _e;
+  const [stats, setStats] = reactExports.useState(null);
+  const [jobs, setJobs] = reactExports.useState([]);
+  const [filters, setFilters] = reactExports.useState({ status: "", reason: "", createdFrom: "", createdTo: "" });
+  const [loading, setLoading] = reactExports.useState(false);
+  const [busyJobID, setBusyJobID] = reactExports.useState("");
+  const [error, setError] = reactExports.useState("");
+  const [message, setMessage] = reactExports.useState("");
+  const [approvalJob, setApprovalJob] = reactExports.useState(null);
+  const [reconciliationPrefix, setReconciliationPrefix] = reactExports.useState(`${workspaceID}/`);
+  const [reconciliationLimit, setReconciliationLimit] = reactExports.useState(100);
+  const [reconciliationReport, setReconciliationReport] = reactExports.useState(null);
+  const [reconciliationInput, setReconciliationInput] = reactExports.useState(null);
+  const [reconciliationLoading, setReconciliationLoading] = reactExports.useState(false);
+  const [reconciliationError, setReconciliationError] = reactExports.useState("");
+  const [artifactSessions, setArtifactSessions] = reactExports.useState([]);
+  const [artifactSessionID, setArtifactSessionID] = reactExports.useState("");
+  const [artifactSessionsLoading, setArtifactSessionsLoading] = reactExports.useState(false);
+  const [artifactExportLoading, setArtifactExportLoading] = reactExports.useState(false);
+  const [artifactExport, setArtifactExport] = reactExports.useState(null);
+  const requestIDRef = reactExports.useRef(0);
+  async function refresh(activeFilters = filters, signal) {
+    if (!workspaceID) {
+      setError("当前没有可用的 Workspace，无法查询对象清理任务。");
+      return;
+    }
+    const requestID = ++requestIDRef.current;
+    setLoading(true);
+    setError("");
+    try {
+      const [statsResult, jobsResult] = await Promise.all([
+        objectCleanupStats(workspaceID, { signal }),
+        objectCleanupJobs(requestFilters(workspaceID, activeFilters), { signal })
+      ]);
+      if (requestID !== requestIDRef.current) return;
+      setStats(statsResult);
+      setJobs(Array.isArray(jobsResult.jobs) ? jobsResult.jobs : []);
+    } catch (nextError) {
+      if ((nextError == null ? void 0 : nextError.name) !== "AbortError" && requestID === requestIDRef.current) setError(nextError.message);
+    } finally {
+      if (requestID === requestIDRef.current) setLoading(false);
+    }
+  }
+  reactExports.useEffect(() => {
+    const controller = new AbortController();
+    refresh({ status: "", reason: "", createdFrom: "", createdTo: "" }, controller.signal);
+    return () => controller.abort();
+  }, [workspaceID]);
+  reactExports.useEffect(() => {
+    setReconciliationPrefix(workspaceID ? `${workspaceID}/` : "");
+    setReconciliationReport(null);
+    setReconciliationInput(null);
+    setReconciliationError("");
+    setArtifactExport(null);
+  }, [workspaceID]);
+  reactExports.useEffect(() => {
+    const controller = new AbortController();
+    setArtifactSessions([]);
+    setArtifactSessionID("");
+    if (!workspaceID) {
+      setArtifactSessionsLoading(false);
+      return () => controller.abort();
+    }
+    setArtifactSessionsLoading(true);
+    sessions({ workspace: workspaceID, limit: 100 }).then((response) => {
+      if (controller.signal.aborted) return;
+      const available = (response.sessions || []).filter((session2) => session2.workspace_id === workspaceID);
+      setArtifactSessions(available);
+      setArtifactSessionID((current) => {
+        var _a3;
+        return available.some((session2) => session2.id === current) ? current : ((_a3 = available[0]) == null ? void 0 : _a3.id) || "";
+      });
+    }).catch((nextError) => {
+      if ((nextError == null ? void 0 : nextError.name) !== "AbortError" && !controller.signal.aborted) setReconciliationError(nextError.message);
+    }).finally(() => {
+      if (!controller.signal.aborted) setArtifactSessionsLoading(false);
+    });
+    return () => controller.abort();
+  }, [workspaceID]);
+  const statusStats = reactExports.useMemo(() => new Map(((stats == null ? void 0 : stats.statuses) || []).map((item) => [item.status, item])), [stats]);
+  const totalJobs = reactExports.useMemo(() => [...statusStats.values()].reduce((sum, item) => sum + Number(item.jobs || 0), 0), [statusStats]);
+  const retryRatio = totalJobs ? Number((stats == null ? void 0 : stats.total_retried_jobs) || 0) / totalJobs : 0;
+  async function retry(job) {
+    setBusyJobID(job.id);
+    setError("");
+    setMessage("");
+    try {
+      await retryObjectCleanup(job.id, workspaceID);
+      setMessage(`清理任务 ${job.id} 已重新进入待处理队列。`);
+      await refresh();
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setBusyJobID("");
+    }
+  }
+  async function approve(confirm) {
+    if (!approvalJob) return;
+    const job = approvalJob;
+    setBusyJobID(job.id);
+    setError("");
+    setMessage("");
+    try {
+      await approveObjectCleanup(job.id, workspaceID, confirm);
+      setApprovalJob(null);
+      setMessage(`清理任务 ${job.id} 已批准并进入待处理队列。`);
+      await refresh();
+    } catch (nextError) {
+      setError(nextError.message);
+    } finally {
+      setBusyJobID("");
+    }
+  }
+  async function runReconciliation(providerCursor = "") {
+    if (!workspaceID) {
+      setReconciliationError("当前没有可用的 Workspace。");
+      return;
+    }
+    setReconciliationLoading(true);
+    setReconciliationError("");
+    setArtifactExport(null);
+    try {
+      const input = {
+        workspace_id: workspaceID,
+        prefix: reconciliationPrefix.trim(),
+        limit: Number(reconciliationLimit),
+        ...providerCursor ? { provider_cursor: providerCursor } : {}
+      };
+      const report = await previewObjectReconciliation(input);
+      setReconciliationReport(report);
+      setReconciliationInput(input);
+    } catch (nextError) {
+      setReconciliationError(nextError.message);
+    } finally {
+      setReconciliationLoading(false);
+    }
+  }
+  async function exportReconciliationArtifact() {
+    if (!reconciliationInput || !artifactSessionID) return;
+    setArtifactExportLoading(true);
+    setReconciliationError("");
+    setArtifactExport(null);
+    try {
+      const exported = await exportObjectReconciliationArtifact({
+        ...reconciliationInput,
+        session_id: artifactSessionID
+      });
+      setReconciliationReport(exported.report);
+      setArtifactExport(exported);
+    } catch (nextError) {
+      setReconciliationError(nextError.message);
+    } finally {
+      setArtifactExportLoading(false);
+    }
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-console", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "object-cleanup-overview", "aria-label": "对象清理概览", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-overview-heading", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "清理队列" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "Workspace ",
+            /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: workspaceID || "-" })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary object-cleanup-refresh", type: "button", disabled: loading, onClick: () => refresh(), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { "aria-hidden": "true" }),
+          loading ? "刷新中..." : "刷新"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-metrics", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Database, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "队列任务" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: totalJobs }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: formatBytes(((stats == null ? void 0 : stats.statuses) || []).reduce((sum, item) => sum + Number(item.bytes || 0), 0)) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: Number(((_a2 = statusStats.get("dead_letter")) == null ? void 0 : _a2.jobs) || 0) ? "critical" : "", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "死信" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: Number(((_b = statusStats.get("dead_letter")) == null ? void 0 : _b.jobs) || 0) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+            "重试率 ",
+            (retryRatio * 100).toFixed(retryRatio > 0 && retryRatio < 0.1 ? 1 : 0),
+            "%"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: Number(((_c = statusStats.get("blocked")) == null ? void 0 : _c.jobs) || 0) ? "warning" : "", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ShieldCheck, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "待批准" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: Number(((_d = statusStats.get("blocked")) == null ? void 0 : _d.jobs) || 0) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: canApprove ? "Admin 可处理" : "需要 Admin" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Clock3, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "最老待处理" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatAge((stats == null ? void 0 : stats.oldest_pending_age_seconds) || 0) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: (stats == null ? void 0 : stats.oldest_pending_at) ? formatDate$1(stats.oldest_pending_at) : "无积压" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(HardDrive, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "已删除" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: formatBytes((stats == null ? void 0 : stats.total_deleted_bytes) || 0) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+            Number(((_e = statusStats.get("completed")) == null ? void 0 : _e.jobs) || 0),
+            " 个任务"
+          ] })
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "object-reconciliation-panel", "aria-busy": reconciliationLoading || artifactExportLoading, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "对象对账" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: reconciliationReport ? `${reconciliationReport.storage_provider} · ${reconciliationReport.bucket}` : `Workspace ${workspaceID || "-"}` })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "object-reconciliation-mode", children: "Dry run" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "object-reconciliation-form", onSubmit: (event) => {
+        event.preventDefault();
+        runReconciliation();
+      }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "对象前缀" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: reconciliationPrefix, spellCheck: "false", onChange: (event) => setReconciliationPrefix(event.target.value), placeholder: workspaceID ? `${workspaceID}/` : "workspace/" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "扫描上限" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("select", { value: reconciliationLimit, onChange: (event) => setReconciliationLimit(Number(event.target.value)), children: [50, 100, 250, 500].map((limit) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: limit, children: limit }, limit)) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "submit", disabled: reconciliationLoading || !workspaceID, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ScanSearch, { "aria-hidden": "true" }),
+          reconciliationLoading ? "扫描中..." : "运行对账"
+        ] })
+      ] }),
+      reconciliationError ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-notice error", role: "alert", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { "aria-hidden": "true" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: reconciliationError })
+      ] }) : null,
+      reconciliationReport ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-reconciliation-results", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-reconciliation-summary", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "对象缺失" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: reconciliationReport.summary.missing_objects })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "孤儿对象" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: reconciliationReport.summary.orphan_objects })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "元数据不一致" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: reconciliationReport.summary.metadata_mismatches })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Provider 错误" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: reconciliationReport.summary.provider_errors })
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `object-reconciliation-scan ${reconciliationReport.scan.object_refs.truncated || reconciliationReport.scan.provider_objects.truncated ? "warning" : ""}`, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "ObjectRef ",
+            reconciliationReport.scan.object_refs.scanned,
+            reconciliationReport.scan.object_refs.truncated ? "+" : ""
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+            "Provider ",
+            reconciliationReport.scan.provider_objects.scanned,
+            reconciliationReport.scan.provider_objects.truncated ? "+" : ""
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatDate$1(reconciliationReport.generated_at) }),
+          reconciliationReport.scan.provider_objects.next_cursor ? /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: reconciliationLoading, onClick: () => runReconciliation(reconciliationReport.scan.provider_objects.next_cursor), children: "下一页" }) : null
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-reconciliation-export", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(FileJson, { "aria-hidden": "true" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "归属 Session" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: artifactSessionID, disabled: artifactSessionsLoading || artifactExportLoading, onChange: (event) => setArtifactSessionID(event.target.value), children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: artifactSessionsLoading ? "加载中..." : "选择 Session" }),
+              artifactSessions.map((session2) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: session2.id, children: session2.title ? `${session2.title} · ${session2.id}` : session2.id }, session2.id))
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: !artifactSessionID || artifactSessionsLoading || artifactExportLoading, onClick: exportReconciliationArtifact, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Save, { "aria-hidden": "true" }),
+            artifactExportLoading ? "保存中..." : "保存为 Artifact"
+          ] }),
+          artifactExport ? /* @__PURE__ */ jsxRuntimeExports.jsxs("a", { className: "object-reconciliation-download", href: `/v2/sessions/${encodeURIComponent(artifactExport.artifact.session_id)}/artifacts/${encodeURIComponent(artifactExport.artifact.id)}/download`, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Download, { "aria-hidden": "true" }),
+            artifactExport.artifact.name
+          ] }) : null
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "object-reconciliation-table-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "发现" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "对象" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "差异" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "建议" })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("tbody", { children: [
+            reconciliationReport.findings.map((finding, index2) => {
+              var _a3;
+              return /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `object-reconciliation-kind ${finding.kind}`, children: reconciliationLabels[finding.kind] || finding.kind }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "object-reconciliation-object", children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("code", { title: finding.object_key, children: finding.object_key || "-" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                    finding.object_ref_id || "无 ObjectRef",
+                    finding.object_version ? ` · ${finding.object_version}` : ""
+                  ] })
+                ] }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-reconciliation-differences", children: ((_a3 = finding.differences) == null ? void 0 : _a3.length) ? finding.differences.map((difference) => /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                  differenceLabels[difference.field] || difference.field,
+                  ": ",
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: difference.expected || "-" }),
+                  " → ",
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("code", { children: difference.actual || "-" })
+                ] }, difference.field)) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: finding.message }) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-reconciliation-remediation", children: finding.remediation })
+              ] }, `${finding.kind}-${finding.object_ref_id || finding.object_key || index2}`);
+            }),
+            !reconciliationReport.findings.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "object-cleanup-empty", colSpan: "4", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheck, { "aria-hidden": "true" }),
+              "当前扫描范围未发现异常。"
+            ] }) }) : null
+          ] })
+        ] }) })
+      ] }) : null
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { className: "object-cleanup-filters", onSubmit: (event) => {
+      event.preventDefault();
+      refresh();
+    }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "状态" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: filters.status, onChange: (event) => setFilters((current) => ({ ...current, status: event.target.value })), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "全部状态" }),
+          statusOrder.map((status) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: status, children: statusLabels[status] }, status))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "原因" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("select", { value: filters.reason, onChange: (event) => setFilters((current) => ({ ...current, reason: event.target.value })), children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "全部原因" }),
+          Object.entries(reasonLabels).map(([reason, label]) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: reason, children: label }, reason))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "创建时间从" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "datetime-local", value: filters.createdFrom, onChange: (event) => setFilters((current) => ({ ...current, createdFrom: event.target.value })) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "创建时间至" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("input", { type: "datetime-local", value: filters.createdTo, onChange: (event) => setFilters((current) => ({ ...current, createdTo: event.target.value })) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-filter-actions", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "secondary", type: "button", disabled: loading, onClick: () => {
+          const empty2 = { status: "", reason: "", createdFrom: "", createdTo: "" };
+          setFilters(empty2);
+          refresh(empty2);
+        }, children: "重置" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: loading, children: "应用筛选" })
+      ] })
+    ] }),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-notice error", role: "alert", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(TriangleAlert, { "aria-hidden": "true" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: error })
+    ] }) : null,
+    message ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "object-cleanup-notice success", role: "status", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(CircleCheck, { "aria-hidden": "true" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: message })
+    ] }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "object-cleanup-table-frame", "aria-busy": loading, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("header", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "清理任务" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          "当前显示 ",
+          jobs.length,
+          " 条，按创建时间倒序"
+        ] })
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "object-cleanup-table-scroll", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "状态" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "对象" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "原因" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "大小" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "尝试" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "创建时间" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "visually-hidden", children: "操作" }) })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("tbody", { children: [
+          jobs.map((job) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(CleanupStatus, { status: job.status }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "object-cleanup-object", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("code", { title: job.object_key, children: job.object_key }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+                job.storage_provider,
+                " · ",
+                job.bucket,
+                job.object_version ? ` · ${job.object_version}` : ""
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "object-cleanup-reason", children: reasonLabels[job.reason] || job.reason }),
+              job.last_error ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "object-cleanup-error-detail", title: job.last_error, children: job.last_error }) : null
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-cleanup-numeric", children: formatBytes(job.size_bytes) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-cleanup-numeric", children: job.attempt_count }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-cleanup-date", children: formatDate$1(job.created_at) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { className: "object-cleanup-actions", children: [
+              job.status === "dead_letter" && job.safe_to_delete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary", type: "button", disabled: Boolean(busyJobID), title: "重新加入清理队列", onClick: () => retry(job), children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { "aria-hidden": "true" }),
+                busyJobID === job.id ? "处理中" : "重试"
+              ] }) : null,
+              job.status === "blocked" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "secondary danger", type: "button", disabled: Boolean(busyJobID) || !canApprove, title: canApprove ? "审核并批准永久删除" : "仅 Admin 可以批准", onClick: () => setApprovalJob(job), children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(ShieldCheck, { "aria-hidden": "true" }),
+                "批准"
+              ] }) : null
+            ] })
+          ] }, job.id)),
+          !jobs.length && !loading ? /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-cleanup-empty", colSpan: "7", children: "没有符合条件的清理任务。" }) }) : null,
+          !jobs.length && loading ? /* @__PURE__ */ jsxRuntimeExports.jsx("tr", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "object-cleanup-empty", colSpan: "7", children: "正在加载清理任务..." }) }) : null
+        ] })
+      ] }) })
+    ] }),
+    approvalJob ? /* @__PURE__ */ jsxRuntimeExports.jsx(ApprovalDialog, { busy: busyJobID === approvalJob.id, job: approvalJob, onApprove: approve, onClose: () => setApprovalJob(null) }) : null
+  ] });
+}
+function errorMessages(error) {
+  const messages = [];
+  const seen2 = /* @__PURE__ */ new Set();
+  let current = error;
+  while (current && !seen2.has(current)) {
+    seen2.add(current);
+    const message = typeof current.message === "string" ? current.message.trim() : "";
+    if (message) messages.push(message);
+    current = current.cause;
+  }
+  return messages;
+}
+function artifactPreviewErrorMessage(error) {
+  const messages = errorMessages(error);
+  const detail = [...messages].reverse().find((message) => !message.startsWith("Resource provider ")) || "";
+  const normalized = detail.toLowerCase();
+  if (normalized.includes("soffice/libreoffice binary was not found")) {
+    return "无法预览 DOCX：服务器未安装 LibreOffice 文档转换组件。请下载文件查看，或联系管理员安装后重试。";
+  }
+  if (normalized.includes("artifact is too large for document preview")) {
+    return "无法在线预览：DOCX 文件超过 25 MB，请下载后查看。";
+  }
+  if (normalized.includes("only docx artifacts can be converted")) {
+    return "无法在线预览：该文件不是有效的 DOCX 文档，请下载后检查文件格式。";
+  }
+  if (normalized.includes("convert docx preview") || normalized.includes("converted pdf preview")) {
+    return `DOCX 转 PDF 预览失败：${detail}`;
+  }
+  return detail ? `文件预览失败：${detail}` : "文件预览失败，请下载文件后查看。";
 }
 function eventPayload(event) {
   return (event == null ? void 0 : event.payload) && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
@@ -38089,7 +39080,7 @@ function PlanApprovalCard({ intervention, onApprove, onReject, busy, active }) {
   const plan = objectValue(request.plan);
   const args = objectValue(intervention.arguments);
   const items = Array.isArray(plan.items) ? [...plan.items].sort((left, right) => Number(left.index || 0) - Number(right.index || 0)) : [];
-  const statusLabels = {
+  const statusLabels2 = {
     pending: "待执行",
     in_progress: "进行中",
     completed: "已完成",
@@ -38117,7 +39108,7 @@ function PlanApprovalCard({ intervention, onApprove, onReject, busy, active }) {
         /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: item.description || `步骤 ${index2 + 1}` }),
         item.evidence ? /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: item.evidence }) : null
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "plan-approval-item-status", children: statusLabels[item.status] || item.status || "待执行" })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "plan-approval-item-status", children: statusLabels2[item.status] || item.status || "待执行" })
     ] }, item.id || `${intervention.call_id}-${index2}`)) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "plan-approval-empty", children: [
       "计划快照不可用 · ",
       args.plan_id || "未知计划"
@@ -41044,6 +42035,8 @@ function SettingsPage({
     switch (activeSection) {
       case "environment":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(EnvironmentVariablesSettings, { canManageWorkspaceVariables, workspaceID });
+      case "object-cleanup":
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(ObjectCleanupSettings, { canApprove: ((principal == null ? void 0 : principal.roles) || []).includes("admin"), workspaceID });
       case "models":
         return /* @__PURE__ */ jsxRuntimeExports.jsx(ModelManagementSettings, { onCatalogChanged: onModelCatalogChanged, onOpenEnvironment: () => setActiveSection("environment"), workspaceID });
       case "skills":
@@ -41887,6 +42880,9 @@ const chatTimelineStatusEventTypes = /* @__PURE__ */ new Set([
   "runtime.started",
   "runtime.llm_request",
   "runtime.llm_response",
+  "runtime.context_compacting",
+  "runtime.context_compacted",
+  "runtime.context_compaction_failed",
   "runtime.skills_resolving",
   "runtime.skills_resolved",
   "runtime.turn_completing",
@@ -41939,6 +42935,7 @@ const chatTimelineInternalEventTypes = /* @__PURE__ */ new Set([
 function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = true, transientThinkingAfterSeq = 0 } = {}) {
   const sorted = [...sourceEvents || []].sort((left, right) => Number(left.seq || 0) - Number(right.seq || 0));
   const toolCallIDs = new Set(sorted.filter((event) => event.type === "runtime.tool_call").map((event) => toolCallID(event)).filter(Boolean));
+  const explicitCompactionFailures = new Set(sorted.filter((event) => event.type === "runtime.context_compaction_failed").map((event) => contextCompactionFailureDedupeKey(event)).filter(Boolean));
   const compacted = [];
   let internalEvents = [];
   function flushInternalEvents() {
@@ -41973,6 +42970,7 @@ function compactChatTimelineEvents(sourceEvents, { includeTransientThinking = tr
   }
   for (const event of sorted) {
     const callID = toolCallID(event);
+    if (event.type === "runtime.failed" && explicitCompactionFailures.has(contextCompactionFailureDedupeKey(event))) continue;
     if (chatTimelineInternalEventTypes.has(event.type)) {
       internalEvents.push(event);
       continue;
@@ -42583,6 +43581,17 @@ function ProcessEventCard({
     status = sessionStatus === "failed" ? "error" : sessionStatus === "interrupting" ? "warning" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "running" : "completed";
     statusLabel2 = sessionStatus === "failed" ? "失败" : sessionStatus === "interrupting" ? "中断中" : sessionStatus === "running" || sessionStatus === "provisioning" || sessionStatus === "compacting" ? "执行中" : sessionStatus === "terminated" ? "已归档" : "空闲";
     defaultExpanded = status === "running";
+  } else if (isContextCompactionEvent(event)) {
+    const compaction = contextCompactionPresentation(event, { active });
+    title = compaction.title;
+    metaLabel = compaction.metaLabel;
+    preview = compaction.detail;
+    detailObject = compaction.detailObject;
+    contextItems = compaction.contextItems;
+    tone = compaction.tone;
+    status = compaction.status;
+    statusLabel2 = compaction.statusLabel;
+    defaultExpanded = compaction.defaultExpanded;
   } else if (event.type === "runtime.thinking") {
     title = active ? "思考中" : "思考";
     metaLabel = "思考";
@@ -43051,7 +44060,8 @@ function MarkdownMessage({ text: text2, streaming = false }) {
         remarkPlugins: [remarkGfm],
         skipHtml: true,
         components: {
-          a: ({ node: _node, ...props }) => /* @__PURE__ */ jsxRuntimeExports.jsx("a", { ...props, target: "_blank", rel: "noreferrer" })
+          a: ({ node: _node, ...props }) => /* @__PURE__ */ jsxRuntimeExports.jsx("a", { ...props, target: "_blank", rel: "noreferrer" }),
+          pre: MarkdownCodeBlock
         },
         children: String(text2 || "")
       }
@@ -43750,10 +44760,13 @@ function WorkbenchApp() {
       { key: "space", title: "LLM Space", description: "运行对比、数据集与批量评测", keywords: "space llm evaluation experiment dataset compare 评测 实验 数据集 对比", href: "/space" },
       { key: "inspector", title: "Inspector", description: "调试与观察入口", keywords: "inspector trace debug" }
     ];
+    if (((principal == null ? void 0 : principal.roles) || []).some((role) => role === "operator" || role === "admin")) {
+      sections.splice(3, 0, { key: "object-cleanup", title: "对象存储", description: "清理队列、死信与删除审批", keywords: "object storage cleanup dead letter approval 对象存储 清理 死信 审批" });
+    }
     const query = settingsSearch.trim().toLowerCase();
     if (!query) return sections;
     return sections.filter((section) => section.title.toLowerCase().includes(query) || section.description.toLowerCase().includes(query) || section.keywords.toLowerCase().includes(query));
-  }, [settingsSearch]);
+  }, [principal, settingsSearch]);
   const settingsAgents = reactExports.useMemo(() => {
     const base = [...availableAgents];
     return base.sort((left, right) => {
@@ -45074,7 +46087,7 @@ function WorkbenchApp() {
       setArtifactPreview({ resource, status: "ready", ...preview });
     } catch (error) {
       if (isPreviewCancelledError(error)) return;
-      setArtifactPreview({ resource, status: "error", error: error.message });
+      setArtifactPreview({ resource, status: "error", error: artifactPreviewErrorMessage(error) });
     }
   }
   async function downloadArtifactResource(resource) {
@@ -46095,7 +47108,7 @@ function WorkbenchApp() {
                 const nextEvent = renderedChatTimelineEvents[eventIndex + 1];
                 const toolLifecycle = toolCallLifecycles.get(toolCallID(event));
                 const terminalToolEvent = terminalToolLifecycleEvent(toolLifecycle);
-                const isLatestActiveEvent = eventIndex === renderedChatTimelineEvents.length - 1 && ["running", "interrupting", "provisioning"].includes(effectiveSessionStatus);
+                const isLatestActiveEvent = eventIndex === renderedChatTimelineEvents.length - 1 && ["running", "interrupting", "provisioning", "compacting"].includes(effectiveSessionStatus);
                 return /* @__PURE__ */ jsxRuntimeExports.jsx(
                   ProcessEventCard,
                   {

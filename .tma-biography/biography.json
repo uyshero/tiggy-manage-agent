@@ -1,0 +1,47 @@
+{
+  "users": {
+    "usr_4564e3be121b69a56047accf": {
+      "id": "usr_4564e3be121b69a56047accf",
+      "oidc_issuer": "http://localhost:18080/realms/tma",
+      "oidc_subject": "99da8804-9eca-468d-b1cc-215cf672b7e9",
+      "display_name": "TMA Administrator",
+      "created_at": "2026-07-29T18:14:46.799745+08:00",
+      "last_login_at": "2026-07-30T14:05:24.664879+08:00"
+    }
+  },
+  "progress": {
+    "usr_4564e3be121b69a56047accf": {
+      "project": {
+        "id": "biography_new",
+        "ownerName": "",
+        "title": "我的人生故事",
+        "interviewOrder": "chronological",
+        "bookGoal": {
+          "type": "undecided",
+          "audience": "孩子以及喜欢自己的人",
+          "desiredImpact": "希望让读者了解自己关键时刻的决策、为人（总体正直向上，也有缺点），以及如何面对人生中的诸多遗憾",
+          "confirmed": false
+        },
+        "overallProgress": 0,
+        "completedChapterCount": 0,
+        "chapters": null,
+        "pendingConfirmation": ""
+      },
+      "lastInterview": {
+        "id": "voice-1785391332400-fff616f5c78f2",
+        "startedAt": "2026-07-30T14:02:12.414148+08:00",
+        "durationSeconds": 0,
+        "transcriptCount": 0,
+        "todayRecordingSaved": false
+      },
+      "activeChapterTitles": null,
+      "recentQuestions": [
+        "我先接着问一个简单的。回到刚才那段经历里，您现在最清楚记得的一个画面是什么？",
+        "听起来您已经准备好开始回忆了。不如咱们从您小时候印象最深的一件事聊起，慢慢往后讲？",
+        "没关系，要是暂时想不起来咱们换个角度，您小时候最常待的地方是哪里呀？"
+      ],
+      "updatedAt": "2026-07-30T14:02:12.41724+08:00"
+    }
+  },
+  "recordings": {}
+}

@@ -64,6 +64,9 @@ make run
 
 ## 项目结构
 
+仓库拆分路线和边界见[仓库拆分方案](./docs/repository-split.md)。当前仍是 monorepo，目标
+是逐步演进为 Platform、Worker Runtime、Console、Knowledge、Biography 和 SDK 六个独立发布项目。
+
 ```text
 cmd/tma-server/          HTTP Server 入口
 cmd/tma-worker/          长期运行的 Worker 入口
