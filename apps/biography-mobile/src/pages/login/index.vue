@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import {
   biographyDevTokenInputEnabled,
   clearBiographyAuth,
@@ -8,21 +8,12 @@ import {
   fetchBiographyAuthConfig,
   saveBiographyOIDCToken,
   startBiographyOIDCLogin,
-  type BiographyAuthConfig,
 } from "@/services/auth";
 
-const authConfig = ref<BiographyAuthConfig | null>(null);
 const oidcToken = ref("");
 const loading = ref(false);
-const pageLoading = ref(true);
 const errorMessage = ref("");
 const devTokenInputEnabled = biographyDevTokenInputEnabled();
-
-const oidcSummary = computed(() => {
-  const oidc = authConfig.value?.oidc;
-  if (!oidc) return "统一身份认证";
-  return oidc.client_id ? `${oidc.issuer} · ${oidc.client_id}` : oidc.issuer;
-});
 
 onMounted(async () => {
   clearBiographyAuthIfLegacyPhoneLogin();
@@ -34,15 +25,15 @@ onMounted(async () => {
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "统一身份认证失败，请重新登录";
-    pageLoading.value = false;
+    loading.value = false;
     return;
   }
   const config = await fetchBiographyAuthConfig();
-  authConfig.value = config;
-  pageLoading.value = false;
   if (!config.enabled || currentBiographyAccessToken()) {
     uni.redirectTo({ url: "/pages/interview/index" });
+    return;
   }
+  await startOIDCLogin();
 });
 
 async function startOIDCLogin() {
@@ -86,7 +77,6 @@ async function completeLoginWithToken(token: string) {
     uni.redirectTo({ url: "/pages/interview/index" });
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "统一身份认证失败，请重新登录";
-    pageLoading.value = false;
   } finally {
     loading.value = false;
   }
@@ -102,22 +92,14 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
 
 <template>
   <view class="login-page">
-    <view class="safe-top" />
-    <view class="login-card">
+    <view class="login-card" :class="{ compact: !errorMessage && !devTokenInputEnabled }">
       <view class="brand-mark"><view /><view /><view /></view>
-      <text class="login-title">登录人生书</text>
-      <text class="login-subtitle">自传内容、录音和家庭关系都很私密。登录由统一身份认证完成，用来确认“这是您的书”。</text>
-
-      <view class="oidc-panel">
-        <text class="oidc-label">登录方式</text>
-        <text class="oidc-title">统一身份认证 OIDC</text>
-        <text class="oidc-detail">{{ oidcSummary }}</text>
-      </view>
-
+      <text v-if="!errorMessage" class="login-title">正在打开统一登录</text>
+      <text v-if="!errorMessage" class="login-subtitle">请稍候，马上跳转。</text>
       <text v-if="errorMessage" class="error-message">{{ errorMessage }}</text>
 
-      <button class="login-button" :disabled="loading || pageLoading" @click="startOIDCLogin">
-        {{ loading ? "正在登录" : "使用统一身份认证登录" }}
+      <button v-if="errorMessage" class="login-button" :disabled="loading" @click="startOIDCLogin">
+        {{ loading ? "正在打开" : "重新打开统一登录" }}
       </button>
 
       <view v-if="devTokenInputEnabled" class="dev-token-panel">
@@ -125,10 +107,7 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
         <textarea v-model="oidcToken" class="dev-token-input" maxlength="-1" placeholder="粘贴 OIDC access_token 或 id_token" />
         <button class="dev-token-button" :disabled="loading" @click="loginWithToken">使用此 token 继续</button>
       </view>
-
-      <text class="privacy-note">后端只从 OIDC token 的 iss + sub 识别用户，并按账号隔离自传项目、采访进度、录音和章节整理结果。</text>
     </view>
-    <view class="safe-bottom" />
   </view>
 </template>
 
@@ -142,9 +121,6 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
   background: #f6f8f5;
 }
 
-.safe-top { height: env(safe-area-inset-top); }
-.safe-bottom { height: env(safe-area-inset-bottom); }
-
 .login-card {
   display: grid;
   gap: 18px;
@@ -155,6 +131,12 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
   border-radius: 24px;
   background: #fff;
   box-shadow: 0 18px 48px rgba(31, 78, 62, 0.1);
+}
+.login-card.compact {
+  justify-items: center;
+  width: min(100%, 280px);
+  padding: 24px 20px;
+  text-align: center;
 }
 
 .brand-mark {
@@ -174,18 +156,6 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
 
 .login-title { color: #20352d; font-size: 30px; font-weight: 900; line-height: 1.1; }
 .login-subtitle { color: #68776f; font-size: 16px; line-height: 1.6; }
-
-.oidc-panel {
-  display: grid;
-  gap: 6px;
-  padding: 16px;
-  border: 1px solid #d7e1dc;
-  border-radius: 18px;
-  background: #f9fbfa;
-}
-.oidc-label { color: #7b8a83; font-size: 13px; font-weight: 800; }
-.oidc-title { color: #20352d; font-size: 19px; font-weight: 900; }
-.oidc-detail { color: #60746a; font-size: 13px; line-height: 1.45; word-break: break-all; }
 
 .login-button,
 .dev-token-button {
@@ -208,7 +178,6 @@ function clearBiographyAuthIfLegacyPhoneLogin() {
 .dev-token-button[disabled] { opacity: 0.6; }
 
 .error-message { color: #a4493d; font-size: 14px; font-weight: 800; }
-.privacy-note { color: #75837c; font-size: 13px; line-height: 1.5; text-align: center; }
 
 .dev-token-panel {
   display: grid;
