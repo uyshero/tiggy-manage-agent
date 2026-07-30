@@ -87,6 +87,15 @@ describe("biography OIDC auth", () => {
     expect(String(storage.get("tma.biography.auth.oidc_code_verifier") || "")).toBeTruthy();
   });
 
+  it("fails closed when the auth config endpoint serves the H5 fallback", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<!doctype html><html></html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    })));
+
+    await expect(startBiographyOIDCLogin()).rejects.toThrow("统一身份认证配置暂时不可用");
+  });
+
   it("exchanges an OIDC callback code, saves the user, and cleans callback parameters", async () => {
     storage.set("tma.biography.auth.oidc_state", "state-1");
     storage.set("tma.biography.auth.oidc_code_verifier", "verifier-1");

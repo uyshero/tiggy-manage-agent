@@ -135,10 +135,12 @@ export async function fetchBiographyAuthConfig(): Promise<BiographyAuthConfig> {
   if (!baseURL) return { enabled: false, mode: "disabled" };
   try {
     const response = await fetch(`${baseURL}/v1/auth/config`);
-    if (!response.ok) return { enabled: false, mode: "disabled" };
-    return await response.json() as BiographyAuthConfig;
+    if (!response.ok) return { enabled: true, mode: "unavailable" };
+    const payload = await response.json() as BiographyAuthConfig;
+    if (typeof payload.enabled !== "boolean" || !payload.mode) return { enabled: true, mode: "unavailable" };
+    return payload;
   } catch {
-    return { enabled: false, mode: "disabled" };
+    return { enabled: true, mode: "unavailable" };
   }
 }
 
@@ -162,7 +164,8 @@ export async function startBiographyOIDCLogin(returnTo?: string): Promise<string
 
   const config = await fetchBiographyAuthConfig();
   const oidc = config.oidc;
-  if (!config.enabled || !oidc?.issuer) throw new Error("自传服务尚未启用统一身份认证");
+  if (!config.enabled) throw new Error("自传服务尚未启用统一身份认证");
+  if (!oidc?.issuer) throw new Error("统一身份认证配置暂时不可用，请稍后再试");
   if (!oidc.client_id) throw new Error("请先配置 OIDC client_id");
   const discovery = await discoverBiographyOIDC(oidc.issuer);
   const state = randomBase64URL(24);

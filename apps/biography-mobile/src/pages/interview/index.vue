@@ -674,13 +674,20 @@ async function beginOpeningPrompt() {
 }
 
 async function selectInterviewOrder(order: InterviewOrder) {
-  if (voiceOperationPending.value || !voice.value) return;
+  if (voiceOperationPending.value) return;
+  if (!voice.value) {
+    dispatch({ type: "FAIL", message: "语音服务正在准备，请稍后再试" });
+    return;
+  }
+  const previousOrder = project.value.interviewOrder;
+  project.value = { ...project.value, interviewOrder: order };
   voiceOperationPending.value = true;
   try {
     await voice.value.setInterviewOrder(order);
-    project.value = { ...project.value, interviewOrder: order };
   } catch (error) {
+    project.value = { ...project.value, interviewOrder: previousOrder };
     dispatch({ type: "FAIL", message: error instanceof Error ? error.message : "采访方式暂时无法保存" });
+    uni.showToast({ title: "暂时没保存成功，请再点一次", icon: "none" });
     return;
   } finally {
     voiceOperationPending.value = false;
@@ -892,16 +899,17 @@ onBeforeUnmount(() => {
           <text class="order-chooser-title">想先怎么讲？</text>
           <text class="order-chooser-detail">这只决定默认采访方向，之后随时都能补充别的经历。</text>
           <view class="interview-order-options">
-            <button
+            <view
               v-for="option in interviewOrderOptions"
               :key="option.value"
-              class="interview-order-option"
-              :disabled="voiceOperationPending"
-              @click="selectInterviewOrder(option.value)"
+              :class="['interview-order-option', { selected: project.interviewOrder === option.value, disabled: voiceOperationPending }]"
+              role="button"
+              :aria-disabled="voiceOperationPending"
+              @tap="selectInterviewOrder(option.value)"
             >
               <text class="interview-order-label">{{ option.label }}</text>
               <text class="interview-order-description">{{ option.description }}</text>
-            </button>
+            </view>
           </view>
         </view>
         <text v-else-if="selectedInterviewOrderLabel" class="interview-order-summary">采访方式：{{ selectedInterviewOrderLabel }}</text>
@@ -1271,10 +1279,17 @@ onBeforeUnmount(() => {
   background: #fff;
   color: #29463a;
   text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
-.interview-order-option::after { border: 0; }
-.interview-order-option:active { border-color: #1f7257; background: #edf7f1; }
-.interview-order-option[disabled] { opacity: 0.55; }
+.interview-order-option:active,
+.interview-order-option.selected {
+  border-color: #1f7257;
+  background: #edf7f1;
+  box-shadow: 0 8px 20px rgba(31, 114, 87, 0.12);
+  transform: translateY(-1px);
+}
+.interview-order-option.disabled { opacity: 0.55; pointer-events: none; }
 .interview-order-label { font-size: 16px; font-weight: 850; line-height: 1.2; }
 .interview-order-description { color: #718078; font-size: 12px; line-height: 1.4; }
 .interview-order-summary { min-height: 20px; margin-top: 12px; color: #60786c; font-size: 13px; font-weight: 750; }
