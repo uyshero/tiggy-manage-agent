@@ -21,6 +21,7 @@ UNI_EXPORT_METHOD(@selector(stopListening:callback:))
 UNI_EXPORT_METHOD(@selector(cancelListening:))
 UNI_EXPORT_METHOD(@selector(requestFollowup:callback:))
 UNI_EXPORT_METHOD(@selector(setInterviewOrder:callback:))
+UNI_EXPORT_METHOD(@selector(setChapterFocus:callback:))
 UNI_EXPORT_METHOD(@selector(playText:callback:))
 UNI_EXPORT_METHOD(@selector(cancelPlayback:))
 UNI_EXPORT_METHOD(@selector(finishRecordingSession:))
@@ -71,6 +72,10 @@ UNI_EXPORT_METHOD(@selector(dispose:))
 
 - (void)setInterviewOrder:(NSDictionary *)options callback:(UniModuleKeepAliveCallback)callback {
     [self.core setInterviewOrder:options completion:^(NSDictionary *result) { callback(result, NO); }];
+}
+
+- (void)setChapterFocus:(NSDictionary *)options callback:(UniModuleKeepAliveCallback)callback {
+    [self.core setChapterFocus:options completion:^(NSDictionary *result) { callback(result, NO); }];
 }
 
 - (void)playText:(NSDictionary *)options callback:(UniModuleKeepAliveCallback)callback {

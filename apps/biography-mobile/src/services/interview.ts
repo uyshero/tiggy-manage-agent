@@ -41,6 +41,7 @@ export interface BiographyProject {
   completedChapterCount: number;
   chapters: Chapter[];
   pendingConfirmation: string;
+	  pendingConfirmationChapterID?: string;
 }
 
 export interface InterviewReply {
@@ -49,16 +50,16 @@ export interface InterviewReply {
   project: BiographyProject;
 }
 
-export const openingInterviewPrompt = "您好，我是陪您整理人生故事的传记采访者。接下来我会像做人物专访一样，一次只问一个问题，帮您核对时间、地点、人物，也会多听当时的感受。您想停、想补充、想跳过都可以。我们先从这本书开始：您最想留给谁看，希望他们记住什么？";
+export const openingInterviewPrompt = "您好，我是您的传记采访者。我会把您讲的故事慢慢整理成一本书：先确认写给谁、最想留下什么，再按适合您的顺序聊，把画面、关系、感受、选择和后来影响问清楚，不只记年份和事情。您想停、补充或跳过都可以。";
 
 export function openingPromptForInterviewOrder(order?: InterviewOrder): string {
   switch (order) {
     case "chronological":
-      return "好，我们就从小时候慢慢讲起。我会边听边帮您留下重要的人、地方、感受和转折，您想跳到别的经历也可以。您最早记得的一个家里画面是什么？";
+      return "好，我们按从小到大的顺序慢慢讲，但随时能跳去别的回忆。开始前先确认一下：这本书最想留给谁看，希望他们记住您什么？";
     case "key_moments":
-      return "好，我们先讲您最想留给家人的重点故事。我会把其中的画面、感受和关系慢慢问清楚，之后再补齐其他部分。您最想从哪件事说起？";
+      return "好，我们先讲最值得留给家人的重点故事。我会把画面、感受、关系和选择慢慢问清楚。开始前先说说，这本书最想留给谁看，希望他们记住您什么？";
     case "custom":
-      return "好，顺序由您来定。我会帮您把每段经历整理好，之后需要时再串成完整的人生故事。现在最想先讲哪一段？";
+      return "好，顺序由您来定。我会把每段经历整理好，之后再串成完整的人生故事。开始前先确认：这本书最想留给谁看，希望他们记住您什么？";
     default:
       return openingInterviewPrompt;
   }
@@ -84,6 +85,7 @@ export function getEmptyProject(): BiographyProject {
     overallProgress: 0,
     completedChapterCount: 0,
     pendingConfirmation: "",
+		pendingConfirmationChapterID: "",
     chapters: [],
   };
 }

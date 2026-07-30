@@ -185,6 +185,18 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
         }
     }
 
+    public func setChapterFocus(_ options: NSDictionary, completion: @escaping (NSDictionary) -> Void) {
+        stateQueue.async {
+            let chapterID = (options["chapterID"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard self.connected else {
+                self.complete(completion, false, "语音服务正在重新连接")
+                return
+            }
+            self.sendJSON(["type": "interview.chapter.focus", "session_id": self.sessionID, "chapter_id": chapterID])
+            self.complete(completion, true, nil)
+        }
+    }
+
     public func playText(_ options: NSDictionary, completion: @escaping (NSDictionary) -> Void) {
         stateQueue.async {
             let text = (options["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -391,6 +403,15 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
             emit("assistant_reply", [
                 "text": message["text"] as? String ?? "",
                 "expression": message["expression"] as? String ?? "",
+                "needsRetry": message["needs_retry"] as? Bool ?? false,
+                "speechStarted": message["speech_started"] as? Bool ?? false,
+                "project": message["project"] ?? [:],
+            ])
+        case "chapter.confirmation":
+            emit("chapter_confirmation", [
+                "text": message["text"] as? String ?? "",
+                "expression": message["expression"] as? String ?? "",
+                "chapterID": message["chapter_id"] as? String ?? "",
                 "project": message["project"] ?? [:],
             ])
         case "tts.started":
@@ -560,7 +581,9 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
         captureEngine.inputNode.removeTap(onBus: 0)
         captureEngine.stop()
         captureConverter = nil
-        let shouldCommit = commit && captureMode == .listening && connected && captureAudioSent
+        let wasListening = captureMode == .listening
+        let shouldCommit = commit && wasListening && connected && captureAudioSent
+        let noSpeech = commit && wasListening && connected && !captureAudioSent
         if shouldCommit, !capturedPCM.isEmpty {
             pendingRecording = writeRecording(capturedPCM)
         }
@@ -574,6 +597,8 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
         capturedPCM = Data()
         if shouldCommit {
             sendJSON(["type": "input.commit", "session_id": sessionID, "defer_interview": deferInterview])
+        } else if noSpeech {
+            emitError("我没有听清，请按住话筒再说一次", code: "no_speech")
         }
     }
 
@@ -589,7 +614,9 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
         if let pending, !transcript.isEmpty, let recording = appendToSessionRecording(pending) {
             emit("recording_ready", [
                 "filePath": recording.url.absoluteString,
+                "segmentFilePath": recording.segmentURL.absoluteString,
                 "durationMs": recording.durationMs,
+                "segmentDurationMs": recording.segmentDurationMs,
                 "sizeBytes": recording.sizeBytes,
                 "transcript": transcript,
                 "cumulative": true,
@@ -619,10 +646,16 @@ public final class TMABiographyVoiceCore: NSObject, URLSessionWebSocketDelegate 
             file.seek(toFileOffset: 0)
             file.write(wavHeader(dataSize: nextPCMBytes))
             sessionRecordingPCMBytes = nextPCMBytes
+            let segmentURL = recordingDirectory.appendingPathComponent("segment-\(Int(Date().timeIntervalSince1970 * 1_000))-\(UUID().uuidString.lowercased()).wav")
+            var segment = wavHeader(dataSize: pending.pcm.count)
+            segment.append(pending.pcm)
+            try segment.write(to: segmentURL, options: .atomic)
             return SessionRecording(
                 url: url,
                 durationMs: Int64(nextPCMBytes) * 1_000 / (16_000 * 2),
-                sizeBytes: nextPCMBytes + 44
+                sizeBytes: nextPCMBytes + 44,
+                segmentURL: segmentURL,
+                segmentDurationMs: Int64(pending.pcm.count) * 1_000 / (16_000 * 2)
             )
         } catch {
             emitError("这段录音暂时无法保存")
@@ -848,4 +881,6 @@ private struct SessionRecording {
     let url: URL
     let durationMs: Int64
     let sizeBytes: Int
+    let segmentURL: URL
+    let segmentDurationMs: Int64
 }

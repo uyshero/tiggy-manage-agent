@@ -230,15 +230,34 @@ func (stream *doubaoASRStream) push(event doubaoUpstreamEvent) {
 }
 
 type doubaoTTSStream struct {
-	connection doubaoConnection
-	id         string
-	sessionID  string
-	events     chan<- doubaoUpstreamEvent
-	writeMu    sync.Mutex
-	closeOnce  sync.Once
+	connection   doubaoConnection
+	id           string
+	sessionID    string
+	appSessionID string
+	events       chan<- doubaoUpstreamEvent
+	writeMu      sync.Mutex
+	stateMu      sync.Mutex
+	finished     bool
+	closeOnce    sync.Once
 }
 
 func openDoubaoTTS(ctx context.Context, config Config, appSessionID string, text string, expression string, dial doubaoDialer, events chan<- doubaoUpstreamEvent) (*doubaoTTSStream, error) {
+	stream, err := openDoubaoTTSSession(ctx, config, appSessionID, expression, dial, events)
+	if err != nil {
+		return nil, err
+	}
+	if err := stream.SendText(ctx, text); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	if err := stream.Finish(ctx); err != nil {
+		_ = stream.Close()
+		return nil, err
+	}
+	return stream, nil
+}
+
+func openDoubaoTTSSession(ctx context.Context, config Config, appSessionID string, expression string, dial doubaoDialer, events chan<- doubaoUpstreamEvent) (*doubaoTTSStream, error) {
 	handshakeCtx, cancelHandshake := context.WithTimeout(ctx, doubaoHandshakeTimeout)
 	defer cancelHandshake()
 	connectID := newDoubaoID("tts")
@@ -247,7 +266,10 @@ func openDoubaoTTS(ctx context.Context, config Config, appSessionID string, text
 	if err != nil {
 		return nil, fmt.Errorf("connect doubao TTS: %w", err)
 	}
-	stream := &doubaoTTSStream{connection: connection, id: connectID, sessionID: newDoubaoID("tts-session"), events: events}
+	stream := &doubaoTTSStream{
+		connection: connection, id: connectID, sessionID: newDoubaoID("tts-session"),
+		appSessionID: appSessionID, events: events,
+	}
 	if err := stream.sendConnectEvent(handshakeCtx, doubaoEventStartConnection, map[string]any{"namespace": "BidirectionalTTS"}); err != nil {
 		_ = stream.Close()
 		return nil, err
@@ -281,22 +303,42 @@ func openDoubaoTTS(ctx context.Context, config Config, appSessionID string, text
 		return nil, err
 	}
 	stream.push(doubaoUpstreamEvent{Type: ServerTTSStarted})
-	if err := stream.sendSessionEvent(handshakeCtx, doubaoEventTaskRequest, map[string]any{
-		"user": map[string]any{"uid": appSessionID}, "event": doubaoEventTaskRequest,
-		"req_params": map[string]any{"text": text},
-	}); err != nil {
-		_ = stream.Close()
-		return nil, err
-	}
-	if err := stream.sendSessionEvent(handshakeCtx, doubaoEventFinishSession, map[string]any{}); err != nil {
-		_ = stream.Close()
-		return nil, err
-	}
 	go stream.readLoop(ctx)
 	return stream, nil
 }
 
+func (stream *doubaoTTSStream) SendText(ctx context.Context, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	stream.stateMu.Lock()
+	finished := stream.finished
+	stream.stateMu.Unlock()
+	if finished {
+		return errors.New("doubao TTS session already finished")
+	}
+	return stream.sendSessionEvent(ctx, doubaoEventTaskRequest, map[string]any{
+		"user": map[string]any{"uid": stream.appSessionID}, "event": doubaoEventTaskRequest,
+		"req_params": map[string]any{"text": text},
+	})
+}
+
+func (stream *doubaoTTSStream) Finish(ctx context.Context) error {
+	stream.stateMu.Lock()
+	if stream.finished {
+		stream.stateMu.Unlock()
+		return nil
+	}
+	stream.finished = true
+	stream.stateMu.Unlock()
+	return stream.sendSessionEvent(ctx, doubaoEventFinishSession, map[string]any{})
+}
+
 func (stream *doubaoTTSStream) Cancel(ctx context.Context) error {
+	stream.stateMu.Lock()
+	stream.finished = true
+	stream.stateMu.Unlock()
 	return stream.sendSessionEvent(ctx, doubaoEventCancelSession, map[string]any{})
 }
 

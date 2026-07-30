@@ -38,11 +38,17 @@ describe("recording backup", () => {
 
   it("uploads the combined recording with the current OIDC token", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://bio.example/v1/recordings/recording-12345678/audio");
+      const url = String(input);
       expect(init?.method).toBe("PUT");
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer header.payload.signature");
+      if (url === "https://bio.example/v1/recordings/recording-12345678") {
+        expect(new Headers(init?.headers).get("content-type")).toBe("application/json");
+        expect(JSON.parse(String(init?.body))).toMatchObject({ projectID: "book-a", transcript: "那年夏天，我第一次离开家。" });
+        return new Response("", { status: 201 });
+      }
+      expect(url).toBe("https://bio.example/v1/recordings/recording-12345678/segments/recording-12345678-legacy/audio");
       const body = init?.body as FormData;
-      expect(JSON.parse(String(body.get("metadata")))).toMatchObject({ projectID: "book-a", transcript: "那年夏天，我第一次离开家。" });
+      expect(JSON.parse(String(body.get("metadata")))).toMatchObject({ transcript: "那年夏天，我第一次离开家。", transcriptionStatus: "ready" });
       expect(body.get("audio")).toBeInstanceOf(Blob);
       return new Response("", { status: 201 });
     });
@@ -50,7 +56,7 @@ describe("recording backup", () => {
 
     await uploadRecordingBackup(recording());
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the local recording when the login has expired", async () => {

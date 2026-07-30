@@ -28,6 +28,7 @@ export interface BiographyProgressSnapshot {
   };
   activeChapterTitles: string[];
   pendingConfirmation?: string;
+  pendingTranscripts?: string[];
   recentQuestions?: string[];
   updatedAt: string;
 }

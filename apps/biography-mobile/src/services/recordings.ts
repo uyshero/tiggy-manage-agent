@@ -7,19 +7,25 @@ export interface RecordingInput {
   chapterTitle: string;
   transcript: string;
   durationMs: number;
+  segmentDurationMs?: number;
   audio?: Blob;
   filePath?: string;
   sizeBytes?: number;
   /** Native plugins emit the cumulative interview file after appending a turn. */
   cumulative?: boolean;
+  /** A native session may keep one full-session file alongside per-turn files. */
+  segmentFilePath?: string;
 }
 
 export interface RecordingSegment {
+  id: string;
+  createdAt: number;
   transcript: string;
   durationMs: number;
   audio?: Blob;
   filePath?: string;
   sizeBytes: number;
+  transcriptionStatus: "ready" | "needs_retry";
 }
 
 export interface StoredRecording extends RecordingInput {
@@ -29,6 +35,8 @@ export interface StoredRecording extends RecordingInput {
   createdAt: number;
   sizeBytes: number;
   segments?: RecordingSegment[];
+  /** The top-level file is a native full-session recording, not just one segment. */
+  cumulative?: boolean;
   /** Local storage remains the source of truth while the private backup is in flight. */
   backupStatus?: "pending" | "synced" | "failed";
   backupError?: string;
@@ -83,6 +91,36 @@ export function formatRecordingDate(createdAt: number): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
 }
 
+export function formatInterviewSessionMoment(createdAt: number): string {
+  const date = new Date(createdAt);
+  const hour = date.getHours();
+  const period = hour < 6 ? "凌晨" : hour < 12 ? "上午" : hour < 18 ? "下午" : "晚上";
+  return `${date.getMonth() + 1}月${date.getDate()}日${period}`;
+}
+
+export function recordingSegments(recording: StoredRecording): RecordingSegment[] {
+  if (recording.segments?.length) {
+    return recording.segments.map((segment, index) => ({
+      ...segment,
+      id: segment.id || `${recording.id}-segment-${index + 1}`,
+      createdAt: segment.createdAt || recording.createdAt,
+      transcriptionStatus: segment.transcriptionStatus || (segment.transcript.trim() ? "ready" : "needs_retry"),
+    }));
+  }
+  return [
+    {
+      id: `${recording.id}-legacy`,
+      createdAt: recording.createdAt,
+      transcript: recording.transcript,
+      durationMs: recording.durationMs,
+      audio: recording.audio,
+      filePath: recording.filePath,
+      sizeBytes: recording.sizeBytes,
+      transcriptionStatus: "ready",
+    },
+  ];
+}
+
 export async function listRecordings(projectID: string): Promise<StoredRecording[]> {
   const ownerID = currentBiographyUserID();
   const database = await openDatabase();
@@ -110,6 +148,7 @@ export async function saveRecording(input: RecordingInput): Promise<StoredRecord
     createdAt: Date.now(),
     sizeBytes: input.audio?.size || input.sizeBytes || 0,
     segments: [recordingSegment(input)],
+    cumulative: Boolean(input.cumulative),
     backupStatus: "pending",
     backupError: "",
   };
@@ -128,7 +167,7 @@ export async function appendRecordingSegment(existing: StoredRecording | undefin
   if (!existing) return saveRecording(input);
   if (!input.audio && !input.filePath) throw new Error("录音文件内容为空");
   const segment = recordingSegment(input);
-  const previousSegments = existing.segments?.length ? existing.segments : [recordingSegment(existing)];
+  const previousSegments = recordingSegments(existing);
   const transcript = [existing.transcript.trim(), input.transcript.trim()].filter(Boolean).join("\n");
   const recording: StoredRecording = input.cumulative
     ? {
@@ -137,8 +176,9 @@ export async function appendRecordingSegment(existing: StoredRecording | undefin
         durationMs: input.durationMs,
         audio: input.audio,
         filePath: input.filePath,
-        sizeBytes: segment.sizeBytes,
-        segments: [segment],
+        sizeBytes: input.audio?.size || input.sizeBytes || existing.sizeBytes,
+        cumulative: true,
+        segments: [...previousSegments, segment],
         backupStatus: "pending",
         backupError: "",
       }
@@ -177,19 +217,59 @@ export async function recordingAudioBlob(recording: StoredRecording): Promise<Bl
   return new Blob([encodeWAVPCM16(chunks)], { type: "audio/wav" });
 }
 
+export async function recordingSegmentAudioBlob(segment: RecordingSegment): Promise<Blob | undefined> {
+  return segment.audio;
+}
+
 export function recordingFilePaths(recording: StoredRecording): string[] {
+  if (recording.cumulative && recording.filePath) return [recording.filePath];
   const paths = recording.segments?.map((segment) => segment.filePath || "").filter(Boolean) || [];
   if (paths.length === 0 && recording.filePath) paths.push(recording.filePath);
   return [...new Set(paths)];
 }
 
+export async function deleteRecordingSegment(recordingID: string, segmentID: string): Promise<StoredRecording | undefined> {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(storeName, "readwrite");
+    const store = transaction.objectStore(storeName);
+    const recording = await requestResult(store.get(recordingID) as IDBRequest<StoredRecording | undefined>);
+    if (!recording) throw new Error("没有找到这次采访");
+    const remaining = recordingSegments(recording).filter((segment) => segment.id !== segmentID);
+    if (remaining.length === 0) {
+      store.delete(recordingID);
+      await transactionFinished(transaction);
+      return undefined;
+    }
+    const updated: StoredRecording = {
+      ...recording,
+      transcript: remaining.map((segment) => segment.transcript.trim()).filter(Boolean).join("\n"),
+      durationMs: remaining.reduce((total, segment) => total + segment.durationMs, 0),
+      sizeBytes: recording.cumulative
+        ? recording.sizeBytes
+        : remaining.reduce((total, segment) => total + segment.sizeBytes, 0),
+      segments: remaining,
+      backupStatus: "pending",
+      backupError: "",
+    };
+    store.put(updated);
+    await transactionFinished(transaction);
+    return updated;
+  } finally {
+    database.close();
+  }
+}
+
 function recordingSegment(input: RecordingInput): RecordingSegment {
   return {
+    id: `segment-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    createdAt: Date.now(),
     transcript: input.transcript.trim(),
-    durationMs: input.durationMs,
+    durationMs: input.segmentDurationMs || input.durationMs,
     audio: input.audio,
-    filePath: input.filePath,
+    filePath: input.segmentFilePath || input.filePath,
     sizeBytes: input.audio?.size || input.sizeBytes || 0,
+    transcriptionStatus: input.transcript.trim() ? "ready" : "needs_retry",
   };
 }
 

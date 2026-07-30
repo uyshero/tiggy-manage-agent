@@ -77,6 +77,29 @@ func TestOIDCAuthConfigRequiresIssuerAndAudience(t *testing.T) {
 	}
 }
 
+func TestPostgresBiographyPersistenceRequiresObjectStorage(t *testing.T) {
+	values := map[string]string{
+		"TMA_BIOGRAPHY_AUTH_MODE":          biographyAuthModeOIDC,
+		"TMA_BIOGRAPHY_AUTH_OIDC_ISSUER":   "https://identity.example",
+		"TMA_BIOGRAPHY_AUTH_OIDC_AUDIENCE": "biography-app",
+		"TMA_BIOGRAPHY_DATABASE_URL":       "postgres://biography.example/tma",
+	}
+	_, err := ConfigFromEnvironment(func(key string) string { return values[key] })
+	if err == nil || !strings.Contains(err.Error(), "object storage") {
+		t.Fatalf("expected missing object storage error, got %v", err)
+	}
+	values["TMA_BIOGRAPHY_OBJECT_STORE_PROVIDER"] = "localfs"
+	values["TMA_BIOGRAPHY_OBJECT_STORE_BUCKET"] = "biography-private"
+	values["TMA_BIOGRAPHY_OBJECT_STORE_ROOT_DIR"] = t.TempDir()
+	config, err := ConfigFromEnvironment(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DatabaseURL == "" || config.ObjectStore.Bucket != "biography-private" {
+		t.Fatalf("unexpected production persistence config: %+v", config)
+	}
+}
+
 func TestDoubaoConfigReadsSecretByEnvironmentReference(t *testing.T) {
 	values := map[string]string{
 		"TMA_BIOGRAPHY_VOICE_PROVIDER":           ProviderDoubao,

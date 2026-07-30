@@ -249,6 +249,82 @@ func TestDoubaoTTSStreamSendsExpressionAudioAndCancel(t *testing.T) {
 	}
 }
 
+func TestDoubaoTTSStreamAcceptsMultipleTextChunksBeforeFinish(t *testing.T) {
+	connection := newFakeDoubaoConnection()
+	connection.onWrite = func(payload []byte) {
+		frame, err := parseDoubaoFrame(payload)
+		if err != nil {
+			return
+		}
+		responseEvent := int32(0)
+		switch frame.Event {
+		case doubaoEventStartConnection:
+			responseEvent = doubaoEventConnectionStarted
+		case doubaoEventStartSession:
+			responseEvent = doubaoEventSessionStarted
+		}
+		if responseEvent != 0 {
+			connection.reads <- fakeDoubaoRead{messageType: websocket.MessageBinary, payload: mustDoubaoFrame(t, doubaoFrame{
+				MessageType: doubaoMessageFullServer, Flags: doubaoFlagWithEvent,
+				Serialization: doubaoSerializationJSON, HasEvent: true, Event: responseEvent,
+				EventID: frame.EventID, Payload: []byte(`{}`),
+			})}
+		}
+	}
+
+	events := make(chan doubaoUpstreamEvent, 8)
+	stream, err := openDoubaoTTSSession(t.Context(), testDoubaoConfig(), "app-session", "温和、自然", func(context.Context, string, http.Header) (doubaoConnection, error) {
+		return connection, nil
+	}, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	_ = waitDoubaoEvent(t, events)
+
+	if err := stream.SendText(t.Context(), "这段经历很有分量。"); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.SendText(t.Context(), "当时您最先想到的画面是什么？"); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Finish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Finish(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	frames := connection.writtenFrames(t)
+	var taskTexts []string
+	finishCount := 0
+	for _, frame := range frames {
+		switch frame.Event {
+		case doubaoEventTaskRequest:
+			var request struct {
+				ReqParams struct {
+					Text string `json:"text"`
+				} `json:"req_params"`
+			}
+			if err := json.Unmarshal(frame.Payload, &request); err != nil {
+				t.Fatal(err)
+			}
+			taskTexts = append(taskTexts, request.ReqParams.Text)
+		case doubaoEventFinishSession:
+			finishCount++
+		}
+	}
+	if want := []string{"这段经历很有分量。", "当时您最先想到的画面是什么？"}; len(taskTexts) != len(want) || taskTexts[0] != want[0] || taskTexts[1] != want[1] {
+		t.Fatalf("unexpected TTS task chunks: %#v", taskTexts)
+	}
+	if finishCount != 1 {
+		t.Fatalf("FinishSession count = %d, want 1", finishCount)
+	}
+	if err := stream.SendText(t.Context(), "不应再发送"); err == nil {
+		t.Fatal("SendText succeeded after Finish")
+	}
+}
+
 func TestProviderErrorRedactsSharedAPIKey(t *testing.T) {
 	server := &Server{config: Config{DoubaoAPIKey: "shared-secret-value"}}
 	err := server.safeProviderError(errors.New("upstream rejected shared-secret-value"))

@@ -85,6 +85,8 @@ export function reduceInterviewState(state: InterviewState, event: InterviewEven
       if (state.status !== "paused") return state;
       return { ...state, status: state.resumeStatus === "speaking" ? "ready" : state.resumeStatus };
     case "NETWORK_LOST":
+      // A failed initial connection must remain actionable instead of returning to an endless recovery state.
+      if (state.status === "error" || state.status === "paused" || state.status === "reconnecting") return state;
       return { ...state, status: "reconnecting", resumeStatus: state.status };
     case "NETWORK_RESTORED":
       if (state.status !== "reconnecting") return state;
@@ -92,7 +94,7 @@ export function reduceInterviewState(state: InterviewState, event: InterviewEven
     case "FAIL":
       return { ...state, status: "error", errorMessage: event.message, resumeStatus: state.status };
     case "RETRY":
-      if (state.status !== "error") return state;
+      if (state.status !== "error" && state.status !== "reconnecting") return state;
       return { ...state, status: "ready", errorMessage: "" };
     default:
       return state;
@@ -106,5 +108,5 @@ export const interviewStatusCopy: Record<InterviewStatus, { label: string; detai
   speaking: { label: "正在和您说", detail: "按住话筒可补充或打断" },
   paused: { label: "已经暂停", detail: "今天的内容都保存好了" },
   reconnecting: { label: "正在恢复", detail: "网络回来后会接着保存" },
-  error: { label: "暂时没有听清", detail: "可以再试一次" },
+  error: { label: "暂时无法继续", detail: "检查网络后可以再试一次" },
 };

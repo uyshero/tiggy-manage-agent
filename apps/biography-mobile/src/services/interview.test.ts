@@ -4,14 +4,11 @@ import { continueInterview, getEmptyProject, getInitialProject, openingInterview
 describe("interview opening", () => {
   it("introduces a professional biography interview before asking one question", () => {
     expect(openingInterviewPrompt).toContain("传记采访者");
-    expect(openingInterviewPrompt).toContain("人物专访");
-    expect(openingInterviewPrompt).toContain("核对时间、地点、人物");
-    expect(openingInterviewPrompt).toContain("当时的感受");
-    expect(openingInterviewPrompt).toContain("最想留给谁看");
-    expect(openingInterviewPrompt).toContain("记住什么");
-    expect(openingInterviewPrompt).toContain("想停");
-    expect(openingInterviewPrompt.length).toBeLessThanOrEqual(120);
-    expect(openingInterviewPrompt.endsWith("？")).toBe(true);
+    expect(openingInterviewPrompt).toContain("整理成一本书");
+    expect(openingInterviewPrompt).toContain("画面、关系、感受、选择");
+    expect(openingInterviewPrompt).toContain("先确认写给谁、最想留下什么");
+    expect(openingInterviewPrompt).toContain("想停、补充或跳过");
+    expect(openingInterviewPrompt.length).toBeLessThanOrEqual(140);
   });
 
   it("starts a new biography without a preset chapter outline", () => {
@@ -21,8 +18,8 @@ describe("interview opening", () => {
   });
 
   it("uses the selected order for the first spoken question without blocking later additions", () => {
-    expect(openingPromptForInterviewOrder("chronological")).toContain("小时候");
-    expect(openingPromptForInterviewOrder("chronological")).toContain("跳到别的经历");
+    expect(openingPromptForInterviewOrder("chronological")).toContain("从小到大");
+    expect(openingPromptForInterviewOrder("chronological")).toContain("跳去别的回忆");
     expect(openingPromptForInterviewOrder("key_moments")).toContain("重点故事");
     expect(openingPromptForInterviewOrder("custom")).toContain("顺序由您来定");
   });

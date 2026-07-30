@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tiggy-manage-agent/internal/objectstore"
 )
 
 const (
@@ -30,6 +32,8 @@ type Config struct {
 	AuthOIDCScopes                        []string
 	AuthOIDCHTTPTimeout                   time.Duration
 	DataDir                               string
+	DatabaseURL                           string
+	ObjectStore                           objectstore.Config
 	RecordingMaxBytes                     int64
 	DoubaoAPIKey                          string
 	DoubaoASRURL                          string
@@ -87,19 +91,38 @@ func ConfigFromEnvironment(lookup func(string) string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	objectStoreAccessKeyEnv := valueOrDefault(
+		lookup("TMA_BIOGRAPHY_OBJECT_STORE_ACCESS_KEY_ENV"),
+		valueOrDefault(lookup("TMA_OBJECT_STORE_ACCESS_KEY_ENV"), "TMA_OBJECT_STORE_ACCESS_KEY"),
+	)
+	objectStoreSecretKeyEnv := valueOrDefault(
+		lookup("TMA_BIOGRAPHY_OBJECT_STORE_SECRET_KEY_ENV"),
+		valueOrDefault(lookup("TMA_OBJECT_STORE_SECRET_KEY_ENV"), "TMA_OBJECT_STORE_SECRET_KEY"),
+	)
 	config := Config{
-		HTTPAddr:                              valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_HTTP_ADDR"), ":8091"),
-		Provider:                              strings.ToLower(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_PROVIDER"), ProviderMock)),
-		ClientToken:                           strings.TrimSpace(lookup("TMA_BIOGRAPHY_VOICE_CLIENT_TOKEN")),
-		AllowedOrigins:                        splitList(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_ALLOWED_ORIGINS"), "localhost:*,127.0.0.1:*")),
-		AuthMode:                              strings.ToLower(valueOrDefault(lookup("TMA_BIOGRAPHY_AUTH_MODE"), biographyAuthModeDisabled)),
-		AuthOIDCIssuer:                        strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_ISSUER")),
-		AuthOIDCAudience:                      strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_AUDIENCE")),
-		AuthOIDCJWKSURL:                       strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_JWKS_URL")),
-		AuthOIDCClientID:                      strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_CLIENT_ID")),
-		AuthOIDCScopes:                        splitList(valueOrDefault(lookup("TMA_BIOGRAPHY_AUTH_OIDC_SCOPES"), "openid,profile,email")),
-		AuthOIDCHTTPTimeout:                   authOIDCHTTPTimeout,
-		DataDir:                               valueOrDefault(lookup("TMA_BIOGRAPHY_DATA_DIR"), ".tma-biography"),
+		HTTPAddr:            valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_HTTP_ADDR"), ":8091"),
+		Provider:            strings.ToLower(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_PROVIDER"), ProviderMock)),
+		ClientToken:         strings.TrimSpace(lookup("TMA_BIOGRAPHY_VOICE_CLIENT_TOKEN")),
+		AllowedOrigins:      splitList(valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_ALLOWED_ORIGINS"), "localhost:*,127.0.0.1:*")),
+		AuthMode:            strings.ToLower(valueOrDefault(lookup("TMA_BIOGRAPHY_AUTH_MODE"), biographyAuthModeDisabled)),
+		AuthOIDCIssuer:      strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_ISSUER")),
+		AuthOIDCAudience:    strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_AUDIENCE")),
+		AuthOIDCJWKSURL:     strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_JWKS_URL")),
+		AuthOIDCClientID:    strings.TrimSpace(lookup("TMA_BIOGRAPHY_AUTH_OIDC_CLIENT_ID")),
+		AuthOIDCScopes:      splitList(valueOrDefault(lookup("TMA_BIOGRAPHY_AUTH_OIDC_SCOPES"), "openid,profile,email")),
+		AuthOIDCHTTPTimeout: authOIDCHTTPTimeout,
+		DataDir:             valueOrDefault(lookup("TMA_BIOGRAPHY_DATA_DIR"), ".tma-biography"),
+		DatabaseURL:         strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_DATABASE_URL"), lookup("TMA_DATABASE_URL"))),
+		ObjectStore: objectstore.Config{
+			Provider:     valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_PROVIDER"), lookup("TMA_OBJECT_STORE_PROVIDER")),
+			Endpoint:     strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_ENDPOINT"), lookup("TMA_OBJECT_STORE_ENDPOINT"))),
+			Region:       strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_REGION"), lookup("TMA_OBJECT_STORE_REGION"))),
+			Bucket:       strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_BUCKET"), lookup("TMA_OBJECT_STORE_BUCKET"))),
+			RootDir:      strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_ROOT_DIR"), lookup("TMA_OBJECT_STORE_ROOT_DIR"))),
+			AccessKey:    strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_ACCESS_KEY"), lookup(objectStoreAccessKeyEnv))),
+			SecretKey:    strings.TrimSpace(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_SECRET_KEY"), lookup(objectStoreSecretKeyEnv))),
+			UsePathStyle: strings.EqualFold(valueOrDefault(lookup("TMA_BIOGRAPHY_OBJECT_STORE_USE_PATH_STYLE"), lookup("TMA_OBJECT_STORE_USE_PATH_STYLE")), "true"),
+		},
 		RecordingMaxBytes:                     recordingMaxBytes,
 		DoubaoAPIKey:                          strings.TrimSpace(lookup(voiceAPIKeyEnv)),
 		DoubaoASRURL:                          valueOrDefault(lookup("TMA_BIOGRAPHY_VOICE_DOUBAO_ASR_URL"), defaultDoubaoASRURL),
@@ -151,6 +174,11 @@ func (config Config) Validate() error {
 		}
 		if config.RecordingMaxBytes < 0 {
 			return fmt.Errorf("biography recording max bytes cannot be negative")
+		}
+		if strings.TrimSpace(config.DatabaseURL) != "" {
+			if strings.TrimSpace(config.ObjectStore.Provider) == "" || strings.TrimSpace(config.ObjectStore.Bucket) == "" {
+				return fmt.Errorf("biography Postgres persistence requires object storage provider and bucket")
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported biography auth mode %q", config.AuthMode)

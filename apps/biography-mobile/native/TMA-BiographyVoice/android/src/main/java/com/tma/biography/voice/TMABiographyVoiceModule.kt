@@ -231,6 +231,21 @@ class TMABiographyVoiceModule : UniModule() {
     }
 
     @UniJSMethod(uiThread = true)
+    fun setChapterFocus(options: JSONObject?, callback: UniJSCallback) {
+        val chapterID = options?.getString("chapterID")?.trim().orEmpty()
+        if (!connected) {
+            callback.invoke(result(false, "语音服务正在重新连接"))
+            return
+        }
+        sendJSON(JSONObject().apply {
+            put("type", "interview.chapter.focus")
+            put("session_id", currentSessionID)
+            put("chapter_id", chapterID)
+        })
+        callback.invoke(result(true))
+    }
+
+    @UniJSMethod(uiThread = true)
     fun playText(options: JSONObject?, callback: UniJSCallback) {
         val text = options?.getString("text")?.trim().orEmpty()
         if (!connected || text.isEmpty()) {
@@ -422,9 +437,18 @@ class TMABiographyVoiceModule : UniModule() {
                     "assistant_reply",
                     "text" to message.getString("text").orEmpty(),
                     "expression" to message.getString("expression").orEmpty(),
+                    "needsRetry" to message.optBoolean("needs_retry", false),
+                    "speechStarted" to message.optBoolean("speech_started", false),
                     "project" to message.getJSONObject("project"),
                 )
             }
+            "chapter.confirmation" -> emit(
+                "chapter_confirmation",
+                "text" to message.getString("text").orEmpty(),
+                "expression" to message.getString("expression").orEmpty(),
+                "chapterID" to message.getString("chapter_id").orEmpty(),
+                "project" to message.getJSONObject("project"),
+            )
             "tts.started" -> {
                 preparePlayback()
                 emit("playback_started")
@@ -611,7 +635,9 @@ class TMABiographyVoiceModule : UniModule() {
         echoCanceler = null
         noiseSuppressor?.release()
         noiseSuppressor = null
-        val shouldCommit = commit && captureMode == CaptureMode.LISTENING && connected && captureAudioSent
+        val wasListening = captureMode == CaptureMode.LISTENING
+        val shouldCommit = commit && wasListening && connected && captureAudioSent
+        val noSpeech = commit && wasListening && connected && !captureAudioSent
         val deferInterview = deferInterviewOnNextCommit
         if (shouldCommit && capturedPCM.size() > 0) {
             pendingRecording = writeRecording(capturedPCM.toByteArray())
@@ -629,6 +655,8 @@ class TMABiographyVoiceModule : UniModule() {
                 put("session_id", currentSessionID)
                 put("defer_interview", deferInterview)
             })
+        } else if (noSpeech) {
+            emitError("我没有听清，请按住话筒再说一次", "no_speech")
         }
     }
 
@@ -646,7 +674,9 @@ class TMABiographyVoiceModule : UniModule() {
                 emit(
                     "recording_ready",
                     "filePath" to Uri.fromFile(recording.file).toString(),
+                    "segmentFilePath" to Uri.fromFile(recording.segmentFile).toString(),
                     "durationMs" to recording.durationMs,
+                    "segmentDurationMs" to recording.segmentDurationMs,
                     "sizeBytes" to recording.sizeBytes,
                     "transcript" to transcript.trim(),
                     "cumulative" to true,
@@ -658,8 +688,8 @@ class TMABiographyVoiceModule : UniModule() {
 
     private fun appendToSessionRecording(pending: PendingRecording): SessionRecording? {
         return try {
+            val directory = File(context.filesDir, "biography-recordings").apply { mkdirs() }
             val file = sessionRecordingFile ?: run {
-                val directory = File(context.filesDir, "biography-recordings").apply { mkdirs() }
                 File(directory, "interview-${System.currentTimeMillis()}-${UUID.randomUUID()}.wav").also {
                     sessionRecordingFile = it
                 }
@@ -677,10 +707,18 @@ class TMABiographyVoiceModule : UniModule() {
                 output.write(wavHeader(nextPCMBytes.toInt()))
             }
             sessionRecordingPCMBytes = nextPCMBytes
+            val segmentFile = File(directory, "segment-${System.currentTimeMillis()}-${UUID.randomUUID()}.wav")
+            RandomAccessFile(segmentFile, "rw").use { output ->
+                output.setLength(0)
+                output.write(wavHeader(pending.pcm.size))
+                output.write(pending.pcm)
+            }
             SessionRecording(
                 file,
                 nextPCMBytes * 1_000L / (captureSampleRate * 2L),
                 file.length(),
+                segmentFile,
+                pending.pcm.size * 1_000L / (captureSampleRate * 2L),
             )
         } catch (_: Exception) {
             emitError("这段录音暂时无法保存")
@@ -848,5 +886,11 @@ class TMABiographyVoiceModule : UniModule() {
     private enum class CaptureMode { NONE, MONITOR, LISTENING }
 
     private data class PendingRecording(val pcm: ByteArray)
-    private data class SessionRecording(val file: File, val durationMs: Long, val sizeBytes: Long)
+    private data class SessionRecording(
+        val file: File,
+        val durationMs: Long,
+        val sizeBytes: Long,
+        val segmentFile: File,
+        val segmentDurationMs: Long,
+    )
 }

@@ -1,6 +1,7 @@
 package biographyvoice
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"tiggy-manage-agent/internal/objectstore"
 )
 
 const defaultRecordingMaxBytes int64 = 128 * 1024 * 1024
@@ -24,6 +27,7 @@ type recordingUploadMetadata struct {
 	DurationMS   int64  `json:"durationMs"`
 	Title        string `json:"title"`
 	CreatedAt    int64  `json:"createdAt"`
+	SizeBytes    int64  `json:"sizeBytes"`
 }
 
 type recordingTitleUpdate struct {
@@ -89,6 +93,8 @@ func (server *Server) recording(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.Method {
+	case http.MethodPut:
+		server.upsertRecordingMetadata(w, r, user.ID, recordingID)
 	case http.MethodPatch:
 		server.renameRecording(w, r, user.ID, recordingID)
 	case http.MethodDelete:
@@ -96,6 +102,41 @@ func (server *Server) recording(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (server *Server) upsertRecordingMetadata(w http.ResponseWriter, r *http.Request, userID string, recordingID string) {
+	defer r.Body.Close()
+	var metadata recordingUploadMetadata
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128*1024)).Decode(&metadata); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "采访场次信息不正确"})
+		return
+	}
+	if err := validateRecordingMetadata(metadata); err != nil || metadata.SizeBytes < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "采访场次信息不正确"})
+		return
+	}
+	now := time.Now().UTC()
+	createdAt := now
+	if metadata.CreatedAt > 0 {
+		createdAt = time.UnixMilli(metadata.CreatedAt).UTC()
+	}
+	recording := storedRecording{
+		ID: recordingID, ProjectID: strings.TrimSpace(metadata.ProjectID), ChapterID: strings.TrimSpace(metadata.ChapterID),
+		ChapterTitle: strings.TrimSpace(metadata.ChapterTitle), Transcript: strings.TrimSpace(metadata.Transcript),
+		DurationMS: metadata.DurationMS, Title: strings.TrimSpace(metadata.Title), CreatedAt: createdAt,
+		UpdatedAt: now, SizeBytes: metadata.SizeBytes, ContentType: "audio/wav",
+	}
+	if existing, found, err := server.store.recordingForUser(userID, recordingID); err != nil {
+		server.recordingError(w, "保存采访场次失败", err)
+		return
+	} else if found && recording.Title == "" {
+		recording.Title = existing.Title
+	}
+	if err := server.store.saveRecording(userID, recording); err != nil {
+		server.recordingError(w, "保存采访场次失败", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, recording)
 }
 
 func (server *Server) uploadRecordingAudio(w http.ResponseWriter, r *http.Request, userID string, recordingID string) {
@@ -170,8 +211,8 @@ func (server *Server) downloadRecordingAudio(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "没有找到这段录音"})
 		return
 	}
-	file, err := os.Open(server.store.recordingAudioPath(userID, recordingID))
-	if errors.Is(err, os.ErrNotExist) {
+	file, err := server.store.openRecordingAudio(userID, recordingID)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, objectstore.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "没有找到这段录音"})
 		return
 	}
@@ -180,11 +221,16 @@ func (server *Server) downloadRecordingAudio(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer file.Close()
+	payload, err := io.ReadAll(file)
+	if err != nil {
+		server.recordingError(w, "读取录音文件失败", err)
+		return
+	}
 	if contentType := strings.TrimSpace(recording.ContentType); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", recordingID+".wav"))
-	http.ServeContent(w, r, recordingID+".wav", recording.UpdatedAt, file)
+	http.ServeContent(w, r, recordingID+".wav", recording.UpdatedAt, bytes.NewReader(payload))
 }
 
 func (server *Server) renameRecording(w http.ResponseWriter, r *http.Request, userID string, recordingID string) {
@@ -227,12 +273,28 @@ func (server *Server) deleteRecording(w http.ResponseWriter, userID string, reco
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "没有找到这段录音"})
 		return
 	}
+	var segments []storedRecordingSegment
+	segmentStore, hasSegments := server.store.(recordingSegmentStore)
+	if hasSegments {
+		segments, err = segmentStore.listRecordingSegments(userID, recordingID)
+		if err != nil {
+			server.recordingError(w, "读取分段录音记录失败", err)
+			return
+		}
+	}
 	if err := server.store.deleteRecording(userID, recordingID); err != nil {
 		server.recordingError(w, "删除录音记录失败", err)
 		return
 	}
-	if err := server.store.removeRecordingAudio(userID, recordingID); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := server.store.removeRecordingAudio(userID, recordingID); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, objectstore.ErrNotFound) {
 		server.logger.Error("biography recording file removal failed", "recording_id", recordingID, "error", server.safeProviderError(err))
+	}
+	if hasSegments {
+		for _, segment := range segments {
+			if err := segmentStore.removeRecordingSegmentAudio(userID, recordingID, segment.ID); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, objectstore.ErrNotFound) {
+				server.logger.Error("biography recording segment file removal failed", "recording_id", recordingID, "segment_id", segment.ID, "error", server.safeProviderError(err))
+			}
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -331,6 +393,12 @@ func (store *biographyDataStore) deleteRecording(userID string, recordingID stri
 			delete(store.data.Recordings, userID)
 		}
 	}
+	if segments := store.data.RecordingSegments[userID]; segments != nil {
+		delete(segments, recordingID)
+		if len(segments) == 0 {
+			delete(store.data.RecordingSegments, userID)
+		}
+	}
 	return store.saveLocked()
 }
 
@@ -369,6 +437,102 @@ func (store *biographyDataStore) writeRecordingAudio(userID string, recordingID 
 	return written, nil
 }
 
+func (store *biographyDataStore) openRecordingAudio(userID string, recordingID string) (io.ReadCloser, error) {
+	return os.Open(store.recordingAudioPath(userID, recordingID))
+}
+
 func (store *biographyDataStore) removeRecordingAudio(userID string, recordingID string) error {
-	return os.Remove(store.recordingAudioPath(userID, recordingID))
+	if err := os.Remove(store.recordingAudioPath(userID, recordingID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.RemoveAll(filepath.Dir(store.recordingSegmentAudioPath(userID, recordingID, "placeholder")))
+}
+
+func (store *biographyDataStore) listRecordingSegments(userID string, recordingID string) ([]storedRecordingSegment, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	segments := store.data.RecordingSegments[userID][recordingID]
+	result := make([]storedRecordingSegment, 0, len(segments))
+	for _, segment := range segments {
+		result = append(result, segment)
+	}
+	sort.Slice(result, func(left int, right int) bool { return result[left].CreatedAt.Before(result[right].CreatedAt) })
+	return result, nil
+}
+
+func (store *biographyDataStore) recordingSegmentForUser(userID string, recordingID string, segmentID string) (storedRecordingSegment, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	segment, found := store.data.RecordingSegments[userID][recordingID][segmentID]
+	return segment, found, nil
+}
+
+func (store *biographyDataStore) saveRecordingSegment(userID string, recordingID string, segment storedRecordingSegment) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.data.RecordingSegments == nil {
+		store.data.RecordingSegments = map[string]map[string]map[string]storedRecordingSegment{}
+	}
+	if store.data.RecordingSegments[userID] == nil {
+		store.data.RecordingSegments[userID] = map[string]map[string]storedRecordingSegment{}
+	}
+	if store.data.RecordingSegments[userID][recordingID] == nil {
+		store.data.RecordingSegments[userID][recordingID] = map[string]storedRecordingSegment{}
+	}
+	store.data.RecordingSegments[userID][recordingID][segment.ID] = segment
+	return store.saveLocked()
+}
+
+func (store *biographyDataStore) deleteRecordingSegment(userID string, recordingID string, segmentID string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if segments := store.data.RecordingSegments[userID][recordingID]; segments != nil {
+		delete(segments, segmentID)
+		if len(segments) == 0 {
+			delete(store.data.RecordingSegments[userID], recordingID)
+		}
+	}
+	return store.saveLocked()
+}
+
+func (store *biographyDataStore) recordingSegmentAudioPath(userID string, recordingID string, segmentID string) string {
+	return filepath.Join(filepath.Dir(store.path), "recordings", userID, recordingID, "segments", segmentID+".wav")
+}
+
+func (store *biographyDataStore) writeRecordingSegmentAudio(userID string, recordingID string, segmentID string, source io.Reader, maxBytes int64) (int64, error) {
+	path := store.recordingSegmentAudioPath(userID, recordingID, segmentID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return 0, err
+	}
+	temporary := path + ".tmp"
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	written, copyErr := io.Copy(file, io.LimitReader(source, maxBytes+1))
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil {
+		_ = os.Remove(temporary)
+		if copyErr != nil {
+			return 0, copyErr
+		}
+		return 0, closeErr
+	}
+	if written > maxBytes {
+		_ = os.Remove(temporary)
+		return 0, errRecordingTooLarge
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return 0, err
+	}
+	return written, nil
+}
+
+func (store *biographyDataStore) openRecordingSegmentAudio(userID string, recordingID string, segmentID string) (io.ReadCloser, error) {
+	return os.Open(store.recordingSegmentAudioPath(userID, recordingID, segmentID))
+}
+
+func (store *biographyDataStore) removeRecordingSegmentAudio(userID string, recordingID string, segmentID string) error {
+	return os.Remove(store.recordingSegmentAudioPath(userID, recordingID, segmentID))
 }

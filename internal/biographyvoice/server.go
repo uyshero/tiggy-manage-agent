@@ -26,14 +26,16 @@ var (
 )
 
 type Server struct {
-	config       Config
-	logger       *slog.Logger
-	mux          *http.ServeMux
-	doubaoDialer doubaoDialer
-	interview    interviewEngine
-	resumeTokens *resumeTokenCodec
-	auth         *authService
-	store        *biographyDataStore
+	config           Config
+	logger           *slog.Logger
+	mux              *http.ServeMux
+	doubaoDialer     doubaoDialer
+	interview        interviewEngine
+	resumeTokens     *resumeTokenCodec
+	auth             *authService
+	store            biographyStore
+	interviewLeaseMu sync.Mutex
+	interviewLeases  map[string]string
 }
 
 func NewServer(config Config, logger *slog.Logger) (*Server, error) {
@@ -61,10 +63,14 @@ func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server
 			return nil, err
 		}
 	}
-	var store *biographyDataStore
+	var store biographyStore
 	var auth *authService
 	if strings.TrimSpace(config.AuthMode) == biographyAuthModeOIDC {
-		store, err = newBiographyDataStore(config.DataDir)
+		if strings.TrimSpace(config.DatabaseURL) != "" {
+			store, err = newPostgresBiographyStore(config)
+		} else {
+			store, err = newBiographyDataStore(config.DataDir)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -76,6 +82,7 @@ func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server
 	server := &Server{
 		config: config, logger: logger, mux: http.NewServeMux(), doubaoDialer: dialer,
 		interview: interview, resumeTokens: resumeTokens, auth: auth, store: store,
+		interviewLeases: make(map[string]string),
 	}
 	server.mux.HandleFunc("GET /healthz", server.health)
 	server.mux.HandleFunc("GET /v1/auth/config", server.authConfig)
@@ -87,6 +94,9 @@ func newServer(config Config, logger *slog.Logger, dialer doubaoDialer) (*Server
 	server.mux.HandleFunc("POST /v1/recordings/{recordingID}/audio", server.recordingAudio)
 	server.mux.HandleFunc("PATCH /v1/recordings/{recordingID}", server.recording)
 	server.mux.HandleFunc("DELETE /v1/recordings/{recordingID}", server.recording)
+	server.mux.HandleFunc("GET /v1/recordings/{recordingID}/segments/{segmentID}/audio", server.recordingSegment)
+	server.mux.HandleFunc("PUT /v1/recordings/{recordingID}/segments/{segmentID}/audio", server.recordingSegment)
+	server.mux.HandleFunc("DELETE /v1/recordings/{recordingID}/segments/{segmentID}/audio", server.recordingSegment)
 	server.mux.HandleFunc("GET /v1/voice/session", server.voiceSession)
 	return server, nil
 }
@@ -169,7 +179,7 @@ func (server *Server) userProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	if user == nil || server.store == nil {
 		project := newBiographyProject()
-		writeJSON(w, http.StatusOK, buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now()))
+		writeJSON(w, http.StatusOK, buildBiographyProgress(project, nil, nil, activeProgressSession{}, nil, time.Now()))
 		return
 	}
 	progress, exists, err := server.store.progressForUser(user.ID)
@@ -179,7 +189,7 @@ func (server *Server) userProgress(w http.ResponseWriter, r *http.Request) {
 	}
 	if !exists {
 		project := newBiographyProject()
-		progress = buildBiographyProgress(project, nil, activeProgressSession{}, nil, time.Now())
+		progress = buildBiographyProgress(project, nil, nil, activeProgressSession{}, nil, time.Now())
 	} else if project, changed := removeLegacyEmptyChapterTemplate(progress.Project); changed {
 		progress.Project = project
 		progress.ActiveChapterTitles = activeChapterTitles(project)
@@ -243,8 +253,109 @@ type inboundFrame struct {
 }
 
 type projectUpdateResult struct {
-	project BiographyProject
-	err     error
+	project    BiographyProject
+	transcript string
+	err        error
+}
+
+type chapterConfirmationAction string
+
+const (
+	chapterConfirmationAccept chapterConfirmationAction = "accept"
+	chapterConfirmationRevise chapterConfirmationAction = "revise"
+)
+
+func parseChapterConfirmationAction(transcript string) chapterConfirmationAction {
+	compact := strings.NewReplacer("，", "", "。", "", "！", "", "？", "", "、", "", " ", "", "\n", "").Replace(strings.TrimSpace(transcript))
+	switch compact {
+	case "对", "对的", "是", "是的", "好", "好的", "没错", "可以", "就这样":
+		return chapterConfirmationAccept
+	case "补充", "我想补充", "再补充", "改一下", "修改", "我想改一下", "更正", "不对":
+		return chapterConfirmationRevise
+	default:
+		return ""
+	}
+}
+
+func (server *Server) acquireInterviewLease(user *authenticatedUser, sessionID string) bool {
+	if user == nil || strings.TrimSpace(user.ID) == "" {
+		return true
+	}
+	userID := strings.TrimSpace(user.ID)
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	server.interviewLeaseMu.Lock()
+	defer server.interviewLeaseMu.Unlock()
+	if server.interviewLeases == nil {
+		server.interviewLeases = make(map[string]string)
+	}
+	existing, busy := server.interviewLeases[userID]
+	if busy && existing != sessionID {
+		return false
+	}
+	server.interviewLeases[userID] = sessionID
+	return true
+}
+
+func (server *Server) releaseInterviewLease(user *authenticatedUser, sessionID string) {
+	if user == nil || strings.TrimSpace(user.ID) == "" || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	server.interviewLeaseMu.Lock()
+	defer server.interviewLeaseMu.Unlock()
+	userID := strings.TrimSpace(user.ID)
+	if server.interviewLeases[userID] == strings.TrimSpace(sessionID) {
+		delete(server.interviewLeases, userID)
+	}
+}
+
+func (server *Server) applyChapterConfirmation(conversation *interviewConversation, transcript string) (*ServerMessage, bool) {
+	action := parseChapterConfirmationAction(transcript)
+	if action == "" {
+		return nil, false
+	}
+	conversation.projectMu.Lock()
+	defer conversation.projectMu.Unlock()
+	project := &conversation.Project
+	chapterID := strings.TrimSpace(project.PendingConfirmationChapterID)
+	if strings.TrimSpace(project.PendingConfirmation) == "" || chapterID == "" {
+		return nil, false
+	}
+	chapterIndex := -1
+	for index := range project.Chapters {
+		if project.Chapters[index].ID == chapterID {
+			chapterIndex = index
+			break
+		}
+	}
+	if chapterIndex < 0 {
+		return nil, false
+	}
+	chapter := &project.Chapters[chapterIndex]
+	project.PendingConfirmation = ""
+	project.PendingConfirmationChapterID = ""
+	var text string
+	switch action {
+	case chapterConfirmationAccept:
+		chapter.Status = "completed"
+		chapter.StatusLabel = "已确认"
+		chapter.Progress = 100
+		project.CompletedChapterCount = completedChapterCount(*project)
+		text = "好，这一段已经按您的确认保存。以后想起新的细节，随时还能补进来。"
+	case chapterConfirmationRevise:
+		chapter.Status = "collecting"
+		chapter.StatusLabel = "继续补充"
+		chapter.Progress = min(90, max(35, chapter.Progress))
+		conversation.FocusedChapterID = chapter.ID
+		text = "好，这一段先不定稿。您想补上或改哪一点，慢慢讲给我听。"
+	}
+	projectCopy := cloneBiographyProject(*project)
+	return &ServerMessage{
+		Type: ServerInterviewReply, Text: text, Expression: "温和、清晰，语速稍慢，让对方放心",
+		Project: &projectCopy, ResumeToken: server.interviewResumeToken(conversation, projectCopy),
+	}, true
 }
 
 type interviewTurnEvent struct {
@@ -289,8 +400,7 @@ func (controller *interviewTurnController) start(transcript string) {
 
 	if time.Now().Before(controller.openUntil) {
 		message := controller.server.interviewFallbackMessage(controller.conversation, interviewFallbackQuestion(transcript))
-		controller.events <- interviewTurnEvent{id: turnID, message: &message}
-		controller.events <- interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true, failed: true}
+		controller.events <- interviewTurnEvent{id: turnID, message: &message, transcript: transcript, done: true, accepted: true, failed: true}
 		return
 	}
 
@@ -335,9 +445,9 @@ func (controller *interviewTurnController) handle(event interviewTurnEvent) (str
 		controller.openUntil = time.Time{}
 	}
 	if event.accepted {
-		return event.transcript, nil
+		return event.transcript, event.message
 	}
-	return "", nil
+	return "", event.message
 }
 
 func (server *Server) serveMockSession(ctx context.Context, connection *websocket.Conn, user *authenticatedUser) error {
@@ -345,6 +455,8 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 	go readFrames(ctx, connection, inbound)
 
 	var sessionID string
+	var leasedSessionID string
+	defer func() { server.releaseInterviewLease(user, leasedSessionID) }()
 	var debugTranscript string
 	var audioBytes int64
 	var ttsTimer *time.Timer
@@ -369,13 +481,8 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 			return ctx.Err()
 		case event := <-turns.events:
 			transcript, message := turns.handle(event)
-			if message != nil {
-				message.SessionID = sessionID
-				if err := writeServerMessage(ctx, connection, *message); err != nil {
-					return err
-				}
-			}
 			if transcript != "" {
+				conversation.addPendingTranscript(transcript)
 				progressSession.TranscriptCount++
 				progressSession.TodayRecordingSaved = true
 				saveProgress(nil)
@@ -383,7 +490,16 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					server.logger.Warn("biography project update deferred", "error", err)
 				}
 			}
+			if message != nil {
+				message.SessionID = sessionID
+				if err := writeServerMessage(ctx, connection, *message); err != nil {
+					return err
+				}
+			}
 		case update := <-projectUpdates:
+			if update.err == nil {
+				conversation.markTranscriptOrganized(update.transcript)
+			}
 			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
 				return err
 			}
@@ -429,7 +545,21 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					}
 					continue
 				}
-				sessionID = strings.TrimSpace(message.SessionID)
+				requestedSessionID := strings.TrimSpace(message.SessionID)
+				if leasedSessionID != "" && leasedSessionID != requestedSessionID {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_already_started", "当前连接已有进行中的采访"); err != nil {
+						return err
+					}
+					continue
+				}
+				if !server.acquireInterviewLease(user, requestedSessionID) {
+					if err := writeProtocolError(ctx, connection, sessionID, "interview_busy", "这本书正在另一台设备上采访，请先在那边结束今天的采访"); err != nil {
+						return err
+					}
+					continue
+				}
+				sessionID = requestedSessionID
+				leasedSessionID = requestedSessionID
 				progressSession = activeProgressSession{ID: sessionID, StartedAt: time.Now()}
 				saveProgress(nil)
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
@@ -439,6 +569,10 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerInterviewProject, SessionID: sessionID, Project: &project}); err != nil {
 					return err
 				}
+				if err := server.writePendingChapterConfirmation(ctx, connection, sessionID, project); err != nil {
+					return err
+				}
+				server.enqueuePendingProjectUpdates(ctx, projectTasks, conversation)
 			case ClientASRDebugText:
 				if sessionID == "" {
 					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
@@ -486,6 +620,14 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					}
 					continue
 				}
+				if confirmation, handled := server.applyChapterConfirmation(conversation, transcript); handled {
+					saveProgress(nil)
+					confirmation.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *confirmation); err != nil {
+						return err
+					}
+					continue
+				}
 				turns.start(transcript)
 			case ClientInterviewOrderSet:
 				if sessionID == "" {
@@ -509,6 +651,18 @@ func (server *Server) serveMockSession(ctx context.Context, connection *websocke
 					ResumeToken: server.interviewResumeToken(conversation, project),
 				}); err != nil {
 					return err
+				}
+			case ClientInterviewChapterFocus:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := conversation.setFocusedChapter(message.ChapterID); err != nil {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_chapter", "chapter must belong to this biography"); err != nil {
+						return err
+					}
 				}
 			case ClientTTSStart:
 				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
@@ -569,8 +723,15 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 	go readFrames(ctx, connection, inbound)
 
 	var sessionID string
+	var leasedSessionID string
+	defer func() { server.releaseInterviewLease(user, leasedSessionID) }()
 	var asr *doubaoASRStream
 	var tts *doubaoTTSStream
+	var lastASRFinalAt time.Time
+	var ttsRequestedAt time.Time
+	var ttsFirstAudioLogged bool
+	var interviewTTS bool
+	var interviewTTSPrefix string
 	conversation := server.newInterviewConversation()
 	progressSession := activeProgressSession{}
 	saveProgress := func(endedAt *time.Time) {
@@ -599,6 +760,58 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 			Message: "语音服务暂时不可用，请稍后重试", Retryable: true,
 		})
 	}
+	openInterviewTTS := func(expression string) error {
+		if tts != nil {
+			_ = tts.Cancel(ctx)
+			_ = tts.Close()
+			tts = nil
+		}
+		ttsRequestedAt = time.Now()
+		ttsFirstAudioLogged = false
+		opened, err := openDoubaoTTSSession(ctx, server.config, sessionID, withBiographySpeechPace(expression), server.doubaoDialer, upstream)
+		if err != nil {
+			ttsRequestedAt = time.Time{}
+			return err
+		}
+		tts = opened
+		interviewTTS = true
+		server.logger.Info("biography voice latency", "stage", "tts_session_ready", "session_id", sessionID, "latency_ms", time.Since(ttsRequestedAt).Milliseconds())
+		return nil
+	}
+	streamInterviewSpeech := func(message *ServerMessage, final bool) error {
+		if message == nil || strings.TrimSpace(message.Text) == "" {
+			return nil
+		}
+		if interviewTTSPrefix != "" && !strings.HasPrefix(message.Text, interviewTTSPrefix) {
+			server.logger.Warn("biography streamed reply changed after speech started", "session_id", sessionID)
+			if final && tts != nil && interviewTTS {
+				return tts.Finish(ctx)
+			}
+			return nil
+		}
+		chunks, consumed := stableSpeechChunks(message.Text, len(interviewTTSPrefix), final)
+		if len(chunks) == 0 {
+			if final && tts != nil && interviewTTS {
+				return tts.Finish(ctx)
+			}
+			return nil
+		}
+		if tts == nil || !interviewTTS {
+			if err := openInterviewTTS(message.Expression); err != nil {
+				return err
+			}
+		}
+		for _, chunk := range chunks {
+			if err := tts.SendText(ctx, chunk); err != nil {
+				return err
+			}
+		}
+		interviewTTSPrefix = message.Text[:consumed]
+		if final {
+			return tts.Finish(ctx)
+		}
+		return nil
+	}
 
 	for {
 		select {
@@ -606,13 +819,8 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 			return ctx.Err()
 		case turnEvent := <-turns.events:
 			transcript, message := turns.handle(turnEvent)
-			if message != nil {
-				message.SessionID = sessionID
-				if err := writeServerMessage(ctx, connection, *message); err != nil {
-					return err
-				}
-			}
 			if transcript != "" {
+				conversation.addPendingTranscript(transcript)
 				progressSession.TranscriptCount++
 				progressSession.TodayRecordingSaved = true
 				saveProgress(nil)
@@ -620,7 +828,31 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					server.logger.Warn("biography project update deferred", "error", err)
 				}
 			}
+			if message != nil {
+				message.SessionID = sessionID
+				streamSpeech := message.Type == ServerInterviewReply || (message.Type == ServerInterviewDelta && message.SpeechReady)
+				if streamSpeech {
+					final := message.Type == ServerInterviewReply
+					if err := streamInterviewSpeech(message, final); err != nil {
+						server.logger.Warn("stream biography reply to TTS", "error", server.safeProviderError(err))
+						if tts != nil && interviewTTS {
+							_ = tts.Close()
+							tts = nil
+						}
+						interviewTTS = false
+						interviewTTSPrefix = ""
+					} else if final && interviewTTS {
+						message.SpeechStarted = true
+					}
+				}
+				if err := writeServerMessage(ctx, connection, *message); err != nil {
+					return err
+				}
+			}
 		case update := <-projectUpdates:
+			if update.err == nil {
+				conversation.markTranscriptOrganized(update.transcript)
+			}
 			if err := server.writeProjectUpdate(ctx, connection, sessionID, conversation, update); err != nil {
 				return err
 			}
@@ -658,6 +890,16 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				continue
 			}
 			if len(event.Audio) > 0 && isCurrentTTS {
+				if !ttsFirstAudioLogged {
+					ttsFirstAudioLogged = true
+					if !ttsRequestedAt.IsZero() {
+						server.logger.Info("biography voice latency", "stage", "tts_first_audio", "session_id", sessionID, "latency_ms", time.Since(ttsRequestedAt).Milliseconds())
+					}
+					if !lastASRFinalAt.IsZero() {
+						server.logger.Info("biography voice latency", "stage", "asr_final_to_first_audio", "session_id", sessionID, "latency_ms", time.Since(lastASRFinalAt).Milliseconds())
+						lastASRFinalAt = time.Time{}
+					}
+				}
 				if err := connection.Write(ctx, websocket.MessageBinary, event.Audio); err != nil {
 					return err
 				}
@@ -669,6 +911,7 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					return err
 				}
 			case ServerASRFinal:
+				lastASRFinalAt = time.Now()
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: event.Type, SessionID: sessionID, Text: event.Text}); err != nil {
 					return err
 				}
@@ -688,6 +931,10 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				}
 				_ = tts.Close()
 				tts = nil
+				ttsRequestedAt = time.Time{}
+				ttsFirstAudioLogged = false
+				interviewTTS = false
+				interviewTTSPrefix = ""
 			}
 		case frame := <-inbound:
 			if frame.err != nil {
@@ -748,7 +995,21 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					}
 					continue
 				}
-				sessionID = strings.TrimSpace(message.SessionID)
+				requestedSessionID := strings.TrimSpace(message.SessionID)
+				if leasedSessionID != "" && leasedSessionID != requestedSessionID {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_already_started", "当前连接已有进行中的采访"); err != nil {
+						return err
+					}
+					continue
+				}
+				if !server.acquireInterviewLease(user, requestedSessionID) {
+					if err := writeProtocolError(ctx, connection, sessionID, "interview_busy", "这本书正在另一台设备上采访，请先在那边结束今天的采访"); err != nil {
+						return err
+					}
+					continue
+				}
+				sessionID = requestedSessionID
+				leasedSessionID = requestedSessionID
 				progressSession = activeProgressSession{ID: sessionID, StartedAt: time.Now()}
 				saveProgress(nil)
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionReady, SessionID: sessionID}); err != nil {
@@ -758,6 +1019,10 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerInterviewProject, SessionID: sessionID, Project: &project}); err != nil {
 					return err
 				}
+				if err := server.writePendingChapterConfirmation(ctx, connection, sessionID, project); err != nil {
+					return err
+				}
+				server.enqueuePendingProjectUpdates(ctx, projectTasks, conversation)
 			case ClientInputCommit:
 				if asr == nil {
 					if err := writeProtocolError(ctx, connection, sessionID, "no_audio", "no active audio input"); err != nil {
@@ -792,6 +1057,14 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					}
 					continue
 				}
+				if confirmation, handled := server.applyChapterConfirmation(conversation, transcript); handled {
+					saveProgress(nil)
+					confirmation.SessionID = sessionID
+					if err := writeServerMessage(ctx, connection, *confirmation); err != nil {
+						return err
+					}
+					continue
+				}
 				turns.start(transcript)
 			case ClientInterviewOrderSet:
 				if sessionID == "" {
@@ -816,6 +1089,18 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 				}); err != nil {
 					return err
 				}
+			case ClientInterviewChapterFocus:
+				if sessionID == "" {
+					if err := writeProtocolError(ctx, connection, sessionID, "session_not_started", "start the session first"); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := conversation.setFocusedChapter(message.ChapterID); err != nil {
+					if err := writeProtocolError(ctx, connection, sessionID, "invalid_chapter", "chapter must belong to this biography"); err != nil {
+						return err
+					}
+				}
 			case ClientTTSStart:
 				if sessionID == "" || strings.TrimSpace(message.Text) == "" {
 					if err := writeProtocolError(ctx, connection, sessionID, "invalid_tts_request", "active session and text are required"); err != nil {
@@ -828,6 +1113,8 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					_ = tts.Close()
 					tts = nil
 				}
+				ttsRequestedAt = time.Now()
+				ttsFirstAudioLogged = false
 				opened, err := openDoubaoTTS(ctx, server.config, sessionID, strings.TrimSpace(message.Text), message.Expression, server.doubaoDialer, upstream)
 				if err != nil {
 					if writeErr := providerError("TTS", err); writeErr != nil {
@@ -836,6 +1123,9 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					continue
 				}
 				tts = opened
+				interviewTTS = false
+				interviewTTSPrefix = ""
+				server.logger.Info("biography voice latency", "stage", "tts_session_ready", "session_id", sessionID, "latency_ms", time.Since(ttsRequestedAt).Milliseconds())
 			case ClientTTSCancel:
 				if message := turns.cancelActive(true); message != nil {
 					message.SessionID = sessionID
@@ -844,6 +1134,8 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 					}
 				}
 				if tts == nil {
+					interviewTTS = false
+					interviewTTSPrefix = ""
 					if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerTTSCanceled, SessionID: sessionID}); err != nil {
 						return err
 					}
@@ -856,6 +1148,8 @@ func (server *Server) serveDoubaoSession(ctx context.Context, connection *websoc
 						return writeErr
 					}
 				}
+				interviewTTS = false
+				interviewTTSPrefix = ""
 			case ClientSessionPing:
 				if err := writeServerMessage(ctx, connection, ServerMessage{Type: ServerSessionPong, SessionID: sessionID}); err != nil {
 					return err
@@ -910,9 +1204,7 @@ func (server *Server) prepareInterviewConversation(ctx context.Context, conversa
 	if user != nil {
 		conversation.UserID = user.ID
 		conversation.TMAAccessToken = user.AccessToken
-		if strings.TrimSpace(message.ResumeToken) == "" {
-			server.loadStoredConversation(conversation)
-		}
+		server.loadStoredConversation(conversation)
 	}
 	if valueOrDefault(server.config.InterviewProvider, ProviderMock) != ProviderTMA {
 		return nil
@@ -975,6 +1267,7 @@ func (server *Server) loadStoredConversation(conversation *interviewConversation
 	}
 	conversation.projectMu.Lock()
 	conversation.RecentQuestions = append([]string(nil), progress.RecentQuestions...)
+	conversation.PendingTranscripts = append([]string(nil), progress.PendingTranscripts...)
 	conversation.projectMu.Unlock()
 }
 
@@ -984,7 +1277,8 @@ func (server *Server) saveConversationProgress(conversation *interviewConversati
 	}
 	project := conversation.projectSnapshot()
 	recent := conversation.recentQuestionsSnapshot()
-	progress := buildBiographyProgress(project, recent, session, endedAt, time.Now())
+	pending := conversation.pendingTranscriptsSnapshot()
+	progress := buildBiographyProgress(project, recent, pending, session, endedAt, time.Now())
 	if err := server.store.saveProgress(conversation.UserID, progress); err != nil {
 		server.logger.Warn("biography progress save failed", "error", server.safeProviderError(err))
 	}
@@ -998,6 +1292,7 @@ func (server *Server) runInterviewTurn(
 	transcript string,
 	events chan<- interviewTurnEvent,
 ) {
+	turnStartedAt := time.Now()
 	firstResponseTimeout := server.config.InterviewFirstResponseTimeout
 	if firstResponseTimeout <= 0 {
 		firstResponseTimeout = 6 * time.Second
@@ -1007,6 +1302,7 @@ func (server *Server) runInterviewTurn(
 		totalTimeout = 45 * time.Second
 	}
 	var firstResponseOnce sync.Once
+	var firstTextOnce sync.Once
 	var firstResponse *time.Timer
 	firstResponse = time.AfterFunc(firstResponseTimeout, func() {
 		firstResponseOnce.Do(func() { cancel(errInterviewFirstResponseTimeout) })
@@ -1031,13 +1327,22 @@ func (server *Server) runInterviewTurn(
 	markResponding := func() {
 		firstResponseOnce.Do(func() { firstResponse.Stop() })
 	}
+	markFirstText := func() {
+		firstTextOnce.Do(func() {
+			server.logger.Info("biography voice latency", "stage", "llm_first_text", "turn_id", turnID, "latency_ms", time.Since(turnStartedAt).Milliseconds())
+		})
+	}
 
 	var reply InterviewReply
 	var err error
 	if streaming, ok := server.interview.(streamingInterviewEngine); ok {
-		reply, err = streaming.ContinueStreaming(ctx, conversation, transcript, func(text string) error {
+		reply, err = streaming.ContinueStreaming(ctx, conversation, transcript, func(preview InterviewReplyPreview) error {
 			markResponding()
-			if emit(interviewTurnEvent{id: turnID, message: &ServerMessage{Type: ServerInterviewDelta, Text: text}}) {
+			markFirstText()
+			if emit(interviewTurnEvent{id: turnID, message: &ServerMessage{
+				Type: ServerInterviewDelta, Text: preview.Text, Expression: preview.Expression,
+				NeedsRetry: preview.NeedsRetry, SpeechReady: preview.ControlsReady,
+			}}) {
 				return nil
 			}
 			return context.Cause(ctx)
@@ -1047,31 +1352,40 @@ func (server *Server) runInterviewTurn(
 	}
 	markResponding()
 	if err != nil {
+		server.logger.Info("biography voice latency", "stage", "llm_failed", "turn_id", turnID, "latency_ms", time.Since(turnStartedAt).Milliseconds())
 		cause := context.Cause(ctx)
 		if errors.Is(cause, errInterviewInterrupted) {
 			_ = emit(interviewTurnEvent{id: turnID, done: true})
 			return
 		}
 		server.logger.Warn("biography interview turn failed", "provider", valueOrDefault(server.config.InterviewProvider, ProviderMock), "error", server.safeProviderError(err))
-		text := "刚才连接有些慢，这段我已经记下了。您可以接着讲，我会在后台继续整理。"
+		text := "刚才连接有些慢。您刚才这段话已先保存，之后会继续整理。您可以接着讲。"
 		if errors.Is(cause, errInterviewFirstResponseTimeout) || errors.Is(cause, errInterviewTotalTimeout) || errors.Is(err, context.DeadlineExceeded) {
 			text = interviewFallbackQuestion(transcript)
 		}
 		message := server.interviewFallbackMessage(conversation, text)
-		_ = emit(interviewTurnEvent{id: turnID, message: &message})
-		_ = emit(interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true, failed: true})
+		_ = emit(interviewTurnEvent{id: turnID, message: &message, transcript: transcript, done: true, accepted: true, failed: true})
 		return
 	}
+	markFirstText()
+	server.logger.Info("biography voice latency", "stage", "llm_complete", "turn_id", turnID, "latency_ms", time.Since(turnStartedAt).Milliseconds())
 	message := server.interviewReplyMessage(conversation, reply)
 	_ = emit(interviewTurnEvent{id: turnID, message: &message})
-	_ = emit(interviewTurnEvent{id: turnID, transcript: transcript, done: true, accepted: true})
+	completed := interviewTurnEvent{id: turnID, done: true}
+	if !reply.NeedsRetry {
+		completed.transcript = transcript
+		completed.accepted = true
+	}
+	_ = emit(completed)
 }
 
 func (server *Server) interviewReplyMessage(conversation *interviewConversation, reply InterviewReply) ServerMessage {
-	conversation.recordQuestion(reply.Text)
+	if !reply.NeedsRetry {
+		conversation.recordQuestion(reply.Text)
+	}
 	resumeToken := server.interviewResumeToken(conversation, reply.Project)
 	return ServerMessage{
-		Type: ServerInterviewReply, Text: reply.Text, Expression: reply.Expression,
+		Type: ServerInterviewReply, Text: reply.Text, Expression: reply.Expression, NeedsRetry: reply.NeedsRetry,
 		Project: &reply.Project, ResumeToken: resumeToken,
 	}
 }
@@ -1128,7 +1442,7 @@ func (server *Server) startProjectUpdateWorker(ctx context.Context, conversation
 				project, err := server.interview.Organize(updateCtx, conversation, transcript)
 				cancel()
 				select {
-				case results <- projectUpdateResult{project: project, err: err}:
+				case results <- projectUpdateResult{project: project, transcript: transcript, err: err}:
 				case <-ctx.Done():
 					return
 				}
@@ -1136,6 +1450,15 @@ func (server *Server) startProjectUpdateWorker(ctx context.Context, conversation
 		}
 	}()
 	return tasks, results
+}
+
+func (server *Server) enqueuePendingProjectUpdates(ctx context.Context, tasks chan<- string, conversation *interviewConversation) {
+	for _, transcript := range conversation.pendingTranscriptsSnapshot() {
+		if err := enqueueProjectUpdate(ctx, tasks, transcript); err != nil {
+			server.logger.Warn("biography pending project update deferred", "error", err)
+			return
+		}
+	}
 }
 
 func enqueueProjectUpdate(ctx context.Context, tasks chan<- string, transcript string) error {
@@ -1163,8 +1486,22 @@ func (server *Server) writeProjectUpdate(ctx context.Context, connection *websoc
 			return nil
 		}
 	}
-	return writeServerMessage(ctx, connection, ServerMessage{
+	if err := writeServerMessage(ctx, connection, ServerMessage{
 		Type: ServerProjectUpdated, SessionID: sessionID, Project: &update.project, ResumeToken: resumeToken,
+	}); err != nil {
+		return err
+	}
+	return server.writePendingChapterConfirmation(ctx, connection, sessionID, update.project)
+}
+
+func (server *Server) writePendingChapterConfirmation(ctx context.Context, connection *websocket.Conn, sessionID string, project BiographyProject) error {
+	if strings.TrimSpace(project.PendingConfirmation) == "" || strings.TrimSpace(project.PendingConfirmationChapterID) == "" {
+		return nil
+	}
+	return writeServerMessage(ctx, connection, ServerMessage{
+		Type: ServerChapterConfirmation, SessionID: sessionID, Text: project.PendingConfirmation,
+		Expression: "温和、清晰，像传记编辑朗读一段整理后的文字，语速稍慢",
+		ChapterID:  project.PendingConfirmationChapterID, Project: &project,
 	})
 }
 

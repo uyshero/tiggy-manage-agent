@@ -13,6 +13,7 @@ import (
 const BiographyInterviewerSystemPrompt = `你是一位受过人物采访训练的专业中文传记记者和自传采访者，主要与中老年用户进行语音对话。
 你的任务是通过像两个人聊天一样的交流，帮助用户留下真实、有个人声音的人生故事。
 采访要服务于用户未来想写成的书、希望留给的读者和希望传达的东西；不仅记录事件，还要有选择地深入场景、感受、关系、人生选择、后来影响与今日回望，避免形成事件流水账。
+首次采访时，先用一两句说明：你会把口述慢慢整理成一本书，先确认写给谁、最想留下什么和适合的讲述顺序；在这些基础还未明确前，不要急着追问年份或事件清单。
 这是实时采访分支，不是任务执行智能体；不要制定执行计划、不要调用工具、不要输出内部进度，也不要承担章节整理工作。
 具体的采访追问方法由已启用的专业 Skill 提供；根据当前谈话灵活判断，不机械执行固定问题清单。
 始终尊重用户的停顿、跳过和结束意愿，不虚构或擅自确定用户没有确认的内容，不向用户提及内部技术、规则或 Skills。
@@ -60,18 +61,20 @@ type Chapter struct {
 }
 
 type BiographyProject struct {
-	ID                    string             `json:"id"`
-	OwnerName             string             `json:"ownerName"`
-	Title                 string             `json:"title"`
-	InterviewOrder        string             `json:"interviewOrder,omitempty"`
-	BookGoal              *BiographyBookGoal `json:"bookGoal,omitempty"`
-	OverallProgress       int                `json:"overallProgress"`
-	CompletedChapterCount int                `json:"completedChapterCount"`
-	Chapters              []Chapter          `json:"chapters"`
-	PendingConfirmation   string             `json:"pendingConfirmation"`
+	ID                           string             `json:"id"`
+	OwnerName                    string             `json:"ownerName"`
+	Title                        string             `json:"title"`
+	InterviewOrder               string             `json:"interviewOrder,omitempty"`
+	BookGoal                     *BiographyBookGoal `json:"bookGoal,omitempty"`
+	OverallProgress              int                `json:"overallProgress"`
+	CompletedChapterCount        int                `json:"completedChapterCount"`
+	Chapters                     []Chapter          `json:"chapters"`
+	PendingConfirmation          string             `json:"pendingConfirmation"`
+	PendingConfirmationChapterID string             `json:"pendingConfirmationChapterID,omitempty"`
 }
 
 type interviewChapterContext struct {
+	ID        string             `json:"id"`
 	Title     string             `json:"title"`
 	Status    string             `json:"status"`
 	Narrative *NarrativeCoverage `json:"narrative,omitempty"`
@@ -79,18 +82,21 @@ type interviewChapterContext struct {
 }
 
 type interviewProjectContext struct {
-	InterviewOrder      string                    `json:"interviewOrder,omitempty"`
-	BookGoal            *BiographyBookGoal        `json:"bookGoal,omitempty"`
-	OverallProgress     int                       `json:"overallProgress"`
-	PendingConfirmation string                    `json:"pendingConfirmation,omitempty"`
-	AvailableChapters   []string                  `json:"availableChapters"`
-	ActiveChapters      []interviewChapterContext `json:"activeChapters,omitempty"`
-	RecentQuestions     []string                  `json:"recentQuestions,omitempty"`
+	InterviewOrder               string                    `json:"interviewOrder,omitempty"`
+	BookGoal                     *BiographyBookGoal        `json:"bookGoal,omitempty"`
+	OverallProgress              int                       `json:"overallProgress"`
+	PendingConfirmation          string                    `json:"pendingConfirmation,omitempty"`
+	PendingConfirmationChapterID string                    `json:"pendingConfirmationChapterID,omitempty"`
+	AvailableChapters            []string                  `json:"availableChapters"`
+	ActiveChapters               []interviewChapterContext `json:"activeChapters,omitempty"`
+	FocusedChapter               *interviewChapterContext  `json:"focusedChapter,omitempty"`
+	RecentQuestions              []string                  `json:"recentQuestions,omitempty"`
 }
 
 type InterviewReply struct {
 	Text       string           `json:"text"`
 	Expression string           `json:"expression"`
+	NeedsRetry bool             `json:"needsRetry,omitempty"`
 	Project    BiographyProject `json:"project"`
 }
 
@@ -101,7 +107,9 @@ type interviewConversation struct {
 	TMAOrganizerSessionID string
 	ClientInstanceID      string
 	Project               BiographyProject
+	FocusedChapterID      string
 	RecentQuestions       []string
+	PendingTranscripts    []string
 	sessionMu             sync.Mutex
 	projectMu             sync.RWMutex
 }
@@ -122,7 +130,14 @@ func validInterviewOrder(order string) bool {
 }
 
 type streamingInterviewEngine interface {
-	ContinueStreaming(context.Context, *interviewConversation, string, func(string) error) (InterviewReply, error)
+	ContinueStreaming(context.Context, *interviewConversation, string, func(InterviewReplyPreview) error) (InterviewReply, error)
+}
+
+type InterviewReplyPreview struct {
+	Text          string
+	Expression    string
+	NeedsRetry    bool
+	ControlsReady bool
 }
 
 type mockInterviewEngine struct{}
@@ -138,6 +153,9 @@ func (mockInterviewEngine) Continue(_ context.Context, conversation *interviewCo
 	}
 	reply := InterviewReply{Expression: "温和、真诚，语速稍慢，停顿自然", Project: project}
 	switch {
+	case project.BookGoal == nil || !project.BookGoal.Confirmed:
+		reply.Text = "我会把您讲的经历慢慢整理成一本有画面、有感受的书。先请您说说，这本书最想留给谁看，希望他们记住您什么？"
+		reply.Expression = "专业记者般从容、亲切，先说明采访会怎样帮助成书，语速稍慢"
 	case strings.Contains(transcript, "确认") || strings.Contains(transcript, "上一章") || strings.Contains(transcript, "父亲"):
 		reply.Text = "好，这个细节先不急着定死，写成书时可以留得更稳。您还记得父亲工作的地方，附近有什么明显地名或建筑吗？"
 		reply.Expression = "温和、清晰地确认事实，语速稍慢，不要催促"
@@ -158,16 +176,39 @@ func (mockInterviewEngine) Organize(_ context.Context, conversation *interviewCo
 	if len(project.Chapters) == 0 && strings.TrimSpace(transcript) != "" {
 		project.Chapters = append(project.Chapters, newInterviewChapter(transcript, 1))
 	}
-	for index := range project.Chapters {
-		if project.Chapters[index].Status != "collecting" {
-			continue
+	chapterIndex := -1
+	if focused := conversation.focusedChapterSnapshot(); focused != nil {
+		for index := range project.Chapters {
+			if project.Chapters[index].ID == focused.ID {
+				chapterIndex = index
+				break
+			}
 		}
-		project.Chapters[index].Progress = min(84, project.Chapters[index].Progress+12)
-		project.Chapters[index].Detail = "正在补充这段经历里的场景、感受和重要关系"
-		break
+	}
+	if chapterIndex < 0 {
+		for index := range project.Chapters {
+			if project.Chapters[index].Status == "collecting" {
+				chapterIndex = index
+				break
+			}
+		}
+	}
+	if chapterIndex >= 0 {
+		if project.Chapters[chapterIndex].Status == "collecting" {
+			project.Chapters[chapterIndex].Progress = min(84, project.Chapters[chapterIndex].Progress+12)
+		}
+		project.Chapters[chapterIndex].Detail = "正在补充这段经历里的场景、感受和重要关系"
 	}
 	if len(project.Chapters) > 0 {
 		project.OverallProgress = min(48, project.OverallProgress+3)
+	}
+	if chapterIndex >= 0 && strings.TrimSpace(transcript) != "" {
+		chapter := &project.Chapters[chapterIndex]
+		chapter.Status = "confirm"
+		chapter.StatusLabel = "待您确认"
+		chapter.Progress = min(92, max(chapter.Progress, 68))
+		project.PendingConfirmationChapterID = chapter.ID
+		project.PendingConfirmation = "这一段我先整理为：" + chapter.Detail + "。这样对吗？"
 	}
 	conversation.replaceProject(project)
 	return project, nil
@@ -284,11 +325,11 @@ func (engine *tmaInterviewEngine) Continue(ctx context.Context, conversation *in
 	return engine.continueInterview(ctx, conversation, transcript, nil)
 }
 
-func (engine *tmaInterviewEngine) ContinueStreaming(ctx context.Context, conversation *interviewConversation, transcript string, onText func(string) error) (InterviewReply, error) {
-	return engine.continueInterview(ctx, conversation, transcript, onText)
+func (engine *tmaInterviewEngine) ContinueStreaming(ctx context.Context, conversation *interviewConversation, transcript string, onPreview func(InterviewReplyPreview) error) (InterviewReply, error) {
+	return engine.continueInterview(ctx, conversation, transcript, onPreview)
 }
 
-func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, conversation *interviewConversation, transcript string, onText func(string) error) (InterviewReply, error) {
+func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, conversation *interviewConversation, transcript string, onPreview func(InterviewReplyPreview) error) (InterviewReply, error) {
 	if err := engine.ensureInterviewSession(ctx, conversation); err != nil {
 		return InterviewReply{}, err
 	}
@@ -301,22 +342,22 @@ func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, convers
 		project = newBiographyProject()
 		conversation.replaceProject(project)
 	}
-	prompt, err := buildInterviewPrompt(transcript, project, conversation.recentQuestionsSnapshot())
+	prompt, err := buildInterviewPrompt(transcript, project, conversation.recentQuestionsSnapshot(), conversation.focusedChapterSnapshot())
 	if err != nil {
 		return InterviewReply{}, err
 	}
 	var output json.RawMessage
-	if streaming, ok := backend.(tmaStreamingInterviewBackend); ok && onText != nil {
+	if streaming, ok := backend.(tmaStreamingInterviewBackend); ok && onPreview != nil {
 		var streamed strings.Builder
 		lastPreview := ""
 		output, err = streaming.RunStreaming(ctx, conversation.TMASessionID, prompt, func(delta string) error {
 			streamed.WriteString(delta)
-			preview := extractPartialInterviewText(streamed.String())
-			if preview == "" || preview == lastPreview {
+			preview := extractPartialInterviewReply(streamed.String())
+			if !preview.ControlsReady || preview.Text == "" || preview.Text == lastPreview {
 				return nil
 			}
-			lastPreview = preview
-			return onText(preview)
+			lastPreview = preview.Text
+			return onPreview(preview)
 		})
 	} else {
 		output, err = backend.Run(ctx, conversation.TMASessionID, prompt)
@@ -332,28 +373,43 @@ func (engine *tmaInterviewEngine) continueInterview(ctx context.Context, convers
 }
 
 func extractPartialInterviewText(raw string) string {
-	keyIndex := strings.Index(raw, `"text"`)
-	if keyIndex < 0 {
-		return ""
+	text, _, _ := extractPartialJSONString(raw, "text")
+	return text
+}
+
+func extractPartialInterviewReply(raw string) InterviewReplyPreview {
+	text, _, _ := extractPartialJSONString(raw, "text")
+	expression, expressionFound, expressionComplete := extractPartialJSONString(raw, "expression")
+	needsRetry, retryFound := extractPartialJSONBool(raw, "needsRetry")
+	return InterviewReplyPreview{
+		Text: text, Expression: expression, NeedsRetry: needsRetry,
+		ControlsReady: retryFound && expressionFound && expressionComplete && strings.TrimSpace(expression) != "",
 	}
-	rest := raw[keyIndex+len(`"text"`):]
+}
+
+func extractPartialJSONString(raw string, key string) (string, bool, bool) {
+	keyIndex := strings.Index(raw, `"`+key+`"`)
+	if keyIndex < 0 {
+		return "", false, false
+	}
+	rest := raw[keyIndex+len(key)+2:]
 	colonIndex := strings.IndexByte(rest, ':')
 	if colonIndex < 0 {
-		return ""
+		return "", true, false
 	}
 	rest = strings.TrimLeft(rest[colonIndex+1:], " \t\r\n")
 	if len(rest) == 0 || rest[0] != '"' {
-		return ""
+		return "", true, false
 	}
 	rest = rest[1:]
 	var text strings.Builder
 	for index := 0; index < len(rest); index++ {
 		switch rest[index] {
 		case '"':
-			return strings.ToValidUTF8(text.String(), "")
+			return strings.ToValidUTF8(text.String(), ""), true, true
 		case '\\':
 			if index+1 >= len(rest) {
-				return strings.ToValidUTF8(text.String(), "")
+				return strings.ToValidUTF8(text.String(), ""), true, false
 			}
 			index++
 			switch rest[index] {
@@ -371,11 +427,11 @@ func extractPartialInterviewText(raw string) string {
 				text.WriteByte('\t')
 			case 'u':
 				if index+4 >= len(rest) {
-					return strings.ToValidUTF8(text.String(), "")
+					return strings.ToValidUTF8(text.String(), ""), true, false
 				}
 				var decoded string
 				if err := json.Unmarshal([]byte(`"\u`+rest[index+1:index+5]+`"`), &decoded); err != nil {
-					return strings.ToValidUTF8(text.String(), "")
+					return strings.ToValidUTF8(text.String(), ""), true, false
 				}
 				text.WriteString(decoded)
 				index += 4
@@ -384,7 +440,27 @@ func extractPartialInterviewText(raw string) string {
 			text.WriteByte(rest[index])
 		}
 	}
-	return strings.ToValidUTF8(text.String(), "")
+	return strings.ToValidUTF8(text.String(), ""), true, false
+}
+
+func extractPartialJSONBool(raw string, key string) (bool, bool) {
+	keyIndex := strings.Index(raw, `"`+key+`"`)
+	if keyIndex < 0 {
+		return false, false
+	}
+	rest := raw[keyIndex+len(key)+2:]
+	colonIndex := strings.IndexByte(rest, ':')
+	if colonIndex < 0 {
+		return false, false
+	}
+	rest = strings.TrimLeft(rest[colonIndex+1:], " \t\r\n")
+	if strings.HasPrefix(rest, "true") {
+		return true, true
+	}
+	if strings.HasPrefix(rest, "false") {
+		return false, true
+	}
+	return false, false
 }
 
 func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *interviewConversation, transcript string) (BiographyProject, error) {
@@ -403,7 +479,7 @@ func (engine *tmaInterviewEngine) Organize(ctx context.Context, conversation *in
 		conversation.TMAOrganizerSessionID = sessionID
 	}
 	current := conversation.projectSnapshot()
-	prompt, err := buildProjectUpdatePrompt(transcript, current)
+	prompt, err := buildProjectUpdatePrompt(transcript, current, conversation.focusedChapterSnapshot())
 	if err != nil {
 		return BiographyProject{}, err
 	}
@@ -509,8 +585,8 @@ func (engine *tmaInterviewEngine) backendForConversation(conversation *interview
 	return engine.backend, nil
 }
 
-func buildInterviewPrompt(transcript string, project BiographyProject, recentQuestions []string) (string, error) {
-	projectJSON, err := json.Marshal(buildInterviewProjectContext(project, recentQuestions))
+func buildInterviewPrompt(transcript string, project BiographyProject, recentQuestions []string, focusedChapter *Chapter) (string, error) {
+	projectJSON, err := json.Marshal(buildInterviewProjectContext(project, recentQuestions, focusedChapter))
 	if err != nil {
 		return "", fmt.Errorf("encode biography project: %w", err)
 	}
@@ -521,6 +597,9 @@ func buildInterviewPrompt(transcript string, project BiographyProject, recentQue
 	return fmt.Sprintf(`你正在与一位中老年用户进行自传采访。这是语音实时采访分支，目标是尽快给出下一句可以朗读的话，不走任务执行循环，不输出计划或内部进度。
 根据本轮口述、成书目标、当前章节的叙事维度和已启用的采访 Skills，灵活选择一个最有价值的追问。
 回复要求：
+- 先判断本轮转写能否可靠理解。若出现明显字序混乱、同音或错字使原意无法确定、句子无法连成可理解的意思，或表述模糊到不能确认在讲什么，则 needsRetry 必须为 true。
+- needsRetry 为 true 时，text 只能温和说明刚才有几处没有完全听清，请用户尽量使用普通话、稍微放慢一些、可分两三句重新说一遍；不要猜测、复述或整理这段内容，也不要继续追问。expression 应温和耐心、语速稍慢。
+- 如果能够确认用户的大意，即使有个别错字、口音、停顿、陌生人名或地名，也应使用 needsRetry=false 正常承接；不要因为故事尚未讲完或细节不够就要求重说。
 - 按需要先用一句简短的肯定、表扬、共情、复述或安静承接，让用户感觉被认真听见；不要求每轮都显性表扬。
 - 肯定和表扬必须基于用户刚说的具体内容，例如细节、选择、关系、价值或讲述本身；避免机械套话，尤其不要反复使用“您真不容易”“您太棒了”。
 - 遇到痛苦、羞愧、创伤、失去或冲突经历，以理解、陪伴、允许停顿和询问是否愿意继续为主，不做空泛表扬。
@@ -528,37 +607,50 @@ func buildInterviewPrompt(transcript string, project BiographyProject, recentQue
 - 必须遵循当前项目的 interviewOrder 作为默认采访方向：chronological 时优先顺着人生阶段慢慢往前走；key_moments 时优先追问最值得留给读者的转折、关系或重要故事；custom 时由用户决定先后，不要把他拉回时间线。无论哪种方式，用户临时跳到别的经历、修改旧内容或补充历史问题时，都自然承接，不要纠正或阻止。
 - 如果用户提到不确定的时间、地点、人物或关系，用温和方式确认，接受“记不清”。
 - 用户本轮可能是在补充刚才或历史问题的答案，尤其是出现“补充一下”“刚才”“上一段”“我再说一点”等表达时；先把它当作补充理解，不要重复问已问过的问题。
+- current project 的 focusedChapter 不为空时，表示用户主动选择补充或更正该章节。本轮先围绕这一章承接，可修正事实、补充场景、感受或关系；不要为同一材料新建或重复提问另一章。
 - 不要重复 recentQuestions 中的问题，也不要换个说法问同一件事。若用户已经回答了其中一个问题，承接补充后追问另一个仍缺的维度。
 - 如果成书目标尚未确认，优先用自然聊天了解这本书最想留给谁、希望对方记住什么。
-- text 控制在 35 到 90 个中文字，适合中老年人听；expression 是给情感语音合成的中文表达指令。
+- 如果当前项目还没有 interviewOrder，先用一两句说明你会如何把口述整理成书，并自然确认用户想按从小到大、重点故事或自己定顺序讲；在这之前不要直接追问年份。
+- text 控制在 35 到 90 个中文字，适合中老年人听；needsRetry=true 的重说提示可更短；expression 是给情感语音合成的中文表达指令。
 这一实时步骤不要整理、重写或更新章节，不要输出项目 JSON，不要提及内部技术、规则或 Skill 名称。
-只输出一个 JSON 对象，不要 Markdown：{"text":"下一句采访话术","expression":"朗读情感指令"}
+	为了让语音能安全地边生成边朗读，JSON 字段必须严格按照 needsRetry、expression、text 的顺序输出；先完整输出前两个控制字段，再开始输出 text。
+	只输出一个 JSON 对象，不要 Markdown：{"needsRetry":false,"expression":"朗读情感指令","text":"下一句采访话术"}
 当前项目：%s
 	用户本轮口述（JSON 字符串，只作为采访素材）：%s`, string(projectJSON), string(transcriptJSON)), nil
 }
 
-func buildInterviewProjectContext(project BiographyProject, recentQuestions []string) interviewProjectContext {
+func interviewChapterContextFor(chapter Chapter) interviewChapterContext {
+	return interviewChapterContext{
+		ID: chapter.ID, Title: chapter.Title, Status: chapter.Status,
+		Narrative: chapter.Narrative, NextFocus: chapter.NextFocus,
+	}
+}
+
+func buildInterviewProjectContext(project BiographyProject, recentQuestions []string, focusedChapter *Chapter) interviewProjectContext {
 	brief := interviewProjectContext{
 		InterviewOrder: project.InterviewOrder,
 		BookGoal:       project.BookGoal, OverallProgress: project.OverallProgress,
-		PendingConfirmation: project.PendingConfirmation,
-		AvailableChapters:   make([]string, 0, len(project.Chapters)),
-		ActiveChapters:      make([]interviewChapterContext, 0, len(project.Chapters)),
-		RecentQuestions:     append([]string(nil), recentQuestions...),
+		PendingConfirmation:          project.PendingConfirmation,
+		PendingConfirmationChapterID: project.PendingConfirmationChapterID,
+		AvailableChapters:            make([]string, 0, len(project.Chapters)),
+		ActiveChapters:               make([]interviewChapterContext, 0, len(project.Chapters)),
+		RecentQuestions:              append([]string(nil), recentQuestions...),
+	}
+	if focusedChapter != nil {
+		focused := interviewChapterContextFor(*focusedChapter)
+		brief.FocusedChapter = &focused
 	}
 	for _, chapter := range project.Chapters {
 		brief.AvailableChapters = append(brief.AvailableChapters, chapter.Title)
 		if chapter.Status != "collecting" && chapter.Status != "confirm" {
 			continue
 		}
-		brief.ActiveChapters = append(brief.ActiveChapters, interviewChapterContext{
-			Title: chapter.Title, Status: chapter.Status, Narrative: chapter.Narrative, NextFocus: chapter.NextFocus,
-		})
+		brief.ActiveChapters = append(brief.ActiveChapters, interviewChapterContextFor(chapter))
 	}
 	return brief
 }
 
-func buildProjectUpdatePrompt(transcript string, project BiographyProject) (string, error) {
+func buildProjectUpdatePrompt(transcript string, project BiographyProject, focusedChapter *Chapter) (string, error) {
 	projectJSON, err := json.Marshal(project)
 	if err != nil {
 		return "", fmt.Errorf("encode biography project: %w", err)
@@ -567,14 +659,21 @@ func buildProjectUpdatePrompt(transcript string, project BiographyProject) (stri
 	if err != nil {
 		return "", fmt.Errorf("encode biography transcript: %w", err)
 	}
+	focusedChapterJSON, err := json.Marshal(focusedChapter)
+	if err != nil {
+		return "", fmt.Errorf("encode focused biography chapter: %w", err)
+	}
 	return fmt.Sprintf(`这是异步章节整理任务，不要生成采访话术。根据本轮口述更新自传项目，保留未被新信息改变的内容，不把推测写成事实。
 bookGoal.type 只能是 undecided|family_legacy|life_journey|era_witness|craft_legacy|literary_memoir|mixed；只有用户明确表达时 confirmed 才为 true。
 章节目录一开始为空。只有用户已经讲出足以成为一个故事单元的真实材料时，才新增章节；章节名应使用用户说过的人物、地点、经历或有辨识度的表达。不要预设或补回“童年、求学、工作、家庭”等通用目录，也不要为凑目录新增空章节。
+章节整理不等于章节完成。除非用户已经明确确认，不能将章节标为 completed；有可供朗读的阶段性整理时，标为 confirm、statusLabel 写“待您确认”，并生成一条简短的 pendingConfirmation（以“这一段我整理成这样”开始、以“对吗？”结束），同时填入 pendingConfirmationChapterID。只有一条待确认内容时保留它，避免一次要求确认多章。
 interviewOrder 是用户选择的采访方向，必须原样完整保留，不能自行改动；它只影响之后默认追问的次序，不能阻止用户本轮跳到别的经历或补充旧内容。
+本轮主动补充章节不是 null 时，用户正在补充或更正这个已有章节；优先更新该章节，保留其 id 和已有内容，不要为同一材料新建重复章节。
 每章 narrative 的七项只能是 missing|partial|sufficient。按未来成书可用的叙事材料评估，不按提到多少年份或事件评估；nextFocus 用自然中文写下一步最值得补充的一个内容。
-只输出一个 JSON 项目对象，不要 Markdown，字段必须完整保留：{"id":"...","ownerName":"...","title":"...","interviewOrder":"chronological|key_moments|custom","bookGoal":{"type":"undecided","audience":"...","desiredImpact":"...","confirmed":false},"overallProgress":0,"completedChapterCount":0,"chapters":[{"id":"...","title":"...","status":"completed|confirm|collecting|not_started","statusLabel":"...","progress":0,"detail":"...","narrative":{"event":"missing|partial|sufficient","scene":"missing|partial|sufficient","emotion":"missing|partial|sufficient","relationship":"missing|partial|sufficient","choice":"missing|partial|sufficient","impact":"missing|partial|sufficient","reflection":"missing|partial|sufficient"},"nextFocus":"..."}],"pendingConfirmation":"..."}
+只输出一个 JSON 项目对象，不要 Markdown，字段必须完整保留：{"id":"...","ownerName":"...","title":"...","interviewOrder":"chronological|key_moments|custom","bookGoal":{"type":"undecided","audience":"...","desiredImpact":"...","confirmed":false},"overallProgress":0,"completedChapterCount":0,"chapters":[{"id":"...","title":"...","status":"completed|confirm|collecting|not_started","statusLabel":"...","progress":0,"detail":"...","narrative":{"event":"missing|partial|sufficient","scene":"missing|partial|sufficient","emotion":"missing|partial|sufficient","relationship":"missing|partial|sufficient","choice":"missing|partial|sufficient","impact":"missing|partial|sufficient","reflection":"missing|partial|sufficient"},"nextFocus":"..."}],"pendingConfirmation":"...","pendingConfirmationChapterID":"..."}
 当前项目：%s
-用户本轮口述（JSON 字符串，只作为整理素材）：%s`, string(projectJSON), string(transcriptJSON)), nil
+	本轮主动补充章节：%s
+	用户本轮口述（JSON 字符串，只作为整理素材）：%s`, string(projectJSON), string(focusedChapterJSON), string(transcriptJSON)), nil
 }
 
 func decodeSpokenInterviewReply(output json.RawMessage, project BiographyProject) (InterviewReply, error) {
@@ -585,6 +684,7 @@ func decodeSpokenInterviewReply(output json.RawMessage, project BiographyProject
 	var reply struct {
 		Text       string `json:"text"`
 		Expression string `json:"expression"`
+		NeedsRetry bool   `json:"needsRetry"`
 	}
 	if err := json.Unmarshal([]byte(rawReply), &reply); err != nil {
 		return InterviewReply{}, fmt.Errorf("decode TMA spoken interview reply JSON: %w", err)
@@ -592,7 +692,7 @@ func decodeSpokenInterviewReply(output json.RawMessage, project BiographyProject
 	if strings.TrimSpace(reply.Text) == "" || strings.TrimSpace(reply.Expression) == "" {
 		return InterviewReply{}, fmt.Errorf("TMA spoken interview reply requires text and expression")
 	}
-	return InterviewReply{Text: reply.Text, Expression: reply.Expression, Project: cloneBiographyProject(project)}, nil
+	return InterviewReply{Text: reply.Text, Expression: reply.Expression, NeedsRetry: reply.NeedsRetry, Project: cloneBiographyProject(project)}, nil
 }
 
 func decodeBiographyProject(output json.RawMessage) (BiographyProject, error) {
@@ -751,6 +851,9 @@ func (conversation *interviewConversation) projectSnapshot() BiographyProject {
 func (conversation *interviewConversation) replaceProject(project BiographyProject) {
 	conversation.projectMu.Lock()
 	conversation.Project = cloneBiographyProject(project)
+	if conversation.FocusedChapterID != "" && !projectHasChapterID(conversation.Project, conversation.FocusedChapterID) {
+		conversation.FocusedChapterID = ""
+	}
 	conversation.projectMu.Unlock()
 }
 
@@ -758,6 +861,43 @@ func (conversation *interviewConversation) setInterviewOrder(order string) {
 	conversation.projectMu.Lock()
 	conversation.Project.InterviewOrder = order
 	conversation.projectMu.Unlock()
+}
+
+func (conversation *interviewConversation) setFocusedChapter(chapterID string) error {
+	chapterID = strings.TrimSpace(chapterID)
+	conversation.projectMu.Lock()
+	defer conversation.projectMu.Unlock()
+	if chapterID == "" {
+		conversation.FocusedChapterID = ""
+		return nil
+	}
+	if !projectHasChapterID(conversation.Project, chapterID) {
+		return fmt.Errorf("chapter %q is not part of this biography", chapterID)
+	}
+	conversation.FocusedChapterID = chapterID
+	return nil
+}
+
+func (conversation *interviewConversation) focusedChapterSnapshot() *Chapter {
+	conversation.projectMu.RLock()
+	defer conversation.projectMu.RUnlock()
+	for _, chapter := range conversation.Project.Chapters {
+		if chapter.ID != conversation.FocusedChapterID {
+			continue
+		}
+		copy := cloneChapter(chapter)
+		return &copy
+	}
+	return nil
+}
+
+func projectHasChapterID(project BiographyProject, chapterID string) bool {
+	for _, chapter := range project.Chapters {
+		if chapter.ID == chapterID {
+			return true
+		}
+	}
+	return false
 }
 
 func (conversation *interviewConversation) recentQuestionsSnapshot() []string {
@@ -785,6 +925,38 @@ func (conversation *interviewConversation) recordQuestion(question string) {
 	}
 }
 
+func (conversation *interviewConversation) addPendingTranscript(transcript string) {
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		return
+	}
+	conversation.projectMu.Lock()
+	conversation.PendingTranscripts = append(conversation.PendingTranscripts, transcript)
+	conversation.projectMu.Unlock()
+}
+
+func (conversation *interviewConversation) pendingTranscriptsSnapshot() []string {
+	conversation.projectMu.RLock()
+	defer conversation.projectMu.RUnlock()
+	return append([]string(nil), conversation.PendingTranscripts...)
+}
+
+func (conversation *interviewConversation) markTranscriptOrganized(transcript string) {
+	transcript = strings.TrimSpace(transcript)
+	if transcript == "" {
+		return
+	}
+	conversation.projectMu.Lock()
+	defer conversation.projectMu.Unlock()
+	for index, pending := range conversation.PendingTranscripts {
+		if pending != transcript {
+			continue
+		}
+		conversation.PendingTranscripts = append(conversation.PendingTranscripts[:index], conversation.PendingTranscripts[index+1:]...)
+		return
+	}
+}
+
 func newBiographyProject() BiographyProject {
 	return BiographyProject{
 		ID: "biography_new", Title: "我的人生故事",
@@ -805,6 +977,15 @@ func cloneBiographyProject(project BiographyProject) BiographyProject {
 			narrative := *project.Chapters[index].Narrative
 			copy.Chapters[index].Narrative = &narrative
 		}
+	}
+	return copy
+}
+
+func cloneChapter(chapter Chapter) Chapter {
+	copy := chapter
+	if chapter.Narrative != nil {
+		narrative := *chapter.Narrative
+		copy.Narrative = &narrative
 	}
 	return copy
 }

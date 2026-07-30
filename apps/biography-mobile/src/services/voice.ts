@@ -9,12 +9,23 @@ export type VoiceEvent =
   | { type: "final_transcript"; text: string }
   | { type: "input_committed" }
   | { type: "project_loaded"; project: BiographyProject }
+  | { type: "chapter_confirmation"; text: string; expression: string; chapterID: string; project: BiographyProject }
   | { type: "assistant_reply_delta"; text: string }
-  | { type: "assistant_reply"; text: string; expression: string; project: BiographyProject }
+  | { type: "assistant_reply"; text: string; expression: string; needsRetry: boolean; speechStarted: boolean; project: BiographyProject }
   | { type: "playback_started" }
   | { type: "playback_finished" }
   | { type: "speech_detected" }
-  | { type: "recording_ready"; audio?: Blob; filePath?: string; durationMs: number; sizeBytes: number; transcript: string; cumulative?: boolean }
+  | {
+      type: "recording_ready";
+      audio?: Blob;
+      filePath?: string;
+      segmentFilePath?: string;
+      durationMs: number;
+      segmentDurationMs?: number;
+      sizeBytes: number;
+      transcript: string;
+      cumulative?: boolean;
+    }
   | { type: "network_lost" }
   | { type: "network_restored" }
   | { type: "error"; message: string; code?: string };
@@ -28,6 +39,7 @@ export interface VoiceAdapter {
   cancelListening(): Promise<void>;
   requestFollowup(transcript: string): Promise<void>;
   setInterviewOrder(order: InterviewOrder): Promise<void>;
+  setChapterFocus(chapterID: string): Promise<void>;
   playText(text: string, expression: string): Promise<void>;
   cancelPlayback(): Promise<void>;
   finishRecordingSession(): Promise<void>;
@@ -41,6 +53,9 @@ interface GatewayServerMessage {
   message?: string;
   code?: string;
   expression?: string;
+  needs_retry?: boolean;
+	speech_started?: boolean;
+	chapter_id?: string;
   project?: BiographyProject;
   resume_token?: string;
 }
@@ -52,6 +67,7 @@ const browserPreRollMaxBytes = 48_000;
 const gatewayHeartbeatIntervalMs = 15_000;
 const gatewayHeartbeatTimeoutMs = 45_000;
 const gatewayReconnectMaxDelayMs = 15_000;
+const gatewayReconnectMaxAttempts = 3;
 
 type BrowserCaptureMode = "none" | "monitor" | "listening";
 
@@ -90,6 +106,7 @@ class GatewayVoiceAdapter implements VoiceAdapter {
   private reconnectAttempt = 0;
   private lastPongAt = 0;
   private connectedBefore = false;
+  private connectionFailureMessage = "";
   private timers: ReturnType<typeof setTimeout>[] = [];
   private readonly sessionID = `voice-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   private readonly clientInstanceID = getOrCreateClientInstanceID();
@@ -187,6 +204,11 @@ class GatewayVoiceAdapter implements VoiceAdapter {
     this.send({ type: "interview.order.set", interview_order: order });
   }
 
+  async setChapterFocus(chapterID: string) {
+    await this.ensureConnected();
+    this.send({ type: "interview.chapter.focus", chapter_id: chapterID });
+  }
+
   async playText(text: string, expression: string) {
     await this.ensureConnected();
     if (!this.debugTextEnabled) {
@@ -226,7 +248,6 @@ class GatewayVoiceAdapter implements VoiceAdapter {
       socket.binaryType = "arraybuffer";
       this.socket = socket;
       socket.addEventListener("open", () => {
-        this.reconnectAttempt = 0;
         this.startHeartbeat();
         this.startGatewaySession();
         this.connecting = null;
@@ -235,12 +256,23 @@ class GatewayVoiceAdapter implements VoiceAdapter {
       socket.addEventListener("message", (event) => this.handleMessage(event.data));
       socket.addEventListener("close", () => {
         if (this.socket !== socket) return;
+        const canRecover = this.connectedBefore;
+        const failureMessage = this.connectionFailureMessage;
+        this.connectionFailureMessage = "";
         this.socket = null;
         this.connecting = null;
         this.stopHeartbeat();
         void this.stopBrowserCapture(false);
         this.cancelBrowserPlayback();
         if (!this.disposed) {
+          if (failureMessage) {
+            this.emit({ type: "error", message: failureMessage });
+            return;
+          }
+          if (!canRecover) {
+            this.emit({ type: "error", message: "语音连接暂时不可用，请稍后点击继续采访重试" });
+            return;
+          }
           this.emit({ type: "network_lost" });
           this.scheduleReconnect();
         }
@@ -273,6 +305,7 @@ class GatewayVoiceAdapter implements VoiceAdapter {
     switch (message.type) {
       case "session.ready":
         this.lastPongAt = Date.now();
+        this.reconnectAttempt = 0;
         if (this.connectedBefore) this.emit({ type: "network_restored" });
         this.connectedBefore = true;
         break;
@@ -303,6 +336,8 @@ class GatewayVoiceAdapter implements VoiceAdapter {
           type: "assistant_reply",
           text: message.text,
           expression: message.expression,
+          needsRetry: message.needs_retry === true,
+          speechStarted: message.speech_started === true,
           project: message.project,
         });
         if (message.resume_token) {
@@ -325,6 +360,19 @@ class GatewayVoiceAdapter implements VoiceAdapter {
           writeStorage(resumeTokenStorageKey, this.resumeToken);
         }
         break;
+      case "chapter.confirmation":
+        if (!message.text || !message.expression || !message.chapter_id || !message.project) {
+          this.emit({ type: "error", message: "章节确认内容不完整" });
+          break;
+        }
+        this.emit({
+          type: "chapter_confirmation",
+          text: message.text,
+          expression: message.expression,
+          chapterID: message.chapter_id,
+          project: message.project,
+        });
+        break;
       case "tts.started":
         this.beginBrowserPlayback();
         this.emit({ type: "playback_started" });
@@ -338,6 +386,11 @@ class GatewayVoiceAdapter implements VoiceAdapter {
       case "error":
         void this.stopBrowserCapture(false);
         this.pendingBrowserRecording = null;
+        if (message.code === "interview_busy") {
+          this.connectionFailureMessage = message.message || "这本书正在另一台设备上采访，请先在那边结束今天的采访";
+          this.socket?.close(4008, "interview already active");
+          break;
+        }
         if (message.code === "resume_invalid") {
           this.resumeToken = "";
           writeStorage(resumeTokenStorageKey, "");
@@ -364,6 +417,10 @@ class GatewayVoiceAdapter implements VoiceAdapter {
 
   private scheduleReconnect() {
     if (this.disposed || this.reconnectTimer || this.socket?.readyState === WebSocket.OPEN) return;
+    if (this.reconnectAttempt >= gatewayReconnectMaxAttempts) {
+      this.emit({ type: "error", message: "网络暂时没有恢复，请检查网络后点击继续采访" });
+      return;
+    }
     const baseDelay = Math.min(1_000 * 2 ** this.reconnectAttempt, gatewayReconnectMaxDelayMs);
     const delay = Math.round(baseDelay * (0.85 + Math.random() * 0.3));
     this.reconnectAttempt += 1;
@@ -592,7 +649,10 @@ class GatewayVoiceAdapter implements VoiceAdapter {
     if (!this.browserCapturing && !this.microphoneStream) return;
     this.browserCaptureStopping = true;
     this.browserCapturing = false;
-    const shouldCommit = commit && this.browserCaptureMode === "listening" && this.browserAudioSent && this.socket?.readyState === WebSocket.OPEN;
+    const wasListening = this.browserCaptureMode === "listening";
+    const socketOpen = this.socket?.readyState === WebSocket.OPEN;
+    const shouldCommit = commit && wasListening && this.browserAudioSent && socketOpen;
+    const noSpeech = commit && wasListening && socketOpen && !this.browserAudioSent;
     if (shouldCommit && this.browserRecordingChunks.length > 0) {
       const pcmBytes = this.browserRecordingChunks.reduce((total, chunk) => total + chunk.byteLength, 0);
       const wav = encodeWAVPCM16(this.browserRecordingChunks);
@@ -632,6 +692,8 @@ class GatewayVoiceAdapter implements VoiceAdapter {
     if (shouldCommit) {
       this.emit({ type: "input_committed" });
       this.send({ type: "input.commit", defer_interview: deferInterview });
+    } else if (noSpeech) {
+      this.emit({ type: "error", code: "no_speech", message: "我没有听清，请按住话筒再说一次" });
     }
   }
 
@@ -711,6 +773,7 @@ interface NativeVoicePlugin {
   cancelListening(callback: (result: NativeCallResult) => void): void;
   requestFollowup(options: { text: string }, callback: (result: NativeCallResult) => void): void;
   setInterviewOrder(options: { interviewOrder: InterviewOrder }, callback: (result: NativeCallResult) => void): void;
+  setChapterFocus(options: { chapterID: string }, callback: (result: NativeCallResult) => void): void;
   playText(options: { text: string; expression: string }, callback: (result: NativeCallResult) => void): void;
   cancelPlayback(callback: (result: NativeCallResult) => void): void;
   finishRecordingSession(callback: (result: NativeCallResult) => void): void;
@@ -774,6 +837,11 @@ class NativeVoiceAdapter implements VoiceAdapter {
   async setInterviewOrder(order: InterviewOrder) {
     await this.ensureConfigured();
     await this.call((done) => this.plugin.setInterviewOrder({ interviewOrder: order }, done));
+  }
+
+  async setChapterFocus(chapterID: string) {
+    await this.ensureConfigured();
+    await this.call((done) => this.plugin.setChapterFocus({ chapterID }, done));
   }
 
   async playText(text: string, expression: string) {
@@ -860,6 +928,8 @@ class MockVoiceAdapter implements VoiceAdapter {
   }
 
   async setInterviewOrder(_order: InterviewOrder) {}
+
+  async setChapterFocus(_chapterID: string) {}
 
   async playText(_text: string, _expression: string) {
     this.emit({ type: "playback_started" });

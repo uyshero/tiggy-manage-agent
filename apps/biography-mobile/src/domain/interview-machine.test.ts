@@ -90,6 +90,15 @@ describe("interview state machine", () => {
     expect(recovered.status).toBe("ready");
   });
 
+  it("does not return to reconnecting after the connection has already failed", () => {
+    const failed = reduceInterviewState(initialInterviewState, { type: "FAIL", message: "语音连接暂时不可用" });
+    const stillFailed = reduceInterviewState(failed, { type: "NETWORK_LOST" });
+    const retrying = reduceInterviewState(stillFailed, { type: "RETRY" });
+
+    expect(stillFailed.status).toBe("error");
+    expect(retrying.status).toBe("ready");
+  });
+
   it("can speak an idle reminder and then enter the paused state", () => {
     const listening = reduceInterviewState(initialInterviewState, { type: "START_LISTENING" });
     const thinking = reduceInterviewState(listening, { type: "STOP_LISTENING" });

@@ -1,5 +1,5 @@
 import { biographyAuthBaseURL, currentBiographyAccessToken } from "./auth";
-import { recordingAudioBlob, recordingFilePaths, type StoredRecording } from "./recordings";
+import { recordingSegmentAudioBlob, recordingSegments, type RecordingSegment, type StoredRecording } from "./recordings";
 
 interface RecordingBackupMetadata {
   projectID: string;
@@ -9,12 +9,17 @@ interface RecordingBackupMetadata {
   durationMs: number;
   title: string;
   createdAt: number;
+  sizeBytes: number;
 }
 
-function uploadURL(recordingID: string): string {
+function recordingURL(recordingID: string): string {
   const baseURL = biographyAuthBaseURL();
   if (!baseURL) throw new Error("请先配置自传服务地址");
-  return `${baseURL}/v1/recordings/${encodeURIComponent(recordingID)}/audio`;
+  return `${baseURL}/v1/recordings/${encodeURIComponent(recordingID)}`;
+}
+
+function segmentAudioURL(recordingID: string, segmentID: string): string {
+  return `${recordingURL(recordingID)}/segments/${encodeURIComponent(segmentID)}/audio`;
 }
 
 function uploadMetadata(recording: StoredRecording): RecordingBackupMetadata {
@@ -26,6 +31,16 @@ function uploadMetadata(recording: StoredRecording): RecordingBackupMetadata {
     durationMs: recording.durationMs,
     title: recording.title,
     createdAt: recording.createdAt,
+    sizeBytes: recording.sizeBytes,
+  };
+}
+
+function segmentMetadata(segment: RecordingSegment) {
+  return {
+    transcript: segment.transcript,
+    durationMs: segment.durationMs,
+    createdAt: segment.createdAt,
+    transcriptionStatus: segment.transcriptionStatus,
   };
 }
 
@@ -40,12 +55,37 @@ function errorFromResponse(status: number, payload: unknown): Error {
 export async function uploadRecordingBackup(recording: StoredRecording): Promise<void> {
   const token = currentBiographyAccessToken();
   if (!token) throw new Error("登录已过期，请重新登录后继续备份");
-  const audio = await recordingAudioBlob(recording);
+  const metadataResponse = await fetch(recordingURL(recording.id), {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(uploadMetadata(recording)),
+  });
+  if (!metadataResponse.ok) throw errorFromResponse(metadataResponse.status, await metadataResponse.json().catch(() => null));
+  for (const segment of recordingSegments(recording)) {
+    await uploadRecordingSegment(recording.id, segment, token);
+  }
+}
+
+export async function deleteRecordingSegmentBackup(recordingID: string, segmentID: string): Promise<void> {
+  const token = currentBiographyAccessToken();
+  if (!token) throw new Error("登录已过期，请重新登录后继续备份");
+  const response = await fetch(segmentAudioURL(recordingID, segmentID), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404) return;
+  if (!response.ok) throw errorFromResponse(response.status, await response.json().catch(() => null));
+}
+
+async function uploadRecordingSegment(recordingID: string, segment: RecordingSegment, token: string): Promise<void> {
+  const url = segmentAudioURL(recordingID, segment.id);
+  const metadata = JSON.stringify(segmentMetadata(segment));
+  const audio = await recordingSegmentAudioBlob(segment);
   if (audio) {
     const form = new FormData();
-    form.append("metadata", JSON.stringify(uploadMetadata(recording)));
-    form.append("audio", audio, `${recording.id}.wav`);
-    const response = await fetch(uploadURL(recording.id), {
+    form.append("metadata", metadata);
+    form.append("audio", audio, `${segment.id}.wav`);
+    const response = await fetch(url, {
       method: "PUT",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -54,15 +94,15 @@ export async function uploadRecordingBackup(recording: StoredRecording): Promise
     return;
   }
 
-  const filePath = recordingFilePaths(recording)[0];
+  const filePath = segment.filePath;
   if (!filePath) throw new Error("录音文件内容为空");
   const response = await uni.uploadFile({
-    url: uploadURL(recording.id),
+    url,
     filePath,
     name: "audio",
     fileType: "audio",
     header: { Authorization: `Bearer ${token}` },
-    formData: { metadata: JSON.stringify(uploadMetadata(recording)) },
+    formData: { metadata },
   });
   if (response.statusCode < 200 || response.statusCode >= 300) {
     let payload: unknown = null;

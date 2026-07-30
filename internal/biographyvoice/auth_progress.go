@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,7 +43,7 @@ type authService struct {
 	clientID string
 	scopes   []string
 	verifier *oidc.IDTokenVerifier
-	store    *biographyDataStore
+	store    biographyStore
 }
 
 type authConfigResponse struct {
@@ -65,7 +66,7 @@ type oidcTokenClaims struct {
 	Email             string `json:"email"`
 }
 
-func newAuthService(config Config, store *biographyDataStore) (*authService, error) {
+func newAuthService(config Config, store biographyStore) (*authService, error) {
 	if strings.TrimSpace(config.AuthMode) != biographyAuthModeOIDC {
 		return nil, nil
 	}
@@ -150,9 +151,10 @@ type biographyDataStore struct {
 }
 
 type biographyData struct {
-	Users      map[string]storedUser                 `json:"users"`
-	Progress   map[string]BiographyProgress          `json:"progress"`
-	Recordings map[string]map[string]storedRecording `json:"recordings"`
+	Users             map[string]storedUser                                   `json:"users"`
+	Progress          map[string]BiographyProgress                            `json:"progress"`
+	Recordings        map[string]map[string]storedRecording                   `json:"recordings"`
+	RecordingSegments map[string]map[string]map[string]storedRecordingSegment `json:"recordingSegments"`
 }
 
 type storedUser struct {
@@ -178,11 +180,48 @@ type storedRecording struct {
 	ContentType  string    `json:"contentType"`
 }
 
+type storedRecordingSegment struct {
+	ID                  string    `json:"id"`
+	Transcript          string    `json:"transcript"`
+	DurationMS          int64     `json:"durationMs"`
+	CreatedAt           time.Time `json:"createdAt"`
+	SizeBytes           int64     `json:"sizeBytes"`
+	ContentType         string    `json:"contentType"`
+	TranscriptionStatus string    `json:"transcriptionStatus"`
+}
+
+// biographyStore keeps development storage replaceable without allowing the
+// production gateway to silently fall back to an unshared local JSON file.
+type biographyStore interface {
+	upsertOIDCUser(issuer string, subject string, displayName string, now time.Time) (storedUser, error)
+	userByID(userID string) (storedUser, bool, error)
+	progressForUser(userID string) (BiographyProgress, bool, error)
+	saveProgress(userID string, progress BiographyProgress) error
+	listRecordings(userID string, projectID string) ([]storedRecording, error)
+	recordingForUser(userID string, recordingID string) (storedRecording, bool, error)
+	saveRecording(userID string, recording storedRecording) error
+	deleteRecording(userID string, recordingID string) error
+	writeRecordingAudio(userID string, recordingID string, source io.Reader, maxBytes int64) (int64, error)
+	openRecordingAudio(userID string, recordingID string) (io.ReadCloser, error)
+	removeRecordingAudio(userID string, recordingID string) error
+}
+
+type recordingSegmentStore interface {
+	listRecordingSegments(userID string, recordingID string) ([]storedRecordingSegment, error)
+	recordingSegmentForUser(userID string, recordingID string, segmentID string) (storedRecordingSegment, bool, error)
+	saveRecordingSegment(userID string, recordingID string, segment storedRecordingSegment) error
+	deleteRecordingSegment(userID string, recordingID string, segmentID string) error
+	writeRecordingSegmentAudio(userID string, recordingID string, segmentID string, source io.Reader, maxBytes int64) (int64, error)
+	openRecordingSegmentAudio(userID string, recordingID string, segmentID string) (io.ReadCloser, error)
+	removeRecordingSegmentAudio(userID string, recordingID string, segmentID string) error
+}
+
 type BiographyProgress struct {
 	Project             BiographyProject          `json:"project"`
 	LastInterview       *InterviewSessionProgress `json:"lastInterview,omitempty"`
 	ActiveChapterTitles []string                  `json:"activeChapterTitles"`
 	PendingConfirmation string                    `json:"pendingConfirmation,omitempty"`
+	PendingTranscripts  []string                  `json:"pendingTranscripts,omitempty"`
 	RecentQuestions     []string                  `json:"recentQuestions,omitempty"`
 	UpdatedAt           time.Time                 `json:"updatedAt"`
 }
@@ -218,7 +257,7 @@ func newBiographyDataStore(dataDir string) (*biographyDataStore, error) {
 func (store *biographyDataStore) load() error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.data = biographyData{Users: map[string]storedUser{}, Progress: map[string]BiographyProgress{}, Recordings: map[string]map[string]storedRecording{}}
+	store.data = biographyData{Users: map[string]storedUser{}, Progress: map[string]BiographyProgress{}, Recordings: map[string]map[string]storedRecording{}, RecordingSegments: map[string]map[string]map[string]storedRecordingSegment{}}
 	payload, err := os.ReadFile(store.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -240,6 +279,9 @@ func (store *biographyDataStore) load() error {
 	}
 	if store.data.Recordings == nil {
 		store.data.Recordings = map[string]map[string]storedRecording{}
+	}
+	if store.data.RecordingSegments == nil {
+		store.data.RecordingSegments = map[string]map[string]map[string]storedRecordingSegment{}
 	}
 	return nil
 }
@@ -294,7 +336,7 @@ func (store *biographyDataStore) saveLocked() error {
 	return os.Rename(tmp, store.path)
 }
 
-func buildBiographyProgress(project BiographyProject, recentQuestions []string, session activeProgressSession, endedAt *time.Time, now time.Time) BiographyProgress {
+func buildBiographyProgress(project BiographyProject, recentQuestions []string, pendingTranscripts []string, session activeProgressSession, endedAt *time.Time, now time.Time) BiographyProgress {
 	lastChapterTitle := activeChapterTitle(project)
 	duration := 0
 	if !session.StartedAt.IsZero() {
@@ -315,6 +357,7 @@ func buildBiographyProgress(project BiographyProject, recentQuestions []string, 
 	return BiographyProgress{
 		Project: project, LastInterview: last, ActiveChapterTitles: activeChapterTitles(project),
 		PendingConfirmation: strings.TrimSpace(project.PendingConfirmation),
+		PendingTranscripts:  append([]string(nil), pendingTranscripts...),
 		RecentQuestions:     append([]string(nil), recentQuestions...), UpdatedAt: now,
 	}
 }
@@ -335,6 +378,16 @@ func activeChapterTitle(project BiographyProject) string {
 		return ""
 	}
 	return titles[0]
+}
+
+func completedChapterCount(project BiographyProject) int {
+	count := 0
+	for _, chapter := range project.Chapters {
+		if chapter.Status == "completed" {
+			count++
+		}
+	}
+	return count
 }
 
 func publicUserFromStored(user storedUser) publicUser {

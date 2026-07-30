@@ -44,6 +44,64 @@ func sampleBiographyProject() BiographyProject {
 	return project
 }
 
+func TestInterviewConversationFocusesAnExistingChapterInPrompts(t *testing.T) {
+	conversation := &interviewConversation{Project: sampleBiographyProject()}
+	if err := conversation.setFocusedChapter("shanghai"); err != nil {
+		t.Fatal(err)
+	}
+	focused := conversation.focusedChapterSnapshot()
+	if focused == nil || focused.ID != "shanghai" || focused.Title != "第一次去上海" {
+		t.Fatalf("focused chapter was not retained: %+v", focused)
+	}
+
+	interviewPrompt, err := buildInterviewPrompt("我想补充当时离开家前的事", conversation.projectSnapshot(), nil, focused)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(interviewPrompt, `"focusedChapter":{"id":"shanghai"`) || !strings.Contains(interviewPrompt, "用户主动选择补充或更正") {
+		t.Fatalf("interview prompt did not include chapter focus: %s", interviewPrompt)
+	}
+	if !strings.Contains(interviewPrompt, "needsRetry") || !strings.Contains(interviewPrompt, "尽量使用普通话") {
+		t.Fatalf("interview prompt did not include the retry guidance: %s", interviewPrompt)
+	}
+
+	organizerPrompt, err := buildProjectUpdatePrompt("我想补充当时离开家前的事", conversation.projectSnapshot(), focused)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(organizerPrompt, "本轮主动补充章节") || !strings.Contains(organizerPrompt, `"id":"shanghai"`) {
+		t.Fatalf("organizer prompt did not include chapter focus: %s", organizerPrompt)
+	}
+
+	if err := conversation.setFocusedChapter("unknown"); err == nil {
+		t.Fatal("unknown chapter should not become the interview focus")
+	}
+	if err := conversation.setFocusedChapter(""); err != nil || conversation.focusedChapterSnapshot() != nil {
+		t.Fatalf("chapter focus was not cleared: err=%v focus=%+v", err, conversation.focusedChapterSnapshot())
+	}
+}
+
+func TestMockOrganizerUpdatesTheFocusedChapter(t *testing.T) {
+	project := sampleBiographyProject()
+	project.Chapters = append(project.Chapters, Chapter{
+		ID: "workshop", Title: "周师傅的木工坊", Status: "collecting", StatusLabel: "讲述中", Progress: 24,
+		Detail: "正在收集师徒相处的细节", Narrative: narrativeCoverage("partial", "missing", "partial", "partial", "missing", "missing", "missing"),
+		NextFocus: "补充那间木工坊里最清楚的一个画面",
+	})
+	conversation := &interviewConversation{Project: project}
+	if err := conversation.setFocusedChapter("shanghai"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := (mockInterviewEngine{}).Organize(t.Context(), conversation, "我想补充离开家前，母亲在车站说的话")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Chapters[0].Status != "confirm" || updated.Chapters[0].Progress != 92 || updated.Chapters[0].Detail != "正在补充这段经历里的场景、感受和重要关系" || updated.Chapters[1].Progress != 24 || updated.PendingConfirmationChapterID != "shanghai" {
+		t.Fatalf("focused chapter was not preferentially updated: %+v", updated.Chapters)
+	}
+}
+
 func TestBiographyStartsWithoutPresetChaptersAndMigratesEmptyTemplate(t *testing.T) {
 	if project := newBiographyProject(); len(project.Chapters) != 0 {
 		t.Fatalf("new biography should not contain preset chapters: %+v", project.Chapters)
@@ -277,6 +335,25 @@ func TestDecodeInterviewReplyAcceptsJSONFenceAndRejectsInvalidProgress(t *testin
 	}
 }
 
+func TestDecodeSpokenInterviewReplyKeepsRetrySignal(t *testing.T) {
+	message, err := json.Marshal(map[string]any{
+		"content": []map[string]string{{
+			"type": "text",
+			"text": `{"text":"刚才有几处我没有完全听清，请尽量用普通话，稍微慢一点再说一遍。","expression":"温和、耐心，语速稍慢","needsRetry":true}`,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := decodeSpokenInterviewReply(message, sampleBiographyProject())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reply.NeedsRetry || reply.Project.ID == "" {
+		t.Fatalf("spoken reply lost retry state or project: %+v", reply)
+	}
+}
+
 func TestExtractPartialInterviewText(t *testing.T) {
 	tests := []struct {
 		raw  string
@@ -290,6 +367,27 @@ func TestExtractPartialInterviewText(t *testing.T) {
 	for _, test := range tests {
 		if got := extractPartialInterviewText(test.raw); got != test.want {
 			t.Errorf("extractPartialInterviewText(%q) = %q, want %q", test.raw, got, test.want)
+		}
+	}
+}
+
+func TestExtractPartialInterviewReplyRequiresCompleteControls(t *testing.T) {
+	tests := []struct {
+		raw            string
+		wantText       string
+		wantReady      bool
+		wantRetry      bool
+		wantExpression string
+	}{
+		{raw: `{"needsRetry":fa`, wantReady: false},
+		{raw: `{"needsRetry":false,"expression":"温和、耐心`, wantReady: false, wantExpression: "温和、耐心"},
+		{raw: `{"needsRetry":false,"expression":"温和、耐心","text":"您刚才提到`, wantText: "您刚才提到", wantReady: true, wantExpression: "温和、耐心"},
+		{raw: `{"needsRetry":true,"expression":"放慢语速","text":"请再说一遍。"}`, wantText: "请再说一遍。", wantReady: true, wantRetry: true, wantExpression: "放慢语速"},
+	}
+	for _, test := range tests {
+		got := extractPartialInterviewReply(test.raw)
+		if got.Text != test.wantText || got.ControlsReady != test.wantReady || got.NeedsRetry != test.wantRetry || got.Expression != test.wantExpression {
+			t.Errorf("extractPartialInterviewReply(%q) = %+v", test.raw, got)
 		}
 	}
 }

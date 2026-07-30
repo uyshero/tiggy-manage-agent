@@ -46,7 +46,7 @@ func TestMockVoiceSessionProtocol(t *testing.T) {
 	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "我听到了，正在想接下来问什么。")
 	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
 	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientTTSStart, Text: "那是第一次离开家吗？"})
-	assertTextEvents(t, ctx, connection, ServerProjectUpdated, ServerTTSStarted, ServerTTSFinished)
+	assertTextEvents(t, ctx, connection, ServerProjectUpdated, ServerChapterConfirmation, ServerTTSStarted, ServerTTSFinished)
 }
 
 func TestMockVoiceSessionCanDeferInterviewUntilFollowupRequest(t *testing.T) {
@@ -106,6 +106,32 @@ func TestMockVoiceSessionStoresInterviewOrder(t *testing.T) {
 	invalid := readServerTextMessage(t, ctx, connection)
 	if invalid.Type != ServerError || invalid.Code != "invalid_interview_order" {
 		t.Fatalf("invalid interview order was not rejected: %+v", invalid)
+	}
+}
+
+func TestMockVoiceSessionRejectsUnknownChapterFocus(t *testing.T) {
+	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.CloseNow()
+
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionStart, SessionID: "voice-chapter-focus"})
+	assertServerMessage(t, ctx, connection, ServerSessionReady, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewProject, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInterviewChapterFocus, ChapterID: "not-my-chapter"})
+	invalid := readServerTextMessage(t, ctx, connection)
+	if invalid.Type != ServerError || invalid.Code != "invalid_chapter" {
+		t.Fatalf("unknown chapter focus was not rejected: %+v", invalid)
 	}
 }
 
@@ -416,6 +442,64 @@ func TestBiographyOIDCProgressIsIsolatedBetweenUsers(t *testing.T) {
 	}
 }
 
+func TestBiographyOIDCRejectsConcurrentInterviewsForSameUser(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate OIDC test key: %v", err)
+	}
+	provider := newBiographyOIDCTestProvider(t)
+	provider.setKeys(biographyOIDCTestPublicJWK("bio-rsa", "RS256", &key.PublicKey))
+	token := signedBiographyOIDCTestToken(t, key, "bio-rsa", "RS256", map[string]any{
+		"iss": provider.server.URL, "sub": "same-user", "aud": "biography-mobile", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	server, err := NewServer(Config{
+		HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"},
+		AuthMode: biographyAuthModeOIDC, AuthOIDCIssuer: provider.server.URL, AuthOIDCAudience: "biography-mobile",
+		AuthOIDCHTTPTimeout: 2 * time.Second, DataDir: t.TempDir(),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	endpoint := "ws" + strings.TrimPrefix(httpServer.URL, "http") + "/v1/voice/session?access_token=" + token
+
+	first, _, err := websocket.Dial(ctx, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClientMessage(t, ctx, first, ClientMessage{Type: ClientSessionStart, SessionID: "voice-first"})
+	assertServerMessage(t, ctx, first, ServerSessionReady, "")
+	assertServerMessage(t, ctx, first, ServerInterviewProject, "")
+
+	second, _, err := websocket.Dial(ctx, endpoint, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeClientMessage(t, ctx, second, ClientMessage{Type: ClientSessionStart, SessionID: "voice-second"})
+	busy := readServerTextMessage(t, ctx, second)
+	if busy.Type != ServerError || busy.Code != "interview_busy" {
+		t.Fatalf("expected same-user interview lease rejection, got %+v", busy)
+	}
+	second.CloseNow()
+
+	writeClientMessage(t, ctx, first, ClientMessage{Type: ClientSessionFinish})
+	assertServerMessage(t, ctx, first, ServerSessionFinished, "")
+	first.CloseNow()
+
+	user := &authenticatedUser{ID: stableUserID(provider.server.URL, "same-user")}
+	deadline := time.Now().Add(time.Second)
+	for !server.acquireInterviewLease(user, "voice-third") {
+		if time.Now().After(deadline) {
+			t.Fatal("interview lease was not released after ending the first session")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	server.releaseInterviewLease(user, "voice-third")
+}
+
 func TestVoiceSessionRequiresConfiguredClientToken(t *testing.T) {
 	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, ClientToken: "required-token", AllowedOrigins: []string{"127.0.0.1"}}, nil)
 	if err != nil {
@@ -560,6 +644,42 @@ func TestInterviewFirstResponseTimeoutReturnsSpokenFallback(t *testing.T) {
 	assertServerMessageAllowing(t, ctx, connection, ServerInterviewReply, "我先接着问一个简单的。回到刚才那段经历里，您现在最清楚记得的一个画面是什么？", ServerProjectUpdated)
 }
 
+func TestPendingTranscriptPersistsUntilOrganizerConfirmsIt(t *testing.T) {
+	store, err := newBiographyDataStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{store: store, logger: slog.Default()}
+	conversation := &interviewConversation{UserID: "user-1", Project: newBiographyProject()}
+	transcript := "我年轻时第一次离开家去上海学手艺。"
+	conversation.addPendingTranscript(transcript)
+	server.saveConversationProgress(conversation, activeProgressSession{ID: "voice-1", StartedAt: time.Now()}, nil)
+
+	saved, found, err := store.progressForUser("user-1")
+	if err != nil || !found || len(saved.PendingTranscripts) != 1 || saved.PendingTranscripts[0] != transcript {
+		t.Fatalf("transcript was not durably saved before organization: found=%t progress=%+v err=%v", found, saved, err)
+	}
+
+	conversation.markTranscriptOrganized(transcript)
+	server.saveConversationProgress(conversation, activeProgressSession{ID: "voice-1", StartedAt: time.Now()}, nil)
+	saved, found, err = store.progressForUser("user-1")
+	if err != nil || !found || len(saved.PendingTranscripts) != 0 {
+		t.Fatalf("organized transcript should no longer be pending: found=%t progress=%+v err=%v", found, saved, err)
+	}
+}
+
+func TestFinishedFallbackReturnsTranscriptWithReply(t *testing.T) {
+	controller := newInterviewTurnController(t.Context(), &Server{}, &interviewConversation{Project: newBiographyProject()})
+	controller.activeID = 1
+	message := ServerMessage{Type: ServerInterviewReply, Text: "刚才连接有些慢。您刚才这段话已先保存，之后会继续整理。您可以接着讲。"}
+	transcript, reply := controller.handle(interviewTurnEvent{
+		id: 1, message: &message, transcript: "这段话必须先保存", done: true, accepted: true, failed: true,
+	})
+	if transcript != "这段话必须先保存" || reply == nil || reply.Text != message.Text {
+		t.Fatalf("fallback must retain the transcript and reply together: transcript=%q reply=%+v", transcript, reply)
+	}
+}
+
 func TestServerAcceptsConfiguredDoubaoProvider(t *testing.T) {
 	server, err := NewServer(Config{
 		HTTPAddr: ":0", Provider: ProviderDoubao, AllowedOrigins: []string{"127.0.0.1"},
@@ -643,9 +763,10 @@ func TestDoubaoVoiceSessionForwardsASRAndTTSAudio(t *testing.T) {
 	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInputCommit})
 	assertServerMessage(t, ctx, connection, ServerASRFinal, "那年我十九岁")
 	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "我听到了，正在想接下来问什么。")
-	assertServerMessage(t, ctx, connection, ServerInterviewReply, "")
-
-	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientTTSStart, Text: "那是第一次离开家吗？", Expression: "温和、关切"})
+	reply := readServerTextMessage(t, ctx, connection)
+	if reply.Type != ServerInterviewReply || !reply.SpeechStarted {
+		t.Fatalf("interview reply should start gateway TTS without a client round trip: %+v", reply)
+	}
 	assertDoubaoTurnEvents(t, ctx, connection, []byte{10, 20, 30})
 }
 
@@ -842,6 +963,95 @@ func TestVoiceSessionSendsLiveReplyBeforeOrganizerFinishes(t *testing.T) {
 	assertServerMessage(t, ctx, connection, ServerProjectUpdated, "")
 }
 
+type retryInterviewEngine struct {
+	organizeCalls chan string
+}
+
+func (*retryInterviewEngine) Continue(_ context.Context, conversation *interviewConversation, _ string) (InterviewReply, error) {
+	return InterviewReply{
+		Text:       "刚才有几处我没有完全听清。请尽量用普通话，稍微慢一点，可以分两三句再说一遍。",
+		Expression: "温和、耐心，语速稍慢",
+		NeedsRetry: true,
+		Project:    conversation.projectSnapshot(),
+	}, nil
+}
+
+func (engine *retryInterviewEngine) Organize(_ context.Context, _ *interviewConversation, transcript string) (BiographyProject, error) {
+	select {
+	case engine.organizeCalls <- transcript:
+	default:
+	}
+	return newBiographyProject(), nil
+}
+
+func (*retryInterviewEngine) Resume(context.Context, *interviewConversation, string) error {
+	return nil
+}
+
+func TestVoiceSessionDoesNotOrganizeTranscriptWhenInterviewRequestsRetry(t *testing.T) {
+	server, err := NewServer(Config{HTTPAddr: ":0", Provider: ProviderMock, AllowedOrigins: []string{"127.0.0.1"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := &retryInterviewEngine{organizeCalls: make(chan string, 1)}
+	server.interview = engine
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	connection, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/v1/voice/session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.CloseNow()
+
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientSessionStart, SessionID: "voice-retry"})
+	assertServerMessage(t, ctx, connection, ServerSessionReady, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewProject, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientASRDebugText, Text: "字序不清楚的转写"})
+	assertServerMessage(t, ctx, connection, ServerASRPartial, "")
+	writeClientMessage(t, ctx, connection, ClientMessage{Type: ClientInputCommit})
+	assertServerMessage(t, ctx, connection, ServerASRFinal, "")
+	assertServerMessage(t, ctx, connection, ServerInterviewDelta, "我听到了，正在想接下来问什么。")
+	reply := readServerTextMessage(t, ctx, connection)
+	if reply.Type != ServerInterviewReply || !reply.NeedsRetry {
+		t.Fatalf("expected a retry reply, got %+v", reply)
+	}
+
+	select {
+	case transcript := <-engine.organizeCalls:
+		t.Fatalf("retry transcript must not reach the organizer: %q", transcript)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestChapterConfirmationRequiresExplicitVoiceReply(t *testing.T) {
+	project := sampleBiographyProject()
+	project.Chapters[0].Status = "confirm"
+	project.Chapters[0].StatusLabel = "待您确认"
+	project.Chapters[0].Progress = 88
+	project.PendingConfirmation = "这一段我整理成这样：第一次离开家去上海。这样对吗？"
+	project.PendingConfirmationChapterID = "shanghai"
+	conversation := &interviewConversation{Project: project}
+	server := &Server{}
+
+	message, handled := server.applyChapterConfirmation(conversation, "对")
+	if !handled || message == nil || message.Project == nil || message.Project.Chapters[0].Status != "completed" || message.Project.CompletedChapterCount != 1 || message.Project.PendingConfirmation != "" {
+		t.Fatalf("confirmation did not complete the chapter: handled=%t message=%+v", handled, message)
+	}
+
+	project = sampleBiographyProject()
+	project.Chapters[0].Status = "confirm"
+	project.PendingConfirmation = "这一段我整理成这样：第一次离开家去上海。这样对吗？"
+	project.PendingConfirmationChapterID = "shanghai"
+	conversation = &interviewConversation{Project: project}
+	message, handled = server.applyChapterConfirmation(conversation, "改一下")
+	if !handled || message == nil || message.Project == nil || message.Project.Chapters[0].Status != "collecting" || conversation.FocusedChapterID != "shanghai" {
+		t.Fatalf("revision did not reopen the chapter: handled=%t message=%+v focus=%q", handled, message, conversation.FocusedChapterID)
+	}
+}
+
 type orderedOrganizerEngine struct {
 	mu        sync.Mutex
 	started   []string
@@ -992,7 +1202,7 @@ func assertTextEvents(t *testing.T, ctx context.Context, connection *websocket.C
 
 func assertDoubaoTurnEvents(t *testing.T, ctx context.Context, connection *websocket.Conn, expectedAudio []byte) {
 	t.Helper()
-	pending := map[string]bool{ServerProjectUpdated: true, ServerTTSStarted: true, ServerTTSFinished: true}
+	pending := map[string]bool{ServerProjectUpdated: true, ServerChapterConfirmation: true, ServerTTSStarted: true, ServerTTSFinished: true}
 	audioReceived := false
 	for len(pending) > 0 || !audioReceived {
 		messageType, payload, err := connection.Read(ctx)
