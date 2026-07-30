@@ -167,17 +167,18 @@ type storedUser struct {
 }
 
 type storedRecording struct {
-	ID           string    `json:"id"`
-	ProjectID    string    `json:"projectID"`
-	ChapterID    string    `json:"chapterID"`
-	ChapterTitle string    `json:"chapterTitle"`
-	Transcript   string    `json:"transcript"`
-	DurationMS   int64     `json:"durationMs"`
-	Title        string    `json:"title"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	SizeBytes    int64     `json:"sizeBytes"`
-	ContentType  string    `json:"contentType"`
+	ID           string                   `json:"id"`
+	ProjectID    string                   `json:"projectID"`
+	ChapterID    string                   `json:"chapterID"`
+	ChapterTitle string                   `json:"chapterTitle"`
+	Transcript   string                   `json:"transcript"`
+	DurationMS   int64                    `json:"durationMs"`
+	Title        string                   `json:"title"`
+	CreatedAt    time.Time                `json:"createdAt"`
+	UpdatedAt    time.Time                `json:"updatedAt"`
+	SizeBytes    int64                    `json:"sizeBytes"`
+	ContentType  string                   `json:"contentType"`
+	Segments     []storedRecordingSegment `json:"segments,omitempty"`
 }
 
 type storedRecordingSegment struct {

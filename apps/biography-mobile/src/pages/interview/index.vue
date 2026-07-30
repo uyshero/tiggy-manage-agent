@@ -34,7 +34,7 @@ import {
   type RecordingSegment,
   type StoredRecording,
 } from "@/services/recordings";
-import { deleteRecordingSegmentBackup, uploadRecordingBackup } from "@/services/recording-backup";
+import { deleteRecordingSegmentBackup, downloadRecordingSegmentBackup, listRecordingBackups, uploadRecordingBackup } from "@/services/recording-backup";
 import { createVoiceAdapter, type VoiceAdapter, type VoiceEvent } from "@/services/voice";
 
 const state = ref({ ...initialInterviewState });
@@ -428,7 +428,18 @@ async function respondToChapterConfirmation(response: "对" | "补充" | "改一
 
 async function refreshRecordings() {
   try {
-    recordings.value = await listRecordings(project.value.id);
+    const localRecordings = await listRecordings(project.value.id);
+    let cloudRecordings: StoredRecording[] = [];
+    try {
+      cloudRecordings = await listRecordingBackups(project.value.id);
+    } catch {
+      // Local copies remain available while the cloud record list reconnects.
+    }
+    const localByID = new Map(localRecordings.map((recording) => [recording.id, recording]));
+    recordings.value = [
+      ...localRecordings,
+      ...cloudRecordings.filter((recording) => !localByID.has(recording.id)),
+    ].sort((left, right) => right.createdAt - left.createdAt);
     recordings.value
       .filter((recording) => recording.backupStatus !== "synced")
       .forEach((recording) => void queueRecordingBackup(recording));
@@ -559,7 +570,15 @@ async function toggleRecordingPlayback(recording: StoredRecording) {
   stopRecordingPlayback();
   const nativeSources = recordingFilePaths(recording);
   const source = nativeSources.length > 0 ? "" : await recordingURL(recording);
-  recordingPlaybackQueue = nativeSources.length > 0 ? nativeSources : source ? [source] : [];
+  if (nativeSources.length > 0) {
+    recordingPlaybackQueue = nativeSources;
+  } else if (source) {
+    recordingPlaybackQueue = [source];
+  } else {
+    recordingPlaybackQueue = (await Promise.all(
+      recordingSegments(recording).map(async (segment) => segmentPlaybackSource(recording, segment).catch(() => "")),
+    )).filter(Boolean);
+  }
   if (recordingPlaybackQueue.length === 0) return uni.showToast({ title: "没有找到录音文件", icon: "none" });
   playingRecordingID.value = recording.id;
   playNextRecordingSource();
@@ -588,24 +607,24 @@ function interviewSessionMeta(recording: StoredRecording): string {
   return `${formatRecordingDuration(recording.durationMs)} · ${segments.length} 段讲述 · ${recordingBackupLabel(recording)}`;
 }
 
-async function segmentPlaybackSource(segment: RecordingSegment): Promise<string> {
+async function segmentPlaybackSource(recording: StoredRecording, segment: RecordingSegment): Promise<string> {
   if (segment.filePath) return segment.filePath;
-  if (!segment.audio) return "";
-  const key = `segment:${segment.id}`;
+  const key = `segment:${recording.id}:${segment.id}`;
   const existing = recordingURLs.get(key);
   if (existing) return existing;
-  const created = URL.createObjectURL(segment.audio);
+  const audio = segment.audio || await downloadRecordingSegmentBackup(recording.id, segment.id);
+  const created = URL.createObjectURL(audio);
   recordingURLs.set(key, created);
   return created;
 }
 
-async function toggleSegmentPlayback(segment: RecordingSegment) {
+async function toggleSegmentPlayback(recording: StoredRecording, segment: RecordingSegment) {
   if (playingSegmentID.value === segment.id) {
     stopRecordingPlayback();
     return;
   }
   stopRecordingPlayback();
-  const source = await segmentPlaybackSource(segment);
+  const source = await segmentPlaybackSource(recording, segment);
   if (!source) return uni.showToast({ title: "没有找到这段讲述的录音", icon: "none" });
   playingSegmentID.value = segment.id;
   recordingPlaybackQueue = [source];
@@ -1364,7 +1383,7 @@ onBeforeUnmount(() => {
           </view>
           <view v-if="expandedRecordingID === recording.id" class="recording-segments">
             <view v-for="(segment, index) in recordingSegments(recording)" :key="segment.id" class="recording-segment">
-              <button class="segment-play" :aria-label="playingSegmentID === segment.id ? `暂停第${index + 1}段讲述` : `播放第${index + 1}段讲述`" @click="toggleSegmentPlayback(segment)">
+              <button class="segment-play" :aria-label="playingSegmentID === segment.id ? `暂停第${index + 1}段讲述` : `播放第${index + 1}段讲述`" @click="toggleSegmentPlayback(recording, segment)">
                 {{ playingSegmentID === segment.id ? "Ⅱ" : "▶" }}
               </button>
               <view class="segment-copy">

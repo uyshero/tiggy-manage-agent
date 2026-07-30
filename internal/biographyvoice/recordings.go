@@ -49,6 +49,16 @@ func (server *Server) recordings(w http.ResponseWriter, r *http.Request) {
 		server.recordingError(w, "读取录音记录失败", err)
 		return
 	}
+	if segmentStore, ok := server.store.(recordingSegmentStore); ok {
+		for index := range recordings {
+			segments, err := segmentStore.listRecordingSegments(user.ID, recordings[index].ID)
+			if err != nil {
+				server.recordingError(w, "读取分段录音记录失败", err)
+				return
+			}
+			recordings[index].Segments = segments
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"recordings": recordings})
 }
 
