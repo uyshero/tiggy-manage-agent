@@ -8,7 +8,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [architecture.md](./architecture.md) | Agent Core、Runner、Worker、Provider、LLM 与多 Agent 边界 |
-| [repository-split.md](./repository-split.md) | Platform、Worker、Console、Knowledge、Biography 和 SDK 的拆分边界与迁移顺序 |
+| [repository-split.md](./repository-split.md) | Platform、Worker、Console、Knowledge、Biography、SDK 和 CLI 的拆分边界与迁移顺序 |
 | [tools.md](./tools.md) | 工具契约、权限、文件能力、进程插件和 Computer Use |
 | [mcp.md](./mcp.md) | MCP 注册、配置、传输、安全和兼容性 |
 | [mcp-gitlab.md](./mcp-gitlab.md) | GitLab Docker MCP 的只读模板、Token、安全边界和验证 |

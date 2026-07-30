@@ -1,3 +1,0 @@
-interface:
-  display_name: "自传事实核验"
-  short_description: "温和核对时间地点人物关系，准确区分事实推测与模糊记忆"

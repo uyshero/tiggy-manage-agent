@@ -138,59 +138,6 @@
       ]
     },
     {
-      "clientId": "tma-biography-mobile",
-      "name": "TMA Biography Mobile",
-      "baseUrl": "https://story.tiggy.cloud/",
-      "enabled": true,
-      "protocol": "openid-connect",
-      "publicClient": true,
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
-      "frontchannelLogout": true,
-      "redirectUris": [
-        "https://story.tiggy.cloud/*",
-        "http://127.0.0.1:5175/*",
-        "http://localhost:5175/*"
-      ],
-      "webOrigins": [
-        "https://story.tiggy.cloud",
-        "http://127.0.0.1:5175",
-        "http://localhost:5175"
-      ],
-      "attributes": {
-        "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "+"
-      },
-      "protocolMappers": [
-        {
-          "name": "groups",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-group-membership-mapper",
-          "consentRequired": false,
-          "config": {
-            "full.path": "false",
-            "access.token.claim": "true",
-            "id.token.claim": "true",
-            "userinfo.token.claim": "true",
-            "claim.name": "groups",
-            "jsonType.label": "String"
-          }
-        },
-        {
-          "name": "tma-api-audience",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-audience-mapper",
-          "consentRequired": false,
-          "config": {
-            "included.client.audience": "tma-api",
-            "access.token.claim": "true",
-            "id.token.claim": "false"
-          }
-        }
-      ]
-    },
-    {
       "clientId": "tma-cli",
       "name": "TMA CLI",
       "enabled": true,

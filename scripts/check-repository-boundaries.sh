@@ -1,18 +1,27 @@
 #!/bin/sh
 set -eu
 
-# Transitional guard: Biography entrypoints must use the public SDK/API rather
-# than importing Platform implementation packages. The internal biographyvoice
-# package is intentionally not checked yet because its storage adapter is part
-# of the planned extraction work.
-forbidden='internal/httpapi|internal/managedagents|internal/runner|internal/agentruntime|internal/agentschedule'
-paths='cmd/tma-biography-voice-gateway cmd/tma-biography-agent-bootstrap apps/biography-mobile'
+# Biography is an independent project. Keep these legacy source and migration
+# paths out of Platform so the two projects cannot silently diverge.
+legacy_paths='apps/biography-mobile
+cmd/tma-biography-agent-bootstrap
+cmd/tma-biography-voice-gateway
+internal/biographyvoice
+skills/conduct-biography-interview
+skills/structure-biography-chapters
+skills/verify-biography-facts
+skills/embed.go
+docs/biography-voice-gateway.md
+docs/biography-voice-production.md
+scripts/keycloak_biography_client.sh
+sql/migrations/000103_biography_voice_persistence.sql
+sql/migrations/000104_biography_recording_segments.sql'
 
-matches="$(rg -n "$forbidden" $paths -g '*.go' -g '*.js' -g '*.jsx' -g '*.ts' -g '*.tsx' -g '*.vue' 2>/dev/null || true)"
-if [ -n "$matches" ]; then
-  echo "Biography boundary violation: entrypoints import Platform implementation packages" >&2
-  printf '%s\n' "$matches" >&2
-  exit 1
-fi
+printf '%s\n' "$legacy_paths" | while IFS= read -r legacy_path; do
+  if [ -e "$legacy_path" ]; then
+    echo "Biography boundary violation: legacy path still exists: $legacy_path" >&2
+    exit 1
+  fi
+done
 
 echo "Repository boundary check passed"
