@@ -33,7 +33,7 @@ H5 会申请浏览器麦克风权限，将输入连续转换为 16 kHz PCM16，�
 当 TMA 使用 Keycloak 时，自传 App 使用独立的 `tma-biography-mobile` public client，而不是
 复用 `tma-web`。它强制 Authorization Code + PKCE，并把 `tma-api` 写入 access token 的
 audience，网关和 TMA 主服务因此可以复用同一个 issuer/JWKS 校验边界。H5 本地回跳地址为
-`http://127.0.0.1:5175/`；当前生产 H5 回跳地址为 `https://store.tiggy.cloud/*`，正式 App
+`http://127.0.0.1:5175/`；当前生产 H5 回跳地址为 `https://story.tiggy.cloud/*`，正式 App
 应在 IdP 中登记发布时的自定义 scheme 或 universal link，不要只保留开发地址。
 
 ## 配置

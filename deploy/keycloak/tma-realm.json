@@ -140,7 +140,7 @@
     {
       "clientId": "tma-biography-mobile",
       "name": "TMA Biography Mobile",
-      "baseUrl": "https://store.tiggy.cloud/",
+      "baseUrl": "https://story.tiggy.cloud/",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": true,
@@ -149,12 +149,12 @@
       "serviceAccountsEnabled": false,
       "frontchannelLogout": true,
       "redirectUris": [
-        "https://store.tiggy.cloud/*",
+        "https://story.tiggy.cloud/*",
         "http://127.0.0.1:5175/*",
         "http://localhost:5175/*"
       ],
       "webOrigins": [
-        "https://store.tiggy.cloud",
+        "https://story.tiggy.cloud",
         "http://127.0.0.1:5175",
         "http://localhost:5175"
       ],

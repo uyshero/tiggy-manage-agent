@@ -5,8 +5,8 @@ ACTION="${1:-verify}"
 REALM="${TMA_KEYCLOAK_REALM:-tma}"
 REALM_FILE="${TMA_KEYCLOAK_REALM_FILE:-deploy/keycloak/tma-realm.json}"
 CLIENT_ID="${TMA_KEYCLOAK_BIOGRAPHY_CLIENT_ID:-tma-biography-mobile}"
-EXPECTED_REDIRECT_URIS='["https://store.tiggy.cloud/*","http://127.0.0.1:5175/*","http://localhost:5175/*"]'
-EXPECTED_WEB_ORIGINS='["https://store.tiggy.cloud","http://127.0.0.1:5175","http://localhost:5175"]'
+EXPECTED_REDIRECT_URIS='["https://story.tiggy.cloud/*","http://127.0.0.1:5175/*","http://localhost:5175/*"]'
+EXPECTED_WEB_ORIGINS='["https://story.tiggy.cloud","http://127.0.0.1:5175","http://localhost:5175"]'
 
 case "$ACTION" in
   apply|verify) ;;
