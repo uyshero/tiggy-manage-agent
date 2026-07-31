@@ -64,10 +64,7 @@ make run
 
 ## 项目结构
 
-仓库拆分路线和边界见[仓库拆分方案](./docs/repository-split.md)。当前仍是 monorepo，目标是四个
-仓库：`tma-platform`、`tma-knowledge`、`tma-biography` 和
-`tma-r-survival-workbench`。Platform 是多发布单元仓库，包含 Server、Model/Retrieval/Worker
-Runtime、Core SDK、CLI、对话工作台、Console、Inspector 和 Space。
+仓库拆分路线和边界见[仓库拆分方案](./docs/repository-split.md)。拆分后，本仓库承担 Platform 职责，仍是多发布单元仓库，包含 Server、Model/Retrieval/Worker Runtime、Core SDK、CLI、对话工作台、Console、Inspector 和 Space。独立领域应用已拆到 `tma-knowledge`、`tma-biography` 和 `tma-r-survival-workbench`。
 
 ```text
 cmd/tma-server/          HTTP Server 入口
