@@ -117,15 +117,6 @@ const (
 	CreateAgentScheduleRequestSessionModeNewSession      CreateAgentScheduleRequestSessionMode = "new_session"
 )
 
-// Defines values for CreateKnowledgeShareRequestExpiresIn.
-const (
-	N1d       CreateKnowledgeShareRequestExpiresIn = "1d"
-	N1m       CreateKnowledgeShareRequestExpiresIn = "1m"
-	N1y       CreateKnowledgeShareRequestExpiresIn = "1y"
-	N7d       CreateKnowledgeShareRequestExpiresIn = "7d"
-	Permanent CreateKnowledgeShareRequestExpiresIn = "permanent"
-)
-
 // Defines values for CreateMarketplacePolicyRequestScopeType.
 const (
 	CreateMarketplacePolicyRequestScopeTypeOrganization CreateMarketplacePolicyRequestScopeType = "organization"
@@ -288,25 +279,6 @@ const (
 	InterventionStatusSkipped  InterventionStatus = "skipped"
 )
 
-// Defines values for KnowledgeAnswerSourceType.
-const (
-	Knowledge KnowledgeAnswerSourceType = "knowledge"
-	Web       KnowledgeAnswerSourceType = "web"
-)
-
-// Defines values for KnowledgeDocumentStatus.
-const (
-	KnowledgeDocumentStatusFailed     KnowledgeDocumentStatus = "failed"
-	KnowledgeDocumentStatusProcessing KnowledgeDocumentStatus = "processing"
-	KnowledgeDocumentStatusReady      KnowledgeDocumentStatus = "ready"
-)
-
-// Defines values for KnowledgeServiceStatus.
-const (
-	KnowledgeServiceStatusActive   KnowledgeServiceStatus = "active"
-	KnowledgeServiceStatusDisabled KnowledgeServiceStatus = "disabled"
-)
-
 // Defines values for LLMDiagnosticResultErrorType.
 const (
 	Authentication    LLMDiagnosticResultErrorType = "authentication"
@@ -332,8 +304,10 @@ const (
 	LLMModelCapabilityTypeEmbedding       LLMModelCapabilityType = "embedding"
 	LLMModelCapabilityTypeImageGeneration LLMModelCapabilityType = "image_generation"
 	LLMModelCapabilityTypeReranker        LLMModelCapabilityType = "reranker"
+	LLMModelCapabilityTypeSpeechToText    LLMModelCapabilityType = "speech_to_text"
 	LLMModelCapabilityTypeText            LLMModelCapabilityType = "text"
 	LLMModelCapabilityTypeTextImage       LLMModelCapabilityType = "text_image"
+	LLMModelCapabilityTypeTextToSpeech    LLMModelCapabilityType = "text_to_speech"
 	LLMModelCapabilityTypeVideoGeneration LLMModelCapabilityType = "video_generation"
 )
 
@@ -478,6 +452,29 @@ const (
 	MarketplaceSourceProviderGithub   MarketplaceSourceProvider = "github"
 )
 
+// Defines values for ModelInvocationCapability.
+const (
+	ModelInvocationCapabilityEmbedding    ModelInvocationCapability = "embedding"
+	ModelInvocationCapabilityGenerate     ModelInvocationCapability = "generate"
+	ModelInvocationCapabilityRerank       ModelInvocationCapability = "rerank"
+	ModelInvocationCapabilitySpeechToText ModelInvocationCapability = "speech_to_text"
+	ModelInvocationCapabilityTextToSpeech ModelInvocationCapability = "text_to_speech"
+)
+
+// Defines values for ModelInvocationStatus.
+const (
+	ModelInvocationStatusCanceled  ModelInvocationStatus = "canceled"
+	ModelInvocationStatusCompleted ModelInvocationStatus = "completed"
+	ModelInvocationStatusFailed    ModelInvocationStatus = "failed"
+)
+
+// Defines values for ModelMessageRole.
+const (
+	ModelMessageRoleAssistant ModelMessageRole = "assistant"
+	ModelMessageRoleSystem    ModelMessageRole = "system"
+	ModelMessageRoleUser      ModelMessageRole = "user"
+)
+
 // Defines values for ObjectCleanupJobStatus.
 const (
 	ObjectCleanupJobStatusBlocked    ObjectCleanupJobStatus = "blocked"
@@ -538,30 +535,39 @@ const (
 	PermissionRuleToolDefaultWriteFile PermissionRuleTool = "default_write_file"
 )
 
+// Defines values for PlatformRoleAssignmentRole.
+const (
+	PlatformAdmin PlatformRoleAssignmentRole = "platform_admin"
+)
+
 // Defines values for PrincipalAuthType.
 const (
-	Disabled PrincipalAuthType = "disabled"
-	Gateway  PrincipalAuthType = "gateway"
-	Jwt      PrincipalAuthType = "jwt"
-	Oidc     PrincipalAuthType = "oidc"
+	Delegated         PrincipalAuthType = "delegated"
+	Disabled          PrincipalAuthType = "disabled"
+	Gateway           PrincipalAuthType = "gateway"
+	Jwt               PrincipalAuthType = "jwt"
+	Oidc              PrincipalAuthType = "oidc"
+	ServiceCredential PrincipalAuthType = "service_credential"
 )
 
 // Defines values for PrincipalRoles.
 const (
-	Admin    PrincipalRoles = "admin"
-	Member   PrincipalRoles = "member"
-	Operator PrincipalRoles = "operator"
-	Viewer   PrincipalRoles = "viewer"
+	PrincipalRolesAdmin    PrincipalRoles = "admin"
+	PrincipalRolesMember   PrincipalRoles = "member"
+	PrincipalRolesOperator PrincipalRoles = "operator"
+	PrincipalRolesViewer   PrincipalRoles = "viewer"
 )
 
 // Defines values for PutLLMModelRequestCapabilityType.
 const (
-	PutLLMModelRequestCapabilityTypeEmbedding       PutLLMModelRequestCapabilityType = "embedding"
-	PutLLMModelRequestCapabilityTypeImageGeneration PutLLMModelRequestCapabilityType = "image_generation"
-	PutLLMModelRequestCapabilityTypeReranker        PutLLMModelRequestCapabilityType = "reranker"
-	PutLLMModelRequestCapabilityTypeText            PutLLMModelRequestCapabilityType = "text"
-	PutLLMModelRequestCapabilityTypeTextImage       PutLLMModelRequestCapabilityType = "text_image"
-	PutLLMModelRequestCapabilityTypeVideoGeneration PutLLMModelRequestCapabilityType = "video_generation"
+	Embedding       PutLLMModelRequestCapabilityType = "embedding"
+	ImageGeneration PutLLMModelRequestCapabilityType = "image_generation"
+	Reranker        PutLLMModelRequestCapabilityType = "reranker"
+	SpeechToText    PutLLMModelRequestCapabilityType = "speech_to_text"
+	Text            PutLLMModelRequestCapabilityType = "text"
+	TextImage       PutLLMModelRequestCapabilityType = "text_image"
+	TextToSpeech    PutLLMModelRequestCapabilityType = "text_to_speech"
+	VideoGeneration PutLLMModelRequestCapabilityType = "video_generation"
 )
 
 // Defines values for RenderedSkillsContextFormat.
@@ -581,6 +587,21 @@ const (
 	ResolvedSkillStatusFailed   ResolvedSkillStatus = "failed"
 	ResolvedSkillStatusResolved ResolvedSkillStatus = "resolved"
 	ResolvedSkillStatusSkipped  ResolvedSkillStatus = "skipped"
+)
+
+// Defines values for RetrievalDocumentStatus.
+const (
+	RetrievalDocumentStatusFailed     RetrievalDocumentStatus = "failed"
+	RetrievalDocumentStatusProcessing RetrievalDocumentStatus = "processing"
+	RetrievalDocumentStatusReady      RetrievalDocumentStatus = "ready"
+)
+
+// Defines values for RetrievalIngestionJobStatus.
+const (
+	RetrievalIngestionJobStatusFailed     RetrievalIngestionJobStatus = "failed"
+	RetrievalIngestionJobStatusProcessing RetrievalIngestionJobStatus = "processing"
+	RetrievalIngestionJobStatusQueued     RetrievalIngestionJobStatus = "queued"
+	RetrievalIngestionJobStatusReady      RetrievalIngestionJobStatus = "ready"
 )
 
 // Defines values for RunStatus.
@@ -725,6 +746,31 @@ const (
 	ToolResult TaskEvidenceRefKind = "tool_result"
 )
 
+// Defines values for TokenExchangeRequestGrantType.
+const (
+	UrnIetfParamsOauthGrantTypeTokenExchange TokenExchangeRequestGrantType = "urn:ietf:params:oauth:grant-type:token-exchange"
+)
+
+// Defines values for TokenExchangeRequestRequestedTokenType.
+const (
+	TokenExchangeRequestRequestedTokenTypeUrnIetfParamsOauthTokenTypeAccessToken TokenExchangeRequestRequestedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+)
+
+// Defines values for TokenExchangeRequestSubjectTokenType.
+const (
+	TokenExchangeRequestSubjectTokenTypeUrnIetfParamsOauthTokenTypeAccessToken TokenExchangeRequestSubjectTokenType = "urn:ietf:params:oauth:token-type:access_token"
+)
+
+// Defines values for TokenExchangeResponseIssuedTokenType.
+const (
+	UrnIetfParamsOauthTokenTypeAccessToken TokenExchangeResponseIssuedTokenType = "urn:ietf:params:oauth:token-type:access_token"
+)
+
+// Defines values for TokenExchangeResponseTokenType.
+const (
+	Bearer TokenExchangeResponseTokenType = "Bearer"
+)
+
 // Defines values for ToolPermissionAuditRecordApprovalPolicy.
 const (
 	ToolPermissionAuditRecordApprovalPolicyAlways      ToolPermissionAuditRecordApprovalPolicy = "always"
@@ -734,11 +780,11 @@ const (
 
 // Defines values for ToolPermissionAuditRecordApprovalStatus.
 const (
-	Approved     ToolPermissionAuditRecordApprovalStatus = "approved"
-	AutoApproved ToolPermissionAuditRecordApprovalStatus = "auto_approved"
-	NotRequired  ToolPermissionAuditRecordApprovalStatus = "not_required"
-	Pending      ToolPermissionAuditRecordApprovalStatus = "pending"
-	Rejected     ToolPermissionAuditRecordApprovalStatus = "rejected"
+	ToolPermissionAuditRecordApprovalStatusApproved     ToolPermissionAuditRecordApprovalStatus = "approved"
+	ToolPermissionAuditRecordApprovalStatusAutoApproved ToolPermissionAuditRecordApprovalStatus = "auto_approved"
+	ToolPermissionAuditRecordApprovalStatusNotRequired  ToolPermissionAuditRecordApprovalStatus = "not_required"
+	ToolPermissionAuditRecordApprovalStatusPending      ToolPermissionAuditRecordApprovalStatus = "pending"
+	ToolPermissionAuditRecordApprovalStatusRejected     ToolPermissionAuditRecordApprovalStatus = "rejected"
 )
 
 // Defines values for ToolPermissionAuditRecordDecision.
@@ -791,32 +837,34 @@ const (
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyPinned       UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "pinned"
 )
 
-// Defines values for WorkbenchProjectRepositoryProvider.
+// Defines values for UpsertWorkspaceMembershipRequestRole.
 const (
-	Gitlab WorkbenchProjectRepositoryProvider = "gitlab"
+	UpsertWorkspaceMembershipRequestRoleAdmin    UpsertWorkspaceMembershipRequestRole = "admin"
+	UpsertWorkspaceMembershipRequestRoleMember   UpsertWorkspaceMembershipRequestRole = "member"
+	UpsertWorkspaceMembershipRequestRoleOperator UpsertWorkspaceMembershipRequestRole = "operator"
+	UpsertWorkspaceMembershipRequestRoleViewer   UpsertWorkspaceMembershipRequestRole = "viewer"
 )
 
-// Defines values for WorkbenchProjectRuntimeStatus.
+// Defines values for UpsertWorkspaceMembershipRequestStatus.
 const (
-	WorkbenchProjectRuntimeStatusError        WorkbenchProjectRuntimeStatus = "error"
-	WorkbenchProjectRuntimeStatusRunning      WorkbenchProjectRuntimeStatus = "running"
-	WorkbenchProjectRuntimeStatusStarting     WorkbenchProjectRuntimeStatus = "starting"
-	WorkbenchProjectRuntimeStatusStopped      WorkbenchProjectRuntimeStatus = "stopped"
-	WorkbenchProjectRuntimeStatusUnconfigured WorkbenchProjectRuntimeStatus = "unconfigured"
+	UpsertWorkspaceMembershipRequestStatusActive    UpsertWorkspaceMembershipRequestStatus = "active"
+	UpsertWorkspaceMembershipRequestStatusInvited   UpsertWorkspaceMembershipRequestStatus = "invited"
+	UpsertWorkspaceMembershipRequestStatusSuspended UpsertWorkspaceMembershipRequestStatus = "suspended"
 )
 
-// Defines values for WorkbenchProjectSyncStatus.
+// Defines values for WorkspaceMembershipRole.
 const (
-	WorkbenchProjectSyncStatusError   WorkbenchProjectSyncStatus = "error"
-	WorkbenchProjectSyncStatusLocal   WorkbenchProjectSyncStatus = "local"
-	WorkbenchProjectSyncStatusSynced  WorkbenchProjectSyncStatus = "synced"
-	WorkbenchProjectSyncStatusSyncing WorkbenchProjectSyncStatus = "syncing"
+	Admin    WorkspaceMembershipRole = "admin"
+	Member   WorkspaceMembershipRole = "member"
+	Operator WorkspaceMembershipRole = "operator"
+	Viewer   WorkspaceMembershipRole = "viewer"
 )
 
-// Defines values for WorkbenchProjectFileKind.
+// Defines values for WorkspaceMembershipStatus.
 const (
-	File   WorkbenchProjectFileKind = "file"
-	Folder WorkbenchProjectFileKind = "folder"
+	WorkspaceMembershipStatusActive    WorkspaceMembershipStatus = "active"
+	WorkspaceMembershipStatusInvited   WorkspaceMembershipStatus = "invited"
+	WorkspaceMembershipStatusSuspended WorkspaceMembershipStatus = "suspended"
 )
 
 // Defines values for WorkspacePermissionRuleArgument.
@@ -874,6 +922,14 @@ type AchievementLibraryReference struct {
 	Item          AchievementLibraryItem `json:"item"`
 	ObjectRef     ObjectRef              `json:"object_ref"`
 	WorkspacePath string                 `json:"workspace_path"`
+}
+
+// AdministrationContext defines model for AdministrationContext.
+type AdministrationContext struct {
+	Authenticated  bool      `json:"authenticated"`
+	PlatformAdmin  bool      `json:"platform_admin"`
+	Principal      Principal `json:"principal"`
+	WorkspaceAdmin bool      `json:"workspace_admin"`
 }
 
 // Agent defines model for Agent.
@@ -1363,6 +1419,9 @@ type CompletionGateRuntimeSettings struct {
 	MaxRetries *int32 `json:"max_retries,omitempty"`
 }
 
+// ConsoleContext defines model for ConsoleContext.
+type ConsoleContext = AdministrationContext
+
 // CreateAchievementLibraryItemRequest defines model for CreateAchievementLibraryItemRequest.
 type CreateAchievementLibraryItemRequest struct {
 	Description *string   `json:"description,omitempty"`
@@ -1474,30 +1533,6 @@ type CreateEvaluationRubricRequest struct {
 	WorkspaceId *string               `json:"workspace_id,omitempty"`
 }
 
-// CreateKnowledgeBaseRequest defines model for CreateKnowledgeBaseRequest.
-type CreateKnowledgeBaseRequest struct {
-	Description *string `json:"description,omitempty"`
-	Name        string  `json:"name"`
-}
-
-// CreateKnowledgeServiceRequest defines model for CreateKnowledgeServiceRequest.
-type CreateKnowledgeServiceRequest struct {
-	AllowWebSearch   *bool     `json:"allow_web_search,omitempty"`
-	KnowledgeBaseIds *[]string `json:"knowledge_base_ids,omitempty"`
-	Name             string    `json:"name"`
-	Scenario         string    `json:"scenario"`
-	SensitiveTerms   *[]string `json:"sensitive_terms,omitempty"`
-	SystemPrompt     *string   `json:"system_prompt,omitempty"`
-}
-
-// CreateKnowledgeShareRequest defines model for CreateKnowledgeShareRequest.
-type CreateKnowledgeShareRequest struct {
-	ExpiresIn CreateKnowledgeShareRequestExpiresIn `json:"expires_in"`
-}
-
-// CreateKnowledgeShareRequestExpiresIn defines model for CreateKnowledgeShareRequest.ExpiresIn.
-type CreateKnowledgeShareRequestExpiresIn string
-
 // CreateLLMProviderRequest defines model for CreateLLMProviderRequest.
 type CreateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -1551,6 +1586,12 @@ type CreateObjectRefRequest struct {
 	StorageProvider *string                 `json:"storage_provider,omitempty"`
 	Visibility      *string                 `json:"visibility,omitempty"`
 	WorkspaceId     *string                 `json:"workspace_id,omitempty"`
+}
+
+// CreateRetrievalCollectionRequest defines model for CreateRetrievalCollectionRequest.
+type CreateRetrievalCollectionRequest struct {
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
 }
 
 // CreateRunEvaluationRequest defines model for CreateRunEvaluationRequest.
@@ -1626,15 +1667,9 @@ type CreateSkillVersionRequest struct {
 	SourceUrl      *string        `json:"source_url,omitempty"`
 }
 
-// CreateWorkbenchProjectRequest defines model for CreateWorkbenchProjectRequest.
-type CreateWorkbenchProjectRequest struct {
-	Name           string  `json:"name"`
-	NotebookCode   *string `json:"notebook_code,omitempty"`
-	NotebookUrl    *string `json:"notebook_url,omitempty"`
-	Objective      *string `json:"objective,omitempty"`
-	PluginId       string  `json:"plugin_id"`
-	RepositoryPath string  `json:"repository_path"`
-	WorkspaceId    *string `json:"workspace_id,omitempty"`
+// CreateTenantWorkspaceRequest defines model for CreateTenantWorkspaceRequest.
+type CreateTenantWorkspaceRequest struct {
+	Name string `json:"name"`
 }
 
 // DynamicJSONValue Extension JSON whose shape is selected by the surrounding event, schema, provider, or runtime contract.
@@ -2001,130 +2036,6 @@ type InterventionList struct {
 	Interventions []Intervention `json:"interventions"`
 }
 
-// KnowledgeAnswer defines model for KnowledgeAnswer.
-type KnowledgeAnswer struct {
-	Answer        string                  `json:"answer"`
-	RefusalReason *string                 `json:"refusal_reason,omitempty"`
-	Refused       bool                    `json:"refused"`
-	Service       *KnowledgeService       `json:"service,omitempty"`
-	Sources       []KnowledgeAnswerSource `json:"sources"`
-}
-
-// KnowledgeAnswerSource defines model for KnowledgeAnswerSource.
-type KnowledgeAnswerSource struct {
-	Content    *string                   `json:"content,omitempty"`
-	DocumentId *string                   `json:"document_id,omitempty"`
-	Score      *float64                  `json:"score,omitempty"`
-	Title      *string                   `json:"title,omitempty"`
-	Type       KnowledgeAnswerSourceType `json:"type"`
-	Url        *string                   `json:"url,omitempty"`
-}
-
-// KnowledgeAnswerSourceType defines model for KnowledgeAnswerSource.Type.
-type KnowledgeAnswerSourceType string
-
-// KnowledgeAskRequest defines model for KnowledgeAskRequest.
-type KnowledgeAskRequest struct {
-	Question string `json:"question"`
-}
-
-// KnowledgeBase defines model for KnowledgeBase.
-type KnowledgeBase struct {
-	CreatedAt     time.Time `json:"created_at"`
-	CreatedBy     string    `json:"created_by"`
-	Description   string    `json:"description"`
-	DocumentCount *int32    `json:"document_count,omitempty"`
-	Id            string    `json:"id"`
-	Name          string    `json:"name"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	WorkspaceId   string    `json:"workspace_id"`
-}
-
-// KnowledgeBaseList defines model for KnowledgeBaseList.
-type KnowledgeBaseList struct {
-	KnowledgeBases []KnowledgeBase `json:"knowledge_bases"`
-}
-
-// KnowledgeDocument defines model for KnowledgeDocument.
-type KnowledgeDocument struct {
-	ChunkCount      int32                   `json:"chunk_count"`
-	ContentType     string                  `json:"content_type"`
-	CreatedAt       time.Time               `json:"created_at"`
-	CreatedBy       string                  `json:"created_by"`
-	ErrorMessage    *string                 `json:"error_message,omitempty"`
-	Id              string                  `json:"id"`
-	KnowledgeBaseId string                  `json:"knowledge_base_id"`
-	Name            string                  `json:"name"`
-	ObjectRefId     string                  `json:"object_ref_id"`
-	SizeBytes       int64                   `json:"size_bytes"`
-	Status          KnowledgeDocumentStatus `json:"status"`
-	UpdatedAt       time.Time               `json:"updated_at"`
-	WorkspaceId     string                  `json:"workspace_id"`
-}
-
-// KnowledgeDocumentStatus defines model for KnowledgeDocument.Status.
-type KnowledgeDocumentStatus string
-
-// KnowledgeDocumentList defines model for KnowledgeDocumentList.
-type KnowledgeDocumentList struct {
-	Documents []KnowledgeDocument `json:"documents"`
-}
-
-// KnowledgeDocumentUploadResult defines model for KnowledgeDocumentUploadResult.
-type KnowledgeDocumentUploadResult struct {
-	Document  KnowledgeDocument `json:"document"`
-	ObjectRef ObjectRef         `json:"object_ref"`
-}
-
-// KnowledgeService defines model for KnowledgeService.
-type KnowledgeService struct {
-	AllowWebSearch   bool                   `json:"allow_web_search"`
-	CreatedAt        time.Time              `json:"created_at"`
-	CreatedBy        string                 `json:"created_by"`
-	Id               string                 `json:"id"`
-	KnowledgeBaseIds []string               `json:"knowledge_base_ids"`
-	Name             string                 `json:"name"`
-	Scenario         string                 `json:"scenario"`
-	SensitiveTerms   []string               `json:"sensitive_terms"`
-	Status           KnowledgeServiceStatus `json:"status"`
-	SystemPrompt     *string                `json:"system_prompt,omitempty"`
-	UpdatedAt        time.Time              `json:"updated_at"`
-	WorkspaceId      string                 `json:"workspace_id"`
-}
-
-// KnowledgeServiceStatus defines model for KnowledgeService.Status.
-type KnowledgeServiceStatus string
-
-// KnowledgeServiceList defines model for KnowledgeServiceList.
-type KnowledgeServiceList struct {
-	Services []KnowledgeService `json:"services"`
-}
-
-// KnowledgeShare defines model for KnowledgeShare.
-type KnowledgeShare struct {
-	CreatedAt   time.Time  `json:"created_at"`
-	CreatedBy   string     `json:"created_by"`
-	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Id          string     `json:"id"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	RevokedAt   *time.Time `json:"revoked_at,omitempty"`
-	ServiceId   string     `json:"service_id"`
-	ShareUrl    *string    `json:"share_url,omitempty"`
-	WorkspaceId *string    `json:"workspace_id,omitempty"`
-}
-
-// KnowledgeShareCreateResult defines model for KnowledgeShareCreateResult.
-type KnowledgeShareCreateResult struct {
-	Share    KnowledgeShare `json:"share"`
-	ShareUrl *string        `json:"share_url,omitempty"`
-	Token    *string        `json:"token,omitempty"`
-}
-
-// KnowledgeShareList defines model for KnowledgeShareList.
-type KnowledgeShareList struct {
-	Shares []KnowledgeShare `json:"shares"`
-}
-
 // LLMDiagnosticResult defines model for LLMDiagnosticResult.
 type LLMDiagnosticResult struct {
 	Authenticated  bool                          `json:"authenticated"`
@@ -2166,12 +2077,17 @@ type LLMModelCapabilityType string
 
 // LLMModelCapabilities defines model for LLMModelCapabilities.
 type LLMModelCapabilities struct {
+	AudioFormat    *string                             `json:"audio_format,omitempty"`
+	DefaultVoice   *string                             `json:"default_voice,omitempty"`
 	Dimensions     *int32                              `json:"dimensions,omitempty"`
 	DistanceMetric *LLMModelCapabilitiesDistanceMetric `json:"distance_metric,omitempty"`
 	MaxBatchSize   *int32                              `json:"max_batch_size,omitempty"`
 	MaxCandidates  *int32                              `json:"max_candidates,omitempty"`
 	Normalized     *bool                               `json:"normalized,omitempty"`
 	Protocol       *string                             `json:"protocol,omitempty"`
+	ResourceId     *string                             `json:"resource_id,omitempty"`
+	SampleRateHz   *int32                              `json:"sample_rate_hz,omitempty"`
+	UpstreamModel  *string                             `json:"upstream_model,omitempty"`
 }
 
 // LLMModelCapabilitiesDistanceMetric defines model for LLMModelCapabilities.DistanceMetric.
@@ -2939,6 +2855,151 @@ type MarketplaceTransitionRequest struct {
 	WorkspaceId *string `json:"workspace_id,omitempty"`
 }
 
+// ModelEmbedding defines model for ModelEmbedding.
+type ModelEmbedding struct {
+	Embedding []float64 `json:"embedding"`
+	Index     int32     `json:"index"`
+}
+
+// ModelEmbeddingRequest defines model for ModelEmbeddingRequest.
+type ModelEmbeddingRequest struct {
+	Inputs     []string `json:"inputs"`
+	Model      *string  `json:"model,omitempty"`
+	ProviderId *string  `json:"provider_id,omitempty"`
+}
+
+// ModelEmbeddingResponse defines model for ModelEmbeddingResponse.
+type ModelEmbeddingResponse struct {
+	Dimensions int32            `json:"dimensions"`
+	Embeddings []ModelEmbedding `json:"embeddings"`
+	Model      string           `json:"model"`
+	ProviderId string           `json:"provider_id"`
+	Usage      ModelUsage       `json:"usage"`
+}
+
+// ModelGenerateRequest defines model for ModelGenerateRequest.
+type ModelGenerateRequest struct {
+	MaxOutputTokens *int32         `json:"max_output_tokens,omitempty"`
+	Messages        []ModelMessage `json:"messages"`
+	Model           *string        `json:"model,omitempty"`
+	ProviderId      *string        `json:"provider_id,omitempty"`
+}
+
+// ModelGenerateResponse defines model for ModelGenerateResponse.
+type ModelGenerateResponse struct {
+	FinishReason *string    `json:"finish_reason,omitempty"`
+	Model        string     `json:"model"`
+	ProviderId   string     `json:"provider_id"`
+	Text         string     `json:"text"`
+	Usage        ModelUsage `json:"usage"`
+}
+
+// ModelInvocation defines model for ModelInvocation.
+type ModelInvocation struct {
+	AuthType          *string                   `json:"auth_type,omitempty"`
+	CachedInputTokens int64                     `json:"cached_input_tokens"`
+	Capability        ModelInvocationCapability `json:"capability"`
+	CompletedAt       time.Time                 `json:"completed_at"`
+	ErrorCode         *string                   `json:"error_code,omitempty"`
+	Id                string                    `json:"id"`
+	InputAudioMs      int64                     `json:"input_audio_ms"`
+	InputBytes        int64                     `json:"input_bytes"`
+	InputCharacters   int64                     `json:"input_characters"`
+	InputItems        int64                     `json:"input_items"`
+	InputTokens       int64                     `json:"input_tokens"`
+	LatencyMs         int64                     `json:"latency_ms"`
+	Model             string                    `json:"model"`
+	OutputAudioMs     int64                     `json:"output_audio_ms"`
+	OutputBytes       int64                     `json:"output_bytes"`
+	OutputCharacters  int64                     `json:"output_characters"`
+	OutputItems       int64                     `json:"output_items"`
+	OutputTokens      int64                     `json:"output_tokens"`
+	PrincipalId       string                    `json:"principal_id"`
+	ProviderId        string                    `json:"provider_id"`
+	ProviderType      *string                   `json:"provider_type,omitempty"`
+	ReasoningTokens   int64                     `json:"reasoning_tokens"`
+	RequestId         string                    `json:"request_id"`
+	ServiceIdentityId *string                   `json:"service_identity_id,omitempty"`
+	StartedAt         time.Time                 `json:"started_at"`
+	Status            ModelInvocationStatus     `json:"status"`
+	TotalTokens       int64                     `json:"total_tokens"`
+	WorkspaceId       string                    `json:"workspace_id"`
+}
+
+// ModelInvocationCapability defines model for ModelInvocation.Capability.
+type ModelInvocationCapability string
+
+// ModelInvocationStatus defines model for ModelInvocation.Status.
+type ModelInvocationStatus string
+
+// ModelInvocationReport defines model for ModelInvocationReport.
+type ModelInvocationReport struct {
+	Records []ModelInvocation      `json:"records"`
+	Summary ModelInvocationSummary `json:"summary"`
+}
+
+// ModelInvocationSummary defines model for ModelInvocationSummary.
+type ModelInvocationSummary struct {
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+	CanceledCount     int64 `json:"canceled_count"`
+	CompletedCount    int64 `json:"completed_count"`
+	FailedCount       int64 `json:"failed_count"`
+	InputAudioMs      int64 `json:"input_audio_ms"`
+	InputBytes        int64 `json:"input_bytes"`
+	InputCharacters   int64 `json:"input_characters"`
+	InputItems        int64 `json:"input_items"`
+	InputTokens       int64 `json:"input_tokens"`
+	LatencyMs         int64 `json:"latency_ms"`
+	OutputAudioMs     int64 `json:"output_audio_ms"`
+	OutputBytes       int64 `json:"output_bytes"`
+	OutputCharacters  int64 `json:"output_characters"`
+	OutputItems       int64 `json:"output_items"`
+	OutputTokens      int64 `json:"output_tokens"`
+	ReasoningTokens   int64 `json:"reasoning_tokens"`
+	RecordCount       int64 `json:"record_count"`
+	TotalTokens       int64 `json:"total_tokens"`
+}
+
+// ModelMessage defines model for ModelMessage.
+type ModelMessage struct {
+	Content string           `json:"content"`
+	Role    ModelMessageRole `json:"role"`
+}
+
+// ModelMessageRole defines model for ModelMessage.Role.
+type ModelMessageRole string
+
+// ModelRerankRequest defines model for ModelRerankRequest.
+type ModelRerankRequest struct {
+	Documents  []string `json:"documents"`
+	Model      *string  `json:"model,omitempty"`
+	ProviderId *string  `json:"provider_id,omitempty"`
+	Query      string   `json:"query"`
+	TopN       *int32   `json:"top_n,omitempty"`
+}
+
+// ModelRerankResponse defines model for ModelRerankResponse.
+type ModelRerankResponse struct {
+	Model      string              `json:"model"`
+	ProviderId string              `json:"provider_id"`
+	Results    []ModelRerankResult `json:"results"`
+}
+
+// ModelRerankResult defines model for ModelRerankResult.
+type ModelRerankResult struct {
+	Index int32   `json:"index"`
+	Score float64 `json:"score"`
+}
+
+// ModelUsage defines model for ModelUsage.
+type ModelUsage struct {
+	CachedInputTokens *int64 `json:"cached_input_tokens,omitempty"`
+	InputTokens       *int64 `json:"input_tokens,omitempty"`
+	OutputTokens      *int64 `json:"output_tokens,omitempty"`
+	ReasoningTokens   *int64 `json:"reasoning_tokens,omitempty"`
+	TotalTokens       *int64 `json:"total_tokens,omitempty"`
+}
+
 // ObjectCleanupJob defines model for ObjectCleanupJob.
 type ObjectCleanupJob struct {
 	AttemptCount     int32                  `json:"attempt_count"`
@@ -3232,6 +3293,24 @@ type PermissionRuleBehavior string
 // PermissionRuleTool defines model for PermissionRule.Tool.
 type PermissionRuleTool string
 
+// PlatformRoleAssignment defines model for PlatformRoleAssignment.
+type PlatformRoleAssignment struct {
+	CreatedAt   time.Time                  `json:"created_at"`
+	DisplayName *string                    `json:"display_name,omitempty"`
+	Email       *openapi_types.Email       `json:"email,omitempty"`
+	Role        PlatformRoleAssignmentRole `json:"role"`
+	Subject     string                     `json:"subject"`
+	UpdatedAt   time.Time                  `json:"updated_at"`
+}
+
+// PlatformRoleAssignmentRole defines model for PlatformRoleAssignment.Role.
+type PlatformRoleAssignmentRole string
+
+// PlatformRoleAssignmentList defines model for PlatformRoleAssignmentList.
+type PlatformRoleAssignmentList struct {
+	Admins []PlatformRoleAssignment `json:"admins"`
+}
+
 // PortableAgentConfig defines model for PortableAgentConfig.
 type PortableAgentConfig struct {
 	LlmModel    string                  `json:"llm_model"`
@@ -3245,13 +3324,15 @@ type PortableAgentConfig struct {
 
 // Principal defines model for Principal.
 type Principal struct {
-	AuthType       PrincipalAuthType `json:"auth_type"`
-	OrganizationId *string           `json:"organization_id,omitempty"`
-	OwnerId        string            `json:"owner_id"`
-	Roles          []PrincipalRoles  `json:"roles"`
-	Subject        string            `json:"subject"`
-	Username       *string           `json:"username,omitempty"`
-	WorkspaceId    string            `json:"workspace_id"`
+	AuthType          PrincipalAuthType `json:"auth_type"`
+	OrganizationId    *string           `json:"organization_id,omitempty"`
+	OwnerId           string            `json:"owner_id"`
+	Roles             []PrincipalRoles  `json:"roles"`
+	Scopes            *[]string         `json:"scopes,omitempty"`
+	ServiceIdentityId *string           `json:"service_identity_id,omitempty"`
+	Subject           string            `json:"subject"`
+	Username          *string           `json:"username,omitempty"`
+	WorkspaceId       string            `json:"workspace_id"`
 }
 
 // PrincipalAuthType defines model for Principal.AuthType.
@@ -3259,12 +3340,6 @@ type PrincipalAuthType string
 
 // PrincipalRoles defines model for Principal.Roles.
 type PrincipalRoles string
-
-// PublicKnowledgeShare defines model for PublicKnowledgeShare.
-type PublicKnowledgeShare struct {
-	Service KnowledgeService `json:"service"`
-	Share   KnowledgeShare   `json:"share"`
-}
 
 // PublishMarketplacePolicyRequest defines model for PublishMarketplacePolicyRequest.
 type PublishMarketplacePolicyRequest struct {
@@ -3434,6 +3509,107 @@ type ResolvedSkill struct {
 
 // ResolvedSkillStatus defines model for ResolvedSkill.Status.
 type ResolvedSkillStatus string
+
+// RetrievalCitation defines model for RetrievalCitation.
+type RetrievalCitation struct {
+	ChunkIndex   int32   `json:"chunk_index"`
+	CollectionId string  `json:"collection_id"`
+	DocumentId   string  `json:"document_id"`
+	DocumentName string  `json:"document_name"`
+	Score        float64 `json:"score"`
+}
+
+// RetrievalCollection defines model for RetrievalCollection.
+type RetrievalCollection struct {
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedBy     string    `json:"created_by"`
+	Description   string    `json:"description"`
+	DocumentCount *int32    `json:"document_count,omitempty"`
+	Id            string    `json:"id"`
+	Name          string    `json:"name"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	WorkspaceId   string    `json:"workspace_id"`
+}
+
+// RetrievalCollectionList defines model for RetrievalCollectionList.
+type RetrievalCollectionList struct {
+	Collections []RetrievalCollection `json:"collections"`
+}
+
+// RetrievalDocument defines model for RetrievalDocument.
+type RetrievalDocument struct {
+	ChunkCount   int32                   `json:"chunk_count"`
+	CollectionId string                  `json:"collection_id"`
+	ContentType  string                  `json:"content_type"`
+	CreatedAt    time.Time               `json:"created_at"`
+	CreatedBy    string                  `json:"created_by"`
+	ErrorMessage *string                 `json:"error_message,omitempty"`
+	Id           string                  `json:"id"`
+	Name         string                  `json:"name"`
+	ObjectRefId  string                  `json:"object_ref_id"`
+	SizeBytes    int64                   `json:"size_bytes"`
+	Status       RetrievalDocumentStatus `json:"status"`
+	UpdatedAt    time.Time               `json:"updated_at"`
+	WorkspaceId  string                  `json:"workspace_id"`
+}
+
+// RetrievalDocumentStatus defines model for RetrievalDocument.Status.
+type RetrievalDocumentStatus string
+
+// RetrievalDocumentList defines model for RetrievalDocumentList.
+type RetrievalDocumentList struct {
+	Documents []RetrievalDocument `json:"documents"`
+}
+
+// RetrievalDocumentUploadResult defines model for RetrievalDocumentUploadResult.
+type RetrievalDocumentUploadResult struct {
+	Document     RetrievalDocument     `json:"document"`
+	IngestionJob RetrievalIngestionJob `json:"ingestion_job"`
+	ObjectRef    ObjectRef             `json:"object_ref"`
+}
+
+// RetrievalIngestionJob defines model for RetrievalIngestionJob.
+type RetrievalIngestionJob struct {
+	CollectionId string                      `json:"collection_id"`
+	CompletedAt  *time.Time                  `json:"completed_at"`
+	CreatedAt    time.Time                   `json:"created_at"`
+	CreatedBy    string                      `json:"created_by"`
+	DocumentId   *string                     `json:"document_id,omitempty"`
+	ErrorMessage *string                     `json:"error_message,omitempty"`
+	Id           string                      `json:"id"`
+	StartedAt    *time.Time                  `json:"started_at"`
+	Status       RetrievalIngestionJobStatus `json:"status"`
+	WorkspaceId  string                      `json:"workspace_id"`
+}
+
+// RetrievalIngestionJobStatus defines model for RetrievalIngestionJob.Status.
+type RetrievalIngestionJobStatus string
+
+// RetrievalSearchRequest defines model for RetrievalSearchRequest.
+type RetrievalSearchRequest struct {
+	CollectionIds []string  `json:"collection_ids"`
+	DocumentIds   *[]string `json:"document_ids,omitempty"`
+	Limit         *int32    `json:"limit,omitempty"`
+	Query         string    `json:"query"`
+}
+
+// RetrievalSearchResponse defines model for RetrievalSearchResponse.
+type RetrievalSearchResponse struct {
+	Citations []RetrievalCitation     `json:"citations"`
+	Results   []RetrievalSearchResult `json:"results"`
+}
+
+// RetrievalSearchResult defines model for RetrievalSearchResult.
+type RetrievalSearchResult struct {
+	ChunkIndex   int32   `json:"chunk_index"`
+	CollectionId string  `json:"collection_id"`
+	Content      string  `json:"content"`
+	DocumentId   string  `json:"document_id"`
+	DocumentName string  `json:"document_name"`
+	KeywordScore float64 `json:"keyword_score"`
+	Score        float64 `json:"score"`
+	VectorScore  float64 `json:"vector_score"`
+}
 
 // RetryAgentDeliberationParticipantRequest defines model for RetryAgentDeliberationParticipantRequest.
 type RetryAgentDeliberationParticipantRequest struct {
@@ -4201,6 +4377,54 @@ type TaskEvidenceRef struct {
 // TaskEvidenceRefKind defines model for TaskEvidenceRef.Kind.
 type TaskEvidenceRefKind string
 
+// TenantWorkspace defines model for TenantWorkspace.
+type TenantWorkspace struct {
+	CreatedAt   time.Time `json:"created_at"`
+	Id          string    `json:"id"`
+	MemberCount int64     `json:"member_count"`
+	Name        string    `json:"name"`
+}
+
+// TenantWorkspaceList defines model for TenantWorkspaceList.
+type TenantWorkspaceList struct {
+	Workspaces []TenantWorkspace `json:"workspaces"`
+}
+
+// TokenExchangeRequest defines model for TokenExchangeRequest.
+type TokenExchangeRequest struct {
+	GrantType          TokenExchangeRequestGrantType           `json:"grant_type"`
+	RequestedTokenType *TokenExchangeRequestRequestedTokenType `json:"requested_token_type,omitempty"`
+
+	// Scope Space-delimited service identity scopes.
+	Scope            string                               `json:"scope"`
+	SubjectToken     *string                              `json:"subject_token,omitempty"`
+	SubjectTokenType TokenExchangeRequestSubjectTokenType `json:"subject_token_type"`
+}
+
+// TokenExchangeRequestGrantType defines model for TokenExchangeRequest.GrantType.
+type TokenExchangeRequestGrantType string
+
+// TokenExchangeRequestRequestedTokenType defines model for TokenExchangeRequest.RequestedTokenType.
+type TokenExchangeRequestRequestedTokenType string
+
+// TokenExchangeRequestSubjectTokenType defines model for TokenExchangeRequest.SubjectTokenType.
+type TokenExchangeRequestSubjectTokenType string
+
+// TokenExchangeResponse defines model for TokenExchangeResponse.
+type TokenExchangeResponse struct {
+	AccessToken     *string                              `json:"access_token,omitempty"`
+	ExpiresIn       int32                                `json:"expires_in"`
+	IssuedTokenType TokenExchangeResponseIssuedTokenType `json:"issued_token_type"`
+	Scope           string                               `json:"scope"`
+	TokenType       TokenExchangeResponseTokenType       `json:"token_type"`
+}
+
+// TokenExchangeResponseIssuedTokenType defines model for TokenExchangeResponse.IssuedTokenType.
+type TokenExchangeResponseIssuedTokenType string
+
+// TokenExchangeResponseTokenType defines model for TokenExchangeResponse.TokenType.
+type TokenExchangeResponseTokenType string
+
 // ToolPermissionAuditList defines model for ToolPermissionAuditList.
 type ToolPermissionAuditList struct {
 	HasMore    bool                        `json:"has_more"`
@@ -4523,16 +4747,6 @@ type UpdateAgentScheduleRequestApprovalMode string
 // UpdateAgentScheduleRequestSessionMode defines model for UpdateAgentScheduleRequest.SessionMode.
 type UpdateAgentScheduleRequestSessionMode string
 
-// UpdateKnowledgeServiceRequest defines model for UpdateKnowledgeServiceRequest.
-type UpdateKnowledgeServiceRequest struct {
-	AllowWebSearch   *bool     `json:"allow_web_search,omitempty"`
-	KnowledgeBaseIds *[]string `json:"knowledge_base_ids,omitempty"`
-	Name             string    `json:"name"`
-	Scenario         string    `json:"scenario"`
-	SensitiveTerms   *[]string `json:"sensitive_terms,omitempty"`
-	SystemPrompt     *string   `json:"system_prompt,omitempty"`
-}
-
 // UpdateLLMProviderRequest defines model for UpdateLLMProviderRequest.
 type UpdateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -4580,17 +4794,6 @@ type UpdateSessionRuntimeSettingsRequest struct {
 // UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy Defaults to follow_latest.
 type UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy string
 
-// UpdateWorkbenchProjectRequest defines model for UpdateWorkbenchProjectRequest.
-type UpdateWorkbenchProjectRequest struct {
-	ActiveFile   *string                 `json:"active_file,omitempty"`
-	Files        *[]WorkbenchProjectFile `json:"files,omitempty"`
-	Name         *string                 `json:"name,omitempty"`
-	NotebookCode *string                 `json:"notebook_code,omitempty"`
-	NotebookUrl  *string                 `json:"notebook_url,omitempty"`
-	Objective    *string                 `json:"objective,omitempty"`
-	WorkspaceId  *string                 `json:"workspace_id,omitempty"`
-}
-
 // UpdateWorkspaceToolPermissionPolicyRequest defines model for UpdateWorkspaceToolPermissionPolicyRequest.
 type UpdateWorkspaceToolPermissionPolicyRequest struct {
 	PermissionRules []WorkspacePermissionRule `json:"permission_rules"`
@@ -4613,11 +4816,19 @@ type UpgradeSessionConfigResult struct {
 	Session                  *Session `json:"session,omitempty"`
 }
 
-// UploadKnowledgeDocumentRequest defines model for UploadKnowledgeDocumentRequest.
-type UploadKnowledgeDocumentRequest struct {
+// UploadRetrievalDocumentRequest defines model for UploadRetrievalDocumentRequest.
+type UploadRetrievalDocumentRequest struct {
+	Bucket      *string            `json:"bucket,omitempty"`
 	ContentType *string            `json:"content_type,omitempty"`
 	File        openapi_types.File `json:"file"`
 	Name        *string            `json:"name,omitempty"`
+	ObjectKey   *string            `json:"object_key,omitempty"`
+}
+
+// UpsertPlatformAdminRequest defines model for UpsertPlatformAdminRequest.
+type UpsertPlatformAdminRequest struct {
+	DisplayName *string              `json:"display_name,omitempty"`
+	Email       *openapi_types.Email `json:"email,omitempty"`
 }
 
 // UpsertSessionSummaryRequest defines model for UpsertSessionSummaryRequest.
@@ -4625,6 +4836,20 @@ type UpsertSessionSummaryRequest struct {
 	SourceUntilSeq int64  `json:"source_until_seq"`
 	SummaryText    string `json:"summary_text"`
 }
+
+// UpsertWorkspaceMembershipRequest defines model for UpsertWorkspaceMembershipRequest.
+type UpsertWorkspaceMembershipRequest struct {
+	DisplayName *string                                 `json:"display_name,omitempty"`
+	Email       *openapi_types.Email                    `json:"email,omitempty"`
+	Role        UpsertWorkspaceMembershipRequestRole    `json:"role"`
+	Status      *UpsertWorkspaceMembershipRequestStatus `json:"status,omitempty"`
+}
+
+// UpsertWorkspaceMembershipRequestRole defines model for UpsertWorkspaceMembershipRequest.Role.
+type UpsertWorkspaceMembershipRequestRole string
+
+// UpsertWorkspaceMembershipRequestStatus defines model for UpsertWorkspaceMembershipRequest.Status.
+type UpsertWorkspaceMembershipRequestStatus string
 
 // WorkInvocation defines model for WorkInvocation.
 type WorkInvocation struct {
@@ -4635,93 +4860,6 @@ type WorkInvocation struct {
 	ProtocolVersion string                  `json:"protocol_version"`
 	Risk            *string                 `json:"risk,omitempty"`
 	Runtime         *string                 `json:"runtime,omitempty"`
-}
-
-// WorkbenchProject defines model for WorkbenchProject.
-type WorkbenchProject struct {
-	ActiveFile         *string                            `json:"active_file,omitempty"`
-	CreatedAt          time.Time                          `json:"created_at"`
-	CreatedBy          string                             `json:"created_by"`
-	DefaultBranch      string                             `json:"default_branch"`
-	Files              []WorkbenchProjectFile             `json:"files"`
-	Id                 string                             `json:"id"`
-	Name               string                             `json:"name"`
-	NotebookCode       *string                            `json:"notebook_code,omitempty"`
-	NotebookUrl        *string                            `json:"notebook_url,omitempty"`
-	Objective          *string                            `json:"objective,omitempty"`
-	OwnerId            string                             `json:"owner_id"`
-	PluginId           string                             `json:"plugin_id"`
-	RepositoryId       *string                            `json:"repository_id,omitempty"`
-	RepositoryPath     string                             `json:"repository_path"`
-	RepositoryProvider WorkbenchProjectRepositoryProvider `json:"repository_provider"`
-	RepositoryUrl      *string                            `json:"repository_url,omitempty"`
-	RuntimeError       *string                            `json:"runtime_error,omitempty"`
-	RuntimeId          *string                            `json:"runtime_id,omitempty"`
-	RuntimeStartedAt   *time.Time                         `json:"runtime_started_at"`
-	RuntimeStatus      *WorkbenchProjectRuntimeStatus     `json:"runtime_status,omitempty"`
-	RuntimeUrl         *string                            `json:"runtime_url,omitempty"`
-	SyncError          *string                            `json:"sync_error,omitempty"`
-	SyncStatus         WorkbenchProjectSyncStatus         `json:"sync_status"`
-	UpdatedAt          time.Time                          `json:"updated_at"`
-	WorkspaceId        string                             `json:"workspace_id"`
-}
-
-// WorkbenchProjectRepositoryProvider defines model for WorkbenchProject.RepositoryProvider.
-type WorkbenchProjectRepositoryProvider string
-
-// WorkbenchProjectRuntimeStatus defines model for WorkbenchProject.RuntimeStatus.
-type WorkbenchProjectRuntimeStatus string
-
-// WorkbenchProjectSyncStatus defines model for WorkbenchProject.SyncStatus.
-type WorkbenchProjectSyncStatus string
-
-// WorkbenchProjectFile defines model for WorkbenchProjectFile.
-type WorkbenchProjectFile struct {
-	Content *string                  `json:"content,omitempty"`
-	Kind    WorkbenchProjectFileKind `json:"kind"`
-	Path    string                   `json:"path"`
-	Status  *string                  `json:"status,omitempty"`
-}
-
-// WorkbenchProjectFileKind defines model for WorkbenchProjectFile.Kind.
-type WorkbenchProjectFileKind string
-
-// WorkbenchProjectList defines model for WorkbenchProjectList.
-type WorkbenchProjectList struct {
-	GitlabConfigured bool               `json:"gitlab_configured"`
-	Projects         []WorkbenchProject `json:"projects"`
-}
-
-// WorkbenchProjectRunCleaningResponse Response payload for a completed workbench data-cleaning run.
-type WorkbenchProjectRunCleaningResponse struct {
-	Project WorkbenchProject `json:"project"`
-
-	// Result Result of executing the workbench R cleaning workflow.
-	Result WorkbenchProjectRunCleaningResult `json:"result"`
-}
-
-// WorkbenchProjectRunCleaningResult Result of executing the workbench R cleaning workflow.
-type WorkbenchProjectRunCleaningResult struct {
-	// ExitCode Runtime process exit code.
-	ExitCode int32 `json:"exit_code"`
-
-	// Files Output files returned from the runtime workspace
-	Files *[]WorkbenchProjectRuntimeFile `json:"files,omitempty"`
-
-	// Stderr Standard error captured from the cleaning run.
-	Stderr *string `json:"stderr,omitempty"`
-
-	// Stdout Standard output captured from the cleaning run.
-	Stdout *string `json:"stdout,omitempty"`
-}
-
-// WorkbenchProjectRuntimeFile Output file materialized by a workbench runtime action.
-type WorkbenchProjectRuntimeFile struct {
-	// Content UTF-8 file content returned from the runtime workspace.
-	Content string `json:"content"`
-
-	// Path Project-relative output file path.
-	Path string `json:"path"`
 }
 
 // Worker defines model for Worker.
@@ -4818,6 +4956,29 @@ type WorkerWorkDiagnosis struct {
 	Reasons *[]string      `json:"reasons,omitempty"`
 	Work    WorkerWork     `json:"work"`
 	Worker  *WorkerSummary `json:"worker,omitempty"`
+}
+
+// WorkspaceMembership defines model for WorkspaceMembership.
+type WorkspaceMembership struct {
+	CreatedAt   time.Time                 `json:"created_at"`
+	DisplayName *string                   `json:"display_name,omitempty"`
+	Email       *openapi_types.Email      `json:"email,omitempty"`
+	Role        WorkspaceMembershipRole   `json:"role"`
+	Status      WorkspaceMembershipStatus `json:"status"`
+	Subject     string                    `json:"subject"`
+	UpdatedAt   time.Time                 `json:"updated_at"`
+	WorkspaceId string                    `json:"workspace_id"`
+}
+
+// WorkspaceMembershipRole defines model for WorkspaceMembership.Role.
+type WorkspaceMembershipRole string
+
+// WorkspaceMembershipStatus defines model for WorkspaceMembership.Status.
+type WorkspaceMembershipStatus string
+
+// WorkspaceMembershipList defines model for WorkspaceMembershipList.
+type WorkspaceMembershipList struct {
+	Members []WorkspaceMembership `json:"members"`
 }
 
 // WorkspacePermissionRule defines model for WorkspacePermissionRule.
@@ -4946,6 +5107,19 @@ type GetV2McpServersParams struct {
 // GetV2McpServersRuntimeStatusParams defines parameters for GetV2McpServersRuntimeStatus.
 type GetV2McpServersRuntimeStatusParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
+// GetV2ModelRuntimeInvocationsParams defines parameters for GetV2ModelRuntimeInvocations.
+type GetV2ModelRuntimeInvocationsParams struct {
+	PrincipalId       *string    `form:"principal_id,omitempty" json:"principal_id,omitempty"`
+	ServiceIdentityId *string    `form:"service_identity_id,omitempty" json:"service_identity_id,omitempty"`
+	Capability        *string    `form:"capability,omitempty" json:"capability,omitempty"`
+	ProviderId        *string    `form:"provider_id,omitempty" json:"provider_id,omitempty"`
+	Model             *string    `form:"model,omitempty" json:"model,omitempty"`
+	Status            *string    `form:"status,omitempty" json:"status,omitempty"`
+	From              *time.Time `form:"from,omitempty" json:"from,omitempty"`
+	To                *time.Time `form:"to,omitempty" json:"to,omitempty"`
+	Limit             *int32     `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetV2ObjectCleanupJobsParams defines parameters for GetV2ObjectCleanupJobs.
@@ -5182,37 +5356,6 @@ type GetV2TracesByTraceIdSpansBySpanIdParams struct {
 	SearchLimit *int32 `form:"search_limit,omitempty" json:"search_limit,omitempty"`
 }
 
-// GetV2WorkbenchProjectsParams defines parameters for GetV2WorkbenchProjects.
-type GetV2WorkbenchProjectsParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-	PluginId    *string `form:"plugin_id,omitempty" json:"plugin_id,omitempty"`
-}
-
-// PatchV2WorkbenchProjectsByProjectIdParams defines parameters for PatchV2WorkbenchProjectsByProjectId.
-type PatchV2WorkbenchProjectsByProjectIdParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams defines parameters for PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning.
-type PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeStartParams defines parameters for PostV2WorkbenchProjectsByProjectIdRuntimeStart.
-type PostV2WorkbenchProjectsByProjectIdRuntimeStartParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeStopParams defines parameters for PostV2WorkbenchProjectsByProjectIdRuntimeStop.
-type PostV2WorkbenchProjectsByProjectIdRuntimeStopParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-}
-
-// PostV2WorkbenchProjectsByProjectIdSyncParams defines parameters for PostV2WorkbenchProjectsByProjectIdSync.
-type PostV2WorkbenchProjectsByProjectIdSyncParams struct {
-	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-}
-
 // GetV2WorkersParams defines parameters for GetV2Workers.
 type GetV2WorkersParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
@@ -5252,6 +5395,9 @@ type PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody = UpdateAgentSch
 // PostV2AgentsByAgentIdToolingHealthJSONRequestBody defines body for PostV2AgentsByAgentIdToolingHealth for application/json ContentType.
 type PostV2AgentsByAgentIdToolingHealthJSONRequestBody = ToolingHealthRequest
 
+// PostV2AuthTokenExchangeJSONRequestBody defines body for PostV2AuthTokenExchange for application/json ContentType.
+type PostV2AuthTokenExchangeJSONRequestBody = TokenExchangeRequest
+
 // PutV2EnvironmentVariablesByNameJSONRequestBody defines body for PutV2EnvironmentVariablesByName for application/json ContentType.
 type PutV2EnvironmentVariablesByNameJSONRequestBody = PutEnvironmentVariableRequest
 
@@ -5266,24 +5412,6 @@ type PostV2EvaluationExperimentsJSONRequestBody = CreateEvaluationExperimentRequ
 
 // PostV2EvaluationRubricsJSONRequestBody defines body for PostV2EvaluationRubrics for application/json ContentType.
 type PostV2EvaluationRubricsJSONRequestBody = CreateEvaluationRubricRequest
-
-// PostV2KnowledgeBasesJSONRequestBody defines body for PostV2KnowledgeBases for application/json ContentType.
-type PostV2KnowledgeBasesJSONRequestBody = CreateKnowledgeBaseRequest
-
-// PostV2KnowledgeBasesByBaseIdDocumentsMultipartRequestBody defines body for PostV2KnowledgeBasesByBaseIdDocuments for multipart/form-data ContentType.
-type PostV2KnowledgeBasesByBaseIdDocumentsMultipartRequestBody = UploadKnowledgeDocumentRequest
-
-// PostV2KnowledgeServicesJSONRequestBody defines body for PostV2KnowledgeServices for application/json ContentType.
-type PostV2KnowledgeServicesJSONRequestBody = CreateKnowledgeServiceRequest
-
-// PatchV2KnowledgeServicesByServiceIdJSONRequestBody defines body for PatchV2KnowledgeServicesByServiceId for application/json ContentType.
-type PatchV2KnowledgeServicesByServiceIdJSONRequestBody = UpdateKnowledgeServiceRequest
-
-// PostV2KnowledgeServicesByServiceIdAskJSONRequestBody defines body for PostV2KnowledgeServicesByServiceIdAsk for application/json ContentType.
-type PostV2KnowledgeServicesByServiceIdAskJSONRequestBody = KnowledgeAskRequest
-
-// PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody defines body for PostV2KnowledgeServicesByServiceIdShares for application/json ContentType.
-type PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody = CreateKnowledgeShareRequest
 
 // PostV2LlmModelsJSONRequestBody defines body for PostV2LlmModels for application/json ContentType.
 type PostV2LlmModelsJSONRequestBody = PutLLMModelRequest
@@ -5300,6 +5428,15 @@ type PostV2McpServersJSONRequestBody = CreateMCPServerRequest
 // PatchV2McpServersByServerIdJSONRequestBody defines body for PatchV2McpServersByServerId for application/json ContentType.
 type PatchV2McpServersByServerIdJSONRequestBody = UpdateMCPServerRequest
 
+// PostV2ModelRuntimeEmbeddingsJSONRequestBody defines body for PostV2ModelRuntimeEmbeddings for application/json ContentType.
+type PostV2ModelRuntimeEmbeddingsJSONRequestBody = ModelEmbeddingRequest
+
+// PostV2ModelRuntimeGenerateJSONRequestBody defines body for PostV2ModelRuntimeGenerate for application/json ContentType.
+type PostV2ModelRuntimeGenerateJSONRequestBody = ModelGenerateRequest
+
+// PostV2ModelRuntimeRerankJSONRequestBody defines body for PostV2ModelRuntimeRerank for application/json ContentType.
+type PostV2ModelRuntimeRerankJSONRequestBody = ModelRerankRequest
+
 // PostV2ObjectCleanupJobsByJobIdApproveJSONRequestBody defines body for PostV2ObjectCleanupJobsByJobIdApprove for application/json ContentType.
 type PostV2ObjectCleanupJobsByJobIdApproveJSONRequestBody = ApproveObjectCleanupRequest
 
@@ -5312,8 +5449,23 @@ type PostV2ObjectCleanupReconciliationPreviewJSONRequestBody = ObjectReconciliat
 // PostV2ObjectRefsJSONRequestBody defines body for PostV2ObjectRefs for application/json ContentType.
 type PostV2ObjectRefsJSONRequestBody = CreateObjectRefRequest
 
-// PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody defines body for PostV2PublicKnowledgeSharesByTokenAsk for application/json ContentType.
-type PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody = KnowledgeAskRequest
+// PutV2PlatformAdminsBySubjectJSONRequestBody defines body for PutV2PlatformAdminsBySubject for application/json ContentType.
+type PutV2PlatformAdminsBySubjectJSONRequestBody = UpsertPlatformAdminRequest
+
+// PostV2PlatformWorkspacesJSONRequestBody defines body for PostV2PlatformWorkspaces for application/json ContentType.
+type PostV2PlatformWorkspacesJSONRequestBody = CreateTenantWorkspaceRequest
+
+// PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody defines body for PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject for application/json ContentType.
+type PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody = UpsertWorkspaceMembershipRequest
+
+// PostV2RetrievalCollectionsJSONRequestBody defines body for PostV2RetrievalCollections for application/json ContentType.
+type PostV2RetrievalCollectionsJSONRequestBody = CreateRetrievalCollectionRequest
+
+// PostV2RetrievalCollectionsByCollectionIdDocumentsMultipartRequestBody defines body for PostV2RetrievalCollectionsByCollectionIdDocuments for multipart/form-data ContentType.
+type PostV2RetrievalCollectionsByCollectionIdDocumentsMultipartRequestBody = UploadRetrievalDocumentRequest
+
+// PostV2RetrievalSearchJSONRequestBody defines body for PostV2RetrievalSearch for application/json ContentType.
+type PostV2RetrievalSearchJSONRequestBody = RetrievalSearchRequest
 
 // PostV2RunEvaluationsJSONRequestBody defines body for PostV2RunEvaluations for application/json ContentType.
 type PostV2RunEvaluationsJSONRequestBody = CreateRunEvaluationRequest
@@ -5453,12 +5605,6 @@ type PostV2SkillsBySkillIdVersionsJSONRequestBody = CreateSkillVersionRequest
 // PostV2SubagentsReapOrphansJSONRequestBody defines body for PostV2SubagentsReapOrphans for application/json ContentType.
 type PostV2SubagentsReapOrphansJSONRequestBody = ReapOrphanSubagentsRequest
 
-// PostV2WorkbenchProjectsJSONRequestBody defines body for PostV2WorkbenchProjects for application/json ContentType.
-type PostV2WorkbenchProjectsJSONRequestBody = CreateWorkbenchProjectRequest
-
-// PatchV2WorkbenchProjectsByProjectIdJSONRequestBody defines body for PatchV2WorkbenchProjectsByProjectId for application/json ContentType.
-type PatchV2WorkbenchProjectsByProjectIdJSONRequestBody = UpdateWorkbenchProjectRequest
-
 // PostV2WorkerWorkJSONRequestBody defines body for PostV2WorkerWork for application/json ContentType.
 type PostV2WorkerWorkJSONRequestBody = EnqueueWorkerWorkRequest
 
@@ -5476,6 +5622,9 @@ type PostV2WorkersDiagnoseJSONRequestBody = WorkerDiagnoseRequest
 
 // PostV2WorkersReapExpiredJSONRequestBody defines body for PostV2WorkersReapExpired for application/json ContentType.
 type PostV2WorkersReapExpiredJSONRequestBody = ReapExpiredWorkersRequest
+
+// PutV2WorkspaceMembersBySubjectJSONRequestBody defines body for PutV2WorkspaceMembersBySubject for application/json ContentType.
+type PutV2WorkspaceMembersBySubjectJSONRequestBody = UpsertWorkspaceMembershipRequest
 
 // PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody defines body for PutV2WorkspacesByWorkspaceIdToolPermissions for application/json ContentType.
 type PutV2WorkspacesByWorkspaceIdToolPermissionsJSONRequestBody = UpdateWorkspaceToolPermissionPolicyRequest
@@ -5761,6 +5910,9 @@ type ClientInterface interface {
 
 	PostV2AchievementLibraryByItemIdReference(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2AdministrationContext request
+	GetV2AdministrationContext(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2AgentDiscussionStrategies request
 	GetV2AgentDiscussionStrategies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -5838,6 +5990,14 @@ type ClientInterface interface {
 	// GetV2AuthMe request
 	GetV2AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostV2AuthTokenExchangeWithBody request with any body
+	PostV2AuthTokenExchangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2AuthTokenExchange(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2ConsoleContext request
+	GetV2ConsoleContext(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2EnvironmentVariables request
 	GetV2EnvironmentVariables(ctx context.Context, params *GetV2EnvironmentVariablesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -5895,64 +6055,6 @@ type ClientInterface interface {
 
 	// GetV2EvaluationRubricsByRubricId request
 	GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2KnowledgeBases request
-	GetV2KnowledgeBases(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeBasesWithBody request with any body
-	PostV2KnowledgeBasesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostV2KnowledgeBases(ctx context.Context, body PostV2KnowledgeBasesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteV2KnowledgeBasesByBaseId request
-	DeleteV2KnowledgeBasesByBaseId(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2KnowledgeBasesByBaseIdDocuments request
-	GetV2KnowledgeBasesByBaseIdDocuments(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeBasesByBaseIdDocumentsWithBody request with any body
-	PostV2KnowledgeBasesByBaseIdDocumentsWithBody(ctx context.Context, baseId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteV2KnowledgeDocumentsByDocumentId request
-	DeleteV2KnowledgeDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2KnowledgeServices request
-	GetV2KnowledgeServices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeServicesWithBody request with any body
-	PostV2KnowledgeServicesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostV2KnowledgeServices(ctx context.Context, body PostV2KnowledgeServicesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteV2KnowledgeServicesByServiceId request
-	DeleteV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2KnowledgeServicesByServiceId request
-	GetV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PatchV2KnowledgeServicesByServiceIdWithBody request with any body
-	PatchV2KnowledgeServicesByServiceIdWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PatchV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, body PatchV2KnowledgeServicesByServiceIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeServicesByServiceIdAskWithBody request with any body
-	PostV2KnowledgeServicesByServiceIdAskWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostV2KnowledgeServicesByServiceIdAsk(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdAskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2KnowledgeServicesByServiceIdShares request
-	GetV2KnowledgeServicesByServiceIdShares(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeServicesByServiceIdSharesWithBody request with any body
-	PostV2KnowledgeServicesByServiceIdSharesWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostV2KnowledgeServicesByServiceIdShares(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DeleteV2KnowledgeSharesByShareId request
-	DeleteV2KnowledgeSharesByShareId(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2KnowledgeSharesByShareIdRevoke request
-	PostV2KnowledgeSharesByShareIdRevoke(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2LlmModels request
 	GetV2LlmModels(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6036,6 +6138,24 @@ type ClientInterface interface {
 	// PostV2McpServersByServerIdVersionsByVersionRestore request
 	PostV2McpServersByServerIdVersionsByVersionRestore(ctx context.Context, serverId string, version int32, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostV2ModelRuntimeEmbeddingsWithBody request with any body
+	PostV2ModelRuntimeEmbeddingsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ModelRuntimeEmbeddings(ctx context.Context, body PostV2ModelRuntimeEmbeddingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2ModelRuntimeGenerateWithBody request with any body
+	PostV2ModelRuntimeGenerateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ModelRuntimeGenerate(ctx context.Context, body PostV2ModelRuntimeGenerateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2ModelRuntimeInvocations request
+	GetV2ModelRuntimeInvocations(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2ModelRuntimeRerankWithBody request with any body
+	PostV2ModelRuntimeRerankWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ModelRuntimeRerank(ctx context.Context, body PostV2ModelRuntimeRerankJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2ObjectCleanupJobs request
 	GetV2ObjectCleanupJobs(ctx context.Context, params *GetV2ObjectCleanupJobsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -6089,13 +6209,66 @@ type ClientInterface interface {
 	// GetV2OperatorAudit request
 	GetV2OperatorAudit(ctx context.Context, params *GetV2OperatorAuditParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetV2PublicKnowledgeSharesByToken request
-	GetV2PublicKnowledgeSharesByToken(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// GetV2PlatformAdmins request
+	GetV2PlatformAdmins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PostV2PublicKnowledgeSharesByTokenAskWithBody request with any body
-	PostV2PublicKnowledgeSharesByTokenAskWithBody(ctx context.Context, token string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// DeleteV2PlatformAdminsBySubject request
+	DeleteV2PlatformAdminsBySubject(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	PostV2PublicKnowledgeSharesByTokenAsk(ctx context.Context, token string, body PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// PutV2PlatformAdminsBySubjectWithBody request with any body
+	PutV2PlatformAdminsBySubjectWithBody(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2PlatformAdminsBySubject(ctx context.Context, subject string, body PutV2PlatformAdminsBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2PlatformWorkspaces request
+	GetV2PlatformWorkspaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2PlatformWorkspacesWithBody request with any body
+	PostV2PlatformWorkspacesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2PlatformWorkspaces(ctx context.Context, body PostV2PlatformWorkspacesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2PlatformWorkspacesByWorkspaceIdMembers request
+	GetV2PlatformWorkspacesByWorkspaceIdMembers(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubject request
+	DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx context.Context, workspaceId string, subject string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBody request with any body
+	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBody(ctx context.Context, workspaceId string, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RetrievalCollections request
+	GetV2RetrievalCollections(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2RetrievalCollectionsWithBody request with any body
+	PostV2RetrievalCollectionsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2RetrievalCollections(ctx context.Context, body PostV2RetrievalCollectionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2RetrievalCollectionsByCollectionId request
+	DeleteV2RetrievalCollectionsByCollectionId(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RetrievalCollectionsByCollectionIdDocuments request
+	GetV2RetrievalCollectionsByCollectionIdDocuments(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2RetrievalCollectionsByCollectionIdDocumentsWithBody request with any body
+	PostV2RetrievalCollectionsByCollectionIdDocumentsWithBody(ctx context.Context, collectionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2RetrievalDocumentsByDocumentId request
+	DeleteV2RetrievalDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RetrievalDocumentsByDocumentId request
+	GetV2RetrievalDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2RetrievalIngestionJobsByJobId request
+	GetV2RetrievalIngestionJobsByJobId(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2RetrievalSearchWithBody request with any body
+	PostV2RetrievalSearchWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2RetrievalSearch(ctx context.Context, body PostV2RetrievalSearchJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2RunComparisons request
 	GetV2RunComparisons(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6506,6 +6679,9 @@ type ClientInterface interface {
 	// GetV2Spans request
 	GetV2Spans(ctx context.Context, params *GetV2SpansParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2SpeechRealtime request
+	GetV2SpeechRealtime(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostV2SubagentsReapOrphansWithBody request with any body
 	PostV2SubagentsReapOrphansWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -6519,31 +6695,6 @@ type ClientInterface interface {
 
 	// GetV2TracesByTraceIdSpansBySpanId request
 	GetV2TracesByTraceIdSpansBySpanId(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// GetV2WorkbenchProjects request
-	GetV2WorkbenchProjects(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2WorkbenchProjectsWithBody request with any body
-	PostV2WorkbenchProjectsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PostV2WorkbenchProjects(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PatchV2WorkbenchProjectsByProjectIdWithBody request with any body
-	PatchV2WorkbenchProjectsByProjectIdWithBody(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	PatchV2WorkbenchProjectsByProjectId(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning request
-	PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeStart request
-	PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStartParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeStop request
-	PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStopParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PostV2WorkbenchProjectsByProjectIdSync request
-	PostV2WorkbenchProjectsByProjectIdSync(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2WorkerWorkWithBody request with any body
 	PostV2WorkerWorkWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6589,6 +6740,17 @@ type ClientInterface interface {
 
 	// PostV2WorkersByWorkerIdArchive request
 	PostV2WorkersByWorkerIdArchive(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2WorkspaceMembers request
+	GetV2WorkspaceMembers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2WorkspaceMembersBySubject request
+	DeleteV2WorkspaceMembersBySubject(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2WorkspaceMembersBySubjectWithBody request with any body
+	PutV2WorkspaceMembersBySubjectWithBody(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2WorkspaceMembersBySubject(ctx context.Context, subject string, body PutV2WorkspaceMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2WorkspacesByWorkspaceIdToolPermissions request
 	GetV2WorkspacesByWorkspaceIdToolPermissions(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6678,6 +6840,18 @@ func (c *Client) PostV2AchievementLibraryByItemIdReferenceWithBody(ctx context.C
 
 func (c *Client) PostV2AchievementLibraryByItemIdReference(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2AchievementLibraryByItemIdReferenceRequest(c.Server, itemId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2AdministrationContext(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AdministrationContextRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7024,6 +7198,42 @@ func (c *Client) GetV2AuthMe(ctx context.Context, reqEditors ...RequestEditorFn)
 	return c.Client.Do(req)
 }
 
+func (c *Client) PostV2AuthTokenExchangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AuthTokenExchangeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2AuthTokenExchange(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2AuthTokenExchangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2ConsoleContext(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2ConsoleContextRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetV2EnvironmentVariables(ctx context.Context, params *GetV2EnvironmentVariablesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2EnvironmentVariablesRequest(c.Server, params)
 	if err != nil {
@@ -7266,258 +7476,6 @@ func (c *Client) PostV2EvaluationRubrics(ctx context.Context, body PostV2Evaluat
 
 func (c *Client) GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2EvaluationRubricsByRubricIdRequest(c.Server, rubricId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2KnowledgeBases(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2KnowledgeBasesRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeBasesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeBasesRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeBases(ctx context.Context, body PostV2KnowledgeBasesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeBasesRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteV2KnowledgeBasesByBaseId(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteV2KnowledgeBasesByBaseIdRequest(c.Server, baseId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2KnowledgeBasesByBaseIdDocuments(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2KnowledgeBasesByBaseIdDocumentsRequest(c.Server, baseId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeBasesByBaseIdDocumentsWithBody(ctx context.Context, baseId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeBasesByBaseIdDocumentsRequestWithBody(c.Server, baseId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteV2KnowledgeDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteV2KnowledgeDocumentsByDocumentIdRequest(c.Server, documentId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2KnowledgeServices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2KnowledgeServicesRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServicesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServices(ctx context.Context, body PostV2KnowledgeServicesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteV2KnowledgeServicesByServiceIdRequest(c.Server, serviceId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2KnowledgeServicesByServiceIdRequest(c.Server, serviceId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchV2KnowledgeServicesByServiceIdWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2KnowledgeServicesByServiceIdRequestWithBody(c.Server, serviceId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchV2KnowledgeServicesByServiceId(ctx context.Context, serviceId string, body PatchV2KnowledgeServicesByServiceIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2KnowledgeServicesByServiceIdRequest(c.Server, serviceId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServicesByServiceIdAskWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesByServiceIdAskRequestWithBody(c.Server, serviceId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServicesByServiceIdAsk(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdAskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesByServiceIdAskRequest(c.Server, serviceId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2KnowledgeServicesByServiceIdShares(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2KnowledgeServicesByServiceIdSharesRequest(c.Server, serviceId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServicesByServiceIdSharesWithBody(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesByServiceIdSharesRequestWithBody(c.Server, serviceId, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeServicesByServiceIdShares(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeServicesByServiceIdSharesRequest(c.Server, serviceId, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) DeleteV2KnowledgeSharesByShareId(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteV2KnowledgeSharesByShareIdRequest(c.Server, shareId)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2KnowledgeSharesByShareIdRevoke(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2KnowledgeSharesByShareIdRevokeRequest(c.Server, shareId)
 	if err != nil {
 		return nil, err
 	}
@@ -7876,6 +7834,90 @@ func (c *Client) PostV2McpServersByServerIdVersionsByVersionRestore(ctx context.
 	return c.Client.Do(req)
 }
 
+func (c *Client) PostV2ModelRuntimeEmbeddingsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeEmbeddingsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ModelRuntimeEmbeddings(ctx context.Context, body PostV2ModelRuntimeEmbeddingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeEmbeddingsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ModelRuntimeGenerateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeGenerateRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ModelRuntimeGenerate(ctx context.Context, body PostV2ModelRuntimeGenerateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeGenerateRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2ModelRuntimeInvocations(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2ModelRuntimeInvocationsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ModelRuntimeRerankWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeRerankRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ModelRuntimeRerank(ctx context.Context, body PostV2ModelRuntimeRerankJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ModelRuntimeRerankRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetV2ObjectCleanupJobs(ctx context.Context, params *GetV2ObjectCleanupJobsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2ObjectCleanupJobsRequest(c.Server, params)
 	if err != nil {
@@ -8104,8 +8146,8 @@ func (c *Client) GetV2OperatorAudit(ctx context.Context, params *GetV2OperatorAu
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetV2PublicKnowledgeSharesByToken(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2PublicKnowledgeSharesByTokenRequest(c.Server, token)
+func (c *Client) GetV2PlatformAdmins(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2PlatformAdminsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -8116,8 +8158,8 @@ func (c *Client) GetV2PublicKnowledgeSharesByToken(ctx context.Context, token st
 	return c.Client.Do(req)
 }
 
-func (c *Client) PostV2PublicKnowledgeSharesByTokenAskWithBody(ctx context.Context, token string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2PublicKnowledgeSharesByTokenAskRequestWithBody(c.Server, token, contentType, body)
+func (c *Client) DeleteV2PlatformAdminsBySubject(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2PlatformAdminsBySubjectRequest(c.Server, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -8128,8 +8170,236 @@ func (c *Client) PostV2PublicKnowledgeSharesByTokenAskWithBody(ctx context.Conte
 	return c.Client.Do(req)
 }
 
-func (c *Client) PostV2PublicKnowledgeSharesByTokenAsk(ctx context.Context, token string, body PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2PublicKnowledgeSharesByTokenAskRequest(c.Server, token, body)
+func (c *Client) PutV2PlatformAdminsBySubjectWithBody(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2PlatformAdminsBySubjectRequestWithBody(c.Server, subject, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2PlatformAdminsBySubject(ctx context.Context, subject string, body PutV2PlatformAdminsBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2PlatformAdminsBySubjectRequest(c.Server, subject, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2PlatformWorkspaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2PlatformWorkspacesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2PlatformWorkspacesWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2PlatformWorkspacesRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2PlatformWorkspaces(ctx context.Context, body PostV2PlatformWorkspacesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2PlatformWorkspacesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2PlatformWorkspacesByWorkspaceIdMembers(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2PlatformWorkspacesByWorkspaceIdMembersRequest(c.Server, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx context.Context, workspaceId string, subject string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest(c.Server, workspaceId, subject)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBody(ctx context.Context, workspaceId string, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequestWithBody(c.Server, workspaceId, subject, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest(c.Server, workspaceId, subject, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RetrievalCollections(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RetrievalCollectionsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RetrievalCollectionsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RetrievalCollectionsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RetrievalCollections(ctx context.Context, body PostV2RetrievalCollectionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RetrievalCollectionsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2RetrievalCollectionsByCollectionId(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2RetrievalCollectionsByCollectionIdRequest(c.Server, collectionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RetrievalCollectionsByCollectionIdDocuments(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RetrievalCollectionsByCollectionIdDocumentsRequest(c.Server, collectionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RetrievalCollectionsByCollectionIdDocumentsWithBody(ctx context.Context, collectionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RetrievalCollectionsByCollectionIdDocumentsRequestWithBody(c.Server, collectionId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2RetrievalDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2RetrievalDocumentsByDocumentIdRequest(c.Server, documentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RetrievalDocumentsByDocumentId(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RetrievalDocumentsByDocumentIdRequest(c.Server, documentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2RetrievalIngestionJobsByJobId(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2RetrievalIngestionJobsByJobIdRequest(c.Server, jobId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RetrievalSearchWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RetrievalSearchRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2RetrievalSearch(ctx context.Context, body PostV2RetrievalSearchJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2RetrievalSearchRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -9952,6 +10222,18 @@ func (c *Client) GetV2Spans(ctx context.Context, params *GetV2SpansParams, reqEd
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetV2SpeechRealtime(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SpeechRealtimeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PostV2SubagentsReapOrphansWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2SubagentsReapOrphansRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -10002,114 +10284,6 @@ func (c *Client) GetV2TracesByTraceId(ctx context.Context, traceId string, param
 
 func (c *Client) GetV2TracesByTraceIdSpansBySpanId(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2TracesByTraceIdSpansBySpanIdRequest(c.Server, traceId, spanId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) GetV2WorkbenchProjects(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2WorkbenchProjectsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjectsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjects(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchV2WorkbenchProjectsByProjectIdWithBody(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(c.Server, projectId, params, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PatchV2WorkbenchProjectsByProjectId(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPatchV2WorkbenchProjectsByProjectIdRequest(c.Server, projectId, params, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningRequest(c.Server, projectId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStartParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest(c.Server, projectId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStopParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest(c.Server, projectId, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) PostV2WorkbenchProjectsByProjectIdSync(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdSyncParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPostV2WorkbenchProjectsByProjectIdSyncRequest(c.Server, projectId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -10314,6 +10488,54 @@ func (c *Client) GetV2WorkersByWorkerId(ctx context.Context, workerId string, re
 
 func (c *Client) PostV2WorkersByWorkerIdArchive(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2WorkersByWorkerIdArchiveRequest(c.Server, workerId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2WorkspaceMembers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2WorkspaceMembersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2WorkspaceMembersBySubject(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2WorkspaceMembersBySubjectRequest(c.Server, subject)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2WorkspaceMembersBySubjectWithBody(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2WorkspaceMembersBySubjectRequestWithBody(c.Server, subject, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2WorkspaceMembersBySubject(ctx context.Context, subject string, body PutV2WorkspaceMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2WorkspaceMembersBySubjectRequest(c.Server, subject, body)
 	if err != nil {
 		return nil, err
 	}
@@ -10635,6 +10857,33 @@ func NewPostV2AchievementLibraryByItemIdReferenceRequestWithBody(server string, 
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2AdministrationContextRequest generates requests for GetV2AdministrationContext
+func NewGetV2AdministrationContextRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/administration/context")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -11423,6 +11672,73 @@ func NewGetV2AuthMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewPostV2AuthTokenExchangeRequest calls the generic PostV2AuthTokenExchange builder with application/json body
+func NewPostV2AuthTokenExchangeRequest(server string, body PostV2AuthTokenExchangeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2AuthTokenExchangeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2AuthTokenExchangeRequestWithBody generates requests for PostV2AuthTokenExchange with any type of body
+func NewPostV2AuthTokenExchangeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/auth/token-exchange")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2ConsoleContextRequest generates requests for GetV2ConsoleContext
+func NewGetV2ConsoleContextRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/console/context")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetV2EnvironmentVariablesRequest generates requests for GetV2EnvironmentVariables
 func NewGetV2EnvironmentVariablesRequest(server string, params *GetV2EnvironmentVariablesParams) (*http.Request, error) {
 	var err error
@@ -12110,589 +12426,6 @@ func NewGetV2EvaluationRubricsByRubricIdRequest(server string, rubricId string) 
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetV2KnowledgeBasesRequest generates requests for GetV2KnowledgeBases
-func NewGetV2KnowledgeBasesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/bases")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeBasesRequest calls the generic PostV2KnowledgeBases builder with application/json body
-func NewPostV2KnowledgeBasesRequest(server string, body PostV2KnowledgeBasesJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2KnowledgeBasesRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewPostV2KnowledgeBasesRequestWithBody generates requests for PostV2KnowledgeBases with any type of body
-func NewPostV2KnowledgeBasesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/bases")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteV2KnowledgeBasesByBaseIdRequest generates requests for DeleteV2KnowledgeBasesByBaseId
-func NewDeleteV2KnowledgeBasesByBaseIdRequest(server string, baseId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "base_id", runtime.ParamLocationPath, baseId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/bases/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetV2KnowledgeBasesByBaseIdDocumentsRequest generates requests for GetV2KnowledgeBasesByBaseIdDocuments
-func NewGetV2KnowledgeBasesByBaseIdDocumentsRequest(server string, baseId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "base_id", runtime.ParamLocationPath, baseId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/bases/%s/documents", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeBasesByBaseIdDocumentsRequestWithBody generates requests for PostV2KnowledgeBasesByBaseIdDocuments with any type of body
-func NewPostV2KnowledgeBasesByBaseIdDocumentsRequestWithBody(server string, baseId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "base_id", runtime.ParamLocationPath, baseId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/bases/%s/documents", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteV2KnowledgeDocumentsByDocumentIdRequest generates requests for DeleteV2KnowledgeDocumentsByDocumentId
-func NewDeleteV2KnowledgeDocumentsByDocumentIdRequest(server string, documentId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "document_id", runtime.ParamLocationPath, documentId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/documents/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetV2KnowledgeServicesRequest generates requests for GetV2KnowledgeServices
-func NewGetV2KnowledgeServicesRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeServicesRequest calls the generic PostV2KnowledgeServices builder with application/json body
-func NewPostV2KnowledgeServicesRequest(server string, body PostV2KnowledgeServicesJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2KnowledgeServicesRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewPostV2KnowledgeServicesRequestWithBody generates requests for PostV2KnowledgeServices with any type of body
-func NewPostV2KnowledgeServicesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteV2KnowledgeServicesByServiceIdRequest generates requests for DeleteV2KnowledgeServicesByServiceId
-func NewDeleteV2KnowledgeServicesByServiceIdRequest(server string, serviceId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetV2KnowledgeServicesByServiceIdRequest generates requests for GetV2KnowledgeServicesByServiceId
-func NewGetV2KnowledgeServicesByServiceIdRequest(server string, serviceId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPatchV2KnowledgeServicesByServiceIdRequest calls the generic PatchV2KnowledgeServicesByServiceId builder with application/json body
-func NewPatchV2KnowledgeServicesByServiceIdRequest(server string, serviceId string, body PatchV2KnowledgeServicesByServiceIdJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPatchV2KnowledgeServicesByServiceIdRequestWithBody(server, serviceId, "application/json", bodyReader)
-}
-
-// NewPatchV2KnowledgeServicesByServiceIdRequestWithBody generates requests for PatchV2KnowledgeServicesByServiceId with any type of body
-func NewPatchV2KnowledgeServicesByServiceIdRequestWithBody(server string, serviceId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("PATCH", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeServicesByServiceIdAskRequest calls the generic PostV2KnowledgeServicesByServiceIdAsk builder with application/json body
-func NewPostV2KnowledgeServicesByServiceIdAskRequest(server string, serviceId string, body PostV2KnowledgeServicesByServiceIdAskJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2KnowledgeServicesByServiceIdAskRequestWithBody(server, serviceId, "application/json", bodyReader)
-}
-
-// NewPostV2KnowledgeServicesByServiceIdAskRequestWithBody generates requests for PostV2KnowledgeServicesByServiceIdAsk with any type of body
-func NewPostV2KnowledgeServicesByServiceIdAskRequestWithBody(server string, serviceId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s/ask", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewGetV2KnowledgeServicesByServiceIdSharesRequest generates requests for GetV2KnowledgeServicesByServiceIdShares
-func NewGetV2KnowledgeServicesByServiceIdSharesRequest(server string, serviceId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s/shares", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeServicesByServiceIdSharesRequest calls the generic PostV2KnowledgeServicesByServiceIdShares builder with application/json body
-func NewPostV2KnowledgeServicesByServiceIdSharesRequest(server string, serviceId string, body PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2KnowledgeServicesByServiceIdSharesRequestWithBody(server, serviceId, "application/json", bodyReader)
-}
-
-// NewPostV2KnowledgeServicesByServiceIdSharesRequestWithBody generates requests for PostV2KnowledgeServicesByServiceIdShares with any type of body
-func NewPostV2KnowledgeServicesByServiceIdSharesRequestWithBody(server string, serviceId string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "service_id", runtime.ParamLocationPath, serviceId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/services/%s/shares", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewDeleteV2KnowledgeSharesByShareIdRequest generates requests for DeleteV2KnowledgeSharesByShareId
-func NewDeleteV2KnowledgeSharesByShareIdRequest(server string, shareId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "share_id", runtime.ParamLocationPath, shareId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/shares/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2KnowledgeSharesByShareIdRevokeRequest generates requests for PostV2KnowledgeSharesByShareIdRevoke
-func NewPostV2KnowledgeSharesByShareIdRevokeRequest(server string, shareId string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "share_id", runtime.ParamLocationPath, shareId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/knowledge/shares/%s/revoke", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -13703,6 +13436,303 @@ func NewPostV2McpServersByServerIdVersionsByVersionRestoreRequest(server string,
 	return req, nil
 }
 
+// NewPostV2ModelRuntimeEmbeddingsRequest calls the generic PostV2ModelRuntimeEmbeddings builder with application/json body
+func NewPostV2ModelRuntimeEmbeddingsRequest(server string, body PostV2ModelRuntimeEmbeddingsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ModelRuntimeEmbeddingsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ModelRuntimeEmbeddingsRequestWithBody generates requests for PostV2ModelRuntimeEmbeddings with any type of body
+func NewPostV2ModelRuntimeEmbeddingsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/model-runtime/embeddings")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2ModelRuntimeGenerateRequest calls the generic PostV2ModelRuntimeGenerate builder with application/json body
+func NewPostV2ModelRuntimeGenerateRequest(server string, body PostV2ModelRuntimeGenerateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ModelRuntimeGenerateRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ModelRuntimeGenerateRequestWithBody generates requests for PostV2ModelRuntimeGenerate with any type of body
+func NewPostV2ModelRuntimeGenerateRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/model-runtime/generate")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2ModelRuntimeInvocationsRequest generates requests for GetV2ModelRuntimeInvocations
+func NewGetV2ModelRuntimeInvocationsRequest(server string, params *GetV2ModelRuntimeInvocationsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/model-runtime/invocations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.PrincipalId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "principal_id", runtime.ParamLocationQuery, *params.PrincipalId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ServiceIdentityId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "service_identity_id", runtime.ParamLocationQuery, *params.ServiceIdentityId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Capability != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "capability", runtime.ParamLocationQuery, *params.Capability); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ProviderId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "provider_id", runtime.ParamLocationQuery, *params.ProviderId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Model != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "model", runtime.ParamLocationQuery, *params.Model); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "status", runtime.ParamLocationQuery, *params.Status); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.From != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "from", runtime.ParamLocationQuery, *params.From); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.To != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "to", runtime.ParamLocationQuery, *params.To); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2ModelRuntimeRerankRequest calls the generic PostV2ModelRuntimeRerank builder with application/json body
+func NewPostV2ModelRuntimeRerankRequest(server string, body PostV2ModelRuntimeRerankJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ModelRuntimeRerankRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ModelRuntimeRerankRequestWithBody generates requests for PostV2ModelRuntimeRerank with any type of body
+func NewPostV2ModelRuntimeRerankRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/model-runtime/rerank")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetV2ObjectCleanupJobsRequest generates requests for GetV2ObjectCleanupJobs
 func NewGetV2ObjectCleanupJobsRequest(server string, params *GetV2ObjectCleanupJobsParams) (*http.Request, error) {
 	var err error
@@ -14493,23 +14523,16 @@ func NewGetV2OperatorAuditRequest(server string, params *GetV2OperatorAuditParam
 	return req, nil
 }
 
-// NewGetV2PublicKnowledgeSharesByTokenRequest generates requests for GetV2PublicKnowledgeSharesByToken
-func NewGetV2PublicKnowledgeSharesByTokenRequest(server string, token string) (*http.Request, error) {
+// NewGetV2PlatformAdminsRequest generates requests for GetV2PlatformAdmins
+func NewGetV2PlatformAdminsRequest(server string) (*http.Request, error) {
 	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "token", runtime.ParamLocationPath, token)
-	if err != nil {
-		return nil, err
-	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/v2/public/knowledge-shares/%s", pathParam0)
+	operationPath := fmt.Sprintf("/v2/platform/admins")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -14527,24 +14550,13 @@ func NewGetV2PublicKnowledgeSharesByTokenRequest(server string, token string) (*
 	return req, nil
 }
 
-// NewPostV2PublicKnowledgeSharesByTokenAskRequest calls the generic PostV2PublicKnowledgeSharesByTokenAsk builder with application/json body
-func NewPostV2PublicKnowledgeSharesByTokenAskRequest(server string, token string, body PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2PublicKnowledgeSharesByTokenAskRequestWithBody(server, token, "application/json", bodyReader)
-}
-
-// NewPostV2PublicKnowledgeSharesByTokenAskRequestWithBody generates requests for PostV2PublicKnowledgeSharesByTokenAsk with any type of body
-func NewPostV2PublicKnowledgeSharesByTokenAskRequestWithBody(server string, token string, contentType string, body io.Reader) (*http.Request, error) {
+// NewDeleteV2PlatformAdminsBySubjectRequest generates requests for DeleteV2PlatformAdminsBySubject
+func NewDeleteV2PlatformAdminsBySubjectRequest(server string, subject string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "token", runtime.ParamLocationPath, token)
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
 	if err != nil {
 		return nil, err
 	}
@@ -14554,7 +14566,561 @@ func NewPostV2PublicKnowledgeSharesByTokenAskRequestWithBody(server string, toke
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/v2/public/knowledge-shares/%s/ask", pathParam0)
+	operationPath := fmt.Sprintf("/v2/platform/admins/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2PlatformAdminsBySubjectRequest calls the generic PutV2PlatformAdminsBySubject builder with application/json body
+func NewPutV2PlatformAdminsBySubjectRequest(server string, subject string, body PutV2PlatformAdminsBySubjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2PlatformAdminsBySubjectRequestWithBody(server, subject, "application/json", bodyReader)
+}
+
+// NewPutV2PlatformAdminsBySubjectRequestWithBody generates requests for PutV2PlatformAdminsBySubject with any type of body
+func NewPutV2PlatformAdminsBySubjectRequestWithBody(server string, subject string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/admins/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2PlatformWorkspacesRequest generates requests for GetV2PlatformWorkspaces
+func NewGetV2PlatformWorkspacesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/workspaces")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2PlatformWorkspacesRequest calls the generic PostV2PlatformWorkspaces builder with application/json body
+func NewPostV2PlatformWorkspacesRequest(server string, body PostV2PlatformWorkspacesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2PlatformWorkspacesRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2PlatformWorkspacesRequestWithBody generates requests for PostV2PlatformWorkspaces with any type of body
+func NewPostV2PlatformWorkspacesRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/workspaces")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2PlatformWorkspacesByWorkspaceIdMembersRequest generates requests for GetV2PlatformWorkspacesByWorkspaceIdMembers
+func NewGetV2PlatformWorkspacesByWorkspaceIdMembersRequest(server string, workspaceId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/workspaces/%s/members", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest generates requests for DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubject
+func NewDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest(server string, workspaceId string, subject string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/workspaces/%s/members/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest calls the generic PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject builder with application/json body
+func NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequest(server string, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequestWithBody(server, workspaceId, subject, "application/json", bodyReader)
+}
+
+// NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequestWithBody generates requests for PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject with any type of body
+func NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequestWithBody(server string, workspaceId string, subject string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "workspace_id", runtime.ParamLocationPath, workspaceId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/platform/workspaces/%s/members/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2RetrievalCollectionsRequest generates requests for GetV2RetrievalCollections
+func NewGetV2RetrievalCollectionsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/collections")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2RetrievalCollectionsRequest calls the generic PostV2RetrievalCollections builder with application/json body
+func NewPostV2RetrievalCollectionsRequest(server string, body PostV2RetrievalCollectionsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2RetrievalCollectionsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2RetrievalCollectionsRequestWithBody generates requests for PostV2RetrievalCollections with any type of body
+func NewPostV2RetrievalCollectionsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/collections")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteV2RetrievalCollectionsByCollectionIdRequest generates requests for DeleteV2RetrievalCollectionsByCollectionId
+func NewDeleteV2RetrievalCollectionsByCollectionIdRequest(server string, collectionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "collection_id", runtime.ParamLocationPath, collectionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/collections/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2RetrievalCollectionsByCollectionIdDocumentsRequest generates requests for GetV2RetrievalCollectionsByCollectionIdDocuments
+func NewGetV2RetrievalCollectionsByCollectionIdDocumentsRequest(server string, collectionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "collection_id", runtime.ParamLocationPath, collectionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/collections/%s/documents", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2RetrievalCollectionsByCollectionIdDocumentsRequestWithBody generates requests for PostV2RetrievalCollectionsByCollectionIdDocuments with any type of body
+func NewPostV2RetrievalCollectionsByCollectionIdDocumentsRequestWithBody(server string, collectionId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "collection_id", runtime.ParamLocationPath, collectionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/collections/%s/documents", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteV2RetrievalDocumentsByDocumentIdRequest generates requests for DeleteV2RetrievalDocumentsByDocumentId
+func NewDeleteV2RetrievalDocumentsByDocumentIdRequest(server string, documentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "document_id", runtime.ParamLocationPath, documentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/documents/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2RetrievalDocumentsByDocumentIdRequest generates requests for GetV2RetrievalDocumentsByDocumentId
+func NewGetV2RetrievalDocumentsByDocumentIdRequest(server string, documentId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "document_id", runtime.ParamLocationPath, documentId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/documents/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2RetrievalIngestionJobsByJobIdRequest generates requests for GetV2RetrievalIngestionJobsByJobId
+func NewGetV2RetrievalIngestionJobsByJobIdRequest(server string, jobId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "job_id", runtime.ParamLocationPath, jobId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/ingestion-jobs/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2RetrievalSearchRequest calls the generic PostV2RetrievalSearch builder with application/json body
+func NewPostV2RetrievalSearchRequest(server string, body PostV2RetrievalSearchJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2RetrievalSearchRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2RetrievalSearchRequestWithBody generates requests for PostV2RetrievalSearch with any type of body
+func NewPostV2RetrievalSearchRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/retrieval/search")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -19927,6 +20493,33 @@ func NewGetV2SpansRequest(server string, params *GetV2SpansParams) (*http.Reques
 	return req, nil
 }
 
+// NewGetV2SpeechRealtimeRequest generates requests for GetV2SpeechRealtime
+func NewGetV2SpeechRealtimeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/speech/realtime")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPostV2SubagentsReapOrphansRequest calls the generic PostV2SubagentsReapOrphans builder with application/json body
 func NewPostV2SubagentsReapOrphansRequest(server string, body PostV2SubagentsReapOrphansJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -20240,404 +20833,6 @@ func NewGetV2TracesByTraceIdSpansBySpanIdRequest(server string, traceId string, 
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetV2WorkbenchProjectsRequest generates requests for GetV2WorkbenchProjects
-func NewGetV2WorkbenchProjectsRequest(server string, params *GetV2WorkbenchProjectsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		if params.PluginId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "plugin_id", runtime.ParamLocationQuery, *params.PluginId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2WorkbenchProjectsRequest calls the generic PostV2WorkbenchProjects builder with application/json body
-func NewPostV2WorkbenchProjectsRequest(server string, body PostV2WorkbenchProjectsJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPostV2WorkbenchProjectsRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewPostV2WorkbenchProjectsRequestWithBody generates requests for PostV2WorkbenchProjects with any type of body
-func NewPostV2WorkbenchProjectsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewPatchV2WorkbenchProjectsByProjectIdRequest calls the generic PatchV2WorkbenchProjectsByProjectId builder with application/json body
-func NewPatchV2WorkbenchProjectsByProjectIdRequest(server string, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(server, projectId, params, "application/json", bodyReader)
-}
-
-// NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody generates requests for PatchV2WorkbenchProjectsByProjectId with any type of body
-func NewPatchV2WorkbenchProjectsByProjectIdRequestWithBody(server string, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("PATCH", queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewPostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningRequest generates requests for PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning
-func NewPostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningRequest(server string, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/runtime/run-cleaning", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest generates requests for PostV2WorkbenchProjectsByProjectIdRuntimeStart
-func NewPostV2WorkbenchProjectsByProjectIdRuntimeStartRequest(server string, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStartParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/runtime/start", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest generates requests for PostV2WorkbenchProjectsByProjectIdRuntimeStop
-func NewPostV2WorkbenchProjectsByProjectIdRuntimeStopRequest(server string, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStopParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/runtime/stop", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewPostV2WorkbenchProjectsByProjectIdSyncRequest generates requests for PostV2WorkbenchProjectsByProjectIdSync
-func NewPostV2WorkbenchProjectsByProjectIdSyncRequest(server string, projectId string, params *PostV2WorkbenchProjectsByProjectIdSyncParams) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "project_id", runtime.ParamLocationPath, projectId)
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/v2/workbench-projects/%s/sync", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		queryValues := queryURL.Query()
-
-		if params.WorkspaceId != nil {
-
-			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
-				return nil, err
-			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
-				return nil, err
-			} else {
-				for k, v := range parsed {
-					for _, v2 := range v {
-						queryValues.Add(k, v2)
-					}
-				}
-			}
-
-		}
-
-		queryURL.RawQuery = queryValues.Encode()
-	}
-
-	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -21100,6 +21295,114 @@ func NewPostV2WorkersByWorkerIdArchiveRequest(server string, workerId string) (*
 	return req, nil
 }
 
+// NewGetV2WorkspaceMembersRequest generates requests for GetV2WorkspaceMembers
+func NewGetV2WorkspaceMembersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspace/members")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteV2WorkspaceMembersBySubjectRequest generates requests for DeleteV2WorkspaceMembersBySubject
+func NewDeleteV2WorkspaceMembersBySubjectRequest(server string, subject string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspace/members/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2WorkspaceMembersBySubjectRequest calls the generic PutV2WorkspaceMembersBySubject builder with application/json body
+func NewPutV2WorkspaceMembersBySubjectRequest(server string, subject string, body PutV2WorkspaceMembersBySubjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2WorkspaceMembersBySubjectRequestWithBody(server, subject, "application/json", bodyReader)
+}
+
+// NewPutV2WorkspaceMembersBySubjectRequestWithBody generates requests for PutV2WorkspaceMembersBySubject with any type of body
+func NewPutV2WorkspaceMembersBySubjectRequestWithBody(server string, subject string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subject", runtime.ParamLocationPath, subject)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/workspace/members/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetV2WorkspacesByWorkspaceIdToolPermissionsRequest generates requests for GetV2WorkspacesByWorkspaceIdToolPermissions
 func NewGetV2WorkspacesByWorkspaceIdToolPermissionsRequest(server string, workspaceId string) (*http.Request, error) {
 	var err error
@@ -21303,6 +21606,9 @@ type ClientWithResponsesInterface interface {
 
 	PostV2AchievementLibraryByItemIdReferenceWithResponse(ctx context.Context, itemId string, body PostV2AchievementLibraryByItemIdReferenceJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AchievementLibraryByItemIdReferenceResponse, error)
 
+	// GetV2AdministrationContextWithResponse request
+	GetV2AdministrationContextWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AdministrationContextResponse, error)
+
 	// GetV2AgentDiscussionStrategiesWithResponse request
 	GetV2AgentDiscussionStrategiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentDiscussionStrategiesResponse, error)
 
@@ -21380,6 +21686,14 @@ type ClientWithResponsesInterface interface {
 	// GetV2AuthMeWithResponse request
 	GetV2AuthMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AuthMeResponse, error)
 
+	// PostV2AuthTokenExchangeWithBodyWithResponse request with any body
+	PostV2AuthTokenExchangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error)
+
+	PostV2AuthTokenExchangeWithResponse(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error)
+
+	// GetV2ConsoleContextWithResponse request
+	GetV2ConsoleContextWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2ConsoleContextResponse, error)
+
 	// GetV2EnvironmentVariablesWithResponse request
 	GetV2EnvironmentVariablesWithResponse(ctx context.Context, params *GetV2EnvironmentVariablesParams, reqEditors ...RequestEditorFn) (*GetV2EnvironmentVariablesResponse, error)
 
@@ -21437,64 +21751,6 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2EvaluationRubricsByRubricIdWithResponse request
 	GetV2EvaluationRubricsByRubricIdWithResponse(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsByRubricIdResponse, error)
-
-	// GetV2KnowledgeBasesWithResponse request
-	GetV2KnowledgeBasesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2KnowledgeBasesResponse, error)
-
-	// PostV2KnowledgeBasesWithBodyWithResponse request with any body
-	PostV2KnowledgeBasesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesResponse, error)
-
-	PostV2KnowledgeBasesWithResponse(ctx context.Context, body PostV2KnowledgeBasesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesResponse, error)
-
-	// DeleteV2KnowledgeBasesByBaseIdWithResponse request
-	DeleteV2KnowledgeBasesByBaseIdWithResponse(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeBasesByBaseIdResponse, error)
-
-	// GetV2KnowledgeBasesByBaseIdDocumentsWithResponse request
-	GetV2KnowledgeBasesByBaseIdDocumentsWithResponse(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeBasesByBaseIdDocumentsResponse, error)
-
-	// PostV2KnowledgeBasesByBaseIdDocumentsWithBodyWithResponse request with any body
-	PostV2KnowledgeBasesByBaseIdDocumentsWithBodyWithResponse(ctx context.Context, baseId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesByBaseIdDocumentsResponse, error)
-
-	// DeleteV2KnowledgeDocumentsByDocumentIdWithResponse request
-	DeleteV2KnowledgeDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeDocumentsByDocumentIdResponse, error)
-
-	// GetV2KnowledgeServicesWithResponse request
-	GetV2KnowledgeServicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesResponse, error)
-
-	// PostV2KnowledgeServicesWithBodyWithResponse request with any body
-	PostV2KnowledgeServicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesResponse, error)
-
-	PostV2KnowledgeServicesWithResponse(ctx context.Context, body PostV2KnowledgeServicesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesResponse, error)
-
-	// DeleteV2KnowledgeServicesByServiceIdWithResponse request
-	DeleteV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeServicesByServiceIdResponse, error)
-
-	// GetV2KnowledgeServicesByServiceIdWithResponse request
-	GetV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesByServiceIdResponse, error)
-
-	// PatchV2KnowledgeServicesByServiceIdWithBodyWithResponse request with any body
-	PatchV2KnowledgeServicesByServiceIdWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2KnowledgeServicesByServiceIdResponse, error)
-
-	PatchV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, body PatchV2KnowledgeServicesByServiceIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2KnowledgeServicesByServiceIdResponse, error)
-
-	// PostV2KnowledgeServicesByServiceIdAskWithBodyWithResponse request with any body
-	PostV2KnowledgeServicesByServiceIdAskWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdAskResponse, error)
-
-	PostV2KnowledgeServicesByServiceIdAskWithResponse(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdAskJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdAskResponse, error)
-
-	// GetV2KnowledgeServicesByServiceIdSharesWithResponse request
-	GetV2KnowledgeServicesByServiceIdSharesWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesByServiceIdSharesResponse, error)
-
-	// PostV2KnowledgeServicesByServiceIdSharesWithBodyWithResponse request with any body
-	PostV2KnowledgeServicesByServiceIdSharesWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdSharesResponse, error)
-
-	PostV2KnowledgeServicesByServiceIdSharesWithResponse(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdSharesResponse, error)
-
-	// DeleteV2KnowledgeSharesByShareIdWithResponse request
-	DeleteV2KnowledgeSharesByShareIdWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeSharesByShareIdResponse, error)
-
-	// PostV2KnowledgeSharesByShareIdRevokeWithResponse request
-	PostV2KnowledgeSharesByShareIdRevokeWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*PostV2KnowledgeSharesByShareIdRevokeResponse, error)
 
 	// GetV2LlmModelsWithResponse request
 	GetV2LlmModelsWithResponse(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*GetV2LlmModelsResponse, error)
@@ -21578,6 +21834,24 @@ type ClientWithResponsesInterface interface {
 	// PostV2McpServersByServerIdVersionsByVersionRestoreWithResponse request
 	PostV2McpServersByServerIdVersionsByVersionRestoreWithResponse(ctx context.Context, serverId string, version int32, reqEditors ...RequestEditorFn) (*PostV2McpServersByServerIdVersionsByVersionRestoreResponse, error)
 
+	// PostV2ModelRuntimeEmbeddingsWithBodyWithResponse request with any body
+	PostV2ModelRuntimeEmbeddingsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeEmbeddingsResponse, error)
+
+	PostV2ModelRuntimeEmbeddingsWithResponse(ctx context.Context, body PostV2ModelRuntimeEmbeddingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeEmbeddingsResponse, error)
+
+	// PostV2ModelRuntimeGenerateWithBodyWithResponse request with any body
+	PostV2ModelRuntimeGenerateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeGenerateResponse, error)
+
+	PostV2ModelRuntimeGenerateWithResponse(ctx context.Context, body PostV2ModelRuntimeGenerateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeGenerateResponse, error)
+
+	// GetV2ModelRuntimeInvocationsWithResponse request
+	GetV2ModelRuntimeInvocationsWithResponse(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*GetV2ModelRuntimeInvocationsResponse, error)
+
+	// PostV2ModelRuntimeRerankWithBodyWithResponse request with any body
+	PostV2ModelRuntimeRerankWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error)
+
+	PostV2ModelRuntimeRerankWithResponse(ctx context.Context, body PostV2ModelRuntimeRerankJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error)
+
 	// GetV2ObjectCleanupJobsWithResponse request
 	GetV2ObjectCleanupJobsWithResponse(ctx context.Context, params *GetV2ObjectCleanupJobsParams, reqEditors ...RequestEditorFn) (*GetV2ObjectCleanupJobsResponse, error)
 
@@ -21631,13 +21905,66 @@ type ClientWithResponsesInterface interface {
 	// GetV2OperatorAuditWithResponse request
 	GetV2OperatorAuditWithResponse(ctx context.Context, params *GetV2OperatorAuditParams, reqEditors ...RequestEditorFn) (*GetV2OperatorAuditResponse, error)
 
-	// GetV2PublicKnowledgeSharesByTokenWithResponse request
-	GetV2PublicKnowledgeSharesByTokenWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetV2PublicKnowledgeSharesByTokenResponse, error)
+	// GetV2PlatformAdminsWithResponse request
+	GetV2PlatformAdminsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2PlatformAdminsResponse, error)
 
-	// PostV2PublicKnowledgeSharesByTokenAskWithBodyWithResponse request with any body
-	PostV2PublicKnowledgeSharesByTokenAskWithBodyWithResponse(ctx context.Context, token string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2PublicKnowledgeSharesByTokenAskResponse, error)
+	// DeleteV2PlatformAdminsBySubjectWithResponse request
+	DeleteV2PlatformAdminsBySubjectWithResponse(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*DeleteV2PlatformAdminsBySubjectResponse, error)
 
-	PostV2PublicKnowledgeSharesByTokenAskWithResponse(ctx context.Context, token string, body PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2PublicKnowledgeSharesByTokenAskResponse, error)
+	// PutV2PlatformAdminsBySubjectWithBodyWithResponse request with any body
+	PutV2PlatformAdminsBySubjectWithBodyWithResponse(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2PlatformAdminsBySubjectResponse, error)
+
+	PutV2PlatformAdminsBySubjectWithResponse(ctx context.Context, subject string, body PutV2PlatformAdminsBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2PlatformAdminsBySubjectResponse, error)
+
+	// GetV2PlatformWorkspacesWithResponse request
+	GetV2PlatformWorkspacesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2PlatformWorkspacesResponse, error)
+
+	// PostV2PlatformWorkspacesWithBodyWithResponse request with any body
+	PostV2PlatformWorkspacesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2PlatformWorkspacesResponse, error)
+
+	PostV2PlatformWorkspacesWithResponse(ctx context.Context, body PostV2PlatformWorkspacesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2PlatformWorkspacesResponse, error)
+
+	// GetV2PlatformWorkspacesByWorkspaceIdMembersWithResponse request
+	GetV2PlatformWorkspacesByWorkspaceIdMembersWithResponse(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*GetV2PlatformWorkspacesByWorkspaceIdMembersResponse, error)
+
+	// DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse request
+	DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse(ctx context.Context, workspaceId string, subject string, reqEditors ...RequestEditorFn) (*DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error)
+
+	// PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBodyWithResponse request with any body
+	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBodyWithResponse(ctx context.Context, workspaceId string, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error)
+
+	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error)
+
+	// GetV2RetrievalCollectionsWithResponse request
+	GetV2RetrievalCollectionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsResponse, error)
+
+	// PostV2RetrievalCollectionsWithBodyWithResponse request with any body
+	PostV2RetrievalCollectionsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsResponse, error)
+
+	PostV2RetrievalCollectionsWithResponse(ctx context.Context, body PostV2RetrievalCollectionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsResponse, error)
+
+	// DeleteV2RetrievalCollectionsByCollectionIdWithResponse request
+	DeleteV2RetrievalCollectionsByCollectionIdWithResponse(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*DeleteV2RetrievalCollectionsByCollectionIdResponse, error)
+
+	// GetV2RetrievalCollectionsByCollectionIdDocumentsWithResponse request
+	GetV2RetrievalCollectionsByCollectionIdDocumentsWithResponse(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsByCollectionIdDocumentsResponse, error)
+
+	// PostV2RetrievalCollectionsByCollectionIdDocumentsWithBodyWithResponse request with any body
+	PostV2RetrievalCollectionsByCollectionIdDocumentsWithBodyWithResponse(ctx context.Context, collectionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsByCollectionIdDocumentsResponse, error)
+
+	// DeleteV2RetrievalDocumentsByDocumentIdWithResponse request
+	DeleteV2RetrievalDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*DeleteV2RetrievalDocumentsByDocumentIdResponse, error)
+
+	// GetV2RetrievalDocumentsByDocumentIdWithResponse request
+	GetV2RetrievalDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalDocumentsByDocumentIdResponse, error)
+
+	// GetV2RetrievalIngestionJobsByJobIdWithResponse request
+	GetV2RetrievalIngestionJobsByJobIdWithResponse(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalIngestionJobsByJobIdResponse, error)
+
+	// PostV2RetrievalSearchWithBodyWithResponse request with any body
+	PostV2RetrievalSearchWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalSearchResponse, error)
+
+	PostV2RetrievalSearchWithResponse(ctx context.Context, body PostV2RetrievalSearchJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RetrievalSearchResponse, error)
 
 	// GetV2RunComparisonsWithResponse request
 	GetV2RunComparisonsWithResponse(ctx context.Context, params *GetV2RunComparisonsParams, reqEditors ...RequestEditorFn) (*GetV2RunComparisonsResponse, error)
@@ -22048,6 +22375,9 @@ type ClientWithResponsesInterface interface {
 	// GetV2SpansWithResponse request
 	GetV2SpansWithResponse(ctx context.Context, params *GetV2SpansParams, reqEditors ...RequestEditorFn) (*GetV2SpansResponse, error)
 
+	// GetV2SpeechRealtimeWithResponse request
+	GetV2SpeechRealtimeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2SpeechRealtimeResponse, error)
+
 	// PostV2SubagentsReapOrphansWithBodyWithResponse request with any body
 	PostV2SubagentsReapOrphansWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SubagentsReapOrphansResponse, error)
 
@@ -22061,31 +22391,6 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2TracesByTraceIdSpansBySpanIdWithResponse request
 	GetV2TracesByTraceIdSpansBySpanIdWithResponse(ctx context.Context, traceId string, spanId string, params *GetV2TracesByTraceIdSpansBySpanIdParams, reqEditors ...RequestEditorFn) (*GetV2TracesByTraceIdSpansBySpanIdResponse, error)
-
-	// GetV2WorkbenchProjectsWithResponse request
-	GetV2WorkbenchProjectsWithResponse(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*GetV2WorkbenchProjectsResponse, error)
-
-	// PostV2WorkbenchProjectsWithBodyWithResponse request with any body
-	PostV2WorkbenchProjectsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error)
-
-	PostV2WorkbenchProjectsWithResponse(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error)
-
-	// PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse request with any body
-	PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error)
-
-	PatchV2WorkbenchProjectsByProjectIdWithResponse(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningWithResponse request
-	PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse request
-	PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStartParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error)
-
-	// PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse request
-	PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStopParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error)
-
-	// PostV2WorkbenchProjectsByProjectIdSyncWithResponse request
-	PostV2WorkbenchProjectsByProjectIdSyncWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdSyncParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error)
 
 	// PostV2WorkerWorkWithBodyWithResponse request with any body
 	PostV2WorkerWorkWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkerWorkResponse, error)
@@ -22131,6 +22436,17 @@ type ClientWithResponsesInterface interface {
 
 	// PostV2WorkersByWorkerIdArchiveWithResponse request
 	PostV2WorkersByWorkerIdArchiveWithResponse(ctx context.Context, workerId string, reqEditors ...RequestEditorFn) (*PostV2WorkersByWorkerIdArchiveResponse, error)
+
+	// GetV2WorkspaceMembersWithResponse request
+	GetV2WorkspaceMembersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2WorkspaceMembersResponse, error)
+
+	// DeleteV2WorkspaceMembersBySubjectWithResponse request
+	DeleteV2WorkspaceMembersBySubjectWithResponse(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*DeleteV2WorkspaceMembersBySubjectResponse, error)
+
+	// PutV2WorkspaceMembersBySubjectWithBodyWithResponse request with any body
+	PutV2WorkspaceMembersBySubjectWithBodyWithResponse(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2WorkspaceMembersBySubjectResponse, error)
+
+	PutV2WorkspaceMembersBySubjectWithResponse(ctx context.Context, subject string, body PutV2WorkspaceMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2WorkspaceMembersBySubjectResponse, error)
 
 	// GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse request
 	GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*GetV2WorkspacesByWorkspaceIdToolPermissionsResponse, error)
@@ -22253,6 +22569,29 @@ func (r PostV2AchievementLibraryByItemIdReferenceResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PostV2AchievementLibraryByItemIdReferenceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2AdministrationContextResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *AdministrationContext
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2AdministrationContextResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2AdministrationContextResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -22742,6 +23081,56 @@ func (r GetV2AuthMeResponse) StatusCode() int {
 	return 0
 }
 
+type PostV2AuthTokenExchangeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TokenExchangeResponse
+	JSON400      *ErrorEnvelope
+	JSON401      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON503      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2AuthTokenExchangeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2AuthTokenExchangeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2ConsoleContextResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ConsoleContext
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2ConsoleContextResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2ConsoleContextResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2EnvironmentVariablesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -23103,369 +23492,6 @@ func (r GetV2EvaluationRubricsByRubricIdResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2EvaluationRubricsByRubricIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2KnowledgeBasesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeBaseList
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2KnowledgeBasesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2KnowledgeBasesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeBasesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *KnowledgeBase
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeBasesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeBasesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteV2KnowledgeBasesByBaseIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteV2KnowledgeBasesByBaseIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteV2KnowledgeBasesByBaseIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2KnowledgeBasesByBaseIdDocumentsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeDocumentList
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2KnowledgeBasesByBaseIdDocumentsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2KnowledgeBasesByBaseIdDocumentsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeBasesByBaseIdDocumentsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *KnowledgeDocumentUploadResult
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeBasesByBaseIdDocumentsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeBasesByBaseIdDocumentsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteV2KnowledgeDocumentsByDocumentIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteV2KnowledgeDocumentsByDocumentIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteV2KnowledgeDocumentsByDocumentIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2KnowledgeServicesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeServiceList
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2KnowledgeServicesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2KnowledgeServicesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeServicesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *KnowledgeService
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeServicesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeServicesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteV2KnowledgeServicesByServiceIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteV2KnowledgeServicesByServiceIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteV2KnowledgeServicesByServiceIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2KnowledgeServicesByServiceIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeService
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2KnowledgeServicesByServiceIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2KnowledgeServicesByServiceIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PatchV2KnowledgeServicesByServiceIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeService
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PatchV2KnowledgeServicesByServiceIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PatchV2KnowledgeServicesByServiceIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeServicesByServiceIdAskResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeAnswer
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeServicesByServiceIdAskResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeServicesByServiceIdAskResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2KnowledgeServicesByServiceIdSharesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *KnowledgeShareList
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2KnowledgeServicesByServiceIdSharesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2KnowledgeServicesByServiceIdSharesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeServicesByServiceIdSharesResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *KnowledgeShareCreateResult
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeServicesByServiceIdSharesResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeServicesByServiceIdSharesResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type DeleteV2KnowledgeSharesByShareIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteV2KnowledgeSharesByShareIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteV2KnowledgeSharesByShareIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2KnowledgeSharesByShareIdRevokeResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2KnowledgeSharesByShareIdRevokeResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2KnowledgeSharesByShareIdRevokeResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -24023,6 +24049,117 @@ func (r PostV2McpServersByServerIdVersionsByVersionRestoreResponse) StatusCode()
 	return 0
 }
 
+type PostV2ModelRuntimeEmbeddingsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelEmbeddingResponse
+	JSON400      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON429      *ErrorEnvelope
+	JSON502      *ErrorEnvelope
+	JSON504      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ModelRuntimeEmbeddingsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ModelRuntimeEmbeddingsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2ModelRuntimeGenerateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelGenerateResponse
+	JSON400      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON429      *ErrorEnvelope
+	JSON502      *ErrorEnvelope
+	JSON504      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ModelRuntimeGenerateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ModelRuntimeGenerateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2ModelRuntimeInvocationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelInvocationReport
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2ModelRuntimeInvocationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2ModelRuntimeInvocationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2ModelRuntimeRerankResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRerankResponse
+	JSON400      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON429      *ErrorEnvelope
+	JSON502      *ErrorEnvelope
+	JSON504      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ModelRuntimeRerankResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ModelRuntimeRerankResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2ObjectCleanupJobsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -24366,15 +24503,16 @@ func (r GetV2OperatorAuditResponse) StatusCode() int {
 	return 0
 }
 
-type GetV2PublicKnowledgeSharesByTokenResponse struct {
+type GetV2PlatformAdminsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *PublicKnowledgeShare
+	JSON200      *PlatformRoleAssignmentList
+	JSON403      *ErrorEnvelope
 	JSONDefault  *ErrorEnvelope
 }
 
 // Status returns HTTPResponse.Status
-func (r GetV2PublicKnowledgeSharesByTokenResponse) Status() string {
+func (r GetV2PlatformAdminsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -24382,22 +24520,22 @@ func (r GetV2PublicKnowledgeSharesByTokenResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetV2PublicKnowledgeSharesByTokenResponse) StatusCode() int {
+func (r GetV2PlatformAdminsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-type PostV2PublicKnowledgeSharesByTokenAskResponse struct {
+type DeleteV2PlatformAdminsBySubjectResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	JSON200      *KnowledgeAnswer
+	JSON403      *ErrorEnvelope
 	JSONDefault  *ErrorEnvelope
 }
 
 // Status returns HTTPResponse.Status
-func (r PostV2PublicKnowledgeSharesByTokenAskResponse) Status() string {
+func (r DeleteV2PlatformAdminsBySubjectResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -24405,7 +24543,357 @@ func (r PostV2PublicKnowledgeSharesByTokenAskResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r PostV2PublicKnowledgeSharesByTokenAskResponse) StatusCode() int {
+func (r DeleteV2PlatformAdminsBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2PlatformAdminsBySubjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PlatformRoleAssignment
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2PlatformAdminsBySubjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2PlatformAdminsBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2PlatformWorkspacesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *TenantWorkspaceList
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2PlatformWorkspacesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2PlatformWorkspacesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2PlatformWorkspacesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *TenantWorkspace
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2PlatformWorkspacesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2PlatformWorkspacesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2PlatformWorkspacesByWorkspaceIdMembersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceMembershipList
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2PlatformWorkspacesByWorkspaceIdMembersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2PlatformWorkspacesByWorkspaceIdMembersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceMembership
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RetrievalCollectionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RetrievalCollectionList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RetrievalCollectionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RetrievalCollectionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2RetrievalCollectionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *RetrievalCollection
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2RetrievalCollectionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2RetrievalCollectionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2RetrievalCollectionsByCollectionIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2RetrievalCollectionsByCollectionIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2RetrievalCollectionsByCollectionIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RetrievalCollectionsByCollectionIdDocumentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RetrievalDocumentList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RetrievalCollectionsByCollectionIdDocumentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RetrievalCollectionsByCollectionIdDocumentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2RetrievalCollectionsByCollectionIdDocumentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *RetrievalDocumentUploadResult
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2RetrievalCollectionsByCollectionIdDocumentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2RetrievalCollectionsByCollectionIdDocumentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2RetrievalDocumentsByDocumentIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2RetrievalDocumentsByDocumentIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2RetrievalDocumentsByDocumentIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RetrievalDocumentsByDocumentIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RetrievalDocument
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RetrievalDocumentsByDocumentIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RetrievalDocumentsByDocumentIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2RetrievalIngestionJobsByJobIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RetrievalIngestionJob
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2RetrievalIngestionJobsByJobIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2RetrievalIngestionJobsByJobIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2RetrievalSearchResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RetrievalSearchResponse
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2RetrievalSearchResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2RetrievalSearchResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -26869,6 +27357,28 @@ func (r GetV2SpansResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2SpeechRealtimeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SpeechRealtimeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SpeechRealtimeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2SubagentsReapOrphansResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -26955,172 +27465,6 @@ func (r GetV2TracesByTraceIdSpansBySpanIdResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2TracesByTraceIdSpansBySpanIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type GetV2WorkbenchProjectsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProjectList
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r GetV2WorkbenchProjectsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r GetV2WorkbenchProjectsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2WorkbenchProjectsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON201      *WorkbenchProject
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2WorkbenchProjectsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2WorkbenchProjectsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PatchV2WorkbenchProjectsByProjectIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProject
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PatchV2WorkbenchProjectsByProjectIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PatchV2WorkbenchProjectsByProjectIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProjectRunCleaningResponse
-	JSON409      *ErrorEnvelope
-	JSON503      *ErrorEnvelope
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProject
-	JSON503      *ErrorEnvelope
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProject
-	JSON503      *ErrorEnvelope
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-type PostV2WorkbenchProjectsByProjectIdSyncResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *WorkbenchProject
-	JSON503      *ErrorEnvelope
-	JSONDefault  *ErrorEnvelope
-}
-
-// Status returns HTTPResponse.Status
-func (r PostV2WorkbenchProjectsByProjectIdSyncResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PostV2WorkbenchProjectsByProjectIdSyncResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -27380,6 +27724,79 @@ func (r PostV2WorkersByWorkerIdArchiveResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2WorkspaceMembersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceMembershipList
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2WorkspaceMembersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2WorkspaceMembersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2WorkspaceMembersBySubjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2WorkspaceMembersBySubjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2WorkspaceMembersBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2WorkspaceMembersBySubjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *WorkspaceMembership
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2WorkspaceMembersBySubjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2WorkspaceMembersBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2WorkspacesByWorkspaceIdToolPermissionsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -27508,6 +27925,15 @@ func (c *ClientWithResponses) PostV2AchievementLibraryByItemIdReferenceWithRespo
 		return nil, err
 	}
 	return ParsePostV2AchievementLibraryByItemIdReferenceResponse(rsp)
+}
+
+// GetV2AdministrationContextWithResponse request returning *GetV2AdministrationContextResponse
+func (c *ClientWithResponses) GetV2AdministrationContextWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AdministrationContextResponse, error) {
+	rsp, err := c.GetV2AdministrationContext(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2AdministrationContextResponse(rsp)
 }
 
 // GetV2AgentDiscussionStrategiesWithResponse request returning *GetV2AgentDiscussionStrategiesResponse
@@ -27755,6 +28181,32 @@ func (c *ClientWithResponses) GetV2AuthMeWithResponse(ctx context.Context, reqEd
 	return ParseGetV2AuthMeResponse(rsp)
 }
 
+// PostV2AuthTokenExchangeWithBodyWithResponse request with arbitrary body returning *PostV2AuthTokenExchangeResponse
+func (c *ClientWithResponses) PostV2AuthTokenExchangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error) {
+	rsp, err := c.PostV2AuthTokenExchangeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AuthTokenExchangeResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2AuthTokenExchangeWithResponse(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error) {
+	rsp, err := c.PostV2AuthTokenExchange(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2AuthTokenExchangeResponse(rsp)
+}
+
+// GetV2ConsoleContextWithResponse request returning *GetV2ConsoleContextResponse
+func (c *ClientWithResponses) GetV2ConsoleContextWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2ConsoleContextResponse, error) {
+	rsp, err := c.GetV2ConsoleContext(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2ConsoleContextResponse(rsp)
+}
+
 // GetV2EnvironmentVariablesWithResponse request returning *GetV2EnvironmentVariablesResponse
 func (c *ClientWithResponses) GetV2EnvironmentVariablesWithResponse(ctx context.Context, params *GetV2EnvironmentVariablesParams, reqEditors ...RequestEditorFn) (*GetV2EnvironmentVariablesResponse, error) {
 	rsp, err := c.GetV2EnvironmentVariables(ctx, params, reqEditors...)
@@ -27937,190 +28389,6 @@ func (c *ClientWithResponses) GetV2EvaluationRubricsByRubricIdWithResponse(ctx c
 		return nil, err
 	}
 	return ParseGetV2EvaluationRubricsByRubricIdResponse(rsp)
-}
-
-// GetV2KnowledgeBasesWithResponse request returning *GetV2KnowledgeBasesResponse
-func (c *ClientWithResponses) GetV2KnowledgeBasesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2KnowledgeBasesResponse, error) {
-	rsp, err := c.GetV2KnowledgeBases(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2KnowledgeBasesResponse(rsp)
-}
-
-// PostV2KnowledgeBasesWithBodyWithResponse request with arbitrary body returning *PostV2KnowledgeBasesResponse
-func (c *ClientWithResponses) PostV2KnowledgeBasesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesResponse, error) {
-	rsp, err := c.PostV2KnowledgeBasesWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeBasesResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostV2KnowledgeBasesWithResponse(ctx context.Context, body PostV2KnowledgeBasesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesResponse, error) {
-	rsp, err := c.PostV2KnowledgeBases(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeBasesResponse(rsp)
-}
-
-// DeleteV2KnowledgeBasesByBaseIdWithResponse request returning *DeleteV2KnowledgeBasesByBaseIdResponse
-func (c *ClientWithResponses) DeleteV2KnowledgeBasesByBaseIdWithResponse(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeBasesByBaseIdResponse, error) {
-	rsp, err := c.DeleteV2KnowledgeBasesByBaseId(ctx, baseId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteV2KnowledgeBasesByBaseIdResponse(rsp)
-}
-
-// GetV2KnowledgeBasesByBaseIdDocumentsWithResponse request returning *GetV2KnowledgeBasesByBaseIdDocumentsResponse
-func (c *ClientWithResponses) GetV2KnowledgeBasesByBaseIdDocumentsWithResponse(ctx context.Context, baseId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeBasesByBaseIdDocumentsResponse, error) {
-	rsp, err := c.GetV2KnowledgeBasesByBaseIdDocuments(ctx, baseId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2KnowledgeBasesByBaseIdDocumentsResponse(rsp)
-}
-
-// PostV2KnowledgeBasesByBaseIdDocumentsWithBodyWithResponse request with arbitrary body returning *PostV2KnowledgeBasesByBaseIdDocumentsResponse
-func (c *ClientWithResponses) PostV2KnowledgeBasesByBaseIdDocumentsWithBodyWithResponse(ctx context.Context, baseId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeBasesByBaseIdDocumentsResponse, error) {
-	rsp, err := c.PostV2KnowledgeBasesByBaseIdDocumentsWithBody(ctx, baseId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeBasesByBaseIdDocumentsResponse(rsp)
-}
-
-// DeleteV2KnowledgeDocumentsByDocumentIdWithResponse request returning *DeleteV2KnowledgeDocumentsByDocumentIdResponse
-func (c *ClientWithResponses) DeleteV2KnowledgeDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeDocumentsByDocumentIdResponse, error) {
-	rsp, err := c.DeleteV2KnowledgeDocumentsByDocumentId(ctx, documentId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteV2KnowledgeDocumentsByDocumentIdResponse(rsp)
-}
-
-// GetV2KnowledgeServicesWithResponse request returning *GetV2KnowledgeServicesResponse
-func (c *ClientWithResponses) GetV2KnowledgeServicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesResponse, error) {
-	rsp, err := c.GetV2KnowledgeServices(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2KnowledgeServicesResponse(rsp)
-}
-
-// PostV2KnowledgeServicesWithBodyWithResponse request with arbitrary body returning *PostV2KnowledgeServicesResponse
-func (c *ClientWithResponses) PostV2KnowledgeServicesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesResponse, error) {
-	rsp, err := c.PostV2KnowledgeServicesWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostV2KnowledgeServicesWithResponse(ctx context.Context, body PostV2KnowledgeServicesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesResponse, error) {
-	rsp, err := c.PostV2KnowledgeServices(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesResponse(rsp)
-}
-
-// DeleteV2KnowledgeServicesByServiceIdWithResponse request returning *DeleteV2KnowledgeServicesByServiceIdResponse
-func (c *ClientWithResponses) DeleteV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeServicesByServiceIdResponse, error) {
-	rsp, err := c.DeleteV2KnowledgeServicesByServiceId(ctx, serviceId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteV2KnowledgeServicesByServiceIdResponse(rsp)
-}
-
-// GetV2KnowledgeServicesByServiceIdWithResponse request returning *GetV2KnowledgeServicesByServiceIdResponse
-func (c *ClientWithResponses) GetV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesByServiceIdResponse, error) {
-	rsp, err := c.GetV2KnowledgeServicesByServiceId(ctx, serviceId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2KnowledgeServicesByServiceIdResponse(rsp)
-}
-
-// PatchV2KnowledgeServicesByServiceIdWithBodyWithResponse request with arbitrary body returning *PatchV2KnowledgeServicesByServiceIdResponse
-func (c *ClientWithResponses) PatchV2KnowledgeServicesByServiceIdWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2KnowledgeServicesByServiceIdResponse, error) {
-	rsp, err := c.PatchV2KnowledgeServicesByServiceIdWithBody(ctx, serviceId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchV2KnowledgeServicesByServiceIdResponse(rsp)
-}
-
-func (c *ClientWithResponses) PatchV2KnowledgeServicesByServiceIdWithResponse(ctx context.Context, serviceId string, body PatchV2KnowledgeServicesByServiceIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2KnowledgeServicesByServiceIdResponse, error) {
-	rsp, err := c.PatchV2KnowledgeServicesByServiceId(ctx, serviceId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchV2KnowledgeServicesByServiceIdResponse(rsp)
-}
-
-// PostV2KnowledgeServicesByServiceIdAskWithBodyWithResponse request with arbitrary body returning *PostV2KnowledgeServicesByServiceIdAskResponse
-func (c *ClientWithResponses) PostV2KnowledgeServicesByServiceIdAskWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdAskResponse, error) {
-	rsp, err := c.PostV2KnowledgeServicesByServiceIdAskWithBody(ctx, serviceId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesByServiceIdAskResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostV2KnowledgeServicesByServiceIdAskWithResponse(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdAskJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdAskResponse, error) {
-	rsp, err := c.PostV2KnowledgeServicesByServiceIdAsk(ctx, serviceId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesByServiceIdAskResponse(rsp)
-}
-
-// GetV2KnowledgeServicesByServiceIdSharesWithResponse request returning *GetV2KnowledgeServicesByServiceIdSharesResponse
-func (c *ClientWithResponses) GetV2KnowledgeServicesByServiceIdSharesWithResponse(ctx context.Context, serviceId string, reqEditors ...RequestEditorFn) (*GetV2KnowledgeServicesByServiceIdSharesResponse, error) {
-	rsp, err := c.GetV2KnowledgeServicesByServiceIdShares(ctx, serviceId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2KnowledgeServicesByServiceIdSharesResponse(rsp)
-}
-
-// PostV2KnowledgeServicesByServiceIdSharesWithBodyWithResponse request with arbitrary body returning *PostV2KnowledgeServicesByServiceIdSharesResponse
-func (c *ClientWithResponses) PostV2KnowledgeServicesByServiceIdSharesWithBodyWithResponse(ctx context.Context, serviceId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdSharesResponse, error) {
-	rsp, err := c.PostV2KnowledgeServicesByServiceIdSharesWithBody(ctx, serviceId, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesByServiceIdSharesResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostV2KnowledgeServicesByServiceIdSharesWithResponse(ctx context.Context, serviceId string, body PostV2KnowledgeServicesByServiceIdSharesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2KnowledgeServicesByServiceIdSharesResponse, error) {
-	rsp, err := c.PostV2KnowledgeServicesByServiceIdShares(ctx, serviceId, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeServicesByServiceIdSharesResponse(rsp)
-}
-
-// DeleteV2KnowledgeSharesByShareIdWithResponse request returning *DeleteV2KnowledgeSharesByShareIdResponse
-func (c *ClientWithResponses) DeleteV2KnowledgeSharesByShareIdWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*DeleteV2KnowledgeSharesByShareIdResponse, error) {
-	rsp, err := c.DeleteV2KnowledgeSharesByShareId(ctx, shareId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDeleteV2KnowledgeSharesByShareIdResponse(rsp)
-}
-
-// PostV2KnowledgeSharesByShareIdRevokeWithResponse request returning *PostV2KnowledgeSharesByShareIdRevokeResponse
-func (c *ClientWithResponses) PostV2KnowledgeSharesByShareIdRevokeWithResponse(ctx context.Context, shareId string, reqEditors ...RequestEditorFn) (*PostV2KnowledgeSharesByShareIdRevokeResponse, error) {
-	rsp, err := c.PostV2KnowledgeSharesByShareIdRevoke(ctx, shareId, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2KnowledgeSharesByShareIdRevokeResponse(rsp)
 }
 
 // GetV2LlmModelsWithResponse request returning *GetV2LlmModelsResponse
@@ -28379,6 +28647,66 @@ func (c *ClientWithResponses) PostV2McpServersByServerIdVersionsByVersionRestore
 	return ParsePostV2McpServersByServerIdVersionsByVersionRestoreResponse(rsp)
 }
 
+// PostV2ModelRuntimeEmbeddingsWithBodyWithResponse request with arbitrary body returning *PostV2ModelRuntimeEmbeddingsResponse
+func (c *ClientWithResponses) PostV2ModelRuntimeEmbeddingsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeEmbeddingsResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeEmbeddingsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeEmbeddingsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ModelRuntimeEmbeddingsWithResponse(ctx context.Context, body PostV2ModelRuntimeEmbeddingsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeEmbeddingsResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeEmbeddings(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeEmbeddingsResponse(rsp)
+}
+
+// PostV2ModelRuntimeGenerateWithBodyWithResponse request with arbitrary body returning *PostV2ModelRuntimeGenerateResponse
+func (c *ClientWithResponses) PostV2ModelRuntimeGenerateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeGenerateResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeGenerateWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeGenerateResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ModelRuntimeGenerateWithResponse(ctx context.Context, body PostV2ModelRuntimeGenerateJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeGenerateResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeGenerate(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeGenerateResponse(rsp)
+}
+
+// GetV2ModelRuntimeInvocationsWithResponse request returning *GetV2ModelRuntimeInvocationsResponse
+func (c *ClientWithResponses) GetV2ModelRuntimeInvocationsWithResponse(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*GetV2ModelRuntimeInvocationsResponse, error) {
+	rsp, err := c.GetV2ModelRuntimeInvocations(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2ModelRuntimeInvocationsResponse(rsp)
+}
+
+// PostV2ModelRuntimeRerankWithBodyWithResponse request with arbitrary body returning *PostV2ModelRuntimeRerankResponse
+func (c *ClientWithResponses) PostV2ModelRuntimeRerankWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeRerankWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeRerankResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ModelRuntimeRerankWithResponse(ctx context.Context, body PostV2ModelRuntimeRerankJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error) {
+	rsp, err := c.PostV2ModelRuntimeRerank(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ModelRuntimeRerankResponse(rsp)
+}
+
 // GetV2ObjectCleanupJobsWithResponse request returning *GetV2ObjectCleanupJobsResponse
 func (c *ClientWithResponses) GetV2ObjectCleanupJobsWithResponse(ctx context.Context, params *GetV2ObjectCleanupJobsParams, reqEditors ...RequestEditorFn) (*GetV2ObjectCleanupJobsResponse, error) {
 	rsp, err := c.GetV2ObjectCleanupJobs(ctx, params, reqEditors...)
@@ -28546,30 +28874,197 @@ func (c *ClientWithResponses) GetV2OperatorAuditWithResponse(ctx context.Context
 	return ParseGetV2OperatorAuditResponse(rsp)
 }
 
-// GetV2PublicKnowledgeSharesByTokenWithResponse request returning *GetV2PublicKnowledgeSharesByTokenResponse
-func (c *ClientWithResponses) GetV2PublicKnowledgeSharesByTokenWithResponse(ctx context.Context, token string, reqEditors ...RequestEditorFn) (*GetV2PublicKnowledgeSharesByTokenResponse, error) {
-	rsp, err := c.GetV2PublicKnowledgeSharesByToken(ctx, token, reqEditors...)
+// GetV2PlatformAdminsWithResponse request returning *GetV2PlatformAdminsResponse
+func (c *ClientWithResponses) GetV2PlatformAdminsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2PlatformAdminsResponse, error) {
+	rsp, err := c.GetV2PlatformAdmins(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetV2PublicKnowledgeSharesByTokenResponse(rsp)
+	return ParseGetV2PlatformAdminsResponse(rsp)
 }
 
-// PostV2PublicKnowledgeSharesByTokenAskWithBodyWithResponse request with arbitrary body returning *PostV2PublicKnowledgeSharesByTokenAskResponse
-func (c *ClientWithResponses) PostV2PublicKnowledgeSharesByTokenAskWithBodyWithResponse(ctx context.Context, token string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2PublicKnowledgeSharesByTokenAskResponse, error) {
-	rsp, err := c.PostV2PublicKnowledgeSharesByTokenAskWithBody(ctx, token, contentType, body, reqEditors...)
+// DeleteV2PlatformAdminsBySubjectWithResponse request returning *DeleteV2PlatformAdminsBySubjectResponse
+func (c *ClientWithResponses) DeleteV2PlatformAdminsBySubjectWithResponse(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*DeleteV2PlatformAdminsBySubjectResponse, error) {
+	rsp, err := c.DeleteV2PlatformAdminsBySubject(ctx, subject, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParsePostV2PublicKnowledgeSharesByTokenAskResponse(rsp)
+	return ParseDeleteV2PlatformAdminsBySubjectResponse(rsp)
 }
 
-func (c *ClientWithResponses) PostV2PublicKnowledgeSharesByTokenAskWithResponse(ctx context.Context, token string, body PostV2PublicKnowledgeSharesByTokenAskJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2PublicKnowledgeSharesByTokenAskResponse, error) {
-	rsp, err := c.PostV2PublicKnowledgeSharesByTokenAsk(ctx, token, body, reqEditors...)
+// PutV2PlatformAdminsBySubjectWithBodyWithResponse request with arbitrary body returning *PutV2PlatformAdminsBySubjectResponse
+func (c *ClientWithResponses) PutV2PlatformAdminsBySubjectWithBodyWithResponse(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2PlatformAdminsBySubjectResponse, error) {
+	rsp, err := c.PutV2PlatformAdminsBySubjectWithBody(ctx, subject, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParsePostV2PublicKnowledgeSharesByTokenAskResponse(rsp)
+	return ParsePutV2PlatformAdminsBySubjectResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2PlatformAdminsBySubjectWithResponse(ctx context.Context, subject string, body PutV2PlatformAdminsBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2PlatformAdminsBySubjectResponse, error) {
+	rsp, err := c.PutV2PlatformAdminsBySubject(ctx, subject, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2PlatformAdminsBySubjectResponse(rsp)
+}
+
+// GetV2PlatformWorkspacesWithResponse request returning *GetV2PlatformWorkspacesResponse
+func (c *ClientWithResponses) GetV2PlatformWorkspacesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2PlatformWorkspacesResponse, error) {
+	rsp, err := c.GetV2PlatformWorkspaces(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2PlatformWorkspacesResponse(rsp)
+}
+
+// PostV2PlatformWorkspacesWithBodyWithResponse request with arbitrary body returning *PostV2PlatformWorkspacesResponse
+func (c *ClientWithResponses) PostV2PlatformWorkspacesWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2PlatformWorkspacesResponse, error) {
+	rsp, err := c.PostV2PlatformWorkspacesWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2PlatformWorkspacesResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2PlatformWorkspacesWithResponse(ctx context.Context, body PostV2PlatformWorkspacesJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2PlatformWorkspacesResponse, error) {
+	rsp, err := c.PostV2PlatformWorkspaces(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2PlatformWorkspacesResponse(rsp)
+}
+
+// GetV2PlatformWorkspacesByWorkspaceIdMembersWithResponse request returning *GetV2PlatformWorkspacesByWorkspaceIdMembersResponse
+func (c *ClientWithResponses) GetV2PlatformWorkspacesByWorkspaceIdMembersWithResponse(ctx context.Context, workspaceId string, reqEditors ...RequestEditorFn) (*GetV2PlatformWorkspacesByWorkspaceIdMembersResponse, error) {
+	rsp, err := c.GetV2PlatformWorkspacesByWorkspaceIdMembers(ctx, workspaceId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2PlatformWorkspacesByWorkspaceIdMembersResponse(rsp)
+}
+
+// DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse request returning *DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse
+func (c *ClientWithResponses) DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse(ctx context.Context, workspaceId string, subject string, reqEditors ...RequestEditorFn) (*DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error) {
+	rsp, err := c.DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx, workspaceId, subject, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp)
+}
+
+// PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBodyWithResponse request with arbitrary body returning *PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse
+func (c *ClientWithResponses) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBodyWithResponse(ctx context.Context, workspaceId string, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error) {
+	rsp, err := c.PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithBody(ctx, workspaceId, subject, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error) {
+	rsp, err := c.PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx, workspaceId, subject, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp)
+}
+
+// GetV2RetrievalCollectionsWithResponse request returning *GetV2RetrievalCollectionsResponse
+func (c *ClientWithResponses) GetV2RetrievalCollectionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsResponse, error) {
+	rsp, err := c.GetV2RetrievalCollections(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RetrievalCollectionsResponse(rsp)
+}
+
+// PostV2RetrievalCollectionsWithBodyWithResponse request with arbitrary body returning *PostV2RetrievalCollectionsResponse
+func (c *ClientWithResponses) PostV2RetrievalCollectionsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsResponse, error) {
+	rsp, err := c.PostV2RetrievalCollectionsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RetrievalCollectionsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2RetrievalCollectionsWithResponse(ctx context.Context, body PostV2RetrievalCollectionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsResponse, error) {
+	rsp, err := c.PostV2RetrievalCollections(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RetrievalCollectionsResponse(rsp)
+}
+
+// DeleteV2RetrievalCollectionsByCollectionIdWithResponse request returning *DeleteV2RetrievalCollectionsByCollectionIdResponse
+func (c *ClientWithResponses) DeleteV2RetrievalCollectionsByCollectionIdWithResponse(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*DeleteV2RetrievalCollectionsByCollectionIdResponse, error) {
+	rsp, err := c.DeleteV2RetrievalCollectionsByCollectionId(ctx, collectionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2RetrievalCollectionsByCollectionIdResponse(rsp)
+}
+
+// GetV2RetrievalCollectionsByCollectionIdDocumentsWithResponse request returning *GetV2RetrievalCollectionsByCollectionIdDocumentsResponse
+func (c *ClientWithResponses) GetV2RetrievalCollectionsByCollectionIdDocumentsWithResponse(ctx context.Context, collectionId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsByCollectionIdDocumentsResponse, error) {
+	rsp, err := c.GetV2RetrievalCollectionsByCollectionIdDocuments(ctx, collectionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RetrievalCollectionsByCollectionIdDocumentsResponse(rsp)
+}
+
+// PostV2RetrievalCollectionsByCollectionIdDocumentsWithBodyWithResponse request with arbitrary body returning *PostV2RetrievalCollectionsByCollectionIdDocumentsResponse
+func (c *ClientWithResponses) PostV2RetrievalCollectionsByCollectionIdDocumentsWithBodyWithResponse(ctx context.Context, collectionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalCollectionsByCollectionIdDocumentsResponse, error) {
+	rsp, err := c.PostV2RetrievalCollectionsByCollectionIdDocumentsWithBody(ctx, collectionId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RetrievalCollectionsByCollectionIdDocumentsResponse(rsp)
+}
+
+// DeleteV2RetrievalDocumentsByDocumentIdWithResponse request returning *DeleteV2RetrievalDocumentsByDocumentIdResponse
+func (c *ClientWithResponses) DeleteV2RetrievalDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*DeleteV2RetrievalDocumentsByDocumentIdResponse, error) {
+	rsp, err := c.DeleteV2RetrievalDocumentsByDocumentId(ctx, documentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2RetrievalDocumentsByDocumentIdResponse(rsp)
+}
+
+// GetV2RetrievalDocumentsByDocumentIdWithResponse request returning *GetV2RetrievalDocumentsByDocumentIdResponse
+func (c *ClientWithResponses) GetV2RetrievalDocumentsByDocumentIdWithResponse(ctx context.Context, documentId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalDocumentsByDocumentIdResponse, error) {
+	rsp, err := c.GetV2RetrievalDocumentsByDocumentId(ctx, documentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RetrievalDocumentsByDocumentIdResponse(rsp)
+}
+
+// GetV2RetrievalIngestionJobsByJobIdWithResponse request returning *GetV2RetrievalIngestionJobsByJobIdResponse
+func (c *ClientWithResponses) GetV2RetrievalIngestionJobsByJobIdWithResponse(ctx context.Context, jobId string, reqEditors ...RequestEditorFn) (*GetV2RetrievalIngestionJobsByJobIdResponse, error) {
+	rsp, err := c.GetV2RetrievalIngestionJobsByJobId(ctx, jobId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2RetrievalIngestionJobsByJobIdResponse(rsp)
+}
+
+// PostV2RetrievalSearchWithBodyWithResponse request with arbitrary body returning *PostV2RetrievalSearchResponse
+func (c *ClientWithResponses) PostV2RetrievalSearchWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2RetrievalSearchResponse, error) {
+	rsp, err := c.PostV2RetrievalSearchWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RetrievalSearchResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2RetrievalSearchWithResponse(ctx context.Context, body PostV2RetrievalSearchJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2RetrievalSearchResponse, error) {
+	rsp, err := c.PostV2RetrievalSearch(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2RetrievalSearchResponse(rsp)
 }
 
 // GetV2RunComparisonsWithResponse request returning *GetV2RunComparisonsResponse
@@ -29887,6 +30382,15 @@ func (c *ClientWithResponses) GetV2SpansWithResponse(ctx context.Context, params
 	return ParseGetV2SpansResponse(rsp)
 }
 
+// GetV2SpeechRealtimeWithResponse request returning *GetV2SpeechRealtimeResponse
+func (c *ClientWithResponses) GetV2SpeechRealtimeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2SpeechRealtimeResponse, error) {
+	rsp, err := c.GetV2SpeechRealtime(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SpeechRealtimeResponse(rsp)
+}
+
 // PostV2SubagentsReapOrphansWithBodyWithResponse request with arbitrary body returning *PostV2SubagentsReapOrphansResponse
 func (c *ClientWithResponses) PostV2SubagentsReapOrphansWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SubagentsReapOrphansResponse, error) {
 	rsp, err := c.PostV2SubagentsReapOrphansWithBody(ctx, contentType, body, reqEditors...)
@@ -29929,85 +30433,6 @@ func (c *ClientWithResponses) GetV2TracesByTraceIdSpansBySpanIdWithResponse(ctx 
 		return nil, err
 	}
 	return ParseGetV2TracesByTraceIdSpansBySpanIdResponse(rsp)
-}
-
-// GetV2WorkbenchProjectsWithResponse request returning *GetV2WorkbenchProjectsResponse
-func (c *ClientWithResponses) GetV2WorkbenchProjectsWithResponse(ctx context.Context, params *GetV2WorkbenchProjectsParams, reqEditors ...RequestEditorFn) (*GetV2WorkbenchProjectsResponse, error) {
-	rsp, err := c.GetV2WorkbenchProjects(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseGetV2WorkbenchProjectsResponse(rsp)
-}
-
-// PostV2WorkbenchProjectsWithBodyWithResponse request with arbitrary body returning *PostV2WorkbenchProjectsResponse
-func (c *ClientWithResponses) PostV2WorkbenchProjectsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjectsWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsResponse(rsp)
-}
-
-func (c *ClientWithResponses) PostV2WorkbenchProjectsWithResponse(ctx context.Context, body PostV2WorkbenchProjectsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjects(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsResponse(rsp)
-}
-
-// PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse request with arbitrary body returning *PatchV2WorkbenchProjectsByProjectIdResponse
-func (c *ClientWithResponses) PatchV2WorkbenchProjectsByProjectIdWithBodyWithResponse(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
-	rsp, err := c.PatchV2WorkbenchProjectsByProjectIdWithBody(ctx, projectId, params, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp)
-}
-
-func (c *ClientWithResponses) PatchV2WorkbenchProjectsByProjectIdWithResponse(ctx context.Context, projectId string, params *PatchV2WorkbenchProjectsByProjectIdParams, body PatchV2WorkbenchProjectsByProjectIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
-	rsp, err := c.PatchV2WorkbenchProjectsByProjectId(ctx, projectId, params, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp)
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningWithResponse request returning *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse
-func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaning(ctx, projectId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse(rsp)
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse request returning *PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse
-func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStartParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjectsByProjectIdRuntimeStart(ctx, projectId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse(rsp)
-}
-
-// PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse request returning *PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse
-func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdRuntimeStopParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjectsByProjectIdRuntimeStop(ctx, projectId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse(rsp)
-}
-
-// PostV2WorkbenchProjectsByProjectIdSyncWithResponse request returning *PostV2WorkbenchProjectsByProjectIdSyncResponse
-func (c *ClientWithResponses) PostV2WorkbenchProjectsByProjectIdSyncWithResponse(ctx context.Context, projectId string, params *PostV2WorkbenchProjectsByProjectIdSyncParams, reqEditors ...RequestEditorFn) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error) {
-	rsp, err := c.PostV2WorkbenchProjectsByProjectIdSync(ctx, projectId, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePostV2WorkbenchProjectsByProjectIdSyncResponse(rsp)
 }
 
 // PostV2WorkerWorkWithBodyWithResponse request with arbitrary body returning *PostV2WorkerWorkResponse
@@ -30155,6 +30580,41 @@ func (c *ClientWithResponses) PostV2WorkersByWorkerIdArchiveWithResponse(ctx con
 		return nil, err
 	}
 	return ParsePostV2WorkersByWorkerIdArchiveResponse(rsp)
+}
+
+// GetV2WorkspaceMembersWithResponse request returning *GetV2WorkspaceMembersResponse
+func (c *ClientWithResponses) GetV2WorkspaceMembersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2WorkspaceMembersResponse, error) {
+	rsp, err := c.GetV2WorkspaceMembers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2WorkspaceMembersResponse(rsp)
+}
+
+// DeleteV2WorkspaceMembersBySubjectWithResponse request returning *DeleteV2WorkspaceMembersBySubjectResponse
+func (c *ClientWithResponses) DeleteV2WorkspaceMembersBySubjectWithResponse(ctx context.Context, subject string, reqEditors ...RequestEditorFn) (*DeleteV2WorkspaceMembersBySubjectResponse, error) {
+	rsp, err := c.DeleteV2WorkspaceMembersBySubject(ctx, subject, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2WorkspaceMembersBySubjectResponse(rsp)
+}
+
+// PutV2WorkspaceMembersBySubjectWithBodyWithResponse request with arbitrary body returning *PutV2WorkspaceMembersBySubjectResponse
+func (c *ClientWithResponses) PutV2WorkspaceMembersBySubjectWithBodyWithResponse(ctx context.Context, subject string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2WorkspaceMembersBySubjectResponse, error) {
+	rsp, err := c.PutV2WorkspaceMembersBySubjectWithBody(ctx, subject, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2WorkspaceMembersBySubjectResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2WorkspaceMembersBySubjectWithResponse(ctx context.Context, subject string, body PutV2WorkspaceMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2WorkspaceMembersBySubjectResponse, error) {
+	rsp, err := c.PutV2WorkspaceMembersBySubject(ctx, subject, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2WorkspaceMembersBySubjectResponse(rsp)
 }
 
 // GetV2WorkspacesByWorkspaceIdToolPermissionsWithResponse request returning *GetV2WorkspacesByWorkspaceIdToolPermissionsResponse
@@ -30338,6 +30798,39 @@ func ParsePostV2AchievementLibraryByItemIdReferenceResponse(rsp *http.Response) 
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2AdministrationContextResponse parses an HTTP response from a GetV2AdministrationContextWithResponse call
+func ParseGetV2AdministrationContextResponse(rsp *http.Response) (*GetV2AdministrationContextResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2AdministrationContextResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AdministrationContext
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -31044,6 +31537,100 @@ func ParseGetV2AuthMeResponse(rsp *http.Response) (*GetV2AuthMeResponse, error) 
 	return response, nil
 }
 
+// ParsePostV2AuthTokenExchangeResponse parses an HTTP response from a PostV2AuthTokenExchangeWithResponse call
+func ParsePostV2AuthTokenExchangeResponse(rsp *http.Response) (*PostV2AuthTokenExchangeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2AuthTokenExchangeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TokenExchangeResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2ConsoleContextResponse parses an HTTP response from a GetV2ConsoleContextWithResponse call
+func ParseGetV2ConsoleContextResponse(rsp *http.Response) (*GetV2ConsoleContextResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2ConsoleContextResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConsoleContext
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2EnvironmentVariablesResponse parses an HTTP response from a GetV2EnvironmentVariablesWithResponse call
 func ParseGetV2EnvironmentVariablesResponse(rsp *http.Response) (*GetV2EnvironmentVariablesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -31553,499 +32140,6 @@ func ParseGetV2EvaluationRubricsByRubricIdResponse(rsp *http.Response) (*GetV2Ev
 		}
 		response.JSON200 = &dest
 
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2KnowledgeBasesResponse parses an HTTP response from a GetV2KnowledgeBasesWithResponse call
-func ParseGetV2KnowledgeBasesResponse(rsp *http.Response) (*GetV2KnowledgeBasesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2KnowledgeBasesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeBaseList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeBasesResponse parses an HTTP response from a PostV2KnowledgeBasesWithResponse call
-func ParsePostV2KnowledgeBasesResponse(rsp *http.Response) (*PostV2KnowledgeBasesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeBasesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest KnowledgeBase
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteV2KnowledgeBasesByBaseIdResponse parses an HTTP response from a DeleteV2KnowledgeBasesByBaseIdWithResponse call
-func ParseDeleteV2KnowledgeBasesByBaseIdResponse(rsp *http.Response) (*DeleteV2KnowledgeBasesByBaseIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteV2KnowledgeBasesByBaseIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2KnowledgeBasesByBaseIdDocumentsResponse parses an HTTP response from a GetV2KnowledgeBasesByBaseIdDocumentsWithResponse call
-func ParseGetV2KnowledgeBasesByBaseIdDocumentsResponse(rsp *http.Response) (*GetV2KnowledgeBasesByBaseIdDocumentsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2KnowledgeBasesByBaseIdDocumentsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeDocumentList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeBasesByBaseIdDocumentsResponse parses an HTTP response from a PostV2KnowledgeBasesByBaseIdDocumentsWithResponse call
-func ParsePostV2KnowledgeBasesByBaseIdDocumentsResponse(rsp *http.Response) (*PostV2KnowledgeBasesByBaseIdDocumentsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeBasesByBaseIdDocumentsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest KnowledgeDocumentUploadResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteV2KnowledgeDocumentsByDocumentIdResponse parses an HTTP response from a DeleteV2KnowledgeDocumentsByDocumentIdWithResponse call
-func ParseDeleteV2KnowledgeDocumentsByDocumentIdResponse(rsp *http.Response) (*DeleteV2KnowledgeDocumentsByDocumentIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteV2KnowledgeDocumentsByDocumentIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2KnowledgeServicesResponse parses an HTTP response from a GetV2KnowledgeServicesWithResponse call
-func ParseGetV2KnowledgeServicesResponse(rsp *http.Response) (*GetV2KnowledgeServicesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2KnowledgeServicesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeServiceList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeServicesResponse parses an HTTP response from a PostV2KnowledgeServicesWithResponse call
-func ParsePostV2KnowledgeServicesResponse(rsp *http.Response) (*PostV2KnowledgeServicesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeServicesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest KnowledgeService
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteV2KnowledgeServicesByServiceIdResponse parses an HTTP response from a DeleteV2KnowledgeServicesByServiceIdWithResponse call
-func ParseDeleteV2KnowledgeServicesByServiceIdResponse(rsp *http.Response) (*DeleteV2KnowledgeServicesByServiceIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteV2KnowledgeServicesByServiceIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2KnowledgeServicesByServiceIdResponse parses an HTTP response from a GetV2KnowledgeServicesByServiceIdWithResponse call
-func ParseGetV2KnowledgeServicesByServiceIdResponse(rsp *http.Response) (*GetV2KnowledgeServicesByServiceIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2KnowledgeServicesByServiceIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeService
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePatchV2KnowledgeServicesByServiceIdResponse parses an HTTP response from a PatchV2KnowledgeServicesByServiceIdWithResponse call
-func ParsePatchV2KnowledgeServicesByServiceIdResponse(rsp *http.Response) (*PatchV2KnowledgeServicesByServiceIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PatchV2KnowledgeServicesByServiceIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeService
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeServicesByServiceIdAskResponse parses an HTTP response from a PostV2KnowledgeServicesByServiceIdAskWithResponse call
-func ParsePostV2KnowledgeServicesByServiceIdAskResponse(rsp *http.Response) (*PostV2KnowledgeServicesByServiceIdAskResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeServicesByServiceIdAskResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeAnswer
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2KnowledgeServicesByServiceIdSharesResponse parses an HTTP response from a GetV2KnowledgeServicesByServiceIdSharesWithResponse call
-func ParseGetV2KnowledgeServicesByServiceIdSharesResponse(rsp *http.Response) (*GetV2KnowledgeServicesByServiceIdSharesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2KnowledgeServicesByServiceIdSharesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeShareList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeServicesByServiceIdSharesResponse parses an HTTP response from a PostV2KnowledgeServicesByServiceIdSharesWithResponse call
-func ParsePostV2KnowledgeServicesByServiceIdSharesResponse(rsp *http.Response) (*PostV2KnowledgeServicesByServiceIdSharesResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeServicesByServiceIdSharesResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest KnowledgeShareCreateResult
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDeleteV2KnowledgeSharesByShareIdResponse parses an HTTP response from a DeleteV2KnowledgeSharesByShareIdWithResponse call
-func ParseDeleteV2KnowledgeSharesByShareIdResponse(rsp *http.Response) (*DeleteV2KnowledgeSharesByShareIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DeleteV2KnowledgeSharesByShareIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2KnowledgeSharesByShareIdRevokeResponse parses an HTTP response from a PostV2KnowledgeSharesByShareIdRevokeWithResponse call
-func ParsePostV2KnowledgeSharesByShareIdRevokeResponse(rsp *http.Response) (*PostV2KnowledgeSharesByShareIdRevokeResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2KnowledgeSharesByShareIdRevokeResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -32843,6 +32937,271 @@ func ParsePostV2McpServersByServerIdVersionsByVersionRestoreResponse(rsp *http.R
 	return response, nil
 }
 
+// ParsePostV2ModelRuntimeEmbeddingsResponse parses an HTTP response from a PostV2ModelRuntimeEmbeddingsWithResponse call
+func ParsePostV2ModelRuntimeEmbeddingsResponse(rsp *http.Response) (*PostV2ModelRuntimeEmbeddingsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ModelRuntimeEmbeddingsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelEmbeddingResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2ModelRuntimeGenerateResponse parses an HTTP response from a PostV2ModelRuntimeGenerateWithResponse call
+func ParsePostV2ModelRuntimeGenerateResponse(rsp *http.Response) (*PostV2ModelRuntimeGenerateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ModelRuntimeGenerateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelGenerateResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2ModelRuntimeInvocationsResponse parses an HTTP response from a GetV2ModelRuntimeInvocationsWithResponse call
+func ParseGetV2ModelRuntimeInvocationsResponse(rsp *http.Response) (*GetV2ModelRuntimeInvocationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2ModelRuntimeInvocationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelInvocationReport
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2ModelRuntimeRerankResponse parses an HTTP response from a PostV2ModelRuntimeRerankWithResponse call
+func ParsePostV2ModelRuntimeRerankResponse(rsp *http.Response) (*PostV2ModelRuntimeRerankResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ModelRuntimeRerankResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRerankResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2ObjectCleanupJobsResponse parses an HTTP response from a GetV2ObjectCleanupJobsWithResponse call
 func ParseGetV2ObjectCleanupJobsResponse(rsp *http.Response) (*GetV2ObjectCleanupJobsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -33324,22 +33683,342 @@ func ParseGetV2OperatorAuditResponse(rsp *http.Response) (*GetV2OperatorAuditRes
 	return response, nil
 }
 
-// ParseGetV2PublicKnowledgeSharesByTokenResponse parses an HTTP response from a GetV2PublicKnowledgeSharesByTokenWithResponse call
-func ParseGetV2PublicKnowledgeSharesByTokenResponse(rsp *http.Response) (*GetV2PublicKnowledgeSharesByTokenResponse, error) {
+// ParseGetV2PlatformAdminsResponse parses an HTTP response from a GetV2PlatformAdminsWithResponse call
+func ParseGetV2PlatformAdminsResponse(rsp *http.Response) (*GetV2PlatformAdminsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetV2PublicKnowledgeSharesByTokenResponse{
+	response := &GetV2PlatformAdminsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest PublicKnowledgeShare
+		var dest PlatformRoleAssignmentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2PlatformAdminsBySubjectResponse parses an HTTP response from a DeleteV2PlatformAdminsBySubjectWithResponse call
+func ParseDeleteV2PlatformAdminsBySubjectResponse(rsp *http.Response) (*DeleteV2PlatformAdminsBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2PlatformAdminsBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2PlatformAdminsBySubjectResponse parses an HTTP response from a PutV2PlatformAdminsBySubjectWithResponse call
+func ParsePutV2PlatformAdminsBySubjectResponse(rsp *http.Response) (*PutV2PlatformAdminsBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2PlatformAdminsBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PlatformRoleAssignment
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2PlatformWorkspacesResponse parses an HTTP response from a GetV2PlatformWorkspacesWithResponse call
+func ParseGetV2PlatformWorkspacesResponse(rsp *http.Response) (*GetV2PlatformWorkspacesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2PlatformWorkspacesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TenantWorkspaceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2PlatformWorkspacesResponse parses an HTTP response from a PostV2PlatformWorkspacesWithResponse call
+func ParsePostV2PlatformWorkspacesResponse(rsp *http.Response) (*PostV2PlatformWorkspacesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2PlatformWorkspacesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest TenantWorkspace
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2PlatformWorkspacesByWorkspaceIdMembersResponse parses an HTTP response from a GetV2PlatformWorkspacesByWorkspaceIdMembersWithResponse call
+func ParseGetV2PlatformWorkspacesByWorkspaceIdMembersResponse(rsp *http.Response) (*GetV2PlatformWorkspacesByWorkspaceIdMembersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2PlatformWorkspacesByWorkspaceIdMembersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceMembershipList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse parses an HTTP response from a DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse call
+func ParseDeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp *http.Response) (*DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse parses an HTTP response from a PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse call
+func ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp *http.Response) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceMembership
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RetrievalCollectionsResponse parses an HTTP response from a GetV2RetrievalCollectionsWithResponse call
+func ParseGetV2RetrievalCollectionsResponse(rsp *http.Response) (*GetV2RetrievalCollectionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RetrievalCollectionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetrievalCollectionList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -33357,22 +34036,239 @@ func ParseGetV2PublicKnowledgeSharesByTokenResponse(rsp *http.Response) (*GetV2P
 	return response, nil
 }
 
-// ParsePostV2PublicKnowledgeSharesByTokenAskResponse parses an HTTP response from a PostV2PublicKnowledgeSharesByTokenAskWithResponse call
-func ParsePostV2PublicKnowledgeSharesByTokenAskResponse(rsp *http.Response) (*PostV2PublicKnowledgeSharesByTokenAskResponse, error) {
+// ParsePostV2RetrievalCollectionsResponse parses an HTTP response from a PostV2RetrievalCollectionsWithResponse call
+func ParsePostV2RetrievalCollectionsResponse(rsp *http.Response) (*PostV2RetrievalCollectionsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &PostV2PublicKnowledgeSharesByTokenAskResponse{
+	response := &PostV2RetrievalCollectionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RetrievalCollection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2RetrievalCollectionsByCollectionIdResponse parses an HTTP response from a DeleteV2RetrievalCollectionsByCollectionIdWithResponse call
+func ParseDeleteV2RetrievalCollectionsByCollectionIdResponse(rsp *http.Response) (*DeleteV2RetrievalCollectionsByCollectionIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2RetrievalCollectionsByCollectionIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RetrievalCollectionsByCollectionIdDocumentsResponse parses an HTTP response from a GetV2RetrievalCollectionsByCollectionIdDocumentsWithResponse call
+func ParseGetV2RetrievalCollectionsByCollectionIdDocumentsResponse(rsp *http.Response) (*GetV2RetrievalCollectionsByCollectionIdDocumentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RetrievalCollectionsByCollectionIdDocumentsResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest KnowledgeAnswer
+		var dest RetrievalDocumentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2RetrievalCollectionsByCollectionIdDocumentsResponse parses an HTTP response from a PostV2RetrievalCollectionsByCollectionIdDocumentsWithResponse call
+func ParsePostV2RetrievalCollectionsByCollectionIdDocumentsResponse(rsp *http.Response) (*PostV2RetrievalCollectionsByCollectionIdDocumentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2RetrievalCollectionsByCollectionIdDocumentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest RetrievalDocumentUploadResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2RetrievalDocumentsByDocumentIdResponse parses an HTTP response from a DeleteV2RetrievalDocumentsByDocumentIdWithResponse call
+func ParseDeleteV2RetrievalDocumentsByDocumentIdResponse(rsp *http.Response) (*DeleteV2RetrievalDocumentsByDocumentIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2RetrievalDocumentsByDocumentIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RetrievalDocumentsByDocumentIdResponse parses an HTTP response from a GetV2RetrievalDocumentsByDocumentIdWithResponse call
+func ParseGetV2RetrievalDocumentsByDocumentIdResponse(rsp *http.Response) (*GetV2RetrievalDocumentsByDocumentIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RetrievalDocumentsByDocumentIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetrievalDocument
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2RetrievalIngestionJobsByJobIdResponse parses an HTTP response from a GetV2RetrievalIngestionJobsByJobIdWithResponse call
+func ParseGetV2RetrievalIngestionJobsByJobIdResponse(rsp *http.Response) (*GetV2RetrievalIngestionJobsByJobIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2RetrievalIngestionJobsByJobIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetrievalIngestionJob
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2RetrievalSearchResponse parses an HTTP response from a PostV2RetrievalSearchWithResponse call
+func ParsePostV2RetrievalSearchResponse(rsp *http.Response) (*PostV2RetrievalSearchResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2RetrievalSearchResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetrievalSearchResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -36893,6 +37789,32 @@ func ParseGetV2SpansResponse(rsp *http.Response) (*GetV2SpansResponse, error) {
 	return response, nil
 }
 
+// ParseGetV2SpeechRealtimeResponse parses an HTTP response from a GetV2SpeechRealtimeWithResponse call
+func ParseGetV2SpeechRealtimeResponse(rsp *http.Response) (*GetV2SpeechRealtimeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SpeechRealtimeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostV2SubagentsReapOrphansResponse parses an HTTP response from a PostV2SubagentsReapOrphansWithResponse call
 func ParsePostV2SubagentsReapOrphansResponse(rsp *http.Response) (*PostV2SubagentsReapOrphansResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -37012,272 +37934,6 @@ func ParseGetV2TracesByTraceIdSpansBySpanIdResponse(rsp *http.Response) (*GetV2T
 			return nil, err
 		}
 		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseGetV2WorkbenchProjectsResponse parses an HTTP response from a GetV2WorkbenchProjectsWithResponse call
-func ParseGetV2WorkbenchProjectsResponse(rsp *http.Response) (*GetV2WorkbenchProjectsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &GetV2WorkbenchProjectsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProjectList
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2WorkbenchProjectsResponse parses an HTTP response from a PostV2WorkbenchProjectsWithResponse call
-func ParsePostV2WorkbenchProjectsResponse(rsp *http.Response) (*PostV2WorkbenchProjectsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2WorkbenchProjectsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest WorkbenchProject
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePatchV2WorkbenchProjectsByProjectIdResponse parses an HTTP response from a PatchV2WorkbenchProjectsByProjectIdWithResponse call
-func ParsePatchV2WorkbenchProjectsByProjectIdResponse(rsp *http.Response) (*PatchV2WorkbenchProjectsByProjectIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PatchV2WorkbenchProjectsByProjectIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProject
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningWithResponse call
-func ParsePostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2WorkbenchProjectsByProjectIdRuntimeRunCleaningResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProjectRunCleaningResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdRuntimeStartWithResponse call
-func ParsePostV2WorkbenchProjectsByProjectIdRuntimeStartResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2WorkbenchProjectsByProjectIdRuntimeStartResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProject
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdRuntimeStopWithResponse call
-func ParsePostV2WorkbenchProjectsByProjectIdRuntimeStopResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2WorkbenchProjectsByProjectIdRuntimeStopResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProject
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParsePostV2WorkbenchProjectsByProjectIdSyncResponse parses an HTTP response from a PostV2WorkbenchProjectsByProjectIdSyncWithResponse call
-func ParsePostV2WorkbenchProjectsByProjectIdSyncResponse(rsp *http.Response) (*PostV2WorkbenchProjectsByProjectIdSyncResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PostV2WorkbenchProjectsByProjectIdSyncResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest WorkbenchProject
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
-		var dest ErrorEnvelope
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON503 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -37641,6 +38297,133 @@ func ParsePostV2WorkersByWorkerIdArchiveResponse(rsp *http.Response) (*PostV2Wor
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2WorkspaceMembersResponse parses an HTTP response from a GetV2WorkspaceMembersWithResponse call
+func ParseGetV2WorkspaceMembersResponse(rsp *http.Response) (*GetV2WorkspaceMembersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2WorkspaceMembersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceMembershipList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2WorkspaceMembersBySubjectResponse parses an HTTP response from a DeleteV2WorkspaceMembersBySubjectWithResponse call
+func ParseDeleteV2WorkspaceMembersBySubjectResponse(rsp *http.Response) (*DeleteV2WorkspaceMembersBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2WorkspaceMembersBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2WorkspaceMembersBySubjectResponse parses an HTTP response from a PutV2WorkspaceMembersBySubjectWithResponse call
+func ParsePutV2WorkspaceMembersBySubjectResponse(rsp *http.Response) (*PutV2WorkspaceMembersBySubjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2WorkspaceMembersBySubjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceMembership
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope

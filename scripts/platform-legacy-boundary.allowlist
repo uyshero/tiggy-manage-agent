@@ -1,0 +1,43 @@
+# Temporary Platform application compatibility debt. Existing entries may be
+# removed without editing this file; new entries are forbidden.
+dependency tiggy-manage-agent/internal/workbenchprojects
+dependency tiggy-manage-agent/internal/workbenchruntime
+route DELETE /v2/knowledge/bases/{base_id}
+route DELETE /v2/knowledge/documents/{document_id}
+route DELETE /v2/knowledge/services/{service_id}
+route DELETE /v2/knowledge/shares/{share_id}
+route GET /v1/workbench-projects
+route GET /v2/knowledge/bases
+route GET /v2/knowledge/bases/{base_id}/documents
+route GET /v2/knowledge/services
+route GET /v2/knowledge/services/{service_id}
+route GET /v2/knowledge/services/{service_id}/shares
+route GET /v2/public/knowledge-shares/{token}
+route GET /v2/r-survival-projects
+route PATCH /v1/workbench-projects/{project_id}
+route PATCH /v2/knowledge/services/{service_id}
+route PATCH /v2/r-survival-projects/{project_id}
+route POST /v1/workbench-projects
+route POST /v1/workbench-projects/{project_id}/runtime/run-cleaning
+route POST /v1/workbench-projects/{project_id}/runtime/start
+route POST /v1/workbench-projects/{project_id}/runtime/stop
+route POST /v1/workbench-projects/{project_id}/sync
+route POST /v2/knowledge/bases
+route POST /v2/knowledge/bases/{base_id}/documents
+route POST /v2/knowledge/services
+route POST /v2/knowledge/services/{service_id}/ask
+route POST /v2/knowledge/services/{service_id}/shares
+route POST /v2/knowledge/shares/{share_id}/revoke
+route POST /v2/public/knowledge-shares/{token}/ask
+route POST /v2/r-survival-projects
+route POST /v2/r-survival-projects/{project_id}/runtime/run-cleaning
+route POST /v2/r-survival-projects/{project_id}/runtime/start
+route POST /v2/r-survival-projects/{project_id}/runtime/stop
+route POST /v2/r-survival-projects/{project_id}/sync
+table knowledge_bases
+table knowledge_chunks
+table knowledge_documents
+table knowledge_service_questions
+table knowledge_service_shares
+table knowledge_services
+table workbench_projects

@@ -92,6 +92,8 @@ func (s *Server) auditAuthorizationDecision(r *http.Request, principal Principal
 		At: time.Now().UTC(), Outcome: outcome, Reason: reason, AuthType: authType, RequiredRole: requiredRole,
 		Subject: principal.Subject, OrganizationID: principal.OrganizationID, WorkspaceID: principal.WorkspaceID,
 		OwnerID: principal.OwnerID, Roles: normalizedStringList(principal.Roles),
+		ServiceIdentityID: principal.ServiceIdentityID, ServiceCredentialID: principal.ServiceCredentialID,
+		DelegationID: principal.DelegationID, Scopes: normalizedStringList(principal.Scopes),
 		AuthorizationSources: normalizedStringList(principal.AuthorizationSources),
 	}
 	if r != nil {
@@ -136,6 +138,18 @@ func (s *Server) auditAuthorizationDecision(r *http.Request, principal Principal
 	}
 	if len(principal.AuthorizationSources) > 0 {
 		attributes = append(attributes, "authorization_sources", normalizedStringList(principal.AuthorizationSources))
+	}
+	if principal.ServiceIdentityID != "" {
+		attributes = append(attributes, "service_identity_id", principal.ServiceIdentityID)
+	}
+	if principal.ServiceCredentialID != "" {
+		attributes = append(attributes, "service_credential_id", principal.ServiceCredentialID)
+	}
+	if principal.DelegationID != "" {
+		attributes = append(attributes, "delegation_id", principal.DelegationID)
+	}
+	if len(principal.Scopes) > 0 {
+		attributes = append(attributes, "scopes", normalizedStringList(principal.Scopes))
 	}
 	if decisionErr != nil {
 		attributes = append(attributes, "detail", decisionErr.Error())

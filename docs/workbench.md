@@ -1,14 +1,15 @@
-# Workbench 与 Inspector
+# TMA 对话工作台与 Inspector
 
 ## 产品边界
 
-Workbench 是任务工作台，不是 Runtime 调试器。主流程应回答：任务正在做什么、使用了哪些
+对话工作台是 Platform 官方的 Agent 任务客户端，不是 Runtime 调试器，也不是专业应用目录。
+主流程应回答：任务正在做什么、使用了哪些
 资料、修改了什么、产出了什么、哪些动作等待确认。底层 event、trace 和 raw payload 放在
 Inspector/详情面板，不占据默认聊天界面。
 
 稳定信息架构：
 
-- 左侧：Workspace、任务/Session、搜索和插件导航。
+- 左侧：Workspace、任务/Session 和搜索。
 - 中间：对话、计划、进行中状态、审批/澄清和最终结果。
 - 右侧：相关文件、Artifact、变更、引用和上下文详情。
 - Inspector：事件时间线、trace、usage、tool、approval、错误和导出。
@@ -25,7 +26,8 @@ retry 状态；长文本、文件名和错误码不能撑破容器。
 5. 预览/下载结果，必要时重跑并比较。
 6. 从任务跳转 Inspector 定位一次 Turn。
 
-Workbench 使用 TypeScript SDK 访问公开 API，不直接依赖 Server 内部 payload 或数据库字段。
+对话工作台使用 TypeScript Core SDK 访问公开 API，不直接依赖 Server 内部 payload 或数据库字段，
+也不拥有 Project、Repository、Notebook、数据集等领域业务表。
 
 ## 定时任务审批
 
@@ -53,17 +55,17 @@ Inspector 不显示 token、secret、完整工具敏感参数或未授权 Worksp
 
 ## 插件模型
 
-Workbench Plugin 是受信任的版本化前端扩展。平台提供稳定 Shell、路由、导航、命令、
-Dialog、Notification、File、Preview、Artifact 和 SDK context。插件贡献可包括：
+对话工作台 UI Extension 是受信任的版本化轻量前端扩展。平台提供稳定 Shell、命令、Dialog、
+Notification、File、Preview、Artifact 和 SDK context。扩展贡献可包括：
 
-- 页面与导航项。
-- Dashboard widget 和实体详情面板。
+- 任务或 Artifact 详情面板。
 - Command/菜单动作。
 - 文件预览器和任务模板。
 - 设置页入口。
 
-插件包声明 identifier、version、routes、contributions、required roles/scopes、SDK range 和
-integrity metadata。插件不能替换认证、全局错误边界、审批语义或数据隔离。
+扩展包声明 identifier、version、contributions、required roles/scopes、SDK range 和 integrity
+metadata。扩展不能替换认证、全局错误边界、审批语义或数据隔离，也不能携带独立业务后端、
+数据库迁移或领域 Runtime；需要这些能力时必须建立独立应用。
 
 `PluginContext` 最小能力：
 
@@ -92,25 +94,31 @@ Workspace installation 决定插件是否可用。Shell 在加载前校验版本
 插件不得从任意 URL 执行脚本。生产使用受控 bundle、CSP、依赖锁定和发布审计。跨插件
 通信通过 command/event 或公开 SDK，不访问其他插件内部 store。
 
-## 扩展工作台
+## 与 R语言生存分析工作台的边界
 
-顶部“扩展工作台”打开通用工作台目录。专业工具通过 `workbench` 导航分组注册自己的独立
-Plugin 和路由；宿主只负责目录、路由、认证、权限、Dialog、Notification 和受控 `/v2` HTTP。
-当前 `com.tma.r-survival-workbench` 提供 R 语言生存分析，项目、Notebook 布局和分析交互均
-保留在插件包内。
+不再提供顶部“扩展工作台”入口或通用专业工作台目录。R 生存分析静态插件已经从
+`apps/workbench` 删除，独立仓库为同级 `tma-r-survival-workbench`，产品名称固定为
+“R语言生存分析工作台”。
 
-当前闭环包括后端项目持久化、Git 风格目录、Notebook 保存、远程 JupyterLab 地址和关联 TMA
-Session 的 Agent 对话。配置 `TMA_GITLAB_TOKEN` 后，新建项目会创建私有 GitLab 仓库并提交
-`examples/r-analysis-project` 模板；未配置时保留为可重试的待同步项目。R/Jupyter 运行环境
-位于 `deploy/r-notebook-runtime`。生产接入继续遵守以下边界：
+对话产品名称固定为“TMA 对话工作台”。其顶栏只提供跳转到独立应用的链接，默认指向网关路径
+`/r-survival/`，也可以在构建时通过 `VITE_TMA_R_SURVIVAL_WORKBENCH_URL` 指向独立域名；该链接
+不是 UI Extension 路由，不把 R 应用加载到对话工作台进程中。
+
+独立应用拥有后端项目持久化、数据集、Git 风格目录、Notebook、远程 JupyterLab、R Runtime、
+数据清洗/分析流程和专业 UI；它通过 Core SDK 关联 TMA Session/Run、Agent 对话和 Artifact。
+配置 GitLab 后，新建项目可创建私有仓库并提交 R 生存分析模板。生产接入遵守以下边界：
 
 - GitLab Token 进入 Secret/环境变量体系，不进入插件 localStorage 或项目元数据。
 - JupyterLab 通过 TMA 同源 HTTP/WebSocket 代理访问，不直接暴露无认证端口。
 - 原始或可识别数据进入受控对象存储，Git 仓库只保存代码、配置、Notebook 和脱敏样例。
-- 运行代码、提交、Push 和覆盖文件继续使用平台权限、审批与审计语义。
+- 运行代码、提交、Push 和覆盖文件通过 Platform Worker/Capability 契约使用权限、审批与审计语义。
+
+独立应用使用 `/v2/r-survival-projects/*` 应用 API；迁移期 Platform 只提供不进入 Core
+OpenAPI/SDK 的兼容代理。对话工作台不调用 `/v2/workbench-projects/*` 或
+`/v2/r-survival-projects/*`。
 
 ## 验收
 
 覆盖桌面/移动布局、键盘/焦点、加载/空/错/离线状态、RBAC、Workspace 切换、SSE 重连、
-审批、Artifact、插件故障隔离、未知 contribution 降级和无横向溢出。浏览器自动化与截图
+审批、Artifact、UI Extension 故障隔离、未知 contribution 降级和无横向溢出。浏览器自动化与截图
 命令见 [`TESTING.md`](../TESTING.md)。

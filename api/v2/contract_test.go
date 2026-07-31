@@ -129,7 +129,6 @@ func TestCoreOperationsUseExplicitSchemas(t *testing.T) {
 		{"get", "/v2/sessions/{session_id}/runs/{run_id}/events", "", "200", "#/components/schemas/EventList", "application/json"},
 		{"get", "/v2/sessions/{session_id}/runs/{run_id}/events/stream", "", "200", "#/components/schemas/EventStream", "text/event-stream"},
 		{"get", "/v2/sessions/{session_id}/live/stream", "", "200", "#/components/schemas/LiveEventStream", "text/event-stream"},
-		{"post", "/v2/workbench-projects/{project_id}/runtime/run-cleaning", "", "200", "#/components/schemas/WorkbenchProjectRunCleaningResponse", "application/json"},
 		{"post", "/v2/object-refs", "#/components/schemas/CreateObjectRefRequest", "201", "#/components/schemas/ObjectRef", "application/json"},
 		{"get", "/v2/mcp-servers", "", "200", "#/components/schemas/MCPServerList", "application/json"},
 		{"post", "/v2/mcp-servers", "#/components/schemas/CreateMCPServerRequest", "201", "#/components/schemas/MCPServer", "application/json"},
@@ -495,59 +494,7 @@ func TestMarketplaceInternalTagsUseRepeatedArrayQuery(t *testing.T) {
 	t.Fatal("Marketplace internal browse is missing tag query")
 }
 
-func TestWorkbenchProjectRoutesExposeWorkspaceScope(t *testing.T) {
-	contract, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var specification openAPISpecification
-	if err := yaml.Unmarshal(contract, &specification); err != nil {
-		t.Fatal(err)
-	}
-	assertParameter := func(method string, path string, name string) {
-		t.Helper()
-		for _, parameter := range specification.Paths[path][method].Parameters {
-			if parameter.In == "query" && parameter.Name == name {
-				return
-			}
-		}
-		t.Fatalf("%s %s is missing %s query parameter", method, path, name)
-	}
-	assertParameter("patch", "/v2/workbench-projects/{project_id}", "workspace_id")
-	assertParameter("post", "/v2/workbench-projects/{project_id}/sync", "workspace_id")
-	assertParameter("post", "/v2/workbench-projects/{project_id}/runtime/start", "workspace_id")
-	assertParameter("post", "/v2/workbench-projects/{project_id}/runtime/stop", "workspace_id")
-	assertParameter("post", "/v2/workbench-projects/{project_id}/runtime/run-cleaning", "workspace_id")
-}
-
-func TestWorkbenchProjectRuntimeErrorStatusesAreExplicit(t *testing.T) {
-	contract, err := os.ReadFile("openapi.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var specification openAPISpecification
-	if err := yaml.Unmarshal(contract, &specification); err != nil {
-		t.Fatal(err)
-	}
-	assertResponse := func(method string, path string, status string, ref string) {
-		t.Helper()
-		operation := specification.Paths[path][method]
-		response, ok := operation.Responses[status]
-		if !ok {
-			t.Fatalf("%s %s is missing %s response", method, path, status)
-		}
-		if got := response.Content["application/json"].Schema.Ref; got != ref {
-			t.Fatalf("%s %s %s schema = %q, want %q", method, path, status, got, ref)
-		}
-	}
-	assertResponse("post", "/v2/workbench-projects/{project_id}/sync", "503", "#/components/schemas/ErrorEnvelope")
-	assertResponse("post", "/v2/workbench-projects/{project_id}/runtime/start", "503", "#/components/schemas/ErrorEnvelope")
-	assertResponse("post", "/v2/workbench-projects/{project_id}/runtime/stop", "503", "#/components/schemas/ErrorEnvelope")
-	assertResponse("post", "/v2/workbench-projects/{project_id}/runtime/run-cleaning", "409", "#/components/schemas/ErrorEnvelope")
-	assertResponse("post", "/v2/workbench-projects/{project_id}/runtime/run-cleaning", "503", "#/components/schemas/ErrorEnvelope")
-}
-
-func TestWorkbenchProjectSchemasExposeEditableFileContent(t *testing.T) {
+func TestApplicationCompatibilityRoutesStayOutOfCoreContract(t *testing.T) {
 	contract, err := os.ReadFile("openapi.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -556,22 +503,26 @@ func TestWorkbenchProjectSchemasExposeEditableFileContent(t *testing.T) {
 	if err := yaml.Unmarshal(contract, &specification); err != nil {
 		t.Fatal(err)
 	}
+	paths := specification["paths"].(map[string]any)
+	for _, prefix := range []string{
+		"/v2/workbench-projects",
+		"/v2/r-survival-projects",
+		"/v2/knowledge/",
+		"/v2/public/knowledge-shares",
+	} {
+		for path := range paths {
+			if strings.HasPrefix(path, prefix) {
+				t.Errorf("application path %s must not be published by Core OpenAPI", path)
+			}
+		}
+	}
 	components := specification["components"].(map[string]any)
 	schemas := components["schemas"].(map[string]any)
-	workbenchFile := schemas["WorkbenchProjectFile"].(map[string]any)
-	fileProperties := workbenchFile["properties"].(map[string]any)
-	if _, ok := fileProperties["content"]; !ok {
-		t.Fatal("WorkbenchProjectFile must expose content")
-	}
-	updateRequest := schemas["UpdateWorkbenchProjectRequest"].(map[string]any)
-	updateProperties := updateRequest["properties"].(map[string]any)
-	files, ok := updateProperties["files"].(map[string]any)
-	if !ok {
-		t.Fatal("UpdateWorkbenchProjectRequest must expose files")
-	}
-	items := files["items"].(map[string]any)
-	if got := fmt.Sprint(items["$ref"]); got != "#/components/schemas/WorkbenchProjectFile" {
-		t.Fatalf("UpdateWorkbenchProjectRequest.files items = %q, want WorkbenchProjectFile", got)
+	for name := range schemas {
+		if strings.HasPrefix(name, "WorkbenchProject") || strings.HasPrefix(name, "KnowledgeService") ||
+			strings.HasPrefix(name, "KnowledgeShare") {
+			t.Errorf("application schema %s must not be published by Core OpenAPI", name)
+		}
 	}
 }
 
@@ -585,6 +536,9 @@ func hasOperation(paths map[string]map[string]openAPIOperation, method string, p
 }
 
 func excludedV2Route(method string, path string) bool {
+	if strings.HasPrefix(path, "/v2/workbench-projects") {
+		return true
+	}
 	if method == "GET" && path == "/v2/task-templates" {
 		return true
 	}

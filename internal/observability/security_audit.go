@@ -33,7 +33,11 @@ type AuthorizationDecisionEvent struct {
 	OrganizationID       string    `json:"organization_id,omitempty"`
 	WorkspaceID          string    `json:"workspace_id,omitempty"`
 	OwnerID              string    `json:"owner_id,omitempty"`
+	ServiceIdentityID    string    `json:"service_identity_id,omitempty"`
+	ServiceCredentialID  string    `json:"service_credential_id,omitempty"`
+	DelegationID         string    `json:"delegation_id,omitempty"`
 	Roles                []string  `json:"roles,omitempty"`
+	Scopes               []string  `json:"scopes,omitempty"`
 	AuthorizationSources []string  `json:"authorization_sources,omitempty"`
 	Detail               string    `json:"detail,omitempty"`
 }

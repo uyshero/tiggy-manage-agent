@@ -13,9 +13,11 @@
 
 ## P1：用户工作台
 
-- 将默认 Workbench 从 Runtime 面板收敛为任务、文件、变更、Artifact 和审批闭环。
+- 将对话工作台从 Runtime 面板收敛为任务、文件、变更、Artifact 和审批闭环。
 - 完成移动端、键盘/可访问性、SSE 重连和大数据量 Session 列表体验。
-- 固定 PluginContext、bundle 完整性、故障隔离和首个企业纵向插件验收。
+- 收紧对话工作台 UI Extension 边界、bundle 完整性和故障隔离；完整专业产品必须独立部署。
+- 完成 R语言生存分析工作台独立数据库、API、GitLab 和 R Runtime 的流量切换并下线 Platform 兼容代理。
+- 完成 Knowledge Service/Share/Question 的数据复制与网关切流，下线 Platform `/v2/knowledge/*` 兼容实现和嵌入 Web。
 - 把 Inspector 深链、trace、completion quality 和权限审计用于一线排障。
 
 ## P1：平台治理
@@ -27,6 +29,8 @@
 
 ## P2：模型与编排
 
+- Agent Turn 流式 Generate 和 Realtime Speech 已迁入独立 Model Runtime 数据面；后续补齐内部
+  mTLS、短期调用凭证和流式背压指标。
 - 增加真实 tokenizer、多模态上下文和更多 Provider 原生 tool calling adapter。
 - 在统一 Provider 接口上实现显式 Router/failover，保留 usage 和错误归因。
 - 评测渐进式工具暴露效果，并继续探索按需 Tool Search；不以固定工具数量替代数据。

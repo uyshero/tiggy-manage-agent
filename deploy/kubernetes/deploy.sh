@@ -11,6 +11,7 @@ PUBLIC_HOST=tma.example.com
 INGRESS_CLASS=nginx
 TLS_SECRET=tma-tls
 SERVER_IMAGE="${TMA_SERVER_IMAGE:-}"
+MODEL_RUNTIME_IMAGE="${TMA_MODEL_RUNTIME_IMAGE:-}"
 WORKER_IMAGE="${TMA_WORKER_IMAGE:-}"
 MIGRATE_IMAGE="${TMA_MIGRATE_IMAGE:-}"
 INIT_DB=0
@@ -26,6 +27,7 @@ Usage: deploy/kubernetes/deploy.sh [options]
 
 Required:
   --server-image IMAGE
+  --model-runtime-image IMAGE
   --worker-image IMAGE              Unless --skip-worker is used.
   --migrate-image IMAGE             Required with --init-db.
 
@@ -38,7 +40,7 @@ Options:
   --host HOST                       Public HTTPS host.
   --ingress-class NAME              Default: nginx.
   --tls-secret NAME                 Default: tma-tls.
-  --init-db                         Apply the 000099 baseline Job once.
+  --init-db                         Apply the 000110 baseline Job once.
   --keep-migration-secret           Keep owner Secret after successful Job.
   --skip-worker                     Deploy control plane without Worker.
   --timeout DURATION                Rollout/Job timeout (default: 10m).
@@ -56,6 +58,7 @@ load_release_file() {
     value="${value%$'\r'}"
     case "$key" in
       TMA_SERVER_IMAGE) SERVER_IMAGE="$value" ;;
+      TMA_MODEL_RUNTIME_IMAGE) MODEL_RUNTIME_IMAGE="$value" ;;
       TMA_WORKER_IMAGE) WORKER_IMAGE="$value" ;;
       TMA_MIGRATE_IMAGE) MIGRATE_IMAGE="$value" ;;
       TMA_PUBLIC_HOST) PUBLIC_HOST="$value" ;;
@@ -70,6 +73,7 @@ load_release_file() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --server-image) SERVER_IMAGE="${2:?missing value}"; shift 2 ;;
+    --model-runtime-image) MODEL_RUNTIME_IMAGE="${2:?missing value}"; shift 2 ;;
     --worker-image) WORKER_IMAGE="${2:?missing value}"; shift 2 ;;
     --migrate-image) MIGRATE_IMAGE="${2:?missing value}"; shift 2 ;;
     --config-file) CONFIG_FILE="${2:?missing value}"; shift 2 ;;
@@ -93,6 +97,7 @@ done
 
 command -v kubectl >/dev/null || { echo 'kubectl is required' >&2; exit 1; }
 [[ -n "$SERVER_IMAGE" ]] || { echo '--server-image is required' >&2; exit 2; }
+[[ -n "$MODEL_RUNTIME_IMAGE" ]] || { echo '--model-runtime-image is required' >&2; exit 2; }
 if [[ "$SKIP_WORKER" -eq 0 && -z "$WORKER_IMAGE" ]]; then
   echo '--worker-image is required unless --skip-worker is used' >&2
   exit 2
@@ -116,6 +121,8 @@ validate_file() {
 
 validate_file "$CONFIG_FILE"
 validate_file "$RUNTIME_SECRET_FILE"
+model_runtime_token="$(sed -n 's/^TMA_MODEL_RUNTIME_AUTH_TOKEN=//p' "$RUNTIME_SECRET_FILE" | tail -1)"
+[[ "${#model_runtime_token}" -ge 32 ]] || { echo 'TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes' >&2; exit 1; }
 if [[ "$INIT_DB" -eq 1 ]]; then
   validate_file "$MIGRATION_SECRET_FILE"
 fi
@@ -128,6 +135,7 @@ render_manifest() {
   sed \
     -e "s|namespace: tma|namespace: $NAMESPACE|g" \
     -e "s|registry.example.com/tma-server:0.1.0|$SERVER_IMAGE|g" \
+    -e "s|registry.example.com/tma-model-runtime:0.1.0|$MODEL_RUNTIME_IMAGE|g" \
     -e "s|registry.example.com/tma-worker:0.1.0|$WORKER_IMAGE|g" \
     -e "s|registry.example.com/tma-migrate:0.1.0|$MIGRATE_IMAGE|g" \
     -e "s|tma.example.com|$PUBLIC_HOST|g" \
@@ -137,6 +145,7 @@ render_manifest() {
 }
 
 render_manifest "$BASE/server.yaml" "$TMP_DIR/server.yaml"
+render_manifest "$BASE/model-runtime.yaml" "$TMP_DIR/model-runtime.yaml"
 render_manifest "$BASE/ingress.yaml" "$TMP_DIR/ingress.yaml"
 if [[ "$SKIP_WORKER" -eq 0 ]]; then
   render_manifest "$BASE/worker.yaml" "$TMP_DIR/worker.yaml"
@@ -180,23 +189,25 @@ kubectl apply -f "$TMP_DIR/runtime-secret.yaml"
 
 if [[ "$INIT_DB" -eq 1 ]]; then
   kubectl apply -f "$TMP_DIR/migration-secret.yaml"
-  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000099 >/dev/null 2>&1; then
-    complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000099 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
+  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000110 >/dev/null 2>&1; then
+    complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000110 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
     [[ "$complete" == 'True' ]] || { echo 'existing baseline Job is not complete; inspect it before retrying' >&2; exit 1; }
     echo 'database baseline Job already completed; skipping reinitialization'
   else
     kubectl apply -f "$TMP_DIR/migration-job.yaml"
-    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000099 --timeout="$TIMEOUT"; then
-      kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000099 --all-containers=true >&2 || true
+    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000110 --timeout="$TIMEOUT"; then
+      kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000110 --all-containers=true >&2 || true
       exit 1
     fi
-    kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000099 --all-containers=true
+    kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000110 --all-containers=true
   fi
   if [[ "$KEEP_MIGRATION_SECRET" -eq 0 ]]; then
     kubectl -n "$NAMESPACE" delete secret tma-migration-secrets --ignore-not-found
   fi
 fi
 
+kubectl apply -f "$TMP_DIR/model-runtime.yaml"
+kubectl -n "$NAMESPACE" rollout status deployment/tma-model-runtime --timeout="$TIMEOUT"
 kubectl apply -f "$TMP_DIR/server.yaml"
 if [[ "$SKIP_WORKER" -eq 0 ]]; then
   kubectl apply -f "$TMP_DIR/worker.yaml"

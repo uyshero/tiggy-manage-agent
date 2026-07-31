@@ -29,8 +29,9 @@ export class Transport {
     this.baseURL = baseURL.trim().replace(/\/+$/, "");
     this.staticToken = options.token?.trim() ?? "";
     this.tokenSource = options.tokenSource;
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
-    if (!this.fetchImpl) throw new TypeError("A Fetch API implementation is required");
+    const fetchImpl = options.fetch ?? globalThis.fetch;
+    if (!fetchImpl) throw new TypeError("A Fetch API implementation is required");
+    this.fetchImpl = fetchImpl.bind(globalThis);
     this.defaultHeaders = new Headers(options.headers);
   }
 

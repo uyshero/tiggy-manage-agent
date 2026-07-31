@@ -140,6 +140,39 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 		return errors.New("tenant directory RLS helpers are missing; apply migration 000066")
 	}
 
+	var serviceAuthOwner, serviceAuthLanguage string
+	var serviceAuthSecurityDefiner, serviceAuthFixedSearchPath, serviceAuthDisablesRLS, serviceAuthOwnerBypassesRLS, serviceAuthExecutable bool
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT
+			owners.rolname,
+			languages.lanname,
+			functions.prosecdef,
+			COALESCE('search_path=pg_catalog, public' = ANY(functions.proconfig), false),
+			COALESCE('row_security=off' = ANY(functions.proconfig), false),
+			owners.rolsuper OR owners.rolbypassrls,
+			has_function_privilege(current_user, functions.oid, 'EXECUTE')
+		FROM pg_proc functions
+		JOIN pg_roles owners ON owners.oid = functions.proowner
+		JOIN pg_language languages ON languages.oid = functions.prolang
+		WHERE functions.oid = to_regprocedure('public.tma_authenticate_service_credential(text,bytea)')
+	`).Scan(
+		&serviceAuthOwner, &serviceAuthLanguage, &serviceAuthSecurityDefiner, &serviceAuthFixedSearchPath,
+		&serviceAuthDisablesRLS, &serviceAuthOwnerBypassesRLS, &serviceAuthExecutable,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("service credential authentication helper is missing; apply migration 000109")
+		}
+		return fmt.Errorf("inspect service credential authentication helper: %w", err)
+	}
+	if serviceAuthOwner == role || serviceAuthLanguage != "sql" || !serviceAuthSecurityDefiner ||
+		!serviceAuthFixedSearchPath || !serviceAuthDisablesRLS || !serviceAuthOwnerBypassesRLS || !serviceAuthExecutable {
+		return fmt.Errorf(
+			"service credential authentication helper has unsafe configuration (owner=%q language=%q security_definer=%t fixed_search_path=%t row_security_off=%t owner_bypasses_rls=%t executable=%t); apply migration 000109 with a privileged migration role",
+			serviceAuthOwner, serviceAuthLanguage, serviceAuthSecurityDefiner, serviceAuthFixedSearchPath,
+			serviceAuthDisablesRLS, serviceAuthOwnerBypassesRLS, serviceAuthExecutable,
+		)
+	}
+
 	directoryRows, err := s.db.QueryContext(ctx, `
 		WITH required(table_name, policy_name) AS (
 			VALUES
@@ -429,6 +462,7 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('environments', 'environments_workspace_isolation'),
 				('evaluation_rubrics', 'evaluation_rubrics_workspace_isolation'),
 				('llm_usage_records', 'llm_usage_records_session_isolation'),
+				('model_invocations', 'model_invocations_workspace_isolation'),
 				('managed_environment_variables', 'managed_environment_variables_workspace_isolation'),
 				('mcp_registry_server_versions', 'mcp_registry_server_versions_workspace_isolation'),
 				('mcp_registry_servers', 'mcp_registry_servers_workspace_isolation'),
@@ -438,7 +472,9 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('observability_exporter_runs', 'observability_exporter_runs_session_isolation'),
 				('operator_audit_log', 'operator_audit_log_workspace_isolation'),
 				('run_evaluations', 'run_evaluations_workspace_isolation'),
-				('security_audit_outbox', 'security_audit_outbox_workspace_isolation'),
+					('security_audit_outbox', 'security_audit_outbox_workspace_isolation'),
+					('service_identities', 'service_identities_workspace_isolation'),
+					('service_identity_credentials', 'service_identity_credentials_workspace_isolation'),
 				('session_artifacts', 'session_artifacts_workspace_isolation'),
 				('session_event_counters', 'session_event_counters_session_isolation'),
 				('session_events', 'session_events_session_isolation'),
@@ -520,8 +556,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 56 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000100")
+	if checked != 59 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000109")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
@@ -536,13 +572,16 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_evaluation_rubric_id_seq'),
 				('tma_event_id_seq'),
 				('tma_llm_usage_id_seq'),
+				('tma_model_invocation_id_seq'),
 				('tma_mcp_registry_server_id_seq'),
 				('tma_mcp_registry_version_id_seq'),
 				('tma_object_ref_id_seq'),
 				('tma_object_cleanup_journal_id_seq'),
 				('tma_observability_exporter_run_id_seq'),
 				('tma_operator_audit_id_seq'),
-				('tma_run_evaluation_id_seq'),
+					('tma_run_evaluation_id_seq'),
+					('tma_service_credential_id_seq'),
+					('tma_service_identity_id_seq'),
 				('tma_session_artifact_id_seq'),
 				('tma_session_id_seq'),
 				('tma_skill_asset_gc_item_id_seq'),
@@ -591,8 +630,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 35 {
-		return errors.New("tenant resource sequences are missing; apply migrations through 000100")
+	if checked != 38 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000109")
 	}
 	return nil
 }

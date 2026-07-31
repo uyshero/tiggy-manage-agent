@@ -6,11 +6,15 @@ import (
 	"net/http"
 )
 
-//go:embed inspector/* app/* space/* knowledge/*
+//go:embed inspector/* app/* space/* knowledge/* console/*
 var inspectorAssets embed.FS
 
 func inspectorAssetHandler() http.Handler {
 	return assetHandler("inspector", "/inspector/assets/")
+}
+
+func consoleAssetHandler() http.Handler {
+	return assetHandler("console", "/console/assets/")
 }
 
 func appAssetHandler() http.Handler {

@@ -18,4 +18,4 @@ sdk/typescript/.schema.check.*
 # migrations in the repository for upgrade history, but out of the image context.
 sql/migrations
 sql/baselines/*
-!sql/baselines/000085_baseline.sql
+!sql/baselines/000110_baseline.sql

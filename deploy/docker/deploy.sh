@@ -67,6 +67,7 @@ configured_gid="$(env_value TMA_DOCKER_GID)"
 workspace_root="$(env_value TMA_CLOUD_SANDBOX_ROOT)"
 data_root="$(env_value TMA_CLOUD_SANDBOX_DATA_ROOT)"
 sandbox_image="$(env_value TMA_CLOUD_SANDBOX_IMAGE)"
+model_runtime_token="$(env_value TMA_MODEL_RUNTIME_AUTH_TOKEN)"
 [[ "$configured_gid" =~ ^[0-9]+$ ]] || { echo 'TMA_DOCKER_GID must be numeric' >&2; exit 1; }
 [[ "$workspace_root" = /* && "$data_root" = /* ]] || { echo 'sandbox roots must be absolute paths' >&2; exit 1; }
 [[ "$workspace_root" == /var/lib/tma/* && "$data_root" == /var/lib/tma/* ]] || {
@@ -74,6 +75,7 @@ sandbox_image="$(env_value TMA_CLOUD_SANDBOX_IMAGE)"
   exit 1
 }
 [[ -n "$sandbox_image" ]] || { echo 'TMA_CLOUD_SANDBOX_IMAGE is required' >&2; exit 1; }
+[[ "${#model_runtime_token}" -ge 32 ]] || { echo 'TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes' >&2; exit 1; }
 if [[ "$WITH_BROWSER" -eq 1 && -z "$(env_value TMA_BROWSER_GATEWAY_SERVICE_SECRET)" ]]; then
   echo 'TMA_BROWSER_GATEWAY_SERVICE_SECRET is required with --with-browser' >&2
   exit 1

@@ -8,12 +8,18 @@
 | 文档 | 内容 |
 | --- | --- |
 | [architecture.md](./architecture.md) | Agent Core、Runner、Worker、Provider、LLM 与多 Agent 边界 |
-| [repository-split.md](./repository-split.md) | Platform、Worker、Console、Knowledge、Biography、SDK 和 CLI 的拆分边界与迁移顺序 |
+| [platform-guide.md](./platform-guide.md) | Platform 公共能力、Retrieval/Speech 接入、现有应用差异和未来扩展方向 |
+| [platform-boundary.md](./platform-boundary.md) | Platform 核心职责、应用所有权、依赖规则和新功能准入标准 |
+| [platform-remediation-plan.md](./platform-remediation-plan.md) | Platform 最终项目划分、整改阶段、数据切换和验收门槛 |
+| [repository-split.md](./repository-split.md) | Platform、Knowledge、Biography、R语言生存分析工作台的拆分边界与迁移顺序 |
+| [repository-cutover-runbook.md](./repository-cutover-runbook.md) | 四仓数据迁移、Gateway 切流、验证、回滚和兼容层删除门槛 |
+| [sdk-release-policy.md](./sdk-release-policy.md) | Core SDK 统一版本、兼容窗口和应用升级流程 |
+| [model-runtime.md](./model-runtime.md) | 独立模型数据面职责、内部协议、安全和部署模式 |
 | [tools.md](./tools.md) | 工具契约、权限、文件能力、进程插件和 Computer Use |
 | [mcp.md](./mcp.md) | MCP 注册、配置、传输、安全和兼容性 |
 | [mcp-gitlab.md](./mcp-gitlab.md) | GitLab Docker MCP 的只读模板、Token、安全边界和验证 |
 | [extensions.md](./extensions.md) | Extension/Provider 治理、设置贡献和版本规则 |
-| [workbench.md](./workbench.md) | Workbench、Inspector、插件扩展点与前端边界 |
+| [workbench.md](./workbench.md) | 对话工作台、Inspector、UI 扩展与 R语言生存分析工作台边界 |
 | [configuration.md](./configuration.md) | Server、Worker、Runtime 和外部服务配置 |
 | [deployment.md](./deployment.md) | Docker/Kubernetes、数据库迁移、对象存储和 Onlyboxes |
 | [operations.md](./operations.md) | 可观测性、安全、告警和排障 |

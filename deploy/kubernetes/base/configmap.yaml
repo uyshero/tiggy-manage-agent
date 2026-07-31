@@ -6,6 +6,7 @@ metadata:
 data:
   TMA_ENV: production
   TMA_HTTP_ADDR: :8080
+  TMA_MODEL_RUNTIME_ENDPOINT: http://tma-model-runtime:8090
   TMA_AUTH_MODE: oidc
   TMA_AUTH_OIDC_ISSUER: https://identity.example.com
   TMA_AUTH_OIDC_AUDIENCE: tma-api
@@ -26,4 +27,3 @@ data:
   TMA_LLM_API_KEY_ENV: TMA_LLM_API_KEY
   TMA_TOOL_RUNTIME: local_system
   TMA_ALLOW_SERVER_LOCAL_SYSTEM: "false"
-

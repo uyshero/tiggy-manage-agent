@@ -44,6 +44,10 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 		capabilities = existing.Capabilities
 	}
 	capabilities.Protocol = strings.TrimSpace(capabilities.Protocol)
+	capabilities.ResourceID = strings.TrimSpace(capabilities.ResourceID)
+	capabilities.DefaultVoice = strings.TrimSpace(capabilities.DefaultVoice)
+	capabilities.AudioFormat = strings.TrimSpace(capabilities.AudioFormat)
+	capabilities.UpstreamModel = strings.TrimSpace(capabilities.UpstreamModel)
 	capabilities.DistanceMetric = strings.ToLower(strings.TrimSpace(capabilities.DistanceMetric))
 
 	switch capabilityType {
@@ -83,6 +87,27 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 		capabilities.DistanceMetric = ""
 		capabilities.Normalized = false
 		capabilities.MaxBatchSize = 0
+	case LLMModelCapabilitySpeechToText, LLMModelCapabilityTextToSpeech:
+		if capabilities.Protocol == "" || capabilities.ResourceID == "" {
+			return LLMModelCapabilities{}, fmt.Errorf("%w: speech model protocol and resource_id are required", ErrInvalid)
+		}
+		if capabilities.AudioFormat == "" {
+			capabilities.AudioFormat = "pcm_s16le"
+		}
+		if capabilities.SampleRateHz == 0 {
+			capabilities.SampleRateHz = 16000
+		}
+		if capabilities.SampleRateHz < 8000 || capabilities.SampleRateHz > 48000 {
+			return LLMModelCapabilities{}, fmt.Errorf("%w: speech model sample_rate_hz must be between 8000 and 48000", ErrInvalid)
+		}
+		if capabilityType == LLMModelCapabilityTextToSpeech && capabilities.DefaultVoice == "" {
+			return LLMModelCapabilities{}, fmt.Errorf("%w: text-to-speech model default_voice is required", ErrInvalid)
+		}
+		capabilities.Dimensions = 0
+		capabilities.DistanceMetric = ""
+		capabilities.Normalized = false
+		capabilities.MaxBatchSize = 0
+		capabilities.MaxCandidates = 0
 	default:
 		if capabilities != (LLMModelCapabilities{}) {
 			return LLMModelCapabilities{}, fmt.Errorf("%w: capabilities are only supported for embedding and reranker models", ErrInvalid)

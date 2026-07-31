@@ -5,14 +5,14 @@
 Extension 是可安装、可版本化、可治理的能力包；Provider 是某项 capability 的具体实现；
 Worker 是 Provider 的运行载体；Tool Manifest 是模型调用契约。四者不能混用。
 
-扩展类型包括 Tool/Runtime Provider、Workbench Plugin、Skill package 和集成连接器。
+扩展类型包括 Tool/Runtime Provider、对话工作台 UI Extension、Skill package 和集成连接器。
 Core 只定义稳定协议、Registry、权限、审计和生命周期，不把企业业务代码编译进 Server。
 
 Descriptor 至少包含：
 
 - 稳定 identifier、display name、semantic version 和 publisher。
 - extension type、entrypoints、platform/architecture compatibility。
-- capabilities、tool manifests、settings contributions 和 Workbench contributions。
+- capabilities、tool manifests、settings contributions 和对话工作台 UI contributions。
 - required roles、permissions、secret refs 和数据作用域。
 - checksum/signature、minimum TMA version 和升级策略。
 
@@ -62,4 +62,5 @@ timeout 和输出脱敏规则。
 
 新扩展至少验证安装/升级/回滚、checksum/signature、兼容性拒绝、配置 revision、secret
 脱敏、发现/下线、权限、审计、多 Workspace 隔离、Worker 重启和 UI 离线降级。工具插件
-细节见 [tools.md](./tools.md)，Workbench 贡献见 [workbench.md](./workbench.md)。
+细节见 [tools.md](./tools.md)，对话工作台 UI 贡献见 [workbench.md](./workbench.md)。完整领域产品
+（例如 R语言生存分析工作台）不属于 UI Extension，必须通过公开 SDK/API 独立部署。

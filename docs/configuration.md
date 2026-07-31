@@ -35,11 +35,16 @@ TMA_OBJECT_STORAGE_ROOT_DIR=.tma/objects
 | `TMA_AUTH_OIDC_WEB_*` | Web login client、redirect、logout 和 session secret |
 | `TMA_AUTH_GATEWAY_TOKEN/TRUSTED_CIDRS` | 可信网关身份边界 |
 | `TMA_AUTH_COOKIE_TRUSTED_ORIGINS` | Cookie 写操作允许的 Origin |
+| `TMA_AUTH_DELEGATION_SIGNING_SECRET` | OBO 委托令牌独立 HS256 签名密钥，至少 32 bytes |
+| `TMA_AUTH_DELEGATION_ISSUER/AUDIENCE` | 委托令牌专用 issuer 和 Platform audience |
+| `TMA_AUTH_DELEGATION_TTL_SECONDS` | 委托令牌有效期，默认 300 秒，最大 900 秒 |
 
 生产必须显式配置 issuer、audience、算法和 Workspace 映射；不能从未验证 header 直接接受
-身份。Web session secret、JWT secret 和 gateway token 必须使用独立高熵值。
+身份。Delegation、Web session、JWT、OIDC client、Gateway 和 Worker 的 secret 必须分别使用独立高熵值。
+只有 JWT/OIDC 用户认证模式支持 Token Exchange；服务身份凭据放在 Authorization，用户令牌只作为
+`subject_token` 发送且不落库、不写日志。
 
-## 扩展工作台与 GitLab
+## R语言生存分析工作台与 GitLab（过渡配置）
 
 | 变量 | 用途 |
 | --- | --- |
@@ -48,7 +53,9 @@ TMA_OBJECT_STORAGE_ROOT_DIR=.tma/objects
 | `TMA_GITLAB_NAMESPACE_ID` | 可选的目标 Group/User namespace 数字 ID |
 | `TMA_GITLAB_PROJECT_VISIBILITY` | `private`（默认）或 `internal` |
 
-未配置 `TMA_GITLAB_TOKEN` 时，工作台项目仍保存到 PostgreSQL，但状态保持为 `local`，不会
+这些变量当前仍由 Platform Server 读取；拆分后改由 `tma-r-survival-workbench` 的部署配置拥有，
+Platform 不再读取 GitLab Provisioner 凭据。未配置 `TMA_GITLAB_TOKEN` 时，生存分析项目仍保存
+到 PostgreSQL，但状态保持为 `local`，不会
 伪报 GitLab 同步成功。Token 只从服务端 Secret/环境变量读取，不返回浏览器、不写入项目表。
 
 ## Turn、Agent Core 与子 Agent
@@ -104,6 +111,30 @@ TMA_LLM_RETRY_BASE_DELAY_MS=250
 Provider/Model 也可通过 API 管理。数据库只保存 API key 的环境变量名。认证、invalid request
 等不可重试；rate limit、timeout 和 server error 使用有界退避并尊重 `Retry-After`。响应流
 开始后不自动重放。
+
+Model/Speech 公共入口默认执行两层 admission control：
+
+| 变量组 | 默认值 | 作用 |
+| --- | --- | --- |
+| `TMA_MODEL_RUNTIME_ENDPOINT` | 空 | 为空时 Server 进程内执行；配置绝对 HTTP(S) URL 后转发 Generate/Embedding/Rerank、Agent Turn 流式 Generate 和 Realtime Speech 到独立数据面 |
+| `TMA_MODEL_RUNTIME_AUTH_TOKEN` | 空 | Server 与独立数据面之间的专用 Bearer Token；配置 Endpoint 时必填，生产至少 32 bytes |
+| `TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS` | `70` | Server 调用独立数据面同步/NDJSON HTTP 请求的总超时，范围 `1..3600`；Realtime Speech 使用单独的最大会话时长 |
+| `TMA_MODEL_RUNTIME_HTTP_ADDR` | `:8090` | 仅供 `tma-model-runtime` 进程使用的监听地址 |
+| `TMA_MODEL_RUNTIME_{GLOBAL,WORKSPACE,IDENTITY,ROUTE}_CONCURRENCY` | `64/16/8/32` | 每个 Server 副本的同步 Generate/Embedding/Rerank 并发上限 |
+| `TMA_MODEL_RUNTIME_{WORKSPACE,IDENTITY}_REQUESTS_PER_MINUTE` | `600/120` | PostgreSQL 原子分钟桶，按 Capability + Provider + Model 跨副本执行 |
+| `TMA_SPEECH_RUNTIME_{GLOBAL,WORKSPACE,IDENTITY,ROUTE}_CONCURRENCY` | `100/20/10/50` | 每个 Server 副本的实时语音连接上限 |
+| `TMA_SPEECH_RUNTIME_{WORKSPACE,IDENTITY}_SESSIONS_PER_MINUTE` | `120/30` | PostgreSQL 原子语音建连分钟桶，按 Capability + Provider + Model 跨副本执行 |
+| `TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS` | `900` | 单条实时语音会话硬时长，范围 `1..86400` |
+
+`IDENTITY` 优先使用 Service Identity ID；用户直接调用时使用用户 Principal。并发和分钟配额值为
+`0` 时只关闭该维度，Speech 最大时长不能关闭。HTTP 超限返回 `429`、`Retry-After` 和稳定错误码；
+WebSocket 已升级后通过 `error` 事件返回 `retry_after_seconds` 和 `limit_scope`。配额拒绝和时长超限
+同样写入 `model_invocations`，但不会保存 Prompt、文档或音频内容。
+
+独立数据面不读取 Platform 数据库，也不接受用户 Token。Server 完成认证、模型路由、Credential
+解析、Quota 和审计后，通过内部协议发送一次已批准的调用。该内部端点不能由 Ingress 暴露；生产
+应同时使用 NetworkPolicy/私有网络和 TLS 或 Service Mesh 加密，不能把 Bearer Token 当成网络隔离
+的替代品。完整边界见 [model-runtime.md](./model-runtime.md)。
 
 ## 对象存储与沙箱
 

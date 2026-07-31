@@ -15,6 +15,8 @@ const (
 	LLMModelCapabilityVideoGeneration = "video_generation"
 	LLMModelCapabilityEmbedding       = "embedding"
 	LLMModelCapabilityReranker        = "reranker"
+	LLMModelCapabilitySpeechToText    = "speech_to_text"
+	LLMModelCapabilityTextToSpeech    = "text_to_speech"
 	AgentLoopMessageProtocolVersion   = "tma.agent_loop.message.v1"
 
 	SessionStatusProvisioning = "provisioning"
@@ -241,6 +243,11 @@ type LLMModelCapabilities struct {
 	MaxBatchSize   int    `json:"max_batch_size,omitempty"`
 	MaxCandidates  int    `json:"max_candidates,omitempty"`
 	Protocol       string `json:"protocol,omitempty"`
+	ResourceID     string `json:"resource_id,omitempty"`
+	DefaultVoice   string `json:"default_voice,omitempty"`
+	AudioFormat    string `json:"audio_format,omitempty"`
+	SampleRateHz   int    `json:"sample_rate_hz,omitempty"`
+	UpstreamModel  string `json:"upstream_model,omitempty"`
 }
 
 type UpsertLLMModelInput struct {
@@ -264,7 +271,7 @@ func NormalizeLLMModelCapability(value string) (string, bool) {
 	case "", LLMModelCapabilityText:
 		return LLMModelCapabilityText, true
 	case LLMModelCapabilityTextImage, LLMModelCapabilityImageGeneration, LLMModelCapabilityVideoGeneration,
-		LLMModelCapabilityEmbedding, LLMModelCapabilityReranker:
+		LLMModelCapabilityEmbedding, LLMModelCapabilityReranker, LLMModelCapabilitySpeechToText, LLMModelCapabilityTextToSpeech:
 		return value, true
 	default:
 		return "", false

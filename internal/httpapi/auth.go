@@ -46,33 +46,39 @@ const (
 	accessTokenCookie      = "tma_access_token"
 )
 
+var errWorkspaceMembershipInactive = fmt.Errorf("%w: workspace membership is not active", managedagents.ErrForbidden)
+
 type AuthConfig struct {
-	Mode                 string
-	JWTSecret            string
-	JWTIssuer            string
-	JWTAudience          string
-	OIDCIssuer           string
-	OIDCAudience         string
-	OIDCJWKSURL          string
-	OIDCSigningAlgs      []string
-	OIDCHTTPTimeout      time.Duration
-	OIDCRefreshInterval  time.Duration
-	OIDCMaxStale         time.Duration
-	OIDCClaimMapping     identity.OIDCClaimMapping
-	OIDCWebLoginEnabled  bool
-	OIDCWebClientID      string
-	OIDCWebClientSecret  string
-	OIDCWebRedirectURL   string
-	OIDCWebPostLogoutURL string
-	OIDCWebSessionSecret string
-	OIDCCLIClientID      string
-	CookieTrustedOrigins []string
-	GatewayToken         string
-	GatewayTrustedCIDRs  []string
-	LegacyControlToken   string
-	WorkerToken          string
-	WorkerWorkspaceID    string
-	AuthorizationSink    observability.AuthorizationDecisionSink
+	Mode                    string
+	JWTSecret               string
+	JWTIssuer               string
+	JWTAudience             string
+	OIDCIssuer              string
+	OIDCAudience            string
+	OIDCJWKSURL             string
+	OIDCSigningAlgs         []string
+	OIDCHTTPTimeout         time.Duration
+	OIDCRefreshInterval     time.Duration
+	OIDCMaxStale            time.Duration
+	OIDCClaimMapping        identity.OIDCClaimMapping
+	OIDCWebLoginEnabled     bool
+	OIDCWebClientID         string
+	OIDCWebClientSecret     string
+	OIDCWebRedirectURL      string
+	OIDCWebPostLogoutURL    string
+	OIDCWebSessionSecret    string
+	OIDCCLIClientID         string
+	CookieTrustedOrigins    []string
+	GatewayToken            string
+	GatewayTrustedCIDRs     []string
+	DelegationSigningSecret string
+	DelegationIssuer        string
+	DelegationAudience      string
+	DelegationTTL           time.Duration
+	LegacyControlToken      string
+	WorkerToken             string
+	WorkerWorkspaceID       string
+	AuthorizationSink       observability.AuthorizationDecisionSink
 }
 
 type Principal struct {
@@ -82,7 +88,11 @@ type Principal struct {
 	WorkspaceID          string   `json:"workspace_id"`
 	OwnerID              string   `json:"owner_id"`
 	Roles                []string `json:"roles"`
+	ServiceIdentityID    string   `json:"service_identity_id,omitempty"`
+	Scopes               []string `json:"scopes,omitempty"`
 	AuthType             string   `json:"auth_type"`
+	ServiceCredentialID  string   `json:"-"`
+	DelegationID         string   `json:"-"`
 	AuthorizationSources []string `json:"-"`
 }
 
@@ -141,6 +151,24 @@ func newIdentityAuthenticator(config AuthConfig) (*identityAuthenticator, error)
 		normalizedOrigins = append(normalizedOrigins, origin.String())
 	}
 	config.CookieTrustedOrigins = normalizedOrigins
+	if secret := strings.TrimSpace(config.DelegationSigningSecret); secret != "" {
+		if len(secret) < 32 {
+			return nil, errors.New("delegation signing secret must be at least 32 bytes")
+		}
+		config.DelegationSigningSecret = secret
+		if strings.TrimSpace(config.DelegationIssuer) == "" {
+			config.DelegationIssuer = "tma-platform"
+		}
+		if strings.TrimSpace(config.DelegationAudience) == "" {
+			config.DelegationAudience = "tma-platform-api"
+		}
+		if config.DelegationTTL <= 0 {
+			config.DelegationTTL = 5 * time.Minute
+		}
+		if config.DelegationTTL > 15*time.Minute {
+			return nil, errors.New("delegation token TTL cannot exceed 15 minutes")
+		}
+	}
 	if config.Mode == AuthModeOIDC {
 		if config.OIDCClaimMapping.SubjectClaim == "" {
 			config.OIDCClaimMapping = identity.DefaultOIDCClaimMapping()
@@ -623,6 +651,14 @@ func isSafeRequestMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
+func isPlatformAdministrationRequest(r *http.Request) bool {
+	return r != nil && strings.HasPrefix(r.URL.Path, "/v2/platform/")
+}
+
+func isPlatformRoleAwareRequest(r *http.Request) bool {
+	return isPlatformAdministrationRequest(r) || (r != nil && (r.URL.Path == "/v2/administration/context" || r.URL.Path == "/v2/console/context"))
+}
+
 func normalizePrincipal(principal Principal) (Principal, error) {
 	principal.Subject = strings.TrimSpace(principal.Subject)
 	principal.Username = strings.TrimSpace(principal.Username)
@@ -662,6 +698,42 @@ func identityUsername(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (s *Server) resolveWorkspaceMembership(ctx context.Context, principal Principal) (Principal, error) {
+	if principal.Subject == "local-development" || principal.AuthType == "legacy-control" || principal.AuthType == AuthTypeServiceCredential {
+		return principal, nil
+	}
+	store, ok := s.store.(managedagents.TenantAdministrationStore)
+	if !ok {
+		return principal, nil
+	}
+	membershipCtx, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{WorkspaceID: principal.WorkspaceID})
+	if err != nil {
+		return principal, err
+	}
+	membership, err := store.GetWorkspaceMembership(membershipCtx, principal.WorkspaceID, principal.Subject)
+	if errors.Is(err, managedagents.ErrNotFound) {
+		return principal, nil
+	}
+	if err != nil {
+		return principal, err
+	}
+
+	role := strings.ToLower(strings.TrimSpace(membership.Role))
+	if roleLevel(role) == 0 {
+		return principal, fmt.Errorf("workspace membership has unsupported role %q", membership.Role)
+	}
+	principal.Roles = []string{role}
+	principal.AuthorizationSources = normalizedStringList(append(principal.AuthorizationSources, "workspace_membership"))
+	switch strings.ToLower(strings.TrimSpace(membership.Status)) {
+	case "active":
+		return principal, nil
+	case "invited", "suspended":
+		return principal, errWorkspaceMembershipInactive
+	default:
+		return principal, fmt.Errorf("workspace membership has unsupported status %q", membership.Status)
+	}
 }
 
 func claimStringValue(claims map[string]any, name string) string {
@@ -704,9 +776,22 @@ func (s *Server) identityMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
-		principal, err := s.authenticator.authenticate(r)
+		principal, serviceCredential, err := s.authenticateServiceCredential(r)
+		delegatedCredential := false
+		if !serviceCredential {
+			principal, delegatedCredential, err = s.authenticateDelegatedToken(r)
+			if !delegatedCredential {
+				principal, err = s.authenticator.authenticate(r)
+			}
+		}
 		if err != nil {
-			s.auditAuthorizationDecision(r, Principal{AuthType: s.authenticator.config.Mode}, "denied", "authentication_failed", "", err)
+			authType := s.authenticator.config.Mode
+			if serviceCredential {
+				authType = AuthTypeServiceCredential
+			} else if delegatedCredential {
+				authType = AuthTypeDelegated
+			}
+			s.auditAuthorizationDecision(r, Principal{AuthType: authType}, "denied", "authentication_failed", "", err)
 			if s.shouldRedirectUnauthenticatedToLogin(r) {
 				http.Redirect(w, r, s.oidcLoginRedirectURL(r.URL.RequestURI()), http.StatusFound)
 				return
@@ -720,14 +805,45 @@ func (s *Server) identityMiddleware(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error()})
 			return
 		}
+		principal, err = s.resolveWorkspaceMembership(r.Context(), principal)
+		if errors.Is(err, errWorkspaceMembershipInactive) && isPlatformRoleAwareRequest(r) {
+			platformAdmin, platformErr := s.principalIsPlatformAdmin(r, principal)
+			if platformErr != nil {
+				s.auditAuthorizationDecision(r, principal, authorizationOutcomeForError(platformErr), "platform_admin_resolution_failed", managedagents.PlatformRoleAdmin, platformErr)
+				writeError(w, platformErr)
+				return
+			}
+			if platformAdmin {
+				principal.Roles = []string{RoleViewer}
+				principal.AuthorizationSources = normalizedStringList(append(principal.AuthorizationSources, "platform_role_assignment"))
+				err = nil
+			}
+		}
+		if err != nil {
+			reason := "workspace_membership_resolution_failed"
+			if errors.Is(err, errWorkspaceMembershipInactive) {
+				reason = "workspace_membership_inactive"
+			}
+			s.auditAuthorizationDecision(r, principal, authorizationOutcomeForError(err), reason, "", err)
+			writeError(w, err)
+			return
+		}
 		requiredRole := RoleViewer
-		if !isSafeRequestMethod(r.Method) {
+		if !isSafeRequestMethod(r.Method) && !isPlatformAdministrationRequest(r) {
 			requiredRole = RoleMember
 		}
 		if !principal.HasRole(requiredRole) {
 			s.auditAuthorizationDecision(r, principal, "denied", "role_required", requiredRole, nil)
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": requiredRole + " role required"})
 			return
+		}
+		if principal.AuthType == AuthTypeServiceCredential || principal.AuthType == AuthTypeDelegated {
+			requiredScope, mapped := serviceIdentityScopeForRequest(r)
+			if !mapped || !principal.HasScope(requiredScope) {
+				s.auditAuthorizationDecision(r, principal, "denied", "service_scope_required", requiredScope, nil)
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "service identity scope required", "required_scope": requiredScope})
+				return
+			}
 		}
 		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 		ctx, err = managedagents.ContextWithDatabaseAccessScope(ctx, accessScopeForPrincipal(principal))
@@ -1035,10 +1151,10 @@ func (s *Server) authorizeSessionID(r *http.Request, sessionID string) error {
 
 func isPublicRequest(r *http.Request) bool {
 	path := r.URL.Path
-	return path == "/" || path == "/health" || path == "/favicon.ico" || path == "/app" || path == "/app/" ||
+	return path == "/" || path == "/health" || path == "/favicon.ico" || path == "/app" || path == "/app/" || path == "/console" ||
 		path == "/v1/auth/config" || path == "/v2/auth/config" ||
 		path == "/inspector" || path == "/space" || strings.HasPrefix(path, "/share/") || strings.HasPrefix(path, "/auth/") ||
-		strings.HasPrefix(path, "/app/assets/") || strings.HasPrefix(path, "/inspector/assets/") ||
+		strings.HasPrefix(path, "/app/assets/") || strings.HasPrefix(path, "/console/assets/") || strings.HasPrefix(path, "/inspector/assets/") ||
 		strings.HasPrefix(path, "/space/assets/") || strings.HasPrefix(path, "/knowledge/assets/") ||
 		strings.HasPrefix(path, "/v2/public/knowledge-shares/")
 }

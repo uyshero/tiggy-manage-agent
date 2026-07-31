@@ -159,13 +159,13 @@ func (s *PostgresStore) CreateKnowledgeBase(ctx context.Context, workspaceID, na
 		return KnowledgeBase{}, err
 	}
 	defer tx.Rollback()
-	id, err := nextSequenceID(ctx, tx, "kb", "tma_knowledge_base_id_seq")
+	id, err := nextSequenceID(ctx, tx, "rcol", "tma_retrieval_collection_id_seq")
 	if err != nil {
 		return KnowledgeBase{}, err
 	}
 	now := time.Now().UTC()
 	item := KnowledgeBase{ID: id, WorkspaceID: scope.WorkspaceID, Name: name, Description: strings.TrimSpace(description), CreatedBy: defaultString(strings.TrimSpace(createdBy), "system"), CreatedAt: now, UpdatedAt: now}
-	_, err = tx.ExecContext(ctx, `INSERT INTO knowledge_bases (id,workspace_id,name,description,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, item.ID, item.WorkspaceID, item.Name, item.Description, item.CreatedBy, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO retrieval_collections (id,workspace_id,name,description,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$6)`, item.ID, item.WorkspaceID, item.Name, item.Description, item.CreatedBy, now)
 	if err != nil {
 		return KnowledgeBase{}, err
 	}
@@ -181,7 +181,7 @@ func (s *PostgresStore) ListKnowledgeBases(ctx context.Context, workspaceID stri
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT b.id,b.workspace_id,b.name,b.description,b.created_by,b.created_at,b.updated_at,count(d.id) FROM knowledge_bases b LEFT JOIN knowledge_documents d ON d.knowledge_base_id=b.id WHERE b.workspace_id=$1 GROUP BY b.id ORDER BY b.updated_at DESC,b.id DESC`, scope.WorkspaceID)
+	rows, err := tx.QueryContext(ctx, `SELECT b.id,b.workspace_id,b.name,b.description,b.created_by,b.created_at,b.updated_at,count(d.id) FROM retrieval_collections b LEFT JOIN retrieval_documents d ON d.collection_id=b.id WHERE b.workspace_id=$1 GROUP BY b.id ORDER BY b.updated_at DESC,b.id DESC`, scope.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (s *PostgresStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, id
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM knowledge_documents WHERE workspace_id=$1 AND knowledge_base_id=$2`, scope.WorkspaceID, id)
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM retrieval_documents WHERE workspace_id=$1 AND collection_id=$2`, scope.WorkspaceID, id)
 	if err != nil {
 		return err
 	}
@@ -224,11 +224,11 @@ func (s *PostgresStore) DeleteKnowledgeBase(ctx context.Context, workspaceID, id
 	}
 	rows.Close()
 	for _, documentID := range documentIDs {
-		if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerKnowledgeDocument, documentID); err != nil {
+		if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerRetrievalDocument, documentID); err != nil {
 			return err
 		}
 	}
-	result, err := tx.ExecContext(ctx, `DELETE FROM knowledge_bases WHERE workspace_id=$1 AND id=$2`, scope.WorkspaceID, id)
+	result, err := tx.ExecContext(ctx, `DELETE FROM retrieval_collections WHERE workspace_id=$1 AND id=$2`, scope.WorkspaceID, id)
 	if err != nil {
 		return err
 	}
@@ -249,13 +249,13 @@ func (s *PostgresStore) CreateKnowledgeDocument(ctx context.Context, document Kn
 	}
 	defer tx.Rollback()
 	var valid bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_bases WHERE id=$1 AND workspace_id=$2) AND EXISTS(SELECT 1 FROM object_refs WHERE id=$3 AND workspace_id=$2)`, document.KnowledgeBaseID, scope.WorkspaceID, document.ObjectRefID).Scan(&valid); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM retrieval_collections WHERE id=$1 AND workspace_id=$2) AND EXISTS(SELECT 1 FROM object_refs WHERE id=$3 AND workspace_id=$2)`, document.KnowledgeBaseID, scope.WorkspaceID, document.ObjectRefID).Scan(&valid); err != nil {
 		return KnowledgeDocument{}, err
 	}
 	if !valid {
 		return KnowledgeDocument{}, ErrForbidden
 	}
-	id, err := nextSequenceID(ctx, tx, "kdoc", "tma_knowledge_document_id_seq")
+	id, err := nextSequenceID(ctx, tx, "rdoc", "tma_retrieval_document_id_seq")
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -268,7 +268,7 @@ func (s *PostgresStore) CreateKnowledgeDocument(ctx context.Context, document Kn
 	document.CreatedBy = defaultString(strings.TrimSpace(document.CreatedBy), "system")
 	document.CreatedAt = now
 	document.UpdatedAt = now
-	_, err = tx.ExecContext(ctx, `INSERT INTO knowledge_documents (id,workspace_id,knowledge_base_id,object_ref_id,name,content_type,size_bytes,status,error_message,chunk_count,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'ready','',$8,$9,$10,$10)`, document.ID, document.WorkspaceID, document.KnowledgeBaseID, document.ObjectRefID, document.Name, document.ContentType, document.SizeBytes, document.ChunkCount, document.CreatedBy, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO retrieval_documents (id,workspace_id,collection_id,object_ref_id,name,content_type,size_bytes,status,error_message,chunk_count,created_by,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'ready','',$8,$9,$10,$10)`, document.ID, document.WorkspaceID, document.KnowledgeBaseID, document.ObjectRefID, document.Name, document.ContentType, document.SizeBytes, document.ChunkCount, document.CreatedBy, now)
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
@@ -278,12 +278,12 @@ func (s *PostgresStore) CreateKnowledgeDocument(ctx context.Context, document Kn
 			continue
 		}
 		vector := pgtype.FlatArray[float64](chunk.Embedding)
-		_, err = tx.ExecContext(ctx, `INSERT INTO knowledge_chunks (document_id,workspace_id,knowledge_base_id,chunk_index,content,embedding,embedding_model,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, document.ID, document.WorkspaceID, document.KnowledgeBaseID, index, content, vector, defaultString(chunk.EmbeddingModel, "local-hash-v1"), now)
+		_, err = tx.ExecContext(ctx, `INSERT INTO retrieval_chunks (document_id,workspace_id,collection_id,chunk_index,content,embedding,embedding_model,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, document.ID, document.WorkspaceID, document.KnowledgeBaseID, index, content, vector, defaultString(chunk.EmbeddingModel, "local-hash-v1"), now)
 		if err != nil {
 			return KnowledgeDocument{}, err
 		}
 	}
-	if err := insertObjectRefLink(ctx, tx, document.WorkspaceID, document.ObjectRefID, objectRefLinkOwnerKnowledgeDocument, document.ID, objectRefLinkRoleKnowledgeSource); err != nil {
+	if err := insertObjectRefLink(ctx, tx, document.WorkspaceID, document.ObjectRefID, objectRefLinkOwnerRetrievalDocument, document.ID, objectRefLinkRoleRetrievalSource); err != nil {
 		return KnowledgeDocument{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -292,7 +292,7 @@ func (s *PostgresStore) CreateKnowledgeDocument(ctx context.Context, document Kn
 	return document, nil
 }
 
-const knowledgeDocumentColumns = `id,workspace_id,knowledge_base_id,object_ref_id,name,content_type,size_bytes,status,error_message,chunk_count,created_by,created_at,updated_at`
+const knowledgeDocumentColumns = `id,workspace_id,collection_id,object_ref_id,name,content_type,size_bytes,status,error_message,chunk_count,created_by,created_at,updated_at`
 
 func scanKnowledgeDocument(scanner interface{ Scan(...any) error }) (KnowledgeDocument, error) {
 	var d KnowledgeDocument
@@ -305,7 +305,7 @@ func (s *PostgresStore) ListKnowledgeDocuments(ctx context.Context, workspaceID,
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT `+knowledgeDocumentColumns+` FROM knowledge_documents WHERE workspace_id=$1 AND knowledge_base_id=$2 ORDER BY updated_at DESC,id DESC`, scope.WorkspaceID, knowledgeBaseID)
+	rows, err := tx.QueryContext(ctx, `SELECT `+knowledgeDocumentColumns+` FROM retrieval_documents WHERE workspace_id=$1 AND collection_id=$2 ORDER BY updated_at DESC,id DESC`, scope.WorkspaceID, knowledgeBaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (s *PostgresStore) GetKnowledgeDocument(ctx context.Context, workspaceID, i
 		return KnowledgeDocument{}, err
 	}
 	defer tx.Rollback()
-	d, err := scanKnowledgeDocument(tx.QueryRowContext(ctx, `SELECT `+knowledgeDocumentColumns+` FROM knowledge_documents WHERE workspace_id=$1 AND id=$2`, scope.WorkspaceID, id))
+	d, err := scanKnowledgeDocument(tx.QueryRowContext(ctx, `SELECT `+knowledgeDocumentColumns+` FROM retrieval_documents WHERE workspace_id=$1 AND id=$2`, scope.WorkspaceID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return KnowledgeDocument{}, ErrNotFound
 	}
@@ -350,14 +350,14 @@ func (s *PostgresStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID
 		return KnowledgeDocument{}, err
 	}
 	defer tx.Rollback()
-	d, err := scanKnowledgeDocument(tx.QueryRowContext(ctx, `DELETE FROM knowledge_documents WHERE workspace_id=$1 AND id=$2 RETURNING `+knowledgeDocumentColumns, scope.WorkspaceID, id))
+	d, err := scanKnowledgeDocument(tx.QueryRowContext(ctx, `DELETE FROM retrieval_documents WHERE workspace_id=$1 AND id=$2 RETURNING `+knowledgeDocumentColumns, scope.WorkspaceID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return KnowledgeDocument{}, ErrNotFound
 	}
 	if err != nil {
 		return KnowledgeDocument{}, err
 	}
-	if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerKnowledgeDocument, id); err != nil {
+	if err := deleteObjectRefLinksByOwner(ctx, tx, scope.WorkspaceID, objectRefLinkOwnerRetrievalDocument, id); err != nil {
 		return KnowledgeDocument{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -366,7 +366,7 @@ func (s *PostgresStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID
 	return d, nil
 }
 
-const knowledgeServiceColumns = `id,workspace_id,name,scenario,system_prompt,knowledge_base_ids,knowledge_document_ids,allow_web_search,sensitive_terms,status,created_by,created_at,updated_at`
+const knowledgeServiceColumns = `id,workspace_id,name,scenario,system_prompt,retrieval_collection_ids,retrieval_document_ids,allow_web_search,sensitive_terms,status,created_by,created_at,updated_at`
 
 func scanKnowledgeService(scanner interface{ Scan(...any) error }) (KnowledgeService, error) {
 	var item KnowledgeService
@@ -400,7 +400,7 @@ func validateKnowledgeServiceScope(ctx context.Context, tx *sql.Tx, workspaceID 
 	baseSet := map[string]bool{}
 	for _, id := range knowledgeBaseIDs {
 		var ok bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_bases WHERE workspace_id=$1 AND id=$2)`, workspaceID, id).Scan(&ok); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM retrieval_collections WHERE workspace_id=$1 AND id=$2)`, workspaceID, id).Scan(&ok); err != nil {
 			return err
 		}
 		if !ok {
@@ -410,7 +410,7 @@ func validateKnowledgeServiceScope(ctx context.Context, tx *sql.Tx, workspaceID 
 	}
 	for _, documentID := range knowledgeDocumentIDs {
 		var baseID string
-		err := tx.QueryRowContext(ctx, `SELECT knowledge_base_id FROM knowledge_documents WHERE workspace_id=$1 AND id=$2`, workspaceID, documentID).Scan(&baseID)
+		err := tx.QueryRowContext(ctx, `SELECT collection_id FROM retrieval_documents WHERE workspace_id=$1 AND id=$2`, workspaceID, documentID).Scan(&baseID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: knowledge document %s is unavailable", ErrInvalid, documentID)
 		}
@@ -526,7 +526,7 @@ func (s *PostgresStore) UpdateKnowledgeService(ctx context.Context, workspaceID,
 	terms, _ := json.Marshal(input.SensitiveTerms)
 	item, err := scanKnowledgeService(tx.QueryRowContext(ctx, `
 		UPDATE knowledge_services
-		SET name=$3, scenario=$4, system_prompt=$5, knowledge_base_ids=$6, knowledge_document_ids=$7, allow_web_search=$8, sensitive_terms=$9, updated_at=$10
+		SET name=$3, scenario=$4, system_prompt=$5, retrieval_collection_ids=$6, retrieval_document_ids=$7, allow_web_search=$8, sensitive_terms=$9, updated_at=$10
 		WHERE workspace_id=$1 AND id=$2
 		RETURNING `+knowledgeServiceColumns, scope.WorkspaceID, id, input.Name, input.Scenario, strings.TrimSpace(input.SystemPrompt), bases, documents, input.AllowWebSearch, terms, time.Now().UTC()))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -719,15 +719,15 @@ func (s *PostgresStore) SearchKnowledge(ctx context.Context, workspaceID string,
 			FROM jsonb_array_elements_text($6::jsonb)
 			WHERE length(trim(value)) > 0
 		), selected_documents AS (
-			SELECT id, knowledge_base_id
-			FROM knowledge_documents
+			SELECT id, collection_id
+			FROM retrieval_documents
 			WHERE workspace_id=$1
 				AND id IN (SELECT jsonb_array_elements_text($7::jsonb))
 		), scored AS (
 			SELECT
 				c.document_id,
 				d.name,
-				c.knowledge_base_id,
+				c.collection_id,
 				c.chunk_index,
 				c.content,
 				GREATEST(
@@ -751,18 +751,18 @@ func (s *PostgresStore) SearchKnowledge(ctx context.Context, workspaceID string,
 						),0)
 					ELSE 0
 				END vector_score
-			FROM knowledge_chunks c
-			JOIN knowledge_documents d ON d.id=c.document_id
+			FROM retrieval_chunks c
+			JOIN retrieval_documents d ON d.id=c.document_id
 			WHERE c.workspace_id=$1
-				AND c.knowledge_base_id IN (SELECT jsonb_array_elements_text($4::jsonb))
+				AND c.collection_id IN (SELECT jsonb_array_elements_text($4::jsonb))
 				AND (
 					jsonb_array_length($7::jsonb)=0
 					OR c.document_id IN (SELECT id FROM selected_documents)
-					OR c.knowledge_base_id NOT IN (SELECT knowledge_base_id FROM selected_documents)
+					OR c.collection_id NOT IN (SELECT collection_id FROM selected_documents)
 				)
 				AND d.status='ready'
 		)
-		SELECT document_id,name,knowledge_base_id,chunk_index,content,keyword_score,vector_score,
+		SELECT document_id,name,collection_id,chunk_index,content,keyword_score,vector_score,
 			(keyword_score*0.52+GREATEST(vector_score,0)*0.48) score
 		FROM scored
 		WHERE keyword_score>0 OR vector_score>0.05

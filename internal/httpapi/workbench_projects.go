@@ -98,8 +98,12 @@ func (s *Server) listWorkbenchProjects(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	pluginID := r.URL.Query().Get("plugin_id")
+	if strings.HasPrefix(r.URL.Path, "/v2/r-survival-projects") {
+		pluginID = rSurvivalWorkbenchPluginID
+	}
 	projects, err := store.ListWorkbenchProjectsContext(
-		r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), r.URL.Query().Get("plugin_id"),
+		r.Context(), requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), pluginID,
 	)
 	if err != nil {
 		writeError(w, err)
@@ -125,6 +129,9 @@ func (s *Server) createWorkbenchProject(w http.ResponseWriter, r *http.Request) 
 	if err := decodeJSON(r, &request); err != nil {
 		writeError(w, err)
 		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/v2/r-survival-projects") {
+		request.PluginID = rSurvivalWorkbenchPluginID
 	}
 	template, err := loadWorkbenchProjectTemplate(request.PluginID)
 	if err != nil {

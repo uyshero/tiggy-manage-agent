@@ -102,3 +102,35 @@ func TestCommandModelUpsertUsesConditionalCreateOrUpdate(t *testing.T) {
 		}
 	})
 }
+
+func TestCommandModelUpsertRegistersSpeechCapability(t *testing.T) {
+	calls := 0
+	client := newTestAPIClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return jsonResponse(`{"models":[]}`), nil
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		capabilities, _ := body["capabilities"].(map[string]any)
+		if body["capability_type"] != "text_to_speech" || capabilities["protocol"] != "doubao_bidirectional_tts" || capabilities["resource_id"] != "seed-tts-2.0" || capabilities["default_voice"] != "warm" || capabilities["sample_rate_hz"] != float64(24000) {
+			t.Fatalf("unexpected speech model body: %#v", body)
+		}
+		return jsonResponse(`{"provider_id":"doubao-tts","model":"seed-tts-2.0","capability_type":"text_to_speech","revision":1}`), nil
+	})
+	captureStdout(t, func() {
+		err := commandModel(client, []string{
+			"upsert", "--provider", "doubao-tts", "--model", "seed-tts-2.0",
+			"--capability", "text_to_speech", "--protocol", "doubao_bidirectional_tts",
+			"--resource-id", "seed-tts-2.0", "--default-voice", "warm", "--sample-rate", "24000",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	if calls != 2 {
+		t.Fatalf("expected list and create, got %d requests", calls)
+	}
+}

@@ -306,9 +306,23 @@ func commandModel(client *apiClient, args []string) error {
 		var providerID string
 		var model string
 		var contextWindow int
+		var capabilityType string
+		var protocol string
+		var resourceID string
+		var defaultVoice string
+		var audioFormat string
+		var sampleRateHz int
+		var upstreamModel string
 		flags.StringVar(&providerID, "provider", "", "provider id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.IntVar(&contextWindow, "context-window", 0, "model total context window tokens")
+		flags.StringVar(&capabilityType, "capability", "", "model capability type")
+		flags.StringVar(&protocol, "protocol", "", "capability adapter protocol")
+		flags.StringVar(&resourceID, "resource-id", "", "provider resource id")
+		flags.StringVar(&defaultVoice, "default-voice", "", "default TTS voice")
+		flags.StringVar(&audioFormat, "audio-format", "", "speech audio format")
+		flags.IntVar(&sampleRateHz, "sample-rate", 0, "speech sample rate in Hz")
+		flags.StringVar(&upstreamModel, "upstream-model", "", "optional provider-native model id")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -324,7 +338,13 @@ func commandModel(client *apiClient, args []string) error {
 		if err != nil {
 			return err
 		}
-		request := tma.PutLLMModelRequest{ProviderID: providerID, Model: model, ContextWindowTokens: contextWindow}
+		request := tma.PutLLMModelRequest{ProviderID: providerID, Model: model, ContextWindowTokens: contextWindow, CapabilityType: capabilityType}
+		if flagWasPassed(flags, "protocol") || flagWasPassed(flags, "resource-id") || flagWasPassed(flags, "default-voice") || flagWasPassed(flags, "audio-format") || flagWasPassed(flags, "sample-rate") || flagWasPassed(flags, "upstream-model") {
+			request.Capabilities = &tma.LLMModelCapabilities{
+				Protocol: protocol, ResourceID: resourceID, DefaultVoice: defaultVoice,
+				AudioFormat: audioFormat, SampleRateHz: sampleRateHz, UpstreamModel: upstreamModel,
+			}
+		}
 		for _, existing := range models {
 			if existing.Model != model {
 				continue
@@ -332,7 +352,9 @@ func commandModel(client *apiClient, args []string) error {
 			if request.ContextWindowTokens == 0 {
 				request.ContextWindowTokens = existing.ContextWindowTokens
 			}
-			request.CapabilityType = existing.CapabilityType
+			if !flagWasPassed(flags, "capability") {
+				request.CapabilityType = existing.CapabilityType
+			}
 			isDefaultVision := existing.IsDefaultVision
 			request.IsDefaultVision = &isDefaultVision
 			updated, updateErr := sdk.LLM.UpdateModel(context.Background(), existing.Revision, request)

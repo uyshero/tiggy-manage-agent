@@ -13,7 +13,7 @@ Current capabilities:
 - Versioned Agent, Environment, Session, Run, Event, Artifact, Skill, MCP, observability, and orchestration APIs
 - Postgres-backed durable state, turn leases, recovery, workspace isolation, and schema migrations
 - Go and TypeScript `/v2` Core SDKs plus the `tma` operational CLI
-- React Workbench (`/app`) and trace/operations Inspector (`/inspector`)
+- React Conversation Workbench (`/app`) and trace/operations Inspector (`/inspector`)
 - Local/cloud sandbox capabilities, worker-backed `local_system` tools, and process tool plugins
 - Agent-bound stdio and Streamable HTTP MCP servers, web search/crawl, and approval flows
 - Scheduled tasks that can park risky tool approvals and resume after a human decision
@@ -45,7 +45,7 @@ make run
 The server listens on `:8080` by default.
 The Makefile stores Go build cache in the project-local `.gocache/` directory so it works in restricted workspaces.
 
-Open the Workbench at [http://localhost:8080/app](http://localhost:8080/app) or the Inspector at [http://localhost:8080/inspector](http://localhost:8080/inspector). The repository includes prebuilt embedded assets; run `make build-web-ui` after changing either React app.
+Open the Conversation Workbench at [http://localhost:8080/app](http://localhost:8080/app) or the Inspector at [http://localhost:8080/inspector](http://localhost:8080/inspector). The repository includes prebuilt embedded assets; run `make build-web-ui` after changing either React app.
 
 User and control-plane APIs support OIDC/JWKS, legacy HS256 JWT, or trusted-gateway authentication with workspace-scoped RBAC. Protected requests emit structured authorization decision audit logs and low-cardinality Prometheus counters, with optional asynchronous OTLP/HTTP Logs export to an enterprise SIEM. Local development defaults to `TMA_AUTH_MODE=disabled`; `TMA_ENV=production` refuses to start without a complete identity configuration and worker service token. See [configuration](./docs/configuration.md#server-与认证) and [operations](./docs/operations.md).
 
@@ -63,14 +63,17 @@ Expected response:
 
 The repository split roadmap and dependency boundaries are documented in
 [Repository Split](./docs/repository-split.md). The codebase is still a monorepo;
-the target is seven independently releasable projects: Platform, Worker Runtime,
-Console, Knowledge, Biography, SDK, and CLI.
+the target is four repositories: `tma-platform`, `tma-knowledge`, `tma-biography`,
+and `tma-r-survival-workbench`. Platform remains a multi-artifact repository for
+Server, Model/Retrieval/Worker runtimes, Core SDK, CLI, conversation workbench,
+Console, Inspector, and Space.
 
 ```text
 cmd/tma-server/          HTTP server entrypoint
+cmd/tma-model-runtime/   Independent model provider data plane
 cmd/tma-worker/          Long-running worker entrypoint
 cmd/tma/                 CLI entrypoint
-apps/workbench/          User-facing React workbench
+apps/workbench/          Conversation-centric React workbench; no domain application implementations
 apps/inspector/          Operations and trace inspector
 sdk/tma/                 Go Core SDK
 sdk/typescript/          TypeScript Core SDK

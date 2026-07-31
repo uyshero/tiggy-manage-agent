@@ -14,14 +14,14 @@ const (
 	objectRefLinkOwnerSkillPackageFile       = "skill_package_file"
 	objectRefLinkOwnerWorkspaceSnapshot      = "workspace_snapshot"
 	objectRefLinkOwnerAchievementLibraryItem = "achievement_library_item"
-	objectRefLinkOwnerKnowledgeDocument      = "knowledge_document"
+	objectRefLinkOwnerRetrievalDocument      = "retrieval_document"
 
 	objectRefLinkRoleAsset           = "asset"
 	objectRefLinkRolePackageArchive  = "package_archive"
 	objectRefLinkRoleSkillMarkdown   = "skill_md"
 	objectRefLinkRoleSnapshot        = "snapshot"
 	objectRefLinkRoleAchievement     = "achievement"
-	objectRefLinkRoleKnowledgeSource = "knowledge_source"
+	objectRefLinkRoleRetrievalSource = "retrieval_source"
 )
 
 func insertObjectRefLink(ctx context.Context, tx *sql.Tx, workspaceID, objectRefID, ownerType, ownerID, role string) error {

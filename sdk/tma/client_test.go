@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestClientInjectsTokenAndDecodesV2Error(t *testing.T) {
@@ -100,6 +102,237 @@ func TestClientUploadAndCustomTransport(t *testing.T) {
 	}
 	if result.Artifact.ID != "art_1" || result.ObjectRef.ID != "obj_1" || result.WorkspacePath != "artifacts/report.txt" || calls.Load() != 1 || transport.calls.Load() != 1 {
 		t.Fatalf("unexpected upload result: %+v server_calls=%d transport_calls=%d", result, calls.Load(), transport.calls.Load())
+	}
+}
+
+func TestRetrievalServicePathsUploadAndSearch(t *testing.T) {
+	expected := []string{
+		"POST /v2/retrieval/collections",
+		"GET /v2/retrieval/collections",
+		"POST /v2/retrieval/collections/rcol%2F1/documents",
+		"GET /v2/retrieval/ingestion-jobs/rijob%2F1",
+		"POST /v2/retrieval/search",
+	}
+	requestIndex := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestIndex >= len(expected) {
+			t.Fatalf("unexpected retrieval request %s %s", r.Method, r.URL.EscapedPath())
+		}
+		got := r.Method + " " + r.URL.EscapedPath()
+		if got != expected[requestIndex] {
+			t.Fatalf("retrieval request %d = %q, want %q", requestIndex, got, expected[requestIndex])
+		}
+		requestIndex++
+		w.Header().Set("Content-Type", "application/json")
+		switch got {
+		case expected[0]:
+			fmt.Fprint(w, `{"id":"rcol/1","name":"Shared"}`)
+		case expected[1]:
+			fmt.Fprint(w, `{"collections":[{"id":"rcol/1","name":"Shared"}]}`)
+		case expected[2]:
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatalf("parse retrieval multipart: %v", err)
+			}
+			file, header, err := r.FormFile("file")
+			if err != nil {
+				t.Fatalf("read retrieval multipart file: %v", err)
+			}
+			defer file.Close()
+			if header.Filename != "source.txt" || r.FormValue("name") != "Source" || readAll(t, file) != "retrieval body" {
+				t.Fatalf("unexpected retrieval multipart: header=%+v name=%q", header, r.FormValue("name"))
+			}
+			w.WriteHeader(http.StatusCreated)
+			fmt.Fprint(w, `{"document":{"id":"rdoc/1","collection_id":"rcol/1"},"object_ref":{"id":"obj/1"},"ingestion_job":{"id":"rijob/1","status":"ready"}}`)
+		case expected[3]:
+			fmt.Fprint(w, `{"id":"rijob/1","status":"ready","document_id":"rdoc/1"}`)
+		case expected[4]:
+			var request RetrievalSearchRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil || request.Query != "deployment" {
+				t.Fatalf("unexpected retrieval search request: %+v err=%v", request, err)
+			}
+			fmt.Fprint(w, `{"results":[{"document_id":"rdoc/1","collection_id":"rcol/1","content":"ten days","score":0.9}],"citations":[{"collection_id":"rcol/1","document_id":"rdoc/1","score":0.9}]}`)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collection, err := client.Retrieval.Collections.Create(t.Context(), CreateRetrievalCollectionRequest{Name: "Shared"})
+	if err != nil || collection.ID != "rcol/1" {
+		t.Fatalf("create retrieval collection: %+v err=%v", collection, err)
+	}
+	collections, err := client.Retrieval.Collections.List(t.Context())
+	if err != nil || len(collections) != 1 {
+		t.Fatalf("list retrieval collections: %+v err=%v", collections, err)
+	}
+	upload, err := client.Retrieval.Documents.Upload(t.Context(), "rcol/1", map[string]string{"name": "Source"}, UploadFile{
+		FileName: "source.txt", ContentType: "text/plain", Body: strings.NewReader("retrieval body"),
+	})
+	if err != nil || upload.Document.ID != "rdoc/1" || upload.IngestionJob.Status != "ready" {
+		t.Fatalf("upload retrieval document: %+v err=%v", upload, err)
+	}
+	job, err := client.Retrieval.IngestionJobs.Get(t.Context(), "rijob/1")
+	if err != nil || job.DocumentID != "rdoc/1" {
+		t.Fatalf("get retrieval ingestion job: %+v err=%v", job, err)
+	}
+	search, err := client.Retrieval.Search(t.Context(), RetrievalSearchRequest{CollectionIDs: []string{"rcol/1"}, Query: "deployment"})
+	if err != nil || len(search.Results) != 1 || len(search.Citations) != 1 || search.Citations[0].Score != 0.9 {
+		t.Fatalf("search retrieval: %+v err=%v", search, err)
+	}
+	if requestIndex != len(expected) {
+		t.Fatalf("received %d retrieval requests, want %d", requestIndex, len(expected))
+	}
+}
+
+func TestModelRuntimeServiceGenerate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.EscapedPath() != "/v2/model-runtime/generate" {
+			t.Fatalf("unexpected model runtime request %s %s", r.Method, r.URL.EscapedPath())
+		}
+		var request ModelGenerateRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.Messages) != 1 || request.Messages[0].Content != "Summarize this" || request.MaxOutputTokens != 300 {
+			t.Fatalf("unexpected request: %+v", request)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"text":"Summary","provider_id":"fake","model":"fake-demo","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4},"finish_reason":"stop"}`)
+	}))
+	defer server.Close()
+
+	client, _ := NewClient(server.URL)
+	response, err := client.ModelRuntime.Generate(t.Context(), ModelGenerateRequest{
+		Messages: []ModelMessage{{Role: "user", Content: "Summarize this"}}, MaxOutputTokens: 300,
+	})
+	if err != nil || response.Text != "Summary" || response.Usage.TotalTokens != 4 {
+		t.Fatalf("unexpected model runtime response: %+v err=%v", response, err)
+	}
+}
+
+func TestModelRuntimeServiceEmbedAndRerank(t *testing.T) {
+	requestIndex := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestIndex++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.EscapedPath() {
+		case "/v2/model-runtime/embeddings":
+			var request ModelEmbeddingRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.ProviderID != "embeddings" || len(request.Inputs) != 2 {
+				t.Fatalf("unexpected embedding request: %+v", request)
+			}
+			fmt.Fprint(w, `{"embeddings":[{"index":0,"embedding":[0.1,0.2]},{"index":1,"embedding":[0.3,0.4]}],"provider_id":"embeddings","model":"embed-v1","dimensions":2,"usage":{"input_tokens":5,"total_tokens":5}}`)
+		case "/v2/model-runtime/rerank":
+			var request ModelRerankRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Query != "best" || len(request.Documents) != 2 || request.TopN != 1 {
+				t.Fatalf("unexpected rerank request: %+v", request)
+			}
+			fmt.Fprint(w, `{"results":[{"index":1,"score":0.9}],"provider_id":"reranker","model":"rerank-v1"}`)
+		default:
+			t.Fatalf("unexpected model runtime request %s %s", r.Method, r.URL.EscapedPath())
+		}
+	}))
+	defer server.Close()
+
+	client, _ := NewClient(server.URL)
+	embeddings, err := client.ModelRuntime.Embed(t.Context(), ModelEmbeddingRequest{
+		ProviderID: "embeddings", Model: "embed-v1", Inputs: []string{"first", "second"},
+	})
+	if err != nil || embeddings.Dimensions != 2 || embeddings.Embeddings[1].Embedding[0] != 0.3 || embeddings.Usage.TotalTokens != 5 {
+		t.Fatalf("unexpected embedding response: %+v err=%v", embeddings, err)
+	}
+	reranked, err := client.ModelRuntime.Rerank(t.Context(), ModelRerankRequest{
+		ProviderID: "reranker", Model: "rerank-v1", Query: "best", Documents: []string{"first", "second"}, TopN: 1,
+	})
+	if err != nil || len(reranked.Results) != 1 || reranked.Results[0].Index != 1 {
+		t.Fatalf("unexpected rerank response: %+v err=%v", reranked, err)
+	}
+	if requestIndex != 2 {
+		t.Fatalf("received %d requests, want 2", requestIndex)
+	}
+}
+
+func TestModelRuntimeServiceListsInvocations(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.EscapedPath() != "/v2/model-runtime/invocations" ||
+			r.URL.Query().Get("capability") != "embedding" || r.URL.Query().Get("principal_id") != "service/knowledge" ||
+			r.URL.Query().Get("service_identity_id") != "svc/knowledge" || r.URL.Query().Get("limit") != "25" {
+			t.Fatalf("unexpected invocation request %s %s", r.Method, r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"summary":{"record_count":1,"completed_count":1,"input_tokens":5},"records":[{"id":"minv_1","workspace_id":"wksp_1","principal_id":"service/knowledge","request_id":"req_1","capability":"embedding","provider_id":"fake","model":"embed","status":"completed","input_tokens":5,"output_tokens":0,"total_tokens":5,"cached_input_tokens":0,"reasoning_tokens":0,"input_items":1,"output_items":1,"input_bytes":0,"output_bytes":0,"input_characters":4,"output_characters":0,"input_audio_ms":0,"output_audio_ms":0,"latency_ms":10,"started_at":"2026-07-31T00:00:00Z","completed_at":"2026-07-31T00:00:00.01Z"}]}`)
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.URL)
+	report, err := client.ModelRuntime.Invocations(t.Context(), ModelInvocationQuery{PrincipalID: "service/knowledge", ServiceIdentityID: "svc/knowledge", Capability: "embedding", Limit: 25})
+	if err != nil || report.Summary.RecordCount != 1 || len(report.Records) != 1 || report.Records[0].InputTokens != 5 {
+		t.Fatalf("unexpected invocation report: %+v err=%v", report, err)
+	}
+}
+
+func TestSpeechRealtimeService(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/speech/realtime" || r.Header.Get("Authorization") != "Bearer speech-token" {
+			t.Fatalf("unexpected speech handshake: path=%s auth=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		connection, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer connection.CloseNow()
+		messageType, payload, _ := connection.Read(r.Context())
+		var start map[string]any
+		_ = json.Unmarshal(payload, &start)
+		if messageType != websocket.MessageText || start["provider_id"] != "speech-asr" || start["model"] != "seed-asr" {
+			t.Errorf("unexpected speech start: %#v", start)
+			return
+		}
+		_ = connection.Write(r.Context(), websocket.MessageText, []byte(`{"type":"session.started","mode":"transcription","session_id":"bio-1"}`))
+		messageType, payload, _ = connection.Read(r.Context())
+		if messageType != websocket.MessageBinary || string(payload) != "pcm" {
+			t.Errorf("unexpected audio: type=%v payload=%q", messageType, payload)
+			return
+		}
+		_, payload, _ = connection.Read(r.Context())
+		if !strings.Contains(string(payload), "audio.commit") {
+			t.Errorf("unexpected commit: %s", payload)
+			return
+		}
+		_ = connection.Write(r.Context(), websocket.MessageText, []byte(`{"type":"transcript.final","session_id":"bio-1","text":"final text"}`))
+	}))
+	defer server.Close()
+
+	client, _ := NewClient(server.URL, WithBearerToken("speech-token"))
+	realtime, err := client.Speech.DialRealtime(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer realtime.CloseNow()
+	if err := realtime.Start(t.Context(), SpeechSessionStart{ProviderID: "speech-asr", Model: "seed-asr", SessionID: "bio-1"}); err != nil {
+		t.Fatal(err)
+	}
+	started, err := realtime.Read(t.Context())
+	if err != nil || started.Type != "session.started" {
+		t.Fatalf("unexpected start event: %+v err=%v", started, err)
+	}
+	if err := realtime.SendAudio(t.Context(), []byte("pcm")); err != nil {
+		t.Fatal(err)
+	}
+	if err := realtime.CommitAudio(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	final, err := realtime.Read(t.Context())
+	if err != nil || final.Type != "transcript.final" || final.Text != "final text" {
+		t.Fatalf("unexpected transcript: %+v err=%v", final, err)
 	}
 }
 

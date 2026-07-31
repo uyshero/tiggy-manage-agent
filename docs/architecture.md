@@ -3,7 +3,7 @@
 ## 总体链路
 
 ```text
-Client / Workbench / SDK
+Client / 对话工作台 / SDK
   -> HTTP API + PostgreSQL Store
   -> WorkerRunner
   -> AgentRuntimeTurnExecutor

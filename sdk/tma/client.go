@@ -47,6 +47,10 @@ type Client struct {
 	Observability        *ObservabilityService
 	Audit                *AuditService
 	EnvironmentVariables *EnvironmentVariablesService
+	Retrieval            *RetrievalService
+	ModelRuntime         *ModelRuntimeService
+	Speech               *SpeechService
+	ServiceIdentities    *ServiceIdentityService
 }
 
 func NewClient(baseURL string, options ...Option) (*Client, error) {
@@ -149,6 +153,10 @@ func (c *Client) initializeServices() {
 	c.Observability = &ObservabilityService{client: c}
 	c.Audit = &AuditService{client: c}
 	c.EnvironmentVariables = &EnvironmentVariablesService{client: c}
+	c.Retrieval = newRetrievalService(c)
+	c.ModelRuntime = &ModelRuntimeService{client: c}
+	c.Speech = &SpeechService{client: c}
+	c.ServiceIdentities = &ServiceIdentityService{client: c}
 }
 
 type Service struct {

@@ -1,12 +1,14 @@
-.PHONY: run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test check-repository-boundaries benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-web-ui build-workbench-ui build-inspector-ui build-space-ui build-cli build-worker build-browser-gateway build-r-notebook-runtime r-notebook-up r-notebook-down fmt db-up db-down db-logs migrate-up
+.PHONY: run model-runtime-run server-start server-stop server-restart server-status worker-start worker-stop worker-restart worker-status test test-model-runtime ci ci-install verify-sdk-release check-repository-boundaries benchmark-agent-core benchmark-agent-core-compare benchmark-agent-core-postgres benchmark-agent-core-e2e profile-agent-core-e2e eval-agent-quality eval-filesystem-tools test-sdk-e2e test-typescript-sdk test-typescript-sdk-e2e test-postgres keycloak-security-apply verify-keycloak-security keycloak-cli-client-apply verify-keycloak-cli-client verify-oidc-keycloak verify-agent-runtime verify-agent-runtime-full verify-agent-core-staging verify-agent-core-staging-restart verify-agent-core-staging-crash verify-agent-core-staging-infrastructure verify-llm-provider verify-mcp-stdio verify-mcp-http verify-mcp-registry verify-mcp-runtime-guard verify-mcp-compatibility verify-mcp-all verify-web-search-crawl verify-browser-tools verify-searxng-cn verify-objectstore-s3 verify-inspector-ui verify-inspector-browser-smoke verify-worker-work-reap-expired verify-worker-work-heartbeat verify-worker-shutdown-drain verify-worker-work-cancel verify-worker-plugin-tools verify-computer-plugin-tools verify-onlyboxes verify-onlyboxes-session verify-network-approval verify-onlyboxes-upload-data verify-onlyboxes-export-artifact verify-worker-backed-local-system verify-worker-backed-local-export verify-worker-backed-large-local-export generate-openapi-v2 generate-go-sdk generate-typescript-sdk generate-sql-baseline verify-sql-baseline build build-model-runtime build-web-ui build-workbench-ui build-inspector-ui build-space-ui build-cli build-worker build-browser-gateway fmt db-up db-down db-logs migrate-up
 
-.PHONY: build-knowledge-ui
+.PHONY: build-knowledge-ui build-console-ui build-console-embedded-ui build-console-image
+.PHONY: test-knowledge build-knowledge test-r-survival-workbench build-r-survival-workbench
+.PHONY: verify-repository-split-migrations
 
 GOCACHE_DIR ?= $(CURDIR)/.gocache
 TMA_DATABASE_URL ?= postgres://tma:tma@localhost:5432/tma?sslmode=disable
 TMA_ONLYBOXES_TEST_IMAGE ?= coolfan1024/onlyboxes-runtime:default
 TMA_BROWSER_GATEWAY_IMAGE ?= tma-browser-gateway:local
-TMA_R_NOTEBOOK_IMAGE ?= tma-r-notebook:local
+TMA_CONSOLE_IMAGE ?= tma-console:local
 TMA_BENCHTIME ?= 1s
 TMA_BENCH_COUNT ?= 5
 TMA_POSTGRES_BENCHTIME ?= 50x
@@ -16,6 +18,10 @@ TMA_POSTGRES_PROFILE_BENCHTIME ?= 50x
 
 run:
 	TMA_DATABASE_URL="$(TMA_DATABASE_URL)" GOCACHE="$(GOCACHE_DIR)" go run ./cmd/tma-server
+
+model-runtime-run:
+	@test -n "$(TMA_MODEL_RUNTIME_AUTH_TOKEN)" || (echo "TMA_MODEL_RUNTIME_AUTH_TOKEN is required" >&2; exit 1)
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/tma-model-runtime
 
 server-start: build build-cli
 	scripts/tma_server.sh start
@@ -43,6 +49,30 @@ worker-status:
 
 test:
 	GOCACHE="$(GOCACHE_DIR)" go test ./...
+
+test-model-runtime:
+	GOCACHE="$(GOCACHE_DIR)" go test ./internal/modelruntimeprovider ./cmd/tma-model-runtime
+
+ci-install:
+	@for directory in sdk/typescript apps/workbench apps/inspector apps/space apps/knowledge apps/console; do \
+		npm --prefix "$$directory" ci; \
+	done
+
+ci: ci-install check-repository-boundaries test test-model-runtime verify-sdk-release test-typescript-sdk build build-model-runtime build-cli build-worker
+	npm --prefix apps/workbench test
+	npm --prefix apps/workbench run build
+	npm --prefix apps/inspector test
+	npm --prefix apps/inspector run build
+	npm --prefix apps/space test
+	npm --prefix apps/space run build
+	npm --prefix apps/knowledge run build
+	npm --prefix apps/console test
+	npm --prefix apps/console run build
+	$(MAKE) verify-sql-baseline
+	git diff --check
+
+verify-sdk-release:
+	sh scripts/verify_sdk_release.sh
 
 check-repository-boundaries:
 	scripts/check-repository-boundaries.sh
@@ -236,10 +266,25 @@ verify-worker-backed-large-local-export: build build-cli build-worker db-up migr
 build:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-server ./cmd/tma-server
 
-build-web-ui: build-inspector-ui build-workbench-ui build-space-ui build-knowledge-ui
+build-model-runtime:
+	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma-model-runtime ./cmd/tma-model-runtime
+
+build-web-ui: build-inspector-ui build-workbench-ui build-space-ui build-knowledge-ui build-console-embedded-ui
 
 build-workbench-ui: test-typescript-sdk
 	npm --prefix apps/workbench run build
+
+test-knowledge:
+	$(MAKE) -C ../tma-knowledge test
+
+build-knowledge: test-knowledge
+	$(MAKE) -C ../tma-knowledge verify
+
+test-r-survival-workbench:
+	npm --prefix ../tma-r-survival-workbench test
+
+build-r-survival-workbench: test-r-survival-workbench
+	npm --prefix ../tma-r-survival-workbench run build
 
 build-inspector-ui: test-typescript-sdk
 	npm --prefix apps/inspector run build
@@ -251,6 +296,16 @@ build-space-ui: test-typescript-sdk
 build-knowledge-ui:
 	npm --prefix apps/knowledge run build
 
+build-console-ui: test-typescript-sdk
+	npm --prefix apps/console test
+	npm --prefix apps/console run build
+
+build-console-embedded-ui: build-console-ui
+	npm --prefix apps/console run build:embedded
+
+build-console-image:
+	docker build -f apps/console/Dockerfile -t "$(TMA_CONSOLE_IMAGE)" .
+
 build-cli:
 	GOCACHE="$(GOCACHE_DIR)" go build -o bin/tma ./cmd/tma
 
@@ -259,15 +314,6 @@ build-worker:
 
 build-browser-gateway:
 	docker build -t "$(TMA_BROWSER_GATEWAY_IMAGE)" extensions/browser-gateway
-
-build-r-notebook-runtime:
-	docker build -t "$(TMA_R_NOTEBOOK_IMAGE)" deploy/r-notebook-runtime
-
-r-notebook-up:
-	TMA_R_NOTEBOOK_IMAGE="$(TMA_R_NOTEBOOK_IMAGE)" docker compose -f deploy/r-notebook-runtime/compose.yaml up -d
-
-r-notebook-down:
-	docker compose -f deploy/r-notebook-runtime/compose.yaml down
 
 fmt:
 	GOCACHE="$(GOCACHE_DIR)" go fmt ./...
@@ -285,7 +331,11 @@ migrate-up:
 	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
 
 generate-sql-baseline:
-	sh scripts/generate_sql_baseline.sh 000102
+	sh scripts/generate_sql_baseline.sh 000110
 
 verify-sql-baseline: generate-sql-baseline
-	sh scripts/verify_sql_baseline.sh sql/baselines/000102_baseline.sql
+	sh scripts/verify_sql_baseline.sh sql/baselines/000110_baseline.sql
+	sh scripts/verify_repository_split_migrations.sh
+
+verify-repository-split-migrations:
+	sh scripts/verify_repository_split_migrations.sh

@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - configmap.yaml
+  - model-runtime.yaml
   - server.yaml
   - worker.yaml
   - browser-extension.yaml

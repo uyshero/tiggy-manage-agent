@@ -16,6 +16,7 @@ func TestTypedAdministrationServices(t *testing.T) {
 	expected := map[string]string{
 		"GET /v2/auth/config":                                      `{"mode":"oidc","oidc":{"issuer":"https://identity.example","audience":"tma-api","client_id":"tma-cli","scopes":["openid","profile","email"],"device_authorization":true}}`,
 		"GET /v2/auth/me":                                          `{"authenticated":true,"principal":{"subject":"user_1","workspace_id":"wksp/1","owner_id":"user_1","roles":["operator"],"auth_type":"jwt"}}`,
+		"POST /v2/auth/token-exchange":                             `{"access_token":"tma_obo_token","issued_token_type":"urn:ietf:params:oauth:token-type:access_token","token_type":"Bearer","expires_in":300,"scope":"agents:read"}`,
 		"GET /v2/mcp-servers?workspace_id=wksp%2F1":                `{"servers":[]}`,
 		"GET /v2/mcp-servers/runtime-status?workspace_id=wksp%2F1": `{"checked_at":"2026-07-15T00:00:00Z","states":[]}`,
 		"POST /v2/mcp-servers":                                     mcpServerFixture("active"),
@@ -68,6 +69,12 @@ func TestTypedAdministrationServices(t *testing.T) {
 	}
 	if state, err := client.Auth.Me(ctx); err != nil || !state.Authenticated || state.Principal == nil || state.Principal.Subject != "user_1" {
 		t.Fatalf("auth state=%+v err=%v", state, err)
+	}
+	if token, err := client.Auth.Exchange(ctx, TokenExchangeRequest{
+		GrantType: "urn:ietf:params:oauth:grant-type:token-exchange", SubjectToken: "user-token",
+		SubjectTokenType: "urn:ietf:params:oauth:token-type:access_token", Scope: "agents:read",
+	}); err != nil || token.AccessToken != "tma_obo_token" || token.ExpiresIn != 300 {
+		t.Fatalf("token exchange=%+v err=%v", token, err)
 	}
 	mcpQuery := MCPServerQuery{WorkspaceID: "wksp/1"}
 	if _, err = client.MCP.List(ctx, mcpQuery); err != nil {

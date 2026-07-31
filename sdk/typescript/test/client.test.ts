@@ -4,7 +4,31 @@ import { json, readBody, startServer, type TestServer } from "./helpers.js";
 
 describe("TMAClient", () => {
   let server: TestServer | undefined;
-  afterEach(async () => { await server?.close(); server = undefined; });
+  afterEach(async () => {
+    await server?.close();
+    server = undefined;
+    vi.unstubAllGlobals();
+  });
+
+  it("binds the runtime Fetch API to globalThis", async () => {
+    const runtimeFetch = vi.fn(function (this: unknown, input: RequestInfo | URL): Promise<Response> {
+      expect(this).toBe(globalThis);
+      expect(String(input)).toBe("https://tma.example/v2/administration/context");
+      return Promise.resolve(new Response(JSON.stringify({
+        authenticated: true,
+        principal: { subject: "admin-1", workspace_id: "wksp_alpha", owner_id: "admin-1", roles: ["admin"], auth_type: "oidc" },
+        workspace_admin: true,
+        platform_admin: false,
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+    });
+    vi.stubGlobal("fetch", runtimeFetch);
+
+    const client = new TMAClient("https://tma.example");
+    const context = await client.tenantAdministration.context();
+
+    expect(context.workspace_admin).toBe(true);
+    expect(runtimeFetch).toHaveBeenCalledOnce();
+  });
 
   it("injects TokenSource and preserves typed query and resource encoding", async () => {
     const tokenSource = vi.fn(async () => "rotated-token");
@@ -22,6 +46,35 @@ describe("TMAClient", () => {
     expect(page.items[0]?.turn_status).toBe("future_state");
     expect(page.next_cursor).toBe("next");
     expect(tokenSource).toHaveBeenCalledOnce();
+  });
+
+  it("exchanges a user token through the authenticated application client", async () => {
+    server = await startServer(async (request, response) => {
+      expect(request.method).toBe("POST");
+      expect(request.url).toBe("/v2/auth/token-exchange");
+      expect(request.headers.authorization).toBe("Bearer tma_svc_locator.secret");
+      expect(JSON.parse((await readBody(request)).toString())).toMatchObject({
+        grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+        subject_token: "user-token",
+        subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+        scope: "agents:read",
+      });
+      json(response, 200, {
+        access_token: "tma_obo_token",
+        issued_token_type: "urn:ietf:params:oauth:token-type:access_token",
+        token_type: "Bearer",
+        expires_in: 300,
+        scope: "agents:read",
+      });
+    });
+    const client = new TMAClient(server.baseURL, { token: "tma_svc_locator.secret" });
+    const token = await client.auth.exchange({
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      subject_token: "user-token",
+      subject_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      scope: "agents:read",
+    });
+    expect(token).toMatchObject({ access_token: "tma_obo_token", expires_in: 300 });
   });
 
   it("escapes IDs, handles 201 and 204, and preserves dynamic JSON", async () => {
@@ -83,6 +136,104 @@ describe("TMAClient", () => {
     const response = await client.artifacts.download("sesn/1", "art/1");
     expect(uploaded).toBe(true);
     expect(await response.text()).toBe("artifact body");
+  });
+
+  it("exposes retrieval collections, ingestion, search, and citations", async () => {
+	const requests: string[] = [];
+	server = await startServer(async (request, response) => {
+	  requests.push(`${request.method} ${request.url}`);
+	  if (request.method === "POST" && request.url === "/v2/retrieval/collections") {
+		expect(JSON.parse((await readBody(request)).toString())).toEqual({ name: "Shared" });
+		json(response, 201, { id: "rcol/1", name: "Shared" });
+		return;
+	  }
+	  if (request.method === "POST" && request.url === "/v2/retrieval/collections/rcol%2F1/documents") {
+		expect(request.headers["content-type"]).toMatch(/^multipart\/form-data; boundary=/);
+		const body = (await readBody(request)).toString();
+		expect(body).toContain('name="name"');
+		expect(body).toContain("Source");
+		expect(body).toContain('filename="source.txt"');
+		expect(body).toContain("retrieval body");
+		json(response, 201, {
+		  document: { id: "rdoc/1", collection_id: "rcol/1" },
+		  object_ref: { id: "obj/1" },
+		  ingestion_job: { id: "rijob/1", status: "ready", document_id: "rdoc/1" },
+		});
+		return;
+	  }
+	  if (request.method === "GET") {
+		json(response, 200, { id: "rijob/1", status: "ready", document_id: "rdoc/1" });
+		return;
+	  }
+	  expect(JSON.parse((await readBody(request)).toString())).toEqual({ collection_ids: ["rcol/1"], query: "deployment" });
+	  json(response, 200, {
+		results: [{ document_id: "rdoc/1", collection_id: "rcol/1", content: "ten days", score: 0.9 }],
+		citations: [{ collection_id: "rcol/1", document_id: "rdoc/1", score: 0.9 }],
+	  });
+	});
+	const client = new TMAClient(server.baseURL);
+	const collection = await client.retrieval.collections.create({ name: "Shared" });
+	const upload = await client.retrieval.documents.upload("rcol/1", { name: "Source" }, {
+	  filename: "source.txt", contentType: "text/plain", body: new Blob(["retrieval body"]),
+	});
+	const job = await client.retrieval.ingestionJobs.get("rijob/1");
+	const search = await client.retrieval.search({ collection_ids: ["rcol/1"], query: "deployment" });
+	 expect(collection.id).toBe("rcol/1");
+	 expect(upload.document.id).toBe("rdoc/1");
+	 expect(job.document_id).toBe("rdoc/1");
+	 expect(search.citations[0]?.score).toBe(0.9);
+	 expect(requests).toEqual([
+	  "POST /v2/retrieval/collections",
+	  "POST /v2/retrieval/collections/rcol%2F1/documents",
+	  "GET /v2/retrieval/ingestion-jobs/rijob%2F1",
+	  "POST /v2/retrieval/search",
+	]);
+  });
+
+  it("exposes the Platform model runtime", async () => {
+    server = await startServer(async (request, response) => {
+	  if (request.method === "GET") {
+			expect(request.url).toBe("/v2/model-runtime/invocations?principal_id=service%2Fknowledge&service_identity_id=svc%2Fknowledge&capability=embedding&limit=25");
+		json(response, 200, {
+		  summary: { record_count: 1, completed_count: 1, input_tokens: 5 },
+		  records: [{ id: "minv_1", workspace_id: "wksp_1", principal_id: "service/knowledge", request_id: "req_1", capability: "embedding", provider_id: "fake", model: "embed", status: "completed", input_tokens: 5 }],
+		});
+		return;
+	  }
+	  expect(request.method).toBe("POST");
+	  const body = JSON.parse((await readBody(request)).toString());
+	  if (request.url === "/v2/model-runtime/generate") {
+		expect(body).toEqual({ messages: [{ role: "user", content: "Summarize this" }], max_output_tokens: 300 });
+		json(response, 200, {
+		  text: "Summary", provider_id: "fake", model: "fake-demo",
+		  usage: { input_tokens: 3, output_tokens: 1, total_tokens: 4 }, finish_reason: "stop",
+		});
+		return;
+	  }
+	  if (request.url === "/v2/model-runtime/embeddings") {
+		expect(body).toEqual({ inputs: ["first", "second"] });
+		json(response, 200, {
+		  embeddings: [{ index: 0, embedding: [0.1, 0.2] }, { index: 1, embedding: [0.3, 0.4] }],
+		  provider_id: "embeddings", model: "embed-v1", dimensions: 2, usage: { input_tokens: 5, total_tokens: 5 },
+		});
+		return;
+	  }
+	  expect(request.url).toBe("/v2/model-runtime/rerank");
+	  expect(body).toEqual({ query: "best", documents: ["first", "second"], top_n: 1 });
+	  json(response, 200, { results: [{ index: 1, score: 0.9 }], provider_id: "reranker", model: "rerank-v1" });
+    });
+    const client = new TMAClient(server.baseURL);
+    const generated = await client.modelRuntime.generate({
+      messages: [{ role: "user", content: "Summarize this" }], max_output_tokens: 300,
+    });
+	const embeddings = await client.modelRuntime.embed({ inputs: ["first", "second"] });
+	const reranked = await client.modelRuntime.rerank({ query: "best", documents: ["first", "second"], top_n: 1 });
+		const invocations = await client.modelRuntime.invocations({ principalId: "service/knowledge", serviceIdentityId: "svc/knowledge", capability: "embedding", limit: 25 });
+    expect(generated.text).toBe("Summary");
+    expect(generated.usage.total_tokens).toBe(4);
+	expect(embeddings.embeddings[1]?.embedding[0]).toBe(0.3);
+	expect(reranked.results[0]?.index).toBe(1);
+	expect(invocations.records[0]?.request_id).toBe("req_1");
   });
 
   it("keeps unknown Run status values", async () => {

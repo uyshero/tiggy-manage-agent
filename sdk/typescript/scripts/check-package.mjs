@@ -29,12 +29,16 @@ const required = [
   "dist/services/llm.js",
   "dist/services/marketplace.js",
   "dist/services/mcp.js",
+  "dist/services/model-runtime.js",
   "dist/services/object-refs.js",
   "dist/services/orchestration.js",
+  "dist/services/retrieval.js",
   "dist/services/runs.js",
   "dist/services/sessions.js",
   "dist/services/skills.js",
   "dist/services/traces.js",
+  "dist/services/tenant-administration.js",
+  "dist/services/speech.js",
   "dist/services/workers.js",
 ];
 for (const path of required) {

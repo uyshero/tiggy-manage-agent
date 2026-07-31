@@ -20,6 +20,7 @@ type route struct {
 }
 
 type routeContract struct {
+	Deprecated            bool
 	RequestSchema         string
 	RequestRequired       bool
 	RequestContentType    string
@@ -98,13 +99,28 @@ var coreContracts = map[string]routeContract{
 	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                     {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201", "202"}},
 	"get /v2/auth/config":                                                        {ResponseSchema: "AuthClientConfiguration"},
 	"get /v2/auth/me":                                                            {ResponseSchema: "AuthState"},
-	"get /v2/workbench-projects":                                                 {ResponseSchema: "WorkbenchProjectList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "plugin_id", In: "query"}}},
-	"post /v2/workbench-projects":                                                {RequestSchema: "CreateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject", SuccessStatuses: []string{"201"}},
-	"patch /v2/workbench-projects/{project_id}":                                  {RequestSchema: "UpdateWorkbenchProjectRequest", RequestRequired: true, ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/workbench-projects/{project_id}/sync":                              {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
-	"post /v2/workbench-projects/{project_id}/runtime/start":                     {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
-	"post /v2/workbench-projects/{project_id}/runtime/stop":                      {ResponseSchema: "WorkbenchProject", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"503"}},
-	"post /v2/workbench-projects/{project_id}/runtime/run-cleaning":              {ResponseSchema: "WorkbenchProjectRunCleaningResponse", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}, ErrorStatuses: []string{"409", "503"}},
+	"post /v2/auth/token-exchange":                                               {RequestSchema: "TokenExchangeRequest", RequestRequired: true, ResponseSchema: "TokenExchangeResponse", ErrorStatuses: []string{"400", "401", "403", "503"}},
+	"get /v2/administration/context":                                             {ResponseSchema: "AdministrationContext"},
+	"get /v2/console/context":                                                    {Deprecated: true, ResponseSchema: "ConsoleContext"},
+	"get /v2/workspace/members":                                                  {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
+	"put /v2/workspace/members/{subject}":                                        {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
+	"delete /v2/workspace/members/{subject}":                                     {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/service-identities/scopes":                                          {ResponseSchema: "ServiceIdentityScopeList", ErrorStatuses: []string{"403"}},
+	"get /v2/service-identities":                                                 {ResponseSchema: "ServiceIdentityList", ErrorStatuses: []string{"403"}},
+	"post /v2/service-identities":                                                {RequestSchema: "CreateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/service-identities/{identity_id}":                                   {ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404"}},
+	"patch /v2/service-identities/{identity_id}":                                 {RequestSchema: "UpdateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404", "409"}},
+	"get /v2/service-identities/{identity_id}/credentials":                       {ResponseSchema: "ServiceCredentialList", ErrorStatuses: []string{"403", "404"}},
+	"post /v2/service-identities/{identity_id}/credentials":                      {RequestSchema: "CreateServiceCredentialRequest", RequestRequired: true, ResponseSchema: "CreatedServiceCredential", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "404"}},
+	"delete /v2/service-identities/{identity_id}/credentials/{credential_id}":    {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "404"}},
+	"get /v2/platform/workspaces":                                                {ResponseSchema: "TenantWorkspaceList", ErrorStatuses: []string{"403"}},
+	"post /v2/platform/workspaces":                                               {RequestSchema: "CreateTenantWorkspaceRequest", RequestRequired: true, ResponseSchema: "TenantWorkspace", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403"}},
+	"get /v2/platform/workspaces/{workspace_id}/members":                         {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
+	"put /v2/platform/workspaces/{workspace_id}/members/{subject}":               {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
+	"delete /v2/platform/workspaces/{workspace_id}/members/{subject}":            {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/platform/admins":                                                    {ResponseSchema: "PlatformRoleAssignmentList", ErrorStatuses: []string{"403"}},
+	"put /v2/platform/admins/{subject}":                                          {RequestSchema: "UpsertPlatformAdminRequest", RequestRequired: true, ResponseSchema: "PlatformRoleAssignment", ErrorStatuses: []string{"403"}},
+	"delete /v2/platform/admins/{subject}":                                       {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403"}},
 	"get /v2/environment-variables":                                              {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"put /v2/environment-variables/{name}":                                       {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"delete /v2/environment-variables/{name}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -127,24 +143,20 @@ var coreContracts = map[string]routeContract{
 	"post /v2/llm-models/{provider_id}/{model}/test":                             {ResponseSchema: "LLMDiagnosticResult"},
 	"delete /v2/llm-models/{provider_id}/{model}":                                {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
 	"get /v2/llm-usage":                                                          {ResponseSchema: "LLMUsageAggregateReport"},
-	"get /v2/knowledge/bases":                                                    {ResponseSchema: "KnowledgeBaseList"},
-	"post /v2/knowledge/bases":                                                   {RequestSchema: "CreateKnowledgeBaseRequest", RequestRequired: true, ResponseSchema: "KnowledgeBase", SuccessStatuses: []string{"201"}},
-	"delete /v2/knowledge/bases/{base_id}":                                       {SuccessStatuses: []string{"204"}},
-	"get /v2/knowledge/bases/{base_id}/documents":                                {ResponseSchema: "KnowledgeDocumentList"},
-	"post /v2/knowledge/bases/{base_id}/documents":                               {RequestSchema: "UploadKnowledgeDocumentRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "KnowledgeDocumentUploadResult", SuccessStatuses: []string{"201"}},
-	"delete /v2/knowledge/documents/{document_id}":                               {SuccessStatuses: []string{"204"}},
-	"get /v2/knowledge/services":                                                 {ResponseSchema: "KnowledgeServiceList"},
-	"post /v2/knowledge/services":                                                {RequestSchema: "CreateKnowledgeServiceRequest", RequestRequired: true, ResponseSchema: "KnowledgeService", SuccessStatuses: []string{"201"}},
-	"get /v2/knowledge/services/{service_id}":                                    {ResponseSchema: "KnowledgeService"},
-	"patch /v2/knowledge/services/{service_id}":                                  {RequestSchema: "UpdateKnowledgeServiceRequest", RequestRequired: true, ResponseSchema: "KnowledgeService"},
-	"delete /v2/knowledge/services/{service_id}":                                 {SuccessStatuses: []string{"204"}},
-	"post /v2/knowledge/services/{service_id}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
-	"get /v2/knowledge/services/{service_id}/shares":                             {ResponseSchema: "KnowledgeShareList"},
-	"post /v2/knowledge/services/{service_id}/shares":                            {RequestSchema: "CreateKnowledgeShareRequest", RequestRequired: true, ResponseSchema: "KnowledgeShareCreateResult", SuccessStatuses: []string{"201"}},
-	"post /v2/knowledge/shares/{share_id}/revoke":                                {SuccessStatuses: []string{"204"}},
-	"delete /v2/knowledge/shares/{share_id}":                                     {SuccessStatuses: []string{"204"}},
-	"get /v2/public/knowledge-shares/{token}":                                    {ResponseSchema: "PublicKnowledgeShare"},
-	"post /v2/public/knowledge-shares/{token}/ask":                               {RequestSchema: "KnowledgeAskRequest", RequestRequired: true, ResponseSchema: "KnowledgeAnswer"},
+	"post /v2/model-runtime/generate":                                            {RequestSchema: "ModelGenerateRequest", RequestRequired: true, ResponseSchema: "ModelGenerateResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"post /v2/model-runtime/embeddings":                                          {RequestSchema: "ModelEmbeddingRequest", RequestRequired: true, ResponseSchema: "ModelEmbeddingResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"post /v2/model-runtime/rerank":                                              {RequestSchema: "ModelRerankRequest", RequestRequired: true, ResponseSchema: "ModelRerankResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"get /v2/model-runtime/invocations":                                          {ResponseSchema: "ModelInvocationReport", ErrorStatuses: []string{"403"}, Parameters: []contractParameter{{Name: "principal_id", In: "query"}, {Name: "service_identity_id", In: "query"}, {Name: "capability", In: "query"}, {Name: "provider_id", In: "query"}, {Name: "model", In: "query"}, {Name: "status", In: "query"}, {Name: "from", In: "query", Type: "string", Format: "date-time"}, {Name: "to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/speech/realtime":                                                    {SuccessStatuses: []string{"101"}},
+	"get /v2/retrieval/collections":                                              {ResponseSchema: "RetrievalCollectionList"},
+	"post /v2/retrieval/collections":                                             {RequestSchema: "CreateRetrievalCollectionRequest", RequestRequired: true, ResponseSchema: "RetrievalCollection", SuccessStatuses: []string{"201"}},
+	"delete /v2/retrieval/collections/{collection_id}":                           {SuccessStatuses: []string{"204"}},
+	"get /v2/retrieval/collections/{collection_id}/documents":                    {ResponseSchema: "RetrievalDocumentList"},
+	"post /v2/retrieval/collections/{collection_id}/documents":                   {RequestSchema: "UploadRetrievalDocumentRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "RetrievalDocumentUploadResult", SuccessStatuses: []string{"201"}},
+	"get /v2/retrieval/documents/{document_id}":                                  {ResponseSchema: "RetrievalDocument"},
+	"delete /v2/retrieval/documents/{document_id}":                               {SuccessStatuses: []string{"204"}},
+	"get /v2/retrieval/ingestion-jobs/{job_id}":                                  {ResponseSchema: "RetrievalIngestionJob"},
+	"post /v2/retrieval/search":                                                  {RequestSchema: "RetrievalSearchRequest", RequestRequired: true, ResponseSchema: "RetrievalSearchResponse"},
 	"get /v2/mcp-servers":                                                        {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
 	"post /v2/mcp-servers":                                                       {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
 	"get /v2/mcp-servers/runtime-status":                                         {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
@@ -324,24 +336,34 @@ func main() {
 		routes = append(routes, route{Method: strings.ToLower(match[1]), Path: path})
 	}
 	routes = append(routes,
-		route{Method: "get", Path: "/v2/knowledge/bases"},
-		route{Method: "post", Path: "/v2/knowledge/bases"},
-		route{Method: "delete", Path: "/v2/knowledge/bases/{base_id}"},
-		route{Method: "get", Path: "/v2/knowledge/bases/{base_id}/documents"},
-		route{Method: "post", Path: "/v2/knowledge/bases/{base_id}/documents"},
-		route{Method: "delete", Path: "/v2/knowledge/documents/{document_id}"},
-		route{Method: "get", Path: "/v2/knowledge/services"},
-		route{Method: "post", Path: "/v2/knowledge/services"},
-		route{Method: "get", Path: "/v2/knowledge/services/{service_id}"},
-		route{Method: "patch", Path: "/v2/knowledge/services/{service_id}"},
-		route{Method: "delete", Path: "/v2/knowledge/services/{service_id}"},
-		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/ask"},
-		route{Method: "get", Path: "/v2/knowledge/services/{service_id}/shares"},
-		route{Method: "post", Path: "/v2/knowledge/services/{service_id}/shares"},
-		route{Method: "post", Path: "/v2/knowledge/shares/{share_id}/revoke"},
-		route{Method: "delete", Path: "/v2/knowledge/shares/{share_id}"},
-		route{Method: "get", Path: "/v2/public/knowledge-shares/{token}"},
-		route{Method: "post", Path: "/v2/public/knowledge-shares/{token}/ask"},
+		route{Method: "post", Path: "/v2/auth/token-exchange"},
+		route{Method: "get", Path: "/v2/administration/context"},
+		route{Method: "get", Path: "/v2/console/context"},
+		route{Method: "get", Path: "/v2/workspace/members"},
+		route{Method: "put", Path: "/v2/workspace/members/{subject}"},
+		route{Method: "delete", Path: "/v2/workspace/members/{subject}"},
+		route{Method: "get", Path: "/v2/platform/workspaces"},
+		route{Method: "post", Path: "/v2/platform/workspaces"},
+		route{Method: "get", Path: "/v2/platform/workspaces/{workspace_id}/members"},
+		route{Method: "put", Path: "/v2/platform/workspaces/{workspace_id}/members/{subject}"},
+		route{Method: "delete", Path: "/v2/platform/workspaces/{workspace_id}/members/{subject}"},
+		route{Method: "get", Path: "/v2/platform/admins"},
+		route{Method: "put", Path: "/v2/platform/admins/{subject}"},
+		route{Method: "delete", Path: "/v2/platform/admins/{subject}"},
+		route{Method: "get", Path: "/v2/retrieval/collections"},
+		route{Method: "post", Path: "/v2/retrieval/collections"},
+		route{Method: "delete", Path: "/v2/retrieval/collections/{collection_id}"},
+		route{Method: "get", Path: "/v2/retrieval/collections/{collection_id}/documents"},
+		route{Method: "post", Path: "/v2/retrieval/collections/{collection_id}/documents"},
+		route{Method: "get", Path: "/v2/retrieval/documents/{document_id}"},
+		route{Method: "delete", Path: "/v2/retrieval/documents/{document_id}"},
+		route{Method: "get", Path: "/v2/retrieval/ingestion-jobs/{job_id}"},
+		route{Method: "post", Path: "/v2/retrieval/search"},
+		route{Method: "post", Path: "/v2/model-runtime/generate"},
+		route{Method: "post", Path: "/v2/model-runtime/embeddings"},
+		route{Method: "post", Path: "/v2/model-runtime/rerank"},
+		route{Method: "get", Path: "/v2/model-runtime/invocations"},
+		route{Method: "get", Path: "/v2/speech/realtime"},
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}"},
@@ -378,6 +400,9 @@ paths:
 		contract, typed := coreContracts[item.Method+" "+item.Path]
 		if !typed {
 			panic(fmt.Sprintf("public v2 route %s %s has no explicit OpenAPI contract", item.Method, item.Path))
+		}
+		if contract.Deprecated {
+			fmt.Fprint(w, "      deprecated: true\n")
 		}
 		parameters := pathParameters(item.Path)
 		if len(parameters) > 0 || len(contract.Parameters) > 0 {
@@ -835,7 +860,7 @@ paths:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
@@ -854,6 +879,11 @@ paths:
         max_batch_size: {type: integer, format: int32, minimum: 1, maximum: 4096}
         max_candidates: {type: integer, format: int32, minimum: 1, maximum: 1000}
         protocol: {type: string}
+        resource_id: {type: string}
+        default_voice: {type: string}
+        audio_format: {type: string}
+        sample_rate_hz: {type: integer, format: int32, minimum: 8000, maximum: 48000}
+        upstream_model: {type: string}
     LLMModelList:
       type: object
       required: [models]
@@ -868,11 +898,191 @@ paths:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
         is_default_reranker: {type: boolean}
+    ModelMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role: {type: string, enum: [system, user, assistant]}
+        content: {type: string, minLength: 1}
+    ModelGenerateRequest:
+      type: object
+      required: [messages]
+      properties:
+        provider_id: {type: string}
+        model: {type: string}
+        messages:
+          type: array
+          minItems: 1
+          items: {$ref: "#/components/schemas/ModelMessage"}
+        max_output_tokens: {type: integer, format: int32, minimum: 1, maximum: 32768}
+    ModelUsage:
+      type: object
+      properties:
+        input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        output_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        total_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        cached_input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        reasoning_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+    ModelGenerateResponse:
+      type: object
+      required: [text, provider_id, model, usage]
+      properties:
+        text: {type: string}
+        provider_id: {type: string}
+        model: {type: string}
+        usage: {$ref: "#/components/schemas/ModelUsage"}
+        finish_reason: {type: string}
+    ModelEmbeddingRequest:
+      type: object
+      required: [inputs]
+      properties:
+        provider_id: {type: string}
+        model: {type: string}
+        inputs:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          items: {type: string, minLength: 1}
+    ModelEmbedding:
+      type: object
+      required: [index, embedding]
+      properties:
+        index: {type: integer, format: int32, minimum: 0}
+        embedding:
+          type: array
+          minItems: 1
+          maxItems: 65535
+          items: {type: number, format: double}
+    ModelEmbeddingResponse:
+      type: object
+      required: [embeddings, provider_id, model, dimensions, usage]
+      properties:
+        embeddings: {type: array, items: {$ref: "#/components/schemas/ModelEmbedding"}}
+        provider_id: {type: string}
+        model: {type: string}
+        dimensions: {type: integer, format: int32, minimum: 1, maximum: 65535}
+        usage: {$ref: "#/components/schemas/ModelUsage"}
+    ModelRerankRequest:
+      type: object
+      required: [query, documents]
+      properties:
+        provider_id: {type: string}
+        model: {type: string}
+        query: {type: string, minLength: 1}
+        documents:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {type: string, minLength: 1}
+        top_n: {type: integer, format: int32, minimum: 1, maximum: 1000}
+    ModelRerankResult:
+      type: object
+      required: [index, score]
+      properties:
+        index: {type: integer, format: int32, minimum: 0}
+        score: {type: number, format: double}
+    ModelRerankResponse:
+      type: object
+      required: [results, provider_id, model]
+      properties:
+        results: {type: array, items: {$ref: "#/components/schemas/ModelRerankResult"}}
+        provider_id: {type: string}
+        model: {type: string}
+    ModelInvocation:
+      type: object
+      required: [id, workspace_id, principal_id, request_id, capability, provider_id, model, status, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        principal_id: {type: string}
+        service_identity_id: {type: string}
+        auth_type: {type: string}
+        request_id: {type: string}
+        capability: {type: string, enum: [generate, embedding, rerank, speech_to_text, text_to_speech]}
+        provider_id: {type: string}
+        provider_type: {type: string}
+        model: {type: string}
+        status: {type: string, enum: [completed, failed, canceled]}
+        error_code: {type: string}
+        input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        output_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        total_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        cached_input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        reasoning_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        input_items: {type: integer, format: int64, maximum: 9007199254740991}
+        output_items: {type: integer, format: int64, maximum: 9007199254740991}
+        input_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        output_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        input_characters: {type: integer, format: int64, maximum: 9007199254740991}
+        output_characters: {type: integer, format: int64, maximum: 9007199254740991}
+        input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        started_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+    ModelInvocationSummary:
+      type: object
+      required: [record_count, completed_count, failed_count, canceled_count, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms]
+      properties:
+        record_count: {type: integer, format: int64, maximum: 9007199254740991}
+        completed_count: {type: integer, format: int64, maximum: 9007199254740991}
+        failed_count: {type: integer, format: int64, maximum: 9007199254740991}
+        canceled_count: {type: integer, format: int64, maximum: 9007199254740991}
+        input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        output_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        total_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        cached_input_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        reasoning_tokens: {type: integer, format: int64, maximum: 9007199254740991}
+        input_items: {type: integer, format: int64, maximum: 9007199254740991}
+        output_items: {type: integer, format: int64, maximum: 9007199254740991}
+        input_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        output_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        input_characters: {type: integer, format: int64, maximum: 9007199254740991}
+        output_characters: {type: integer, format: int64, maximum: 9007199254740991}
+        input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
+    ModelInvocationReport:
+      type: object
+      required: [summary, records]
+      properties:
+        summary: {$ref: "#/components/schemas/ModelInvocationSummary"}
+        records: {type: array, items: {$ref: "#/components/schemas/ModelInvocation"}}
+    SpeechClientEvent:
+      type: object
+      required: [type]
+      description: JSON control event sent over /v2/speech/realtime. Binary messages contain raw PCM audio.
+      properties:
+        type: {type: string, enum: [session.start, audio.commit, text.append, text.commit, session.cancel]}
+        provider_id: {type: string}
+        model: {type: string}
+        session_id: {type: string}
+        voice: {type: string}
+        style: {type: string}
+        text: {type: string}
+        audio_format: {type: string}
+        sample_rate_hz: {type: integer, format: int32, minimum: 8000, maximum: 48000}
+    SpeechServerEvent:
+      type: object
+      required: [type]
+      description: JSON event returned over /v2/speech/realtime. Binary messages contain synthesized audio chunks.
+      properties:
+        type: {type: string, enum: [session.started, transcript.partial, transcript.final, audio.done, session.canceled, error]}
+        session_id: {type: string}
+        mode: {type: string, enum: [transcription, synthesis]}
+        text: {type: string}
+        audio_format: {type: string}
+        sample_rate_hz: {type: integer, format: int32}
+        code: {type: string}
+        message: {type: string}
+        retryable: {type: boolean}
+        retry_after_seconds: {type: integer, format: int32, minimum: 1}
+        limit_scope: {type: string, enum: [global, workspace, identity, route]}
     LLMDiagnosticResult:
       type: object
       required: [status, latency_ms, authenticated, message, retryable, checked_at]
@@ -1562,93 +1772,6 @@ paths:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
         workspace_path: {type: string}
-    WorkbenchProjectFile:
-      type: object
-      required: [path, kind]
-      properties:
-        path: {type: string, maxLength: 500}
-        kind: {type: string, enum: [file, folder]}
-        status: {type: string}
-        content: {type: string, maxLength: 1000000}
-    WorkbenchProject:
-      type: object
-      required: [id, workspace_id, owner_id, plugin_id, name, repository_provider, repository_path, default_branch, sync_status, files, created_by, created_at, updated_at]
-      properties:
-        id: {type: string}
-        workspace_id: {type: string}
-        owner_id: {type: string}
-        plugin_id: {type: string, maxLength: 240}
-        name: {type: string, maxLength: 120}
-        objective: {type: string, maxLength: 1200}
-        repository_provider: {type: string, enum: [gitlab]}
-        repository_path: {type: string, maxLength: 240}
-        repository_id: {type: string}
-        repository_url: {type: string, maxLength: 1000}
-        default_branch: {type: string, maxLength: 120}
-        sync_status: {type: string, enum: [local, syncing, synced, error]}
-        sync_error: {type: string}
-        notebook_url: {type: string, maxLength: 1000}
-        runtime_id: {type: string}
-        runtime_status: {type: string, enum: [unconfigured, starting, running, stopped, error]}
-        runtime_url: {type: string, maxLength: 1000}
-        runtime_error: {type: string}
-        runtime_started_at: {type: string, format: date-time, nullable: true}
-        active_file: {type: string, maxLength: 500}
-        notebook_code: {type: string, maxLength: 1000000}
-        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
-        created_by: {type: string}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
-    WorkbenchProjectList:
-      type: object
-      required: [projects, gitlab_configured]
-      properties:
-        projects: {type: array, items: {$ref: "#/components/schemas/WorkbenchProject"}}
-        gitlab_configured: {type: boolean}
-    CreateWorkbenchProjectRequest:
-      type: object
-      required: [plugin_id, name, repository_path]
-      properties:
-        workspace_id: {type: string}
-        plugin_id: {type: string, maxLength: 240}
-        name: {type: string, minLength: 1, maxLength: 120}
-        objective: {type: string, maxLength: 1200}
-        repository_path: {type: string, minLength: 1, maxLength: 240}
-        notebook_url: {type: string, maxLength: 1000}
-        notebook_code: {type: string, maxLength: 1000000}
-    UpdateWorkbenchProjectRequest:
-      type: object
-      properties:
-        workspace_id: {type: string}
-        name: {type: string, minLength: 1, maxLength: 120}
-        objective: {type: string, maxLength: 1200}
-        notebook_url: {type: string, maxLength: 1000}
-        active_file: {type: string, maxLength: 500}
-        notebook_code: {type: string, maxLength: 1000000}
-        files: {type: array, maxItems: 500, items: {$ref: "#/components/schemas/WorkbenchProjectFile"}}
-    WorkbenchProjectRuntimeFile:
-      type: object
-      description: Output file materialized by a workbench runtime action.
-      required: [path, content]
-      properties:
-        path: {type: string, maxLength: 500, description: Project-relative output file path.}
-        content: {type: string, maxLength: 1000000, description: UTF-8 file content returned from the runtime workspace.}
-    WorkbenchProjectRunCleaningResult:
-      type: object
-      description: Result of executing the workbench R cleaning workflow.
-      required: [exit_code]
-      properties:
-        exit_code: {type: integer, format: int32, description: Runtime process exit code.}
-        stdout: {type: string, description: Standard output captured from the cleaning run.}
-        stderr: {type: string, description: Standard error captured from the cleaning run.}
-        files: {type: array, description: Output files returned from the runtime workspace, items: {$ref: "#/components/schemas/WorkbenchProjectRuntimeFile"}}
-    WorkbenchProjectRunCleaningResponse:
-      type: object
-      description: Response payload for a completed workbench data-cleaning run.
-      required: [project, result]
-      properties:
-        project: {$ref: "#/components/schemas/WorkbenchProject"}
-        result: {$ref: "#/components/schemas/WorkbenchProjectRunCleaningResult"}
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
@@ -1972,7 +2095,7 @@ paths:
     BinaryContent:
       type: string
       format: binary
-    KnowledgeBase:
+    RetrievalCollection:
       type: object
       required: [id, workspace_id, name, description, created_by, created_at, updated_at]
       properties:
@@ -1984,26 +2107,24 @@ paths:
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         document_count: {type: integer, format: int32}
-    KnowledgeBaseList:
+    RetrievalCollectionList:
       type: object
-      required: [knowledge_bases]
+      required: [collections]
       properties:
-        knowledge_bases:
-          type: array
-          items: {$ref: "#/components/schemas/KnowledgeBase"}
-    CreateKnowledgeBaseRequest:
+        collections: {type: array, items: {$ref: "#/components/schemas/RetrievalCollection"}}
+    CreateRetrievalCollectionRequest:
       type: object
       required: [name]
       properties:
-        name: {type: string}
-        description: {type: string}
-    KnowledgeDocument:
+        name: {type: string, minLength: 1, maxLength: 120}
+        description: {type: string, maxLength: 2000}
+    RetrievalDocument:
       type: object
-      required: [id, workspace_id, knowledge_base_id, object_ref_id, name, content_type, size_bytes, status, chunk_count, created_by, created_at, updated_at]
+      required: [id, workspace_id, collection_id, object_ref_id, name, content_type, size_bytes, status, chunk_count, created_by, created_at, updated_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
-        knowledge_base_id: {type: string}
+        collection_id: {type: string}
         object_ref_id: {type: string}
         name: {type: string}
         content_type: {type: string}
@@ -2014,145 +2135,76 @@ paths:
         created_by: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
-    KnowledgeDocumentList:
+    RetrievalDocumentList:
       type: object
       required: [documents]
       properties:
-        documents:
-          type: array
-          items: {$ref: "#/components/schemas/KnowledgeDocument"}
-    UploadKnowledgeDocumentRequest:
+        documents: {type: array, items: {$ref: "#/components/schemas/RetrievalDocument"}}
+    UploadRetrievalDocumentRequest:
       type: object
       required: [file]
       properties:
         file: {type: string, format: binary}
         name: {type: string}
         content_type: {type: string}
-    KnowledgeDocumentUploadResult:
+        bucket: {type: string}
+        object_key: {type: string}
+    RetrievalIngestionJob:
       type: object
-      required: [document, object_ref]
-      properties:
-        document: {$ref: "#/components/schemas/KnowledgeDocument"}
-        object_ref: {$ref: "#/components/schemas/ObjectRef"}
-    KnowledgeService:
-      type: object
-      required: [id, workspace_id, name, scenario, knowledge_base_ids, allow_web_search, sensitive_terms, status, created_by, created_at, updated_at]
+      required: [id, workspace_id, collection_id, status, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
-        name: {type: string}
-        scenario: {type: string}
-        system_prompt: {type: string}
-        knowledge_base_ids:
-          type: array
-          items: {type: string}
-        allow_web_search: {type: boolean}
-        sensitive_terms:
-          type: array
-          items: {type: string}
-        status: {type: string, enum: [active, disabled]}
-        created_by: {type: string}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
-    KnowledgeServiceList:
-      type: object
-      required: [services]
-      properties:
-        services:
-          type: array
-          items: {$ref: "#/components/schemas/KnowledgeService"}
-    CreateKnowledgeServiceRequest:
-      type: object
-      required: [name, scenario]
-      properties:
-        name: {type: string}
-        scenario: {type: string}
-        system_prompt: {type: string}
-        knowledge_base_ids:
-          type: array
-          items: {type: string}
-        allow_web_search: {type: boolean}
-        sensitive_terms:
-          type: array
-          items: {type: string}
-    UpdateKnowledgeServiceRequest:
-      type: object
-      required: [name, scenario]
-      properties:
-        name: {type: string}
-        scenario: {type: string}
-        system_prompt: {type: string}
-        knowledge_base_ids:
-          type: array
-          items: {type: string}
-        allow_web_search: {type: boolean}
-        sensitive_terms:
-          type: array
-          items: {type: string}
-    KnowledgeShare:
-      type: object
-      required: [id, service_id, created_by, created_at]
-      properties:
-        id: {type: string}
-        workspace_id: {type: string}
-        service_id: {type: string}
-        share_url: {type: string}
-        expires_at: {type: string, format: date-time}
-        revoked_at: {type: string, format: date-time}
-        created_by: {type: string}
-        created_at: {type: string, format: date-time}
-        last_used_at: {type: string, format: date-time}
-    KnowledgeShareList:
-      type: object
-      required: [shares]
-      properties:
-        shares:
-          type: array
-          items: {$ref: "#/components/schemas/KnowledgeShare"}
-    CreateKnowledgeShareRequest:
-      type: object
-      required: [expires_in]
-      properties:
-        expires_in: {type: string, enum: [1d, 7d, 1m, 1y, permanent]}
-    KnowledgeShareCreateResult:
-      type: object
-      required: [share]
-      properties:
-        share: {$ref: "#/components/schemas/KnowledgeShare"}
-        token: {type: string}
-        share_url: {type: string}
-    PublicKnowledgeShare:
-      type: object
-      required: [share, service]
-      properties:
-        share: {$ref: "#/components/schemas/KnowledgeShare"}
-        service: {$ref: "#/components/schemas/KnowledgeService"}
-    KnowledgeAskRequest:
-      type: object
-      required: [question]
-      properties:
-        question: {type: string}
-    KnowledgeAnswerSource:
-      type: object
-      required: [type]
-      properties:
-        type: {type: string, enum: [knowledge, web]}
-        title: {type: string}
-        url: {type: string}
+        collection_id: {type: string}
         document_id: {type: string}
-        content: {type: string}
-        score: {type: number, format: double}
-    KnowledgeAnswer:
+        status: {type: string, enum: [queued, processing, ready, failed]}
+        error_message: {type: string}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        started_at: {type: string, format: date-time, nullable: true}
+        completed_at: {type: string, format: date-time, nullable: true}
+    RetrievalDocumentUploadResult:
       type: object
-      required: [answer, refused, sources]
+      required: [document, object_ref, ingestion_job]
       properties:
-        service: {$ref: "#/components/schemas/KnowledgeService"}
-        answer: {type: string}
-        refused: {type: boolean}
-        refusal_reason: {type: string}
-        sources:
-          type: array
-          items: {$ref: "#/components/schemas/KnowledgeAnswerSource"}
+        document: {$ref: "#/components/schemas/RetrievalDocument"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+        ingestion_job: {$ref: "#/components/schemas/RetrievalIngestionJob"}
+    RetrievalSearchRequest:
+      type: object
+      required: [collection_ids, query]
+      properties:
+        collection_ids: {type: array, minItems: 1, maxItems: 100, items: {type: string}}
+        document_ids: {type: array, maxItems: 500, items: {type: string}}
+        query: {type: string, minLength: 1}
+        limit: {type: integer, format: int32, minimum: 1, maximum: 100}
+    RetrievalSearchResult:
+      type: object
+      required: [document_id, document_name, collection_id, chunk_index, content, keyword_score, vector_score, score]
+      properties:
+        document_id: {type: string}
+        document_name: {type: string}
+        collection_id: {type: string}
+        chunk_index: {type: integer, format: int32}
+        content: {type: string}
+        keyword_score: {type: number, format: double}
+        vector_score: {type: number, format: double}
+        score: {type: number, format: double}
+    RetrievalCitation:
+      type: object
+      required: [collection_id, document_id, document_name, chunk_index, score]
+      properties:
+        collection_id: {type: string}
+        document_id: {type: string}
+        document_name: {type: string}
+        chunk_index: {type: integer, format: int32}
+        score: {type: number, format: double}
+    RetrievalSearchResponse:
+      type: object
+      required: [results, citations]
+      properties:
+        results: {type: array, items: {$ref: "#/components/schemas/RetrievalSearchResult"}}
+        citations: {type: array, items: {$ref: "#/components/schemas/RetrievalCitation"}}
     ObjectRef:
       type: object
       required: [id, workspace_id, storage_provider, bucket, object_key, size_bytes, visibility, created_by, created_at]
@@ -3568,13 +3620,187 @@ paths:
         roles:
           type: array
           items: {type: string, enum: [viewer, member, operator, admin]}
-        auth_type: {type: string, enum: [disabled, jwt, oidc, gateway]}
+        service_identity_id: {type: string}
+        scopes: {type: array, items: {type: string}}
+        auth_type: {type: string, enum: [disabled, jwt, oidc, gateway, service_credential, delegated]}
+    AdministrationContext:
+      type: object
+      required: [authenticated, principal, workspace_admin, platform_admin]
+      properties:
+        authenticated: {type: boolean}
+        principal: {$ref: "#/components/schemas/Principal"}
+        workspace_admin: {type: boolean}
+        platform_admin: {type: boolean}
+    ConsoleContext:
+      allOf:
+        - {$ref: "#/components/schemas/AdministrationContext"}
+    WorkspaceMembership:
+      type: object
+      required: [workspace_id, subject, role, status, created_at, updated_at]
+      properties:
+        workspace_id: {type: string}
+        subject: {type: string}
+        display_name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, enum: [viewer, member, operator, admin]}
+        status: {type: string, enum: [invited, active, suspended]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    WorkspaceMembershipList:
+      type: object
+      required: [members]
+      properties:
+        members: {type: array, items: {$ref: "#/components/schemas/WorkspaceMembership"}}
+    UpsertWorkspaceMembershipRequest:
+      type: object
+      required: [role]
+      additionalProperties: false
+      properties:
+        display_name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, enum: [viewer, member, operator, admin]}
+        status: {type: string, enum: [invited, active, suspended], default: active}
+    PlatformRoleAssignment:
+      type: object
+      required: [subject, role, created_at, updated_at]
+      properties:
+        subject: {type: string}
+        display_name: {type: string}
+        email: {type: string, format: email}
+        role: {type: string, enum: [platform_admin]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    PlatformRoleAssignmentList:
+      type: object
+      required: [admins]
+      properties:
+        admins: {type: array, items: {$ref: "#/components/schemas/PlatformRoleAssignment"}}
+    UpsertPlatformAdminRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        display_name: {type: string}
+        email: {type: string, format: email}
+    TenantWorkspace:
+      type: object
+      required: [id, name, created_at, member_count]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        created_at: {type: string, format: date-time}
+        member_count: {type: integer, format: int64, maximum: 9007199254740991}
+    TenantWorkspaceList:
+      type: object
+      required: [workspaces]
+      properties:
+        workspaces: {type: array, items: {$ref: "#/components/schemas/TenantWorkspace"}}
+    CreateTenantWorkspaceRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+    ServiceIdentity:
+      type: object
+      required: [id, workspace_id, kind, name, role, scopes, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        kind: {type: string, enum: [application, service]}
+        name: {type: string}
+        description: {type: string}
+        role: {type: string, enum: [viewer, member, operator]}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        status: {type: string, enum: [active, disabled]}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ServiceIdentityList:
+      type: object
+      required: [service_identities]
+      properties:
+        service_identities: {type: array, items: {$ref: "#/components/schemas/ServiceIdentity"}}
+    ServiceIdentityScopeList:
+      type: object
+      required: [scopes]
+      properties:
+        scopes: {type: array, items: {type: string}}
+    CreateServiceIdentityRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        kind: {type: string, enum: [application, service], default: application}
+        name: {type: string, minLength: 1, maxLength: 120}
+        description: {type: string, maxLength: 1000}
+        role: {type: string, enum: [viewer, member, operator], default: member}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+    UpdateServiceIdentityRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        description: {type: string, maxLength: 1000}
+        role: {type: string, enum: [viewer, member, operator]}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        status: {type: string, enum: [active, disabled]}
+    ServiceCredential:
+      type: object
+      required: [id, workspace_id, service_identity_id, name, token_prefix, status, created_by, created_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        service_identity_id: {type: string}
+        name: {type: string}
+        token_prefix: {type: string}
+        status: {type: string, enum: [active, revoked]}
+        expires_at: {type: string, format: date-time, nullable: true}
+        last_used_at: {type: string, format: date-time, nullable: true}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        revoked_at: {type: string, format: date-time, nullable: true}
+    ServiceCredentialList:
+      type: object
+      required: [credentials]
+      properties:
+        credentials: {type: array, items: {$ref: "#/components/schemas/ServiceCredential"}}
+    CreateServiceCredentialRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 120}
+        expires_at: {type: string, format: date-time}
+    CreatedServiceCredential:
+      type: object
+      required: [credential, token]
+      description: The token is returned once and is never persisted in plaintext.
+      properties:
+        credential: {$ref: "#/components/schemas/ServiceCredential"}
+        token: {type: string}
     AuthState:
       type: object
       required: [authenticated]
       properties:
         authenticated: {type: boolean}
         principal: {$ref: "#/components/schemas/Principal"}
+    TokenExchangeRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_type, subject_token, subject_token_type, scope]
+      properties:
+        grant_type: {type: string, enum: ["urn:ietf:params:oauth:grant-type:token-exchange"]}
+        subject_token: {type: string, minLength: 1, writeOnly: true}
+        subject_token_type: {type: string, enum: ["urn:ietf:params:oauth:token-type:access_token"]}
+        requested_token_type: {type: string, enum: ["urn:ietf:params:oauth:token-type:access_token"]}
+        scope: {type: string, minLength: 1, description: Space-delimited service identity scopes.}
+    TokenExchangeResponse:
+      type: object
+      required: [access_token, issued_token_type, token_type, expires_in, scope]
+      properties:
+        access_token: {type: string, writeOnly: true}
+        issued_token_type: {type: string, enum: ["urn:ietf:params:oauth:token-type:access_token"]}
+        token_type: {type: string, enum: [Bearer]}
+        expires_in: {type: integer, format: int32, minimum: 1, maximum: 900}
+        scope: {type: string}
     AuthOIDCClientConfiguration:
       type: object
       required: [issuer, audience, client_id, scopes, device_authorization]
@@ -4087,6 +4313,10 @@ func writeFileAtomically(path string, content []byte) error {
 }
 
 func excludedV2Route(method string, path string) bool {
+	if strings.HasPrefix(path, "/v2/knowledge/") || strings.HasPrefix(path, "/v2/public/knowledge-") ||
+		strings.HasPrefix(path, "/v2/workbench-projects") {
+		return true
+	}
 	if method == "GET" && path == "/v2/task-templates" {
 		return true
 	}

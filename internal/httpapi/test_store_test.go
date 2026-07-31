@@ -51,6 +51,7 @@ type testStore struct {
 	nextExperimentID     int64
 	nextExperimentItemID int64
 	nextKnowledgeBaseID  int64
+	nextRetrievalJobID   int64
 	nextKnowledgeDocID   int64
 	nextKnowledgeSvcID   int64
 	nextKnowledgeShareID int64
@@ -66,6 +67,7 @@ type testStore struct {
 	interventions             map[string]managedagents.SessionIntervention
 	events                    map[string][]managedagents.Event
 	usageRecords              []managedagents.RecordLLMUsageInput
+	modelInvocations          []managedagents.ModelInvocation
 	exporterRuns              []managedagents.ObservabilityExporterRun
 	traceIndexes              map[string]managedagents.TraceIndexEntry
 	traceSpanIndexes          map[string][]managedagents.TraceSpanIndexEntry
@@ -108,6 +110,7 @@ type testStore struct {
 	knowledgeShares           map[string]managedagents.KnowledgeServiceShare
 	knowledgeShareTokenHashes map[string]string
 	knowledgeQuestions        []testKnowledgeQuestion
+	retrievalIngestionJobs    map[string]managedagents.RetrievalIngestionJob
 }
 
 type testRunIdempotency struct {
@@ -183,6 +186,7 @@ func newTestStore() *testStore {
 		knowledgeServices:         make(map[string]managedagents.KnowledgeService),
 		knowledgeShares:           make(map[string]managedagents.KnowledgeServiceShare),
 		knowledgeShareTokenHashes: make(map[string]string),
+		retrievalIngestionJobs:    make(map[string]managedagents.RetrievalIngestionJob),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -3165,6 +3169,60 @@ func (s *testStore) ListLLMUsage(input managedagents.ListLLMUsageInput) (managed
 	return report, nil
 }
 
+func (s *testStore) RecordModelInvocationContext(ctx context.Context, input managedagents.RecordModelInvocationInput) (managedagents.ModelInvocation, error) {
+	input, err := managedagents.NormalizeRecordModelInvocationInput(input)
+	if err != nil {
+		return managedagents.ModelInvocation{}, err
+	}
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && scope.WorkspaceID != input.WorkspaceID {
+		return managedagents.ModelInvocation{}, managedagents.ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record := managedagents.ModelInvocation{
+		ID: fmt.Sprintf("minv_%06d", len(s.modelInvocations)+1), WorkspaceID: input.WorkspaceID,
+		PrincipalID: input.PrincipalID, ServiceIdentityID: input.ServiceIdentityID, AuthType: input.AuthType, RequestID: input.RequestID,
+		Capability: input.Capability, ProviderID: input.ProviderID, ProviderType: input.ProviderType,
+		Model: input.Model, Status: input.Status, ErrorCode: input.ErrorCode,
+		InputTokens: input.InputTokens, OutputTokens: input.OutputTokens, TotalTokens: input.TotalTokens,
+		CachedInputTokens: input.CachedInputTokens, ReasoningTokens: input.ReasoningTokens,
+		InputItems: input.InputItems, OutputItems: input.OutputItems, InputBytes: input.InputBytes,
+		OutputBytes: input.OutputBytes, InputCharacters: input.InputCharacters, OutputCharacters: input.OutputCharacters,
+		InputAudioMillis: input.InputAudioMillis, OutputAudioMillis: input.OutputAudioMillis,
+		LatencyMillis: input.LatencyMillis, StartedAt: input.StartedAt, CompletedAt: input.CompletedAt,
+	}
+	s.modelInvocations = append(s.modelInvocations, record)
+	return record, nil
+}
+
+func (s *testStore) ListModelInvocationsContext(ctx context.Context, input managedagents.ListModelInvocationsInput) (managedagents.ModelInvocationReport, error) {
+	if input.Limit == 0 {
+		input.Limit = 100
+	}
+	if input.WorkspaceID == "" || input.Limit < 1 || input.Limit > 500 {
+		return managedagents.ModelInvocationReport{}, managedagents.ErrInvalid
+	}
+	if scope, ok := managedagents.DatabaseAccessScopeFromContext(ctx); ok && scope.WorkspaceID != input.WorkspaceID {
+		return managedagents.ModelInvocationReport{}, managedagents.ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	report := managedagents.ModelInvocationReport{Records: []managedagents.ModelInvocation{}}
+	for index := len(s.modelInvocations) - 1; index >= 0 && len(report.Records) < input.Limit; index-- {
+		record := s.modelInvocations[index]
+		if record.WorkspaceID != input.WorkspaceID || input.PrincipalID != "" && record.PrincipalID != input.PrincipalID ||
+			input.ServiceIdentityID != "" && record.ServiceIdentityID != input.ServiceIdentityID ||
+			input.Capability != "" && record.Capability != input.Capability || input.ProviderID != "" && record.ProviderID != input.ProviderID ||
+			input.Model != "" && record.Model != input.Model || input.Status != "" && record.Status != input.Status ||
+			input.From != nil && record.StartedAt.Before(*input.From) || input.To != nil && !record.StartedAt.Before(*input.To) {
+			continue
+		}
+		report.Records = append(report.Records, record)
+		managedagents.AddModelInvocationSummary(&report.Summary, record)
+	}
+	return report, nil
+}
+
 func (s *testStore) RecordObservabilityExporterRun(input managedagents.RecordObservabilityExporterRunInput) (managedagents.ObservabilityExporterRun, error) {
 	if input.Exporter == "" || input.Status == "" || input.SessionID == "" || input.TurnID == "" {
 		return managedagents.ObservabilityExporterRun{}, managedagents.ErrInvalid
@@ -3721,6 +3779,167 @@ func (s *testStore) DeleteKnowledgeDocument(ctx context.Context, workspaceID, id
 	delete(s.knowledgeDocuments, id)
 	delete(s.knowledgeChunks, id)
 	return item, nil
+}
+
+func retrievalCollectionFromTestKnowledge(item managedagents.KnowledgeBase) managedagents.RetrievalCollection {
+	return managedagents.RetrievalCollection{
+		ID: item.ID, WorkspaceID: item.WorkspaceID, Name: item.Name, Description: item.Description,
+		CreatedBy: item.CreatedBy, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		DocumentCount: item.DocumentCount,
+	}
+}
+
+func retrievalDocumentFromTestKnowledge(item managedagents.KnowledgeDocument) managedagents.RetrievalDocument {
+	return managedagents.RetrievalDocument{
+		ID: item.ID, WorkspaceID: item.WorkspaceID, CollectionID: item.KnowledgeBaseID,
+		ObjectRefID: item.ObjectRefID, Name: item.Name, ContentType: item.ContentType,
+		SizeBytes: item.SizeBytes, Status: item.Status, ErrorMessage: item.ErrorMessage,
+		ChunkCount: item.ChunkCount, CreatedBy: item.CreatedBy, CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func (s *testStore) CreateRetrievalCollection(ctx context.Context, workspaceID, name, description, createdBy string) (managedagents.RetrievalCollection, error) {
+	item, err := s.CreateKnowledgeBase(ctx, workspaceID, name, description, createdBy)
+	if err != nil {
+		return managedagents.RetrievalCollection{}, err
+	}
+	return retrievalCollectionFromTestKnowledge(item), nil
+}
+
+func (s *testStore) ListRetrievalCollections(ctx context.Context, workspaceID string) ([]managedagents.RetrievalCollection, error) {
+	items, err := s.ListKnowledgeBases(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]managedagents.RetrievalCollection, 0, len(items))
+	for _, item := range items {
+		result = append(result, retrievalCollectionFromTestKnowledge(item))
+	}
+	return result, nil
+}
+
+func (s *testStore) DeleteRetrievalCollection(ctx context.Context, workspaceID, id string) error {
+	return s.DeleteKnowledgeBase(ctx, workspaceID, id)
+}
+
+func (s *testStore) CreateRetrievalDocument(ctx context.Context, document managedagents.RetrievalDocument, chunks []managedagents.RetrievalChunkInput) (managedagents.RetrievalDocument, error) {
+	compatChunks := make([]managedagents.KnowledgeChunkInput, 0, len(chunks))
+	for _, chunk := range chunks {
+		compatChunks = append(compatChunks, managedagents.KnowledgeChunkInput{
+			Content: chunk.Content, Embedding: chunk.Embedding, EmbeddingModel: chunk.EmbeddingModel,
+		})
+	}
+	item, err := s.CreateKnowledgeDocument(ctx, managedagents.KnowledgeDocument{
+		ID: document.ID, WorkspaceID: document.WorkspaceID, KnowledgeBaseID: document.CollectionID,
+		ObjectRefID: document.ObjectRefID, Name: document.Name, ContentType: document.ContentType,
+		SizeBytes: document.SizeBytes, Status: document.Status, ErrorMessage: document.ErrorMessage,
+		ChunkCount: document.ChunkCount, CreatedBy: document.CreatedBy, CreatedAt: document.CreatedAt,
+		UpdatedAt: document.UpdatedAt,
+	}, compatChunks)
+	if err != nil {
+		return managedagents.RetrievalDocument{}, err
+	}
+	return retrievalDocumentFromTestKnowledge(item), nil
+}
+
+func (s *testStore) ListRetrievalDocuments(ctx context.Context, workspaceID, collectionID string) ([]managedagents.RetrievalDocument, error) {
+	items, err := s.ListKnowledgeDocuments(ctx, workspaceID, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]managedagents.RetrievalDocument, 0, len(items))
+	for _, item := range items {
+		result = append(result, retrievalDocumentFromTestKnowledge(item))
+	}
+	return result, nil
+}
+
+func (s *testStore) GetRetrievalDocument(ctx context.Context, workspaceID, id string) (managedagents.RetrievalDocument, error) {
+	item, err := s.GetKnowledgeDocument(ctx, workspaceID, id)
+	if err != nil {
+		return managedagents.RetrievalDocument{}, err
+	}
+	return retrievalDocumentFromTestKnowledge(item), nil
+}
+
+func (s *testStore) DeleteRetrievalDocument(ctx context.Context, workspaceID, id string) (managedagents.RetrievalDocument, error) {
+	item, err := s.DeleteKnowledgeDocument(ctx, workspaceID, id)
+	if err != nil {
+		return managedagents.RetrievalDocument{}, err
+	}
+	return retrievalDocumentFromTestKnowledge(item), nil
+}
+
+func (s *testStore) CreateRetrievalIngestionJob(ctx context.Context, workspaceID, collectionID, createdBy string) (managedagents.RetrievalIngestionJob, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	collection, ok := s.knowledgeBases[collectionID]
+	if !ok || collection.WorkspaceID != workspaceID {
+		return managedagents.RetrievalIngestionJob{}, managedagents.ErrNotFound
+	}
+	s.nextRetrievalJobID++
+	now := time.Now().UTC()
+	item := managedagents.RetrievalIngestionJob{
+		ID: fmt.Sprintf("rijob_%06d", s.nextRetrievalJobID), WorkspaceID: workspaceID,
+		CollectionID: collectionID, Status: "processing", CreatedBy: defaultString(strings.TrimSpace(createdBy), "system"),
+		CreatedAt: now, StartedAt: &now,
+	}
+	s.retrievalIngestionJobs[item.ID] = item
+	return item, nil
+}
+
+func (s *testStore) CompleteRetrievalIngestionJob(ctx context.Context, workspaceID, id, documentID string) (managedagents.RetrievalIngestionJob, error) {
+	return s.finishRetrievalIngestionJob(ctx, workspaceID, id, documentID, "ready", "")
+}
+
+func (s *testStore) FailRetrievalIngestionJob(ctx context.Context, workspaceID, id, message string) (managedagents.RetrievalIngestionJob, error) {
+	return s.finishRetrievalIngestionJob(ctx, workspaceID, id, "", "failed", message)
+}
+
+func (s *testStore) finishRetrievalIngestionJob(ctx context.Context, workspaceID, id, documentID, status, message string) (managedagents.RetrievalIngestionJob, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.retrievalIngestionJobs[id]
+	if !ok || item.WorkspaceID != workspaceID || (item.Status != "queued" && item.Status != "processing") {
+		return managedagents.RetrievalIngestionJob{}, managedagents.ErrNotFound
+	}
+	now := time.Now().UTC()
+	item.DocumentID = strings.TrimSpace(documentID)
+	item.Status = status
+	item.ErrorMessage = strings.TrimSpace(message)
+	item.CompletedAt = &now
+	s.retrievalIngestionJobs[id] = item
+	return item, nil
+}
+
+func (s *testStore) GetRetrievalIngestionJob(ctx context.Context, workspaceID, id string) (managedagents.RetrievalIngestionJob, error) {
+	workspaceID = testStoreWorkspaceID(ctx, workspaceID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.retrievalIngestionJobs[id]
+	if !ok || item.WorkspaceID != workspaceID {
+		return managedagents.RetrievalIngestionJob{}, managedagents.ErrNotFound
+	}
+	return item, nil
+}
+
+func (s *testStore) SearchRetrieval(ctx context.Context, workspaceID string, collectionIDs, documentIDs []string, query string, embedding []float64, limit int) ([]managedagents.RetrievalSearchResult, error) {
+	items, err := s.SearchKnowledge(ctx, workspaceID, collectionIDs, documentIDs, query, embedding, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]managedagents.RetrievalSearchResult, 0, len(items))
+	for _, item := range items {
+		result = append(result, managedagents.RetrievalSearchResult{
+			DocumentID: item.DocumentID, DocumentName: item.DocumentName, CollectionID: item.KnowledgeBaseID,
+			ChunkIndex: item.ChunkIndex, Content: item.Content, KeywordScore: item.KeywordScore,
+			VectorScore: item.VectorScore, Score: item.Score,
+		})
+	}
+	return result, nil
 }
 
 func (s *testStore) CreateKnowledgeService(ctx context.Context, input managedagents.CreateKnowledgeServiceInput) (managedagents.KnowledgeService, error) {

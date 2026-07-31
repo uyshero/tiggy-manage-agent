@@ -1,10 +1,10 @@
 # GitLab Docker MCP
 
-TMA 可以通过 Docker stdio MCP 连接 GitLab.com 或 GitLab Self-Managed。该集成使用固定镜像摘要，Token 只从 Server 环境解析，不进入数据库、Workbench 配置或日志。
+TMA 可以通过 Docker stdio MCP 连接 GitLab.com 或 GitLab Self-Managed。该集成使用固定镜像摘要，Token 只从 Server 环境解析，不进入数据库、对话工作台配置或日志。
 
 ## 默认能力
 
-Workbench 的 **设置 > MCP > GitLab Docker** 模板默认只暴露：
+对话工作台的 **设置 > MCP > GitLab Docker** 模板默认只暴露：
 
 - `search_repositories`：搜索有权访问的项目。
 - `get_file_contents`：读取仓库目录或文件。

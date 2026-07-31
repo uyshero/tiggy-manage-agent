@@ -68,6 +68,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/administration/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_administration_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/agent/discussion-strategies": {
         parameters: {
             query?: never;
@@ -308,6 +324,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/auth/token-exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_auth_token_exchange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/console/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @deprecated */
+        get: operations["get_v2_console_context"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/environment-variables": {
         parameters: {
             query?: never;
@@ -478,166 +527,6 @@ export interface paths {
         get: operations["get_v2_evaluation_rubrics_by_rubric_id"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/bases": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_knowledge_bases"];
-        put?: never;
-        post: operations["post_v2_knowledge_bases"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/bases/{base_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["delete_v2_knowledge_bases_by_base_id"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/bases/{base_id}/documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_knowledge_bases_by_base_id_documents"];
-        put?: never;
-        post: operations["post_v2_knowledge_bases_by_base_id_documents"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/documents/{document_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["delete_v2_knowledge_documents_by_document_id"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/services": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_knowledge_services"];
-        put?: never;
-        post: operations["post_v2_knowledge_services"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/services/{service_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_knowledge_services_by_service_id"];
-        put?: never;
-        post?: never;
-        delete: operations["delete_v2_knowledge_services_by_service_id"];
-        options?: never;
-        head?: never;
-        patch: operations["patch_v2_knowledge_services_by_service_id"];
-        trace?: never;
-    };
-    "/v2/knowledge/services/{service_id}/ask": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_knowledge_services_by_service_id_ask"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/services/{service_id}/shares": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_knowledge_services_by_service_id_shares"];
-        put?: never;
-        post: operations["post_v2_knowledge_services_by_service_id_shares"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/shares/{share_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: operations["delete_v2_knowledge_shares_by_share_id"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/knowledge/shares/{share_id}/revoke": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_knowledge_shares_by_share_id_revoke"];
         delete?: never;
         options?: never;
         head?: never;
@@ -916,6 +805,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/model-runtime/embeddings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_model_runtime_embeddings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-runtime/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_model_runtime_generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-runtime/invocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_model_runtime_invocations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/model-runtime/rerank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_model_runtime_rerank"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/object-cleanup/jobs": {
         parameters: {
             query?: never;
@@ -1140,14 +1093,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v2/public/knowledge-shares/{token}": {
+    "/v2/platform/admins": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["get_v2_public_knowledge_shares_by_token"];
+        get: operations["get_v2_platform_admins"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1156,7 +1109,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v2/public/knowledge-shares/{token}/ask": {
+    "/v2/platform/admins/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_v2_platform_admins_by_subject"];
+        post?: never;
+        delete: operations["delete_v2_platform_admins_by_subject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/platform/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_platform_workspaces"];
+        put?: never;
+        post: operations["post_v2_platform_workspaces"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/platform/workspaces/{workspace_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_platform_workspaces_by_workspace_id_members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/platform/workspaces/{workspace_id}/members/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_v2_platform_workspaces_by_workspace_id_members_by_subject"];
+        post?: never;
+        delete: operations["delete_v2_platform_workspaces_by_workspace_id_members_by_subject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_retrieval_collections"];
+        put?: never;
+        post: operations["post_v2_retrieval_collections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/collections/{collection_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1165,7 +1198,71 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["post_v2_public_knowledge_shares_by_token_ask"];
+        post?: never;
+        delete: operations["delete_v2_retrieval_collections_by_collection_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/collections/{collection_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_retrieval_collections_by_collection_id_documents"];
+        put?: never;
+        post: operations["post_v2_retrieval_collections_by_collection_id_documents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/documents/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_retrieval_documents_by_document_id"];
+        put?: never;
+        post?: never;
+        delete: operations["delete_v2_retrieval_documents_by_document_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/ingestion-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_retrieval_ingestion_jobs_by_job_id"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/retrieval/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["post_v2_retrieval_search"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2644,6 +2741,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v2/speech/realtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_speech_realtime"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v2/subagents/reap-orphans": {
         parameters: {
             query?: never;
@@ -2702,102 +2815,6 @@ export interface paths {
         get: operations["get_v2_traces_by_trace_id_spans_by_span_id"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/workbench-projects": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_v2_workbench_projects"];
-        put?: never;
-        post: operations["post_v2_workbench_projects"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/workbench-projects/{project_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch: operations["patch_v2_workbench_projects_by_project_id"];
-        trace?: never;
-    };
-    "/v2/workbench-projects/{project_id}/runtime/run-cleaning": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_workbench_projects_by_project_id_runtime_run_cleaning"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/workbench-projects/{project_id}/runtime/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_workbench_projects_by_project_id_runtime_start"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/workbench-projects/{project_id}/runtime/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_workbench_projects_by_project_id_runtime_stop"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v2/workbench-projects/{project_id}/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["post_v2_workbench_projects_by_project_id_sync"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2975,6 +2992,38 @@ export interface paths {
         put?: never;
         post: operations["post_v2_workers_by_worker_id_archive"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/workspace/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_v2_workspace_members"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v2/workspace/members/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_v2_workspace_members_by_subject"];
+        post?: never;
+        delete: operations["delete_v2_workspace_members_by_subject"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3475,7 +3524,7 @@ export interface components {
             /** Format: int32 */
             context_window_tokens: number;
             /** @enum {string} */
-            capability_type: "text" | "text_image" | "image_generation" | "video_generation" | "embedding" | "reranker";
+            capability_type: "text" | "text_image" | "image_generation" | "video_generation" | "embedding" | "reranker" | "speech_to_text" | "text_to_speech";
             capabilities: components["schemas"]["LLMModelCapabilities"];
             is_default_vision: boolean;
             is_default_embedding: boolean;
@@ -3498,6 +3547,12 @@ export interface components {
             /** Format: int32 */
             max_candidates?: number;
             protocol?: string;
+            resource_id?: string;
+            default_voice?: string;
+            audio_format?: string;
+            /** Format: int32 */
+            sample_rate_hz?: number;
+            upstream_model?: string;
         };
         LLMModelList: {
             models: components["schemas"]["LLMModel"][];
@@ -3508,11 +3563,202 @@ export interface components {
             /** Format: int32 */
             context_window_tokens?: number;
             /** @enum {string} */
-            capability_type?: "text" | "text_image" | "image_generation" | "video_generation" | "embedding" | "reranker";
+            capability_type?: "text" | "text_image" | "image_generation" | "video_generation" | "embedding" | "reranker" | "speech_to_text" | "text_to_speech";
             capabilities?: components["schemas"]["LLMModelCapabilities"];
             is_default_vision?: boolean;
             is_default_embedding?: boolean;
             is_default_reranker?: boolean;
+        };
+        ModelMessage: {
+            /** @enum {string} */
+            role: "system" | "user" | "assistant";
+            content: string;
+        };
+        ModelGenerateRequest: {
+            provider_id?: string;
+            model?: string;
+            messages: components["schemas"]["ModelMessage"][];
+            /** Format: int32 */
+            max_output_tokens?: number;
+        };
+        ModelUsage: {
+            /** Format: int64 */
+            input_tokens?: number;
+            /** Format: int64 */
+            output_tokens?: number;
+            /** Format: int64 */
+            total_tokens?: number;
+            /** Format: int64 */
+            cached_input_tokens?: number;
+            /** Format: int64 */
+            reasoning_tokens?: number;
+        };
+        ModelGenerateResponse: {
+            text: string;
+            provider_id: string;
+            model: string;
+            usage: components["schemas"]["ModelUsage"];
+            finish_reason?: string;
+        };
+        ModelEmbeddingRequest: {
+            provider_id?: string;
+            model?: string;
+            inputs: string[];
+        };
+        ModelEmbedding: {
+            /** Format: int32 */
+            index: number;
+            embedding: number[];
+        };
+        ModelEmbeddingResponse: {
+            embeddings: components["schemas"]["ModelEmbedding"][];
+            provider_id: string;
+            model: string;
+            /** Format: int32 */
+            dimensions: number;
+            usage: components["schemas"]["ModelUsage"];
+        };
+        ModelRerankRequest: {
+            provider_id?: string;
+            model?: string;
+            query: string;
+            documents: string[];
+            /** Format: int32 */
+            top_n?: number;
+        };
+        ModelRerankResult: {
+            /** Format: int32 */
+            index: number;
+            /** Format: double */
+            score: number;
+        };
+        ModelRerankResponse: {
+            results: components["schemas"]["ModelRerankResult"][];
+            provider_id: string;
+            model: string;
+        };
+        ModelInvocation: {
+            id: string;
+            workspace_id: string;
+            principal_id: string;
+            service_identity_id?: string;
+            auth_type?: string;
+            request_id: string;
+            /** @enum {string} */
+            capability: "generate" | "embedding" | "rerank" | "speech_to_text" | "text_to_speech";
+            provider_id: string;
+            provider_type?: string;
+            model: string;
+            /** @enum {string} */
+            status: "completed" | "failed" | "canceled";
+            error_code?: string;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            total_tokens: number;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            reasoning_tokens: number;
+            /** Format: int64 */
+            input_items: number;
+            /** Format: int64 */
+            output_items: number;
+            /** Format: int64 */
+            input_bytes: number;
+            /** Format: int64 */
+            output_bytes: number;
+            /** Format: int64 */
+            input_characters: number;
+            /** Format: int64 */
+            output_characters: number;
+            /** Format: int64 */
+            input_audio_ms: number;
+            /** Format: int64 */
+            output_audio_ms: number;
+            /** Format: int64 */
+            latency_ms: number;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at: string;
+        };
+        ModelInvocationSummary: {
+            /** Format: int64 */
+            record_count: number;
+            /** Format: int64 */
+            completed_count: number;
+            /** Format: int64 */
+            failed_count: number;
+            /** Format: int64 */
+            canceled_count: number;
+            /** Format: int64 */
+            input_tokens: number;
+            /** Format: int64 */
+            output_tokens: number;
+            /** Format: int64 */
+            total_tokens: number;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            reasoning_tokens: number;
+            /** Format: int64 */
+            input_items: number;
+            /** Format: int64 */
+            output_items: number;
+            /** Format: int64 */
+            input_bytes: number;
+            /** Format: int64 */
+            output_bytes: number;
+            /** Format: int64 */
+            input_characters: number;
+            /** Format: int64 */
+            output_characters: number;
+            /** Format: int64 */
+            input_audio_ms: number;
+            /** Format: int64 */
+            output_audio_ms: number;
+            /** Format: int64 */
+            latency_ms: number;
+        };
+        ModelInvocationReport: {
+            summary: components["schemas"]["ModelInvocationSummary"];
+            records: components["schemas"]["ModelInvocation"][];
+        };
+        /** @description JSON control event sent over /v2/speech/realtime. Binary messages contain raw PCM audio. */
+        SpeechClientEvent: {
+            /** @enum {string} */
+            type: "session.start" | "audio.commit" | "text.append" | "text.commit" | "session.cancel";
+            provider_id?: string;
+            model?: string;
+            session_id?: string;
+            voice?: string;
+            style?: string;
+            text?: string;
+            audio_format?: string;
+            /** Format: int32 */
+            sample_rate_hz?: number;
+        };
+        /** @description JSON event returned over /v2/speech/realtime. Binary messages contain synthesized audio chunks. */
+        SpeechServerEvent: {
+            /** @enum {string} */
+            type: "session.started" | "transcript.partial" | "transcript.final" | "audio.done" | "session.canceled" | "error";
+            session_id?: string;
+            /** @enum {string} */
+            mode?: "transcription" | "synthesis";
+            text?: string;
+            audio_format?: string;
+            /** Format: int32 */
+            sample_rate_hz?: number;
+            code?: string;
+            message?: string;
+            retryable?: boolean;
+            /** Format: int32 */
+            retry_after_seconds?: number;
+            /** @enum {string} */
+            limit_scope?: "global" | "workspace" | "identity" | "route";
         };
         LLMDiagnosticResult: {
             /** @enum {string} */
@@ -4203,94 +4449,6 @@ export interface components {
             artifact: components["schemas"]["Artifact"];
             workspace_path?: string;
         };
-        WorkbenchProjectFile: {
-            path: string;
-            /** @enum {string} */
-            kind: "file" | "folder";
-            status?: string;
-            content?: string;
-        };
-        WorkbenchProject: {
-            id: string;
-            workspace_id: string;
-            owner_id: string;
-            plugin_id: string;
-            name: string;
-            objective?: string;
-            /** @enum {string} */
-            repository_provider: "gitlab";
-            repository_path: string;
-            repository_id?: string;
-            repository_url?: string;
-            default_branch: string;
-            /** @enum {string} */
-            sync_status: "local" | "syncing" | "synced" | "error";
-            sync_error?: string;
-            notebook_url?: string;
-            runtime_id?: string;
-            /** @enum {string} */
-            runtime_status?: "unconfigured" | "starting" | "running" | "stopped" | "error";
-            runtime_url?: string;
-            runtime_error?: string;
-            /** Format: date-time */
-            runtime_started_at?: string | null;
-            active_file?: string;
-            notebook_code?: string;
-            files: components["schemas"]["WorkbenchProjectFile"][];
-            created_by: string;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        WorkbenchProjectList: {
-            projects: components["schemas"]["WorkbenchProject"][];
-            gitlab_configured: boolean;
-        };
-        CreateWorkbenchProjectRequest: {
-            workspace_id?: string;
-            plugin_id: string;
-            name: string;
-            objective?: string;
-            repository_path: string;
-            notebook_url?: string;
-            notebook_code?: string;
-        };
-        UpdateWorkbenchProjectRequest: {
-            workspace_id?: string;
-            name?: string;
-            objective?: string;
-            notebook_url?: string;
-            active_file?: string;
-            notebook_code?: string;
-            files?: components["schemas"]["WorkbenchProjectFile"][];
-        };
-        /** @description Output file materialized by a workbench runtime action. */
-        WorkbenchProjectRuntimeFile: {
-            /** @description Project-relative output file path. */
-            path: string;
-            /** @description UTF-8 file content returned from the runtime workspace. */
-            content: string;
-        };
-        /** @description Result of executing the workbench R cleaning workflow. */
-        WorkbenchProjectRunCleaningResult: {
-            /**
-             * Format: int32
-             * @description Runtime process exit code.
-             */
-            exit_code: number;
-            /** @description Standard output captured from the cleaning run. */
-            stdout?: string;
-            /** @description Standard error captured from the cleaning run. */
-            stderr?: string;
-            /** @description Output files returned from the runtime workspace */
-            files?: components["schemas"]["WorkbenchProjectRuntimeFile"][];
-        };
-        /** @description Response payload for a completed workbench data-cleaning run. */
-        WorkbenchProjectRunCleaningResponse: {
-            project: components["schemas"]["WorkbenchProject"];
-            result: components["schemas"]["WorkbenchProjectRunCleaningResult"];
-        };
         AchievementLibraryItem: {
             id: string;
             workspace_id: string;
@@ -4616,7 +4774,7 @@ export interface components {
         };
         /** Format: binary */
         BinaryContent: string;
-        KnowledgeBase: {
+        RetrievalCollection: {
             id: string;
             workspace_id: string;
             name: string;
@@ -4629,17 +4787,17 @@ export interface components {
             /** Format: int32 */
             document_count?: number;
         };
-        KnowledgeBaseList: {
-            knowledge_bases: components["schemas"]["KnowledgeBase"][];
+        RetrievalCollectionList: {
+            collections: components["schemas"]["RetrievalCollection"][];
         };
-        CreateKnowledgeBaseRequest: {
+        CreateRetrievalCollectionRequest: {
             name: string;
             description?: string;
         };
-        KnowledgeDocument: {
+        RetrievalDocument: {
             id: string;
             workspace_id: string;
-            knowledge_base_id: string;
+            collection_id: string;
             object_ref_id: string;
             name: string;
             content_type: string;
@@ -4656,105 +4814,71 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        KnowledgeDocumentList: {
-            documents: components["schemas"]["KnowledgeDocument"][];
+        RetrievalDocumentList: {
+            documents: components["schemas"]["RetrievalDocument"][];
         };
-        UploadKnowledgeDocumentRequest: {
+        UploadRetrievalDocumentRequest: {
             /** Format: binary */
             file: string;
             name?: string;
             content_type?: string;
+            bucket?: string;
+            object_key?: string;
         };
-        KnowledgeDocumentUploadResult: {
-            document: components["schemas"]["KnowledgeDocument"];
-            object_ref: components["schemas"]["ObjectRef"];
-        };
-        KnowledgeService: {
+        RetrievalIngestionJob: {
             id: string;
             workspace_id: string;
-            name: string;
-            scenario: string;
-            system_prompt?: string;
-            knowledge_base_ids: string[];
-            allow_web_search: boolean;
-            sensitive_terms: string[];
-            /** @enum {string} */
-            status: "active" | "disabled";
-            created_by: string;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        KnowledgeServiceList: {
-            services: components["schemas"]["KnowledgeService"][];
-        };
-        CreateKnowledgeServiceRequest: {
-            name: string;
-            scenario: string;
-            system_prompt?: string;
-            knowledge_base_ids?: string[];
-            allow_web_search?: boolean;
-            sensitive_terms?: string[];
-        };
-        UpdateKnowledgeServiceRequest: {
-            name: string;
-            scenario: string;
-            system_prompt?: string;
-            knowledge_base_ids?: string[];
-            allow_web_search?: boolean;
-            sensitive_terms?: string[];
-        };
-        KnowledgeShare: {
-            id: string;
-            workspace_id?: string;
-            service_id: string;
-            share_url?: string;
-            /** Format: date-time */
-            expires_at?: string;
-            /** Format: date-time */
-            revoked_at?: string;
-            created_by: string;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: date-time */
-            last_used_at?: string;
-        };
-        KnowledgeShareList: {
-            shares: components["schemas"]["KnowledgeShare"][];
-        };
-        CreateKnowledgeShareRequest: {
-            /** @enum {string} */
-            expires_in: "1d" | "7d" | "1m" | "1y" | "permanent";
-        };
-        KnowledgeShareCreateResult: {
-            share: components["schemas"]["KnowledgeShare"];
-            token?: string;
-            share_url?: string;
-        };
-        PublicKnowledgeShare: {
-            share: components["schemas"]["KnowledgeShare"];
-            service: components["schemas"]["KnowledgeService"];
-        };
-        KnowledgeAskRequest: {
-            question: string;
-        };
-        KnowledgeAnswerSource: {
-            /** @enum {string} */
-            type: "knowledge" | "web";
-            title?: string;
-            url?: string;
+            collection_id: string;
             document_id?: string;
-            content?: string;
-            /** Format: double */
-            score?: number;
+            /** @enum {string} */
+            status: "queued" | "processing" | "ready" | "failed";
+            error_message?: string;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
         };
-        KnowledgeAnswer: {
-            service?: components["schemas"]["KnowledgeService"];
-            answer: string;
-            refused: boolean;
-            refusal_reason?: string;
-            sources: components["schemas"]["KnowledgeAnswerSource"][];
+        RetrievalDocumentUploadResult: {
+            document: components["schemas"]["RetrievalDocument"];
+            object_ref: components["schemas"]["ObjectRef"];
+            ingestion_job: components["schemas"]["RetrievalIngestionJob"];
+        };
+        RetrievalSearchRequest: {
+            collection_ids: string[];
+            document_ids?: string[];
+            query: string;
+            /** Format: int32 */
+            limit?: number;
+        };
+        RetrievalSearchResult: {
+            document_id: string;
+            document_name: string;
+            collection_id: string;
+            /** Format: int32 */
+            chunk_index: number;
+            content: string;
+            /** Format: double */
+            keyword_score: number;
+            /** Format: double */
+            vector_score: number;
+            /** Format: double */
+            score: number;
+        };
+        RetrievalCitation: {
+            collection_id: string;
+            document_id: string;
+            document_name: string;
+            /** Format: int32 */
+            chunk_index: number;
+            /** Format: double */
+            score: number;
+        };
+        RetrievalSearchResponse: {
+            results: components["schemas"]["RetrievalSearchResult"][];
+            citations: components["schemas"]["RetrievalCitation"][];
         };
         ObjectRef: {
             id: string;
@@ -6187,12 +6311,185 @@ export interface components {
             workspace_id: string;
             owner_id: string;
             roles: ("viewer" | "member" | "operator" | "admin")[];
+            service_identity_id?: string;
+            scopes?: string[];
             /** @enum {string} */
-            auth_type: "disabled" | "jwt" | "oidc" | "gateway";
+            auth_type: "disabled" | "jwt" | "oidc" | "gateway" | "service_credential" | "delegated";
+        };
+        AdministrationContext: {
+            authenticated: boolean;
+            principal: components["schemas"]["Principal"];
+            workspace_admin: boolean;
+            platform_admin: boolean;
+        };
+        ConsoleContext: components["schemas"]["AdministrationContext"];
+        WorkspaceMembership: {
+            workspace_id: string;
+            subject: string;
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+            /** @enum {string} */
+            role: "viewer" | "member" | "operator" | "admin";
+            /** @enum {string} */
+            status: "invited" | "active" | "suspended";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkspaceMembershipList: {
+            members: components["schemas"]["WorkspaceMembership"][];
+        };
+        UpsertWorkspaceMembershipRequest: {
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+            /** @enum {string} */
+            role: "viewer" | "member" | "operator" | "admin";
+            /**
+             * @default active
+             * @enum {string}
+             */
+            status: "invited" | "active" | "suspended";
+        };
+        PlatformRoleAssignment: {
+            subject: string;
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+            /** @enum {string} */
+            role: "platform_admin";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PlatformRoleAssignmentList: {
+            admins: components["schemas"]["PlatformRoleAssignment"][];
+        };
+        UpsertPlatformAdminRequest: {
+            display_name?: string;
+            /** Format: email */
+            email?: string;
+        };
+        TenantWorkspace: {
+            id: string;
+            name: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            member_count: number;
+        };
+        TenantWorkspaceList: {
+            workspaces: components["schemas"]["TenantWorkspace"][];
+        };
+        CreateTenantWorkspaceRequest: {
+            name: string;
+        };
+        ServiceIdentity: {
+            id: string;
+            workspace_id: string;
+            /** @enum {string} */
+            kind: "application" | "service";
+            name: string;
+            description?: string;
+            /** @enum {string} */
+            role: "viewer" | "member" | "operator";
+            scopes: string[];
+            /** @enum {string} */
+            status: "active" | "disabled";
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ServiceIdentityList: {
+            service_identities: components["schemas"]["ServiceIdentity"][];
+        };
+        ServiceIdentityScopeList: {
+            scopes: string[];
+        };
+        CreateServiceIdentityRequest: {
+            /**
+             * @default application
+             * @enum {string}
+             */
+            kind: "application" | "service";
+            name: string;
+            description?: string;
+            /**
+             * @default member
+             * @enum {string}
+             */
+            role: "viewer" | "member" | "operator";
+            scopes: string[];
+        };
+        UpdateServiceIdentityRequest: {
+            name?: string;
+            description?: string;
+            /** @enum {string} */
+            role?: "viewer" | "member" | "operator";
+            scopes?: string[];
+            /** @enum {string} */
+            status?: "active" | "disabled";
+        };
+        ServiceCredential: {
+            id: string;
+            workspace_id: string;
+            service_identity_id: string;
+            name: string;
+            token_prefix: string;
+            /** @enum {string} */
+            status: "active" | "revoked";
+            /** Format: date-time */
+            expires_at?: string | null;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            revoked_at?: string | null;
+        };
+        ServiceCredentialList: {
+            credentials: components["schemas"]["ServiceCredential"][];
+        };
+        CreateServiceCredentialRequest: {
+            name: string;
+            /** Format: date-time */
+            expires_at?: string;
+        };
+        /** @description The token is returned once and is never persisted in plaintext. */
+        CreatedServiceCredential: {
+            credential: components["schemas"]["ServiceCredential"];
+            token: string;
         };
         AuthState: {
             authenticated: boolean;
             principal?: components["schemas"]["Principal"];
+        };
+        TokenExchangeRequest: {
+            /** @enum {string} */
+            grant_type: "urn:ietf:params:oauth:grant-type:token-exchange";
+            subject_token: string;
+            /** @enum {string} */
+            subject_token_type: "urn:ietf:params:oauth:token-type:access_token";
+            /** @enum {string} */
+            requested_token_type?: "urn:ietf:params:oauth:token-type:access_token";
+            /** @description Space-delimited service identity scopes. */
+            scope: string;
+        };
+        TokenExchangeResponse: {
+            access_token: string;
+            /** @enum {string} */
+            issued_token_type: "urn:ietf:params:oauth:token-type:access_token";
+            /** @enum {string} */
+            token_type: "Bearer";
+            /** Format: int32 */
+            expires_in: number;
+            scope: string;
         };
         AuthOIDCClientConfiguration: {
             /** Format: uri */
@@ -6806,6 +7103,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AchievementLibraryReference"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_administration_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationContext"];
                 };
             };
             /** @description API error */
@@ -7494,6 +7820,104 @@ export interface operations {
             };
         };
     };
+    post_v2_auth_token_exchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenExchangeResponse"];
+                };
+            };
+            /** @description API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_console_context: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleContext"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     get_v2_environment_variables: {
         parameters: {
             query?: {
@@ -7991,508 +8415,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EvaluationRubric"];
                 };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_knowledge_bases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeBaseList"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_bases: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateKnowledgeBaseRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeBase"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    delete_v2_knowledge_bases_by_base_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                base_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_knowledge_bases_by_base_id_documents: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                base_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeDocumentList"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_bases_by_base_id_documents: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                base_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["UploadKnowledgeDocumentRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeDocumentUploadResult"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    delete_v2_knowledge_documents_by_document_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_knowledge_services: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeServiceList"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_services: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateKnowledgeServiceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeService"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_knowledge_services_by_service_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeService"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    delete_v2_knowledge_services_by_service_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    patch_v2_knowledge_services_by_service_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateKnowledgeServiceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeService"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_services_by_service_id_ask: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["KnowledgeAskRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeAnswer"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_knowledge_services_by_service_id_shares: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeShareList"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_services_by_service_id_shares: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                service_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateKnowledgeShareRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["KnowledgeShareCreateResult"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    delete_v2_knowledge_shares_by_share_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_knowledge_shares_by_share_id_revoke: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                share_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description API error */
             default: {
@@ -9287,6 +9209,315 @@ export interface operations {
             };
         };
     };
+    post_v2_model_runtime_embeddings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelEmbeddingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelEmbeddingResponse"];
+                };
+            };
+            /** @description API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_model_runtime_generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelGenerateResponse"];
+                };
+            };
+            /** @description API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_model_runtime_invocations: {
+        parameters: {
+            query?: {
+                principal_id?: string;
+                service_identity_id?: string;
+                capability?: string;
+                provider_id?: string;
+                model?: string;
+                status?: string;
+                from?: string;
+                to?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelInvocationReport"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_model_runtime_rerank: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRerankRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelRerankResponse"];
+                };
+            };
+            /** @description API error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     get_v2_object_cleanup_jobs: {
         parameters: {
             query?: {
@@ -9769,13 +10000,11 @@ export interface operations {
             };
         };
     };
-    get_v2_public_knowledge_shares_by_token: {
+    get_v2_platform_admins: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                token: string;
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -9786,7 +10015,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicKnowledgeShare"];
+                    "application/json": components["schemas"]["PlatformRoleAssignmentList"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description API error */
@@ -9800,18 +10038,18 @@ export interface operations {
             };
         };
     };
-    post_v2_public_knowledge_shares_by_token_ask: {
+    put_v2_platform_admins_by_subject: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                token: string;
+                subject: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["KnowledgeAskRequest"];
+                "application/json": components["schemas"]["UpsertPlatformAdminRequest"];
             };
         };
         responses: {
@@ -9821,7 +10059,557 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeAnswer"];
+                    "application/json": components["schemas"]["PlatformRoleAssignment"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_platform_admins_by_subject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_platform_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantWorkspaceList"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_platform_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTenantWorkspaceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantWorkspace"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_platform_workspaces_by_workspace_id_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMembershipList"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    put_v2_platform_workspaces_by_workspace_id_members_by_subject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertWorkspaceMembershipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMembership"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_platform_workspaces_by_workspace_id_members_by_subject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_retrieval_collections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalCollectionList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_retrieval_collections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRetrievalCollectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalCollection"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_retrieval_collections_by_collection_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_retrieval_collections_by_collection_id_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalDocumentList"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_retrieval_collections_by_collection_id_documents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadRetrievalDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalDocumentUploadResult"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_retrieval_documents_by_document_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalDocument"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_retrieval_documents_by_document_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_retrieval_ingestion_jobs_by_job_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalIngestionJob"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    post_v2_retrieval_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetrievalSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetrievalSearchResponse"];
                 };
             };
             /** @description API error */
@@ -13429,6 +14217,33 @@ export interface operations {
             };
         };
     };
+    get_v2_speech_realtime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     post_v2_subagents_reap_orphans: {
         parameters: {
             query?: never;
@@ -13555,285 +14370,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TraceSpanDetail"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    get_v2_workbench_projects: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-                plugin_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProjectList"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_workbench_projects: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateWorkbenchProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProject"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    patch_v2_workbench_projects_by_project_id: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateWorkbenchProjectRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProject"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_workbench_projects_by_project_id_runtime_run_cleaning: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProjectRunCleaningResponse"];
-                };
-            };
-            /** @description API error */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_workbench_projects_by_project_id_runtime_start: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProject"];
-                };
-            };
-            /** @description API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_workbench_projects_by_project_id_runtime_stop: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProject"];
-                };
-            };
-            /** @description API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-            /** @description API error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
-                };
-            };
-        };
-    };
-    post_v2_workbench_projects_by_project_id_sync: {
-        parameters: {
-            query?: {
-                workspace_id?: string;
-            };
-            header?: never;
-            path: {
-                project_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkbenchProject"];
-                };
-            };
-            /** @description API error */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description API error */
@@ -14192,6 +14728,144 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Worker"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_v2_workspace_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMembershipList"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    put_v2_workspace_members_by_subject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertWorkspaceMembershipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMembership"];
+                };
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_v2_workspace_members_by_subject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description API error */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description API error */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description API error */

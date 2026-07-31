@@ -7,12 +7,31 @@ import (
 )
 
 type Principal struct {
-	Subject        string   `json:"subject"`
-	OrganizationID string   `json:"organization_id,omitempty"`
-	WorkspaceID    string   `json:"workspace_id"`
-	OwnerID        string   `json:"owner_id"`
-	Roles          []string `json:"roles"`
-	AuthType       string   `json:"auth_type"`
+	Subject           string   `json:"subject"`
+	Username          string   `json:"username,omitempty"`
+	OrganizationID    string   `json:"organization_id,omitempty"`
+	WorkspaceID       string   `json:"workspace_id"`
+	OwnerID           string   `json:"owner_id"`
+	Roles             []string `json:"roles"`
+	ServiceIdentityID string   `json:"service_identity_id,omitempty"`
+	Scopes            []string `json:"scopes,omitempty"`
+	AuthType          string   `json:"auth_type"`
+}
+
+type TokenExchangeRequest struct {
+	GrantType          string `json:"grant_type"`
+	SubjectToken       string `json:"subject_token"`
+	SubjectTokenType   string `json:"subject_token_type"`
+	RequestedTokenType string `json:"requested_token_type,omitempty"`
+	Scope              string `json:"scope"`
+}
+
+type TokenExchangeResponse struct {
+	AccessToken     string `json:"access_token"`
+	IssuedTokenType string `json:"issued_token_type"`
+	TokenType       string `json:"token_type"`
+	ExpiresIn       int64  `json:"expires_in"`
+	Scope           string `json:"scope"`
 }
 
 type AuthState struct {

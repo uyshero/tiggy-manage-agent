@@ -3296,6 +3296,9 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 			{`DELETE FROM object_cleanup_journal WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM observability_exporter_runs WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM operator_audit_log WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
+			{`DELETE FROM model_invocations WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
+			{`DELETE FROM service_identity_credentials WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
+			{`DELETE FROM service_identities WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM security_audit_outbox WHERE workspace_id IN ($1, $2) OR id LIKE $3`, []any{alphaWorkspace, betaWorkspace, "saud_rls_" + suffix + "%"}},
 			{`DELETE FROM worker_work WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM workers WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
@@ -3332,8 +3335,9 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
 		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, evaluation_rubrics, managed_environment_variables,
-			llm_usage_records, mcp_registry_servers, mcp_registry_server_versions, object_cleanup_journal, object_ref_links, object_refs,
+			llm_usage_records, model_invocations, mcp_registry_servers, mcp_registry_server_versions, object_cleanup_journal, object_ref_links, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
+			service_identities, service_identity_credentials,
 		run_evaluations, session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
@@ -3354,15 +3358,16 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		t.Fatalf("grant Session turn access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
-		GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq,
-		tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
+			GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq, tma_model_invocation_id_seq,
+			tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
 			tma_object_cleanup_journal_id_seq, tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq, tma_run_evaluation_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,
 		tma_skill_asset_gc_run_id_seq, tma_skill_asset_gc_tombstone_id_seq,
 		tma_skill_asset_retention_policy_id_seq, tma_skill_asset_retention_policy_version_id_seq,
 		tma_skill_id_seq, tma_skill_marketplace_entry_id_seq,
 		tma_skill_marketplace_policy_id_seq, tma_skill_marketplace_policy_version_id_seq,
-		tma_skill_usage_id_seq, tma_skill_version_id_seq, tma_subagent_start_request_id_seq,
+			tma_service_credential_id_seq, tma_service_identity_id_seq,
+			tma_skill_usage_id_seq, tma_skill_version_id_seq, tma_subagent_start_request_id_seq,
 		tma_subagent_task_group_id_seq, tma_task_item_id_seq, tma_task_plan_id_seq,
 		tma_worker_id_seq, tma_worker_work_id_seq TO `+role); err != nil {
 		t.Fatalf("grant tenant object sequence access to RLS test role: %v", err)
@@ -4716,7 +4721,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "mcp_registry_servers", "mcp_registry_server_versions", "object_cleanup_journal", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "model_invocations", "mcp_registry_servers", "mcp_registry_server_versions", "object_cleanup_journal", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "service_identities", "service_identity_credentials", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}
@@ -4935,6 +4940,10 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		INSERT INTO llm_usage_records (id, workspace_id, agent_id, agent_config_version, session_id, turn_id, provider_id, model, status)
 		VALUES ('llmu_raw_cross_scope', $1, $2, $3, $4, $5, 'fake', 'test-model', 'completed')
 	`, betaWorkspace, betaAgent.ID, betaSession.AgentConfigVersion, betaSession.ID, betaTurnID)
+	assertCrossScopeInsertRejected("model_invocations", `
+		INSERT INTO model_invocations (id, workspace_id, principal_id, request_id, capability, provider_id, model, status, started_at, completed_at)
+		VALUES ('minv_raw_cross_scope', $1, 'service:beta', 'req_raw_cross_scope', 'generate', 'fake', 'test-model', 'completed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, betaWorkspace)
 	assertCrossScopeInsertRejected("trace_indexes", `
 		INSERT INTO trace_indexes (trace_id, workspace_id, session_id, turn_id, started_at, ended_at)
 		VALUES ('trace_raw_cross_scope', $1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)

@@ -13,7 +13,7 @@ Tiggy Manage Agent 是 Agent Cloud Runtime 项目的 Go 实现。它不只是一
 - 带版本的 Agent、Environment、Session、Run、Event、Artifact、Skill、MCP、可观测与编排 API
 - 基于 Postgres 的持久化状态、Turn Lease、故障恢复、Workspace 隔离和数据库迁移
 - Go 与 TypeScript `/v2` Core SDK，以及运维 CLI `tma`
-- React Workbench（`/app`）和 Trace/运维 Inspector（`/inspector`）
+- React 对话工作台（`/app`）和 Trace/运维 Inspector（`/inspector`）
 - 本地/云端沙箱能力、Worker 承载的 `local_system` 工具和进程工具插件
 - Agent 绑定的 stdio、Streamable HTTP MCP Server、Web 搜索/抓取和审批流程
 - 可停放危险操作审批并在人工处理后恢复的定时任务
@@ -48,7 +48,7 @@ make run
 
 启动后可访问：
 
-- Workbench：<http://localhost:8080/app>
+- 对话工作台：<http://localhost:8080/app>
 - Inspector：<http://localhost:8080/inspector>
 - 健康检查：<http://localhost:8080/health>
 
@@ -64,14 +64,17 @@ make run
 
 ## 项目结构
 
-仓库拆分路线和边界见[仓库拆分方案](./docs/repository-split.md)。当前仍是 monorepo，目标
-是逐步演进为 Platform、Worker Runtime、Console、Knowledge、Biography、SDK 和 CLI 七个独立发布项目。
+仓库拆分路线和边界见[仓库拆分方案](./docs/repository-split.md)。当前仍是 monorepo，目标是四个
+仓库：`tma-platform`、`tma-knowledge`、`tma-biography` 和
+`tma-r-survival-workbench`。Platform 是多发布单元仓库，包含 Server、Model/Retrieval/Worker
+Runtime、Core SDK、CLI、对话工作台、Console、Inspector 和 Space。
 
 ```text
 cmd/tma-server/          HTTP Server 入口
+cmd/tma-model-runtime/   独立模型 Provider 数据面
 cmd/tma-worker/          长期运行的 Worker 入口
 cmd/tma/                 CLI 入口
-apps/workbench/          面向用户的 React Workbench
+apps/workbench/          对话型 React 工作台；不包含领域应用实现
 apps/inspector/          运维与 Trace Inspector
 sdk/tma/                 Go Core SDK
 sdk/typescript/          TypeScript Core SDK
@@ -114,7 +117,7 @@ make test-typescript-sdk
 make test-typescript-sdk-e2e
 ```
 
-Workbench 和 Inspector 均使用本地 TypeScript SDK 处理类型化查询、管理写入、SSE、Artifact 下载和仅支持不透明 Cursor 的 Trace/Span 分页。Workbench 生产请求中仅 `/v1/task-templates` 仍保留 v1 接口。
+对话工作台和 Inspector 均使用本地 TypeScript SDK 处理类型化查询、管理写入、SSE、Artifact 下载和仅支持不透明 Cursor 的 Trace/Span 分页。对话工作台生产请求中仅 `/v1/task-templates` 仍保留 v1 接口。
 
 运维 CLI 同样复用类型化 Service，例如：
 

@@ -1,6 +1,6 @@
 {
   "name": "@tma/core-sdk",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.6",
   "description": "TypeScript Core SDK for the TMA user and control-plane API",
   "type": "module",
   "private": true,

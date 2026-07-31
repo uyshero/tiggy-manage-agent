@@ -2,13 +2,15 @@
 
 ## 拓扑
 
-生产由反向代理/Ingress、`tma-server`、一个或多个 `tma-worker`、PostgreSQL、S3 兼容对象
-存储、OIDC Provider 和可选 OTel/Prometheus 组成。Server 是无本地状态控制面；Worker 承担
-本地系统、沙箱、浏览器和插件执行。
+生产由反向代理/Ingress、`tma-server`、一个或多个 `tma-model-runtime`、一个或多个
+`tma-worker`、PostgreSQL、S3 兼容对象存储、OIDC Provider 和可选 OTel/Prometheus 组成。
+Server 是无本地状态控制面；Model Runtime 承担公开同步 Generate/Embedding/Rerank、Agent Turn
+流式 Generate 和 Realtime ASR/TTS 的 Provider 调用；Worker 承担本地系统、沙箱、浏览器和插件
+执行。应用仍只连接 Server 的 Core API/WebSocket，不直接访问 Model Runtime。
 
-Server 与 Worker 使用不同 service token。迁移 owner、runtime DB role、对象存储凭据和
-LLM key 必须分离。生产 Server 使用 `TMA_ENV=production`，启动时会校验认证、Worker token、
-数据库 RLS 和必需配置。
+Server、Model Runtime 与 Worker 使用不同 service token。迁移 owner、runtime DB role、对象存储
+凭据和 LLM key 必须分离。生产 Server 使用 `TMA_ENV=production`，启动时会校验认证、Worker
+token、Model Runtime Endpoint/Token、数据库 RLS 和必需配置。
 
 ## 构建与快速入口
 
@@ -26,7 +28,7 @@ Worker 单独构建和授权，不把 Docker socket、浏览器凭据或主机�
 
 ## 数据库迁移
 
-新空库使用当前基线 `sql/baselines/000092_baseline.sql`；已有库只应用更高编号的
+新空库使用当前基线 `sql/baselines/000110_baseline.sql`；已有库只应用更高编号的
 `sql/migrations/*.sql`。基线不是升级脚本，不能覆盖已有数据库。已部署的 migration 不删除、
 重编号、修改或 squash。
 
@@ -34,7 +36,7 @@ Worker 单独构建和授权，不把 Docker socket、浏览器凭据或主机�
 psql "$TMA_MIGRATION_DATABASE_URL" \
   -v ON_ERROR_STOP=1 \
   --single-transaction \
-  -f sql/baselines/000092_baseline.sql
+  -f sql/baselines/000110_baseline.sql
 ```
 
 Migration owner 需要 DDL 权限，应用 runtime role 只获得必要 DML/sequence 权限，并且不是
@@ -45,7 +47,7 @@ owner、superuser 或 `BYPASSRLS`。生产 migration tool 应维护 version ledg
 
 ```bash
 make generate-sql-baseline
-git diff --exit-code -- sql/baselines/000092_baseline.sql
+git diff --exit-code -- sql/baselines/000110_baseline.sql
 TMA_POSTGRES_TEST_PORT=55432 make verify-sql-baseline
 ```
 
@@ -53,8 +55,8 @@ TMA_POSTGRES_TEST_PORT=55432 make verify-sql-baseline
 
 1. 在 Secret Manager 或受限 env file 配置数据库、OIDC、Worker、对象存储和加密 secret。
 2. 先运行一次 migrate job，成功后撤销 owner Secret。
-3. 启动 PostgreSQL/对象存储依赖，再启动 Server，最后启动 Worker。
-4. 只通过反向代理暴露 Server；数据库、对象存储管理端和 Worker 不暴露公网。
+3. 启动 PostgreSQL/对象存储依赖和 Model Runtime，再启动 Server，最后启动 Worker。
+4. 只通过反向代理暴露 Server；数据库、对象存储管理端、Model Runtime 和 Worker 不暴露公网。
 5. 设置 health check、restart policy、volume backup 和日志轮转。
 
 Compose 适合单机或小规模环境。多 Worker、滚动升级和故障域隔离使用 Kubernetes。
@@ -63,18 +65,21 @@ Compose 适合单机或小规模环境。多 Worker、滚动升级和故障域�
 
 1. 创建 Namespace、NetworkPolicy、ServiceAccount、Secret 和 PVC/外部服务引用。
 2. 运行 migration Job 并等待 `Complete`。
-3. 部署 Server Deployment/Service/Ingress，再部署按能力拆分的 Worker。
+3. 部署 Model Runtime Deployment/ClusterIP Service，再部署 Server Deployment/Service/Ingress，
+   最后部署按能力拆分的 Worker。
 4. 设置 requests/limits、PodDisruptionBudget、topology spread 和 readiness/liveness probes。
 5. 使用 HPA 前先验证 PostgreSQL、LLM、对象存储和 Worker queue 容量。
 
 ```bash
 kubectl apply -f deploy/kubernetes/base/migration-job.yaml
-kubectl -n tma wait --for=condition=complete job/tma-database-baseline-000092 --timeout=10m
-kubectl -n tma logs job/tma-database-baseline-000092
+kubectl -n tma wait --for=condition=complete job/tma-database-baseline-000110 --timeout=10m
+kubectl -n tma logs job/tma-database-baseline-000110
 ```
 
-NetworkPolicy 默认拒绝，只允许 Server 访问 PostgreSQL、对象存储、OIDC、LLM/MCP allowlist
-和 OTel；Worker 根据能力单独开放网络。不要通过 privileged Pod 解决路径或设备权限问题。
+NetworkPolicy 默认拒绝：Server 可访问 PostgreSQL、对象存储、OIDC、Model Runtime、MCP allowlist
+和 OTel；Model Runtime 只接受 Server 入站并访问模型 Provider；Worker 根据能力单独开放网络。
+内部 Provider Credential 会随单次调用从 Server 传给 Model Runtime，因此生产链路必须启用 TLS 或
+Service Mesh 加密。不要通过 privileged Pod 解决路径或设备权限问题。
 
 ## 对象存储
 

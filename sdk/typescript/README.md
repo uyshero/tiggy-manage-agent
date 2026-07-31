@@ -1,6 +1,6 @@
 # TMA TypeScript Core SDK
 
-`@tma/core-sdk` 是 TMA `/v2` 用户与控制面 API 的 Node 20+ TypeScript SDK。当前版本为仓库内 `0.1.0-alpha`，尚未发布到 npm。
+`@tma/core-sdk` 是 TMA `/v2` 用户与控制面 API 的 Node 20+ TypeScript SDK。当前版本为仓库内 `0.1.0-alpha.6`，尚未发布到 npm。
 
 ## 使用
 
@@ -26,7 +26,7 @@ const result = await run.wait();
 
 ## 服务范围
 
-当前 `/v2` 用户与控制面领域均有类型化高层服务：Auth、Agents、Environments、Sessions、Runs/RunHandle、Interventions、Artifacts、ObjectRefs、LLM、Workers、WorkerWork、MCP、Skills、Marketplace、Orchestration、Traces、Observability、Audit 和 EnvironmentVariables。
+当前 `/v2` 用户与控制面领域均有类型化高层服务：Auth、TenantAdministration、ServiceIdentities、Agents、Environments、Sessions、Runs/RunHandle、Interventions、Artifacts、ObjectRefs、LLM、ModelRuntime（Generate/Embedding/Rerank/Invocation Audit）、Retrieval、Speech、Workers、WorkerWork、MCP、Skills、Marketplace、Orchestration、Traces、Observability、Audit 和 EnvironmentVariables。
 
 `client.raw` 是由同一 OpenAPI 生成的 `openapi-fetch` 低层客户端，用于访问完整 `/v2` 契约或新 operation 的过渡期接入。高层服务统一 camelCase 方法参数、snake_case wire JSON、认证、错误、资源 ID 转义、下载和 SSE。
 

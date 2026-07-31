@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -185,6 +186,149 @@ func TestUnifiedJWTAuthRequiresIdentityAndEnforcesRoles(t *testing.T) {
 	server.ServeHTTP(viewerResponse, viewerWrite)
 	if viewerResponse.Code != http.StatusForbidden {
 		t.Fatalf("expected viewer write to return 403, got %d: %s", viewerResponse.Code, viewerResponse.Body.String())
+	}
+}
+
+func newWorkspaceMembershipAuthTestServer(t *testing.T, memberships map[string]managedagents.WorkspaceMembership, sink observability.AuthorizationDecisionSink) (http.Handler, *tenantAdministrationTestStore) {
+	t.Helper()
+	store := &tenantAdministrationTestStore{testStore: newTestStore(), memberships: memberships}
+	turnRunner := runner.NewMockRunner(store, time.Millisecond, nil)
+	server := NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyAndBinaryScanner(
+		store, turnRunner, nil, "fake", "fake-demo", objectstore.NewNoopClient(objectstore.Config{}), defaultExecutionResolver(store),
+		"worker-secret", "legacy-control-secret", AuthConfig{
+			Mode: AuthModeJWT, JWTSecret: testJWTSecret, JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
+			AuthorizationSink: sink,
+		}, defaultSubagentPolicy(), nil,
+	)
+	return server, store
+}
+
+func TestWorkspaceMembershipOverridesClaimRolesAcrossUnifiedAuthorization(t *testing.T) {
+	memberships := map[string]managedagents.WorkspaceMembership{
+		workspaceMembershipTestKey("wksp_alpha", "managed-viewer"): {
+			WorkspaceID: "wksp_alpha", Subject: "managed-viewer", Role: managedagents.WorkspaceRoleViewer, Status: "active",
+		},
+		workspaceMembershipTestKey("wksp_alpha", "managed-operator"): {
+			WorkspaceID: "wksp_alpha", Subject: "managed-operator", Role: managedagents.WorkspaceRoleOperator, Status: "active",
+		},
+	}
+	server, store := newWorkspaceMembershipAuthTestServer(t, memberships, nil)
+
+	viewerToken := signedTestJWT(t, "managed-viewer", "wksp_alpha", "managed-viewer", []string{RoleAdmin}, nil)
+	read := httptest.NewRecorder()
+	server.ServeHTTP(read, authenticatedRequest(t, http.MethodGet, "/v1/agents", viewerToken))
+	if read.Code != http.StatusOK {
+		t.Fatalf("managed viewer read returned %d: %s", read.Code, read.Body.String())
+	}
+	write := httptest.NewRecorder()
+	server.ServeHTTP(write, authenticatedJSONRequest(t, http.MethodPost, "/v1/agents", `{"name":"blocked","model":"fake-demo"}`, viewerToken))
+	if write.Code != http.StatusForbidden {
+		t.Fatalf("managed viewer write returned %d, want 403: %s", write.Code, write.Body.String())
+	}
+	control := httptest.NewRecorder()
+	server.ServeHTTP(control, authenticatedRequest(t, http.MethodGet, "/metrics", viewerToken))
+	if control.Code != http.StatusForbidden {
+		t.Fatalf("managed viewer control request returned %d, want 403: %s", control.Code, control.Body.String())
+	}
+
+	operatorToken := signedTestJWT(t, "managed-operator", "wksp_alpha", "managed-operator", []string{RoleViewer}, nil)
+	promotedWrite := httptest.NewRecorder()
+	server.ServeHTTP(promotedWrite, authenticatedJSONRequest(t, http.MethodPost, "/v1/agents", `{"name":"promoted","model":"fake-demo"}`, operatorToken))
+	if promotedWrite.Code != http.StatusCreated {
+		t.Fatalf("managed operator write returned %d: %s", promotedWrite.Code, promotedWrite.Body.String())
+	}
+	me := httptest.NewRecorder()
+	server.ServeHTTP(me, authenticatedRequest(t, http.MethodGet, "/v1/auth/me", operatorToken))
+	if me.Code != http.StatusOK || !strings.Contains(me.Body.String(), `"roles":["operator"]`) {
+		t.Fatalf("effective principal did not expose managed operator role: %d: %s", me.Code, me.Body.String())
+	}
+	if store.membershipScope.WorkspaceID != "wksp_alpha" || store.membershipScope.OwnerID != "" {
+		t.Fatalf("membership lookup used unexpected database scope: %+v", store.membershipScope)
+	}
+}
+
+func TestWorkspaceMembershipInactiveDeniesUnifiedAPI(t *testing.T) {
+	for _, status := range []string{"invited", "suspended"} {
+		t.Run(status, func(t *testing.T) {
+			sink := &recordingAuthorizationDecisionSink{}
+			membership := managedagents.WorkspaceMembership{
+				WorkspaceID: "wksp_alpha", Subject: "inactive-user", Role: managedagents.WorkspaceRoleAdmin, Status: status,
+			}
+			server, _ := newWorkspaceMembershipAuthTestServer(t, map[string]managedagents.WorkspaceMembership{
+				workspaceMembershipTestKey("wksp_alpha", "inactive-user"): membership,
+			}, sink)
+			token := signedTestJWT(t, "inactive-user", "wksp_alpha", "inactive-user", []string{RoleAdmin}, nil)
+			response := httptest.NewRecorder()
+			server.ServeHTTP(response, authenticatedRequest(t, http.MethodGet, "/v1/auth/me", token))
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("%s membership returned %d, want 403: %s", status, response.Code, response.Body.String())
+			}
+			events := sink.snapshot()
+			if len(events) != 1 || events[0].Reason != "workspace_membership_inactive" ||
+				!containsTestString(events[0].AuthorizationSources, "workspace_membership") {
+				t.Fatalf("inactive membership was not audited explicitly: %+v", events)
+			}
+		})
+	}
+}
+
+func TestWorkspaceMembershipLookupFailureFailsClosed(t *testing.T) {
+	server, store := newWorkspaceMembershipAuthTestServer(t, nil, nil)
+	store.membershipError = errors.New("membership database unavailable")
+	token := signedTestJWT(t, "claim-admin", "wksp_alpha", "claim-admin", []string{RoleAdmin}, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, authenticatedRequest(t, http.MethodGet, "/v1/agents", token))
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("membership lookup failure returned %d, want 500: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestWorkspaceMembershipMissingFallsBackToClaimRoles(t *testing.T) {
+	server, _ := newWorkspaceMembershipAuthTestServer(t, nil, nil)
+	token := signedTestJWT(t, "legacy-admin", "wksp_alpha", "legacy-admin", []string{RoleAdmin}, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, authenticatedJSONRequest(t, http.MethodPost, "/v1/agents", `{"name":"legacy","model":"fake-demo"}`, token))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("claim-role fallback write returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestWorkspaceMembershipAuthorizationSourceIsAudited(t *testing.T) {
+	sink := &recordingAuthorizationDecisionSink{}
+	membership := managedagents.WorkspaceMembership{
+		WorkspaceID: "wksp_audit", Subject: "managed-audited", Role: managedagents.WorkspaceRoleViewer, Status: "active",
+	}
+	server, _ := newWorkspaceMembershipAuthTestServer(t, map[string]managedagents.WorkspaceMembership{
+		workspaceMembershipTestKey("wksp_audit", "managed-audited"): membership,
+	}, sink)
+	token := signedTestJWT(t, "managed-audited", "wksp_audit", "managed-audited", []string{RoleAdmin}, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, authenticatedRequest(t, http.MethodGet, "/v1/agents", token))
+	if response.Code != http.StatusOK {
+		t.Fatalf("audited request returned %d: %s", response.Code, response.Body.String())
+	}
+	events := sink.snapshot()
+	if len(events) == 0 || !containsTestString(events[len(events)-1].AuthorizationSources, "workspace_membership") {
+		t.Fatalf("authorization audit omitted managed membership source: %+v", events)
+	}
+	if len(events[len(events)-1].Roles) != 1 || events[len(events)-1].Roles[0] != RoleViewer {
+		t.Fatalf("authorization audit retained stale claim roles: %+v", events[len(events)-1])
+	}
+}
+
+func TestWorkspaceMembershipLookupSkipsSystemCredentials(t *testing.T) {
+	server, store := newWorkspaceMembershipAuthTestServer(t, map[string]managedagents.WorkspaceMembership{
+		workspaceMembershipTestKey(managedagents.DefaultWorkspaceID, "legacy-control"): {
+			WorkspaceID: managedagents.DefaultWorkspaceID, Subject: "legacy-control", Role: managedagents.WorkspaceRoleViewer, Status: "suspended",
+		},
+	}, nil)
+	response := httptest.NewRecorder()
+	server.ServeHTTP(response, authenticatedRequest(t, http.MethodGet, "/v1/agents", "legacy-control-secret"))
+	if response.Code != http.StatusOK {
+		t.Fatalf("legacy control credential returned %d: %s", response.Code, response.Body.String())
+	}
+	if store.membershipReads != 0 {
+		t.Fatalf("system credential performed %d membership lookups", store.membershipReads)
 	}
 }
 

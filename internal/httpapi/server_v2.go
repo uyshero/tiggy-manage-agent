@@ -34,7 +34,14 @@ type v2ErrorEnvelope struct {
 }
 
 func (s *Server) registerV2Routes() {
+	s.mux.HandleFunc("POST /v2/auth/token-exchange", s.withV2Request(s.exchangeDelegatedToken))
+	s.registerTenantAdministrationRoutes()
+	s.registerServiceIdentityRoutes()
+	s.registerRetrievalRoutes()
+	s.registerModelRuntimeRoutes()
+	s.registerSpeechRoutes()
 	s.registerKnowledgeRoutes()
+	s.registerRSurvivalCompatibilityRoutes()
 	s.mux.HandleFunc("POST /v2/sessions/{session_id}/runs", s.withV2Request(s.startSessionRunV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs", s.withV2Request(s.listSessionRunsV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}", s.withV2Request(s.getSessionRunV2))
@@ -45,6 +52,41 @@ func (s *Server) registerV2Routes() {
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		s.mux.HandleFunc(method+" /v2/{path...}", s.serveV2Alias)
 	}
+}
+
+func (s *Server) registerModelRuntimeRoutes() {
+	s.mux.HandleFunc("POST /v2/model-runtime/generate", s.withV2Request(s.generateModelRuntimeText))
+	s.mux.HandleFunc("POST /v2/model-runtime/embeddings", s.withV2Request(s.createModelRuntimeEmbeddings))
+	s.mux.HandleFunc("POST /v2/model-runtime/rerank", s.withV2Request(s.rerankModelRuntimeDocuments))
+	s.mux.HandleFunc("GET /v2/model-runtime/invocations", s.withV2Request(s.requireWorkspaceAdmin(s.listModelRuntimeInvocations)))
+}
+
+func (s *Server) registerSpeechRoutes() {
+	s.mux.HandleFunc("GET /v2/speech/realtime", s.withV2Request(s.serveSpeechRealtime))
+}
+
+// These aliases keep the extracted application usable while its data moves to
+// the application database. They are intentionally excluded from Core OpenAPI.
+func (s *Server) registerRSurvivalCompatibilityRoutes() {
+	s.mux.HandleFunc("GET /v2/r-survival-projects", s.withV2Request(s.listWorkbenchProjects))
+	s.mux.HandleFunc("POST /v2/r-survival-projects", s.withV2Request(s.createWorkbenchProject))
+	s.mux.HandleFunc("PATCH /v2/r-survival-projects/{project_id}", s.withV2Request(s.updateWorkbenchProject))
+	s.mux.HandleFunc("POST /v2/r-survival-projects/{project_id}/sync", s.withV2Request(s.syncWorkbenchProject))
+	s.mux.HandleFunc("POST /v2/r-survival-projects/{project_id}/runtime/start", s.withV2Request(s.startWorkbenchProjectRuntime))
+	s.mux.HandleFunc("POST /v2/r-survival-projects/{project_id}/runtime/stop", s.withV2Request(s.stopWorkbenchProjectRuntime))
+	s.mux.HandleFunc("POST /v2/r-survival-projects/{project_id}/runtime/run-cleaning", s.withV2Request(s.runWorkbenchProjectCleaning))
+}
+
+func (s *Server) registerRetrievalRoutes() {
+	s.mux.HandleFunc("GET /v2/retrieval/collections", s.withV2Request(s.listRetrievalCollections))
+	s.mux.HandleFunc("POST /v2/retrieval/collections", s.withV2Request(s.createRetrievalCollection))
+	s.mux.HandleFunc("DELETE /v2/retrieval/collections/{collection_id}", s.withV2Request(s.deleteRetrievalCollection))
+	s.mux.HandleFunc("GET /v2/retrieval/collections/{collection_id}/documents", s.withV2Request(s.listRetrievalDocuments))
+	s.mux.HandleFunc("POST /v2/retrieval/collections/{collection_id}/documents", s.withV2Request(s.uploadRetrievalDocument))
+	s.mux.HandleFunc("GET /v2/retrieval/documents/{document_id}", s.withV2Request(s.getRetrievalDocument))
+	s.mux.HandleFunc("DELETE /v2/retrieval/documents/{document_id}", s.withV2Request(s.deleteRetrievalDocument))
+	s.mux.HandleFunc("GET /v2/retrieval/ingestion-jobs/{job_id}", s.withV2Request(s.getRetrievalIngestionJob))
+	s.mux.HandleFunc("POST /v2/retrieval/search", s.withV2Request(s.searchRetrieval))
 }
 
 func (s *Server) registerKnowledgeRoutes() {
@@ -173,7 +215,7 @@ func (s *Server) withV2Request(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) v2EnvelopeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/v2/") {
+		if !strings.HasPrefix(r.URL.Path, "/v2/") || r.URL.Path == "/v2/speech/realtime" {
 			next.ServeHTTP(w, r)
 			return
 		}

@@ -31,6 +31,10 @@ var configEnvKeys = []string{
 	"TMA_AUTH_COOKIE_TRUSTED_ORIGINS",
 	"TMA_AUTH_GATEWAY_TOKEN",
 	"TMA_AUTH_GATEWAY_TRUSTED_CIDRS",
+	"TMA_AUTH_DELEGATION_SIGNING_SECRET",
+	"TMA_AUTH_DELEGATION_ISSUER",
+	"TMA_AUTH_DELEGATION_AUDIENCE",
+	"TMA_AUTH_DELEGATION_TTL_SECONDS",
 	"TMA_TURN_QUEUE_SIZE",
 	"TMA_TURN_WORKER_COUNT",
 	"TMA_TURN_POLL_INTERVAL_MS",
@@ -48,6 +52,22 @@ var configEnvKeys = []string{
 	"TMA_LLM_API_KEY_CUSTOM",
 	"TMA_LLM_MAX_ATTEMPTS",
 	"TMA_LLM_RETRY_BASE_DELAY_MS",
+	"TMA_MODEL_RUNTIME_GLOBAL_CONCURRENCY",
+	"TMA_MODEL_RUNTIME_ENDPOINT",
+	"TMA_MODEL_RUNTIME_AUTH_TOKEN",
+	"TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS",
+	"TMA_MODEL_RUNTIME_WORKSPACE_CONCURRENCY",
+	"TMA_MODEL_RUNTIME_IDENTITY_CONCURRENCY",
+	"TMA_MODEL_RUNTIME_ROUTE_CONCURRENCY",
+	"TMA_MODEL_RUNTIME_WORKSPACE_REQUESTS_PER_MINUTE",
+	"TMA_MODEL_RUNTIME_IDENTITY_REQUESTS_PER_MINUTE",
+	"TMA_SPEECH_RUNTIME_GLOBAL_CONCURRENCY",
+	"TMA_SPEECH_RUNTIME_WORKSPACE_CONCURRENCY",
+	"TMA_SPEECH_RUNTIME_IDENTITY_CONCURRENCY",
+	"TMA_SPEECH_RUNTIME_ROUTE_CONCURRENCY",
+	"TMA_SPEECH_RUNTIME_WORKSPACE_SESSIONS_PER_MINUTE",
+	"TMA_SPEECH_RUNTIME_IDENTITY_SESSIONS_PER_MINUTE",
+	"TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS",
 	"TMA_OBJECT_STORAGE_PROVIDER",
 	"TMA_OBJECT_STORAGE_ENDPOINT",
 	"TMA_OBJECT_STORAGE_REGION",
@@ -317,6 +337,32 @@ func TestProductionAcceptsCompleteJWTAuth(t *testing.T) {
 	}
 	if config.Environment != "production" || config.Auth.Mode != "jwt" || config.Auth.JWTIssuer != "https://issuer.example" {
 		t.Fatalf("unexpected production auth config: %+v", config.Auth)
+	}
+}
+
+func TestDelegationConfigurationIsIndependentAndBounded(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_AUTH_DELEGATION_SIGNING_SECRET", "delegation-secret-with-at-least-32-bytes")
+	t.Setenv("TMA_AUTH_DELEGATION_ISSUER", "https://platform.example")
+	t.Setenv("TMA_AUTH_DELEGATION_AUDIENCE", "tma-platform-api")
+	t.Setenv("TMA_AUTH_DELEGATION_TTL_SECONDS", "600")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatalf("from env: %v", err)
+	}
+	if config.Auth.DelegationTTLSeconds != 600 || config.Auth.DelegationSigningSecret == config.Auth.JWTSecret {
+		t.Fatalf("unexpected delegation config: %+v", config.Auth)
+	}
+
+	t.Setenv("TMA_AUTH_DELEGATION_TTL_SECONDS", "901")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "between 1 and 900") {
+		t.Fatalf("expected delegation TTL validation error, got %v", err)
+	}
+	t.Setenv("TMA_AUTH_DELEGATION_TTL_SECONDS", "300")
+	t.Setenv("TMA_AUTH_DELEGATION_SIGNING_SECRET", "short")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "at least 32 bytes") {
+		t.Fatalf("expected delegation secret validation error, got %v", err)
 	}
 }
 
@@ -754,6 +800,62 @@ func TestFromEnvParsesLLMConfig(t *testing.T) {
 	}
 	if config.LLM.MaxAttempts != 5 || config.LLM.RetryBaseDelay != 750*time.Millisecond {
 		t.Fatalf("unexpected llm retry config: %+v", config.LLM)
+	}
+}
+
+func TestFromEnvParsesModelRuntimeGovernance(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_MODEL_RUNTIME_GLOBAL_CONCURRENCY", "12")
+	t.Setenv("TMA_MODEL_RUNTIME_ENDPOINT", "http://model-runtime.internal:8090")
+	t.Setenv("TMA_MODEL_RUNTIME_AUTH_TOKEN", "runtime-secret")
+	t.Setenv("TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS", "90")
+	t.Setenv("TMA_MODEL_RUNTIME_IDENTITY_REQUESTS_PER_MINUTE", "45")
+	t.Setenv("TMA_SPEECH_RUNTIME_WORKSPACE_CONCURRENCY", "7")
+	t.Setenv("TMA_SPEECH_RUNTIME_IDENTITY_SESSIONS_PER_MINUTE", "9")
+	t.Setenv("TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS", "600")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ModelRuntime.Endpoint != "http://model-runtime.internal:8090" || config.ModelRuntime.AuthToken != "runtime-secret" || config.ModelRuntime.HTTPTimeout != 90*time.Second ||
+		config.ModelRuntime.ModelGlobalConcurrency != 12 || config.ModelRuntime.ModelIdentityRequestsPerMinute != 45 ||
+		config.ModelRuntime.SpeechWorkspaceConcurrency != 7 || config.ModelRuntime.SpeechIdentitySessionsPerMinute != 9 ||
+		config.ModelRuntime.SpeechMaxSessionDuration != 10*time.Minute {
+		t.Fatalf("unexpected runtime governance config: %+v", config.ModelRuntime)
+	}
+
+	t.Setenv("TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS", "0")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS") {
+		t.Fatalf("expected speech duration validation error, got %v", err)
+	}
+}
+
+func TestFromEnvValidatesModelRuntimeEndpoint(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_MODEL_RUNTIME_ENDPOINT", "http://model-runtime.internal:8090")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_MODEL_RUNTIME_AUTH_TOKEN") {
+		t.Fatalf("expected auth token validation error, got %v", err)
+	}
+	t.Setenv("TMA_MODEL_RUNTIME_AUTH_TOKEN", "runtime-secret")
+	t.Setenv("TMA_MODEL_RUNTIME_ENDPOINT", "file:///tmp/runtime.sock")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "TMA_MODEL_RUNTIME_ENDPOINT") {
+		t.Fatalf("expected endpoint validation error, got %v", err)
+	}
+}
+
+func TestValidateAuthConfigRejectsShortProductionModelRuntimeToken(t *testing.T) {
+	err := validateAuthConfig(Config{
+		Environment: "production",
+		Auth: AuthConfig{
+			Mode: "jwt", JWTSecret: strings.Repeat("j", 32), JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
+		},
+		Worker:       WorkerConfig{AuthToken: "worker-secret"},
+		ModelRuntime: ModelRuntimeGovernanceConfig{Endpoint: "http://tma-model-runtime:8090", AuthToken: "short"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "TMA_MODEL_RUNTIME_AUTH_TOKEN") {
+		t.Fatalf("expected production model runtime token validation error, got %v", err)
 	}
 }
 

@@ -16,8 +16,13 @@ import { ObjectRefsService } from "./services/object-refs.js";
 import { ObjectCleanupService } from "./services/object-cleanup.js";
 import { OrchestrationService } from "./services/orchestration.js";
 import { RunsService } from "./services/runs.js";
+import { RetrievalService } from "./services/retrieval.js";
+import { ModelRuntimeService } from "./services/model-runtime.js";
+import { SpeechService } from "./services/speech.js";
 import { SessionsService } from "./services/sessions.js";
 import { TracesService } from "./services/traces.js";
+import { TenantAdministrationService } from "./services/tenant-administration.js";
+import { ServiceIdentitiesService } from "./services/service-identities.js";
 import { SkillsService } from "./services/skills.js";
 import { WorkersService, WorkerWorkService } from "./services/workers.js";
 import { WorkspaceToolPermissionsService } from "./services/workspace-tool-permissions.js";
@@ -48,6 +53,11 @@ export class TMAClient {
   readonly workspaceToolPermissions: WorkspaceToolPermissionsService;
   readonly skills: SkillsService;
   readonly marketplace: MarketplaceService;
+  readonly tenantAdministration: TenantAdministrationService;
+  readonly serviceIdentities: ServiceIdentitiesService;
+  readonly retrieval: RetrievalService;
+  readonly modelRuntime: ModelRuntimeService;
+  readonly speech: SpeechService;
 
   constructor(baseURL: string, options: TMAClientOptions = {}) {
     const transport = new Transport(baseURL, options);
@@ -74,5 +84,10 @@ export class TMAClient {
     this.workspaceToolPermissions = new WorkspaceToolPermissionsService(transport);
     this.skills = new SkillsService(transport);
     this.marketplace = new MarketplaceService(transport);
+    this.tenantAdministration = new TenantAdministrationService(transport);
+    this.serviceIdentities = new ServiceIdentitiesService(transport);
+    this.retrieval = new RetrievalService(transport);
+    this.modelRuntime = new ModelRuntimeService(transport);
+    this.speech = new SpeechService(transport);
   }
 }

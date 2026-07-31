@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Blocks, ChevronRight, Code2, Search } from "lucide-react";
+import { Activity, ExternalLink } from "lucide-react";
 import "./auth.js";
 import * as api from "./api.js";
 import SkillsManagement from "./SkillsManagement.jsx";
@@ -57,7 +57,6 @@ import "./styles.css";
 const activeSessionStorageKey = "tma.workbench.active-session";
 const desktopSidebarVisibilityStorageKey = "tma.workbench.desktop-sidebars.v1";
 const workflowStoragePrefix = "tma.workbench.workflow.";
-const extensionWorkbenchHubRoute = "/workbenches";
 const workbenchDialogService = createDialogService();
 const workbenchNotificationService = createNotificationService();
 const workbenchRelatedResourceService = createRelatedResourceService();
@@ -162,13 +161,6 @@ function pluginPathFromHash() {
   }
 }
 
-function extensionWorkbenchHubFromHash() {
-  try {
-    return decodeURIComponent(String(window.location.hash || "").replace(/^#/, "")) === extensionWorkbenchHubRoute;
-  } catch {
-    return false;
-  }
-}
 function Empty({ children }) {
   return <span className="empty">{children}</span>;
 }
@@ -6076,57 +6068,8 @@ function sortAvailableAgents(agents, defaultAgentID) {
   });
 }
 
-function ExtensionWorkbenchHub({ items, onBack, onOpen }) {
-  const [query, setQuery] = useState("");
-  const filteredItems = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return items;
-    return items.filter((item) => `${item.title} ${item.pluginID}`.toLocaleLowerCase().includes(normalized));
-  }, [items, query]);
-
-  return (
-    <section className="extension-workbench-hub" aria-label="扩展工作台目录">
-      <header className="extension-workbench-hub-header">
-        <div>
-          <span>专业工作台</span>
-          <h1>扩展工作台</h1>
-          <p>{items.length} 个已启用工作台</p>
-        </div>
-        <button className="secondary" type="button" onClick={onBack}>返回工作台</button>
-      </header>
-      <div className="extension-workbench-hub-toolbar">
-        <label>
-          <Search aria-hidden="true" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索工作台" />
-        </label>
-      </div>
-      <div className="extension-workbench-list">
-        {filteredItems.map((item) => (
-          <article className="extension-workbench-list-item" key={`${item.pluginID}:${item.id}`}>
-            <div className="extension-workbench-list-icon"><Code2 aria-hidden="true" /></div>
-            <div>
-              <strong>{item.title}</strong>
-              <span>{item.pluginID}</span>
-            </div>
-            <span className="extension-workbench-list-status">可用</span>
-            <button type="button" onClick={() => onOpen(item.route)}>
-              打开
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </article>
-        ))}
-        {!filteredItems.length ? (
-          <div className="extension-workbench-list-empty">
-            <Blocks aria-hidden="true" />
-            <span>{items.length ? "没有匹配的工作台" : "当前没有已启用的专业工作台"}</span>
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
 function WorkbenchApp() {
+  const rSurvivalWorkbenchURL = String(import.meta.env.VITE_TMA_R_SURVIVAL_WORKBENCH_URL || "/r-survival/");
   const [status, setStatus] = useState("ready");
   const [principal, setPrincipal] = useState(null);
   const [agentID, setAgentID] = useState("");
@@ -6215,8 +6158,6 @@ function WorkbenchApp() {
   const [requestingSkillDisable, setRequestingSkillDisable] = useState("");
   const [applyingSessionConfigVersion, setApplyingSessionConfigVersion] = useState(0);
   const [pluginRoutePath, setPluginRoutePath] = useState(pluginPathFromHash);
-  const [extensionWorkbenchHubOpen, setExtensionWorkbenchHubOpen] = useState(extensionWorkbenchHubFromHash);
-  const [pluginNavigation, setPluginNavigation] = useState([]);
   const [pluginRoutes, setPluginRoutes] = useState([]);
   const [pluginLoadState, setPluginLoadState] = useState("loading");
   const eventStreamCursorRef = useRef(0);
@@ -6314,7 +6255,6 @@ function WorkbenchApp() {
   useEffect(() => {
     const syncExtensionPath = () => {
       setPluginRoutePath(pluginPathFromHash());
-      setExtensionWorkbenchHubOpen(extensionWorkbenchHubFromHash());
     };
     window.addEventListener("hashchange", syncExtensionPath);
     window.addEventListener("popstate", syncExtensionPath);
@@ -6620,11 +6560,7 @@ function WorkbenchApp() {
   useEffect(() => {
     let active = true;
     setPluginLoadState("loading");
-    setPluginNavigation([]);
     setPluginRoutes([]);
-    const unsubscribeNavigation = pluginRuntime.navigation.subscribe((items) => {
-      if (active) setPluginNavigation(items);
-    });
     const unsubscribeRoutes = pluginRuntime.routes.subscribe((items) => {
       if (active) setPluginRoutes(items);
     });
@@ -6643,14 +6579,13 @@ function WorkbenchApp() {
       setPluginLoadState("failed");
       workbenchNotificationService.show({
         level: "error",
-        title: "扩展加载失败",
+        title: "插件加载失败",
         message: error.message || String(error),
         dedupeKey: "plugin.catalog.load"
       });
     });
     return () => {
       active = false;
-      unsubscribeNavigation();
       unsubscribeRoutes();
       pluginRuntime.list().forEach((record) => {
         pluginRuntime.unregisterPackage(record.id).catch(() => {});
@@ -6660,14 +6595,7 @@ function WorkbenchApp() {
   const activePluginRoute = useMemo(() => (
     pluginRoutes.find((route) => route.path === pluginRoutePath) || null
   ), [pluginRoutePath, pluginRoutes]);
-  const activePluginNavigation = useMemo(() => (
-    pluginNavigation.find((item) => item.route === pluginRoutePath) || null
-  ), [pluginNavigation, pluginRoutePath]);
-  const extensionWorkbenchItems = useMemo(() => (
-    pluginNavigation.filter((item) => item.group === "workbench")
-  ), [pluginNavigation]);
-  const extensionSurfaceOpen = Boolean(pluginRoutePath || extensionWorkbenchHubOpen);
-  const extensionWorkbenchActive = extensionWorkbenchHubOpen || activePluginNavigation?.group === "workbench";
+  const extensionSurfaceOpen = Boolean(pluginRoutePath);
   useEffect(() => {
     if (!extensionSurfaceOpen) return;
     setMobileNavigationPanel("");
@@ -8526,31 +8454,15 @@ function WorkbenchApp() {
     if (isSessionBusy) await interruptTask(workflowRun.sessionID);
   }
   const hasTaskSearch = Boolean(taskSearch.trim());
-  function navigatePluginRoute(path) {
-    clearArtifactPreview();
-    setSettingsOpen(false);
-    setExtensionWorkbenchHubOpen(false);
-    window.location.hash = encodeURI(path);
-  }
-
   function closePluginRoute() {
-    if (!pluginRoutePath && !extensionWorkbenchHubOpen && !window.location.hash) return;
+    if (!pluginRoutePath && !window.location.hash) return;
     window.history.pushState(null, "", `${window.location.pathname}${window.location.search}`);
     setPluginRoutePath("");
-    setExtensionWorkbenchHubOpen(false);
   }
 
   function openSettingsPage() {
     closePluginRoute();
     setSettingsOpen(true);
-  }
-
-  function openExtensionWorkbench() {
-    clearArtifactPreview();
-    setSettingsOpen(false);
-    setPluginRoutePath("");
-    setExtensionWorkbenchHubOpen(true);
-    window.location.hash = extensionWorkbenchHubRoute;
   }
 
   function closeSettingsPage() {
@@ -8833,7 +8745,7 @@ function WorkbenchApp() {
             <SidebarIcon />
           </button>
           <div className="topbar-brand">
-            <div className="topbar-label">TMA 工作台</div>
+            <div className="topbar-label">TMA 对话工作台</div>
           </div>
         </div>
         {!extensionSurfaceOpen ? (
@@ -8873,14 +8785,17 @@ function WorkbenchApp() {
         ) : null}
         <div className="topbar-status">
           {principal ? <span className="topbar-user" title={principal.username || principal.subject || principal.owner_id}>{principal.username || principal.subject || principal.owner_id}</span> : null}
-          <button
-            className={`secondary topbar-extension-workbench ${extensionWorkbenchActive ? "active" : ""}`.trim()}
-            type="button"
-            disabled={pluginLoadState === "failed"}
-            onClick={openExtensionWorkbench}
+          <a
+            className="secondary topbar-application-link"
+            href={rSurvivalWorkbenchURL}
+            target="_blank"
+            rel="noreferrer"
+            title="打开 R语言生存分析工作台"
           >
-            扩展工作台
-          </button>
+            <Activity aria-hidden="true" />
+            <span>R语言生存分析工作台</span>
+            <ExternalLink aria-hidden="true" />
+          </a>
           <button className="secondary topbar-settings" type="button" onClick={openSettingsPage}>设置</button>
           <button className="secondary topbar-logout" type="button" onClick={() => logout().catch((error) => setStatus(error.message))}>退出</button>
           {!extensionSurfaceOpen ? (
@@ -8907,7 +8822,7 @@ function WorkbenchApp() {
         />
       ) : null}
       <div
-        className={`user-layout ${artifactPreview && !extensionSurfaceOpen ? "has-artifact-preview" : ""} ${extensionSurfaceOpen ? "plugin-route-active" : ""} ${extensionWorkbenchActive ? "extension-workbench-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim()}
+        className={`user-layout ${artifactPreview && !extensionSurfaceOpen ? "has-artifact-preview" : ""} ${extensionSurfaceOpen ? "plugin-route-active" : ""} ${desktopSidebars.left ? "" : "sidebar-left-hidden"} ${desktopSidebars.right ? "" : "sidebar-right-hidden"}`.trim()}
         style={{ "--artifact-preview-width": `${artifactPreviewWidth}px` }}
       >
         <aside
@@ -9051,9 +8966,7 @@ function WorkbenchApp() {
           </Panel>
         </aside>
         <main className={`user-main ${extensionSurfaceOpen ? "plugin-route-main" : ""}`}>
-          {extensionWorkbenchHubOpen ? (
-            <ExtensionWorkbenchHub items={extensionWorkbenchItems} onBack={closePluginRoute} onOpen={navigatePluginRoute} />
-          ) : pluginRoutePath ? (
+          {pluginRoutePath ? (
             <PluginRouteHost
               loading={pluginLoadState === "loading"}
               onBack={closePluginRoute}

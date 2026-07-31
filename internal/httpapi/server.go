@@ -13,9 +13,12 @@ import (
 	"os"
 	"strings"
 
+	"github.com/coder/websocket"
+
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
+	modelruntime "tiggy-manage-agent/internal/modelruntimeprovider"
 	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/runner"
@@ -37,25 +40,29 @@ type controlPrincipal struct {
 type controlPrincipalContextKey struct{}
 
 type Server struct {
-	mux                *http.ServeMux
-	store              managedagents.Store
-	runner             runner.Runner
-	logger             *slog.Logger
-	defaultLLMProvider string
-	defaultLLMModel    string
-	objectStore        objectstore.Client
-	executionResolver  execution.ProviderResolver
-	workerAuthToken    string
-	controlAuthToken   string
-	authenticator      *identityAuthenticator
-	webLogin           *oidcWebLogin
-	authorizationAudit *authorizationAudit
-	subagentPolicy     SubagentPolicy
-	skillsToolService  tools.SkillsToolService
-	skillRetention     *skillretention.Service
-	workbenchProjects  workbenchprojects.Provisioner
-	workbenchRuntime   workbenchruntime.Provisioner
-	documentPreviewer  documentPreviewConverter
+	mux                   *http.ServeMux
+	store                 managedagents.Store
+	runner                runner.Runner
+	logger                *slog.Logger
+	defaultLLMProvider    string
+	defaultLLMModel       string
+	modelRuntimeAdmission *modelRuntimeAdmission
+	modelRuntimeExecutor  modelruntime.Executor
+	speechRuntime         modelruntime.SpeechProxy
+	speechDialer          func(context.Context, string, http.Header) (*websocket.Conn, *http.Response, error)
+	objectStore           objectstore.Client
+	executionResolver     execution.ProviderResolver
+	workerAuthToken       string
+	controlAuthToken      string
+	authenticator         *identityAuthenticator
+	webLogin              *oidcWebLogin
+	authorizationAudit    *authorizationAudit
+	subagentPolicy        SubagentPolicy
+	skillsToolService     tools.SkillsToolService
+	skillRetention        *skillretention.Service
+	workbenchProjects     workbenchprojects.Provisioner
+	workbenchRuntime      workbenchruntime.Provisioner
+	documentPreviewer     documentPreviewConverter
 }
 
 func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger) http.Handler {
@@ -97,6 +104,20 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverAuthSubag
 }
 
 func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyAndBinaryScanner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger, defaultLLMProvider string, defaultLLMModel string, objectStore objectstore.Client, executionResolver execution.ProviderResolver, workerAuthToken string, controlAuthToken string, authConfig AuthConfig, subagentPolicy SubagentPolicy, binaryScanner skillmarketplace.BinaryScanner) http.Handler {
+	return NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyBinaryScannerAndModelRuntimePolicy(
+		store, turnRunner, logger, defaultLLMProvider, defaultLLMModel, objectStore, executionResolver,
+		workerAuthToken, controlAuthToken, authConfig, subagentPolicy, binaryScanner, DefaultModelRuntimePolicy(),
+	)
+}
+
+func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyBinaryScannerAndModelRuntimePolicy(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger, defaultLLMProvider string, defaultLLMModel string, objectStore objectstore.Client, executionResolver execution.ProviderResolver, workerAuthToken string, controlAuthToken string, authConfig AuthConfig, subagentPolicy SubagentPolicy, binaryScanner skillmarketplace.BinaryScanner, modelRuntimePolicy ModelRuntimePolicy) http.Handler {
+	return NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyBinaryScannerModelRuntimePolicyAndExecutor(
+		store, turnRunner, logger, defaultLLMProvider, defaultLLMModel, objectStore, executionResolver,
+		workerAuthToken, controlAuthToken, authConfig, subagentPolicy, binaryScanner, modelRuntimePolicy, modelruntime.LocalExecutor{},
+	)
+}
+
+func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyBinaryScannerModelRuntimePolicyAndExecutor(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger, defaultLLMProvider string, defaultLLMModel string, objectStore objectstore.Client, executionResolver execution.ProviderResolver, workerAuthToken string, controlAuthToken string, authConfig AuthConfig, subagentPolicy SubagentPolicy, binaryScanner skillmarketplace.BinaryScanner, modelRuntimePolicy ModelRuntimePolicy, modelRuntimeExecutor modelruntime.Executor) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -109,6 +130,10 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 	if subagentPolicy == (SubagentPolicy{}) {
 		subagentPolicy = defaultSubagentPolicy()
 	}
+	if modelRuntimeExecutor == nil {
+		modelRuntimeExecutor = modelruntime.LocalExecutor{}
+	}
+	speechRuntime, _ := modelRuntimeExecutor.(modelruntime.SpeechProxy)
 	authConfig.LegacyControlToken = controlAuthToken
 	authConfig.WorkerToken = workerAuthToken
 	authenticator, err := newIdentityAuthenticator(authConfig)
@@ -120,12 +145,18 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		panic(fmt.Sprintf("invalid browser OIDC login config: %v", err))
 	}
 	server := &Server{
-		mux:                http.NewServeMux(),
-		store:              store,
-		runner:             turnRunner,
-		logger:             logger,
-		defaultLLMProvider: defaultLLMProvider,
-		defaultLLMModel:    defaultLLMModel,
+		mux:                   http.NewServeMux(),
+		store:                 store,
+		runner:                turnRunner,
+		logger:                logger,
+		defaultLLMProvider:    defaultLLMProvider,
+		defaultLLMModel:       defaultLLMModel,
+		modelRuntimeAdmission: newModelRuntimeAdmission(modelRuntimePolicy),
+		modelRuntimeExecutor:  modelRuntimeExecutor,
+		speechRuntime:         speechRuntime,
+		speechDialer: func(ctx context.Context, target string, headers http.Header) (*websocket.Conn, *http.Response, error) {
+			return websocket.Dial(ctx, target, &websocket.DialOptions{HTTPHeader: headers})
+		},
 		objectStore:        objectStore,
 		executionResolver:  executionResolver,
 		workerAuthToken:    strings.TrimSpace(workerAuthToken),
@@ -196,6 +227,8 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /app/assets/", appAssetHandler())
 	s.mux.HandleFunc("GET /inspector", s.getInspector)
 	s.mux.Handle("GET /inspector/assets/", inspectorAssetHandler())
+	s.mux.HandleFunc("GET /console", s.getConsole)
+	s.mux.Handle("GET /console/assets/", consoleAssetHandler())
 	s.mux.HandleFunc("GET /space", s.getSpace)
 	s.mux.Handle("GET /space/assets/", spaceAssetHandler())
 	s.mux.HandleFunc("GET /knowledge", s.getKnowledge)

@@ -10,6 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/tma-server ./cmd/tma-server \
+	&& CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/tma-model-runtime ./cmd/tma-model-runtime \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/tma-worker ./cmd/tma-worker \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/tma ./cmd/tma
 
@@ -52,6 +53,12 @@ USER 10001:10001
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/tma-worker"]
 
+FROM runtime-base AS model-runtime
+COPY --from=build /out/tma-model-runtime /usr/local/bin/tma-model-runtime
+USER 10001:10001
+EXPOSE 8090
+ENTRYPOINT ["/usr/local/bin/tma-model-runtime"]
+
 FROM worker AS browser-extension-worker
 USER root
 COPY extensions/browser-tool-plugin/browser-plugin.py /opt/tma/plugins/browser-plugin.py
@@ -65,5 +72,5 @@ USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/tma"]
 
 FROM ${POSTGRES_BASE_IMAGE} AS migrate
-COPY sql/baselines/000101_baseline.sql /opt/tma/sql/000101_baseline.sql
+COPY sql/baselines/000110_baseline.sql /opt/tma/sql/000110_baseline.sql
 COPY deploy/postgres/runtime-grants.sql /opt/tma/sql/runtime-grants.sql

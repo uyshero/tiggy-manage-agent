@@ -25,6 +25,7 @@ const (
 	DefaultOIDCRefreshIntervalSeconds              = 900
 	DefaultOIDCMaxStaleSeconds                     = 86400
 	DefaultOIDCCLIClientID                         = "tma-cli"
+	DefaultDelegationTTLSeconds                    = 300
 	DefaultWorkerAuthWorkspaceID                   = "wksp_default"
 	DefaultHTTPAddr                                = ":8080"
 	DefaultTurnQueueSize                           = 16
@@ -40,6 +41,20 @@ const (
 	DefaultLLMAPIKeyEnv                            = "TMA_LLM_API_KEY"
 	DefaultLLMMaxAttempts                          = 3
 	DefaultLLMRetryBaseDelayMS                     = 250
+	DefaultModelRuntimeGlobalConcurrency           = 64
+	DefaultModelRuntimeWorkspaceConcurrency        = 16
+	DefaultModelRuntimeIdentityConcurrency         = 8
+	DefaultModelRuntimeRouteConcurrency            = 32
+	DefaultModelRuntimeWorkspaceRequestsPerMinute  = 600
+	DefaultModelRuntimeIdentityRequestsPerMinute   = 120
+	DefaultModelRuntimeHTTPTimeoutSeconds          = 70
+	DefaultSpeechRuntimeGlobalConcurrency          = 100
+	DefaultSpeechRuntimeWorkspaceConcurrency       = 20
+	DefaultSpeechRuntimeIdentityConcurrency        = 10
+	DefaultSpeechRuntimeRouteConcurrency           = 50
+	DefaultSpeechRuntimeWorkspaceSessionsPerMinute = 120
+	DefaultSpeechRuntimeIdentitySessionsPerMinute  = 30
+	DefaultSpeechRuntimeMaxSessionSeconds          = 900
 	DefaultContextWindowTokens                     = 128000
 	DefaultObjectStorageProvider                   = "localfs"
 	DefaultObjectStorageEndpoint                   = "http://localhost:9000"
@@ -127,6 +142,7 @@ type Config struct {
 	Turn          TurnConfig
 	Context       ContextConfig
 	LLM           LLMConfig
+	ModelRuntime  ModelRuntimeGovernanceConfig
 	ObjectStore   ObjectStorageConfig
 	Skills        SkillsConfig
 	ToolRuntime   ToolRuntimeConfig
@@ -160,6 +176,10 @@ type AuthConfig struct {
 	CookieTrustedOrigins    []string
 	GatewayToken            string
 	GatewayTrustedCIDRs     []string
+	DelegationSigningSecret string
+	DelegationIssuer        string
+	DelegationAudience      string
+	DelegationTTLSeconds    int
 }
 
 type TurnConfig struct {
@@ -190,6 +210,27 @@ type LLMConfig struct {
 	MaxAttempts          int
 	RetryBaseDelay       time.Duration
 	RetryBaseDelayMillis int
+}
+
+type ModelRuntimeGovernanceConfig struct {
+	Endpoint                         string
+	AuthToken                        string
+	HTTPTimeout                      time.Duration
+	HTTPTimeoutSeconds               int
+	ModelGlobalConcurrency           int
+	ModelWorkspaceConcurrency        int
+	ModelIdentityConcurrency         int
+	ModelRouteConcurrency            int
+	ModelWorkspaceRequestsPerMinute  int
+	ModelIdentityRequestsPerMinute   int
+	SpeechGlobalConcurrency          int
+	SpeechWorkspaceConcurrency       int
+	SpeechIdentityConcurrency        int
+	SpeechRouteConcurrency           int
+	SpeechWorkspaceSessionsPerMinute int
+	SpeechIdentitySessionsPerMinute  int
+	SpeechMaxSessionDuration         time.Duration
+	SpeechMaxSessionSeconds          int
 }
 
 type ObjectStorageConfig struct {
@@ -425,6 +466,24 @@ func FromEnv() (Config, error) {
 			MaxAttempts:          envIntegerOrDefault("TMA_LLM_MAX_ATTEMPTS", DefaultLLMMaxAttempts),
 			RetryBaseDelayMillis: envIntegerOrDefault("TMA_LLM_RETRY_BASE_DELAY_MS", DefaultLLMRetryBaseDelayMS),
 		},
+		ModelRuntime: ModelRuntimeGovernanceConfig{
+			Endpoint:                         strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_ENDPOINT")),
+			AuthToken:                        strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_AUTH_TOKEN")),
+			HTTPTimeoutSeconds:               envIntegerOrDefault("TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS", DefaultModelRuntimeHTTPTimeoutSeconds),
+			ModelGlobalConcurrency:           envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_GLOBAL_CONCURRENCY", DefaultModelRuntimeGlobalConcurrency),
+			ModelWorkspaceConcurrency:        envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_WORKSPACE_CONCURRENCY", DefaultModelRuntimeWorkspaceConcurrency),
+			ModelIdentityConcurrency:         envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_IDENTITY_CONCURRENCY", DefaultModelRuntimeIdentityConcurrency),
+			ModelRouteConcurrency:            envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_ROUTE_CONCURRENCY", DefaultModelRuntimeRouteConcurrency),
+			ModelWorkspaceRequestsPerMinute:  envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_WORKSPACE_REQUESTS_PER_MINUTE", DefaultModelRuntimeWorkspaceRequestsPerMinute),
+			ModelIdentityRequestsPerMinute:   envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_IDENTITY_REQUESTS_PER_MINUTE", DefaultModelRuntimeIdentityRequestsPerMinute),
+			SpeechGlobalConcurrency:          envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_GLOBAL_CONCURRENCY", DefaultSpeechRuntimeGlobalConcurrency),
+			SpeechWorkspaceConcurrency:       envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_WORKSPACE_CONCURRENCY", DefaultSpeechRuntimeWorkspaceConcurrency),
+			SpeechIdentityConcurrency:        envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_IDENTITY_CONCURRENCY", DefaultSpeechRuntimeIdentityConcurrency),
+			SpeechRouteConcurrency:           envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_ROUTE_CONCURRENCY", DefaultSpeechRuntimeRouteConcurrency),
+			SpeechWorkspaceSessionsPerMinute: envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_WORKSPACE_SESSIONS_PER_MINUTE", DefaultSpeechRuntimeWorkspaceSessionsPerMinute),
+			SpeechIdentitySessionsPerMinute:  envNonNegativeIntOrDefault("TMA_SPEECH_RUNTIME_IDENTITY_SESSIONS_PER_MINUTE", DefaultSpeechRuntimeIdentitySessionsPerMinute),
+			SpeechMaxSessionSeconds:          envIntegerOrDefault("TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS", DefaultSpeechRuntimeMaxSessionSeconds),
+		},
 		ObjectStore: ObjectStorageConfig{
 			Provider:     envOrDefault("TMA_OBJECT_STORAGE_PROVIDER", DefaultObjectStorageProvider),
 			Endpoint:     envOrDefault("TMA_OBJECT_STORAGE_ENDPOINT", DefaultObjectStorageEndpoint),
@@ -580,6 +639,10 @@ func FromEnv() (Config, error) {
 			CookieTrustedOrigins:    splitCommaSeparated(os.Getenv("TMA_AUTH_COOKIE_TRUSTED_ORIGINS")),
 			GatewayToken:            os.Getenv("TMA_AUTH_GATEWAY_TOKEN"),
 			GatewayTrustedCIDRs:     splitCommaSeparated(os.Getenv("TMA_AUTH_GATEWAY_TRUSTED_CIDRS")),
+			DelegationSigningSecret: os.Getenv("TMA_AUTH_DELEGATION_SIGNING_SECRET"),
+			DelegationIssuer:        strings.TrimSpace(os.Getenv("TMA_AUTH_DELEGATION_ISSUER")),
+			DelegationAudience:      strings.TrimSpace(os.Getenv("TMA_AUTH_DELEGATION_AUDIENCE")),
+			DelegationTTLSeconds:    envIntOrDefault("TMA_AUTH_DELEGATION_TTL_SECONDS", DefaultDelegationTTLSeconds),
 		},
 	}
 	config.Turn.Timeout = time.Duration(config.Turn.TimeoutMillis) * time.Millisecond
@@ -616,6 +679,8 @@ func FromEnv() (Config, error) {
 	config.Observability.SecurityAudit.Retention = time.Duration(config.Observability.SecurityAudit.RetentionDays) * 24 * time.Hour
 	config.Observability.SecurityAudit.PruneInterval = time.Duration(config.Observability.SecurityAudit.PruneIntervalMillis) * time.Millisecond
 	config.LLM.RetryBaseDelay = time.Duration(config.LLM.RetryBaseDelayMillis) * time.Millisecond
+	config.ModelRuntime.HTTPTimeout = time.Duration(config.ModelRuntime.HTTPTimeoutSeconds) * time.Second
+	config.ModelRuntime.SpeechMaxSessionDuration = time.Duration(config.ModelRuntime.SpeechMaxSessionSeconds) * time.Second
 	config.LLM.APIKey = os.Getenv(config.LLM.APIKeyEnv)
 	config.ObjectStore.AccessKey = os.Getenv(config.ObjectStore.AccessKeyEnv)
 	config.ObjectStore.SecretKey = os.Getenv(config.ObjectStore.SecretKeyEnv)
@@ -629,6 +694,33 @@ func FromEnv() (Config, error) {
 	}
 	if config.LLM.RetryBaseDelayMillis < 1 || config.LLM.RetryBaseDelayMillis > 60000 {
 		return Config{}, errors.New("TMA_LLM_RETRY_BASE_DELAY_MS must be between 1 and 60000")
+	}
+	if config.ModelRuntime.HTTPTimeoutSeconds < 1 || config.ModelRuntime.HTTPTimeoutSeconds > 3600 {
+		return Config{}, errors.New("TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS must be between 1 and 3600")
+	}
+	if config.ModelRuntime.Endpoint != "" {
+		endpoint, err := url.Parse(config.ModelRuntime.Endpoint)
+		if err != nil || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+			return Config{}, errors.New("TMA_MODEL_RUNTIME_ENDPOINT must be an absolute HTTP(S) URL without credentials, query, or fragment")
+		}
+		if config.ModelRuntime.AuthToken == "" {
+			return Config{}, errors.New("TMA_MODEL_RUNTIME_AUTH_TOKEN is required when TMA_MODEL_RUNTIME_ENDPOINT is configured")
+		}
+	}
+	for _, value := range []int{
+		config.ModelRuntime.ModelGlobalConcurrency, config.ModelRuntime.ModelWorkspaceConcurrency,
+		config.ModelRuntime.ModelIdentityConcurrency, config.ModelRuntime.ModelRouteConcurrency,
+		config.ModelRuntime.ModelWorkspaceRequestsPerMinute, config.ModelRuntime.ModelIdentityRequestsPerMinute,
+		config.ModelRuntime.SpeechGlobalConcurrency, config.ModelRuntime.SpeechWorkspaceConcurrency,
+		config.ModelRuntime.SpeechIdentityConcurrency, config.ModelRuntime.SpeechRouteConcurrency,
+		config.ModelRuntime.SpeechWorkspaceSessionsPerMinute, config.ModelRuntime.SpeechIdentitySessionsPerMinute,
+	} {
+		if value < 0 || value > 1000000 {
+			return Config{}, errors.New("model and speech runtime governance limits must be between 0 and 1000000")
+		}
+	}
+	if config.ModelRuntime.SpeechMaxSessionSeconds < 1 || config.ModelRuntime.SpeechMaxSessionSeconds > 86400 {
+		return Config{}, errors.New("TMA_SPEECH_RUNTIME_MAX_SESSION_SECONDS must be between 1 and 86400")
 	}
 	if config.ObjectStore.Cleanup.WorkerIntervalMillis < 100 || config.ObjectStore.Cleanup.WorkerIntervalMillis > 3600000 {
 		return Config{}, errors.New("TMA_OBJECT_CLEANUP_WORKER_INTERVAL_MS must be between 100 and 3600000")
@@ -752,6 +844,9 @@ func validateAuthConfig(config Config) error {
 		return fmt.Errorf("unsupported TMA_ENV %q", config.Environment)
 	}
 	production := environment == "production" || environment == "prod"
+	if production && config.ModelRuntime.Endpoint != "" && len(config.ModelRuntime.AuthToken) < 32 {
+		return errors.New("TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes in production")
+	}
 	switch config.Auth.Mode {
 	case "disabled":
 		if production {
@@ -844,6 +939,22 @@ func validateAuthConfig(config Config) error {
 		if err := validateAuthOrigin("TMA_AUTH_COOKIE_TRUSTED_ORIGINS", origin, production); err != nil {
 			return err
 		}
+	}
+	if secret := strings.TrimSpace(config.Auth.DelegationSigningSecret); secret != "" {
+		if len(secret) < 32 {
+			return errors.New("TMA_AUTH_DELEGATION_SIGNING_SECRET must be at least 32 bytes")
+		}
+		if strings.TrimSpace(config.Auth.DelegationIssuer) == "" {
+			return errors.New("TMA_AUTH_DELEGATION_ISSUER is required when delegated token exchange is enabled")
+		}
+		if strings.TrimSpace(config.Auth.DelegationAudience) == "" {
+			return errors.New("TMA_AUTH_DELEGATION_AUDIENCE is required when delegated token exchange is enabled")
+		}
+		if config.Auth.DelegationTTLSeconds < 1 || config.Auth.DelegationTTLSeconds > 900 {
+			return errors.New("TMA_AUTH_DELEGATION_TTL_SECONDS must be between 1 and 900")
+		}
+	} else if config.Auth.DelegationIssuer != "" || config.Auth.DelegationAudience != "" {
+		return errors.New("TMA_AUTH_DELEGATION_SIGNING_SECRET is required when delegation issuer or audience is configured")
 	}
 	return nil
 }

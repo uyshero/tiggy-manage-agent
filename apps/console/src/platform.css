@@ -1,0 +1,29 @@
+.workspace-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #edf0f3;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.workspace-row:hover {
+  background: #f8fafb;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.back-button:hover {
+  color: var(--ink);
+}

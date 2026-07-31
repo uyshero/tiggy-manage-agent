@@ -40,6 +40,19 @@ func TestNormalizeLLMModelInputEmbeddingAndReranker(t *testing.T) {
 	}
 }
 
+func TestNormalizeLLMModelInputSpeech(t *testing.T) {
+	model, err := NormalizeLLMModelInput(UpsertLLMModelInput{
+		ProviderID: "doubao-tts", Model: "seed-tts", CapabilityType: LLMModelCapabilityTextToSpeech,
+		Capabilities: &LLMModelCapabilities{Protocol: "doubao_bidirectional_tts", ResourceID: "seed-tts-2.0", DefaultVoice: "warm"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Capabilities.AudioFormat != "pcm_s16le" || model.Capabilities.SampleRateHz != 16000 || model.Capabilities.DefaultVoice != "warm" {
+		t.Fatalf("unexpected speech defaults: %+v", model.Capabilities)
+	}
+}
+
 func TestNormalizeLLMModelInputRejectsInvalidCapabilityConfiguration(t *testing.T) {
 	trueValue := true
 	tests := []UpsertLLMModelInput{

@@ -3,11 +3,11 @@
 ## 分层
 
 Server 拥有认证、持久化、调度、权限和公开协议；Core SDK 封装公开 `/v2` API、错误、分页、
-SSE 和常用工作流；Workbench/业务应用只依赖 SDK 和自身 UI。SDK 不复制 Server 业务规则，
+SSE 和常用工作流；对话工作台/业务应用只依赖 SDK 和自身 UI。SDK 不复制 Server 业务规则，
 也不直接访问数据库。
 
 ```text
-Application / Workbench Plugin
+Application / 对话工作台 UI Extension
   -> Go or TypeScript Core SDK
   -> HTTP / SSE v2 contract
   -> TMA Server
@@ -56,10 +56,64 @@ const session = await client.sessions.create({/* ... */});
 
 具体导出以 `sdk/typescript/src/index.ts` 和类型测试为准。
 
+## Model Runtime 与 Speech
+
+应用通过 `ModelRuntime.Generate` 执行领域中性的消息生成，通过 `ModelRuntime.Embed` 和
+`ModelRuntime.Rerank` 使用模型目录中的默认模型或显式 Provider/Model。产品 Prompt、待排序文档
+及业务阈值留在应用，Provider Endpoint 和 API Key 只由 Platform 解析。例如：
+
+```go
+vectors, err := client.ModelRuntime.Embed(ctx, tma.ModelEmbeddingRequest{
+    Inputs: []string{"first document", "second document"},
+})
+ranked, err := client.ModelRuntime.Rerank(ctx, tma.ModelRerankRequest{
+    Query: "deployment duration", Documents: documents, TopN: 5,
+})
+```
+
+TypeScript 对应方法为 `client.modelRuntime.generate()`、`embed()` 和 `rerank()`。实时语音使用 Go
+SDK 的 `Speech.DialRealtime`，支持 ASR 二进制音频流和可追加文本的 TTS 流。TypeScript SDK 提供
+`speech.connectRealtime()`，浏览器场景使用同源登录 Cookie 完成 WebSocket 鉴权。
+
+Speech 客户端只发送通用事件，不依赖豆包等供应商帧。Provider、Model、voice 和音频格式来自
+Model Registry；应用可以覆盖 voice，但不能获得 Provider 凭据。Speech 容量或分钟配额超限时，
+`SpeechEvent` 的 `code` 为 `speech_capacity_exceeded` 或 `speech_quota_exceeded`，并携带
+`retry_after_seconds` 与 `limit_scope`；客户端应在等待该秒数后重连，不能立即循环重试。
+
+Workspace 管理员可以通过 Go SDK 的 `ModelRuntime.Invocations` 或 TypeScript SDK 的
+`client.modelRuntime.invocations()` 查询 Generate、Embedding、Rerank 和 Speech 的独立 Usage/Audit。
+记录只包含主体、模型、状态、耗时和计量值，不保存 Prompt、文档或音频。现有 Session/Turn Usage
+不会被伪造复用。HTTP Model Runtime 容量或分钟配额超限时返回 `429` 和 `Retry-After`；Gateway
+仍应设置连接、请求体和总流量保护，但不再代替 Platform 的租户/应用配额执行。
+
+## Application/Service Identity
+
+应用后台不再借用用户或管理员 Token。Workspace 管理员通过 Go SDK 的 `ServiceIdentities` 或
+TypeScript SDK 的 `serviceIdentities` 创建独立身份、分配角色和最小 Scope，再创建可轮换凭据：
+
+```go
+identity, err := client.ServiceIdentities.Create(ctx, tma.CreateServiceIdentityRequest{
+    Kind: "application", Name: "tma-knowledge", Role: "member",
+    Scopes: []string{"retrieval:read", "retrieval:write", "model:generate"},
+})
+created, err := client.ServiceIdentities.CreateCredential(ctx, identity.ID,
+    tma.CreateServiceCredentialRequest{Name: "production"})
+// created.Token is returned once; write it directly to the application's Secret Manager.
+```
+
+Platform 只保存凭据哈希和可显示的 Token 前缀。禁用身份或撤销凭据后，新请求立即失效。服务身份
+不能成为 Workspace/Platform 管理员，也不能访问 Worker、Provider Registry、租户管理或其他未映射
+控制面 API。Model/Speech Invocation 记录包含 `service_identity_id`，管理员可按该字段筛选用量。
+
+用户触发的应用请求先通过应用 Service Credential 创建 SDK client，再使用 `Auth.Exchange`（Go）或
+`client.auth.exchange()`（TypeScript）交换用户 JWT/OIDC Token。返回 Token 默认 5 分钟有效，只含
+显式请求且已授予应用的 Scope；后续应使用新的用户请求 client 携带该 Token，不能把用户 Token 或
+委托 Token 写入数据库、日志、队列 payload 或浏览器持久存储。
+
 ## 应用与扩展边界
 
 - Core SDK 可以封装通用重试、SSE、分页、上传和错误归一化。
-- Workbench Plugin 使用宿主提供的 SDK client，不自行持有服务 token。
+- 对话工作台 UI Extension 使用宿主提供的 SDK client，不自行持有服务 token。
 - 企业业务流程、页面状态和展示模型留在应用/插件。
 - 多 Server 场景由应用明确选择 client；SDK 不在请求间隐式切换 Server。
 - 扩展认证通过用户委托或受限 service identity，不能复用 Server/Worker 管理 token。

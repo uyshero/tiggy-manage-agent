@@ -26,6 +26,7 @@ import (
 	"tiggy-manage-agent/internal/llm"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/mcp"
+	modelruntime "tiggy-manage-agent/internal/modelruntimeprovider"
 	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
 	"tiggy-manage-agent/internal/observability"
@@ -173,9 +174,25 @@ func main() {
 
 	serverContext, cancelServerContext := context.WithCancel(context.Background())
 	defer cancelServerContext()
+	modelRuntimeExecutor := modelruntime.Executor(modelruntime.LocalExecutor{})
+	if config.ModelRuntime.Endpoint != "" {
+		remoteExecutor, runtimeErr := modelruntime.NewHTTPExecutor(
+			config.ModelRuntime.Endpoint,
+			config.ModelRuntime.AuthToken,
+			&http.Client{Timeout: config.ModelRuntime.HTTPTimeout},
+		)
+		if runtimeErr != nil {
+			logger.Error("configure remote model runtime failed", "error", runtimeErr)
+			os.Exit(1)
+		}
+		modelRuntimeExecutor = remoteExecutor
+		logger.Info("remote model runtime enabled", "endpoint", config.ModelRuntime.Endpoint)
+	} else {
+		logger.Info("using in-process model runtime")
+	}
 	server := &http.Server{
 		Addr: config.HTTPAddr,
-		Handler: httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyAndBinaryScanner(
+		Handler: httpapi.NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAuthSubagentPolicyBinaryScannerModelRuntimePolicyAndExecutor(
 			store,
 			turnRunner,
 			logger,
@@ -190,21 +207,25 @@ func main() {
 				JWTAudience: config.Auth.JWTAudience, GatewayToken: config.Auth.GatewayToken,
 				OIDCIssuer: config.Auth.OIDCIssuer, OIDCAudience: config.Auth.OIDCAudience,
 				OIDCJWKSURL: config.Auth.OIDCJWKSURL, OIDCSigningAlgs: config.Auth.OIDCSigningAlgs,
-				OIDCHTTPTimeout:      time.Duration(config.Auth.OIDCHTTPTimeoutSecs) * time.Second,
-				OIDCRefreshInterval:  time.Duration(config.Auth.OIDCRefreshIntervalSecs) * time.Second,
-				OIDCMaxStale:         time.Duration(config.Auth.OIDCMaxStaleSecs) * time.Second,
-				OIDCClaimMapping:     config.Auth.OIDCClaimMapping,
-				OIDCWebLoginEnabled:  config.Auth.OIDCWebLoginEnabled,
-				OIDCWebClientID:      config.Auth.OIDCWebClientID,
-				OIDCWebClientSecret:  config.Auth.OIDCWebClientSecret,
-				OIDCWebRedirectURL:   config.Auth.OIDCWebRedirectURL,
-				OIDCWebPostLogoutURL: config.Auth.OIDCWebPostLogoutURL,
-				OIDCWebSessionSecret: config.Auth.OIDCWebSessionSecret,
-				OIDCCLIClientID:      config.Auth.OIDCCLIClientID,
-				CookieTrustedOrigins: config.Auth.CookieTrustedOrigins,
-				GatewayTrustedCIDRs:  config.Auth.GatewayTrustedCIDRs,
-				WorkerWorkspaceID:    config.Worker.AuthWorkspaceID,
-				AuthorizationSink:    authorizationSink,
+				OIDCHTTPTimeout:         time.Duration(config.Auth.OIDCHTTPTimeoutSecs) * time.Second,
+				OIDCRefreshInterval:     time.Duration(config.Auth.OIDCRefreshIntervalSecs) * time.Second,
+				OIDCMaxStale:            time.Duration(config.Auth.OIDCMaxStaleSecs) * time.Second,
+				OIDCClaimMapping:        config.Auth.OIDCClaimMapping,
+				OIDCWebLoginEnabled:     config.Auth.OIDCWebLoginEnabled,
+				OIDCWebClientID:         config.Auth.OIDCWebClientID,
+				OIDCWebClientSecret:     config.Auth.OIDCWebClientSecret,
+				OIDCWebRedirectURL:      config.Auth.OIDCWebRedirectURL,
+				OIDCWebPostLogoutURL:    config.Auth.OIDCWebPostLogoutURL,
+				OIDCWebSessionSecret:    config.Auth.OIDCWebSessionSecret,
+				OIDCCLIClientID:         config.Auth.OIDCCLIClientID,
+				CookieTrustedOrigins:    config.Auth.CookieTrustedOrigins,
+				GatewayTrustedCIDRs:     config.Auth.GatewayTrustedCIDRs,
+				DelegationSigningSecret: config.Auth.DelegationSigningSecret,
+				DelegationIssuer:        config.Auth.DelegationIssuer,
+				DelegationAudience:      config.Auth.DelegationAudience,
+				DelegationTTL:           time.Duration(config.Auth.DelegationTTLSeconds) * time.Second,
+				WorkerWorkspaceID:       config.Worker.AuthWorkspaceID,
+				AuthorizationSink:       authorizationSink,
 			},
 			httpapi.SubagentPolicy{
 				MaxDepth:              config.Subagent.MaxDepth,
@@ -217,6 +238,22 @@ func main() {
 				QueueTimeoutSeconds:   config.Subagent.QueueTimeoutSeconds,
 			},
 			binaryScanner,
+			httpapi.ModelRuntimePolicy{
+				ModelGlobalConcurrency:           config.ModelRuntime.ModelGlobalConcurrency,
+				ModelWorkspaceConcurrency:        config.ModelRuntime.ModelWorkspaceConcurrency,
+				ModelIdentityConcurrency:         config.ModelRuntime.ModelIdentityConcurrency,
+				ModelRouteConcurrency:            config.ModelRuntime.ModelRouteConcurrency,
+				ModelWorkspaceRequestsPerMinute:  config.ModelRuntime.ModelWorkspaceRequestsPerMinute,
+				ModelIdentityRequestsPerMinute:   config.ModelRuntime.ModelIdentityRequestsPerMinute,
+				SpeechGlobalConcurrency:          config.ModelRuntime.SpeechGlobalConcurrency,
+				SpeechWorkspaceConcurrency:       config.ModelRuntime.SpeechWorkspaceConcurrency,
+				SpeechIdentityConcurrency:        config.ModelRuntime.SpeechIdentityConcurrency,
+				SpeechRouteConcurrency:           config.ModelRuntime.SpeechRouteConcurrency,
+				SpeechWorkspaceSessionsPerMinute: config.ModelRuntime.SpeechWorkspaceSessionsPerMinute,
+				SpeechIdentitySessionsPerMinute:  config.ModelRuntime.SpeechIdentitySessionsPerMinute,
+				SpeechMaxSessionDuration:         config.ModelRuntime.SpeechMaxSessionDuration,
+			},
+			modelRuntimeExecutor,
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		BaseContext: func(net.Listener) context.Context {
@@ -1036,6 +1073,22 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		return nil, nil, err
 	}
 	_, llmProvider, llmModel := llmManager.Current()
+	var coreModelClient llm.Client = llmManager
+	modelExecutionMode := "in_process"
+	if config.ModelRuntime.Endpoint != "" {
+		remoteClient, runtimeErr := modelruntime.NewHTTPModelClient(
+			config.ModelRuntime.Endpoint,
+			config.ModelRuntime.AuthToken,
+			&http.Client{Timeout: config.ModelRuntime.HTTPTimeout},
+			config.LLM.MaxAttempts,
+			config.LLM.RetryBaseDelay,
+		)
+		if runtimeErr != nil {
+			return nil, nil, fmt.Errorf("configure Agent Turn model runtime: %w", runtimeErr)
+		}
+		coreModelClient = remoteClient
+		modelExecutionMode = "remote_runtime"
+	}
 	mcpHTTPBaseClient, err := buildMCPHTTPBaseClient(config.MCP.StreamableHTTPHost.CABundlePath)
 	if err != nil {
 		return nil, nil, err
@@ -1078,7 +1131,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		agentruntime.ArtifactCompletionGate{Reader: store},
 	}}
 	turnExecutor := runner.AgentRuntimeTurnExecutor{
-		CoreClient:         llmManager,
+		CoreClient:         coreModelClient,
 		CoreCompletionGate: completionGate,
 		CoreMaxRounds:      config.Turn.MaxToolRounds,
 		Store:              store,
@@ -1103,6 +1156,7 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		"agent_runtime", "agent_core",
 		"llm_provider", llmProvider,
 		"llm_model", llmModel,
+		"model_execution_mode", modelExecutionMode,
 		"default_context_window_tokens", config.Context.DefaultWindowTokens,
 		"worker_count", config.Turn.WorkerCount,
 		"wake_buffer", config.Turn.QueueSize,

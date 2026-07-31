@@ -21,6 +21,12 @@ func (s *AuthService) Me(ctx context.Context) (AuthState, error) {
 	return state, err
 }
 
+func (s *AuthService) Exchange(ctx context.Context, request TokenExchangeRequest) (TokenExchangeResponse, error) {
+	var token TokenExchangeResponse
+	err := s.client.DoJSON(ctx, http.MethodPost, "/v2/auth/token-exchange", request, &token)
+	return token, err
+}
+
 type MCPService struct{ client *Client }
 
 func (s *MCPService) List(ctx context.Context, query MCPServerQuery) ([]MCPServer, error) {

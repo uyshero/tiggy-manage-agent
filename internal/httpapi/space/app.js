@@ -13407,9 +13407,10 @@ class Transport {
     this.baseURL = baseURL2.trim().replace(/\/+$/, "");
     this.staticToken = ((_a2 = options.token) == null ? void 0 : _a2.trim()) ?? "";
     this.tokenSource = options.tokenSource;
-    this.fetchImpl = options.fetch ?? globalThis.fetch;
-    if (!this.fetchImpl)
+    const fetchImpl = options.fetch ?? globalThis.fetch;
+    if (!fetchImpl)
       throw new TypeError("A Fetch API implementation is required");
+    this.fetchImpl = fetchImpl.bind(globalThis);
     this.defaultHeaders = new Headers(options.headers);
   }
   url(path) {
@@ -13675,6 +13676,7 @@ async function* streamLiveEvents(transport, path, options = {}) {
   var _a2, _b, _c;
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 1e4;
+  const idleTimeout = options.idleTimeoutMs ?? 45e3;
   while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
     try {
       const response = await transport.fetch(new URL(transport.url(path)), {
@@ -13703,7 +13705,7 @@ async function* streamLiveEvents(transport, path, options = {}) {
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done)
             break;
           parser.feed(decoder.decode(value, { stream: true }));
@@ -13741,6 +13743,7 @@ async function* streamEvents(transport, path, options = {}) {
   let afterSeq = options.afterSeq ?? 0;
   let retryDelay = options.retryInitialMs ?? 250;
   const retryMax = options.retryMaxMs ?? 1e4;
+  const idleTimeout = options.idleTimeoutMs ?? 45e3;
   while (!((_a2 = options.signal) == null ? void 0 : _a2.aborted)) {
     try {
       const url = new URL(transport.url(path));
@@ -13772,7 +13775,7 @@ async function* streamEvents(transport, path, options = {}) {
       const reader = response.body.getReader();
       try {
         while (true) {
-          const { done, value } = await reader.read();
+          const { done, value } = await readWithIdleTimeout(reader, idleTimeout);
           if (done)
             break;
           parser.feed(decoder.decode(value, { stream: true }));
@@ -13810,6 +13813,22 @@ async function* streamEvents(transport, path, options = {}) {
   }
   throw abortError();
 }
+async function readWithIdleTimeout(reader, timeoutMs) {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    return reader.read();
+  let timer;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new RetryableSSEError(`SSE connection was idle for ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== void 0)
+      clearTimeout(timer);
+  }
+}
 function decodeEvent(data) {
   let decoded;
   try {
@@ -13836,7 +13855,7 @@ function decodeLiveEvent(data) {
     throw new SSESchemaError("Live SSE event must be an object");
   const event = decoded;
   const validBase = Number.isSafeInteger(event.stream_seq) && typeof event.session_id === "string" && typeof event.turn_id === "string" && typeof event.text === "string" && typeof event.created_at === "string";
-  const validLLMText = event.type === "llm.text" && event.operation === "append" && event.content_format === "markdown";
+  const validLLMText = event.type === "llm.text" && (event.operation === "append" || event.operation === "reset") && event.content_format === "markdown";
   const progress = event;
   const validToolProgress = event.type === "tool.call_progress" && event.operation === "update" && event.content_format === "text" && typeof progress.call_id === "string" && typeof progress.tool === "string" && typeof progress.stage === "string";
   if (!validBase || !validLLMText && !validToolProgress) {
@@ -14032,6 +14051,10 @@ class ArtifactsService extends ServiceBase {
   download(sessionId, artifactId, signal) {
     return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/download`, signal ? { signal } : {});
   }
+  preview(sessionId, artifactId, format = "pdf", signal) {
+    const query = format ? `?format=${encodeURIComponent(format)}` : "";
+    return this.transport.request("GET", `${artifactPath(sessionId, artifactId)}/preview${query}`, signal ? { signal } : {});
+  }
   async delete(sessionId, artifactId, signal) {
     await this.transport.request("DELETE", artifactPath(sessionId, artifactId), signal ? { signal } : {});
   }
@@ -14048,6 +14071,9 @@ class AuthService extends ServiceBase {
   }
   me(signal) {
     return this.transport.requestJSON("GET", "/v2/auth/me", void 0, signal ? { signal } : {});
+  }
+  exchange(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/auth/token-exchange", request, signal ? { signal } : {});
   }
 }
 class EnvironmentsService extends ServiceBase {
@@ -14190,8 +14216,8 @@ class LLMService extends ServiceBase {
       model: query.model,
       status: query.status,
       group_by: query.groupBy,
-      from: formatTime$1(query.from),
-      to: formatTime$1(query.to)
+      from: formatTime$2(query.from),
+      to: formatTime$2(query.to)
     });
     return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
   }
@@ -14205,7 +14231,7 @@ function requestOptions(expectedRevision, signal) {
     ...signal === void 0 ? {} : { signal }
   };
 }
-function formatTime$1(value) {
+function formatTime$2(value) {
   if (value === void 0)
     return void 0;
   return value instanceof Date ? value.toISOString() : value;
@@ -14446,6 +14472,45 @@ class ObjectRefsService extends ServiceBase {
 function objectRefPath(objectRefId) {
   return resourcePath("/v2/object-refs", objectRefId);
 }
+class ObjectCleanupService extends ServiceBase {
+  previewReconciliation(input, signal) {
+    return this.transport.requestJSON("POST", "/v2/object-cleanup/reconciliation/preview", input, signal ? { signal } : {});
+  }
+  exportReconciliationArtifact(input, signal) {
+    return this.transport.requestJSON("POST", "/v2/object-cleanup/reconciliation/artifacts", input, signal ? { signal } : {});
+  }
+  list(query = {}, signal) {
+    const path = withQuery("/v2/object-cleanup/jobs", {
+      workspace_id: query.workspaceId,
+      status: query.status,
+      reason: query.reason,
+      created_from: dateQueryValue(query.createdFrom),
+      created_to: dateQueryValue(query.createdTo),
+      limit: query.limit
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {}).then((value) => value.jobs);
+  }
+  stats(workspaceId, signal) {
+    const path = withQuery("/v2/object-cleanup/stats", { workspace_id: workspaceId });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+  retry(jobId, workspaceId, signal) {
+    const path = withQuery(`${objectCleanupJobPath(jobId)}/retry`, { workspace_id: workspaceId });
+    return this.transport.requestJSON("POST", path, void 0, signal ? { signal } : {});
+  }
+  approve(jobId, confirm, workspaceId, signal) {
+    const path = withQuery(`${objectCleanupJobPath(jobId)}/approve`, { workspace_id: workspaceId });
+    return this.transport.requestJSON("POST", path, { confirm }, signal ? { signal } : {});
+  }
+}
+function objectCleanupJobPath(jobId) {
+  return resourcePath("/v2/object-cleanup/jobs", jobId);
+}
+function dateQueryValue(value) {
+  if (!value)
+    return void 0;
+  return value instanceof Date ? value.toISOString() : value;
+}
 class OrchestrationService extends ServiceBase {
   taskGroupTemplates(signal) {
     return this.transport.requestJSON("GET", "/v2/agent/task-group-templates", void 0, signal ? { signal } : {});
@@ -14595,6 +14660,108 @@ function effectiveTurnId(event) {
 function isTerminalRunStatus(status) {
   return status === "completed" || status === "failed" || status === "interrupted";
 }
+class RetrievalCollectionsService extends ServiceBase {
+  create(request, signal) {
+    return this.transport.requestJSON("POST", retrievalCollectionsPath(), request, signal ? { signal } : {});
+  }
+  list(signal) {
+    return this.transport.requestJSON("GET", retrievalCollectionsPath(), void 0, signal ? { signal } : {}).then((value) => value.collections);
+  }
+  async delete(collectionId, signal) {
+    await this.transport.request("DELETE", retrievalCollectionPath(collectionId), signal ? { signal } : {});
+  }
+}
+class RetrievalDocumentsService extends ServiceBase {
+  list(collectionId, signal) {
+    return this.transport.requestJSON("GET", `${retrievalCollectionPath(collectionId)}/documents`, void 0, signal ? { signal } : {}).then((value) => value.documents);
+  }
+  get(documentId, signal) {
+    return this.transport.requestJSON("GET", retrievalDocumentPath(documentId), void 0, signal ? { signal } : {});
+  }
+  async upload(collectionId, fields, file, signal) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields))
+      form.set(key, value);
+    const body = file.contentType && file.body.type !== file.contentType ? new Blob([file.body], { type: file.contentType }) : file.body;
+    form.set("file", body, file.filename);
+    const response = await this.transport.request("POST", `${retrievalCollectionPath(collectionId)}/documents`, {
+      body: form,
+      ...signal === void 0 ? {} : { signal }
+    });
+    return await response.json();
+  }
+  async delete(documentId, signal) {
+    await this.transport.request("DELETE", retrievalDocumentPath(documentId), signal ? { signal } : {});
+  }
+}
+class RetrievalIngestionJobsService extends ServiceBase {
+  get(jobId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/retrieval/ingestion-jobs", jobId), void 0, signal ? { signal } : {});
+  }
+}
+class RetrievalService extends ServiceBase {
+  constructor(transport) {
+    super(transport);
+    __publicField(this, "collections");
+    __publicField(this, "documents");
+    __publicField(this, "ingestionJobs");
+    this.collections = new RetrievalCollectionsService(transport);
+    this.documents = new RetrievalDocumentsService(transport);
+    this.ingestionJobs = new RetrievalIngestionJobsService(transport);
+  }
+  search(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/retrieval/search", request, signal ? { signal } : {});
+  }
+}
+function retrievalCollectionsPath() {
+  return "/v2/retrieval/collections";
+}
+function retrievalCollectionPath(collectionId) {
+  return resourcePath(retrievalCollectionsPath(), collectionId);
+}
+function retrievalDocumentPath(documentId) {
+  return resourcePath("/v2/retrieval/documents", documentId);
+}
+class ModelRuntimeService extends ServiceBase {
+  generate(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/model-runtime/generate", request, signal ? { signal } : {});
+  }
+  embed(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/model-runtime/embeddings", request, signal ? { signal } : {});
+  }
+  rerank(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/model-runtime/rerank", request, signal ? { signal } : {});
+  }
+  invocations(query = {}, signal) {
+    const path = withQuery("/v2/model-runtime/invocations", {
+      principal_id: query.principalId,
+      service_identity_id: query.serviceIdentityId,
+      capability: query.capability,
+      provider_id: query.providerId,
+      model: query.model,
+      status: query.status,
+      from: formatTime$1(query.from),
+      to: formatTime$1(query.to),
+      limit: query.limit
+    });
+    return this.transport.requestJSON("GET", path, void 0, signal ? { signal } : {});
+  }
+}
+function formatTime$1(value) {
+  if (value === void 0)
+    return void 0;
+  return value instanceof Date ? value.toISOString() : value;
+}
+class SpeechService extends ServiceBase {
+  realtimeURL() {
+    const url = new URL(this.transport.url("/v2/speech/realtime"));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  }
+  connectRealtime(protocols) {
+    return protocols === void 0 ? new WebSocket(this.realtimeURL()) : new WebSocket(this.realtimeURL(), protocols);
+  }
+}
 class TracesService extends ServiceBase {
   list(query = {}, signal) {
     const path = withQuery("/v2/traces", {
@@ -14644,6 +14811,76 @@ class TracesService extends ServiceBase {
 }
 function tracePath(traceId) {
   return resourcePath("/v2/traces", traceId);
+}
+class TenantAdministrationService extends ServiceBase {
+  context(signal) {
+    return this.transport.requestJSON("GET", "/v2/administration/context", void 0, signal ? { signal } : {});
+  }
+  listCurrentWorkspaceMembers(signal) {
+    return this.transport.requestJSON("GET", "/v2/workspace/members", void 0, signal ? { signal } : {}).then((value) => value.members);
+  }
+  upsertCurrentWorkspaceMember(subject, request, signal) {
+    return this.transport.requestJSON("PUT", resourcePath("/v2/workspace/members", subject), request, signal ? { signal } : {});
+  }
+  deleteCurrentWorkspaceMember(subject, signal) {
+    return this.transport.requestJSON("DELETE", resourcePath("/v2/workspace/members", subject), void 0, signal ? { signal } : {});
+  }
+  listTenantWorkspaces(signal) {
+    return this.transport.requestJSON("GET", "/v2/platform/workspaces", void 0, signal ? { signal } : {}).then((value) => value.workspaces);
+  }
+  createTenantWorkspace(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/platform/workspaces", request, signal ? { signal } : {});
+  }
+  listTenantWorkspaceMembers(workspaceId, signal) {
+    return this.transport.requestJSON("GET", tenantWorkspaceMembersPath(workspaceId), void 0, signal ? { signal } : {}).then((value) => value.members);
+  }
+  upsertTenantWorkspaceMember(workspaceId, subject, request, signal) {
+    return this.transport.requestJSON("PUT", resourcePath(tenantWorkspaceMembersPath(workspaceId), subject), request, signal ? { signal } : {});
+  }
+  deleteTenantWorkspaceMember(workspaceId, subject, signal) {
+    return this.transport.requestJSON("DELETE", resourcePath(tenantWorkspaceMembersPath(workspaceId), subject), void 0, signal ? { signal } : {});
+  }
+  listPlatformAdmins(signal) {
+    return this.transport.requestJSON("GET", "/v2/platform/admins", void 0, signal ? { signal } : {}).then((value) => value.admins);
+  }
+  upsertPlatformAdmin(subject, request, signal) {
+    return this.transport.requestJSON("PUT", resourcePath("/v2/platform/admins", subject), request, signal ? { signal } : {});
+  }
+  deletePlatformAdmin(subject, signal) {
+    return this.transport.requestJSON("DELETE", resourcePath("/v2/platform/admins", subject), void 0, signal ? { signal } : {});
+  }
+}
+function tenantWorkspaceMembersPath(workspaceId) {
+  return resourcePath("/v2/platform/workspaces", workspaceId) + "/members";
+}
+class ServiceIdentitiesService extends ServiceBase {
+  scopes(signal) {
+    return this.transport.requestJSON("GET", "/v2/service-identities/scopes", void 0, signal ? { signal } : {}).then((value) => value.scopes);
+  }
+  list(signal) {
+    return this.transport.requestJSON("GET", "/v2/service-identities", void 0, signal ? { signal } : {}).then((value) => value.service_identities);
+  }
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/service-identities", request, signal ? { signal } : {});
+  }
+  get(identityId, signal) {
+    return this.transport.requestJSON("GET", serviceIdentityPath(identityId), void 0, signal ? { signal } : {});
+  }
+  update(identityId, request, signal) {
+    return this.transport.requestJSON("PATCH", serviceIdentityPath(identityId), request, signal ? { signal } : {});
+  }
+  credentials(identityId, signal) {
+    return this.transport.requestJSON("GET", serviceIdentityPath(identityId) + "/credentials", void 0, signal ? { signal } : {}).then((value) => value.credentials);
+  }
+  createCredential(identityId, request, signal) {
+    return this.transport.requestJSON("POST", serviceIdentityPath(identityId) + "/credentials", request, signal ? { signal } : {});
+  }
+  revokeCredential(identityId, credentialId, signal) {
+    return this.transport.requestJSON("DELETE", serviceIdentityPath(identityId) + "/credentials/" + encodeURIComponent(credentialId), void 0, signal ? { signal } : {});
+  }
+}
+function serviceIdentityPath(identityId) {
+  return resourcePath("/v2/service-identities", identityId);
 }
 class WorkersService extends ServiceBase {
   list(query = {}, signal) {
@@ -14721,6 +14958,7 @@ class TMAClient {
     __publicField(this, "orchestration");
     __publicField(this, "llm");
     __publicField(this, "objectRefs");
+    __publicField(this, "objectCleanup");
     __publicField(this, "workers");
     __publicField(this, "workerWork");
     __publicField(this, "mcp");
@@ -14730,6 +14968,11 @@ class TMAClient {
     __publicField(this, "workspaceToolPermissions");
     __publicField(this, "skills");
     __publicField(this, "marketplace");
+    __publicField(this, "tenantAdministration");
+    __publicField(this, "serviceIdentities");
+    __publicField(this, "retrieval");
+    __publicField(this, "modelRuntime");
+    __publicField(this, "speech");
     const transport = new Transport(baseURL2, options);
     this.raw = createLowLevelClient(transport.baseURL, transport.fetch);
     this.auth = new AuthService(transport);
@@ -14744,6 +14987,7 @@ class TMAClient {
     this.orchestration = new OrchestrationService(transport);
     this.llm = new LLMService(transport);
     this.objectRefs = new ObjectRefsService(transport);
+    this.objectCleanup = new ObjectCleanupService(transport);
     this.workers = new WorkersService(transport);
     this.workerWork = new WorkerWorkService(transport);
     this.mcp = new MCPService(transport);
@@ -14753,6 +14997,11 @@ class TMAClient {
     this.workspaceToolPermissions = new WorkspaceToolPermissionsService(transport);
     this.skills = new SkillsService(transport);
     this.marketplace = new MarketplaceService(transport);
+    this.tenantAdministration = new TenantAdministrationService(transport);
+    this.serviceIdentities = new ServiceIdentitiesService(transport);
+    this.retrieval = new RetrievalService(transport);
+    this.modelRuntime = new ModelRuntimeService(transport);
+    this.speech = new SpeechService(transport);
   }
 }
 const baseURL = ((_a = globalThis.location) == null ? void 0 : _a.origin) || "http://localhost";
