@@ -32,7 +32,7 @@ export class SkillsService extends ServiceBase {
   }
 
   list(query: SkillListQuery = {}, signal?: AbortSignal): Promise<Skill[]> {
-    const path = withQuery("/v2/skills", { workspace_id: query.workspaceId, include_archived: query.includeArchived || undefined });
+    const path = withQuery("/v2/skills", { workspace_id: query.workspaceId, app_id: query.appId, external_ref: query.externalRef, include_archived: query.includeArchived || undefined });
     return this.transport.requestJSON<{ skills: Skill[] }>("GET", path, undefined, signal ? { signal } : {}).then((value) => value.skills);
   }
 

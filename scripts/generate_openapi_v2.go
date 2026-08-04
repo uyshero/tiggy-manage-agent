@@ -46,6 +46,13 @@ var ifMatchParameter = contractParameter{Name: "If-Match", In: "header", Require
 var ifNoneMatchParameter = contractParameter{Name: "If-None-Match", In: "header", Description: "Use * to require creation of a model that does not already exist."}
 var optionalIfMatchParameter = contractParameter{Name: "If-Match", In: "header", Description: "Quoted current model revision; required when updating an existing model."}
 
+func applicationResourceParameters() []contractParameter {
+	return []contractParameter{
+		{Name: "app_id", In: "query"},
+		{Name: "external_ref", In: "query"},
+	}
+}
+
 func traceCatalogParameters() []contractParameter {
 	return []contractParameter{
 		{Name: "workspace_id", In: "query"},
@@ -78,223 +85,247 @@ func traceSpanCatalogParameters() []contractParameter {
 }
 
 var coreContracts = map[string]routeContract{
-	"get /v2/agent/discussion-strategies":                                        {ResponseSchema: "AgentDiscussionStrategyList"},
-	"get /v2/agent/task-group-templates":                                         {ResponseSchema: "AgentTaskGroupTemplateList"},
-	"get /v2/agents/default":                                                     {ResponseSchema: "Agent"},
-	"post /v2/agents/import":                                                     {RequestSchema: "AgentImportRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"post /v2/agents":                                                            {RequestSchema: "CreateAgentRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"get /v2/agents":                                                             {ResponseSchema: "AgentList"},
-	"get /v2/agents/{agent_id}":                                                  {ResponseSchema: "Agent"},
-	"patch /v2/agents/{agent_id}":                                                {RequestSchema: "UpdateAgentRequest", RequestRequired: true, ResponseSchema: "Agent"},
-	"get /v2/agents/{agent_id}/config-versions":                                  {ResponseSchema: "AgentConfigVersionList"},
-	"post /v2/agents/{agent_id}/config-versions":                                 {RequestSchema: "CreateAgentConfigVersionRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
-	"post /v2/agents/{agent_id}/config-versions/{version}/rollback":              {ResponseSchema: "AgentConfigRollbackResponse", SuccessStatuses: []string{"201"}, IntegerPathParameters: map[string]bool{"version": true}},
-	"get /v2/agents/{agent_id}/export":                                           {ResponseSchema: "AgentExportDocument"},
-	"post /v2/agents/{agent_id}/tooling-health":                                  {RequestSchema: "ToolingHealthRequest", ResponseSchema: "ToolingHealthResponse"},
-	"get /v2/agents/{agent_id}/schedules":                                        {ResponseSchema: "AgentScheduleList"},
-	"post /v2/agents/{agent_id}/schedules":                                       {RequestSchema: "CreateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule", SuccessStatuses: []string{"201"}},
-	"get /v2/agents/{agent_id}/schedules/{schedule_id}":                          {ResponseSchema: "AgentSchedule"},
-	"patch /v2/agents/{agent_id}/schedules/{schedule_id}":                        {RequestSchema: "UpdateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule"},
-	"delete /v2/agents/{agent_id}/schedules/{schedule_id}":                       {SuccessStatuses: []string{"204"}},
-	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                     {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201", "202"}},
-	"get /v2/auth/config":                                                        {ResponseSchema: "AuthClientConfiguration"},
-	"get /v2/auth/me":                                                            {ResponseSchema: "AuthState"},
-	"post /v2/auth/token-exchange":                                               {RequestSchema: "TokenExchangeRequest", RequestRequired: true, ResponseSchema: "TokenExchangeResponse", ErrorStatuses: []string{"400", "401", "403", "503"}},
-	"get /v2/administration/context":                                             {ResponseSchema: "AdministrationContext"},
-	"get /v2/console/context":                                                    {Deprecated: true, ResponseSchema: "ConsoleContext"},
-	"get /v2/workspace/members":                                                  {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
-	"put /v2/workspace/members/{subject}":                                        {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
-	"delete /v2/workspace/members/{subject}":                                     {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
-	"get /v2/service-identities/scopes":                                          {ResponseSchema: "ServiceIdentityScopeList", ErrorStatuses: []string{"403"}},
-	"get /v2/service-identities":                                                 {ResponseSchema: "ServiceIdentityList", ErrorStatuses: []string{"403"}},
-	"post /v2/service-identities":                                                {RequestSchema: "CreateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "409"}},
-	"get /v2/service-identities/{identity_id}":                                   {ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404"}},
-	"patch /v2/service-identities/{identity_id}":                                 {RequestSchema: "UpdateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404", "409"}},
-	"get /v2/service-identities/{identity_id}/credentials":                       {ResponseSchema: "ServiceCredentialList", ErrorStatuses: []string{"403", "404"}},
-	"post /v2/service-identities/{identity_id}/credentials":                      {RequestSchema: "CreateServiceCredentialRequest", RequestRequired: true, ResponseSchema: "CreatedServiceCredential", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "404"}},
-	"delete /v2/service-identities/{identity_id}/credentials/{credential_id}":    {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "404"}},
-	"get /v2/platform/workspaces":                                                {ResponseSchema: "TenantWorkspaceList", ErrorStatuses: []string{"403"}},
-	"post /v2/platform/workspaces":                                               {RequestSchema: "CreateTenantWorkspaceRequest", RequestRequired: true, ResponseSchema: "TenantWorkspace", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403"}},
-	"get /v2/platform/workspaces/{workspace_id}/members":                         {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
-	"put /v2/platform/workspaces/{workspace_id}/members/{subject}":               {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
-	"delete /v2/platform/workspaces/{workspace_id}/members/{subject}":            {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
-	"get /v2/platform/admins":                                                    {ResponseSchema: "PlatformRoleAssignmentList", ErrorStatuses: []string{"403"}},
-	"put /v2/platform/admins/{subject}":                                          {RequestSchema: "UpsertPlatformAdminRequest", RequestRequired: true, ResponseSchema: "PlatformRoleAssignment", ErrorStatuses: []string{"403"}},
-	"delete /v2/platform/admins/{subject}":                                       {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403"}},
-	"get /v2/environment-variables":                                              {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"put /v2/environment-variables/{name}":                                       {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"delete /v2/environment-variables/{name}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/workspaces/{workspace_id}/tool-permissions":                         {ResponseSchema: "WorkspaceToolPermissionPolicy"},
-	"put /v2/workspaces/{workspace_id}/tool-permissions":                         {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":               {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
-	"post /v2/environments":                                                      {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
-	"get /v2/environments":                                                       {ResponseSchema: "EnvironmentList"},
-	"get /v2/environments/{environment_id}":                                      {ResponseSchema: "Environment"},
-	"get /v2/llm-providers":                                                      {ResponseSchema: "LLMProviderList"},
-	"post /v2/llm-providers":                                                     {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
-	"get /v2/llm-providers/{provider_id}":                                        {ResponseSchema: "LLMProvider"},
-	"patch /v2/llm-providers/{provider_id}":                                      {RequestSchema: "UpdateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/enable":                                {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/disable":                               {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
-	"post /v2/llm-providers/{provider_id}/test":                                  {ResponseSchema: "LLMDiagnosticResult"},
-	"delete /v2/llm-providers/{provider_id}":                                     {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/llm-models":                                                         {ResponseSchema: "LLMModelList", Parameters: []contractParameter{{Name: "provider_id", In: "query"}}},
-	"post /v2/llm-models":                                                        {RequestSchema: "PutLLMModelRequest", RequestRequired: true, ResponseSchema: "LLMModel", SuccessStatuses: []string{"200", "201"}, Parameters: []contractParameter{optionalIfMatchParameter, ifNoneMatchParameter}},
-	"post /v2/llm-models/{provider_id}/{model}/test":                             {ResponseSchema: "LLMDiagnosticResult"},
-	"delete /v2/llm-models/{provider_id}/{model}":                                {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/llm-usage":                                                          {ResponseSchema: "LLMUsageAggregateReport"},
-	"post /v2/model-runtime/generate":                                            {RequestSchema: "ModelGenerateRequest", RequestRequired: true, ResponseSchema: "ModelGenerateResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
-	"post /v2/model-runtime/embeddings":                                          {RequestSchema: "ModelEmbeddingRequest", RequestRequired: true, ResponseSchema: "ModelEmbeddingResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
-	"post /v2/model-runtime/rerank":                                              {RequestSchema: "ModelRerankRequest", RequestRequired: true, ResponseSchema: "ModelRerankResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
-	"get /v2/model-runtime/invocations":                                          {ResponseSchema: "ModelInvocationReport", ErrorStatuses: []string{"403"}, Parameters: []contractParameter{{Name: "principal_id", In: "query"}, {Name: "service_identity_id", In: "query"}, {Name: "capability", In: "query"}, {Name: "provider_id", In: "query"}, {Name: "model", In: "query"}, {Name: "status", In: "query"}, {Name: "from", In: "query", Type: "string", Format: "date-time"}, {Name: "to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/speech/realtime":                                                    {SuccessStatuses: []string{"101"}},
-	"get /v2/retrieval/collections":                                              {ResponseSchema: "RetrievalCollectionList"},
-	"post /v2/retrieval/collections":                                             {RequestSchema: "CreateRetrievalCollectionRequest", RequestRequired: true, ResponseSchema: "RetrievalCollection", SuccessStatuses: []string{"201"}},
-	"delete /v2/retrieval/collections/{collection_id}":                           {SuccessStatuses: []string{"204"}},
-	"get /v2/retrieval/collections/{collection_id}/documents":                    {ResponseSchema: "RetrievalDocumentList"},
-	"post /v2/retrieval/collections/{collection_id}/documents":                   {RequestSchema: "UploadRetrievalDocumentRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "RetrievalDocumentUploadResult", SuccessStatuses: []string{"201"}},
-	"get /v2/retrieval/documents/{document_id}":                                  {ResponseSchema: "RetrievalDocument"},
-	"delete /v2/retrieval/documents/{document_id}":                               {SuccessStatuses: []string{"204"}},
-	"get /v2/retrieval/ingestion-jobs/{job_id}":                                  {ResponseSchema: "RetrievalIngestionJob"},
-	"post /v2/retrieval/search":                                                  {RequestSchema: "RetrievalSearchRequest", RequestRequired: true, ResponseSchema: "RetrievalSearchResponse"},
-	"get /v2/mcp-servers":                                                        {ResponseSchema: "MCPServerList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/mcp-servers":                                                       {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
-	"get /v2/mcp-servers/runtime-status":                                         {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/mcp-servers/{server_id}":                                            {ResponseSchema: "MCPServer"},
-	"patch /v2/mcp-servers/{server_id}":                                          {RequestSchema: "UpdateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer"},
-	"delete /v2/mcp-servers/{server_id}":                                         {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/enable":                                    {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/disable":                                   {ResponseSchema: "MCPServer"},
-	"post /v2/mcp-servers/{server_id}/test":                                      {ResponseSchema: "MCPServerTestResult"},
-	"get /v2/mcp-servers/{server_id}/versions":                                   {ResponseSchema: "MCPServerVersionList"},
-	"post /v2/mcp-servers/{server_id}/versions/{version}/restore":                {ResponseSchema: "MCPRestoreResult", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/object-refs":                                                       {RequestSchema: "CreateObjectRefRequest", RequestRequired: true, ResponseSchema: "ObjectRef", SuccessStatuses: []string{"201"}},
-	"get /v2/achievement-library":                                                {ResponseSchema: "AchievementLibraryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"patch /v2/achievement-library/{item_id}":                                    {RequestSchema: "UpdateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem"},
-	"delete /v2/achievement-library/{item_id}":                                   {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/achievement-library/{item_id}/download":                             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/achievement-library/{item_id}/reference":                           {RequestSchema: "ReferenceAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryReference", SuccessStatuses: []string{"201"}},
-	"get /v2/object-refs/{object_ref_id}":                                        {ResponseSchema: "ObjectRef"},
-	"delete /v2/object-refs/{object_ref_id}":                                     {SuccessStatuses: []string{"204"}},
-	"get /v2/object-refs/{object_ref_id}/download":                               {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "session_id", In: "query"}}},
-	"get /v2/object-cleanup/jobs":                                                {ResponseSchema: "ObjectCleanupJobList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "reason", In: "query"}, {Name: "created_from", In: "query", Type: "string", Format: "date-time"}, {Name: "created_to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/object-cleanup/stats":                                               {ResponseSchema: "ObjectCleanupStats", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/object-cleanup/jobs/{job_id}/retry":                                {ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/object-cleanup/jobs/{job_id}/approve":                              {RequestSchema: "ApproveObjectCleanupRequest", RequestRequired: true, ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/object-cleanup/reconciliation/preview":                             {RequestSchema: "ObjectReconciliationPreviewRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationReport"},
-	"post /v2/object-cleanup/reconciliation/artifacts":                           {RequestSchema: "ObjectReconciliationArtifactRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationArtifactExport", SuccessStatuses: []string{"201"}},
-	"get /v2/observability/status":                                               {ResponseSchema: "ObservabilityStatus"},
-	"post /v2/observability/retry":                                               {ResponseSchema: "ObservabilityRetryResult"},
-	"get /v2/observability/security-audit/integrity-keys":                        {ResponseSchema: "SecurityAuditIntegrityKeyStatus"},
-	"post /v2/observability/security-audit/replay":                               {ResponseSchema: "SecurityAuditReplayResult", Parameters: []contractParameter{{Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/operator-audit":                                                     {ResponseSchema: "OperatorAuditList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "session_id", In: "query"}, {Name: "principal_id", In: "query"}, {Name: "action", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills":                                                            {RequestSchema: "CreateSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
-	"get /v2/skills":                                                             {ResponseSchema: "SkillList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"get /v2/skills/marketplace/discover":                                        {ResponseSchema: "MarketplaceDiscoverResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "repository", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills/marketplace/preview":                                        {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
-	"post /v2/skills/marketplace/install":                                        {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/marketplace/internal":                                        {ResponseSchema: "MarketplaceInternalResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "category", In: "query"}, {Name: "tag", In: "query", Array: true, Description: "Repeat tag to filter by multiple catalog tags."}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/skills/marketplace/internal/preview":                               {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
-	"post /v2/skills/marketplace/internal/install":                               {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
-	"post /v2/skills/resolve-preview":                                            {RequestSchema: "ResolveSkillsPreviewRequest", RequestRequired: true, ResponseSchema: "ResolveSkillsResult"},
-	"get /v2/skills/{skill_id}":                                                  {ResponseSchema: "Skill"},
-	"post /v2/skills/{skill_id}/archive":                                         {ResponseSchema: "Skill"},
-	"post /v2/skills/{skill_id}/enable":                                          {RequestSchema: "MarketplaceEnableRequest", RequestRequired: true, ResponseSchema: "MarketplaceEnableResult", SuccessStatuses: []string{"200", "201"}},
-	"post /v2/skills/{skill_id}/disable":                                         {RequestSchema: "MarketplaceDisableRequest", RequestRequired: true, ResponseSchema: "MarketplaceDisableResult", SuccessStatuses: []string{"200", "201"}},
-	"post /v2/skills/{skill_id}/versions":                                        {RequestSchema: "CreateSkillVersionRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/{skill_id}/draft":                                            {ResponseSchema: "SkillDraft"},
-	"put /v2/skills/{skill_id}/draft":                                            {RequestSchema: "PutSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillDraft"},
-	"post /v2/skills/{skill_id}/draft/publish":                                   {RequestSchema: "PublishSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
-	"post /v2/skills/{skill_id}/fork":                                            {RequestSchema: "ForkSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
-	"get /v2/skills/{skill_id}/versions":                                         {ResponseSchema: "SkillVersionList"},
-	"get /v2/skills/{skill_id}/versions/{version}":                               {ResponseSchema: "SkillVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"get /v2/skills/{skill_id}/versions/{version}/package":                       {ResponseSchema: "BinaryContent", ContentType: "application/zip", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/skill-packages/backfill":                                           {RequestSchema: "SkillPackageBackfillRequest", RequestRequired: true, ResponseSchema: "SkillPackageBackfillResult"},
-	"get /v2/skill-asset-retention/effective":                                    {ResponseSchema: "EffectiveSkillRetentionPolicy", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"post /v2/skill-asset-retention/policies":                                    {RequestSchema: "CreateSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-asset-retention/policies":                                     {ResponseSchema: "SkillRetentionPolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"get /v2/skill-asset-retention/policies/{policy_id}":                         {ResponseSchema: "SkillRetentionPolicyResult"},
-	"post /v2/skill-asset-retention/policies/{policy_id}/versions":               {RequestSchema: "PublishSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-asset-retention/policies/{policy_id}/versions/{version}":      {ResponseSchema: "SkillRetentionPolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/skill-asset-retention/policies/{policy_id}/archive":                {ResponseSchema: "SkillRetentionPolicy"},
-	"post /v2/skill-asset-gc/preview":                                            {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCPreview"},
-	"post /v2/skill-asset-gc/run":                                                {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCRunResult"},
-	"get /v2/skill-asset-gc/runs":                                                {ResponseSchema: "SkillAssetGCRunList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/skill-asset-gc/runs/{run_id}":                                       {ResponseSchema: "SkillAssetGCRunResult"},
-	"get /v2/skill-asset-gc/tombstones":                                          {ResponseSchema: "SkillAssetGCTombstoneList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/skill-marketplace-entries":                                          {ResponseSchema: "MarketplaceEntryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "include_withdrawn", In: "query", Type: "boolean"}}},
-	"post /v2/skill-marketplace-entries":                                         {RequestSchema: "CreateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-entries/{entry_id}":                               {ResponseSchema: "MarketplaceEntry", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"patch /v2/skill-marketplace-entries/{entry_id}":                             {RequestSchema: "UpdateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/submit":                       {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/publish":                      {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"post /v2/skill-marketplace-entries/{entry_id}/withdraw":                     {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
-	"get /v2/skill-marketplace-policies":                                         {ResponseSchema: "MarketplacePolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
-	"post /v2/skill-marketplace-policies":                                        {RequestSchema: "CreateMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyResult", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-policies/{policy_id}":                             {ResponseSchema: "MarketplacePolicyResult"},
-	"post /v2/skill-marketplace-policies/{policy_id}/archive":                    {ResponseSchema: "MarketplacePolicy"},
-	"post /v2/skill-marketplace-policies/{policy_id}/versions":                   {RequestSchema: "PublishMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyVersion", SuccessStatuses: []string{"201"}},
-	"get /v2/skill-marketplace-policies/{policy_id}/versions/{version}":          {ResponseSchema: "MarketplacePolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
-	"post /v2/sessions":                                                          {RequestSchema: "CreateSessionRequest", RequestRequired: true, ResponseSchema: "Session", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions":                                                           {ResponseSchema: "SessionList"},
-	"get /v2/session-comparisons":                                                {ResponseSchema: "SessionComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}}},
-	"get /v2/run-comparisons":                                                    {ResponseSchema: "RunComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}}},
-	"post /v2/evaluation-rubrics":                                                {RequestSchema: "CreateEvaluationRubricRequest", RequestRequired: true, ResponseSchema: "EvaluationRubric", SuccessStatuses: []string{"201"}},
-	"get /v2/evaluation-rubrics":                                                 {ResponseSchema: "EvaluationRubricList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/evaluation-rubrics/{rubric_id}":                                     {ResponseSchema: "EvaluationRubric"},
-	"post /v2/run-evaluations":                                                   {RequestSchema: "CreateRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
-	"post /v2/run-evaluations/auto":                                              {RequestSchema: "AutoRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
-	"get /v2/run-evaluations":                                                    {ResponseSchema: "RunEvaluationList", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"post /v2/evaluation-datasets":                                               {RequestSchema: "CreateEvaluationDatasetRequest", RequestRequired: true, ResponseSchema: "EvaluationDataset", SuccessStatuses: []string{"201"}},
-	"get /v2/evaluation-datasets":                                                {ResponseSchema: "EvaluationDatasetList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
-	"get /v2/evaluation-datasets/{dataset_id}":                                   {ResponseSchema: "EvaluationDataset"},
-	"post /v2/evaluation-experiments":                                            {RequestSchema: "CreateEvaluationExperimentRequest", RequestRequired: true, ResponseSchema: "EvaluationExperiment", SuccessStatuses: []string{"201"}},
-	"get /v2/evaluation-experiments":                                             {ResponseSchema: "EvaluationExperimentList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
-	"get /v2/evaluation-experiments/{experiment_id}":                             {ResponseSchema: "EvaluationExperiment"},
-	"post /v2/evaluation-experiments/{experiment_id}/reconcile":                  {ResponseSchema: "EvaluationExperiment"},
-	"get /v2/sessions/{session_id}":                                              {ResponseSchema: "Session"},
-	"patch /v2/sessions/{session_id}":                                            {RequestSchema: "UpdateSessionMetadataRequest", RequestRequired: true, ResponseSchema: "Session"},
-	"delete /v2/sessions/{session_id}":                                           {SuccessStatuses: []string{"204"}},
-	"post /v2/sessions/{session_id}/archive":                                     {ResponseSchema: "Session"},
-	"post /v2/sessions/{session_id}/restore":                                     {ResponseSchema: "Session"},
-	"post /v2/sessions/{session_id}/rerun":                                       {RequestSchema: "RerunSessionRequest", ResponseSchema: "RerunSessionResponse", SuccessStatuses: []string{"201"}},
-	"patch /v2/sessions/{session_id}/runtime-settings":                           {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session", Parameters: []contractParameter{ifMatchParameter}},
-	"get /v2/sessions/{session_id}/runtime-config":                               {ResponseSchema: "AgentRuntimeConfig"},
-	"get /v2/sessions/{session_id}/runtime-capabilities":                         {ResponseSchema: "SessionRuntimeCapabilities"},
-	"post /v2/sessions/{session_id}/config/upgrade":                              {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
-	"get /v2/sessions/{session_id}/summary":                                      {ResponseSchema: "SessionSummary"},
-	"put /v2/sessions/{session_id}/summary":                                      {RequestSchema: "UpsertSessionSummaryRequest", RequestRequired: true, ResponseSchema: "SessionSummary"},
-	"get /v2/sessions/{session_id}/task-plan":                                    {ResponseSchema: "SessionTaskPlanCurrent"},
-	"get /v2/sessions/{session_id}/task-plans":                                   {ResponseSchema: "SessionTaskPlanList"},
-	"get /v2/sessions/{session_id}/usage":                                        {ResponseSchema: "SessionUsage"},
-	"get /v2/sessions/{session_id}/trace":                                        {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
-	"get /v2/sessions/{session_id}/operator-audit":                               {ResponseSchema: "OperatorAuditList"},
-	"get /v2/sessions/{session_id}/tool-permission-audit":                        {ResponseSchema: "ToolPermissionAuditList", Parameters: []contractParameter{{Name: "decision", In: "query"}, {Name: "tool", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}, {Name: "cursor", In: "query"}}},
-	"get /v2/sessions/{session_id}/skill-usages":                                 {ResponseSchema: "SkillUsageList", Parameters: []contractParameter{{Name: "turn_id", In: "query"}}},
-	"get /v2/sessions/{session_id}/interventions":                                {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve":   {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond":   {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip":      {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel":    {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
-	"post /v2/sessions/{session_id}/events":                                      {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
-	"get /v2/sessions/{session_id}/events":                                       {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
-	"get /v2/sessions/{session_id}/events/stream":                                {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
-	"get /v2/sessions/{session_id}/live/stream":                                  {ResponseSchema: "LiveEventStream", ContentType: "text/event-stream"},
-	"post /v2/sessions/{session_id}/artifacts":                                   {RequestSchema: "CreateArtifactRequest", RequestRequired: true, ResponseSchema: "Artifact", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions/{session_id}/artifacts":                                    {ResponseSchema: "ArtifactList"},
-	"post /v2/sessions/{session_id}/artifacts/upload":                            {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
-	"post /v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library": {RequestSchema: "CreateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem", SuccessStatuses: []string{"201"}},
-	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/download":             {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream"},
-	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/preview":              {ResponseSchema: "BinaryContent", ContentType: "application/pdf", Parameters: []contractParameter{{Name: "format", In: "query"}}},
-	"delete /v2/sessions/{session_id}/artifacts/{artifact_id}":                   {SuccessStatuses: []string{"204"}},
-	"get /v2/sessions/{session_id}/deliberations":                                {ResponseSchema: "AgentDeliberationList"},
-	"get /v2/sessions/{session_id}/deliberations/{deliberation_id}":              {ResponseSchema: "AgentDeliberationResponse"},
-	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/cancel":      {RequestSchema: "CancelAgentDeliberationRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse"},
+	"get /v2/agent/discussion-strategies":                                            {ResponseSchema: "AgentDiscussionStrategyList"},
+	"get /v2/agent/task-group-templates":                                             {ResponseSchema: "AgentTaskGroupTemplateList"},
+	"get /v2/agents/default":                                                         {ResponseSchema: "Agent"},
+	"post /v2/agents/import":                                                         {RequestSchema: "AgentImportRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"post /v2/agents":                                                                {RequestSchema: "CreateAgentRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"get /v2/agents":                                                                 {ResponseSchema: "AgentList", Parameters: applicationResourceParameters()},
+	"get /v2/agents/{agent_id}":                                                      {ResponseSchema: "Agent"},
+	"patch /v2/agents/{agent_id}":                                                    {RequestSchema: "UpdateAgentRequest", RequestRequired: true, ResponseSchema: "Agent"},
+	"get /v2/agents/{agent_id}/config-versions":                                      {ResponseSchema: "AgentConfigVersionList"},
+	"post /v2/agents/{agent_id}/config-versions":                                     {RequestSchema: "CreateAgentConfigVersionRequest", RequestRequired: true, ResponseSchema: "Agent", SuccessStatuses: []string{"201"}},
+	"post /v2/agents/{agent_id}/config-versions/{version}/rollback":                  {ResponseSchema: "AgentConfigRollbackResponse", SuccessStatuses: []string{"201"}, IntegerPathParameters: map[string]bool{"version": true}},
+	"get /v2/agents/{agent_id}/export":                                               {ResponseSchema: "AgentExportDocument"},
+	"post /v2/agents/{agent_id}/tooling-health":                                      {RequestSchema: "ToolingHealthRequest", ResponseSchema: "ToolingHealthResponse"},
+	"get /v2/agents/{agent_id}/schedules":                                            {ResponseSchema: "AgentScheduleList"},
+	"post /v2/agents/{agent_id}/schedules":                                           {RequestSchema: "CreateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule", SuccessStatuses: []string{"201"}},
+	"get /v2/agents/{agent_id}/schedules/{schedule_id}":                              {ResponseSchema: "AgentSchedule"},
+	"patch /v2/agents/{agent_id}/schedules/{schedule_id}":                            {RequestSchema: "UpdateAgentScheduleRequest", RequestRequired: true, ResponseSchema: "AgentSchedule"},
+	"delete /v2/agents/{agent_id}/schedules/{schedule_id}":                           {SuccessStatuses: []string{"204"}},
+	"post /v2/agents/{agent_id}/schedules/{schedule_id}/run":                         {ResponseSchema: "RunAgentScheduleResponse", SuccessStatuses: []string{"201", "202"}},
+	"get /v2/auth/config":                                                            {ResponseSchema: "AuthClientConfiguration"},
+	"get /v2/auth/me":                                                                {ResponseSchema: "AuthState"},
+	"post /v2/auth/token-exchange":                                                   {RequestSchema: "TokenExchangeRequest", RequestRequired: true, ResponseSchema: "TokenExchangeResponse", ErrorStatuses: []string{"400", "401", "403", "503"}},
+	"get /v2/capabilities":                                                           {ResponseSchema: "CapabilityDiscoveryResponse"},
+	"get /v2/quota-policies":                                                        {ResponseSchema: "ModelRuntimeQuotaPolicyList", Parameters: []contractParameter{{Name: "include_archived", In: "query", Type: "boolean"}}, ErrorStatuses: []string{"403"}},
+	"put /v2/quota-policies/workspace":                                              {RequestSchema: "PutModelRuntimeQuotaPolicyRequest", RequestRequired: true, ResponseSchema: "ModelRuntimeQuotaPolicy", Parameters: []contractParameter{{Name: "If-Match", In: "header"}}, ErrorStatuses: []string{"403", "412"}},
+	"put /v2/quota-policies/applications/{app_id}":                                  {RequestSchema: "PutModelRuntimeQuotaPolicyRequest", RequestRequired: true, ResponseSchema: "ModelRuntimeQuotaPolicy", Parameters: []contractParameter{{Name: "If-Match", In: "header"}}, ErrorStatuses: []string{"403", "404", "412"}},
+	"delete /v2/quota-policies/applications/{app_id}":                               {ResponseSchema: "ModelRuntimeQuotaPolicy", Parameters: []contractParameter{ifMatchParameter}, ErrorStatuses: []string{"403", "404", "412"}},
+	"get /v2/quota-policies/effective":                                              {ResponseSchema: "ModelRuntimeQuotaStatus", Parameters: []contractParameter{{Name: "app_id", In: "query"}}, ErrorStatuses: []string{"403"}},
+	"get /v2/administration/context":                                                 {ResponseSchema: "AdministrationContext"},
+	"get /v2/console/context":                                                        {Deprecated: true, ResponseSchema: "ConsoleContext"},
+	"get /v2/workspace/members":                                                      {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
+	"put /v2/workspace/members/{subject}":                                            {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
+	"delete /v2/workspace/members/{subject}":                                         {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/service-identities/scopes":                                              {ResponseSchema: "ServiceIdentityScopeList", ErrorStatuses: []string{"403"}},
+	"get /v2/service-identities":                                                     {ResponseSchema: "ServiceIdentityList", ErrorStatuses: []string{"403"}},
+	"post /v2/service-identities":                                                    {RequestSchema: "CreateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/service-identities/{identity_id}":                                       {ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404"}},
+	"patch /v2/service-identities/{identity_id}":                                     {RequestSchema: "UpdateServiceIdentityRequest", RequestRequired: true, ResponseSchema: "ServiceIdentity", ErrorStatuses: []string{"403", "404", "409"}},
+	"get /v2/service-identities/{identity_id}/credentials":                           {ResponseSchema: "ServiceCredentialList", ErrorStatuses: []string{"403", "404"}},
+	"post /v2/service-identities/{identity_id}/credentials":                          {RequestSchema: "CreateServiceCredentialRequest", RequestRequired: true, ResponseSchema: "CreatedServiceCredential", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403", "404"}},
+	"delete /v2/service-identities/{identity_id}/credentials/{credential_id}":        {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "404"}},
+	"get /v2/platform/workspaces":                                                    {ResponseSchema: "TenantWorkspaceList", ErrorStatuses: []string{"403"}},
+	"post /v2/platform/workspaces":                                                   {RequestSchema: "CreateTenantWorkspaceRequest", RequestRequired: true, ResponseSchema: "TenantWorkspace", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"403"}},
+	"get /v2/platform/workspaces/{workspace_id}/members":                             {ResponseSchema: "WorkspaceMembershipList", ErrorStatuses: []string{"403"}},
+	"put /v2/platform/workspaces/{workspace_id}/members/{subject}":                   {RequestSchema: "UpsertWorkspaceMembershipRequest", RequestRequired: true, ResponseSchema: "WorkspaceMembership", ErrorStatuses: []string{"403", "409"}},
+	"delete /v2/platform/workspaces/{workspace_id}/members/{subject}":                {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403", "409"}},
+	"get /v2/platform/admins":                                                        {ResponseSchema: "PlatformRoleAssignmentList", ErrorStatuses: []string{"403"}},
+	"put /v2/platform/admins/{subject}":                                              {RequestSchema: "UpsertPlatformAdminRequest", RequestRequired: true, ResponseSchema: "PlatformRoleAssignment", ErrorStatuses: []string{"403"}},
+	"delete /v2/platform/admins/{subject}":                                           {SuccessStatuses: []string{"204"}, ErrorStatuses: []string{"403"}},
+	"get /v2/environment-variables":                                                  {ResponseSchema: "EnvironmentVariableList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "app_id", In: "query"}}, ErrorStatuses: []string{"403"}},
+	"put /v2/environment-variables/{name}":                                           {RequestSchema: "PutEnvironmentVariableRequest", RequestRequired: true, ResponseSchema: "EnvironmentVariable", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "app_id", In: "query"}}, ErrorStatuses: []string{"403"}},
+	"delete /v2/environment-variables/{name}":                                        {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "app_id", In: "query"}}, ErrorStatuses: []string{"403"}},
+	"get /v2/workspaces/{workspace_id}/tool-permissions":                             {ResponseSchema: "WorkspaceToolPermissionPolicy"},
+	"put /v2/workspaces/{workspace_id}/tool-permissions":                             {RequestSchema: "UpdateWorkspaceToolPermissionPolicyRequest", RequestRequired: true, ResponseSchema: "WorkspaceToolPermissionPolicy", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/workspaces/{workspace_id}/tool-permissions/evaluate":                   {RequestSchema: "EvaluateWorkspaceToolPermissionRequest", RequestRequired: true, ResponseSchema: "EvaluateWorkspaceToolPermissionResult"},
+	"post /v2/environments":                                                          {RequestSchema: "CreateEnvironmentRequest", RequestRequired: true, ResponseSchema: "Environment", SuccessStatuses: []string{"201"}},
+	"get /v2/environments":                                                           {ResponseSchema: "EnvironmentList", Parameters: applicationResourceParameters()},
+	"post /v2/application-manifests/publish":                                         {RequestSchema: "PublishApplicationManifestRequest", RequestRequired: true, ResponseSchema: "ApplicationManifestPublishResult", ErrorStatuses: []string{"400", "403", "409", "501"}},
+	"post /v2/artifact-exchanges/imports":                                            {RequestSchema: "CreateArtifactImportExchangeRequest", RequestRequired: true, ResponseSchema: "ArtifactExchangeGrant", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"400", "403", "404", "501"}},
+	"post /v2/artifact-exchanges/exports":                                            {RequestSchema: "CreateArtifactExportExchangeRequest", RequestRequired: true, ResponseSchema: "ArtifactExchangeGrant", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"400", "403", "404", "501"}},
+	"get /v2/artifact-exchanges/{exchange_id}":                                       {ResponseSchema: "ArtifactExchange", ErrorStatuses: []string{"403", "404", "501"}},
+	"get /v2/artifact-exchanges/{exchange_id}/content":                               {ResponseSchema: "ArtifactExchangeContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "workspace_id", In: "query", Required: true}, {Name: "token", In: "query", Required: true}}, ErrorStatuses: []string{"404", "503"}},
+	"put /v2/artifact-exchanges/{exchange_id}/content":                               {RequestSchema: "ArtifactExchangeContent", RequestRequired: true, RequestContentType: "application/octet-stream", ResponseSchema: "ArtifactExchangeImportResult", SuccessStatuses: []string{"201"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query", Required: true}, {Name: "token", In: "query", Required: true}}, ErrorStatuses: []string{"400", "404", "413", "503"}},
+	"get /v2/event-subscriptions/event-types":                                        {ResponseSchema: "EventTypeList", ErrorStatuses: []string{"403"}},
+	"get /v2/event-subscriptions":                                                    {ResponseSchema: "EventSubscriptionList", Parameters: []contractParameter{{Name: "app_id", In: "query"}}, ErrorStatuses: []string{"403", "501"}},
+	"post /v2/event-subscriptions":                                                   {RequestSchema: "CreateEventSubscriptionRequest", RequestRequired: true, ResponseSchema: "CreatedEventSubscription", SuccessStatuses: []string{"201"}, ErrorStatuses: []string{"400", "403", "409", "501"}},
+	"get /v2/event-subscriptions/{subscription_id}":                                  {ResponseSchema: "EventSubscription", ErrorStatuses: []string{"403", "404", "501"}},
+	"patch /v2/event-subscriptions/{subscription_id}":                                {RequestSchema: "UpdateEventSubscriptionRequest", RequestRequired: true, ResponseSchema: "EventSubscription", ErrorStatuses: []string{"400", "403", "404", "409", "501"}},
+	"delete /v2/event-subscriptions/{subscription_id}":                               {ResponseSchema: "EventSubscription", ErrorStatuses: []string{"403", "404", "501"}},
+	"post /v2/event-subscriptions/{subscription_id}/rotate-secret":                   {ResponseSchema: "CreatedEventSubscription", ErrorStatuses: []string{"403", "404", "501"}},
+	"get /v2/event-subscriptions/{subscription_id}/deliveries":                       {ResponseSchema: "EventDeliveryList", Parameters: []contractParameter{{Name: "status", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}, ErrorStatuses: []string{"403", "404", "501"}},
+	"post /v2/event-subscriptions/{subscription_id}/deliveries/{delivery_id}/replay": {ResponseSchema: "EventDelivery", ErrorStatuses: []string{"403", "404", "409", "501"}},
+	"get /v2/environments/{environment_id}":                                          {ResponseSchema: "Environment"},
+	"get /v2/llm-providers":                                                          {ResponseSchema: "LLMProviderList"},
+	"post /v2/llm-providers":                                                         {RequestSchema: "CreateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", SuccessStatuses: []string{"201"}},
+	"get /v2/llm-providers/{provider_id}":                                            {ResponseSchema: "LLMProvider"},
+	"patch /v2/llm-providers/{provider_id}":                                          {RequestSchema: "UpdateLLMProviderRequest", RequestRequired: true, ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/enable":                                    {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/disable":                                   {ResponseSchema: "LLMProvider", Parameters: []contractParameter{ifMatchParameter}},
+	"post /v2/llm-providers/{provider_id}/test":                                      {ResponseSchema: "LLMDiagnosticResult"},
+	"delete /v2/llm-providers/{provider_id}":                                         {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/llm-models":                                                             {ResponseSchema: "LLMModelList", Parameters: []contractParameter{{Name: "provider_id", In: "query"}}},
+	"post /v2/llm-models":                                                            {RequestSchema: "PutLLMModelRequest", RequestRequired: true, ResponseSchema: "LLMModel", SuccessStatuses: []string{"200", "201"}, Parameters: []contractParameter{optionalIfMatchParameter, ifNoneMatchParameter}},
+	"post /v2/llm-models/{provider_id}/{model}/test":                                 {ResponseSchema: "LLMDiagnosticResult"},
+	"delete /v2/llm-models/{provider_id}/{model}":                                    {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/llm-usage":                                                              {ResponseSchema: "LLMUsageAggregateReport"},
+	"post /v2/model-runtime/generate":                                                {RequestSchema: "ModelGenerateRequest", RequestRequired: true, ResponseSchema: "ModelGenerateResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"post /v2/model-runtime/embeddings":                                              {RequestSchema: "ModelEmbeddingRequest", RequestRequired: true, ResponseSchema: "ModelEmbeddingResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"post /v2/model-runtime/rerank":                                                  {RequestSchema: "ModelRerankRequest", RequestRequired: true, ResponseSchema: "ModelRerankResponse", ErrorStatuses: []string{"400", "404", "409", "429", "502", "504"}},
+	"get /v2/model-runtime/multimodal/realtime":                                     {SuccessStatuses: []string{"101"}},
+	"get /v2/model-runtime/invocations":                                              {ResponseSchema: "ModelInvocationReport", ErrorStatuses: []string{"403"}, Parameters: []contractParameter{{Name: "principal_id", In: "query"}, {Name: "service_identity_id", In: "query"}, {Name: "capability", In: "query"}, {Name: "provider_id", In: "query"}, {Name: "model", In: "query"}, {Name: "status", In: "query"}, {Name: "from", In: "query", Type: "string", Format: "date-time"}, {Name: "to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/speech/realtime":                                                        {SuccessStatuses: []string{"101"}},
+	"get /v2/retrieval/collections":                                                  {ResponseSchema: "RetrievalCollectionList"},
+	"post /v2/retrieval/collections":                                                 {RequestSchema: "CreateRetrievalCollectionRequest", RequestRequired: true, ResponseSchema: "RetrievalCollection", SuccessStatuses: []string{"201"}},
+	"delete /v2/retrieval/collections/{collection_id}":                               {SuccessStatuses: []string{"204"}},
+	"get /v2/retrieval/collections/{collection_id}/documents":                        {ResponseSchema: "RetrievalDocumentList"},
+	"post /v2/retrieval/collections/{collection_id}/documents":                       {RequestSchema: "UploadRetrievalDocumentRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "RetrievalDocumentUploadResult", SuccessStatuses: []string{"201"}},
+	"get /v2/retrieval/documents/{document_id}":                                      {ResponseSchema: "RetrievalDocument"},
+	"delete /v2/retrieval/documents/{document_id}":                                   {SuccessStatuses: []string{"204"}},
+	"get /v2/retrieval/ingestion-jobs/{job_id}":                                      {ResponseSchema: "RetrievalIngestionJob"},
+	"post /v2/retrieval/search":                                                      {RequestSchema: "RetrievalSearchRequest", RequestRequired: true, ResponseSchema: "RetrievalSearchResponse"},
+	"get /v2/mcp-servers":                                                            {ResponseSchema: "MCPServerList", Parameters: append([]contractParameter{{Name: "workspace_id", In: "query"}}, applicationResourceParameters()...)},
+	"post /v2/mcp-servers":                                                           {RequestSchema: "CreateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer", SuccessStatuses: []string{"201"}},
+	"get /v2/mcp-servers/runtime-status":                                             {ResponseSchema: "MCPRuntimeStatus", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/mcp-servers/{server_id}":                                                {ResponseSchema: "MCPServer"},
+	"patch /v2/mcp-servers/{server_id}":                                              {RequestSchema: "UpdateMCPServerRequest", RequestRequired: true, ResponseSchema: "MCPServer"},
+	"delete /v2/mcp-servers/{server_id}":                                             {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/enable":                                        {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/disable":                                       {ResponseSchema: "MCPServer"},
+	"post /v2/mcp-servers/{server_id}/test":                                          {ResponseSchema: "MCPServerTestResult"},
+	"get /v2/mcp-servers/{server_id}/versions":                                       {ResponseSchema: "MCPServerVersionList"},
+	"post /v2/mcp-servers/{server_id}/versions/{version}/restore":                    {ResponseSchema: "MCPRestoreResult", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/object-refs":                                                           {RequestSchema: "CreateObjectRefRequest", RequestRequired: true, ResponseSchema: "ObjectRef", SuccessStatuses: []string{"201"}},
+	"get /v2/achievement-library":                                                    {ResponseSchema: "AchievementLibraryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"patch /v2/achievement-library/{item_id}":                                        {RequestSchema: "UpdateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem"},
+	"delete /v2/achievement-library/{item_id}":                                       {SuccessStatuses: []string{"204"}, Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/achievement-library/{item_id}/download":                                 {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/achievement-library/{item_id}/reference":                               {RequestSchema: "ReferenceAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryReference", SuccessStatuses: []string{"201"}},
+	"get /v2/object-refs/{object_ref_id}":                                            {ResponseSchema: "ObjectRef"},
+	"delete /v2/object-refs/{object_ref_id}":                                         {SuccessStatuses: []string{"204"}},
+	"get /v2/object-refs/{object_ref_id}/download":                                   {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream", Parameters: []contractParameter{{Name: "session_id", In: "query"}}},
+	"get /v2/object-cleanup/jobs":                                                    {ResponseSchema: "ObjectCleanupJobList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "reason", In: "query"}, {Name: "created_from", In: "query", Type: "string", Format: "date-time"}, {Name: "created_to", In: "query", Type: "string", Format: "date-time"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/object-cleanup/stats":                                                   {ResponseSchema: "ObjectCleanupStats", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/jobs/{job_id}/retry":                                    {ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/jobs/{job_id}/approve":                                  {RequestSchema: "ApproveObjectCleanupRequest", RequestRequired: true, ResponseSchema: "ObjectCleanupJob", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/object-cleanup/reconciliation/preview":                                 {RequestSchema: "ObjectReconciliationPreviewRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationReport"},
+	"post /v2/object-cleanup/reconciliation/artifacts":                               {RequestSchema: "ObjectReconciliationArtifactRequest", RequestRequired: true, ResponseSchema: "ObjectReconciliationArtifactExport", SuccessStatuses: []string{"201"}},
+	"get /v2/observability/status":                                                   {ResponseSchema: "ObservabilityStatus"},
+	"post /v2/observability/retry":                                                   {ResponseSchema: "ObservabilityRetryResult"},
+	"get /v2/observability/security-audit/integrity-keys":                            {ResponseSchema: "SecurityAuditIntegrityKeyStatus"},
+	"post /v2/observability/security-audit/replay":                                   {ResponseSchema: "SecurityAuditReplayResult", Parameters: []contractParameter{{Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/operator-audit":                                                         {ResponseSchema: "OperatorAuditList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "session_id", In: "query"}, {Name: "principal_id", In: "query"}, {Name: "action", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills":                                                                {RequestSchema: "CreateSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
+	"get /v2/skills":                                                                 {ResponseSchema: "SkillList", Parameters: append([]contractParameter{{Name: "workspace_id", In: "query"}}, append(applicationResourceParameters(), contractParameter{Name: "include_archived", In: "query", Type: "boolean"})...)},
+	"get /v2/skills/marketplace/discover":                                            {ResponseSchema: "MarketplaceDiscoverResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "repository", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills/marketplace/preview":                                            {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
+	"post /v2/skills/marketplace/install":                                            {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/marketplace/internal":                                            {ResponseSchema: "MarketplaceInternalResult", Parameters: []contractParameter{{Name: "session_id", In: "query", Required: true}, {Name: "query", In: "query"}, {Name: "category", In: "query"}, {Name: "tag", In: "query", Array: true, Description: "Repeat tag to filter by multiple catalog tags."}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/skills/marketplace/internal/preview":                                   {RequestSchema: "MarketplacePreviewRequest", RequestRequired: true, ResponseSchema: "MarketplacePreviewResult"},
+	"post /v2/skills/marketplace/internal/install":                                   {RequestSchema: "MarketplaceInstallRequest", RequestRequired: true, ResponseSchema: "MarketplaceInstallResult", SuccessStatuses: []string{"201"}},
+	"post /v2/skills/resolve-preview":                                                {RequestSchema: "ResolveSkillsPreviewRequest", RequestRequired: true, ResponseSchema: "ResolveSkillsResult"},
+	"get /v2/skills/{skill_id}":                                                      {ResponseSchema: "Skill"},
+	"post /v2/skills/{skill_id}/archive":                                             {ResponseSchema: "Skill"},
+	"post /v2/skills/{skill_id}/enable":                                              {RequestSchema: "MarketplaceEnableRequest", RequestRequired: true, ResponseSchema: "MarketplaceEnableResult", SuccessStatuses: []string{"200", "201"}},
+	"post /v2/skills/{skill_id}/disable":                                             {RequestSchema: "MarketplaceDisableRequest", RequestRequired: true, ResponseSchema: "MarketplaceDisableResult", SuccessStatuses: []string{"200", "201"}},
+	"post /v2/skills/{skill_id}/versions":                                            {RequestSchema: "CreateSkillVersionRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/{skill_id}/draft":                                                {ResponseSchema: "SkillDraft"},
+	"put /v2/skills/{skill_id}/draft":                                                {RequestSchema: "PutSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillDraft"},
+	"post /v2/skills/{skill_id}/draft/publish":                                       {RequestSchema: "PublishSkillDraftRequest", RequestRequired: true, ResponseSchema: "SkillVersion", SuccessStatuses: []string{"201"}},
+	"post /v2/skills/{skill_id}/fork":                                                {RequestSchema: "ForkSkillRequest", RequestRequired: true, ResponseSchema: "Skill", SuccessStatuses: []string{"201"}},
+	"get /v2/skills/{skill_id}/versions":                                             {ResponseSchema: "SkillVersionList"},
+	"get /v2/skills/{skill_id}/versions/{version}":                                   {ResponseSchema: "SkillVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"get /v2/skills/{skill_id}/versions/{version}/package":                           {ResponseSchema: "BinaryContent", ContentType: "application/zip", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/skill-packages/backfill":                                               {RequestSchema: "SkillPackageBackfillRequest", RequestRequired: true, ResponseSchema: "SkillPackageBackfillResult"},
+	"get /v2/skill-asset-retention/effective":                                        {ResponseSchema: "EffectiveSkillRetentionPolicy", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"post /v2/skill-asset-retention/policies":                                        {RequestSchema: "CreateSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-asset-retention/policies":                                         {ResponseSchema: "SkillRetentionPolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
+	"get /v2/skill-asset-retention/policies/{policy_id}":                             {ResponseSchema: "SkillRetentionPolicyResult"},
+	"post /v2/skill-asset-retention/policies/{policy_id}/versions":                   {RequestSchema: "PublishSkillRetentionPolicyRequest", RequestRequired: true, ResponseSchema: "SkillRetentionPolicyVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-asset-retention/policies/{policy_id}/versions/{version}":          {ResponseSchema: "SkillRetentionPolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/skill-asset-retention/policies/{policy_id}/archive":                    {ResponseSchema: "SkillRetentionPolicy"},
+	"post /v2/skill-asset-gc/preview":                                                {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCPreview"},
+	"post /v2/skill-asset-gc/run":                                                    {RequestSchema: "SkillAssetGCRequest", RequestRequired: true, ResponseSchema: "SkillAssetGCRunResult"},
+	"get /v2/skill-asset-gc/runs":                                                    {ResponseSchema: "SkillAssetGCRunList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/skill-asset-gc/runs/{run_id}":                                           {ResponseSchema: "SkillAssetGCRunResult"},
+	"get /v2/skill-asset-gc/tombstones":                                              {ResponseSchema: "SkillAssetGCTombstoneList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/skill-marketplace-entries":                                              {ResponseSchema: "MarketplaceEntryList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "status", In: "query"}, {Name: "include_withdrawn", In: "query", Type: "boolean"}}},
+	"post /v2/skill-marketplace-entries":                                             {RequestSchema: "CreateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-entries/{entry_id}":                                   {ResponseSchema: "MarketplaceEntry", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"patch /v2/skill-marketplace-entries/{entry_id}":                                 {RequestSchema: "UpdateMarketplaceEntryRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/submit":                           {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/publish":                          {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"post /v2/skill-marketplace-entries/{entry_id}/withdraw":                         {RequestSchema: "MarketplaceTransitionRequest", RequestRequired: true, ResponseSchema: "MarketplaceEntry"},
+	"get /v2/skill-marketplace-policies":                                             {ResponseSchema: "MarketplacePolicyList", Parameters: []contractParameter{{Name: "organization_id", In: "query"}, {Name: "workspace_id", In: "query"}, {Name: "include_archived", In: "query", Type: "boolean"}}},
+	"post /v2/skill-marketplace-policies":                                            {RequestSchema: "CreateMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyResult", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-policies/{policy_id}":                                 {ResponseSchema: "MarketplacePolicyResult"},
+	"post /v2/skill-marketplace-policies/{policy_id}/archive":                        {ResponseSchema: "MarketplacePolicy"},
+	"post /v2/skill-marketplace-policies/{policy_id}/versions":                       {RequestSchema: "PublishMarketplacePolicyRequest", RequestRequired: true, ResponseSchema: "MarketplacePolicyVersion", SuccessStatuses: []string{"201"}},
+	"get /v2/skill-marketplace-policies/{policy_id}/versions/{version}":              {ResponseSchema: "MarketplacePolicyVersion", IntegerPathParameters: map[string]bool{"version": true}},
+	"post /v2/sessions":                                                              {RequestSchema: "CreateSessionRequest", RequestRequired: true, ResponseSchema: "Session", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions":                                                               {ResponseSchema: "SessionList", Parameters: applicationResourceParameters()},
+	"get /v2/session-comparisons":                                                    {ResponseSchema: "SessionComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}}},
+	"get /v2/run-comparisons":                                                        {ResponseSchema: "RunComparison", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}}},
+	"post /v2/evaluation-rubrics":                                                    {RequestSchema: "CreateEvaluationRubricRequest", RequestRequired: true, ResponseSchema: "EvaluationRubric", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-rubrics":                                                     {ResponseSchema: "EvaluationRubricList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/evaluation-rubrics/{rubric_id}":                                         {ResponseSchema: "EvaluationRubric"},
+	"post /v2/run-evaluations":                                                       {RequestSchema: "CreateRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
+	"post /v2/run-evaluations/auto":                                                  {RequestSchema: "AutoRunEvaluationRequest", RequestRequired: true, ResponseSchema: "RunEvaluation", SuccessStatuses: []string{"201"}},
+	"get /v2/run-evaluations":                                                        {ResponseSchema: "RunEvaluationList", Parameters: []contractParameter{{Name: "left_session_id", In: "query", Required: true}, {Name: "left_turn_id", In: "query", Required: true}, {Name: "right_session_id", In: "query", Required: true}, {Name: "right_turn_id", In: "query", Required: true}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"post /v2/evaluation-datasets":                                                   {RequestSchema: "CreateEvaluationDatasetRequest", RequestRequired: true, ResponseSchema: "EvaluationDataset", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-datasets":                                                    {ResponseSchema: "EvaluationDatasetList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}}},
+	"get /v2/evaluation-datasets/{dataset_id}":                                       {ResponseSchema: "EvaluationDataset"},
+	"post /v2/evaluation-experiments":                                                {RequestSchema: "CreateEvaluationExperimentRequest", RequestRequired: true, ResponseSchema: "EvaluationExperiment", SuccessStatuses: []string{"201"}},
+	"get /v2/evaluation-experiments":                                                 {ResponseSchema: "EvaluationExperimentList", Parameters: []contractParameter{{Name: "workspace_id", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}}},
+	"get /v2/evaluation-experiments/{experiment_id}":                                 {ResponseSchema: "EvaluationExperiment"},
+	"post /v2/evaluation-experiments/{experiment_id}/reconcile":                      {ResponseSchema: "EvaluationExperiment"},
+	"get /v2/sessions/{session_id}":                                                  {ResponseSchema: "Session"},
+	"patch /v2/sessions/{session_id}":                                                {RequestSchema: "UpdateSessionMetadataRequest", RequestRequired: true, ResponseSchema: "Session"},
+	"delete /v2/sessions/{session_id}":                                               {SuccessStatuses: []string{"204"}},
+	"post /v2/sessions/{session_id}/archive":                                         {ResponseSchema: "Session"},
+	"post /v2/sessions/{session_id}/restore":                                         {ResponseSchema: "Session"},
+	"post /v2/sessions/{session_id}/rerun":                                           {RequestSchema: "RerunSessionRequest", ResponseSchema: "RerunSessionResponse", SuccessStatuses: []string{"201"}},
+	"patch /v2/sessions/{session_id}/runtime-settings":                               {RequestSchema: "UpdateSessionRuntimeSettingsRequest", RequestRequired: true, ResponseSchema: "Session", Parameters: []contractParameter{ifMatchParameter}},
+	"get /v2/sessions/{session_id}/runtime-config":                                   {ResponseSchema: "AgentRuntimeConfig"},
+	"get /v2/sessions/{session_id}/runtime-capabilities":                             {ResponseSchema: "SessionRuntimeCapabilities"},
+	"post /v2/sessions/{session_id}/config/upgrade":                                  {RequestSchema: "UpgradeSessionConfigRequest", RequestRequired: true, ResponseSchema: "UpgradeSessionConfigResult"},
+	"get /v2/sessions/{session_id}/summary":                                          {ResponseSchema: "SessionSummary"},
+	"put /v2/sessions/{session_id}/summary":                                          {RequestSchema: "UpsertSessionSummaryRequest", RequestRequired: true, ResponseSchema: "SessionSummary"},
+	"get /v2/sessions/{session_id}/task-plan":                                        {ResponseSchema: "SessionTaskPlanCurrent"},
+	"get /v2/sessions/{session_id}/task-plans":                                       {ResponseSchema: "SessionTaskPlanList"},
+	"get /v2/sessions/{session_id}/usage":                                            {ResponseSchema: "SessionUsage"},
+	"get /v2/sessions/{session_id}/trace":                                            {ResponseSchema: "TraceDocument", Parameters: []contractParameter{{Name: "turn_id", In: "query"}, {Name: "format", In: "query"}}},
+	"get /v2/sessions/{session_id}/operator-audit":                                   {ResponseSchema: "OperatorAuditList"},
+	"get /v2/sessions/{session_id}/tool-permission-audit":                            {ResponseSchema: "ToolPermissionAuditList", Parameters: []contractParameter{{Name: "decision", In: "query"}, {Name: "tool", In: "query"}, {Name: "limit", In: "query", Type: "integer", Format: "int32"}, {Name: "cursor", In: "query"}}},
+	"get /v2/sessions/{session_id}/skill-usages":                                     {ResponseSchema: "SkillUsageList", Parameters: []contractParameter{{Name: "turn_id", In: "query"}}},
+	"get /v2/sessions/{session_id}/interventions":                                    {ResponseSchema: "InterventionList", Parameters: []contractParameter{{Name: "status", In: "query"}}},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/approve":       {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/reject":        {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/respond":       {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/skip":          {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/interventions/{turn_id}/{call_id}/cancel":        {RequestSchema: "InterventionDecisionRequest", RequestRequired: true, ResponseSchema: "InterventionDecision"},
+	"post /v2/sessions/{session_id}/events":                                          {RequestSchema: "AppendEventsRequest", RequestRequired: true, ResponseSchema: "AppendEventsResult", SuccessStatuses: []string{"201", "202"}},
+	"get /v2/sessions/{session_id}/events":                                           {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
+	"get /v2/sessions/{session_id}/events/stream":                                    {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
+	"get /v2/sessions/{session_id}/live/stream":                                      {ResponseSchema: "LiveEventStream", ContentType: "text/event-stream"},
+	"post /v2/sessions/{session_id}/artifacts":                                       {RequestSchema: "CreateArtifactRequest", RequestRequired: true, ResponseSchema: "Artifact", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions/{session_id}/artifacts":                                        {ResponseSchema: "ArtifactList"},
+	"post /v2/sessions/{session_id}/artifacts/upload":                                {RequestSchema: "ArtifactUploadRequest", RequestRequired: true, RequestContentType: "multipart/form-data", ResponseSchema: "ArtifactUpload", SuccessStatuses: []string{"201"}},
+	"post /v2/sessions/{session_id}/artifacts/{artifact_id}/achievement-library":     {RequestSchema: "CreateAchievementLibraryItemRequest", RequestRequired: true, ResponseSchema: "AchievementLibraryItem", SuccessStatuses: []string{"201"}},
+	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/download":                 {ResponseSchema: "BinaryContent", ContentType: "application/octet-stream"},
+	"get /v2/sessions/{session_id}/artifacts/{artifact_id}/preview":                  {ResponseSchema: "BinaryContent", ContentType: "application/pdf", Parameters: []contractParameter{{Name: "format", In: "query"}}},
+	"delete /v2/sessions/{session_id}/artifacts/{artifact_id}":                       {SuccessStatuses: []string{"204"}},
+	"get /v2/sessions/{session_id}/deliberations":                                    {ResponseSchema: "AgentDeliberationList"},
+	"get /v2/sessions/{session_id}/deliberations/{deliberation_id}":                  {ResponseSchema: "AgentDeliberationResponse"},
+	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/cancel":          {RequestSchema: "CancelAgentDeliberationRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse"},
 	"post /v2/sessions/{session_id}/deliberations/{deliberation_id}/participants/{participant_index}/retry": {RequestSchema: "RetryAgentDeliberationParticipantRequest", RequestRequired: true, ResponseSchema: "AgentDeliberationResponse", IntegerPathParameters: map[string]bool{"participant_index": true}},
 	"post /v2/sessions/{session_id}/runs":                                            {RequestSchema: "StartRunRequest", RequestRequired: true, ResponseSchema: "StartRunResponse", SuccessStatuses: []string{"200", "201"}},
 	"get /v2/sessions/{session_id}/runs":                                             {ResponseSchema: "RunList"},
 	"get /v2/sessions/{session_id}/runs/{run_id}":                                    {ResponseSchema: "Run"},
+	"get /v2/sessions/{session_id}/runs/{run_id}/attempts":                           {ResponseSchema: "RunAttemptList"},
+	"get /v2/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id}":              {ResponseSchema: "RunAttempt"},
 	"post /v2/sessions/{session_id}/runs/{run_id}/cancel":                            {ResponseSchema: "Run"},
 	"get /v2/sessions/{session_id}/runs/{run_id}/events":                             {ResponseSchema: "EventList", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
 	"get /v2/sessions/{session_id}/runs/{run_id}/events/stream":                      {ResponseSchema: "EventStream", ContentType: "text/event-stream", Parameters: []contractParameter{{Name: "after_seq", In: "query"}}},
@@ -337,6 +368,27 @@ func main() {
 	}
 	routes = append(routes,
 		route{Method: "post", Path: "/v2/auth/token-exchange"},
+		route{Method: "get", Path: "/v2/capabilities"},
+		route{Method: "get", Path: "/v2/quota-policies"},
+		route{Method: "put", Path: "/v2/quota-policies/workspace"},
+		route{Method: "put", Path: "/v2/quota-policies/applications/{app_id}"},
+		route{Method: "delete", Path: "/v2/quota-policies/applications/{app_id}"},
+		route{Method: "get", Path: "/v2/quota-policies/effective"},
+		route{Method: "post", Path: "/v2/application-manifests/publish"},
+		route{Method: "post", Path: "/v2/artifact-exchanges/imports"},
+		route{Method: "post", Path: "/v2/artifact-exchanges/exports"},
+		route{Method: "get", Path: "/v2/artifact-exchanges/{exchange_id}"},
+		route{Method: "get", Path: "/v2/artifact-exchanges/{exchange_id}/content"},
+		route{Method: "put", Path: "/v2/artifact-exchanges/{exchange_id}/content"},
+		route{Method: "get", Path: "/v2/event-subscriptions/event-types"},
+		route{Method: "get", Path: "/v2/event-subscriptions"},
+		route{Method: "post", Path: "/v2/event-subscriptions"},
+		route{Method: "get", Path: "/v2/event-subscriptions/{subscription_id}"},
+		route{Method: "patch", Path: "/v2/event-subscriptions/{subscription_id}"},
+		route{Method: "delete", Path: "/v2/event-subscriptions/{subscription_id}"},
+		route{Method: "post", Path: "/v2/event-subscriptions/{subscription_id}/rotate-secret"},
+		route{Method: "get", Path: "/v2/event-subscriptions/{subscription_id}/deliveries"},
+		route{Method: "post", Path: "/v2/event-subscriptions/{subscription_id}/deliveries/{delivery_id}/replay"},
 		route{Method: "get", Path: "/v2/administration/context"},
 		route{Method: "get", Path: "/v2/console/context"},
 		route{Method: "get", Path: "/v2/workspace/members"},
@@ -362,11 +414,14 @@ func main() {
 		route{Method: "post", Path: "/v2/model-runtime/generate"},
 		route{Method: "post", Path: "/v2/model-runtime/embeddings"},
 		route{Method: "post", Path: "/v2/model-runtime/rerank"},
+		route{Method: "get", Path: "/v2/model-runtime/multimodal/realtime"},
 		route{Method: "get", Path: "/v2/model-runtime/invocations"},
 		route{Method: "get", Path: "/v2/speech/realtime"},
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}"},
+		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/attempts"},
+		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id}"},
 		route{Method: "post", Path: "/v2/sessions/{session_id}/runs/{run_id}/cancel"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/events"},
 		route{Method: "get", Path: "/v2/sessions/{session_id}/runs/{run_id}/events/stream"},
@@ -473,6 +528,8 @@ paths:
         id: {type: string}
         session_id: {type: string}
         turn_id: {type: string}
+        run_id: {type: string}
+        attempt_id: {type: string}
         seq: {type: integer, format: int64, maximum: 9007199254740991}
         type: {type: string}
         payload: {$ref: "#/components/schemas/DynamicJSONValue"}
@@ -565,10 +622,13 @@ paths:
         created_at: {type: string, format: date-time}
     Agent:
       type: object
-      required: [id, workspace_id, owner_type, owner_id, visibility, agent_kind, name, current_config_version, config_version, created_at]
+      required: [id, workspace_id, labels, owner_type, owner_id, visibility, agent_kind, name, current_config_version, config_version, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
@@ -768,6 +828,9 @@ paths:
       required: [name, system]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
@@ -798,10 +861,13 @@ paths:
         - {$ref: "#/components/schemas/UpdateAgentRequest"}
     Environment:
       type: object
-      required: [id, workspace_id, name, config, created_at]
+      required: [id, workspace_id, labels, name, config, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         name: {type: string}
         config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         archived_at: {type: string, format: date-time, nullable: true}
@@ -816,8 +882,186 @@ paths:
       required: [name, config]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         name: {type: string}
         config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    PublishApplicationManifestRequest:
+      type: object
+      required: [manifest]
+      properties:
+        app_id: {type: string, description: Required for user credentials and bound automatically for application credentials.}
+        manifest: {$ref: "#/components/schemas/ApplicationManifest"}
+    ApplicationManifest:
+      type: object
+      required: [schema_version, revision]
+      properties:
+        schema_version: {type: string, enum: [tma.application-manifest.v1]}
+        revision: {type: string, minLength: 1, maxLength: 128}
+        environments: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestEnvironment"}}
+        skills: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestSkill"}}
+        mcp_servers: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestMCPServer"}}
+        agents: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestAgent"}}
+    ApplicationManifestEnvironment:
+      type: object
+      required: [external_ref, name]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        name: {type: string}
+        config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    ApplicationManifestSkillVersion:
+      type: object
+      properties:
+        content_format: {type: string, enum: [markdown, json, hybrid]}
+        manifest: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        content_text: {type: string}
+        assets: {$ref: "#/components/schemas/DynamicJSONValue"}
+        source_ref: {type: string}
+        source_revision: {type: string}
+        source_url: {type: string}
+    ApplicationManifestSkill:
+      type: object
+      required: [external_ref, identifier, title, version]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        identifier: {type: string}
+        title: {type: string}
+        description: {type: string}
+        source_type: {type: string, enum: [inline, github, artifact, catalog, plugin, builtin]}
+        source_locator: {type: string}
+        source_path: {type: string}
+        version: {$ref: "#/components/schemas/ApplicationManifestSkillVersion"}
+    ApplicationManifestMCPServer:
+      type: object
+      required: [external_ref, identifier, name, config]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        identifier: {type: string}
+        name: {type: string}
+        description: {type: string}
+        config: {$ref: "#/components/schemas/MCPServerConfig"}
+    ApplicationManifestAgent:
+      type: object
+      required: [external_ref, name, llm_model, system]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        environment_ref: {type: string}
+        name: {type: string}
+        llm_provider: {type: string}
+        llm_model: {type: string}
+        system: {type: string}
+        tools: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        mcp: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        skills: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    ApplicationManifestResourceResult:
+      type: object
+      required: [type, external_ref, resource_id, status]
+      properties:
+        type: {type: string, enum: [environment, skill, mcp_server, agent]}
+        external_ref: {type: string}
+        resource_id: {type: string}
+        status: {type: string, enum: [created, updated, unchanged]}
+        version: {type: integer, format: int32}
+    ApplicationManifestPublishResult:
+      type: object
+      required: [schema_version, revision, checksum_sha256, resources]
+      properties:
+        schema_version: {type: string, enum: [tma.application-manifest.v1]}
+        revision: {type: string}
+        checksum_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        resources: {type: array, items: {$ref: "#/components/schemas/ApplicationManifestResourceResult"}}
+    EventType:
+      type: string
+      enum: [artifact.created, intervention.required, run.completed, run.failed]
+    EventTypeList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventType"}}
+    EventSubscription:
+      type: object
+      required: [id, workspace_id, app_id, name, endpoint_url, event_types, status, secret_version, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        name: {type: string}
+        endpoint_url: {type: string, format: uri}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+        status: {type: string, enum: [active, disabled]}
+        secret_version: {type: integer, format: int32, minimum: 1}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EventSubscriptionList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventSubscription"}}
+    CreateEventSubscriptionRequest:
+      type: object
+      required: [name, endpoint_url, event_types]
+      properties:
+        app_id: {type: string, description: Required for user credentials and bound automatically for application credentials.}
+        name: {type: string, minLength: 1, maxLength: 128}
+        endpoint_url: {type: string, format: uri, maxLength: 2048}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+    UpdateEventSubscriptionRequest:
+      type: object
+      required: [name, endpoint_url, event_types, status]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        endpoint_url: {type: string, format: uri, maxLength: 2048}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+        status: {type: string, enum: [active, disabled]}
+    CreatedEventSubscription:
+      type: object
+      required: [subscription, secret]
+      properties:
+        subscription: {$ref: "#/components/schemas/EventSubscription"}
+        secret: {type: string, writeOnly: true, description: Returned only when a subscription is created or its secret is rotated.}
+    EventEnvelope:
+      type: object
+      required: [schema, event_id, type, occurred_at, workspace_id, app_id, data]
+      properties:
+        schema: {type: string, enum: [tma.event.v1]}
+        event_id: {type: string}
+        type: {$ref: "#/components/schemas/EventType"}
+        occurred_at: {type: string, format: date-time}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        data: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    EventDelivery:
+      type: object
+      required: [id, workspace_id, subscription_id, app_id, source_event_id, event_type, payload, secret_version, status, attempt_count, next_attempt_at, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        subscription_id: {type: string}
+        app_id: {type: string}
+        source_event_id: {type: string}
+        event_type: {$ref: "#/components/schemas/EventType"}
+        payload: {$ref: "#/components/schemas/EventEnvelope"}
+        secret_version: {type: integer, format: int32}
+        status: {type: string, enum: [pending, delivering, delivered, dead_letter]}
+        attempt_count: {type: integer, format: int32}
+        next_attempt_at: {type: string, format: date-time}
+        lease_expires_at: {type: string, format: date-time, nullable: true}
+        last_http_status: {type: integer, format: int32}
+        last_error: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        delivered_at: {type: string, format: date-time, nullable: true}
+    EventDeliveryList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventDelivery"}}
     LLMProvider:
       type: object
       required: [id, provider_type, enabled, revision, created_at, updated_at]
@@ -860,7 +1104,7 @@ paths:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech, multimodal_realtime]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
@@ -884,6 +1128,36 @@ paths:
         audio_format: {type: string}
         sample_rate_hz: {type: integer, format: int32, minimum: 8000, maximum: 48000}
         upstream_model: {type: string}
+        realtime: {$ref: "#/components/schemas/LLMRealtimeCapabilities"}
+    LLMRealtimeCapabilities:
+      type: object
+      required: [input_formats, output_modalities, max_input_tracks, max_frame_bytes]
+      properties:
+        input_formats:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {$ref: "#/components/schemas/LLMRealtimeMediaFormat"}
+        output_modalities:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {type: string, enum: [text, audio, image, video]}
+        output_formats:
+          type: array
+          maxItems: 32
+          items: {$ref: "#/components/schemas/LLMRealtimeMediaFormat"}
+        max_input_tracks: {type: integer, format: int32, minimum: 1, maximum: 8}
+        max_frame_bytes: {type: integer, format: int32, minimum: 1, maximum: 4194304}
+    LLMRealtimeMediaFormat:
+      type: object
+      required: [kind, content_type, codec]
+      additionalProperties: false
+      properties:
+        kind: {type: string, enum: [audio, image, video]}
+        content_type: {type: string}
+        codec: {type: string}
     LLMModelList:
       type: object
       required: [models]
@@ -898,17 +1172,53 @@ paths:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech, multimodal_realtime]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
         is_default_reranker: {type: boolean}
+    ModelImageURL:
+      type: object
+      required: [url]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 29360128
+          description: Base64 data URL using image/png, image/jpeg, image/webp, or image/gif, or a public HTTPS URL without credentials.
+        detail: {type: string, enum: [auto, low, high]}
+    ModelTextContentPart:
+      type: object
+      required: [type, text]
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [text]}
+        text: {type: string, minLength: 1}
+    ModelImageContentPart:
+      type: object
+      required: [type, image_url]
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [image_url]}
+        image_url: {$ref: "#/components/schemas/ModelImageURL"}
+    ModelContentPart:
+      oneOf:
+        - {$ref: "#/components/schemas/ModelTextContentPart"}
+        - {$ref: "#/components/schemas/ModelImageContentPart"}
     ModelMessage:
       type: object
       required: [role, content]
+      additionalProperties: false
       properties:
         role: {type: string, enum: [system, user, assistant]}
-        content: {type: string, minLength: 1}
+        content:
+          oneOf:
+            - {type: string, minLength: 1}
+            - type: array
+              minItems: 1
+              maxItems: 256
+              items: {$ref: "#/components/schemas/ModelContentPart"}
     ModelGenerateRequest:
       type: object
       required: [messages]
@@ -918,6 +1228,7 @@ paths:
         messages:
           type: array
           minItems: 1
+          maxItems: 128
           items: {$ref: "#/components/schemas/ModelMessage"}
         max_output_tokens: {type: integer, format: int32, minimum: 1, maximum: 32768}
     ModelUsage:
@@ -995,7 +1306,7 @@ paths:
         model: {type: string}
     ModelInvocation:
       type: object
-      required: [id, workspace_id, principal_id, request_id, capability, provider_id, model, status, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at]
+      required: [id, workspace_id, principal_id, request_id, capability, provider_id, model, status, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, input_video_frames, output_video_frames, input_video_dropped, output_video_dropped, input_video_ms, output_video_ms, latency_ms, started_at, completed_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
@@ -1003,7 +1314,7 @@ paths:
         service_identity_id: {type: string}
         auth_type: {type: string}
         request_id: {type: string}
-        capability: {type: string, enum: [generate, embedding, rerank, speech_to_text, text_to_speech]}
+        capability: {type: string, enum: [generate, embedding, rerank, speech_to_text, text_to_speech, multimodal_realtime]}
         provider_id: {type: string}
         provider_type: {type: string}
         model: {type: string}
@@ -1022,12 +1333,18 @@ paths:
         output_characters: {type: integer, format: int64, maximum: 9007199254740991}
         input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
         output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
         latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
         started_at: {type: string, format: date-time}
         completed_at: {type: string, format: date-time}
     ModelInvocationSummary:
       type: object
-      required: [record_count, completed_count, failed_count, canceled_count, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms]
+      required: [record_count, completed_count, failed_count, canceled_count, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, input_video_frames, output_video_frames, input_video_dropped, output_video_dropped, input_video_ms, output_video_ms, latency_ms]
       properties:
         record_count: {type: integer, format: int64, maximum: 9007199254740991}
         completed_count: {type: integer, format: int64, maximum: 9007199254740991}
@@ -1046,6 +1363,12 @@ paths:
         output_characters: {type: integer, format: int64, maximum: 9007199254740991}
         input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
         output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
         latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
     ModelInvocationReport:
       type: object
@@ -1159,10 +1482,13 @@ paths:
         to: {type: string, format: date-time}
     Session:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
+      required: [id, workspace_id, labels, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         owner_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
@@ -1190,6 +1516,9 @@ paths:
       type: object
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         owner_id: {type: string}
         agent_id: {type: string}
         environment_id: {type: string}
@@ -1238,6 +1567,7 @@ paths:
         session_id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
+        app_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
         environment_id: {type: string}
@@ -1308,21 +1638,44 @@ paths:
         changed: {type: boolean}
     Run:
       type: object
-      required: [id, session_id, agent_id, agent_config_version, status, attempt, started_at]
+      required: [id, session_id, turn_id, agent_id, agent_config_version, status, attempt, started_at]
       properties:
         id: {type: string}
         session_id: {type: string}
+        turn_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
         status: {type: string, enum: [running, waiting_approval, waiting_human, completed, failed, interrupted]}
         user_event_id: {type: string}
         user_event_seq: {type: integer, format: int64, maximum: 9007199254740991}
         attempt: {type: integer, format: int32}
+        current_attempt_id: {type: string}
         started_at: {type: string, format: date-time}
         ended_at: {type: string, format: date-time, nullable: true}
         interrupt_requested_at: {type: string, format: date-time, nullable: true}
         error_message: {type: string}
         idempotency_key: {type: string}
+    RunAttempt:
+      type: object
+      required: [id, session_id, run_id, attempt_number, status, started_at]
+      properties:
+        id: {type: string}
+        session_id: {type: string}
+        run_id: {type: string}
+        attempt_number: {type: integer, format: int32, minimum: 1}
+        status: {type: string, enum: [running, suspended, completed, failed, interrupted, abandoned]}
+        lease_owner: {type: string}
+        lease_expires_at: {type: string, format: date-time, nullable: true}
+        last_heartbeat_at: {type: string, format: date-time, nullable: true}
+        started_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time, nullable: true}
+        error_message: {type: string}
+        migration_snapshot: {type: boolean}
+    RunAttemptList:
+      type: object
+      required: [attempts]
+      properties:
+        attempts: {type: array, items: {$ref: "#/components/schemas/RunAttempt"}}
     RunList:
       type: object
       required: [runs]
@@ -1772,6 +2125,81 @@ paths:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
         workspace_path: {type: string}
+    ArtifactExchange:
+      type: object
+      required: [id, workspace_id, owner_id, direction, status, filename, artifact_type, visibility, max_size_bytes, expires_at, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        owner_id: {type: string}
+        direction: {type: string, enum: [import, export]}
+        status: {type: string, enum: [pending, processing, completed, failed, expired]}
+        session_id: {type: string}
+        object_ref_id: {type: string}
+        artifact_id: {type: string}
+        filename: {type: string, maxLength: 512}
+        description: {type: string}
+        artifact_type: {type: string, enum: [file, snapshot, asset]}
+        environment_id: {type: string}
+        turn_id: {type: string}
+        tool_call_id: {type: string}
+        visibility: {type: string, enum: [workspace, session]}
+        content_type: {type: string}
+        expected_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        max_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        expected_checksum_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        expires_at: {type: string, format: date-time}
+        claimed_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+        error_message: {type: string}
+        metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateArtifactImportExchangeRequest:
+      type: object
+      required: [session_id, filename]
+      properties:
+        session_id: {type: string}
+        filename: {type: string, maxLength: 512}
+        description: {type: string}
+        artifact_type: {type: string, enum: [file, snapshot, asset]}
+        environment_id: {type: string}
+        turn_id: {type: string}
+        tool_call_id: {type: string}
+        visibility: {type: string, enum: [workspace, session]}
+        content_type: {type: string}
+        expected_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        max_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        expected_checksum_sha256: {type: string, pattern: '^[0-9a-fA-F]{64}$'}
+        ttl_seconds: {type: integer, format: int64, minimum: 60, maximum: 9007199254740991, description: Must be between 60 and 86400 seconds.}
+        metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    CreateArtifactExportExchangeRequest:
+      type: object
+      required: [session_id]
+      properties:
+        session_id: {type: string}
+        artifact_id: {type: string, description: Exactly one of artifact_id or object_ref_id is required.}
+        object_ref_id: {type: string, description: Exactly one of artifact_id or object_ref_id is required.}
+        filename: {type: string, maxLength: 512}
+        ttl_seconds: {type: integer, format: int64, minimum: 60, maximum: 9007199254740991, description: Must be between 60 and 86400 seconds.}
+    ArtifactExchangeGrant:
+      type: object
+      required: [exchange, content_url]
+      properties:
+        exchange: {$ref: "#/components/schemas/ArtifactExchange"}
+        content_url: {type: string, description: Relative one-time URL containing the exchange token.}
+    ArtifactExchangeImportResult:
+      type: object
+      required: [exchange, object_ref, artifact]
+      properties:
+        exchange: {$ref: "#/components/schemas/ArtifactExchange"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+    ArtifactExchangeContent:
+      type: string
+      format: binary
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
@@ -2092,6 +2520,119 @@ paths:
       required: [round_number]
       properties:
         round_number: {type: integer, format: int32}
+    CapabilityModel:
+      type: object
+      required: [provider_id, model, capability_type]
+      properties:
+        provider_id: {type: string}
+        model: {type: string}
+        capability_type: {type: string}
+        protocol: {type: string}
+        realtime: {$ref: "#/components/schemas/LLMRealtimeCapabilities"}
+    CapabilityDescriptor:
+      type: object
+      required: [id, version, status, health, providers, updated_at]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        status: {type: string, enum: [available, unavailable]}
+        health: {type: string, enum: [healthy, degraded, unavailable]}
+        providers: {type: array, items: {type: string}}
+        models: {type: array, items: {$ref: "#/components/schemas/CapabilityModel"}}
+        details: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        updated_at: {type: string, format: date-time}
+    CapabilityDiscoveryResponse:
+      type: object
+      required: [workspace_id, capabilities, generated_at]
+      properties:
+        workspace_id: {type: string}
+        capabilities: {type: array, items: {$ref: "#/components/schemas/CapabilityDescriptor"}}
+        generated_at: {type: string, format: date-time}
+    ModelRuntimeQuotaPolicyConfig:
+      type: object
+      properties:
+        model_workspace_requests_per_minute: {type: integer, format: int32, minimum: 0}
+        model_identity_requests_per_minute: {type: integer, format: int32, minimum: 0}
+        speech_workspace_sessions_per_minute: {type: integer, format: int32, minimum: 0}
+        speech_identity_sessions_per_minute: {type: integer, format: int32, minimum: 0}
+        monthly_model_request_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        monthly_speech_session_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        alert_threshold_percent: {type: integer, format: int32, minimum: 1, maximum: 100}
+    PutModelRuntimeQuotaPolicyRequest:
+      type: object
+      required: [plan, config]
+      properties:
+        plan: {type: string}
+        config: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicyConfig"}
+    ModelRuntimeQuotaPolicy:
+      type: object
+      required: [id, workspace_id, scope, plan, config, status, revision, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        scope: {type: string, enum: [workspace, application]}
+        app_id: {type: string}
+        plan: {type: string}
+        config: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicyConfig"}
+        status: {type: string, enum: [active, archived]}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        created_by: {type: string}
+        updated_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        archived_at: {type: string, format: date-time}
+    ModelRuntimeQuotaPolicyList:
+      type: object
+      required: [policies]
+      properties:
+        policies: {type: array, items: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicy"}}
+    ModelRuntimeQuotaLimits:
+      type: object
+      required: [model_workspace_requests_per_minute, model_identity_requests_per_minute, speech_workspace_sessions_per_minute, speech_identity_sessions_per_minute]
+      properties:
+        model_workspace_requests_per_minute: {type: integer, format: int32}
+        model_identity_requests_per_minute: {type: integer, format: int32}
+        speech_workspace_sessions_per_minute: {type: integer, format: int32}
+        speech_identity_sessions_per_minute: {type: integer, format: int32}
+    EffectiveModelRuntimeQuotaPolicy:
+      type: object
+      required: [workspace_id, plan, limits, monthly_model_request_budget, monthly_speech_session_budget, alert_threshold_percent]
+      properties:
+        workspace_id: {type: string}
+        app_id: {type: string}
+        workspace_policy_id: {type: string}
+        application_policy_id: {type: string}
+        workspace_policy_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        application_policy_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        plan: {type: string}
+        limits: {$ref: "#/components/schemas/ModelRuntimeQuotaLimits"}
+        monthly_model_request_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        monthly_speech_session_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        alert_threshold_percent: {type: integer, format: int32}
+    ModelRuntimeQuotaUsage:
+      type: object
+      required: [period_started_at, period_ends_at, model_requests, speech_sessions]
+      properties:
+        period_started_at: {type: string, format: date-time}
+        period_ends_at: {type: string, format: date-time}
+        model_requests: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        speech_sessions: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+    ModelRuntimeQuotaAlert:
+      type: object
+      required: [metric, status, consumed, budget, threshold_percent]
+      properties:
+        metric: {type: string}
+        status: {type: string, enum: [warning, exceeded]}
+        consumed: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        threshold_percent: {type: integer, format: int32}
+    ModelRuntimeQuotaStatus:
+      type: object
+      required: [policy, usage, alerts]
+      properties:
+        policy: {$ref: "#/components/schemas/EffectiveModelRuntimeQuotaPolicy"}
+        usage: {$ref: "#/components/schemas/ModelRuntimeQuotaUsage"}
+        alerts: {type: array, items: {$ref: "#/components/schemas/ModelRuntimeQuotaAlert"}}
     BinaryContent:
       type: string
       format: binary
@@ -2740,10 +3281,13 @@ paths:
         actions: {type: array, items: {type: string}}
     Skill:
       type: object
-      required: [id, workspace_id, identifier, title, owner_type, owner_id, visibility, source_type, status, created_by, created_at]
+      required: [id, workspace_id, labels, identifier, title, owner_type, owner_id, visibility, source_type, status, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
@@ -2770,6 +3314,9 @@ paths:
       required: [identifier, title]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
@@ -3700,6 +4247,9 @@ paths:
       additionalProperties: false
       properties:
         name: {type: string, minLength: 1, maxLength: 200}
+    ServiceIdentityScope:
+      type: string
+      enum: [applications:publish, agents:read, agents:write, artifacts:read, artifacts:write, capabilities:read, environments:read, environments:write, evaluations:read, evaluations:write, events:manage, mcp:read, mcp:write, model:embedding, model:generate, model:realtime, model:rerank, quota:read, quota:write, retrieval:read, retrieval:write, secrets:read, secrets:write, sessions:read, sessions:write, skills:read, skills:write, speech:realtime]
     ServiceIdentity:
       type: object
       required: [id, workspace_id, kind, name, role, scopes, status, created_by, created_at, updated_at]
@@ -3710,7 +4260,7 @@ paths:
         name: {type: string}
         description: {type: string}
         role: {type: string, enum: [viewer, member, operator]}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
         status: {type: string, enum: [active, disabled]}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
@@ -3724,7 +4274,7 @@ paths:
       type: object
       required: [scopes]
       properties:
-        scopes: {type: array, items: {type: string}}
+        scopes: {type: array, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
     CreateServiceIdentityRequest:
       type: object
       required: [name, scopes]
@@ -3733,7 +4283,7 @@ paths:
         name: {type: string, minLength: 1, maxLength: 120}
         description: {type: string, maxLength: 1000}
         role: {type: string, enum: [viewer, member, operator], default: member}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
     UpdateServiceIdentityRequest:
       type: object
       minProperties: 1
@@ -3741,7 +4291,7 @@ paths:
         name: {type: string, minLength: 1, maxLength: 120}
         description: {type: string, maxLength: 1000}
         role: {type: string, enum: [viewer, member, operator]}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
         status: {type: string, enum: [active, disabled]}
     ServiceCredential:
       type: object
@@ -3822,7 +4372,8 @@ paths:
       properties:
         name: {type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 128}
         configured: {type: boolean}
-        scope: {type: string, enum: [personal, workspace]}
+        scope: {type: string, enum: [application, personal, workspace]}
+        app_id: {type: string, description: Present only for application-scoped secret references.}
         editable: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -3995,10 +4546,13 @@ paths:
         _registry: {$ref: "#/components/schemas/MCPRegistrySource"}
     MCPServer:
       type: object
-      required: [id, workspace_id, identifier, name, status, current_version, config, usage_count, created_at, updated_at]
+      required: [id, workspace_id, labels, identifier, name, status, current_version, config, usage_count, created_at, updated_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         name: {type: string}
         description: {type: string}
@@ -4019,6 +4573,9 @@ paths:
       required: [identifier, name, config]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         name: {type: string}
         description: {type: string}

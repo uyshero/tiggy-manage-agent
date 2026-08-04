@@ -2,6 +2,7 @@ package managedagents
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -53,6 +54,106 @@ func TestNormalizeLLMModelInputSpeech(t *testing.T) {
 	}
 }
 
+func TestNormalizeLLMModelInputMultimodalRealtime(t *testing.T) {
+	model, err := NormalizeLLMModelInput(UpsertLLMModelInput{
+		ProviderID: "realtime", Model: "native", CapabilityType: LLMModelCapabilityMultimodalRealtime,
+		Capabilities: &LLMModelCapabilities{
+			Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket,
+			Realtime: &LLMRealtimeCapabilities{
+				InputFormats: []LLMRealtimeMediaFormat{
+					{Kind: "VIDEO", ContentType: "video/H264; profile=main", Codec: "H264"},
+					{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"},
+				},
+				OutputModalities: []string{"audio", "text"},
+				OutputFormats:    []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"}},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realtime := model.Capabilities.Realtime
+	if realtime == nil || realtime.MaxInputTracks != LLMMultimodalRealtimeMaxTracks || realtime.MaxFrameBytes != LLMMultimodalRealtimeMaxFrameBytes {
+		t.Fatalf("unexpected realtime defaults: %+v", realtime)
+	}
+	if realtime.InputFormats[0].Kind != "audio" || realtime.InputFormats[1].ContentType != "video/h264" || realtime.OutputModalities[0] != "audio" || realtime.OutputModalities[1] != "text" {
+		t.Fatalf("unexpected normalized realtime capabilities: %+v", realtime)
+	}
+}
+
+func TestNormalizeLLMModelInputOpenAIRealtime(t *testing.T) {
+	model, err := NormalizeLLMModelInput(UpsertLLMModelInput{
+		ProviderID: "openai", Model: "realtime", CapabilityType: LLMModelCapabilityMultimodalRealtime,
+		Capabilities: &LLMModelCapabilities{
+			Protocol: LLMMultimodalRealtimeProtocolOpenAI, UpstreamModel: "gpt-realtime",
+			Realtime: &LLMRealtimeCapabilities{
+				InputFormats: []LLMRealtimeMediaFormat{
+					{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"},
+					{Kind: "image", ContentType: "image/jpeg", Codec: "jpeg"},
+					{Kind: "image", ContentType: "image/png", Codec: "png"},
+				},
+				OutputModalities: []string{"text", "audio"},
+				OutputFormats:    []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"}},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Capabilities.Protocol != LLMMultimodalRealtimeProtocolOpenAI || model.Capabilities.UpstreamModel != "gpt-realtime" || model.Capabilities.Realtime == nil {
+		t.Fatalf("unexpected OpenAI realtime capabilities: %+v", model.Capabilities)
+	}
+}
+
+func TestNormalizeLLMModelInputRejectsUnsupportedOpenAIRealtimeCapabilities(t *testing.T) {
+	tests := []LLMRealtimeCapabilities{
+		{
+			InputFormats:     []LLMRealtimeMediaFormat{{Kind: "video", ContentType: "video/h264", Codec: "h264"}},
+			OutputModalities: []string{"text"},
+		},
+		{
+			InputFormats:     []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/opus", Codec: "opus"}},
+			OutputModalities: []string{"text"},
+		},
+		{
+			InputFormats:     []LLMRealtimeMediaFormat{{Kind: "image", ContentType: "image/webp", Codec: "webp"}},
+			OutputModalities: []string{"text"},
+		},
+		{
+			InputFormats:     []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"}},
+			OutputModalities: []string{"image"},
+			OutputFormats:    []LLMRealtimeMediaFormat{{Kind: "image", ContentType: "image/png", Codec: "png"}},
+		},
+	}
+	for _, realtime := range tests {
+		capabilities := LLMModelCapabilities{Protocol: LLMMultimodalRealtimeProtocolOpenAI, Realtime: &realtime}
+		if _, err := NormalizeLLMModelInput(UpsertLLMModelInput{
+			CapabilityType: LLMModelCapabilityMultimodalRealtime, Capabilities: &capabilities,
+		}, nil); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("expected invalid OpenAI realtime capabilities for %+v, got %v", realtime, err)
+		}
+	}
+}
+
+func TestNormalizeLLMModelInputRejectsInvalidMultimodalRealtime(t *testing.T) {
+	validRealtime := &LLMRealtimeCapabilities{
+		InputFormats:     []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"}},
+		OutputModalities: []string{"text"},
+	}
+	tests := []LLMModelCapabilities{
+		{Protocol: "vendor_private", Realtime: validRealtime},
+		{Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket},
+		{Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket, Realtime: &LLMRealtimeCapabilities{InputFormats: []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "video/h264", Codec: "h264"}}, OutputModalities: []string{"text"}}},
+		{Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket, Realtime: &LLMRealtimeCapabilities{InputFormats: validRealtime.InputFormats, OutputModalities: []string{"audio"}}},
+		{Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket, Realtime: &LLMRealtimeCapabilities{InputFormats: validRealtime.InputFormats, OutputModalities: []string{"text"}, MaxFrameBytes: LLMMultimodalRealtimeMaxFrameBytes + 1}},
+	}
+	for _, capabilities := range tests {
+		if _, err := NormalizeLLMModelInput(UpsertLLMModelInput{CapabilityType: LLMModelCapabilityMultimodalRealtime, Capabilities: &capabilities}, nil); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("expected invalid realtime capabilities for %+v, got %v", capabilities, err)
+		}
+	}
+}
+
 func TestNormalizeLLMModelInputRejectsInvalidCapabilityConfiguration(t *testing.T) {
 	trueValue := true
 	tests := []UpsertLLMModelInput{
@@ -79,7 +180,7 @@ func TestNormalizeLLMModelInputClearsIncompatibleDefaultsOnTypeChange(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *normalized.IsDefaultEmbedding || *normalized.Capabilities != (LLMModelCapabilities{}) {
+	if *normalized.IsDefaultEmbedding || !reflect.DeepEqual(*normalized.Capabilities, LLMModelCapabilities{}) {
 		t.Fatalf("expected type change to clear embedding-only state: %+v", normalized)
 	}
 }

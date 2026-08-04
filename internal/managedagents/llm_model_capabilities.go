@@ -3,13 +3,19 @@ package managedagents
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 )
 
 const (
-	LLMEmbeddingDistanceCosine       = "cosine"
-	LLMEmbeddingDistanceL2           = "l2"
-	LLMEmbeddingDistanceInnerProduct = "inner_product"
+	LLMEmbeddingDistanceCosine                = "cosine"
+	LLMEmbeddingDistanceL2                    = "l2"
+	LLMEmbeddingDistanceInnerProduct          = "inner_product"
+	LLMMultimodalRealtimeProtocolTMAWebSocket = "tma_multimodal_websocket_v1"
+	LLMMultimodalRealtimeProtocolOpenAI       = "openai_realtime_websocket"
+	LLMMultimodalRealtimeMaxTracks            = 8
+	LLMMultimodalRealtimeMaxFrameBytes        = int64(4 << 20)
 )
 
 type llmModelDefaults struct {
@@ -52,6 +58,7 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 
 	switch capabilityType {
 	case LLMModelCapabilityEmbedding:
+		capabilities.Realtime = nil
 		if capabilities.Dimensions <= 0 || capabilities.Dimensions > 65535 {
 			return LLMModelCapabilities{}, fmt.Errorf("%w: embedding model dimensions must be between 1 and 65535", ErrInvalid)
 		}
@@ -74,6 +81,7 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 		}
 		capabilities.MaxCandidates = 0
 	case LLMModelCapabilityReranker:
+		capabilities.Realtime = nil
 		if capabilities.MaxCandidates <= 0 {
 			capabilities.MaxCandidates = 50
 		}
@@ -88,6 +96,7 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 		capabilities.Normalized = false
 		capabilities.MaxBatchSize = 0
 	case LLMModelCapabilitySpeechToText, LLMModelCapabilityTextToSpeech:
+		capabilities.Realtime = nil
 		if capabilities.Protocol == "" || capabilities.ResourceID == "" {
 			return LLMModelCapabilities{}, fmt.Errorf("%w: speech model protocol and resource_id are required", ErrInvalid)
 		}
@@ -108,12 +117,191 @@ func normalizeLLMModelCapabilities(capabilityType string, requested *LLMModelCap
 		capabilities.Normalized = false
 		capabilities.MaxBatchSize = 0
 		capabilities.MaxCandidates = 0
+	case LLMModelCapabilityMultimodalRealtime:
+		switch capabilities.Protocol {
+		case LLMMultimodalRealtimeProtocolTMAWebSocket, LLMMultimodalRealtimeProtocolOpenAI:
+		default:
+			return LLMModelCapabilities{}, fmt.Errorf("%w: unsupported multimodal realtime protocol %q", ErrInvalid, capabilities.Protocol)
+		}
+		realtime, err := normalizeLLMRealtimeCapabilities(capabilities.Realtime)
+		if err != nil {
+			return LLMModelCapabilities{}, err
+		}
+		if capabilities.Protocol == LLMMultimodalRealtimeProtocolOpenAI {
+			if err := validateOpenAIRealtimeCapabilities(realtime); err != nil {
+				return LLMModelCapabilities{}, err
+			}
+		}
+		capabilities.Realtime = &realtime
+		capabilities.Dimensions = 0
+		capabilities.DistanceMetric = ""
+		capabilities.Normalized = false
+		capabilities.MaxBatchSize = 0
+		capabilities.MaxCandidates = 0
+		capabilities.ResourceID = ""
+		capabilities.DefaultVoice = ""
+		capabilities.AudioFormat = ""
+		capabilities.SampleRateHz = 0
 	default:
-		if capabilities != (LLMModelCapabilities{}) {
-			return LLMModelCapabilities{}, fmt.Errorf("%w: capabilities are only supported for embedding and reranker models", ErrInvalid)
+		if !reflect.DeepEqual(capabilities, LLMModelCapabilities{}) {
+			return LLMModelCapabilities{}, fmt.Errorf("%w: capabilities are not supported for this model type", ErrInvalid)
 		}
 	}
 	return capabilities, nil
+}
+
+func validateOpenAIRealtimeCapabilities(realtime LLMRealtimeCapabilities) error {
+	for _, format := range realtime.InputFormats {
+		if !openAIRealtimeInputFormat(format) {
+			return fmt.Errorf("%w: OpenAI realtime input format %s/%s/%s is unsupported", ErrInvalid, format.Kind, format.ContentType, format.Codec)
+		}
+	}
+	for _, modality := range realtime.OutputModalities {
+		if modality != "text" && modality != "audio" {
+			return fmt.Errorf("%w: OpenAI realtime output modality %q is unsupported", ErrInvalid, modality)
+		}
+	}
+	for _, format := range realtime.OutputFormats {
+		if format.Kind != "audio" || format.ContentType != "audio/pcm" || format.Codec != "pcm_s16le" {
+			return fmt.Errorf("%w: OpenAI realtime only supports PCM16 audio output", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+func openAIRealtimeInputFormat(format LLMRealtimeMediaFormat) bool {
+	if format.Kind == "audio" {
+		return format.ContentType == "audio/pcm" && format.Codec == "pcm_s16le"
+	}
+	if format.Kind != "image" {
+		return false
+	}
+	return (format.ContentType == "image/jpeg" && format.Codec == "jpeg") ||
+		(format.ContentType == "image/png" && format.Codec == "png")
+}
+
+func normalizeLLMRealtimeCapabilities(requested *LLMRealtimeCapabilities) (LLMRealtimeCapabilities, error) {
+	if requested == nil {
+		return LLMRealtimeCapabilities{}, fmt.Errorf("%w: multimodal realtime capabilities are required", ErrInvalid)
+	}
+	realtime := *requested
+	realtime.OutputModalities = append([]string(nil), requested.OutputModalities...)
+	if realtime.MaxInputTracks == 0 {
+		realtime.MaxInputTracks = LLMMultimodalRealtimeMaxTracks
+	}
+	if realtime.MaxInputTracks < 1 || realtime.MaxInputTracks > LLMMultimodalRealtimeMaxTracks {
+		return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime max_input_tracks must be between 1 and %d", ErrInvalid, LLMMultimodalRealtimeMaxTracks)
+	}
+	if realtime.MaxFrameBytes == 0 {
+		realtime.MaxFrameBytes = LLMMultimodalRealtimeMaxFrameBytes
+	}
+	if realtime.MaxFrameBytes < 1 || realtime.MaxFrameBytes > LLMMultimodalRealtimeMaxFrameBytes {
+		return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime max_frame_bytes must be between 1 and %d", ErrInvalid, LLMMultimodalRealtimeMaxFrameBytes)
+	}
+	var err error
+	realtime.InputFormats, err = normalizeLLMRealtimeFormats("input_formats", realtime.InputFormats, true)
+	if err != nil {
+		return LLMRealtimeCapabilities{}, err
+	}
+	realtime.OutputFormats, err = normalizeLLMRealtimeFormats("output_formats", realtime.OutputFormats, false)
+	if err != nil {
+		return LLMRealtimeCapabilities{}, err
+	}
+	modalities := make(map[string]bool, len(realtime.OutputModalities))
+	for index, value := range realtime.OutputModalities {
+		value = strings.ToLower(strings.TrimSpace(value))
+		switch value {
+		case "text", "audio", "image", "video":
+		default:
+			return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime output_modalities[%d] is unsupported", ErrInvalid, index)
+		}
+		if modalities[value] {
+			return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime output_modalities duplicates %q", ErrInvalid, value)
+		}
+		modalities[value] = true
+		realtime.OutputModalities[index] = value
+	}
+	if len(modalities) == 0 {
+		return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime output_modalities must not be empty", ErrInvalid)
+	}
+	formatKinds := make(map[string]bool, len(realtime.OutputFormats))
+	for _, format := range realtime.OutputFormats {
+		if !modalities[format.Kind] {
+			return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime output format kind %q is not an output modality", ErrInvalid, format.Kind)
+		}
+		formatKinds[format.Kind] = true
+	}
+	for modality := range modalities {
+		if modality != "text" && !formatKinds[modality] {
+			return LLMRealtimeCapabilities{}, fmt.Errorf("%w: realtime output modality %q requires an output format", ErrInvalid, modality)
+		}
+	}
+	sort.Strings(realtime.OutputModalities)
+	return realtime, nil
+}
+
+func normalizeLLMRealtimeFormats(field string, requested []LLMRealtimeMediaFormat, required bool) ([]LLMRealtimeMediaFormat, error) {
+	if required && len(requested) == 0 {
+		return nil, fmt.Errorf("%w: realtime %s must not be empty", ErrInvalid, field)
+	}
+	if len(requested) > 32 {
+		return nil, fmt.Errorf("%w: realtime %s must not contain more than 32 formats", ErrInvalid, field)
+	}
+	formats := append([]LLMRealtimeMediaFormat(nil), requested...)
+	seen := make(map[string]bool, len(formats))
+	for index := range formats {
+		format := &formats[index]
+		format.Kind = strings.ToLower(strings.TrimSpace(format.Kind))
+		format.ContentType = strings.ToLower(strings.TrimSpace(strings.Split(format.ContentType, ";")[0]))
+		format.Codec = strings.ToLower(strings.TrimSpace(format.Codec))
+		if !validLLMRealtimeFormat(*format) {
+			return nil, fmt.Errorf("%w: realtime %s[%d] has an invalid kind, content_type, or codec", ErrInvalid, field, index)
+		}
+		key := format.Kind + "\x00" + format.ContentType + "\x00" + format.Codec
+		if seen[key] {
+			return nil, fmt.Errorf("%w: realtime %s contains a duplicate format", ErrInvalid, field)
+		}
+		seen[key] = true
+	}
+	sort.Slice(formats, func(i, j int) bool {
+		left, right := formats[i], formats[j]
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		if left.ContentType != right.ContentType {
+			return left.ContentType < right.ContentType
+		}
+		return left.Codec < right.Codec
+	})
+	return formats, nil
+}
+
+func validLLMRealtimeFormat(format LLMRealtimeMediaFormat) bool {
+	contentTypeValid := false
+	switch format.Kind {
+	case "audio":
+		contentTypeValid = strings.HasPrefix(format.ContentType, "audio/")
+	case "image":
+		contentTypeValid = strings.HasPrefix(format.ContentType, "image/")
+	case "video":
+		contentTypeValid = strings.HasPrefix(format.ContentType, "video/") || strings.HasPrefix(format.ContentType, "image/")
+	default:
+		return false
+	}
+	return contentTypeValid && validLLMRealtimeToken(format.Codec)
+}
+
+func validLLMRealtimeToken(value string) bool {
+	if len(value) == 0 || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '.' || char == '_' || char == '+' || char == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func normalizeLLMModelDefaults(input UpsertLLMModelInput, capabilityType string, existing *LLMModel) (llmModelDefaults, error) {

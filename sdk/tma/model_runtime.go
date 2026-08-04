@@ -1,7 +1,9 @@
 package tma
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -9,8 +11,50 @@ import (
 )
 
 type ModelMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role string `json:"role"`
+	// Content preserves the plain-text API. Set Parts to a non-nil slice for structured multimodal content.
+	Content string             `json:"-"`
+	Parts   []ModelContentPart `json:"-"`
+}
+
+type ModelContentPart struct {
+	Type     string         `json:"type"`
+	Text     string         `json:"text,omitempty"`
+	ImageURL *ModelImageURL `json:"image_url,omitempty"`
+}
+
+type ModelImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"`
+}
+
+func (m ModelMessage) MarshalJSON() ([]byte, error) {
+	content := any(m.Content)
+	if m.Parts != nil {
+		content = m.Parts
+	}
+	return json.Marshal(struct {
+		Role    string `json:"role"`
+		Content any    `json:"content"`
+	}{Role: m.Role, Content: content})
+}
+
+func (m *ModelMessage) UnmarshalJSON(data []byte) error {
+	var encoded struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+	m.Role = encoded.Role
+	content := bytes.TrimSpace(encoded.Content)
+	if len(content) > 0 && content[0] == '"' {
+		m.Parts = nil
+		return json.Unmarshal(content, &m.Content)
+	}
+	m.Content = ""
+	return json.Unmarshal(content, &m.Parts)
 }
 
 type ModelGenerateRequest struct {
@@ -75,55 +119,67 @@ type ModelRerankResponse struct {
 }
 
 type ModelInvocation struct {
-	ID                string    `json:"id"`
-	WorkspaceID       string    `json:"workspace_id"`
-	PrincipalID       string    `json:"principal_id"`
-	ServiceIdentityID string    `json:"service_identity_id,omitempty"`
-	AuthType          string    `json:"auth_type,omitempty"`
-	RequestID         string    `json:"request_id"`
-	Capability        string    `json:"capability"`
-	ProviderID        string    `json:"provider_id"`
-	ProviderType      string    `json:"provider_type,omitempty"`
-	Model             string    `json:"model"`
-	Status            string    `json:"status"`
-	ErrorCode         string    `json:"error_code,omitempty"`
-	InputTokens       int64     `json:"input_tokens"`
-	OutputTokens      int64     `json:"output_tokens"`
-	TotalTokens       int64     `json:"total_tokens"`
-	CachedInputTokens int64     `json:"cached_input_tokens"`
-	ReasoningTokens   int64     `json:"reasoning_tokens"`
-	InputItems        int64     `json:"input_items"`
-	OutputItems       int64     `json:"output_items"`
-	InputBytes        int64     `json:"input_bytes"`
-	OutputBytes       int64     `json:"output_bytes"`
-	InputCharacters   int64     `json:"input_characters"`
-	OutputCharacters  int64     `json:"output_characters"`
-	InputAudioMillis  int64     `json:"input_audio_ms"`
-	OutputAudioMillis int64     `json:"output_audio_ms"`
-	LatencyMillis     int64     `json:"latency_ms"`
-	StartedAt         time.Time `json:"started_at"`
-	CompletedAt       time.Time `json:"completed_at"`
+	ID                 string    `json:"id"`
+	WorkspaceID        string    `json:"workspace_id"`
+	PrincipalID        string    `json:"principal_id"`
+	ServiceIdentityID  string    `json:"service_identity_id,omitempty"`
+	AuthType           string    `json:"auth_type,omitempty"`
+	RequestID          string    `json:"request_id"`
+	Capability         string    `json:"capability"`
+	ProviderID         string    `json:"provider_id"`
+	ProviderType       string    `json:"provider_type,omitempty"`
+	Model              string    `json:"model"`
+	Status             string    `json:"status"`
+	ErrorCode          string    `json:"error_code,omitempty"`
+	InputTokens        int64     `json:"input_tokens"`
+	OutputTokens       int64     `json:"output_tokens"`
+	TotalTokens        int64     `json:"total_tokens"`
+	CachedInputTokens  int64     `json:"cached_input_tokens"`
+	ReasoningTokens    int64     `json:"reasoning_tokens"`
+	InputItems         int64     `json:"input_items"`
+	OutputItems        int64     `json:"output_items"`
+	InputBytes         int64     `json:"input_bytes"`
+	OutputBytes        int64     `json:"output_bytes"`
+	InputCharacters    int64     `json:"input_characters"`
+	OutputCharacters   int64     `json:"output_characters"`
+	InputAudioMillis   int64     `json:"input_audio_ms"`
+	OutputAudioMillis  int64     `json:"output_audio_ms"`
+	InputVideoFrames   int64     `json:"input_video_frames"`
+	OutputVideoFrames  int64     `json:"output_video_frames"`
+	InputVideoDropped  int64     `json:"input_video_dropped"`
+	OutputVideoDropped int64     `json:"output_video_dropped"`
+	InputVideoMillis   int64     `json:"input_video_ms"`
+	OutputVideoMillis  int64     `json:"output_video_ms"`
+	LatencyMillis      int64     `json:"latency_ms"`
+	StartedAt          time.Time `json:"started_at"`
+	CompletedAt        time.Time `json:"completed_at"`
 }
 
 type ModelInvocationSummary struct {
-	RecordCount       int64 `json:"record_count"`
-	CompletedCount    int64 `json:"completed_count"`
-	FailedCount       int64 `json:"failed_count"`
-	CanceledCount     int64 `json:"canceled_count"`
-	InputTokens       int64 `json:"input_tokens"`
-	OutputTokens      int64 `json:"output_tokens"`
-	TotalTokens       int64 `json:"total_tokens"`
-	CachedInputTokens int64 `json:"cached_input_tokens"`
-	ReasoningTokens   int64 `json:"reasoning_tokens"`
-	InputItems        int64 `json:"input_items"`
-	OutputItems       int64 `json:"output_items"`
-	InputBytes        int64 `json:"input_bytes"`
-	OutputBytes       int64 `json:"output_bytes"`
-	InputCharacters   int64 `json:"input_characters"`
-	OutputCharacters  int64 `json:"output_characters"`
-	InputAudioMillis  int64 `json:"input_audio_ms"`
-	OutputAudioMillis int64 `json:"output_audio_ms"`
-	LatencyMillis     int64 `json:"latency_ms"`
+	RecordCount        int64 `json:"record_count"`
+	CompletedCount     int64 `json:"completed_count"`
+	FailedCount        int64 `json:"failed_count"`
+	CanceledCount      int64 `json:"canceled_count"`
+	InputTokens        int64 `json:"input_tokens"`
+	OutputTokens       int64 `json:"output_tokens"`
+	TotalTokens        int64 `json:"total_tokens"`
+	CachedInputTokens  int64 `json:"cached_input_tokens"`
+	ReasoningTokens    int64 `json:"reasoning_tokens"`
+	InputItems         int64 `json:"input_items"`
+	OutputItems        int64 `json:"output_items"`
+	InputBytes         int64 `json:"input_bytes"`
+	OutputBytes        int64 `json:"output_bytes"`
+	InputCharacters    int64 `json:"input_characters"`
+	OutputCharacters   int64 `json:"output_characters"`
+	InputAudioMillis   int64 `json:"input_audio_ms"`
+	OutputAudioMillis  int64 `json:"output_audio_ms"`
+	InputVideoFrames   int64 `json:"input_video_frames"`
+	OutputVideoFrames  int64 `json:"output_video_frames"`
+	InputVideoDropped  int64 `json:"input_video_dropped"`
+	OutputVideoDropped int64 `json:"output_video_dropped"`
+	InputVideoMillis   int64 `json:"input_video_ms"`
+	OutputVideoMillis  int64 `json:"output_video_ms"`
+	LatencyMillis      int64 `json:"latency_ms"`
 }
 
 type ModelInvocationReport struct {

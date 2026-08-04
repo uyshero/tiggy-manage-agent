@@ -14,13 +14,16 @@ import (
 // VerifiedObjectContent is an objectstore payload read through an ObjectRef and
 // verified against the metadata persisted in Postgres.
 type VerifiedObjectContent struct {
-	ObjectRef      ObjectRef
-	Content        []byte
-	ContentType    string
-	SizeBytes      int64
-	ChecksumSHA256 string
-	ETag           string
-	Metadata       map[string]string
+	ObjectRef             ObjectRef
+	Content               []byte
+	ContentType           string
+	SizeBytes             int64
+	ChecksumSHA256        string
+	StorageContentType    string
+	StorageSizeBytes      int64
+	StorageChecksumSHA256 string
+	ETag                  string
+	Metadata              map[string]string
 }
 
 // ReadVerifiedObject loads an object through its durable ObjectRef and verifies
@@ -43,6 +46,9 @@ func ReadVerifiedObject(ctx context.Context, client objectstore.Client, objectRe
 	if err != nil {
 		return VerifiedObjectContent{}, err
 	}
+	if object.Body == nil {
+		return VerifiedObjectContent{}, fmt.Errorf("%w: object ref %q storage returned an empty body", ErrInvalid, objectRef.ID)
+	}
 	defer object.Body.Close()
 
 	readLimit := maxBytes
@@ -63,10 +69,16 @@ func ReadVerifiedObject(ctx context.Context, client objectstore.Client, objectRe
 	if objectRef.SizeBytes > 0 && int64(len(content)) != objectRef.SizeBytes {
 		return VerifiedObjectContent{}, fmt.Errorf("%w: object ref %q size mismatch", ErrInvalid, objectRef.ID)
 	}
+	if object.SizeBytes > 0 && int64(len(content)) != object.SizeBytes {
+		return VerifiedObjectContent{}, fmt.Errorf("%w: object ref %q storage size mismatch", ErrInvalid, objectRef.ID)
+	}
 	checksum := sha256.Sum256(content)
 	checksumHex := hex.EncodeToString(checksum[:])
 	if strings.TrimSpace(objectRef.ChecksumSHA256) != "" && !strings.EqualFold(objectRef.ChecksumSHA256, checksumHex) {
 		return VerifiedObjectContent{}, fmt.Errorf("%w: object ref %q checksum mismatch", ErrInvalid, objectRef.ID)
+	}
+	if strings.TrimSpace(object.ChecksumSHA256) != "" && !strings.EqualFold(object.ChecksumSHA256, checksumHex) {
+		return VerifiedObjectContent{}, fmt.Errorf("%w: object ref %q storage checksum mismatch", ErrInvalid, objectRef.ID)
 	}
 	contentType := object.ContentType
 	if strings.TrimSpace(contentType) == "" {
@@ -75,6 +87,8 @@ func ReadVerifiedObject(ctx context.Context, client objectstore.Client, objectRe
 	return VerifiedObjectContent{
 		ObjectRef: objectRef, Content: content, ContentType: contentType,
 		SizeBytes: int64(len(content)), ChecksumSHA256: checksumHex,
-		ETag: object.ETag, Metadata: object.Metadata,
+		StorageContentType: object.ContentType, StorageSizeBytes: object.SizeBytes,
+		StorageChecksumSHA256: object.ChecksumSHA256,
+		ETag:                  object.ETag, Metadata: object.Metadata,
 	}, nil
 }

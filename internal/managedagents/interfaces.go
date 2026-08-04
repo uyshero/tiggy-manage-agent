@@ -71,6 +71,15 @@ type ObjectArtifactContextStore interface {
 	ListSessionArtifactsContext(ctx context.Context, sessionID string) ([]SessionArtifact, error)
 }
 
+type ArtifactExchangeContextStore interface {
+	CreateArtifactExchangeContext(ctx context.Context, input CreateArtifactExchangeInput) (ArtifactExchange, error)
+	GetArtifactExchangeContext(ctx context.Context, id string) (ArtifactExchange, error)
+	ClaimArtifactExchangeContext(ctx context.Context, input ClaimArtifactExchangeInput) (ArtifactExchange, error)
+	CompleteArtifactImportContext(ctx context.Context, input CompleteArtifactImportInput) (ArtifactExchange, ObjectRef, SessionArtifact, error)
+	CompleteArtifactExportContext(ctx context.Context, id string, completedAt time.Time) (ArtifactExchange, error)
+	FailArtifactExchangeContext(ctx context.Context, id string, failedAt time.Time, message string) (ArtifactExchange, error)
+}
+
 type Store interface {
 	EnsureLLMProvider(input EnsureLLMProviderInput) (LLMProvider, error)
 	UpsertLLMProvider(input UpsertLLMProviderInput) (LLMProvider, error)
@@ -196,6 +205,11 @@ type SessionRunStore interface {
 	GetSessionRunContext(ctx context.Context, sessionID string, runID string) (SessionRun, error)
 	ListSessionRunsContext(ctx context.Context, sessionID string) ([]SessionRun, error)
 	ListSessionRunEventsContext(ctx context.Context, sessionID string, runID string, afterSeq int64) ([]Event, error)
+}
+
+type SessionRunAttemptStore interface {
+	ListSessionRunAttemptsContext(ctx context.Context, sessionID string, runID string) ([]SessionRunAttempt, error)
+	GetSessionRunAttemptContext(ctx context.Context, sessionID string, runID string, attemptID string) (SessionRunAttempt, error)
 }
 
 type SessionControlReader interface {

@@ -344,6 +344,7 @@ type AgentRuntimeConfig struct {
 	SessionID             string          `json:"session_id"`
 	WorkspaceID           string          `json:"workspace_id"`
 	OwnerID               string          `json:"owner_id"`
+	AppID                 string          `json:"app_id,omitempty"`
 	AgentID               string          `json:"agent_id"`
 	AgentConfigVersion    int32           `json:"agent_config_version"`
 	EnvironmentID         string          `json:"environment_id"`

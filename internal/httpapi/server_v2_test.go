@@ -255,12 +255,18 @@ func TestV2RunLifecycleAndIdempotency(t *testing.T) {
 	if len(runs.Runs) != 1 || runs.Runs[0].ID != first.Run.ID {
 		t.Fatalf("unexpected run list: %+v", runs.Runs)
 	}
+	attempts := getJSON[struct {
+		Attempts []managedagents.SessionRunAttempt `json:"attempts"`
+	}](t, server, "/v2/sessions/"+session.ID+"/runs/"+first.Run.ID+"/attempts")
+	if attempts.Attempts == nil || len(attempts.Attempts) != 0 {
+		t.Fatalf("unexpected mock Run attempts: %+v", attempts.Attempts)
+	}
 	events := getJSON[eventsResponse](t, server, "/v2/sessions/"+session.ID+"/runs/"+first.Run.ID+"/events")
 	if len(events.Events) < 4 {
 		t.Fatalf("expected run events, got %+v", events.Events)
 	}
 	for _, event := range events.Events {
-		if event.TurnID != first.Run.ID {
+		if event.TurnID != first.Run.ID || event.RunID != first.Run.ID {
 			t.Fatalf("event missing run attribution: %+v", event)
 		}
 	}

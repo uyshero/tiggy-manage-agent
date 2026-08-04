@@ -2,11 +2,56 @@
 
 本文档记录 Tiggy Manage Agent (TMA) 的阶段性研发决策、实现内容、验证结果和后续待办，方便之后回溯为什么这样设计。
 
-最后更新：2026-07-14
+最后更新：2026-08-04
 
 ---
 
 ## 当前结论
+
+2026-08-04 完成当前开发数据库的受控升级。升级前备份为
+`.codex_artifacts/backups/tma-pre-platform-migrations-20260804-083815.dump`（SHA-256：
+`3d3530599631e143c2c44c75981c0da3be17eececca9427d55f4f3b5bc32006f`），并在独立恢复库通过
+`pg_restore` 验证。核对发现原库实际停在 `000099`，因此从备份重建正式 `tma` 数据库后只执行
+`000100-000117`，没有重放不安全的历史 migration；升级前后保留 234 个 Agent 和 380 个 Session。
+当前 schema 已包含 Retrieval、Application Resource/Event Subscription、first-class Run、签名 Artifact
+Exchange、Model Invocation/Quota Policy 与 Multimodal Realtime 审计字段。
+
+2026-08-04 将 `make migrate-up` 改为 migration ledger 驱动：`scripts/migrate_up.sh` 使用
+`tma_schema_migrations` 保存 migration version、SHA-256 和应用时间，只执行未应用文件，并在已应用
+文件 checksum 变化时失败。空库已验证可完整执行 115 个 migration，重复执行全部跳过；已有 schema
+但没有 ledger 时拒绝猜测，必须在完成备份和 schema 核对后显式设置
+`TMA_MIGRATION_BASELINE_VERSION=NNNNNN`。迁移入口还会在整个检查/执行期间持有 PostgreSQL advisory
+lock，跨主机并发 runner 默认最多等待 60 秒，从而把 schema 变更收口为数据库级全局单实例。真实
+并发测试覆盖“外部持锁后等待并接续成功”和“1 秒超时明确失败且 ledger 仍为 115 条”。账本初始化时
+`000097` 曾记录临时 Tab 误改的 checksum，现已在确认当前文件与 Git 发布版哈希一致后，用旧值条件更新
+为发布版 SHA-256，完整 checksum 门禁随后通过。
+
+2026-08-04 CLI/Core SDK 的模型管理增加 `model upsert --default-vision=true|false`，并通过公开核心 API
+把 `.env` 中 `volcengine-agent-plan / doubao-seed-2.0-pro` 更新为 `capability_type=text_image`、
+`is_default_vision=true`（revision 24），没有直接修改业务表。该豆包 Agent Plan 模型承担当前文本和图片
+理解，但仍不等同于 Multimodal Realtime；实时语音/摄像头需要独立的 Realtime WSS endpoint、模型或
+Resource ID 与 Provider 协议。
+
+2026-08-04 恢复本地 Keycloak/OIDC 启动链路，Keycloak 容器与 `tma-server` 均正常运行，Server
+`/health` 返回 200。Server 自 08:50:56 重启后未再出现旧 schema 导致的 object cleanup 错误，也没有
+新的 ERROR 或 panic。
+
+2026-08-04 发现本地 `.tma-server.log` 因长期只追加已实际占用 3.6 GB。Server/Worker 进程管理脚本
+现在会在启动前检查日志大小，默认达到 100 MiB 时轮转并保留 3 份；可分别通过
+`TMA_SERVER_LOG_MAX_BYTES` / `TMA_SERVER_LOG_BACKUP_COUNT` 和
+`TMA_WORKER_LOG_MAX_BYTES` / `TMA_WORKER_LOG_BACKUP_COUNT` 调整。轮转发生在新进程打开日志之前，restart
+时旧进程仍可把停机日志写入已改名的 `.1` 文件。Server restart 还会等待 PID 确实切换且新进程健康，
+避免旧进程尚未退出时误报重启成功。真实重启已把原日志无损保留为 `.tma-server.log.1`，新日志从零
+开始并切换到新 PID。
+
+2026-08-03 完成豆包 Agent Plan 的 Platform 真实模型验收：使用 `.env` 中
+`volcengine-agent-plan / doubao-seed-2.0-pro`，通过 Go Core SDK 和公开
+`/v2/model-runtime/generate` 验证文本生成、PNG 图片理解、Provider/Model 路由、Token Usage 和两条
+completed Invocation Audit。验收使用完整迁移的隔离 PostgreSQL，结束后删除临时数据库，没有升级
+正在运行的开发实例。过程中发现全新数据库过去只能把默认模型登记为 `text`，已增加
+`TMA_LLM_CAPABILITY_TYPE` 和 `TMA_LLM_IS_DEFAULT_VISION`，当前 TMA 环境显式登记为
+`text_image` 和统一视觉模型；普通测试默认跳过真实调用。该模型不属于 Multimodal Realtime，实时
+PCM/摄像头链路仍需单独的 Realtime WSS Endpoint、模型/Resource ID 和 Provider 协议。
 
 2026-07-14 Workbench 结果预览增加“预览 / MD”切换：Markdown 产物默认以 GFM 语义渲染标题、列表、代码块、表格和任务列表，“MD”模式保留原始源码查看；普通文本、代码、JSON 和图片继续使用原有预览，非 Markdown 文件的 MD 入口置灰，避免产生错误语义。切换状态在打开新文件或关闭预览时重置。
 

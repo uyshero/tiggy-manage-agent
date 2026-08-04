@@ -6,6 +6,7 @@ BASE="$ROOT/deploy/kubernetes/base"
 CONFIG_FILE="$ROOT/deploy/kubernetes/config.production.env"
 RUNTIME_SECRET_FILE="$ROOT/deploy/kubernetes/runtime-secrets.env"
 MIGRATION_SECRET_FILE="$ROOT/deploy/kubernetes/migration-secrets.env"
+MODEL_RUNTIME_TLS_DIR="$ROOT/deploy/kubernetes/model-runtime-tls"
 NAMESPACE=tma
 PUBLIC_HOST=tma.example.com
 INGRESS_CLASS=nginx
@@ -35,12 +36,13 @@ Options:
   --config-file PATH                Non-secret TMA environment file.
   --runtime-secret-file PATH        Runtime secret environment file.
   --migration-secret-file PATH      Migration owner environment file.
+  --model-runtime-tls-dir PATH      CA, server and client certificates for Runtime mTLS.
   --release-file PATH               Images, host, Namespace and Ingress settings.
   --namespace NAME                  Default: tma.
   --host HOST                       Public HTTPS host.
   --ingress-class NAME              Default: nginx.
   --tls-secret NAME                 Default: tma-tls.
-  --init-db                         Apply the 000110 baseline Job once.
+  --init-db                         Apply the 000117 baseline Job once.
   --keep-migration-secret           Keep owner Secret after successful Job.
   --skip-worker                     Deploy control plane without Worker.
   --timeout DURATION                Rollout/Job timeout (default: 10m).
@@ -65,6 +67,7 @@ load_release_file() {
       TMA_NAMESPACE) NAMESPACE="$value" ;;
       TMA_INGRESS_CLASS) INGRESS_CLASS="$value" ;;
       TMA_TLS_SECRET) TLS_SECRET="$value" ;;
+      TMA_MODEL_RUNTIME_TLS_DIR) MODEL_RUNTIME_TLS_DIR="$value" ;;
       *) printf 'unsupported release setting: %s\n' "$key" >&2; exit 1 ;;
     esac
   done <"$file"
@@ -79,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --config-file) CONFIG_FILE="${2:?missing value}"; shift 2 ;;
     --runtime-secret-file) RUNTIME_SECRET_FILE="${2:?missing value}"; shift 2 ;;
     --migration-secret-file) MIGRATION_SECRET_FILE="${2:?missing value}"; shift 2 ;;
+    --model-runtime-tls-dir) MODEL_RUNTIME_TLS_DIR="${2:?missing value}"; shift 2 ;;
     --release-file) load_release_file "${2:?missing value}"; shift 2 ;;
     --namespace) NAMESPACE="${2:?missing value}"; shift 2 ;;
     --host) PUBLIC_HOST="${2:?missing value}"; shift 2 ;;
@@ -121,8 +125,21 @@ validate_file() {
 
 validate_file "$CONFIG_FILE"
 validate_file "$RUNTIME_SECRET_FILE"
+[[ -d "$MODEL_RUNTIME_TLS_DIR" ]] || { echo 'model runtime TLS directory is required' >&2; exit 1; }
+for tls_file in ca.crt server.crt server.key client.crt client.key; do
+  [[ -r "$MODEL_RUNTIME_TLS_DIR/$tls_file" ]] || {
+    printf 'model runtime TLS file is missing or unreadable: %s/%s\n' "$MODEL_RUNTIME_TLS_DIR" "$tls_file" >&2
+    exit 1
+  }
+done
+if command -v openssl >/dev/null; then
+  openssl verify -CAfile "$MODEL_RUNTIME_TLS_DIR/ca.crt" "$MODEL_RUNTIME_TLS_DIR/server.crt" "$MODEL_RUNTIME_TLS_DIR/client.crt" >/dev/null
+  openssl x509 -in "$MODEL_RUNTIME_TLS_DIR/server.crt" -noout -checkhost tma-model-runtime >/dev/null
+fi
 model_runtime_token="$(sed -n 's/^TMA_MODEL_RUNTIME_AUTH_TOKEN=//p' "$RUNTIME_SECRET_FILE" | tail -1)"
 [[ "${#model_runtime_token}" -ge 32 ]] || { echo 'TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes' >&2; exit 1; }
+event_webhook_key="$(sed -n 's/^TMA_EVENT_WEBHOOK_SIGNING_KEY=//p' "$RUNTIME_SECRET_FILE" | tail -1)"
+[[ "${#event_webhook_key}" -ge 32 ]] || { echo 'TMA_EVENT_WEBHOOK_SIGNING_KEY must be at least 32 bytes' >&2; exit 1; }
 if [[ "$INIT_DB" -eq 1 ]]; then
   validate_file "$MIGRATION_SECRET_FILE"
 fi
@@ -157,6 +174,13 @@ fi
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml >"$TMP_DIR/namespace.yaml"
 kubectl -n "$NAMESPACE" create configmap tma-config --from-env-file="$CONFIG_FILE" --dry-run=client -o yaml >"$TMP_DIR/configmap.yaml"
 kubectl -n "$NAMESPACE" create secret generic tma-runtime-secrets --from-env-file="$RUNTIME_SECRET_FILE" --dry-run=client -o yaml >"$TMP_DIR/runtime-secret.yaml"
+kubectl -n "$NAMESPACE" create secret generic tma-model-runtime-tls \
+  --from-file=ca.crt="$MODEL_RUNTIME_TLS_DIR/ca.crt" \
+  --from-file=server.crt="$MODEL_RUNTIME_TLS_DIR/server.crt" \
+  --from-file=server.key="$MODEL_RUNTIME_TLS_DIR/server.key" \
+  --from-file=client.crt="$MODEL_RUNTIME_TLS_DIR/client.crt" \
+  --from-file=client.key="$MODEL_RUNTIME_TLS_DIR/client.key" \
+  --dry-run=client -o yaml >"$TMP_DIR/model-runtime-tls-secret.yaml"
 if [[ "$INIT_DB" -eq 1 ]]; then
   kubectl -n "$NAMESPACE" create secret generic tma-migration-secrets --from-env-file="$MIGRATION_SECRET_FILE" --dry-run=client -o yaml >"$TMP_DIR/migration-secret.yaml"
 fi
@@ -186,20 +210,21 @@ fi
 kubectl apply -f "$TMP_DIR/namespace.yaml"
 kubectl apply -f "$TMP_DIR/configmap.yaml"
 kubectl apply -f "$TMP_DIR/runtime-secret.yaml"
+kubectl apply -f "$TMP_DIR/model-runtime-tls-secret.yaml"
 
 if [[ "$INIT_DB" -eq 1 ]]; then
   kubectl apply -f "$TMP_DIR/migration-secret.yaml"
-  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000110 >/dev/null 2>&1; then
-    complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000110 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
+  if kubectl -n "$NAMESPACE" get job tma-database-baseline-000117 >/dev/null 2>&1; then
+	complete="$(kubectl -n "$NAMESPACE" get job tma-database-baseline-000117 -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}')"
     [[ "$complete" == 'True' ]] || { echo 'existing baseline Job is not complete; inspect it before retrying' >&2; exit 1; }
     echo 'database baseline Job already completed; skipping reinitialization'
   else
     kubectl apply -f "$TMP_DIR/migration-job.yaml"
-    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000110 --timeout="$TIMEOUT"; then
-      kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000110 --all-containers=true >&2 || true
+    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/tma-database-baseline-000117 --timeout="$TIMEOUT"; then
+	  kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000117 --all-containers=true >&2 || true
       exit 1
     fi
-    kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000110 --all-containers=true
+	kubectl -n "$NAMESPACE" logs job/tma-database-baseline-000117 --all-containers=true
   fi
   if [[ "$KEEP_MIGRATION_SECRET" -eq 0 ]]; then
     kubectl -n "$NAMESPACE" delete secret tma-migration-secrets --ignore-not-found

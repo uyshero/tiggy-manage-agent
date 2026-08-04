@@ -34,7 +34,7 @@ make test-postgres
 
 `make test-postgres` 会启动 Compose PostgreSQL，创建一次性 `tma_test_*` 数据库，应用全部迁移后运行测试，并在结束或失败时终止残留连接、删除临时数据库。它不会使用开发 server 正在连接的 `tma` 数据库，因此后台 turn worker 不会消费集成测试数据。可通过 `TMA_POSTGRES_TEST_USER`、`TMA_POSTGRES_TEST_PASSWORD`、`TMA_POSTGRES_TEST_HOST` 和 `TMA_POSTGRES_TEST_PORT` 覆盖本地连接参数。
 
-`make migrate-up` 使用 `ON_ERROR_STOP=1` 和单文件事务执行每个迁移。任何 SQL 错误都会立即让命令和依赖它的 verification target 失败，不允许继续执行后续迁移形成假绿；重复执行应保持幂等成功。
+`make migrate-up` 使用 `tma_schema_migrations` 记录版本和 SHA-256，以 `ON_ERROR_STOP=1` 和单文件事务只执行未应用迁移，并在整个检查/执行期间持有 PostgreSQL advisory lock。并发 runner 默认等待 60 秒，可通过 `TMA_MIGRATION_LOCK_TIMEOUT_SECONDS` 调整。任何 SQL 错误都会立即失败；已应用文件发生内容变化也会因 checksum 不一致而失败。已有但尚无 ledger 的历史库会拒绝从头重放；完成备份并确认实际版本后，需要一次性执行 `TMA_MIGRATION_BASELINE_VERSION=NNNNNN make migrate-up` 建立基线。此变量不能用于跳过未经验证的迁移。
 
 ### Agent Core 性能基准
 
@@ -414,6 +414,8 @@ make verify-llm-provider
 TMA_LLM_PROVIDER
 TMA_LLM_PROVIDER_TYPE
 TMA_LLM_MODEL
+TMA_LLM_CAPABILITY_TYPE
+TMA_LLM_IS_DEFAULT_VISION
 TMA_LLM_BASE_URL
 TMA_LLM_API_KEY_ENV
 TMA_LLM_API_KEY
@@ -421,7 +423,19 @@ TMA_LLM_MAX_ATTEMPTS
 TMA_LLM_RETRY_BASE_DELAY_MS
 ```
 
-启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_response` 聚合的 chunk 数量和 TTFT。
+启动服务时会把默认 Provider 写入 `llm_providers`，数据库只保存 `TMA_LLM_API_KEY_ENV` 指向的变量名，不保存真实 API Key。全新数据库还会使用 `TMA_LLM_CAPABILITY_TYPE` 和 `TMA_LLM_IS_DEFAULT_VISION` 注册默认模型；已有模型配置不会被启动默认值覆盖。然后脚本创建 Agent / Environment / Session，发送一条消息，并检查真实模型链路返回了非空 `agent.message`。如果 Provider 支持流式输出，结果会显示 `runtime.llm_response` 聚合的 chunk 数量和 TTFT。
+
+要直接验证公开 Model Runtime Core SDK 的文本、图片、Usage 和 Invocation Audit 链路，先启动一个已迁移的隔离 Server，再运行：
+
+```bash
+TMA_RUN_LIVE_MODEL_TESTS=1 \
+TMA_BASE_URL=http://127.0.0.1:18090 \
+TMA_LLM_PROVIDER=volcengine-agent-plan \
+TMA_LLM_MODEL=doubao-seed-2.0-pro \
+  go test -v ./sdk/tma -run '^TestLiveModelRuntimeGenerateAndAudit$' -count=1
+```
+
+鉴权 Server 还需要设置 `TMA_AUTH_TOKEN`。该测试要求模型目录中的能力为 `text_image`，会产生两次真实模型调用；普通 `go test ./...` 不设置 `TMA_RUN_LIVE_MODEL_TESTS=1` 时始终跳过，不会产生模型费用。
 
 如果要验证当前 `.env` 中配置的真实 LLM Provider 的 tool approval 流程，先启动服务，再运行：
 

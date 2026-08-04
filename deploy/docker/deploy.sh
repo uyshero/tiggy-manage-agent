@@ -68,6 +68,7 @@ workspace_root="$(env_value TMA_CLOUD_SANDBOX_ROOT)"
 data_root="$(env_value TMA_CLOUD_SANDBOX_DATA_ROOT)"
 sandbox_image="$(env_value TMA_CLOUD_SANDBOX_IMAGE)"
 model_runtime_token="$(env_value TMA_MODEL_RUNTIME_AUTH_TOKEN)"
+model_runtime_tls_dir="$(env_value TMA_MODEL_RUNTIME_TLS_DIR)"
 [[ "$configured_gid" =~ ^[0-9]+$ ]] || { echo 'TMA_DOCKER_GID must be numeric' >&2; exit 1; }
 [[ "$workspace_root" = /* && "$data_root" = /* ]] || { echo 'sandbox roots must be absolute paths' >&2; exit 1; }
 [[ "$workspace_root" == /var/lib/tma/* && "$data_root" == /var/lib/tma/* ]] || {
@@ -76,6 +77,20 @@ model_runtime_token="$(env_value TMA_MODEL_RUNTIME_AUTH_TOKEN)"
 }
 [[ -n "$sandbox_image" ]] || { echo 'TMA_CLOUD_SANDBOX_IMAGE is required' >&2; exit 1; }
 [[ "${#model_runtime_token}" -ge 32 ]] || { echo 'TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes' >&2; exit 1; }
+[[ "$model_runtime_tls_dir" = /* && -d "$model_runtime_tls_dir" ]] || {
+  echo 'TMA_MODEL_RUNTIME_TLS_DIR must be an existing absolute directory' >&2
+  exit 1
+}
+for tls_file in ca.crt server.crt server.key client.crt client.key; do
+  [[ -r "$model_runtime_tls_dir/$tls_file" ]] || {
+    printf 'model runtime TLS file is missing or unreadable: %s/%s\n' "$model_runtime_tls_dir" "$tls_file" >&2
+    exit 1
+  }
+done
+if command -v openssl >/dev/null; then
+  openssl verify -CAfile "$model_runtime_tls_dir/ca.crt" "$model_runtime_tls_dir/server.crt" "$model_runtime_tls_dir/client.crt" >/dev/null
+  openssl x509 -in "$model_runtime_tls_dir/server.crt" -noout -checkhost model-runtime >/dev/null
+fi
 if [[ "$WITH_BROWSER" -eq 1 && -z "$(env_value TMA_BROWSER_GATEWAY_SERVICE_SECRET)" ]]; then
   echo 'TMA_BROWSER_GATEWAY_SERVICE_SECRET is required with --with-browser' >&2
   exit 1

@@ -4,12 +4,13 @@ import type {
   AgentConfigVersion,
   AgentExportDocument,
   AgentImportRequest,
+  ApplicationResourceQuery,
   CreateAgentRequest,
   ToolingHealthRequest,
   ToolingHealthResponse,
   UpdateAgentRequest,
 } from "../types.js";
-import { ServiceBase, resourcePath } from "./base.js";
+import { ServiceBase, resourcePath, withQuery } from "./base.js";
 
 export class AgentsService extends ServiceBase {
   create(request: CreateAgentRequest, signal?: AbortSignal): Promise<Agent> {
@@ -22,6 +23,11 @@ export class AgentsService extends ServiceBase {
 
   list(signal?: AbortSignal): Promise<Agent[]> {
     return this.transport.requestJSON<{ agents: Agent[] }>("GET", "/v2/agents", undefined, signal ? { signal } : {}).then((value) => value.agents);
+  }
+
+  listByApplication(query: ApplicationResourceQuery = {}, signal?: AbortSignal): Promise<Agent[]> {
+    const path = withQuery("/v2/agents", { app_id: query.appId, external_ref: query.externalRef });
+    return this.transport.requestJSON<{ agents: Agent[] }>("GET", path, undefined, signal ? { signal } : {}).then((value) => value.agents);
   }
 
   get(agentId: string, signal?: AbortSignal): Promise<Agent> {

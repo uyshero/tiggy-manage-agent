@@ -45,7 +45,7 @@ migrated from direct versioned HTTP calls to the published TypeScript SDK.
 2. Confirm Platform Core health, Retrieval readiness, Speech model capability,
    application `/health` and `/ready` endpoints, database capacity, object
    storage, GitLab, and R Runtime capacity.
-3. Apply Platform migrations through `000110` and each application's own
+3. Apply Platform migrations through `000117` and each application's own
    migrations. Never let service startup apply another service's schema.
 4. Take consistent backups of the Platform, Knowledge, Biography, and R
    Survival databases. Perform a restore rehearsal in an isolated database.

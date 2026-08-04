@@ -149,23 +149,26 @@ func defaultSpeechProviderDialer(ctx context.Context, target string, headers htt
 	return websocket.Dial(ctx, target, &websocket.DialOptions{HTTPHeader: headers})
 }
 
-func serveSpeechRuntime(w http.ResponseWriter, r *http.Request, proxy SpeechProxy) {
+func serveSpeechRuntime(w http.ResponseWriter, r *http.Request, proxy SpeechProxy, metrics *RuntimeMetrics) {
 	connection, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
+	metrics.streamStarted(streamProtocolWebSocket)
+	defer metrics.streamFinished(streamProtocolWebSocket)
 	connection.SetReadLimit(SpeechMaxFrameBytes)
 	defer connection.CloseNow()
-	messageType, payload, err := connection.Read(r.Context())
+	ctx := withRuntimeMetrics(r.Context(), metrics)
+	messageType, payload, err := connection.Read(ctx)
 	if err != nil {
 		return
 	}
 	var request SpeechRequest
 	if messageType != websocket.MessageText || json.Unmarshal(payload, &request) != nil || request.Type != "session.open" {
-		_ = writeSpeechEvent(r.Context(), connection, SpeechEvent{Type: "error", Code: "invalid_session_start", Message: "first internal event must be session.open"})
+		_ = writeSpeechEvent(ctx, connection, SpeechEvent{Type: "error", Code: "invalid_session_start", Message: "first internal event must be session.open"})
 		return
 	}
-	_, _ = proxy.ProxySpeech(r.Context(), r.Context(), connection, request)
+	_, _ = proxy.ProxySpeech(ctx, ctx, connection, request)
 	_ = connection.Close(websocket.StatusNormalClosure, "speech session complete")
 }
 
@@ -178,7 +181,13 @@ func (e *HTTPExecutor) ProxySpeech(ctx, clientContext context.Context, client *w
 		return metrics, err
 	}
 	headers := make(http.Header)
-	headers.Set("Authorization", "Bearer "+e.token)
+	authorization, err := e.auth.authorization(http.MethodGet, "/internal/v1/speech/realtime")
+	if err != nil {
+		metrics.ErrorCode = "speech_provider_connect_failed"
+		_ = writeSpeechEvent(clientContext, client, SpeechEvent{Type: "error", Code: metrics.ErrorCode, Message: "speech provider connection failed", Retryable: true})
+		return metrics, err
+	}
+	headers.Set("Authorization", authorization)
 	websocketClient := *e.client
 	websocketClient.Timeout = 0
 	upstream, response, err := websocket.Dial(ctx, target, &websocket.DialOptions{HTTPClient: &websocketClient, HTTPHeader: headers})
@@ -219,7 +228,7 @@ func websocketEndpoint(endpoint, path string) (string, error) {
 }
 
 func proxyGenericSpeech(ctx, clientContext context.Context, client, upstream *websocket.Conn, metrics *SpeechMetrics) (SpeechMetrics, error) {
-	err := proxySpeechLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
+	err := proxyWebSocketLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
 		observeSpeechInput(messageType, payload, metrics)
 		return false, upstream.Write(ctx, messageType, payload)
 	}, func(messageType websocket.MessageType, payload []byte) (bool, error) {
@@ -288,7 +297,7 @@ type speechClientEvent struct {
 	Text string `json:"text,omitempty"`
 }
 
-type speechInbound struct {
+type websocketInbound struct {
 	messageType websocket.MessageType
 	payload     []byte
 	err         error
@@ -311,7 +320,7 @@ func proxyDoubaoASR(ctx, clientContext context.Context, client, upstream *websoc
 	if err := writeSpeechEvent(clientContext, client, SpeechEvent{Type: "session.started", SessionID: request.Start.SessionID, Mode: "transcription", AudioFormat: "pcm_s16le", SampleRateHz: sampleRate}); err != nil {
 		return err
 	}
-	return proxySpeechLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
+	return proxyWebSocketLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
 		if messageType == websocket.MessageBinary {
 			metrics.InputItems++
 			metrics.InputBytes += int64(len(payload))
@@ -394,7 +403,7 @@ func proxyDoubaoTTS(ctx, clientContext context.Context, client, upstream *websoc
 	if err := writeSpeechEvent(clientContext, client, SpeechEvent{Type: "session.started", SessionID: request.Start.SessionID, Mode: "synthesis", AudioFormat: "pcm_s16le", SampleRateHz: request.Route.SampleRateHz}); err != nil {
 		return err
 	}
-	return proxySpeechLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
+	return proxyWebSocketLoop(ctx, clientContext, client, upstream, func(messageType websocket.MessageType, payload []byte) (bool, error) {
 		if messageType != websocket.MessageText {
 			return false, nil
 		}
@@ -453,12 +462,12 @@ func proxyDoubaoTTS(ctx, clientContext context.Context, client, upstream *websoc
 	})
 }
 
-func proxySpeechLoop(ctx, clientContext context.Context, client, upstream *websocket.Conn, onClient, onUpstream func(websocket.MessageType, []byte) (bool, error)) error {
+func proxyWebSocketLoop(ctx, clientContext context.Context, client, upstream *websocket.Conn, onClient, onUpstream func(websocket.MessageType, []byte) (bool, error)) error {
 	readContext, cancelReads := context.WithCancel(ctx)
 	defer cancelReads()
-	clientFrames, upstreamFrames := make(chan speechInbound, 1), make(chan speechInbound, 1)
-	go readSpeechFrames(clientContext, client, clientFrames)
-	go readSpeechFrames(readContext, upstream, upstreamFrames)
+	clientFrames, upstreamFrames := make(chan websocketInbound, 1), make(chan websocketInbound, 1)
+	go readWebSocketFrames(clientContext, client, clientFrames)
+	go readWebSocketFrames(readContext, upstream, upstreamFrames)
 	for {
 		select {
 		case <-readContext.Done():
@@ -467,7 +476,11 @@ func proxySpeechLoop(ctx, clientContext context.Context, client, upstream *webso
 			if frame.err != nil {
 				return frame.err
 			}
+			startedAt := time.Now()
 			done, err := onClient(frame.messageType, frame.payload)
+			if metrics := runtimeMetricsFromContext(ctx); metrics != nil {
+				metrics.observeStreamEvent(streamProtocolWebSocket, streamDirectionClientToRuntime, time.Since(startedAt))
+			}
 			if err != nil || done {
 				return err
 			}
@@ -475,7 +488,11 @@ func proxySpeechLoop(ctx, clientContext context.Context, client, upstream *webso
 			if frame.err != nil {
 				return frame.err
 			}
+			startedAt := time.Now()
 			done, err := onUpstream(frame.messageType, frame.payload)
+			if metrics := runtimeMetricsFromContext(ctx); metrics != nil {
+				metrics.observeStreamEvent(streamProtocolWebSocket, streamDirectionRuntimeToClient, time.Since(startedAt))
+			}
 			if err != nil || done {
 				return err
 			}
@@ -483,11 +500,11 @@ func proxySpeechLoop(ctx, clientContext context.Context, client, upstream *webso
 	}
 }
 
-func readSpeechFrames(ctx context.Context, connection *websocket.Conn, frames chan<- speechInbound) {
+func readWebSocketFrames(ctx context.Context, connection *websocket.Conn, frames chan<- websocketInbound) {
 	for {
 		messageType, payload, err := connection.Read(ctx)
 		select {
-		case frames <- speechInbound{messageType: messageType, payload: payload, err: err}:
+		case frames <- websocketInbound{messageType: messageType, payload: payload, err: err}:
 		case <-ctx.Done():
 			return
 		}

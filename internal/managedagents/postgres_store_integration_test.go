@@ -2103,6 +2103,17 @@ func TestPostgresStoreSessionTurnLeaseRecoveryAndRemoteInterrupt(t *testing.T) {
 	if first[0].Scope.WorkspaceID != session.WorkspaceID || first[0].Scope.OwnerID != session.OwnerID {
 		t.Fatalf("persistent turn claim lost Session scope: work=%+v session=%+v", first[0], session)
 	}
+	if first[0].AttemptID != "attempt_000001" {
+		t.Fatalf("unexpected first-class attempt id: %+v", first[0])
+	}
+	firstAttempts, err := store.ListSessionRunAttemptsContext(t.Context(), session.ID, turnID)
+	if err != nil || len(firstAttempts) != 1 || firstAttempts[0].Status != SessionRunAttemptStatusRunning || firstAttempts[0].LeaseOwner != "instance-a" {
+		t.Fatalf("unexpected first Run attempt history: attempts=%+v err=%v", firstAttempts, err)
+	}
+	claimedRun, err := store.GetSessionRunContext(t.Context(), session.ID, turnID)
+	if err != nil || claimedRun.TurnID != turnID || claimedRun.Attempt != 1 || claimedRun.CurrentAttemptID != first[0].AttemptID {
+		t.Fatalf("Run did not persist current attempt: run=%+v err=%v", claimedRun, err)
+	}
 	second, err := store.ClaimSessionTurns(ClaimSessionTurnsInput{LeaseOwner: "instance-b", LeaseDuration: time.Minute, Limit: 1})
 	if err != nil {
 		t.Fatalf("claim while leased: %v", err)
@@ -2121,6 +2132,10 @@ func TestPostgresStoreSessionTurnLeaseRecoveryAndRemoteInterrupt(t *testing.T) {
 	if len(recovered) != 1 || recovered[0].Attempt != 2 {
 		t.Fatalf("expected expired turn to be recovered on attempt 2, got %+v", recovered)
 	}
+	recoveredAttempts, err := store.ListSessionRunAttemptsContext(t.Context(), session.ID, turnID)
+	if err != nil || len(recoveredAttempts) != 2 || recoveredAttempts[0].Status != SessionRunAttemptStatusAbandoned || recoveredAttempts[1].Status != SessionRunAttemptStatusRunning {
+		t.Fatalf("unexpected recovered Run attempt history: attempts=%+v err=%v", recoveredAttempts, err)
+	}
 	active, err := store.RenewSessionTurnLease(RenewSessionTurnLeaseInput{SessionID: session.ID, TurnID: turnID, LeaseOwner: "instance-a", LeaseDuration: time.Minute})
 	if err != nil {
 		t.Fatalf("renew stale owner: %v", err)
@@ -2129,8 +2144,16 @@ func TestPostgresStoreSessionTurnLeaseRecoveryAndRemoteInterrupt(t *testing.T) {
 		t.Fatal("expected stale lease owner to be fenced out")
 	}
 
-	if _, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}}); err != nil {
+	interruptEvents, err := store.AppendEvents(session.ID, []AppendEventInput{{Type: EventUserInterrupt}})
+	if err != nil {
 		t.Fatalf("append remote interrupt: %v", err)
+	}
+	if len(interruptEvents) == 0 || interruptEvents[0].RunID != turnID || interruptEvents[0].AttemptID != recovered[0].AttemptID {
+		t.Fatalf("interrupt event was not associated with the active attempt: %+v", interruptEvents)
+	}
+	finalAttempts, err := store.ListSessionRunAttemptsContext(t.Context(), session.ID, turnID)
+	if err != nil || len(finalAttempts) != 2 || finalAttempts[1].Status != SessionRunAttemptStatusInterrupted || finalAttempts[1].EndedAt == nil {
+		t.Fatalf("interrupt did not finish active Run attempt: attempts=%+v err=%v", finalAttempts, err)
 	}
 	active, err = store.RenewSessionTurnLease(RenewSessionTurnLeaseInput{SessionID: session.ID, TurnID: turnID, LeaseOwner: "instance-b", LeaseDuration: time.Minute})
 	if err != nil {
@@ -3292,6 +3315,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 			{`DELETE FROM skill_asset_retention_policies WHERE workspace_id IN ($1, $2) OR organization_id = 'org_default'`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM skill_marketplace_entries WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM skill_marketplace_policies WHERE workspace_id IN ($1, $2) OR organization_id = 'org_default'`, []any{alphaWorkspace, betaWorkspace}},
+			{`DELETE FROM artifact_exchanges WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM session_artifacts WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM object_cleanup_journal WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
 			{`DELETE FROM observability_exporter_runs WHERE workspace_id IN ($1, $2)`, []any{alphaWorkspace, betaWorkspace}},
@@ -3334,11 +3358,11 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if _, err := adminStore.db.ExecContext(context.Background(), `
 		GRANT SELECT, INSERT, UPDATE, DELETE
 		ON agent_deliberation_contributions, agent_deliberation_participants, agent_deliberation_rounds, agent_deliberations,
-		agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, environments, evaluation_rubrics, managed_environment_variables,
-			llm_usage_records, model_invocations, mcp_registry_servers, mcp_registry_server_versions, object_cleanup_journal, object_ref_links, object_refs,
+			agents, agent_config_versions, agent_loop_states, agent_schedule_runs, agent_schedules, achievement_library_items, artifact_exchanges, environments, evaluation_rubrics, event_deliveries, event_subscriptions, managed_environment_variables,
+				llm_usage_records, model_invocations, model_runtime_quota_policies, model_runtime_quota_policy_versions, mcp_registry_servers, mcp_registry_server_versions, object_cleanup_journal, object_ref_links, object_refs,
 			observability_exporter_runs, operator_audit_log, security_audit_outbox, session_artifacts,
 			service_identities, service_identity_credentials,
-		run_evaluations, session_event_counters, session_events, session_interventions, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
+		run_evaluations, session_event_counters, session_events, session_interventions, session_run_attempts, session_runs, session_summaries, session_task_items, session_task_plans, session_turn_skill_usages, session_turns, sessions,
 		skill_asset_gc_items, skill_asset_gc_runs, skill_asset_gc_tombstones,
 		skill_asset_retention_policies, skill_asset_retention_policy_versions,
 		skill_marketplace_entries, skill_marketplace_policies, skill_marketplace_policy_versions,
@@ -3358,7 +3382,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 		t.Fatalf("grant Session turn access to RLS test role: %v", err)
 	}
 	if _, err := adminStore.db.ExecContext(context.Background(), `
-			GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq, tma_model_invocation_id_seq,
+				GRANT USAGE ON SEQUENCE tma_achievement_library_item_id_seq, tma_agent_id_seq, tma_agent_deliberation_id_seq, tma_agent_schedule_id_seq, tma_agent_schedule_run_id_seq, tma_artifact_exchange_id_seq, tma_environment_id_seq, tma_evaluation_rubric_id_seq, tma_event_delivery_id_seq, tma_event_subscription_id_seq, tma_session_id_seq, tma_event_id_seq, tma_llm_usage_id_seq, tma_model_invocation_id_seq, tma_model_runtime_quota_policy_id_seq, tma_model_runtime_quota_policy_version_id_seq,
 			tma_mcp_registry_server_id_seq, tma_mcp_registry_version_id_seq,
 			tma_object_cleanup_journal_id_seq, tma_object_ref_id_seq, tma_observability_exporter_run_id_seq, tma_operator_audit_id_seq, tma_run_evaluation_id_seq,
 			tma_session_artifact_id_seq, tma_skill_asset_gc_item_id_seq,
@@ -4721,7 +4745,7 @@ func TestPostgresTenantTablesForceWorkspaceRLS(t *testing.T) {
 	if unscopedCount != 0 {
 		t.Fatalf("RLS exposed %d managed environment rows without a transaction scope", unscopedCount)
 	}
-	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "llm_usage_records", "model_invocations", "mcp_registry_servers", "mcp_registry_server_versions", "object_cleanup_journal", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "service_identities", "service_identity_credentials", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
+	for _, table := range []string{"agent_deliberation_contributions", "agent_deliberation_participants", "agent_deliberation_rounds", "agent_deliberations", "agents", "agent_config_versions", "environments", "event_deliveries", "event_subscriptions", "llm_usage_records", "model_invocations", "model_runtime_quota_policies", "model_runtime_quota_policy_versions", "mcp_registry_servers", "mcp_registry_server_versions", "object_cleanup_journal", "object_ref_links", "object_refs", "observability_exporter_runs", "operator_audit_log", "organizations", "security_audit_outbox", "service_identities", "service_identity_credentials", "session_artifacts", "session_event_counters", "session_events", "session_interventions", "session_run_attempts", "session_runs", "session_summaries", "session_task_items", "session_task_plans", "session_turn_skill_usages", "session_turns", "sessions", "skill_asset_gc_items", "skill_asset_gc_runs", "skill_asset_gc_tombstones", "skill_asset_retention_policies", "skill_asset_retention_policy_versions", "skill_marketplace_entries", "skill_marketplace_policies", "skill_marketplace_policy_versions", "skill_version_package_files", "skill_versions", "skills", "subagent_start_requests", "subagent_task_group_items", "subagent_task_groups", "tool_permission_audit_records", "trace_indexes", "trace_span_indexes", "worker_work", "workers", "workspace_tool_permission_policies", "workspaces"} {
 		if err := restrictedStore.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&unscopedCount); err != nil {
 			t.Fatalf("query %s without scope: %v", table, err)
 		}
@@ -5326,6 +5350,45 @@ func TestPostgresEmbeddingAndRerankerModelConfiguration(t *testing.T) {
 		WorkspaceID: DefaultWorkspaceID, Name: "invalid embedding agent", LLMProvider: providerID, LLMModel: second.Model,
 	}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("expected embedding model to be rejected as an Agent runtime model, got %v", err)
+	}
+}
+
+func TestPostgresMultimodalRealtimeModelConfiguration(t *testing.T) {
+	store := newPostgresIntegrationStore(t)
+	ctx := context.Background()
+	suffix := strings.ReplaceAll(time.Now().UTC().Format("150405.000000000"), ".", "")
+	providerID := "realtime-model-provider-" + suffix
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM llm_models WHERE provider_id = $1`, providerID)
+		_, _ = store.db.ExecContext(ctx, `DELETE FROM llm_providers WHERE id = $1`, providerID)
+	})
+	if _, err := store.UpsertLLMProvider(UpsertLLMProviderInput{ID: providerID, ProviderType: "tma", BaseURL: "wss://provider.example/realtime", Enabled: true}); err != nil {
+		t.Fatalf("create realtime model provider: %v", err)
+	}
+	_, err := store.CreateLLMModel(UpsertLLMModelInput{
+		ProviderID: providerID, Model: "realtime-v1", ContextWindowTokens: 8192,
+		CapabilityType: LLMModelCapabilityMultimodalRealtime,
+		Capabilities: &LLMModelCapabilities{
+			Protocol: LLMMultimodalRealtimeProtocolTMAWebSocket,
+			Realtime: &LLMRealtimeCapabilities{
+				InputFormats:     []LLMRealtimeMediaFormat{{Kind: "audio", ContentType: "audio/pcm", Codec: "pcm_s16le"}},
+				OutputModalities: []string{"text"}, MaxInputTracks: 1, MaxFrameBytes: 1 << 20,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create realtime model: %v", err)
+	}
+	models, err := store.ListLLMModels(providerID)
+	if err != nil {
+		t.Fatalf("load realtime model: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("unexpected realtime model count: %+v", models)
+	}
+	loaded := models[0]
+	if loaded.CapabilityType != LLMModelCapabilityMultimodalRealtime || loaded.Capabilities.Realtime == nil || loaded.Capabilities.Realtime.MaxFrameBytes != 1<<20 || loaded.Capabilities.Realtime.InputFormats[0].Codec != "pcm_s16le" {
+		t.Fatalf("unexpected persisted realtime model: %+v", loaded)
 	}
 }
 

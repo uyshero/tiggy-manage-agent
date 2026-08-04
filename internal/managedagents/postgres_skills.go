@@ -76,6 +76,14 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 	input.SourceLocator = strings.TrimSpace(input.SourceLocator)
 	input.SourcePath = strings.TrimSpace(input.SourcePath)
 	input.CreatedBy = defaultString(strings.TrimSpace(input.CreatedBy), "system")
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return skills.Skill{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return skills.Skill{}, err
+	}
 	if err := skills.ValidateIdentifier(input.Identifier); err != nil {
 		return skills.Skill{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
@@ -103,27 +111,33 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 		return skills.Skill{}, err
 	}
 	defer tx.Rollback()
+	if err := validateApplicationIdentityTx(ctx, tx, input.WorkspaceID, applicationOwnership.AppID); err != nil {
+		return skills.Skill{}, err
+	}
 	id, err := nextSequenceID(ctx, tx, "skl", "tma_skill_id_seq")
 	if err != nil {
 		return skills.Skill{}, err
 	}
 	now := time.Now().UTC()
 	var skill skills.Skill
+	var storedLabels []byte
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO skills (
-			id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+			id, workspace_id, app_id, external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			forked_from_skill_id, forked_from_version, source_plugin_id,
 			source_type, source_locator, source_path, status, created_by, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NULLIF($10, 0), $11, $12, $13, $14, 'active', $15, $16)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), NULLIF($13, 0), $14, $15, $16, $17, 'active', $18, $19)
 		ON CONFLICT DO NOTHING
-		RETURNING id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		RETURNING id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at
-	`, id, input.WorkspaceID, input.Identifier, input.Title, input.Description, input.OwnerType, input.OwnerID, input.Visibility,
+	`, id, input.WorkspaceID, nullableString(applicationOwnership.AppID), applicationOwnership.ExternalRef, labelsJSON,
+		input.Identifier, input.Title, input.Description, input.OwnerType, input.OwnerID, input.Visibility,
 		input.ForkedFromSkillID, input.ForkedFromVersion, nullableString(input.SourcePluginID), input.SourceType,
 		input.SourceLocator, input.SourcePath, input.CreatedBy, now).Scan(
-		&skill.ID, &skill.WorkspaceID, &skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
+		&skill.ID, &skill.WorkspaceID, &skill.AppID, &skill.ExternalRef, &storedLabels,
+		&skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
 		&skill.OwnerID, &skill.Visibility, &skill.ForkedFromSkillID, &skill.ForkedFromVersion,
 		&skill.SourcePluginID, &skill.SourceType, &skill.SourceLocator, &skill.SourcePath,
 		&skill.Status, &skill.CreatedBy, &skill.CreatedAt,
@@ -131,6 +145,10 @@ func (s *PostgresStore) CreateSkill(ctx context.Context, input skills.CreateSkil
 	if err == sql.ErrNoRows {
 		return skills.Skill{}, fmt.Errorf("%w: skill identifier %q already exists", ErrConflict, input.Identifier)
 	}
+	if err != nil {
+		return skills.Skill{}, err
+	}
+	skill.Labels, err = unmarshalResourceLabels(storedLabels)
 	if err != nil {
 		return skills.Skill{}, err
 	}
@@ -150,7 +168,7 @@ func (s *PostgresStore) GetSkill(ctx context.Context, id string) (skills.Skill, 
 	}
 	defer tx.Rollback()
 	return scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE id = $1
@@ -168,7 +186,7 @@ func (s *PostgresStore) GetSkillByIdentifier(ctx context.Context, workspaceID st
 	}
 	defer tx.Rollback()
 	return scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE workspace_id = $1 AND identifier = $2
@@ -185,13 +203,16 @@ func (s *PostgresStore) ListSkills(ctx context.Context, input skills.ListSkillsI
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills
-		WHERE workspace_id = $1 AND ($2 OR status = 'active')
+		WHERE workspace_id = $1
+			AND ($2 = '' OR COALESCE(app_id, '') = $2)
+			AND ($3 = '' OR external_ref = $3)
+			AND ($4 OR status = 'active')
 		ORDER BY identifier
-	`, workspaceID, input.IncludeArchived)
+	`, workspaceID, strings.TrimSpace(input.AppID), strings.TrimSpace(input.ExternalRef), input.IncludeArchived)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +239,7 @@ func (s *PostgresStore) ArchiveSkill(ctx context.Context, id string) (skills.Ski
 	defer tx.Rollback()
 
 	current, err := scanSkill(tx.QueryRowContext(ctx, `
-		SELECT id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 		FROM skills WHERE id = $1
@@ -283,7 +304,7 @@ func (s *PostgresStore) ArchiveSkill(ctx context.Context, id string) (skills.Ski
 	archived, err := scanSkill(tx.QueryRowContext(ctx, `
 		UPDATE skills SET status = 'archived', archived_at = COALESCE(archived_at, $2)
 		WHERE id = $1
-		RETURNING id, workspace_id, identifier, title, description, owner_type, owner_id, visibility,
+		RETURNING id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, identifier, title, description, owner_type, owner_id, visibility,
 			COALESCE(forked_from_skill_id, ''), COALESCE(forked_from_version, 0), COALESCE(source_plugin_id, ''),
 			source_type, source_locator, source_path, status, created_by, created_at, archived_at
 	`, id, time.Now().UTC()))
@@ -696,14 +717,20 @@ type skillScanner interface {
 
 func scanSkill(scanner skillScanner) (skills.Skill, error) {
 	var skill skills.Skill
+	var labels []byte
 	var archivedAt sql.NullTime
-	err := scanner.Scan(&skill.ID, &skill.WorkspaceID, &skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
+	err := scanner.Scan(&skill.ID, &skill.WorkspaceID, &skill.AppID, &skill.ExternalRef, &labels,
+		&skill.Identifier, &skill.Title, &skill.Description, &skill.OwnerType,
 		&skill.OwnerID, &skill.Visibility, &skill.ForkedFromSkillID, &skill.ForkedFromVersion,
 		&skill.SourcePluginID, &skill.SourceType, &skill.SourceLocator, &skill.SourcePath,
 		&skill.Status, &skill.CreatedBy, &skill.CreatedAt, &archivedAt)
 	if err == sql.ErrNoRows {
 		return skills.Skill{}, ErrNotFound
 	}
+	if err != nil {
+		return skills.Skill{}, err
+	}
+	skill.Labels, err = unmarshalResourceLabels(labels)
 	if err != nil {
 		return skills.Skill{}, err
 	}

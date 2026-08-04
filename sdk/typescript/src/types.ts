@@ -5,6 +5,17 @@ export type AuthClientConfiguration = Schema["AuthClientConfiguration"];
 export type AuthState = Schema["AuthState"];
 export type TokenExchangeRequest = Schema["TokenExchangeRequest"];
 export type TokenExchangeResponse = Schema["TokenExchangeResponse"];
+export type CapabilityModel = Schema["CapabilityModel"];
+export type CapabilityDescriptor = Schema["CapabilityDescriptor"];
+export type CapabilityDiscoveryResponse = Schema["CapabilityDiscoveryResponse"];
+export type ModelRuntimeQuotaPolicyConfig = Schema["ModelRuntimeQuotaPolicyConfig"];
+export type PutModelRuntimeQuotaPolicyRequest = Schema["PutModelRuntimeQuotaPolicyRequest"];
+export type ModelRuntimeQuotaPolicy = Schema["ModelRuntimeQuotaPolicy"];
+export type ModelRuntimeQuotaLimits = Schema["ModelRuntimeQuotaLimits"];
+export type EffectiveModelRuntimeQuotaPolicy = Schema["EffectiveModelRuntimeQuotaPolicy"];
+export type ModelRuntimeQuotaUsage = Schema["ModelRuntimeQuotaUsage"];
+export type ModelRuntimeQuotaAlert = Schema["ModelRuntimeQuotaAlert"];
+export type ModelRuntimeQuotaStatus = Schema["ModelRuntimeQuotaStatus"];
 export type AdministrationContext = Schema["AdministrationContext"];
 export type ConsoleContext = Schema["ConsoleContext"];
 export type WorkspaceMembership = Schema["WorkspaceMembership"];
@@ -19,6 +30,23 @@ export type UpdateServiceIdentityRequest = Schema["UpdateServiceIdentityRequest"
 export type ServiceCredential = Schema["ServiceCredential"];
 export type CreateServiceCredentialRequest = Schema["CreateServiceCredentialRequest"];
 export type CreatedServiceCredential = Schema["CreatedServiceCredential"];
+export type ApplicationManifest = Schema["ApplicationManifest"];
+export type ApplicationManifestEnvironment = Schema["ApplicationManifestEnvironment"];
+export type ApplicationManifestSkill = Schema["ApplicationManifestSkill"];
+export type ApplicationManifestSkillVersion = Schema["ApplicationManifestSkillVersion"];
+export type ApplicationManifestMCPServer = Schema["ApplicationManifestMCPServer"];
+export type ApplicationManifestAgent = Schema["ApplicationManifestAgent"];
+export type PublishApplicationManifestRequest = Schema["PublishApplicationManifestRequest"];
+export type ApplicationManifestResourceResult = Schema["ApplicationManifestResourceResult"];
+export type ApplicationManifestPublishResult = Schema["ApplicationManifestPublishResult"];
+export type EventType = Schema["EventType"];
+export type EventSubscription = Schema["EventSubscription"];
+export type CreateEventSubscriptionRequest = Schema["CreateEventSubscriptionRequest"];
+export type UpdateEventSubscriptionRequest = Schema["UpdateEventSubscriptionRequest"];
+export type CreatedEventSubscription = Schema["CreatedEventSubscription"];
+export type EventEnvelope = Schema["EventEnvelope"];
+export type EventDelivery = Schema["EventDelivery"];
+export interface ApplicationResourceQuery { appId?: string; externalRef?: string }
 export type Agent = Schema["Agent"];
 export type AgentConfigVersion = Schema["AgentConfigVersion"];
 export type CreateAgentRequest = Schema["CreateAgentRequest"];
@@ -65,6 +93,8 @@ export type SessionTaskPlan = Schema["SessionTaskPlan"];
 export type SessionUsage = Schema["SessionUsage"];
 export type GeneratedRun = Schema["Run"];
 export type Run = Omit<GeneratedRun, "status"> & { status: string };
+export type GeneratedRunAttempt = Schema["RunAttempt"];
+export type RunAttempt = Omit<GeneratedRunAttempt, "status"> & { status: string };
 export type StartRunRequest = Schema["StartRunRequest"];
 export type Event = Schema["Event"];
 export type LiveEvent = Schema["LiveEvent"];
@@ -76,6 +106,11 @@ export type InterventionDecision = Schema["InterventionDecision"];
 export type Artifact = Schema["Artifact"];
 export type ArtifactUpload = Schema["ArtifactUpload"];
 export type CreateArtifactRequest = Schema["CreateArtifactRequest"];
+export type ArtifactExchange = Schema["ArtifactExchange"];
+export type ArtifactExchangeGrant = Schema["ArtifactExchangeGrant"];
+export type ArtifactExchangeImportResult = Schema["ArtifactExchangeImportResult"];
+export type CreateArtifactImportExchangeRequest = Schema["CreateArtifactImportExchangeRequest"];
+export type CreateArtifactExportExchangeRequest = Schema["CreateArtifactExportExchangeRequest"];
 export type Trace = Schema["TurnTrace"];
 export type TraceCatalogEntry = Schema["TraceCatalogEntry"];
 export type TraceSpanCatalogEntry = Schema["TraceSpanCatalogEntry"];
@@ -95,6 +130,9 @@ export type LLMProvider = Schema["LLMProvider"];
 export type CreateLLMProviderRequest = Schema["CreateLLMProviderRequest"];
 export type UpdateLLMProviderRequest = Schema["UpdateLLMProviderRequest"];
 export type LLMModel = Schema["LLMModel"];
+export type LLMModelCapabilities = Schema["LLMModelCapabilities"];
+export type LLMRealtimeCapabilities = Schema["LLMRealtimeCapabilities"];
+export type LLMRealtimeMediaFormat = Schema["LLMRealtimeMediaFormat"];
 export type PutLLMModelRequest = Schema["PutLLMModelRequest"];
 export type LLMDiagnosticResult = Schema["LLMDiagnosticResult"];
 export type LLMUsageAggregateReport = Schema["LLMUsageAggregateReport"];
@@ -110,6 +148,8 @@ export type RetrievalSearchResult = Schema["RetrievalSearchResult"];
 export type RetrievalCitation = Schema["RetrievalCitation"];
 export type RetrievalSearchResponse = Schema["RetrievalSearchResponse"];
 export type ModelMessage = Schema["ModelMessage"];
+export type ModelContentPart = Schema["ModelContentPart"];
+export type ModelImageURL = Schema["ModelImageURL"];
 export type ModelGenerateRequest = Schema["ModelGenerateRequest"];
 export type ModelUsage = Schema["ModelUsage"];
 export type ModelGenerateResponse = Schema["ModelGenerateResponse"];
@@ -271,7 +311,7 @@ export interface WorkerListQuery {
   status?: string;
 }
 
-export interface MCPServerQuery { workspaceId?: string }
+export interface MCPServerQuery extends ApplicationResourceQuery { workspaceId?: string }
 
 export interface ObjectCleanupListQuery {
   workspaceId?: string;
@@ -290,9 +330,9 @@ export interface OperatorAuditQuery {
   limit?: number;
 }
 
-export interface EnvironmentVariableQuery { workspaceId?: string }
+export interface EnvironmentVariableQuery { workspaceId?: string; appId?: string }
 
-export interface SkillListQuery { workspaceId?: string; includeArchived?: boolean }
+export interface SkillListQuery extends ApplicationResourceQuery { workspaceId?: string; includeArchived?: boolean }
 export interface SkillRetentionPolicyQuery { organizationId?: string; workspaceId?: string; includeArchived?: boolean }
 export interface SkillAssetGCListQuery { workspaceId?: string; limit?: number }
 

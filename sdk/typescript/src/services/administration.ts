@@ -77,9 +77,9 @@ export class EnvironmentVariablesService extends ServiceBase {
 }
 
 function variablesPath(query: EnvironmentVariableQuery): string {
-  return withQuery("/v2/environment-variables", { workspace_id: query.workspaceId });
+	return withQuery("/v2/environment-variables", { workspace_id: query.workspaceId, app_id: query.appId });
 }
 
 function variablePath(name: string, query: EnvironmentVariableQuery): string {
-  return withQuery(resourcePath("/v2/environment-variables", name), { workspace_id: query.workspaceId });
+	return withQuery(resourcePath("/v2/environment-variables", name), { workspace_id: query.workspaceId, app_id: query.appId });
 }

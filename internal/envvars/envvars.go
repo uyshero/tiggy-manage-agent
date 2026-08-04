@@ -18,8 +18,10 @@ import (
 
 const (
 	MasterKeyEnvironmentVariable = "TMA_ENV_ENCRYPTION_KEY"
+	ScopeApplication             = "application"
 	ScopePersonal                = "personal"
 	ScopeWorkspace               = "workspace"
+	applicationOwnerPrefix       = "service_identity:"
 	maxNameLength                = 128
 	maxValueBytes                = 64 << 10
 )
@@ -43,6 +45,7 @@ type VariableMetadata struct {
 	Name       string    `json:"name"`
 	Configured bool      `json:"configured"`
 	Scope      string    `json:"scope"`
+	AppID      string    `json:"app_id,omitempty"`
 	Editable   bool      `json:"editable"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -179,6 +182,22 @@ func (s *Service) List(ctx context.Context, workspaceID string, ownerID string) 
 	return items, nil
 }
 
+func (s *Service) ListOwned(ctx context.Context, workspaceID string, ownerID string) ([]VariableMetadata, error) {
+	records, err := s.store.ListEncryptedEnvironmentVariables(ctx, normalizedWorkspace(workspaceID))
+	if err != nil {
+		return nil, err
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	items := make([]VariableMetadata, 0, len(records))
+	for _, record := range records {
+		if record.OwnerID == ownerID {
+			items = append(items, metadataForRecord(record, ownerID))
+		}
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items, nil
+}
+
 func (s *Service) Put(ctx context.Context, workspaceID string, ownerID string, name string, value string) (VariableMetadata, error) {
 	workspaceID = normalizedWorkspace(workspaceID)
 	ownerID = strings.TrimSpace(ownerID)
@@ -228,6 +247,27 @@ func (s *Service) Resolve(ctx context.Context, workspaceID string) (map[string]s
 	return values, nil
 }
 
+func (s *Service) ResolveOwned(ctx context.Context, workspaceID string, ownerID string) (map[string]string, error) {
+	workspaceID = normalizedWorkspace(workspaceID)
+	ownerID = strings.TrimSpace(ownerID)
+	records, err := s.store.ListEncryptedEnvironmentVariables(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]string)
+	for _, record := range records {
+		if record.OwnerID != ownerID {
+			continue
+		}
+		plaintext, err := s.cipher.Open(record.Ciphertext, variableAssociatedData(workspaceID, record.Name))
+		if err != nil {
+			return nil, fmt.Errorf("decrypt managed environment variable %q: %w", record.Name, err)
+		}
+		values[record.Name] = string(plaintext)
+	}
+	return values, nil
+}
+
 func effectiveRecords(records []EncryptedVariable) map[string]EncryptedVariable {
 	effective := make(map[string]EncryptedVariable, len(records))
 	for _, record := range records {
@@ -242,14 +282,32 @@ func effectiveRecords(records []EncryptedVariable) map[string]EncryptedVariable 
 func metadataForRecord(record EncryptedVariable, ownerID string) VariableMetadata {
 	ownerID = strings.TrimSpace(ownerID)
 	scope := ScopeWorkspace
+	appID := ""
 	if record.OwnerID != "" {
 		scope = ScopePersonal
 	}
+	if applicationID, ok := ApplicationIDFromOwnerID(record.OwnerID); ok {
+		scope = ScopeApplication
+		appID = applicationID
+	}
 	return VariableMetadata{
-		Name: record.Name, Configured: len(record.Ciphertext) > 0, Scope: scope,
+		Name: record.Name, Configured: len(record.Ciphertext) > 0, Scope: scope, AppID: appID,
 		Editable:  ownerID == "" || record.OwnerID == ownerID,
 		CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt,
 	}
+}
+
+func ApplicationOwnerID(appID string) string {
+	appID = strings.TrimSpace(appID)
+	if appID == "" {
+		return ""
+	}
+	return applicationOwnerPrefix + appID
+}
+
+func ApplicationIDFromOwnerID(ownerID string) (string, bool) {
+	appID, found := strings.CutPrefix(strings.TrimSpace(ownerID), applicationOwnerPrefix)
+	return appID, found && appID != ""
 }
 
 func ResolveWorkspace(ctx context.Context, store any, workspaceID string) (map[string]string, *Cipher, error) {
@@ -270,6 +328,35 @@ func ResolveWorkspace(ctx context.Context, store any, workspaceID string) (map[s
 	}
 	service, _ := NewService(environmentStore, cipher)
 	values, err := service.Resolve(ctx, workspaceID)
+	return values, cipher, err
+}
+
+func ResolveOwned(ctx context.Context, store any, workspaceID string, ownerID string) (map[string]string, *Cipher, error) {
+	environmentStore, ok := store.(Store)
+	if !ok {
+		return nil, nil, nil
+	}
+	records, err := environmentStore.ListEncryptedEnvironmentVariables(ctx, normalizedWorkspace(workspaceID))
+	if err != nil {
+		return nil, nil, err
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	hasOwnedRecord := false
+	for _, record := range records {
+		if record.OwnerID == ownerID {
+			hasOwnedRecord = true
+			break
+		}
+	}
+	if !hasOwnedRecord {
+		return nil, nil, nil
+	}
+	cipher, err := CipherFromEnvironment()
+	if err != nil {
+		return nil, nil, err
+	}
+	service, _ := NewService(environmentStore, cipher)
+	values, err := service.ResolveOwned(ctx, workspaceID, ownerID)
 	return values, cipher, err
 }
 

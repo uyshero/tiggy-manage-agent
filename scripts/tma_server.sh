@@ -8,6 +8,8 @@ SERVER_BIN="${TMA_SERVER_BIN:-$ROOT_DIR/bin/tma-server}"
 CLI_BIN="${TMA_CLI_BIN:-$ROOT_DIR/bin/tma}"
 PID_FILE="${TMA_SERVER_PID_FILE:-$ROOT_DIR/.tma-server.pid}"
 LOG_FILE="${TMA_SERVER_LOG_FILE:-$ROOT_DIR/.tma-server.log}"
+LOG_MAX_BYTES="${TMA_SERVER_LOG_MAX_BYTES:-104857600}"
+LOG_BACKUP_COUNT="${TMA_SERVER_LOG_BACKUP_COUNT:-3}"
 START_WAIT_SECONDS="${TMA_SERVER_START_WAIT_SECONDS:-15}"
 STOP_WAIT_SECONDS="${TMA_SERVER_STOP_WAIT_SECONDS:-15}"
 
@@ -20,6 +22,8 @@ Environment overrides:
   TMA_CLI_BIN                  CLI binary path used for health checks
   TMA_SERVER_PID_FILE          pid file path
   TMA_SERVER_LOG_FILE          server log path
+  TMA_SERVER_LOG_MAX_BYTES     rotate before start at this size (default 104857600)
+  TMA_SERVER_LOG_BACKUP_COUNT  rotated files to keep (default 3)
   TMA_SERVER_START_WAIT_SECONDS seconds to wait for health after start
   TMA_SERVER_STOP_WAIT_SECONDS  seconds to wait for graceful stop
 EOF
@@ -103,6 +107,22 @@ wait_for_health() {
   return 1
 }
 
+wait_for_restart_health() {
+  previous_pid="$1"
+  ensure_cli_bin
+  deadline=$(( $(date +%s) + START_WAIT_SECONDS ))
+  while [ "$(date +%s)" -le "$deadline" ]; do
+    if pid="$(read_pid 2>/dev/null)" \
+      && [ "$pid" != "$previous_pid" ] \
+      && is_running "$pid" \
+      && "$CLI_BIN" health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 wait_for_exit() {
   pid="$1"
   deadline=$(( $(date +%s) + STOP_WAIT_SECONDS ))
@@ -125,6 +145,7 @@ start_server() {
 
   ensure_server_bin
   mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
+  sh "$ROOT_DIR/scripts/rotate_process_log.sh" "$LOG_FILE" "$LOG_MAX_BYTES" "$LOG_BACKUP_COUNT"
 
   echo "Starting tma-server"
   launch_detached start
@@ -182,13 +203,15 @@ status_server() {
 }
 
 restart_server() {
+  previous_pid="$(read_pid 2>/dev/null || true)"
   ensure_server_bin
   mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
+  sh "$ROOT_DIR/scripts/rotate_process_log.sh" "$LOG_FILE" "$LOG_MAX_BYTES" "$LOG_BACKUP_COUNT"
 
   echo "Restarting tma-server"
   launch_detached restart
 
-  if ! wait_for_health; then
+  if ! wait_for_restart_health "$previous_pid"; then
     echo "tma-server did not become healthy within ${START_WAIT_SECONDS}s after restart" >&2
     echo "log_file=$LOG_FILE" >&2
     exit 1

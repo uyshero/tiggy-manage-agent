@@ -313,6 +313,7 @@ func commandModel(client *apiClient, args []string) error {
 		var audioFormat string
 		var sampleRateHz int
 		var upstreamModel string
+		var defaultVision bool
 		flags.StringVar(&providerID, "provider", "", "provider id")
 		flags.StringVar(&model, "model", "", "model id")
 		flags.IntVar(&contextWindow, "context-window", 0, "model total context window tokens")
@@ -323,6 +324,7 @@ func commandModel(client *apiClient, args []string) error {
 		flags.StringVar(&audioFormat, "audio-format", "", "speech audio format")
 		flags.IntVar(&sampleRateHz, "sample-rate", 0, "speech sample rate in Hz")
 		flags.StringVar(&upstreamModel, "upstream-model", "", "optional provider-native model id")
+		flags.BoolVar(&defaultVision, "default-vision", false, "use this text_image model as the default vision route")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -339,6 +341,9 @@ func commandModel(client *apiClient, args []string) error {
 			return err
 		}
 		request := tma.PutLLMModelRequest{ProviderID: providerID, Model: model, ContextWindowTokens: contextWindow, CapabilityType: capabilityType}
+		if flagWasPassed(flags, "default-vision") {
+			request.IsDefaultVision = &defaultVision
+		}
 		if flagWasPassed(flags, "protocol") || flagWasPassed(flags, "resource-id") || flagWasPassed(flags, "default-voice") || flagWasPassed(flags, "audio-format") || flagWasPassed(flags, "sample-rate") || flagWasPassed(flags, "upstream-model") {
 			request.Capabilities = &tma.LLMModelCapabilities{
 				Protocol: protocol, ResourceID: resourceID, DefaultVoice: defaultVoice,
@@ -355,8 +360,10 @@ func commandModel(client *apiClient, args []string) error {
 			if !flagWasPassed(flags, "capability") {
 				request.CapabilityType = existing.CapabilityType
 			}
-			isDefaultVision := existing.IsDefaultVision
-			request.IsDefaultVision = &isDefaultVision
+			if !flagWasPassed(flags, "default-vision") {
+				isDefaultVision := existing.IsDefaultVision
+				request.IsDefaultVision = &isDefaultVision
+			}
 			updated, updateErr := sdk.LLM.UpdateModel(context.Background(), existing.Revision, request)
 			if updateErr != nil {
 				return updateErr
@@ -1488,7 +1495,7 @@ func printUsage() {
   tma [--base-url URL] [--auth-token TOKEN] provider enable --id PROVIDER
   tma [--base-url URL] [--auth-token TOKEN] provider disable --id PROVIDER
   tma [--base-url URL] [--auth-token TOKEN] model list [--provider PROVIDER]
-  tma [--base-url URL] [--auth-token TOKEN] model upsert --provider PROVIDER --model MODEL [--context-window TOKENS]
+  tma [--base-url URL] [--auth-token TOKEN] model upsert --provider PROVIDER --model MODEL [--context-window TOKENS] [--capability TYPE] [--default-vision=true|false]
   tma [--base-url URL] [--auth-token TOKEN] object create --bucket BUCKET --key KEY [--workspace WORKSPACE] [--size BYTES] [--content-type TYPE] [--sha256 HEX] [--metadata JSON]
   tma [--base-url URL] [--auth-token TOKEN] object get --id OBJECT_REF_ID
   tma [--base-url URL] [--auth-token TOKEN] object download --id OBJECT_REF_ID [--session SESSION_ID] [--output PATH]

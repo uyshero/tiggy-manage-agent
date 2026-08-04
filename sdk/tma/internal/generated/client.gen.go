@@ -78,12 +78,95 @@ const (
 	AgentScheduleSessionModeNewSession      AgentScheduleSessionMode = "new_session"
 )
 
+// Defines values for ApplicationManifestSchemaVersion.
+const (
+	ApplicationManifestSchemaVersionTmaApplicationManifestV1 ApplicationManifestSchemaVersion = "tma.application-manifest.v1"
+)
+
+// Defines values for ApplicationManifestPublishResultSchemaVersion.
+const (
+	ApplicationManifestPublishResultSchemaVersionTmaApplicationManifestV1 ApplicationManifestPublishResultSchemaVersion = "tma.application-manifest.v1"
+)
+
+// Defines values for ApplicationManifestResourceResultStatus.
+const (
+	ApplicationManifestResourceResultStatusCreated   ApplicationManifestResourceResultStatus = "created"
+	ApplicationManifestResourceResultStatusUnchanged ApplicationManifestResourceResultStatus = "unchanged"
+	ApplicationManifestResourceResultStatusUpdated   ApplicationManifestResourceResultStatus = "updated"
+)
+
+// Defines values for ApplicationManifestResourceResultType.
+const (
+	ApplicationManifestResourceResultTypeAgent       ApplicationManifestResourceResultType = "agent"
+	ApplicationManifestResourceResultTypeEnvironment ApplicationManifestResourceResultType = "environment"
+	ApplicationManifestResourceResultTypeMcpServer   ApplicationManifestResourceResultType = "mcp_server"
+	ApplicationManifestResourceResultTypeSkill       ApplicationManifestResourceResultType = "skill"
+)
+
+// Defines values for ApplicationManifestSkillSourceType.
+const (
+	ApplicationManifestSkillSourceTypeArtifact ApplicationManifestSkillSourceType = "artifact"
+	ApplicationManifestSkillSourceTypeBuiltin  ApplicationManifestSkillSourceType = "builtin"
+	ApplicationManifestSkillSourceTypeCatalog  ApplicationManifestSkillSourceType = "catalog"
+	ApplicationManifestSkillSourceTypeGithub   ApplicationManifestSkillSourceType = "github"
+	ApplicationManifestSkillSourceTypeInline   ApplicationManifestSkillSourceType = "inline"
+	ApplicationManifestSkillSourceTypePlugin   ApplicationManifestSkillSourceType = "plugin"
+)
+
+// Defines values for ApplicationManifestSkillVersionContentFormat.
+const (
+	Hybrid   ApplicationManifestSkillVersionContentFormat = "hybrid"
+	Json     ApplicationManifestSkillVersionContentFormat = "json"
+	Markdown ApplicationManifestSkillVersionContentFormat = "markdown"
+)
+
+// Defines values for ArtifactExchangeArtifactType.
+const (
+	ArtifactExchangeArtifactTypeAsset    ArtifactExchangeArtifactType = "asset"
+	ArtifactExchangeArtifactTypeFile     ArtifactExchangeArtifactType = "file"
+	ArtifactExchangeArtifactTypeSnapshot ArtifactExchangeArtifactType = "snapshot"
+)
+
+// Defines values for ArtifactExchangeDirection.
+const (
+	Export ArtifactExchangeDirection = "export"
+	Import ArtifactExchangeDirection = "import"
+)
+
+// Defines values for ArtifactExchangeStatus.
+const (
+	ArtifactExchangeStatusCompleted  ArtifactExchangeStatus = "completed"
+	ArtifactExchangeStatusExpired    ArtifactExchangeStatus = "expired"
+	ArtifactExchangeStatusFailed     ArtifactExchangeStatus = "failed"
+	ArtifactExchangeStatusPending    ArtifactExchangeStatus = "pending"
+	ArtifactExchangeStatusProcessing ArtifactExchangeStatus = "processing"
+)
+
+// Defines values for ArtifactExchangeVisibility.
+const (
+	ArtifactExchangeVisibilitySession   ArtifactExchangeVisibility = "session"
+	ArtifactExchangeVisibilityWorkspace ArtifactExchangeVisibility = "workspace"
+)
+
 // Defines values for AuthClientConfigurationMode.
 const (
 	AuthClientConfigurationModeDisabled AuthClientConfigurationMode = "disabled"
 	AuthClientConfigurationModeGateway  AuthClientConfigurationMode = "gateway"
 	AuthClientConfigurationModeJwt      AuthClientConfigurationMode = "jwt"
 	AuthClientConfigurationModeOidc     AuthClientConfigurationMode = "oidc"
+)
+
+// Defines values for CapabilityDescriptorHealth.
+const (
+	CapabilityDescriptorHealthDegraded    CapabilityDescriptorHealth = "degraded"
+	CapabilityDescriptorHealthHealthy     CapabilityDescriptorHealth = "healthy"
+	CapabilityDescriptorHealthUnavailable CapabilityDescriptorHealth = "unavailable"
+)
+
+// Defines values for CapabilityDescriptorStatus.
+const (
+	CapabilityDescriptorStatusAvailable   CapabilityDescriptorStatus = "available"
+	CapabilityDescriptorStatusUnavailable CapabilityDescriptorStatus = "unavailable"
 )
 
 // Defines values for CreateAgentRequestAgentKind.
@@ -115,6 +198,19 @@ const (
 const (
 	CreateAgentScheduleRequestSessionModeExistingSession CreateAgentScheduleRequestSessionMode = "existing_session"
 	CreateAgentScheduleRequestSessionModeNewSession      CreateAgentScheduleRequestSessionMode = "new_session"
+)
+
+// Defines values for CreateArtifactImportExchangeRequestArtifactType.
+const (
+	CreateArtifactImportExchangeRequestArtifactTypeAsset    CreateArtifactImportExchangeRequestArtifactType = "asset"
+	CreateArtifactImportExchangeRequestArtifactTypeFile     CreateArtifactImportExchangeRequestArtifactType = "file"
+	CreateArtifactImportExchangeRequestArtifactTypeSnapshot CreateArtifactImportExchangeRequestArtifactType = "snapshot"
+)
+
+// Defines values for CreateArtifactImportExchangeRequestVisibility.
+const (
+	CreateArtifactImportExchangeRequestVisibilitySession   CreateArtifactImportExchangeRequestVisibility = "session"
+	CreateArtifactImportExchangeRequestVisibilityWorkspace CreateArtifactImportExchangeRequestVisibility = "workspace"
 )
 
 // Defines values for CreateMarketplacePolicyRequestScopeType.
@@ -177,8 +273,9 @@ const (
 
 // Defines values for EnvironmentVariableScope.
 const (
-	EnvironmentVariableScopePersonal  EnvironmentVariableScope = "personal"
-	EnvironmentVariableScopeWorkspace EnvironmentVariableScope = "workspace"
+	EnvironmentVariableScopeApplication EnvironmentVariableScope = "application"
+	EnvironmentVariableScopePersonal    EnvironmentVariableScope = "personal"
+	EnvironmentVariableScopeWorkspace   EnvironmentVariableScope = "workspace"
 )
 
 // Defines values for EvaluateWorkspaceToolPermissionRequestInterventionMode.
@@ -246,6 +343,33 @@ const (
 	EvaluationExperimentItemStatusRunning   EvaluationExperimentItemStatus = "running"
 )
 
+// Defines values for EventDeliveryStatus.
+const (
+	EventDeliveryStatusDeadLetter EventDeliveryStatus = "dead_letter"
+	EventDeliveryStatusDelivered  EventDeliveryStatus = "delivered"
+	EventDeliveryStatusDelivering EventDeliveryStatus = "delivering"
+	EventDeliveryStatusPending    EventDeliveryStatus = "pending"
+)
+
+// Defines values for EventEnvelopeSchema.
+const (
+	TmaEventV1 EventEnvelopeSchema = "tma.event.v1"
+)
+
+// Defines values for EventSubscriptionStatus.
+const (
+	EventSubscriptionStatusActive   EventSubscriptionStatus = "active"
+	EventSubscriptionStatusDisabled EventSubscriptionStatus = "disabled"
+)
+
+// Defines values for EventType.
+const (
+	ArtifactCreated      EventType = "artifact.created"
+	InterventionRequired EventType = "intervention.required"
+	RunCompleted         EventType = "run.completed"
+	RunFailed            EventType = "run.failed"
+)
+
 // Defines values for HumanInteractionRuntimeSettingsFallback.
 const (
 	AssistantMessage HumanInteractionRuntimeSettingsFallback = "assistant_message"
@@ -301,14 +425,15 @@ const (
 
 // Defines values for LLMModelCapabilityType.
 const (
-	LLMModelCapabilityTypeEmbedding       LLMModelCapabilityType = "embedding"
-	LLMModelCapabilityTypeImageGeneration LLMModelCapabilityType = "image_generation"
-	LLMModelCapabilityTypeReranker        LLMModelCapabilityType = "reranker"
-	LLMModelCapabilityTypeSpeechToText    LLMModelCapabilityType = "speech_to_text"
-	LLMModelCapabilityTypeText            LLMModelCapabilityType = "text"
-	LLMModelCapabilityTypeTextImage       LLMModelCapabilityType = "text_image"
-	LLMModelCapabilityTypeTextToSpeech    LLMModelCapabilityType = "text_to_speech"
-	LLMModelCapabilityTypeVideoGeneration LLMModelCapabilityType = "video_generation"
+	LLMModelCapabilityTypeEmbedding          LLMModelCapabilityType = "embedding"
+	LLMModelCapabilityTypeImageGeneration    LLMModelCapabilityType = "image_generation"
+	LLMModelCapabilityTypeMultimodalRealtime LLMModelCapabilityType = "multimodal_realtime"
+	LLMModelCapabilityTypeReranker           LLMModelCapabilityType = "reranker"
+	LLMModelCapabilityTypeSpeechToText       LLMModelCapabilityType = "speech_to_text"
+	LLMModelCapabilityTypeText               LLMModelCapabilityType = "text"
+	LLMModelCapabilityTypeTextImage          LLMModelCapabilityType = "text_image"
+	LLMModelCapabilityTypeTextToSpeech       LLMModelCapabilityType = "text_to_speech"
+	LLMModelCapabilityTypeVideoGeneration    LLMModelCapabilityType = "video_generation"
 )
 
 // Defines values for LLMModelCapabilitiesDistanceMetric.
@@ -316,6 +441,21 @@ const (
 	Cosine       LLMModelCapabilitiesDistanceMetric = "cosine"
 	InnerProduct LLMModelCapabilitiesDistanceMetric = "inner_product"
 	L2           LLMModelCapabilitiesDistanceMetric = "l2"
+)
+
+// Defines values for LLMRealtimeCapabilitiesOutputModalities.
+const (
+	LLMRealtimeCapabilitiesOutputModalitiesAudio LLMRealtimeCapabilitiesOutputModalities = "audio"
+	LLMRealtimeCapabilitiesOutputModalitiesImage LLMRealtimeCapabilitiesOutputModalities = "image"
+	LLMRealtimeCapabilitiesOutputModalitiesText  LLMRealtimeCapabilitiesOutputModalities = "text"
+	LLMRealtimeCapabilitiesOutputModalitiesVideo LLMRealtimeCapabilitiesOutputModalities = "video"
+)
+
+// Defines values for LLMRealtimeMediaFormatKind.
+const (
+	Audio LLMRealtimeMediaFormatKind = "audio"
+	Image LLMRealtimeMediaFormatKind = "image"
+	Video LLMRealtimeMediaFormatKind = "video"
 )
 
 // Defines values for MCPHealthItemTransport.
@@ -452,13 +592,26 @@ const (
 	MarketplaceSourceProviderGithub   MarketplaceSourceProvider = "github"
 )
 
+// Defines values for ModelImageContentPartType.
+const (
+	ImageUrl ModelImageContentPartType = "image_url"
+)
+
+// Defines values for ModelImageURLDetail.
+const (
+	ModelImageURLDetailAuto ModelImageURLDetail = "auto"
+	ModelImageURLDetailHigh ModelImageURLDetail = "high"
+	ModelImageURLDetailLow  ModelImageURLDetail = "low"
+)
+
 // Defines values for ModelInvocationCapability.
 const (
-	ModelInvocationCapabilityEmbedding    ModelInvocationCapability = "embedding"
-	ModelInvocationCapabilityGenerate     ModelInvocationCapability = "generate"
-	ModelInvocationCapabilityRerank       ModelInvocationCapability = "rerank"
-	ModelInvocationCapabilitySpeechToText ModelInvocationCapability = "speech_to_text"
-	ModelInvocationCapabilityTextToSpeech ModelInvocationCapability = "text_to_speech"
+	ModelInvocationCapabilityEmbedding          ModelInvocationCapability = "embedding"
+	ModelInvocationCapabilityGenerate           ModelInvocationCapability = "generate"
+	ModelInvocationCapabilityMultimodalRealtime ModelInvocationCapability = "multimodal_realtime"
+	ModelInvocationCapabilityRerank             ModelInvocationCapability = "rerank"
+	ModelInvocationCapabilitySpeechToText       ModelInvocationCapability = "speech_to_text"
+	ModelInvocationCapabilityTextToSpeech       ModelInvocationCapability = "text_to_speech"
 )
 
 // Defines values for ModelInvocationStatus.
@@ -473,6 +626,29 @@ const (
 	ModelMessageRoleAssistant ModelMessageRole = "assistant"
 	ModelMessageRoleSystem    ModelMessageRole = "system"
 	ModelMessageRoleUser      ModelMessageRole = "user"
+)
+
+// Defines values for ModelRuntimeQuotaAlertStatus.
+const (
+	Exceeded ModelRuntimeQuotaAlertStatus = "exceeded"
+	Warning  ModelRuntimeQuotaAlertStatus = "warning"
+)
+
+// Defines values for ModelRuntimeQuotaPolicyScope.
+const (
+	ModelRuntimeQuotaPolicyScopeApplication ModelRuntimeQuotaPolicyScope = "application"
+	ModelRuntimeQuotaPolicyScopeWorkspace   ModelRuntimeQuotaPolicyScope = "workspace"
+)
+
+// Defines values for ModelRuntimeQuotaPolicyStatus.
+const (
+	ModelRuntimeQuotaPolicyStatusActive   ModelRuntimeQuotaPolicyStatus = "active"
+	ModelRuntimeQuotaPolicyStatusArchived ModelRuntimeQuotaPolicyStatus = "archived"
+)
+
+// Defines values for ModelTextContentPartType.
+const (
+	Text ModelTextContentPartType = "text"
 )
 
 // Defines values for ObjectCleanupJobStatus.
@@ -542,12 +718,12 @@ const (
 
 // Defines values for PrincipalAuthType.
 const (
-	Delegated         PrincipalAuthType = "delegated"
-	Disabled          PrincipalAuthType = "disabled"
-	Gateway           PrincipalAuthType = "gateway"
-	Jwt               PrincipalAuthType = "jwt"
-	Oidc              PrincipalAuthType = "oidc"
-	ServiceCredential PrincipalAuthType = "service_credential"
+	PrincipalAuthTypeDelegated         PrincipalAuthType = "delegated"
+	PrincipalAuthTypeDisabled          PrincipalAuthType = "disabled"
+	PrincipalAuthTypeGateway           PrincipalAuthType = "gateway"
+	PrincipalAuthTypeJwt               PrincipalAuthType = "jwt"
+	PrincipalAuthTypeOidc              PrincipalAuthType = "oidc"
+	PrincipalAuthTypeServiceCredential PrincipalAuthType = "service_credential"
 )
 
 // Defines values for PrincipalRoles.
@@ -560,14 +736,15 @@ const (
 
 // Defines values for PutLLMModelRequestCapabilityType.
 const (
-	Embedding       PutLLMModelRequestCapabilityType = "embedding"
-	ImageGeneration PutLLMModelRequestCapabilityType = "image_generation"
-	Reranker        PutLLMModelRequestCapabilityType = "reranker"
-	SpeechToText    PutLLMModelRequestCapabilityType = "speech_to_text"
-	Text            PutLLMModelRequestCapabilityType = "text"
-	TextImage       PutLLMModelRequestCapabilityType = "text_image"
-	TextToSpeech    PutLLMModelRequestCapabilityType = "text_to_speech"
-	VideoGeneration PutLLMModelRequestCapabilityType = "video_generation"
+	PutLLMModelRequestCapabilityTypeEmbedding          PutLLMModelRequestCapabilityType = "embedding"
+	PutLLMModelRequestCapabilityTypeImageGeneration    PutLLMModelRequestCapabilityType = "image_generation"
+	PutLLMModelRequestCapabilityTypeMultimodalRealtime PutLLMModelRequestCapabilityType = "multimodal_realtime"
+	PutLLMModelRequestCapabilityTypeReranker           PutLLMModelRequestCapabilityType = "reranker"
+	PutLLMModelRequestCapabilityTypeSpeechToText       PutLLMModelRequestCapabilityType = "speech_to_text"
+	PutLLMModelRequestCapabilityTypeText               PutLLMModelRequestCapabilityType = "text"
+	PutLLMModelRequestCapabilityTypeTextImage          PutLLMModelRequestCapabilityType = "text_image"
+	PutLLMModelRequestCapabilityTypeTextToSpeech       PutLLMModelRequestCapabilityType = "text_to_speech"
+	PutLLMModelRequestCapabilityTypeVideoGeneration    PutLLMModelRequestCapabilityType = "video_generation"
 )
 
 // Defines values for RenderedSkillsContextFormat.
@@ -620,6 +797,16 @@ const (
 	WaitingSession RunAgentScheduleResponseStatus = "waiting_session"
 )
 
+// Defines values for RunAttemptStatus.
+const (
+	RunAttemptStatusAbandoned   RunAttemptStatus = "abandoned"
+	RunAttemptStatusCompleted   RunAttemptStatus = "completed"
+	RunAttemptStatusFailed      RunAttemptStatus = "failed"
+	RunAttemptStatusInterrupted RunAttemptStatus = "interrupted"
+	RunAttemptStatusRunning     RunAttemptStatus = "running"
+	RunAttemptStatusSuspended   RunAttemptStatus = "suspended"
+)
+
 // Defines values for RunEvaluationConclusion.
 const (
 	Inconclusive RunEvaluationConclusion = "inconclusive"
@@ -630,8 +817,8 @@ const (
 
 // Defines values for RunEvaluationEvaluationType.
 const (
-	Auto   RunEvaluationEvaluationType = "auto"
-	Manual RunEvaluationEvaluationType = "manual"
+	RunEvaluationEvaluationTypeAuto   RunEvaluationEvaluationType = "auto"
+	RunEvaluationEvaluationTypeManual RunEvaluationEvaluationType = "manual"
 )
 
 // Defines values for SessionTaskItemStatus.
@@ -831,6 +1018,12 @@ const (
 	NewSession      UpdateAgentScheduleRequestSessionMode = "new_session"
 )
 
+// Defines values for UpdateEventSubscriptionRequestStatus.
+const (
+	UpdateEventSubscriptionRequestStatusActive   UpdateEventSubscriptionRequestStatus = "active"
+	UpdateEventSubscriptionRequestStatusDisabled UpdateEventSubscriptionRequestStatus = "disabled"
+)
+
 // Defines values for UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy.
 const (
 	UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicyFollowLatest UpdateSessionRuntimeSettingsRequestAgentConfigUpdatePolicy = "follow_latest"
@@ -935,12 +1128,15 @@ type AdministrationContext struct {
 // Agent defines model for Agent.
 type Agent struct {
 	AgentKind            AgentAgentKind     `json:"agent_kind"`
+	AppId                *string            `json:"app_id,omitempty"`
 	ArchivedAt           *time.Time         `json:"archived_at"`
 	ConfigVersion        AgentConfigVersion `json:"config_version"`
 	CreatedAt            time.Time          `json:"created_at"`
 	CurrentConfigVersion int32              `json:"current_config_version"`
 	EnvironmentId        *string            `json:"environment_id,omitempty"`
+	ExternalRef          *string            `json:"external_ref,omitempty"`
 	Id                   string             `json:"id"`
+	Labels               map[string]string  `json:"labels"`
 	Name                 string             `json:"name"`
 	OwnerId              string             `json:"owner_id"`
 	OwnerType            AgentOwnerType     `json:"owner_type"`
@@ -1133,6 +1329,7 @@ type AgentList struct {
 type AgentRuntimeConfig struct {
 	AgentConfigVersion    int32                   `json:"agent_config_version"`
 	AgentId               string                  `json:"agent_id"`
+	AppId                 *string                 `json:"app_id,omitempty"`
 	ContextWindowTokens   int32                   `json:"context_window_tokens"`
 	EnvironmentId         string                  `json:"environment_id"`
 	LlmApiKeyEnv          *string                 `json:"llm_api_key_env,omitempty"`
@@ -1307,6 +1504,108 @@ type AppendEventsResult struct {
 	Queued       *bool                 `json:"queued,omitempty"`
 }
 
+// ApplicationManifest defines model for ApplicationManifest.
+type ApplicationManifest struct {
+	Agents        *[]ApplicationManifestAgent       `json:"agents,omitempty"`
+	Environments  *[]ApplicationManifestEnvironment `json:"environments,omitempty"`
+	McpServers    *[]ApplicationManifestMCPServer   `json:"mcp_servers,omitempty"`
+	Revision      string                            `json:"revision"`
+	SchemaVersion ApplicationManifestSchemaVersion  `json:"schema_version"`
+	Skills        *[]ApplicationManifestSkill       `json:"skills,omitempty"`
+}
+
+// ApplicationManifestSchemaVersion defines model for ApplicationManifest.SchemaVersion.
+type ApplicationManifestSchemaVersion string
+
+// ApplicationManifestAgent defines model for ApplicationManifestAgent.
+type ApplicationManifestAgent struct {
+	EnvironmentRef *string                 `json:"environment_ref,omitempty"`
+	ExternalRef    string                  `json:"external_ref"`
+	Labels         *map[string]string      `json:"labels,omitempty"`
+	LlmModel       string                  `json:"llm_model"`
+	LlmProvider    *string                 `json:"llm_provider,omitempty"`
+	Mcp            *map[string]interface{} `json:"mcp,omitempty"`
+	Name           string                  `json:"name"`
+	Skills         *map[string]interface{} `json:"skills,omitempty"`
+	System         string                  `json:"system"`
+	Tools          *map[string]interface{} `json:"tools,omitempty"`
+}
+
+// ApplicationManifestEnvironment defines model for ApplicationManifestEnvironment.
+type ApplicationManifestEnvironment struct {
+	Config      *map[string]interface{} `json:"config,omitempty"`
+	ExternalRef string                  `json:"external_ref"`
+	Labels      *map[string]string      `json:"labels,omitempty"`
+	Name        string                  `json:"name"`
+}
+
+// ApplicationManifestMCPServer defines model for ApplicationManifestMCPServer.
+type ApplicationManifestMCPServer struct {
+	Config      MCPServerConfig    `json:"config"`
+	Description *string            `json:"description,omitempty"`
+	ExternalRef string             `json:"external_ref"`
+	Identifier  string             `json:"identifier"`
+	Labels      *map[string]string `json:"labels,omitempty"`
+	Name        string             `json:"name"`
+}
+
+// ApplicationManifestPublishResult defines model for ApplicationManifestPublishResult.
+type ApplicationManifestPublishResult struct {
+	ChecksumSha256 string                                        `json:"checksum_sha256"`
+	Resources      []ApplicationManifestResourceResult           `json:"resources"`
+	Revision       string                                        `json:"revision"`
+	SchemaVersion  ApplicationManifestPublishResultSchemaVersion `json:"schema_version"`
+}
+
+// ApplicationManifestPublishResultSchemaVersion defines model for ApplicationManifestPublishResult.SchemaVersion.
+type ApplicationManifestPublishResultSchemaVersion string
+
+// ApplicationManifestResourceResult defines model for ApplicationManifestResourceResult.
+type ApplicationManifestResourceResult struct {
+	ExternalRef string                                  `json:"external_ref"`
+	ResourceId  string                                  `json:"resource_id"`
+	Status      ApplicationManifestResourceResultStatus `json:"status"`
+	Type        ApplicationManifestResourceResultType   `json:"type"`
+	Version     *int32                                  `json:"version,omitempty"`
+}
+
+// ApplicationManifestResourceResultStatus defines model for ApplicationManifestResourceResult.Status.
+type ApplicationManifestResourceResultStatus string
+
+// ApplicationManifestResourceResultType defines model for ApplicationManifestResourceResult.Type.
+type ApplicationManifestResourceResultType string
+
+// ApplicationManifestSkill defines model for ApplicationManifestSkill.
+type ApplicationManifestSkill struct {
+	Description   *string                             `json:"description,omitempty"`
+	ExternalRef   string                              `json:"external_ref"`
+	Identifier    string                              `json:"identifier"`
+	Labels        *map[string]string                  `json:"labels,omitempty"`
+	SourceLocator *string                             `json:"source_locator,omitempty"`
+	SourcePath    *string                             `json:"source_path,omitempty"`
+	SourceType    *ApplicationManifestSkillSourceType `json:"source_type,omitempty"`
+	Title         string                              `json:"title"`
+	Version       ApplicationManifestSkillVersion     `json:"version"`
+}
+
+// ApplicationManifestSkillSourceType defines model for ApplicationManifestSkill.SourceType.
+type ApplicationManifestSkillSourceType string
+
+// ApplicationManifestSkillVersion defines model for ApplicationManifestSkillVersion.
+type ApplicationManifestSkillVersion struct {
+	// Assets Extension JSON whose shape is selected by the surrounding event, schema, provider, or runtime contract.
+	Assets         *DynamicJSONValue                             `json:"assets,omitempty"`
+	ContentFormat  *ApplicationManifestSkillVersionContentFormat `json:"content_format,omitempty"`
+	ContentText    *string                                       `json:"content_text,omitempty"`
+	Manifest       *map[string]interface{}                       `json:"manifest,omitempty"`
+	SourceRef      *string                                       `json:"source_ref,omitempty"`
+	SourceRevision *string                                       `json:"source_revision,omitempty"`
+	SourceUrl      *string                                       `json:"source_url,omitempty"`
+}
+
+// ApplicationManifestSkillVersionContentFormat defines model for ApplicationManifestSkillVersion.ContentFormat.
+type ApplicationManifestSkillVersionContentFormat string
+
 // ApproveObjectCleanupRequest defines model for ApproveObjectCleanupRequest.
 type ApproveObjectCleanupRequest struct {
 	// Confirm Must equal DELETE followed by a space and the cleanup job ID.
@@ -1329,6 +1628,67 @@ type Artifact struct {
 	ToolCallId    *string                 `json:"tool_call_id,omitempty"`
 	TurnId        *string                 `json:"turn_id,omitempty"`
 	WorkspaceId   string                  `json:"workspace_id"`
+}
+
+// ArtifactExchange defines model for ArtifactExchange.
+type ArtifactExchange struct {
+	AppId                  *string                      `json:"app_id,omitempty"`
+	ArtifactId             *string                      `json:"artifact_id,omitempty"`
+	ArtifactType           ArtifactExchangeArtifactType `json:"artifact_type"`
+	ClaimedAt              *time.Time                   `json:"claimed_at,omitempty"`
+	CompletedAt            *time.Time                   `json:"completed_at,omitempty"`
+	ContentType            *string                      `json:"content_type,omitempty"`
+	CreatedAt              time.Time                    `json:"created_at"`
+	CreatedBy              string                       `json:"created_by"`
+	Description            *string                      `json:"description,omitempty"`
+	Direction              ArtifactExchangeDirection    `json:"direction"`
+	EnvironmentId          *string                      `json:"environment_id,omitempty"`
+	ErrorMessage           *string                      `json:"error_message,omitempty"`
+	ExpectedChecksumSha256 *string                      `json:"expected_checksum_sha256,omitempty"`
+	ExpectedSizeBytes      *int64                       `json:"expected_size_bytes,omitempty"`
+	ExpiresAt              time.Time                    `json:"expires_at"`
+	Filename               string                       `json:"filename"`
+	Id                     string                       `json:"id"`
+	MaxSizeBytes           int64                        `json:"max_size_bytes"`
+	Metadata               *map[string]interface{}      `json:"metadata,omitempty"`
+	ObjectRefId            *string                      `json:"object_ref_id,omitempty"`
+	OwnerId                string                       `json:"owner_id"`
+	SessionId              *string                      `json:"session_id,omitempty"`
+	Status                 ArtifactExchangeStatus       `json:"status"`
+	ToolCallId             *string                      `json:"tool_call_id,omitempty"`
+	TurnId                 *string                      `json:"turn_id,omitempty"`
+	UpdatedAt              time.Time                    `json:"updated_at"`
+	Visibility             ArtifactExchangeVisibility   `json:"visibility"`
+	WorkspaceId            string                       `json:"workspace_id"`
+}
+
+// ArtifactExchangeArtifactType defines model for ArtifactExchange.ArtifactType.
+type ArtifactExchangeArtifactType string
+
+// ArtifactExchangeDirection defines model for ArtifactExchange.Direction.
+type ArtifactExchangeDirection string
+
+// ArtifactExchangeStatus defines model for ArtifactExchange.Status.
+type ArtifactExchangeStatus string
+
+// ArtifactExchangeVisibility defines model for ArtifactExchange.Visibility.
+type ArtifactExchangeVisibility string
+
+// ArtifactExchangeContent defines model for ArtifactExchangeContent.
+type ArtifactExchangeContent = openapi_types.File
+
+// ArtifactExchangeGrant defines model for ArtifactExchangeGrant.
+type ArtifactExchangeGrant struct {
+	// ContentUrl Relative one-time URL containing the exchange token.
+	ContentUrl string           `json:"content_url"`
+	Exchange   ArtifactExchange `json:"exchange"`
+}
+
+// ArtifactExchangeImportResult defines model for ArtifactExchangeImportResult.
+type ArtifactExchangeImportResult struct {
+	Artifact  Artifact         `json:"artifact"`
+	Exchange  ArtifactExchange `json:"exchange"`
+	ObjectRef ObjectRef        `json:"object_ref"`
 }
 
 // ArtifactList defines model for ArtifactList.
@@ -1413,6 +1773,40 @@ type CancelWorkerWorkRequest struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// CapabilityDescriptor defines model for CapabilityDescriptor.
+type CapabilityDescriptor struct {
+	Details   *map[string]interface{}    `json:"details,omitempty"`
+	Health    CapabilityDescriptorHealth `json:"health"`
+	Id        string                     `json:"id"`
+	Models    *[]CapabilityModel         `json:"models,omitempty"`
+	Providers []string                   `json:"providers"`
+	Status    CapabilityDescriptorStatus `json:"status"`
+	UpdatedAt time.Time                  `json:"updated_at"`
+	Version   string                     `json:"version"`
+}
+
+// CapabilityDescriptorHealth defines model for CapabilityDescriptor.Health.
+type CapabilityDescriptorHealth string
+
+// CapabilityDescriptorStatus defines model for CapabilityDescriptor.Status.
+type CapabilityDescriptorStatus string
+
+// CapabilityDiscoveryResponse defines model for CapabilityDiscoveryResponse.
+type CapabilityDiscoveryResponse struct {
+	Capabilities []CapabilityDescriptor `json:"capabilities"`
+	GeneratedAt  time.Time              `json:"generated_at"`
+	WorkspaceId  string                 `json:"workspace_id"`
+}
+
+// CapabilityModel defines model for CapabilityModel.
+type CapabilityModel struct {
+	CapabilityType string                   `json:"capability_type"`
+	Model          string                   `json:"model"`
+	Protocol       *string                  `json:"protocol,omitempty"`
+	ProviderId     string                   `json:"provider_id"`
+	Realtime       *LLMRealtimeCapabilities `json:"realtime,omitempty"`
+}
+
 // CompletionGateRuntimeSettings defines model for CompletionGateRuntimeSettings.
 type CompletionGateRuntimeSettings struct {
 	// MaxRetries Defaults to 3 when omitted.
@@ -1436,7 +1830,10 @@ type CreateAgentConfigVersionRequest = UpdateAgentRequest
 // CreateAgentRequest defines model for CreateAgentRequest.
 type CreateAgentRequest struct {
 	AgentKind     *CreateAgentRequestAgentKind `json:"agent_kind,omitempty"`
+	AppId         *string                      `json:"app_id,omitempty"`
 	EnvironmentId *string                      `json:"environment_id,omitempty"`
+	ExternalRef   *string                      `json:"external_ref,omitempty"`
+	Labels        *map[string]string           `json:"labels,omitempty"`
 	LlmModel      *string                      `json:"llm_model,omitempty"`
 	LlmProvider   *string                      `json:"llm_provider,omitempty"`
 	Mcp           *map[string]interface{}      `json:"mcp,omitempty"`
@@ -1480,6 +1877,46 @@ type CreateAgentScheduleRequestApprovalMode string
 // CreateAgentScheduleRequestSessionMode defines model for CreateAgentScheduleRequest.SessionMode.
 type CreateAgentScheduleRequestSessionMode string
 
+// CreateArtifactExportExchangeRequest defines model for CreateArtifactExportExchangeRequest.
+type CreateArtifactExportExchangeRequest struct {
+	// ArtifactId Exactly one of artifact_id or object_ref_id is required.
+	ArtifactId *string `json:"artifact_id,omitempty"`
+	Filename   *string `json:"filename,omitempty"`
+
+	// ObjectRefId Exactly one of artifact_id or object_ref_id is required.
+	ObjectRefId *string `json:"object_ref_id,omitempty"`
+	SessionId   string  `json:"session_id"`
+
+	// TtlSeconds Must be between 60 and 86400 seconds.
+	TtlSeconds *int64 `json:"ttl_seconds,omitempty"`
+}
+
+// CreateArtifactImportExchangeRequest defines model for CreateArtifactImportExchangeRequest.
+type CreateArtifactImportExchangeRequest struct {
+	ArtifactType           *CreateArtifactImportExchangeRequestArtifactType `json:"artifact_type,omitempty"`
+	ContentType            *string                                          `json:"content_type,omitempty"`
+	Description            *string                                          `json:"description,omitempty"`
+	EnvironmentId          *string                                          `json:"environment_id,omitempty"`
+	ExpectedChecksumSha256 *string                                          `json:"expected_checksum_sha256,omitempty"`
+	ExpectedSizeBytes      *int64                                           `json:"expected_size_bytes,omitempty"`
+	Filename               string                                           `json:"filename"`
+	MaxSizeBytes           *int64                                           `json:"max_size_bytes,omitempty"`
+	Metadata               *map[string]interface{}                          `json:"metadata,omitempty"`
+	SessionId              string                                           `json:"session_id"`
+	ToolCallId             *string                                          `json:"tool_call_id,omitempty"`
+
+	// TtlSeconds Must be between 60 and 86400 seconds.
+	TtlSeconds *int64                                         `json:"ttl_seconds,omitempty"`
+	TurnId     *string                                        `json:"turn_id,omitempty"`
+	Visibility *CreateArtifactImportExchangeRequestVisibility `json:"visibility,omitempty"`
+}
+
+// CreateArtifactImportExchangeRequestArtifactType defines model for CreateArtifactImportExchangeRequest.ArtifactType.
+type CreateArtifactImportExchangeRequestArtifactType string
+
+// CreateArtifactImportExchangeRequestVisibility defines model for CreateArtifactImportExchangeRequest.Visibility.
+type CreateArtifactImportExchangeRequestVisibility string
+
 // CreateArtifactRequest defines model for CreateArtifactRequest.
 type CreateArtifactRequest struct {
 	ArtifactType  *string                 `json:"artifact_type,omitempty"`
@@ -1495,7 +1932,10 @@ type CreateArtifactRequest struct {
 
 // CreateEnvironmentRequest defines model for CreateEnvironmentRequest.
 type CreateEnvironmentRequest struct {
+	AppId       *string                `json:"app_id,omitempty"`
 	Config      map[string]interface{} `json:"config"`
+	ExternalRef *string                `json:"external_ref,omitempty"`
+	Labels      *map[string]string     `json:"labels,omitempty"`
 	Name        string                 `json:"name"`
 	WorkspaceId *string                `json:"workspace_id,omitempty"`
 }
@@ -1533,6 +1973,15 @@ type CreateEvaluationRubricRequest struct {
 	WorkspaceId *string               `json:"workspace_id,omitempty"`
 }
 
+// CreateEventSubscriptionRequest defines model for CreateEventSubscriptionRequest.
+type CreateEventSubscriptionRequest struct {
+	// AppId Required for user credentials and bound automatically for application credentials.
+	AppId       *string     `json:"app_id,omitempty"`
+	EndpointUrl string      `json:"endpoint_url"`
+	EventTypes  []EventType `json:"event_types"`
+	Name        string      `json:"name"`
+}
+
 // CreateLLMProviderRequest defines model for CreateLLMProviderRequest.
 type CreateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -1544,11 +1993,14 @@ type CreateLLMProviderRequest struct {
 
 // CreateMCPServerRequest defines model for CreateMCPServerRequest.
 type CreateMCPServerRequest struct {
-	Config      MCPServerConfig `json:"config"`
-	Description *string         `json:"description,omitempty"`
-	Identifier  string          `json:"identifier"`
-	Name        string          `json:"name"`
-	WorkspaceId *string         `json:"workspace_id,omitempty"`
+	AppId       *string            `json:"app_id,omitempty"`
+	Config      MCPServerConfig    `json:"config"`
+	Description *string            `json:"description,omitempty"`
+	ExternalRef *string            `json:"external_ref,omitempty"`
+	Identifier  string             `json:"identifier"`
+	Labels      *map[string]string `json:"labels,omitempty"`
+	Name        string             `json:"name"`
+	WorkspaceId *string            `json:"workspace_id,omitempty"`
 }
 
 // CreateMarketplaceEntryRequest defines model for CreateMarketplaceEntryRequest.
@@ -1611,20 +2063,26 @@ type CreateRunEvaluationRequestConclusion string
 
 // CreateSessionRequest defines model for CreateSessionRequest.
 type CreateSessionRequest struct {
-	AgentId         *string `json:"agent_id,omitempty"`
-	CreatedBy       *string `json:"created_by,omitempty"`
-	EnvironmentId   *string `json:"environment_id,omitempty"`
-	OwnerId         *string `json:"owner_id,omitempty"`
-	ParentSessionId *string `json:"parent_session_id,omitempty"`
-	ParentTurnId    *string `json:"parent_turn_id,omitempty"`
-	Title           *string `json:"title,omitempty"`
-	WorkspaceId     *string `json:"workspace_id,omitempty"`
+	AgentId         *string            `json:"agent_id,omitempty"`
+	AppId           *string            `json:"app_id,omitempty"`
+	CreatedBy       *string            `json:"created_by,omitempty"`
+	EnvironmentId   *string            `json:"environment_id,omitempty"`
+	ExternalRef     *string            `json:"external_ref,omitempty"`
+	Labels          *map[string]string `json:"labels,omitempty"`
+	OwnerId         *string            `json:"owner_id,omitempty"`
+	ParentSessionId *string            `json:"parent_session_id,omitempty"`
+	ParentTurnId    *string            `json:"parent_turn_id,omitempty"`
+	Title           *string            `json:"title,omitempty"`
+	WorkspaceId     *string            `json:"workspace_id,omitempty"`
 }
 
 // CreateSkillRequest defines model for CreateSkillRequest.
 type CreateSkillRequest struct {
+	AppId          *string                       `json:"app_id,omitempty"`
 	Description    *string                       `json:"description,omitempty"`
+	ExternalRef    *string                       `json:"external_ref,omitempty"`
 	Identifier     string                        `json:"identifier"`
+	Labels         *map[string]string            `json:"labels,omitempty"`
 	OwnerId        *string                       `json:"owner_id,omitempty"`
 	OwnerType      *CreateSkillRequestOwnerType  `json:"owner_type,omitempty"`
 	SourceLocator  *string                       `json:"source_locator,omitempty"`
@@ -1672,8 +2130,30 @@ type CreateTenantWorkspaceRequest struct {
 	Name string `json:"name"`
 }
 
+// CreatedEventSubscription defines model for CreatedEventSubscription.
+type CreatedEventSubscription struct {
+	// Secret Returned only when a subscription is created or its secret is rotated.
+	Secret       *string           `json:"secret,omitempty"`
+	Subscription EventSubscription `json:"subscription"`
+}
+
 // DynamicJSONValue Extension JSON whose shape is selected by the surrounding event, schema, provider, or runtime contract.
 type DynamicJSONValue = interface{}
+
+// EffectiveModelRuntimeQuotaPolicy defines model for EffectiveModelRuntimeQuotaPolicy.
+type EffectiveModelRuntimeQuotaPolicy struct {
+	AlertThresholdPercent      int32                   `json:"alert_threshold_percent"`
+	AppId                      *string                 `json:"app_id,omitempty"`
+	ApplicationPolicyId        *string                 `json:"application_policy_id,omitempty"`
+	ApplicationPolicyRevision  *int64                  `json:"application_policy_revision,omitempty"`
+	Limits                     ModelRuntimeQuotaLimits `json:"limits"`
+	MonthlyModelRequestBudget  int64                   `json:"monthly_model_request_budget"`
+	MonthlySpeechSessionBudget int64                   `json:"monthly_speech_session_budget"`
+	Plan                       string                  `json:"plan"`
+	WorkspaceId                string                  `json:"workspace_id"`
+	WorkspacePolicyId          *string                 `json:"workspace_policy_id,omitempty"`
+	WorkspacePolicyRevision    *int64                  `json:"workspace_policy_revision,omitempty"`
+}
 
 // EffectiveSkillRetentionPolicy defines model for EffectiveSkillRetentionPolicy.
 type EffectiveSkillRetentionPolicy struct {
@@ -1713,10 +2193,13 @@ type EnqueueWorkerWorkRequest struct {
 
 // Environment defines model for Environment.
 type Environment struct {
+	AppId       *string                `json:"app_id,omitempty"`
 	ArchivedAt  *time.Time             `json:"archived_at"`
 	Config      map[string]interface{} `json:"config"`
 	CreatedAt   time.Time              `json:"created_at"`
+	ExternalRef *string                `json:"external_ref,omitempty"`
 	Id          string                 `json:"id"`
+	Labels      map[string]string      `json:"labels"`
 	Name        string                 `json:"name"`
 	WorkspaceId string                 `json:"workspace_id"`
 }
@@ -1728,6 +2211,8 @@ type EnvironmentList struct {
 
 // EnvironmentVariable defines model for EnvironmentVariable.
 type EnvironmentVariable struct {
+	// AppId Present only for application-scoped secret references.
+	AppId      *string                  `json:"app_id,omitempty"`
 	Configured bool                     `json:"configured"`
 	CreatedAt  time.Time                `json:"created_at"`
 	Editable   bool                     `json:"editable"`
@@ -1936,16 +2421,61 @@ type EvaluationRubricSnapshot struct {
 
 // Event defines model for Event.
 type Event struct {
+	AttemptId *string   `json:"attempt_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Id        string    `json:"id"`
 
 	// Payload Extension JSON whose shape is selected by the surrounding event, schema, provider, or runtime contract.
 	Payload   *DynamicJSONValue `json:"payload,omitempty"`
+	RunId     *string           `json:"run_id,omitempty"`
 	Seq       int64             `json:"seq"`
 	SessionId string            `json:"session_id"`
 	TurnId    *string           `json:"turn_id,omitempty"`
 	Type      string            `json:"type"`
 }
+
+// EventDelivery defines model for EventDelivery.
+type EventDelivery struct {
+	AppId          string              `json:"app_id"`
+	AttemptCount   int32               `json:"attempt_count"`
+	CreatedAt      time.Time           `json:"created_at"`
+	DeliveredAt    *time.Time          `json:"delivered_at"`
+	EventType      EventType           `json:"event_type"`
+	Id             string              `json:"id"`
+	LastError      *string             `json:"last_error,omitempty"`
+	LastHttpStatus *int32              `json:"last_http_status,omitempty"`
+	LeaseExpiresAt *time.Time          `json:"lease_expires_at"`
+	NextAttemptAt  time.Time           `json:"next_attempt_at"`
+	Payload        EventEnvelope       `json:"payload"`
+	SecretVersion  int32               `json:"secret_version"`
+	SourceEventId  string              `json:"source_event_id"`
+	Status         EventDeliveryStatus `json:"status"`
+	SubscriptionId string              `json:"subscription_id"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+	WorkspaceId    string              `json:"workspace_id"`
+}
+
+// EventDeliveryStatus defines model for EventDelivery.Status.
+type EventDeliveryStatus string
+
+// EventDeliveryList defines model for EventDeliveryList.
+type EventDeliveryList struct {
+	Items []EventDelivery `json:"items"`
+}
+
+// EventEnvelope defines model for EventEnvelope.
+type EventEnvelope struct {
+	AppId       string                 `json:"app_id"`
+	Data        map[string]interface{} `json:"data"`
+	EventId     string                 `json:"event_id"`
+	OccurredAt  time.Time              `json:"occurred_at"`
+	Schema      EventEnvelopeSchema    `json:"schema"`
+	Type        EventType              `json:"type"`
+	WorkspaceId string                 `json:"workspace_id"`
+}
+
+// EventEnvelopeSchema defines model for EventEnvelope.Schema.
+type EventEnvelopeSchema string
 
 // EventList defines model for EventList.
 type EventList struct {
@@ -1954,6 +2484,37 @@ type EventList struct {
 
 // EventStream Server-sent event stream whose data fields contain Event JSON.
 type EventStream = string
+
+// EventSubscription defines model for EventSubscription.
+type EventSubscription struct {
+	AppId         string                  `json:"app_id"`
+	CreatedAt     time.Time               `json:"created_at"`
+	CreatedBy     string                  `json:"created_by"`
+	EndpointUrl   string                  `json:"endpoint_url"`
+	EventTypes    []EventType             `json:"event_types"`
+	Id            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	SecretVersion int32                   `json:"secret_version"`
+	Status        EventSubscriptionStatus `json:"status"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+	WorkspaceId   string                  `json:"workspace_id"`
+}
+
+// EventSubscriptionStatus defines model for EventSubscription.Status.
+type EventSubscriptionStatus string
+
+// EventSubscriptionList defines model for EventSubscriptionList.
+type EventSubscriptionList struct {
+	Items []EventSubscription `json:"items"`
+}
+
+// EventType defines model for EventType.
+type EventType string
+
+// EventTypeList defines model for EventTypeList.
+type EventTypeList struct {
+	Items []EventType `json:"items"`
+}
 
 // ForkSkillRequest defines model for ForkSkillRequest.
 type ForkSkillRequest struct {
@@ -2085,6 +2646,7 @@ type LLMModelCapabilities struct {
 	MaxCandidates  *int32                              `json:"max_candidates,omitempty"`
 	Normalized     *bool                               `json:"normalized,omitempty"`
 	Protocol       *string                             `json:"protocol,omitempty"`
+	Realtime       *LLMRealtimeCapabilities            `json:"realtime,omitempty"`
 	ResourceId     *string                             `json:"resource_id,omitempty"`
 	SampleRateHz   *int32                              `json:"sample_rate_hz,omitempty"`
 	UpstreamModel  *string                             `json:"upstream_model,omitempty"`
@@ -2114,6 +2676,28 @@ type LLMProvider struct {
 type LLMProviderList struct {
 	Providers []LLMProvider `json:"providers"`
 }
+
+// LLMRealtimeCapabilities defines model for LLMRealtimeCapabilities.
+type LLMRealtimeCapabilities struct {
+	InputFormats     []LLMRealtimeMediaFormat                  `json:"input_formats"`
+	MaxFrameBytes    int32                                     `json:"max_frame_bytes"`
+	MaxInputTracks   int32                                     `json:"max_input_tracks"`
+	OutputFormats    *[]LLMRealtimeMediaFormat                 `json:"output_formats,omitempty"`
+	OutputModalities []LLMRealtimeCapabilitiesOutputModalities `json:"output_modalities"`
+}
+
+// LLMRealtimeCapabilitiesOutputModalities defines model for LLMRealtimeCapabilities.OutputModalities.
+type LLMRealtimeCapabilitiesOutputModalities string
+
+// LLMRealtimeMediaFormat defines model for LLMRealtimeMediaFormat.
+type LLMRealtimeMediaFormat struct {
+	Codec       string                     `json:"codec"`
+	ContentType string                     `json:"content_type"`
+	Kind        LLMRealtimeMediaFormatKind `json:"kind"`
+}
+
+// LLMRealtimeMediaFormatKind defines model for LLMRealtimeMediaFormat.Kind.
+type LLMRealtimeMediaFormatKind string
 
 // LLMUsageAggregateReport defines model for LLMUsageAggregateReport.
 type LLMUsageAggregateReport struct {
@@ -2338,18 +2922,21 @@ type MCPRuntimeStatus struct {
 
 // MCPServer defines model for MCPServer.
 type MCPServer struct {
-	Config         MCPServerConfig `json:"config"`
-	CreatedAt      time.Time       `json:"created_at"`
-	CreatedBy      *string         `json:"created_by,omitempty"`
-	CurrentVersion int32           `json:"current_version"`
-	Description    *string         `json:"description,omitempty"`
-	Id             string          `json:"id"`
-	Identifier     string          `json:"identifier"`
-	Name           string          `json:"name"`
-	Status         MCPServerStatus `json:"status"`
-	UpdatedAt      time.Time       `json:"updated_at"`
-	UsageCount     int32           `json:"usage_count"`
-	WorkspaceId    string          `json:"workspace_id"`
+	AppId          *string           `json:"app_id,omitempty"`
+	Config         MCPServerConfig   `json:"config"`
+	CreatedAt      time.Time         `json:"created_at"`
+	CreatedBy      *string           `json:"created_by,omitempty"`
+	CurrentVersion int32             `json:"current_version"`
+	Description    *string           `json:"description,omitempty"`
+	ExternalRef    *string           `json:"external_ref,omitempty"`
+	Id             string            `json:"id"`
+	Identifier     string            `json:"identifier"`
+	Labels         map[string]string `json:"labels"`
+	Name           string            `json:"name"`
+	Status         MCPServerStatus   `json:"status"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	UsageCount     int32             `json:"usage_count"`
+	WorkspaceId    string            `json:"workspace_id"`
 }
 
 // MCPServerStatus defines model for MCPServer.Status.
@@ -2855,6 +3442,11 @@ type MarketplaceTransitionRequest struct {
 	WorkspaceId *string `json:"workspace_id,omitempty"`
 }
 
+// ModelContentPart defines model for ModelContentPart.
+type ModelContentPart struct {
+	union json.RawMessage
+}
+
 // ModelEmbedding defines model for ModelEmbedding.
 type ModelEmbedding struct {
 	Embedding []float64 `json:"embedding"`
@@ -2894,36 +3486,62 @@ type ModelGenerateResponse struct {
 	Usage        ModelUsage `json:"usage"`
 }
 
+// ModelImageContentPart defines model for ModelImageContentPart.
+type ModelImageContentPart struct {
+	ImageUrl ModelImageURL             `json:"image_url"`
+	Type     ModelImageContentPartType `json:"type"`
+}
+
+// ModelImageContentPartType defines model for ModelImageContentPart.Type.
+type ModelImageContentPartType string
+
+// ModelImageURL defines model for ModelImageURL.
+type ModelImageURL struct {
+	Detail *ModelImageURLDetail `json:"detail,omitempty"`
+
+	// Url Base64 data URL using image/png, image/jpeg, image/webp, or image/gif, or a public HTTPS URL without credentials.
+	Url string `json:"url"`
+}
+
+// ModelImageURLDetail defines model for ModelImageURL.Detail.
+type ModelImageURLDetail string
+
 // ModelInvocation defines model for ModelInvocation.
 type ModelInvocation struct {
-	AuthType          *string                   `json:"auth_type,omitempty"`
-	CachedInputTokens int64                     `json:"cached_input_tokens"`
-	Capability        ModelInvocationCapability `json:"capability"`
-	CompletedAt       time.Time                 `json:"completed_at"`
-	ErrorCode         *string                   `json:"error_code,omitempty"`
-	Id                string                    `json:"id"`
-	InputAudioMs      int64                     `json:"input_audio_ms"`
-	InputBytes        int64                     `json:"input_bytes"`
-	InputCharacters   int64                     `json:"input_characters"`
-	InputItems        int64                     `json:"input_items"`
-	InputTokens       int64                     `json:"input_tokens"`
-	LatencyMs         int64                     `json:"latency_ms"`
-	Model             string                    `json:"model"`
-	OutputAudioMs     int64                     `json:"output_audio_ms"`
-	OutputBytes       int64                     `json:"output_bytes"`
-	OutputCharacters  int64                     `json:"output_characters"`
-	OutputItems       int64                     `json:"output_items"`
-	OutputTokens      int64                     `json:"output_tokens"`
-	PrincipalId       string                    `json:"principal_id"`
-	ProviderId        string                    `json:"provider_id"`
-	ProviderType      *string                   `json:"provider_type,omitempty"`
-	ReasoningTokens   int64                     `json:"reasoning_tokens"`
-	RequestId         string                    `json:"request_id"`
-	ServiceIdentityId *string                   `json:"service_identity_id,omitempty"`
-	StartedAt         time.Time                 `json:"started_at"`
-	Status            ModelInvocationStatus     `json:"status"`
-	TotalTokens       int64                     `json:"total_tokens"`
-	WorkspaceId       string                    `json:"workspace_id"`
+	AuthType           *string                   `json:"auth_type,omitempty"`
+	CachedInputTokens  int64                     `json:"cached_input_tokens"`
+	Capability         ModelInvocationCapability `json:"capability"`
+	CompletedAt        time.Time                 `json:"completed_at"`
+	ErrorCode          *string                   `json:"error_code,omitempty"`
+	Id                 string                    `json:"id"`
+	InputAudioMs       int64                     `json:"input_audio_ms"`
+	InputBytes         int64                     `json:"input_bytes"`
+	InputCharacters    int64                     `json:"input_characters"`
+	InputItems         int64                     `json:"input_items"`
+	InputTokens        int64                     `json:"input_tokens"`
+	InputVideoDropped  int64                     `json:"input_video_dropped"`
+	InputVideoFrames   int64                     `json:"input_video_frames"`
+	InputVideoMs       int64                     `json:"input_video_ms"`
+	LatencyMs          int64                     `json:"latency_ms"`
+	Model              string                    `json:"model"`
+	OutputAudioMs      int64                     `json:"output_audio_ms"`
+	OutputBytes        int64                     `json:"output_bytes"`
+	OutputCharacters   int64                     `json:"output_characters"`
+	OutputItems        int64                     `json:"output_items"`
+	OutputTokens       int64                     `json:"output_tokens"`
+	OutputVideoDropped int64                     `json:"output_video_dropped"`
+	OutputVideoFrames  int64                     `json:"output_video_frames"`
+	OutputVideoMs      int64                     `json:"output_video_ms"`
+	PrincipalId        string                    `json:"principal_id"`
+	ProviderId         string                    `json:"provider_id"`
+	ProviderType       *string                   `json:"provider_type,omitempty"`
+	ReasoningTokens    int64                     `json:"reasoning_tokens"`
+	RequestId          string                    `json:"request_id"`
+	ServiceIdentityId  *string                   `json:"service_identity_id,omitempty"`
+	StartedAt          time.Time                 `json:"started_at"`
+	Status             ModelInvocationStatus     `json:"status"`
+	TotalTokens        int64                     `json:"total_tokens"`
+	WorkspaceId        string                    `json:"workspace_id"`
 }
 
 // ModelInvocationCapability defines model for ModelInvocation.Capability.
@@ -2940,30 +3558,47 @@ type ModelInvocationReport struct {
 
 // ModelInvocationSummary defines model for ModelInvocationSummary.
 type ModelInvocationSummary struct {
-	CachedInputTokens int64 `json:"cached_input_tokens"`
-	CanceledCount     int64 `json:"canceled_count"`
-	CompletedCount    int64 `json:"completed_count"`
-	FailedCount       int64 `json:"failed_count"`
-	InputAudioMs      int64 `json:"input_audio_ms"`
-	InputBytes        int64 `json:"input_bytes"`
-	InputCharacters   int64 `json:"input_characters"`
-	InputItems        int64 `json:"input_items"`
-	InputTokens       int64 `json:"input_tokens"`
-	LatencyMs         int64 `json:"latency_ms"`
-	OutputAudioMs     int64 `json:"output_audio_ms"`
-	OutputBytes       int64 `json:"output_bytes"`
-	OutputCharacters  int64 `json:"output_characters"`
-	OutputItems       int64 `json:"output_items"`
-	OutputTokens      int64 `json:"output_tokens"`
-	ReasoningTokens   int64 `json:"reasoning_tokens"`
-	RecordCount       int64 `json:"record_count"`
-	TotalTokens       int64 `json:"total_tokens"`
+	CachedInputTokens  int64 `json:"cached_input_tokens"`
+	CanceledCount      int64 `json:"canceled_count"`
+	CompletedCount     int64 `json:"completed_count"`
+	FailedCount        int64 `json:"failed_count"`
+	InputAudioMs       int64 `json:"input_audio_ms"`
+	InputBytes         int64 `json:"input_bytes"`
+	InputCharacters    int64 `json:"input_characters"`
+	InputItems         int64 `json:"input_items"`
+	InputTokens        int64 `json:"input_tokens"`
+	InputVideoDropped  int64 `json:"input_video_dropped"`
+	InputVideoFrames   int64 `json:"input_video_frames"`
+	InputVideoMs       int64 `json:"input_video_ms"`
+	LatencyMs          int64 `json:"latency_ms"`
+	OutputAudioMs      int64 `json:"output_audio_ms"`
+	OutputBytes        int64 `json:"output_bytes"`
+	OutputCharacters   int64 `json:"output_characters"`
+	OutputItems        int64 `json:"output_items"`
+	OutputTokens       int64 `json:"output_tokens"`
+	OutputVideoDropped int64 `json:"output_video_dropped"`
+	OutputVideoFrames  int64 `json:"output_video_frames"`
+	OutputVideoMs      int64 `json:"output_video_ms"`
+	ReasoningTokens    int64 `json:"reasoning_tokens"`
+	RecordCount        int64 `json:"record_count"`
+	TotalTokens        int64 `json:"total_tokens"`
 }
 
 // ModelMessage defines model for ModelMessage.
 type ModelMessage struct {
-	Content string           `json:"content"`
-	Role    ModelMessageRole `json:"role"`
+	Content ModelMessage_Content `json:"content"`
+	Role    ModelMessageRole     `json:"role"`
+}
+
+// ModelMessageContent0 defines model for .
+type ModelMessageContent0 = string
+
+// ModelMessageContent1 defines model for .
+type ModelMessageContent1 = []ModelContentPart
+
+// ModelMessage_Content defines model for ModelMessage.Content.
+type ModelMessage_Content struct {
+	union json.RawMessage
 }
 
 // ModelMessageRole defines model for ModelMessage.Role.
@@ -2990,6 +3625,89 @@ type ModelRerankResult struct {
 	Index int32   `json:"index"`
 	Score float64 `json:"score"`
 }
+
+// ModelRuntimeQuotaAlert defines model for ModelRuntimeQuotaAlert.
+type ModelRuntimeQuotaAlert struct {
+	Budget           int64                        `json:"budget"`
+	Consumed         int64                        `json:"consumed"`
+	Metric           string                       `json:"metric"`
+	Status           ModelRuntimeQuotaAlertStatus `json:"status"`
+	ThresholdPercent int32                        `json:"threshold_percent"`
+}
+
+// ModelRuntimeQuotaAlertStatus defines model for ModelRuntimeQuotaAlert.Status.
+type ModelRuntimeQuotaAlertStatus string
+
+// ModelRuntimeQuotaLimits defines model for ModelRuntimeQuotaLimits.
+type ModelRuntimeQuotaLimits struct {
+	ModelIdentityRequestsPerMinute   int32 `json:"model_identity_requests_per_minute"`
+	ModelWorkspaceRequestsPerMinute  int32 `json:"model_workspace_requests_per_minute"`
+	SpeechIdentitySessionsPerMinute  int32 `json:"speech_identity_sessions_per_minute"`
+	SpeechWorkspaceSessionsPerMinute int32 `json:"speech_workspace_sessions_per_minute"`
+}
+
+// ModelRuntimeQuotaPolicy defines model for ModelRuntimeQuotaPolicy.
+type ModelRuntimeQuotaPolicy struct {
+	AppId       *string                       `json:"app_id,omitempty"`
+	ArchivedAt  *time.Time                    `json:"archived_at,omitempty"`
+	Config      ModelRuntimeQuotaPolicyConfig `json:"config"`
+	CreatedAt   time.Time                     `json:"created_at"`
+	CreatedBy   string                        `json:"created_by"`
+	Id          string                        `json:"id"`
+	Plan        string                        `json:"plan"`
+	Revision    int64                         `json:"revision"`
+	Scope       ModelRuntimeQuotaPolicyScope  `json:"scope"`
+	Status      ModelRuntimeQuotaPolicyStatus `json:"status"`
+	UpdatedAt   time.Time                     `json:"updated_at"`
+	UpdatedBy   string                        `json:"updated_by"`
+	WorkspaceId string                        `json:"workspace_id"`
+}
+
+// ModelRuntimeQuotaPolicyScope defines model for ModelRuntimeQuotaPolicy.Scope.
+type ModelRuntimeQuotaPolicyScope string
+
+// ModelRuntimeQuotaPolicyStatus defines model for ModelRuntimeQuotaPolicy.Status.
+type ModelRuntimeQuotaPolicyStatus string
+
+// ModelRuntimeQuotaPolicyConfig defines model for ModelRuntimeQuotaPolicyConfig.
+type ModelRuntimeQuotaPolicyConfig struct {
+	AlertThresholdPercent            *int32 `json:"alert_threshold_percent,omitempty"`
+	ModelIdentityRequestsPerMinute   *int32 `json:"model_identity_requests_per_minute,omitempty"`
+	ModelWorkspaceRequestsPerMinute  *int32 `json:"model_workspace_requests_per_minute,omitempty"`
+	MonthlyModelRequestBudget        *int64 `json:"monthly_model_request_budget,omitempty"`
+	MonthlySpeechSessionBudget       *int64 `json:"monthly_speech_session_budget,omitempty"`
+	SpeechIdentitySessionsPerMinute  *int32 `json:"speech_identity_sessions_per_minute,omitempty"`
+	SpeechWorkspaceSessionsPerMinute *int32 `json:"speech_workspace_sessions_per_minute,omitempty"`
+}
+
+// ModelRuntimeQuotaPolicyList defines model for ModelRuntimeQuotaPolicyList.
+type ModelRuntimeQuotaPolicyList struct {
+	Policies []ModelRuntimeQuotaPolicy `json:"policies"`
+}
+
+// ModelRuntimeQuotaStatus defines model for ModelRuntimeQuotaStatus.
+type ModelRuntimeQuotaStatus struct {
+	Alerts []ModelRuntimeQuotaAlert         `json:"alerts"`
+	Policy EffectiveModelRuntimeQuotaPolicy `json:"policy"`
+	Usage  ModelRuntimeQuotaUsage           `json:"usage"`
+}
+
+// ModelRuntimeQuotaUsage defines model for ModelRuntimeQuotaUsage.
+type ModelRuntimeQuotaUsage struct {
+	ModelRequests   int64     `json:"model_requests"`
+	PeriodEndsAt    time.Time `json:"period_ends_at"`
+	PeriodStartedAt time.Time `json:"period_started_at"`
+	SpeechSessions  int64     `json:"speech_sessions"`
+}
+
+// ModelTextContentPart defines model for ModelTextContentPart.
+type ModelTextContentPart struct {
+	Text string                   `json:"text"`
+	Type ModelTextContentPartType `json:"type"`
+}
+
+// ModelTextContentPartType defines model for ModelTextContentPart.Type.
+type ModelTextContentPartType string
 
 // ModelUsage defines model for ModelUsage.
 type ModelUsage struct {
@@ -3341,6 +4059,13 @@ type PrincipalAuthType string
 // PrincipalRoles defines model for Principal.Roles.
 type PrincipalRoles string
 
+// PublishApplicationManifestRequest defines model for PublishApplicationManifestRequest.
+type PublishApplicationManifestRequest struct {
+	// AppId Required for user credentials and bound automatically for application credentials.
+	AppId    *string             `json:"app_id,omitempty"`
+	Manifest ApplicationManifest `json:"manifest"`
+}
+
 // PublishMarketplacePolicyRequest defines model for PublishMarketplacePolicyRequest.
 type PublishMarketplacePolicyRequest struct {
 	Config MarketplacePolicyConfig `json:"config"`
@@ -3375,6 +4100,12 @@ type PutLLMModelRequest struct {
 
 // PutLLMModelRequestCapabilityType defines model for PutLLMModelRequest.CapabilityType.
 type PutLLMModelRequestCapabilityType string
+
+// PutModelRuntimeQuotaPolicyRequest defines model for PutModelRuntimeQuotaPolicyRequest.
+type PutModelRuntimeQuotaPolicyRequest struct {
+	Config ModelRuntimeQuotaPolicyConfig `json:"config"`
+	Plan   string                        `json:"plan"`
+}
 
 // PutSkillDraftRequest defines model for PutSkillDraftRequest.
 type PutSkillDraftRequest struct {
@@ -3621,6 +4352,7 @@ type Run struct {
 	AgentConfigVersion   int32      `json:"agent_config_version"`
 	AgentId              string     `json:"agent_id"`
 	Attempt              int32      `json:"attempt"`
+	CurrentAttemptId     *string    `json:"current_attempt_id,omitempty"`
 	EndedAt              *time.Time `json:"ended_at"`
 	ErrorMessage         *string    `json:"error_message,omitempty"`
 	Id                   string     `json:"id"`
@@ -3629,6 +4361,7 @@ type Run struct {
 	SessionId            string     `json:"session_id"`
 	StartedAt            time.Time  `json:"started_at"`
 	Status               RunStatus  `json:"status"`
+	TurnId               string     `json:"turn_id"`
 	UserEventId          *string    `json:"user_event_id,omitempty"`
 	UserEventSeq         *int64     `json:"user_event_seq,omitempty"`
 }
@@ -3646,6 +4379,30 @@ type RunAgentScheduleResponse struct {
 
 // RunAgentScheduleResponseStatus defines model for RunAgentScheduleResponse.Status.
 type RunAgentScheduleResponseStatus string
+
+// RunAttempt defines model for RunAttempt.
+type RunAttempt struct {
+	AttemptNumber     int32            `json:"attempt_number"`
+	EndedAt           *time.Time       `json:"ended_at"`
+	ErrorMessage      *string          `json:"error_message,omitempty"`
+	Id                string           `json:"id"`
+	LastHeartbeatAt   *time.Time       `json:"last_heartbeat_at"`
+	LeaseExpiresAt    *time.Time       `json:"lease_expires_at"`
+	LeaseOwner        *string          `json:"lease_owner,omitempty"`
+	MigrationSnapshot *bool            `json:"migration_snapshot,omitempty"`
+	RunId             string           `json:"run_id"`
+	SessionId         string           `json:"session_id"`
+	StartedAt         time.Time        `json:"started_at"`
+	Status            RunAttemptStatus `json:"status"`
+}
+
+// RunAttemptStatus defines model for RunAttempt.Status.
+type RunAttemptStatus string
+
+// RunAttemptList defines model for RunAttemptList.
+type RunAttemptList struct {
+	Attempts []RunAttempt `json:"attempts"`
+}
 
 // RunComparison defines model for RunComparison.
 type RunComparison struct {
@@ -3729,11 +4486,14 @@ type SecurityAuditReplayResult struct {
 type Session struct {
 	AgentConfigVersion      int32                   `json:"agent_config_version"`
 	AgentId                 string                  `json:"agent_id"`
+	AppId                   *string                 `json:"app_id,omitempty"`
 	ArchivedAt              *time.Time              `json:"archived_at"`
 	CreatedAt               time.Time               `json:"created_at"`
 	CreatedBy               string                  `json:"created_by"`
 	EnvironmentId           string                  `json:"environment_id"`
+	ExternalRef             *string                 `json:"external_ref,omitempty"`
 	Id                      string                  `json:"id"`
+	Labels                  map[string]string       `json:"labels"`
 	OwnerId                 string                  `json:"owner_id"`
 	ParentSessionId         *string                 `json:"parent_session_id,omitempty"`
 	ParentTurnId            *string                 `json:"parent_turn_id,omitempty"`
@@ -3884,24 +4644,27 @@ type SessionUsage struct {
 
 // Skill defines model for Skill.
 type Skill struct {
-	ArchivedAt        *time.Time      `json:"archived_at"`
-	CreatedAt         time.Time       `json:"created_at"`
-	CreatedBy         string          `json:"created_by"`
-	Description       *string         `json:"description,omitempty"`
-	ForkedFromSkillId *string         `json:"forked_from_skill_id,omitempty"`
-	ForkedFromVersion *int32          `json:"forked_from_version,omitempty"`
-	Id                string          `json:"id"`
-	Identifier        string          `json:"identifier"`
-	OwnerId           string          `json:"owner_id"`
-	OwnerType         SkillOwnerType  `json:"owner_type"`
-	SourceLocator     *string         `json:"source_locator,omitempty"`
-	SourcePath        *string         `json:"source_path,omitempty"`
-	SourcePluginId    *string         `json:"source_plugin_id,omitempty"`
-	SourceType        SkillSourceType `json:"source_type"`
-	Status            SkillStatus     `json:"status"`
-	Title             string          `json:"title"`
-	Visibility        SkillVisibility `json:"visibility"`
-	WorkspaceId       string          `json:"workspace_id"`
+	AppId             *string           `json:"app_id,omitempty"`
+	ArchivedAt        *time.Time        `json:"archived_at"`
+	CreatedAt         time.Time         `json:"created_at"`
+	CreatedBy         string            `json:"created_by"`
+	Description       *string           `json:"description,omitempty"`
+	ExternalRef       *string           `json:"external_ref,omitempty"`
+	ForkedFromSkillId *string           `json:"forked_from_skill_id,omitempty"`
+	ForkedFromVersion *int32            `json:"forked_from_version,omitempty"`
+	Id                string            `json:"id"`
+	Identifier        string            `json:"identifier"`
+	Labels            map[string]string `json:"labels"`
+	OwnerId           string            `json:"owner_id"`
+	OwnerType         SkillOwnerType    `json:"owner_type"`
+	SourceLocator     *string           `json:"source_locator,omitempty"`
+	SourcePath        *string           `json:"source_path,omitempty"`
+	SourcePluginId    *string           `json:"source_plugin_id,omitempty"`
+	SourceType        SkillSourceType   `json:"source_type"`
+	Status            SkillStatus       `json:"status"`
+	Title             string            `json:"title"`
+	Visibility        SkillVisibility   `json:"visibility"`
+	WorkspaceId       string            `json:"workspace_id"`
 }
 
 // SkillOwnerType defines model for Skill.OwnerType.
@@ -4747,6 +5510,17 @@ type UpdateAgentScheduleRequestApprovalMode string
 // UpdateAgentScheduleRequestSessionMode defines model for UpdateAgentScheduleRequest.SessionMode.
 type UpdateAgentScheduleRequestSessionMode string
 
+// UpdateEventSubscriptionRequest defines model for UpdateEventSubscriptionRequest.
+type UpdateEventSubscriptionRequest struct {
+	EndpointUrl string                               `json:"endpoint_url"`
+	EventTypes  []EventType                          `json:"event_types"`
+	Name        string                               `json:"name"`
+	Status      UpdateEventSubscriptionRequestStatus `json:"status"`
+}
+
+// UpdateEventSubscriptionRequestStatus defines model for UpdateEventSubscriptionRequest.Status.
+type UpdateEventSubscriptionRequestStatus string
+
 // UpdateLLMProviderRequest defines model for UpdateLLMProviderRequest.
 type UpdateLLMProviderRequest struct {
 	ApiKeyEnv    *string `json:"api_key_env,omitempty"`
@@ -5024,19 +5798,46 @@ type GetV2AchievementLibraryByItemIdDownloadParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
 }
 
+// GetV2AgentsParams defines parameters for GetV2Agents.
+type GetV2AgentsParams struct {
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	ExternalRef *string `form:"external_ref,omitempty" json:"external_ref,omitempty"`
+}
+
+// GetV2ArtifactExchangesByExchangeIdContentParams defines parameters for GetV2ArtifactExchangesByExchangeIdContent.
+type GetV2ArtifactExchangesByExchangeIdContentParams struct {
+	WorkspaceId string `form:"workspace_id" json:"workspace_id"`
+	Token       string `form:"token" json:"token"`
+}
+
+// PutV2ArtifactExchangesByExchangeIdContentParams defines parameters for PutV2ArtifactExchangesByExchangeIdContent.
+type PutV2ArtifactExchangesByExchangeIdContentParams struct {
+	WorkspaceId string `form:"workspace_id" json:"workspace_id"`
+	Token       string `form:"token" json:"token"`
+}
+
 // GetV2EnvironmentVariablesParams defines parameters for GetV2EnvironmentVariables.
 type GetV2EnvironmentVariablesParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
 }
 
 // DeleteV2EnvironmentVariablesByNameParams defines parameters for DeleteV2EnvironmentVariablesByName.
 type DeleteV2EnvironmentVariablesByNameParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
 }
 
 // PutV2EnvironmentVariablesByNameParams defines parameters for PutV2EnvironmentVariablesByName.
 type PutV2EnvironmentVariablesByNameParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+}
+
+// GetV2EnvironmentsParams defines parameters for GetV2Environments.
+type GetV2EnvironmentsParams struct {
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	ExternalRef *string `form:"external_ref,omitempty" json:"external_ref,omitempty"`
 }
 
 // GetV2EvaluationDatasetsParams defines parameters for GetV2EvaluationDatasets.
@@ -5053,6 +5854,17 @@ type GetV2EvaluationExperimentsParams struct {
 // GetV2EvaluationRubricsParams defines parameters for GetV2EvaluationRubrics.
 type GetV2EvaluationRubricsParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+}
+
+// GetV2EventSubscriptionsParams defines parameters for GetV2EventSubscriptions.
+type GetV2EventSubscriptionsParams struct {
+	AppId *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+}
+
+// GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams defines parameters for GetV2EventSubscriptionsBySubscriptionIdDeliveries.
+type GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams struct {
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+	Limit  *int32  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetV2LlmModelsParams defines parameters for GetV2LlmModels.
@@ -5102,6 +5914,8 @@ type PostV2LlmProvidersByProviderIdEnableParams struct {
 // GetV2McpServersParams defines parameters for GetV2McpServers.
 type GetV2McpServersParams struct {
 	WorkspaceId *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	ExternalRef *string `form:"external_ref,omitempty" json:"external_ref,omitempty"`
 }
 
 // GetV2McpServersRuntimeStatusParams defines parameters for GetV2McpServersRuntimeStatus.
@@ -5166,6 +5980,32 @@ type GetV2OperatorAuditParams struct {
 	Limit       *int32  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetV2QuotaPoliciesParams defines parameters for GetV2QuotaPolicies.
+type GetV2QuotaPoliciesParams struct {
+	IncludeArchived *bool `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+}
+
+// DeleteV2QuotaPoliciesApplicationsByAppIdParams defines parameters for DeleteV2QuotaPoliciesApplicationsByAppId.
+type DeleteV2QuotaPoliciesApplicationsByAppIdParams struct {
+	// IfMatch Quoted positive resource revision returned by the previous read.
+	IfMatch string `json:"If-Match"`
+}
+
+// PutV2QuotaPoliciesApplicationsByAppIdParams defines parameters for PutV2QuotaPoliciesApplicationsByAppId.
+type PutV2QuotaPoliciesApplicationsByAppIdParams struct {
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
+// GetV2QuotaPoliciesEffectiveParams defines parameters for GetV2QuotaPoliciesEffective.
+type GetV2QuotaPoliciesEffectiveParams struct {
+	AppId *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+}
+
+// PutV2QuotaPoliciesWorkspaceParams defines parameters for PutV2QuotaPoliciesWorkspace.
+type PutV2QuotaPoliciesWorkspaceParams struct {
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
 // GetV2RunComparisonsParams defines parameters for GetV2RunComparisons.
 type GetV2RunComparisonsParams struct {
 	LeftSessionId  string `form:"left_session_id" json:"left_session_id"`
@@ -5187,6 +6027,12 @@ type GetV2RunEvaluationsParams struct {
 type GetV2SessionComparisonsParams struct {
 	LeftSessionId  string `form:"left_session_id" json:"left_session_id"`
 	RightSessionId string `form:"right_session_id" json:"right_session_id"`
+}
+
+// GetV2SessionsParams defines parameters for GetV2Sessions.
+type GetV2SessionsParams struct {
+	AppId       *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	ExternalRef *string `form:"external_ref,omitempty" json:"external_ref,omitempty"`
 }
 
 // GetV2SessionsBySessionIdArtifactsByArtifactIdPreviewParams defines parameters for GetV2SessionsBySessionIdArtifactsByArtifactIdPreview.
@@ -5290,6 +6136,8 @@ type GetV2SkillMarketplacePoliciesParams struct {
 // GetV2SkillsParams defines parameters for GetV2Skills.
 type GetV2SkillsParams struct {
 	WorkspaceId     *string `form:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	AppId           *string `form:"app_id,omitempty" json:"app_id,omitempty"`
+	ExternalRef     *string `form:"external_ref,omitempty" json:"external_ref,omitempty"`
 	IncludeArchived *bool   `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 }
 
@@ -5395,6 +6243,15 @@ type PatchV2AgentsByAgentIdSchedulesByScheduleIdJSONRequestBody = UpdateAgentSch
 // PostV2AgentsByAgentIdToolingHealthJSONRequestBody defines body for PostV2AgentsByAgentIdToolingHealth for application/json ContentType.
 type PostV2AgentsByAgentIdToolingHealthJSONRequestBody = ToolingHealthRequest
 
+// PostV2ApplicationManifestsPublishJSONRequestBody defines body for PostV2ApplicationManifestsPublish for application/json ContentType.
+type PostV2ApplicationManifestsPublishJSONRequestBody = PublishApplicationManifestRequest
+
+// PostV2ArtifactExchangesExportsJSONRequestBody defines body for PostV2ArtifactExchangesExports for application/json ContentType.
+type PostV2ArtifactExchangesExportsJSONRequestBody = CreateArtifactExportExchangeRequest
+
+// PostV2ArtifactExchangesImportsJSONRequestBody defines body for PostV2ArtifactExchangesImports for application/json ContentType.
+type PostV2ArtifactExchangesImportsJSONRequestBody = CreateArtifactImportExchangeRequest
+
 // PostV2AuthTokenExchangeJSONRequestBody defines body for PostV2AuthTokenExchange for application/json ContentType.
 type PostV2AuthTokenExchangeJSONRequestBody = TokenExchangeRequest
 
@@ -5412,6 +6269,12 @@ type PostV2EvaluationExperimentsJSONRequestBody = CreateEvaluationExperimentRequ
 
 // PostV2EvaluationRubricsJSONRequestBody defines body for PostV2EvaluationRubrics for application/json ContentType.
 type PostV2EvaluationRubricsJSONRequestBody = CreateEvaluationRubricRequest
+
+// PostV2EventSubscriptionsJSONRequestBody defines body for PostV2EventSubscriptions for application/json ContentType.
+type PostV2EventSubscriptionsJSONRequestBody = CreateEventSubscriptionRequest
+
+// PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody defines body for PatchV2EventSubscriptionsBySubscriptionId for application/json ContentType.
+type PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody = UpdateEventSubscriptionRequest
 
 // PostV2LlmModelsJSONRequestBody defines body for PostV2LlmModels for application/json ContentType.
 type PostV2LlmModelsJSONRequestBody = PutLLMModelRequest
@@ -5457,6 +6320,12 @@ type PostV2PlatformWorkspacesJSONRequestBody = CreateTenantWorkspaceRequest
 
 // PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody defines body for PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject for application/json ContentType.
 type PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody = UpsertWorkspaceMembershipRequest
+
+// PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody defines body for PutV2QuotaPoliciesApplicationsByAppId for application/json ContentType.
+type PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody = PutModelRuntimeQuotaPolicyRequest
+
+// PutV2QuotaPoliciesWorkspaceJSONRequestBody defines body for PutV2QuotaPoliciesWorkspace for application/json ContentType.
+type PutV2QuotaPoliciesWorkspaceJSONRequestBody = PutModelRuntimeQuotaPolicyRequest
 
 // PostV2RetrievalCollectionsJSONRequestBody defines body for PostV2RetrievalCollections for application/json ContentType.
 type PostV2RetrievalCollectionsJSONRequestBody = CreateRetrievalCollectionRequest
@@ -5694,6 +6563,130 @@ func (t *MCPConfigValue) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsModelTextContentPart returns the union data inside the ModelContentPart as a ModelTextContentPart
+func (t ModelContentPart) AsModelTextContentPart() (ModelTextContentPart, error) {
+	var body ModelTextContentPart
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromModelTextContentPart overwrites any union data inside the ModelContentPart as the provided ModelTextContentPart
+func (t *ModelContentPart) FromModelTextContentPart(v ModelTextContentPart) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeModelTextContentPart performs a merge with any union data inside the ModelContentPart, using the provided ModelTextContentPart
+func (t *ModelContentPart) MergeModelTextContentPart(v ModelTextContentPart) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsModelImageContentPart returns the union data inside the ModelContentPart as a ModelImageContentPart
+func (t ModelContentPart) AsModelImageContentPart() (ModelImageContentPart, error) {
+	var body ModelImageContentPart
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromModelImageContentPart overwrites any union data inside the ModelContentPart as the provided ModelImageContentPart
+func (t *ModelContentPart) FromModelImageContentPart(v ModelImageContentPart) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeModelImageContentPart performs a merge with any union data inside the ModelContentPart, using the provided ModelImageContentPart
+func (t *ModelContentPart) MergeModelImageContentPart(v ModelImageContentPart) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ModelContentPart) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ModelContentPart) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsModelMessageContent0 returns the union data inside the ModelMessage_Content as a ModelMessageContent0
+func (t ModelMessage_Content) AsModelMessageContent0() (ModelMessageContent0, error) {
+	var body ModelMessageContent0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromModelMessageContent0 overwrites any union data inside the ModelMessage_Content as the provided ModelMessageContent0
+func (t *ModelMessage_Content) FromModelMessageContent0(v ModelMessageContent0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeModelMessageContent0 performs a merge with any union data inside the ModelMessage_Content, using the provided ModelMessageContent0
+func (t *ModelMessage_Content) MergeModelMessageContent0(v ModelMessageContent0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsModelMessageContent1 returns the union data inside the ModelMessage_Content as a ModelMessageContent1
+func (t ModelMessage_Content) AsModelMessageContent1() (ModelMessageContent1, error) {
+	var body ModelMessageContent1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromModelMessageContent1 overwrites any union data inside the ModelMessage_Content as the provided ModelMessageContent1
+func (t *ModelMessage_Content) FromModelMessageContent1(v ModelMessageContent1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeModelMessageContent1 performs a merge with any union data inside the ModelMessage_Content, using the provided ModelMessageContent1
+func (t *ModelMessage_Content) MergeModelMessageContent1(v ModelMessageContent1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ModelMessage_Content) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ModelMessage_Content) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsSkillAssetBundle returns the union data inside the SkillAssets as a SkillAssetBundle
 func (t SkillAssets) AsSkillAssetBundle() (SkillAssetBundle, error) {
 	var body SkillAssetBundle
@@ -5920,7 +6913,7 @@ type ClientInterface interface {
 	GetV2AgentTaskGroupTemplates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2Agents request
-	GetV2Agents(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetV2Agents(ctx context.Context, params *GetV2AgentsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2AgentsWithBody request with any body
 	PostV2AgentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -5984,6 +6977,30 @@ type ClientInterface interface {
 
 	PostV2AgentsByAgentIdToolingHealth(ctx context.Context, agentId string, body PostV2AgentsByAgentIdToolingHealthJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostV2ApplicationManifestsPublishWithBody request with any body
+	PostV2ApplicationManifestsPublishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ApplicationManifestsPublish(ctx context.Context, body PostV2ApplicationManifestsPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2ArtifactExchangesExportsWithBody request with any body
+	PostV2ArtifactExchangesExportsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ArtifactExchangesExports(ctx context.Context, body PostV2ArtifactExchangesExportsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2ArtifactExchangesImportsWithBody request with any body
+	PostV2ArtifactExchangesImportsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2ArtifactExchangesImports(ctx context.Context, body PostV2ArtifactExchangesImportsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2ArtifactExchangesByExchangeId request
+	GetV2ArtifactExchangesByExchangeId(ctx context.Context, exchangeId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2ArtifactExchangesByExchangeIdContent request
+	GetV2ArtifactExchangesByExchangeIdContent(ctx context.Context, exchangeId string, params *GetV2ArtifactExchangesByExchangeIdContentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2ArtifactExchangesByExchangeIdContentWithBody request with any body
+	PutV2ArtifactExchangesByExchangeIdContentWithBody(ctx context.Context, exchangeId string, params *PutV2ArtifactExchangesByExchangeIdContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2AuthConfig request
 	GetV2AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -5994,6 +7011,9 @@ type ClientInterface interface {
 	PostV2AuthTokenExchangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	PostV2AuthTokenExchange(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2Capabilities request
+	GetV2Capabilities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2ConsoleContext request
 	GetV2ConsoleContext(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6010,7 +7030,7 @@ type ClientInterface interface {
 	PutV2EnvironmentVariablesByName(ctx context.Context, name string, params *PutV2EnvironmentVariablesByNameParams, body PutV2EnvironmentVariablesByNameJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2Environments request
-	GetV2Environments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetV2Environments(ctx context.Context, params *GetV2EnvironmentsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2EnvironmentsWithBody request with any body
 	PostV2EnvironmentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6055,6 +7075,37 @@ type ClientInterface interface {
 
 	// GetV2EvaluationRubricsByRubricId request
 	GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EventSubscriptions request
+	GetV2EventSubscriptions(ctx context.Context, params *GetV2EventSubscriptionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EventSubscriptionsWithBody request with any body
+	PostV2EventSubscriptionsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PostV2EventSubscriptions(ctx context.Context, body PostV2EventSubscriptionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EventSubscriptionsEventTypes request
+	GetV2EventSubscriptionsEventTypes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2EventSubscriptionsBySubscriptionId request
+	DeleteV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EventSubscriptionsBySubscriptionId request
+	GetV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchV2EventSubscriptionsBySubscriptionIdWithBody request with any body
+	PatchV2EventSubscriptionsBySubscriptionIdWithBody(ctx context.Context, subscriptionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PatchV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, body PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2EventSubscriptionsBySubscriptionIdDeliveries request
+	GetV2EventSubscriptionsBySubscriptionIdDeliveries(ctx context.Context, subscriptionId string, params *GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplay request
+	PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplay(ctx context.Context, subscriptionId string, deliveryId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PostV2EventSubscriptionsBySubscriptionIdRotateSecret request
+	PostV2EventSubscriptionsBySubscriptionIdRotateSecret(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2LlmModels request
 	GetV2LlmModels(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6151,6 +7202,9 @@ type ClientInterface interface {
 	// GetV2ModelRuntimeInvocations request
 	GetV2ModelRuntimeInvocations(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2ModelRuntimeMultimodalRealtime request
+	GetV2ModelRuntimeMultimodalRealtime(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// PostV2ModelRuntimeRerankWithBody request with any body
 	PostV2ModelRuntimeRerankWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -6239,6 +7293,25 @@ type ClientInterface interface {
 
 	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetV2QuotaPolicies request
+	GetV2QuotaPolicies(ctx context.Context, params *GetV2QuotaPoliciesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteV2QuotaPoliciesApplicationsByAppId request
+	DeleteV2QuotaPoliciesApplicationsByAppId(ctx context.Context, appId string, params *DeleteV2QuotaPoliciesApplicationsByAppIdParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2QuotaPoliciesApplicationsByAppIdWithBody request with any body
+	PutV2QuotaPoliciesApplicationsByAppIdWithBody(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2QuotaPoliciesApplicationsByAppId(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, body PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2QuotaPoliciesEffective request
+	GetV2QuotaPoliciesEffective(ctx context.Context, params *GetV2QuotaPoliciesEffectiveParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutV2QuotaPoliciesWorkspaceWithBody request with any body
+	PutV2QuotaPoliciesWorkspaceWithBody(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	PutV2QuotaPoliciesWorkspace(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, body PutV2QuotaPoliciesWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetV2RetrievalCollections request
 	GetV2RetrievalCollections(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -6290,7 +7363,7 @@ type ClientInterface interface {
 	GetV2SessionComparisons(ctx context.Context, params *GetV2SessionComparisonsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetV2Sessions request
-	GetV2Sessions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetV2Sessions(ctx context.Context, params *GetV2SessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2SessionsWithBody request with any body
 	PostV2SessionsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6420,6 +7493,12 @@ type ClientInterface interface {
 
 	// GetV2SessionsBySessionIdRunsByRunId request
 	GetV2SessionsBySessionIdRunsByRunId(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2SessionsBySessionIdRunsByRunIdAttempts request
+	GetV2SessionsBySessionIdRunsByRunIdAttempts(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptId request
+	GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptId(ctx context.Context, sessionId string, runId string, attemptId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PostV2SessionsBySessionIdRunsByRunIdCancel request
 	PostV2SessionsBySessionIdRunsByRunIdCancel(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -6886,8 +7965,8 @@ func (c *Client) GetV2AgentTaskGroupTemplates(ctx context.Context, reqEditors ..
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetV2Agents(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2AgentsRequest(c.Server)
+func (c *Client) GetV2Agents(ctx context.Context, params *GetV2AgentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2AgentsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7174,6 +8253,114 @@ func (c *Client) PostV2AgentsByAgentIdToolingHealth(ctx context.Context, agentId
 	return c.Client.Do(req)
 }
 
+func (c *Client) PostV2ApplicationManifestsPublishWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ApplicationManifestsPublishRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ApplicationManifestsPublish(ctx context.Context, body PostV2ApplicationManifestsPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ApplicationManifestsPublishRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ArtifactExchangesExportsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ArtifactExchangesExportsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ArtifactExchangesExports(ctx context.Context, body PostV2ArtifactExchangesExportsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ArtifactExchangesExportsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ArtifactExchangesImportsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ArtifactExchangesImportsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2ArtifactExchangesImports(ctx context.Context, body PostV2ArtifactExchangesImportsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2ArtifactExchangesImportsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2ArtifactExchangesByExchangeId(ctx context.Context, exchangeId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2ArtifactExchangesByExchangeIdRequest(c.Server, exchangeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2ArtifactExchangesByExchangeIdContent(ctx context.Context, exchangeId string, params *GetV2ArtifactExchangesByExchangeIdContentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2ArtifactExchangesByExchangeIdContentRequest(c.Server, exchangeId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2ArtifactExchangesByExchangeIdContentWithBody(ctx context.Context, exchangeId string, params *PutV2ArtifactExchangesByExchangeIdContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2ArtifactExchangesByExchangeIdContentRequestWithBody(c.Server, exchangeId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetV2AuthConfig(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2AuthConfigRequest(c.Server)
 	if err != nil {
@@ -7212,6 +8399,18 @@ func (c *Client) PostV2AuthTokenExchangeWithBody(ctx context.Context, contentTyp
 
 func (c *Client) PostV2AuthTokenExchange(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2AuthTokenExchangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2Capabilities(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2CapabilitiesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -7282,8 +8481,8 @@ func (c *Client) PutV2EnvironmentVariablesByName(ctx context.Context, name strin
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetV2Environments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2EnvironmentsRequest(c.Server)
+func (c *Client) GetV2Environments(ctx context.Context, params *GetV2EnvironmentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EnvironmentsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -7476,6 +8675,138 @@ func (c *Client) PostV2EvaluationRubrics(ctx context.Context, body PostV2Evaluat
 
 func (c *Client) GetV2EvaluationRubricsByRubricId(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2EvaluationRubricsByRubricIdRequest(c.Server, rubricId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EventSubscriptions(ctx context.Context, params *GetV2EventSubscriptionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EventSubscriptionsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EventSubscriptionsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EventSubscriptionsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EventSubscriptions(ctx context.Context, body PostV2EventSubscriptionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EventSubscriptionsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EventSubscriptionsEventTypes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EventSubscriptionsEventTypesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2EventSubscriptionsBySubscriptionIdRequest(c.Server, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EventSubscriptionsBySubscriptionIdRequest(c.Server, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2EventSubscriptionsBySubscriptionIdWithBody(ctx context.Context, subscriptionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2EventSubscriptionsBySubscriptionIdRequestWithBody(c.Server, subscriptionId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PatchV2EventSubscriptionsBySubscriptionId(ctx context.Context, subscriptionId string, body PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchV2EventSubscriptionsBySubscriptionIdRequest(c.Server, subscriptionId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2EventSubscriptionsBySubscriptionIdDeliveries(ctx context.Context, subscriptionId string, params *GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2EventSubscriptionsBySubscriptionIdDeliveriesRequest(c.Server, subscriptionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplay(ctx context.Context, subscriptionId string, deliveryId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayRequest(c.Server, subscriptionId, deliveryId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostV2EventSubscriptionsBySubscriptionIdRotateSecret(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostV2EventSubscriptionsBySubscriptionIdRotateSecretRequest(c.Server, subscriptionId)
 	if err != nil {
 		return nil, err
 	}
@@ -7894,6 +9225,18 @@ func (c *Client) GetV2ModelRuntimeInvocations(ctx context.Context, params *GetV2
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetV2ModelRuntimeMultimodalRealtime(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2ModelRuntimeMultimodalRealtimeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) PostV2ModelRuntimeRerankWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPostV2ModelRuntimeRerankRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -8278,6 +9621,90 @@ func (c *Client) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubject(ctx contex
 	return c.Client.Do(req)
 }
 
+func (c *Client) GetV2QuotaPolicies(ctx context.Context, params *GetV2QuotaPoliciesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2QuotaPoliciesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) DeleteV2QuotaPoliciesApplicationsByAppId(ctx context.Context, appId string, params *DeleteV2QuotaPoliciesApplicationsByAppIdParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteV2QuotaPoliciesApplicationsByAppIdRequest(c.Server, appId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2QuotaPoliciesApplicationsByAppIdWithBody(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2QuotaPoliciesApplicationsByAppIdRequestWithBody(c.Server, appId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2QuotaPoliciesApplicationsByAppId(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, body PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2QuotaPoliciesApplicationsByAppIdRequest(c.Server, appId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2QuotaPoliciesEffective(ctx context.Context, params *GetV2QuotaPoliciesEffectiveParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2QuotaPoliciesEffectiveRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2QuotaPoliciesWorkspaceWithBody(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2QuotaPoliciesWorkspaceRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PutV2QuotaPoliciesWorkspace(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, body PutV2QuotaPoliciesWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutV2QuotaPoliciesWorkspaceRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 func (c *Client) GetV2RetrievalCollections(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2RetrievalCollectionsRequest(c.Server)
 	if err != nil {
@@ -8494,8 +9921,8 @@ func (c *Client) GetV2SessionComparisons(ctx context.Context, params *GetV2Sessi
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetV2Sessions(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetV2SessionsRequest(c.Server)
+func (c *Client) GetV2Sessions(ctx context.Context, params *GetV2SessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -9072,6 +10499,30 @@ func (c *Client) PostV2SessionsBySessionIdRuns(ctx context.Context, sessionId st
 
 func (c *Client) GetV2SessionsBySessionIdRunsByRunId(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetV2SessionsBySessionIdRunsByRunIdRequest(c.Server, sessionId, runId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdRunsByRunIdAttempts(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdRunsByRunIdAttemptsRequest(c.Server, sessionId, runId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptId(ctx context.Context, sessionId string, runId string, attemptId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdRequest(c.Server, sessionId, runId, attemptId)
 	if err != nil {
 		return nil, err
 	}
@@ -10943,7 +12394,7 @@ func NewGetV2AgentTaskGroupTemplatesRequest(server string) (*http.Request, error
 }
 
 // NewGetV2AgentsRequest generates requests for GetV2Agents
-func NewGetV2AgentsRequest(server string) (*http.Request, error) {
+func NewGetV2AgentsRequest(server string, params *GetV2AgentsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -10959,6 +12410,44 @@ func NewGetV2AgentsRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ExternalRef != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "external_ref", runtime.ParamLocationQuery, *params.ExternalRef); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -11618,6 +13107,290 @@ func NewPostV2AgentsByAgentIdToolingHealthRequestWithBody(server string, agentId
 	return req, nil
 }
 
+// NewPostV2ApplicationManifestsPublishRequest calls the generic PostV2ApplicationManifestsPublish builder with application/json body
+func NewPostV2ApplicationManifestsPublishRequest(server string, body PostV2ApplicationManifestsPublishJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ApplicationManifestsPublishRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ApplicationManifestsPublishRequestWithBody generates requests for PostV2ApplicationManifestsPublish with any type of body
+func NewPostV2ApplicationManifestsPublishRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/application-manifests/publish")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2ArtifactExchangesExportsRequest calls the generic PostV2ArtifactExchangesExports builder with application/json body
+func NewPostV2ArtifactExchangesExportsRequest(server string, body PostV2ArtifactExchangesExportsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ArtifactExchangesExportsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ArtifactExchangesExportsRequestWithBody generates requests for PostV2ArtifactExchangesExports with any type of body
+func NewPostV2ArtifactExchangesExportsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/artifact-exchanges/exports")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPostV2ArtifactExchangesImportsRequest calls the generic PostV2ArtifactExchangesImports builder with application/json body
+func NewPostV2ArtifactExchangesImportsRequest(server string, body PostV2ArtifactExchangesImportsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2ArtifactExchangesImportsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2ArtifactExchangesImportsRequestWithBody generates requests for PostV2ArtifactExchangesImports with any type of body
+func NewPostV2ArtifactExchangesImportsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/artifact-exchanges/imports")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2ArtifactExchangesByExchangeIdRequest generates requests for GetV2ArtifactExchangesByExchangeId
+func NewGetV2ArtifactExchangesByExchangeIdRequest(server string, exchangeId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "exchange_id", runtime.ParamLocationPath, exchangeId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/artifact-exchanges/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2ArtifactExchangesByExchangeIdContentRequest generates requests for GetV2ArtifactExchangesByExchangeIdContent
+func NewGetV2ArtifactExchangesByExchangeIdContentRequest(server string, exchangeId string, params *GetV2ArtifactExchangesByExchangeIdContentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "exchange_id", runtime.ParamLocationPath, exchangeId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/artifact-exchanges/%s/content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, params.WorkspaceId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "token", runtime.ParamLocationQuery, params.Token); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2ArtifactExchangesByExchangeIdContentRequestWithBody generates requests for PutV2ArtifactExchangesByExchangeIdContent with any type of body
+func NewPutV2ArtifactExchangesByExchangeIdContentRequestWithBody(server string, exchangeId string, params *PutV2ArtifactExchangesByExchangeIdContentParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "exchange_id", runtime.ParamLocationPath, exchangeId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/artifact-exchanges/%s/content", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, params.WorkspaceId); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithLocation("form", true, "token", runtime.ParamLocationQuery, params.Token); err != nil {
+			return nil, err
+		} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+			return nil, err
+		} else {
+			for k, v := range parsed {
+				for _, v2 := range v {
+					queryValues.Add(k, v2)
+				}
+			}
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetV2AuthConfigRequest generates requests for GetV2AuthConfig
 func NewGetV2AuthConfigRequest(server string) (*http.Request, error) {
 	var err error
@@ -11712,6 +13485,33 @@ func NewPostV2AuthTokenExchangeRequestWithBody(server string, contentType string
 	return req, nil
 }
 
+// NewGetV2CapabilitiesRequest generates requests for GetV2Capabilities
+func NewGetV2CapabilitiesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/capabilities")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetV2ConsoleContextRequest generates requests for GetV2ConsoleContext
 func NewGetV2ConsoleContextRequest(server string) (*http.Request, error) {
 	var err error
@@ -11777,6 +13577,22 @@ func NewGetV2EnvironmentVariablesRequest(server string, params *GetV2Environment
 
 		}
 
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 
@@ -11820,6 +13636,22 @@ func NewDeleteV2EnvironmentVariablesByNameRequest(server string, name string, pa
 		if params.WorkspaceId != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -11900,6 +13732,22 @@ func NewPutV2EnvironmentVariablesByNameRequestWithBody(server string, name strin
 
 		}
 
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 
@@ -11914,7 +13762,7 @@ func NewPutV2EnvironmentVariablesByNameRequestWithBody(server string, name strin
 }
 
 // NewGetV2EnvironmentsRequest generates requests for GetV2Environments
-func NewGetV2EnvironmentsRequest(server string) (*http.Request, error) {
+func NewGetV2EnvironmentsRequest(server string, params *GetV2EnvironmentsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -11930,6 +13778,44 @@ func NewGetV2EnvironmentsRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ExternalRef != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "external_ref", runtime.ParamLocationQuery, *params.ExternalRef); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -12426,6 +14312,384 @@ func NewGetV2EvaluationRubricsByRubricIdRequest(server string, rubricId string) 
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2EventSubscriptionsRequest generates requests for GetV2EventSubscriptions
+func NewGetV2EventSubscriptionsRequest(server string, params *GetV2EventSubscriptionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EventSubscriptionsRequest calls the generic PostV2EventSubscriptions builder with application/json body
+func NewPostV2EventSubscriptionsRequest(server string, body PostV2EventSubscriptionsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPostV2EventSubscriptionsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPostV2EventSubscriptionsRequestWithBody generates requests for PostV2EventSubscriptions with any type of body
+func NewPostV2EventSubscriptionsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EventSubscriptionsEventTypesRequest generates requests for GetV2EventSubscriptionsEventTypes
+func NewGetV2EventSubscriptionsEventTypesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/event-types")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteV2EventSubscriptionsBySubscriptionIdRequest generates requests for DeleteV2EventSubscriptionsBySubscriptionId
+func NewDeleteV2EventSubscriptionsBySubscriptionIdRequest(server string, subscriptionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2EventSubscriptionsBySubscriptionIdRequest generates requests for GetV2EventSubscriptionsBySubscriptionId
+func NewGetV2EventSubscriptionsBySubscriptionIdRequest(server string, subscriptionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPatchV2EventSubscriptionsBySubscriptionIdRequest calls the generic PatchV2EventSubscriptionsBySubscriptionId builder with application/json body
+func NewPatchV2EventSubscriptionsBySubscriptionIdRequest(server string, subscriptionId string, body PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchV2EventSubscriptionsBySubscriptionIdRequestWithBody(server, subscriptionId, "application/json", bodyReader)
+}
+
+// NewPatchV2EventSubscriptionsBySubscriptionIdRequestWithBody generates requests for PatchV2EventSubscriptionsBySubscriptionId with any type of body
+func NewPatchV2EventSubscriptionsBySubscriptionIdRequestWithBody(server string, subscriptionId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PATCH", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetV2EventSubscriptionsBySubscriptionIdDeliveriesRequest generates requests for GetV2EventSubscriptionsBySubscriptionIdDeliveries
+func NewGetV2EventSubscriptionsBySubscriptionIdDeliveriesRequest(server string, subscriptionId string, params *GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s/deliveries", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "status", runtime.ParamLocationQuery, *params.Status); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayRequest generates requests for PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplay
+func NewPostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayRequest(server string, subscriptionId string, deliveryId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "delivery_id", runtime.ParamLocationPath, deliveryId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s/deliveries/%s/replay", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPostV2EventSubscriptionsBySubscriptionIdRotateSecretRequest generates requests for PostV2EventSubscriptionsBySubscriptionIdRotateSecret
+func NewPostV2EventSubscriptionsBySubscriptionIdRotateSecretRequest(server string, subscriptionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "subscription_id", runtime.ParamLocationPath, subscriptionId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/event-subscriptions/%s/rotate-secret", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -13031,6 +15295,38 @@ func NewGetV2McpServersRequest(server string, params *GetV2McpServersParams) (*h
 		if params.WorkspaceId != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ExternalRef != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "external_ref", runtime.ParamLocationQuery, *params.ExternalRef); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -13683,6 +15979,33 @@ func NewGetV2ModelRuntimeInvocationsRequest(server string, params *GetV2ModelRun
 		}
 
 		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2ModelRuntimeMultimodalRealtimeRequest generates requests for GetV2ModelRuntimeMultimodalRealtime
+func NewGetV2ModelRuntimeMultimodalRealtimeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/model-runtime/multimodal/realtime")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -14827,6 +17150,268 @@ func NewPutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectRequestWithBody(serv
 	return req, nil
 }
 
+// NewGetV2QuotaPoliciesRequest generates requests for GetV2QuotaPolicies
+func NewGetV2QuotaPoliciesRequest(server string, params *GetV2QuotaPoliciesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/quota-policies")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.IncludeArchived != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "include_archived", runtime.ParamLocationQuery, *params.IncludeArchived); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteV2QuotaPoliciesApplicationsByAppIdRequest generates requests for DeleteV2QuotaPoliciesApplicationsByAppId
+func NewDeleteV2QuotaPoliciesApplicationsByAppIdRequest(server string, appId string, params *DeleteV2QuotaPoliciesApplicationsByAppIdParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "app_id", runtime.ParamLocationPath, appId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/quota-policies/applications/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("DELETE", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, params.IfMatch)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewPutV2QuotaPoliciesApplicationsByAppIdRequest calls the generic PutV2QuotaPoliciesApplicationsByAppId builder with application/json body
+func NewPutV2QuotaPoliciesApplicationsByAppIdRequest(server string, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, body PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2QuotaPoliciesApplicationsByAppIdRequestWithBody(server, appId, params, "application/json", bodyReader)
+}
+
+// NewPutV2QuotaPoliciesApplicationsByAppIdRequestWithBody generates requests for PutV2QuotaPoliciesApplicationsByAppId with any type of body
+func NewPutV2QuotaPoliciesApplicationsByAppIdRequestWithBody(server string, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "app_id", runtime.ParamLocationPath, appId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/quota-policies/applications/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetV2QuotaPoliciesEffectiveRequest generates requests for GetV2QuotaPoliciesEffective
+func NewGetV2QuotaPoliciesEffectiveRequest(server string, params *GetV2QuotaPoliciesEffectiveParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/quota-policies/effective")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutV2QuotaPoliciesWorkspaceRequest calls the generic PutV2QuotaPoliciesWorkspace builder with application/json body
+func NewPutV2QuotaPoliciesWorkspaceRequest(server string, params *PutV2QuotaPoliciesWorkspaceParams, body PutV2QuotaPoliciesWorkspaceJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutV2QuotaPoliciesWorkspaceRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewPutV2QuotaPoliciesWorkspaceRequestWithBody generates requests for PutV2QuotaPoliciesWorkspace with any type of body
+func NewPutV2QuotaPoliciesWorkspaceRequestWithBody(server string, params *PutV2QuotaPoliciesWorkspaceParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/quota-policies/workspace")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("PUT", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithLocation("simple", false, "If-Match", runtime.ParamLocationHeader, *params.IfMatch)
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewGetV2RetrievalCollectionsRequest generates requests for GetV2RetrievalCollections
 func NewGetV2RetrievalCollectionsRequest(server string) (*http.Request, error) {
 	var err error
@@ -15456,7 +18041,7 @@ func NewGetV2SessionComparisonsRequest(server string, params *GetV2SessionCompar
 }
 
 // NewGetV2SessionsRequest generates requests for GetV2Sessions
-func NewGetV2SessionsRequest(server string) (*http.Request, error) {
+func NewGetV2SessionsRequest(server string, params *GetV2SessionsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -15472,6 +18057,44 @@ func NewGetV2SessionsRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ExternalRef != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "external_ref", runtime.ParamLocationQuery, *params.ExternalRef); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -16998,6 +19621,95 @@ func NewGetV2SessionsBySessionIdRunsByRunIdRequest(server string, sessionId stri
 	}
 
 	operationPath := fmt.Sprintf("/v2/sessions/%s/runs/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2SessionsBySessionIdRunsByRunIdAttemptsRequest generates requests for GetV2SessionsBySessionIdRunsByRunIdAttempts
+func NewGetV2SessionsBySessionIdRunsByRunIdAttemptsRequest(server string, sessionId string, runId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "run_id", runtime.ParamLocationPath, runId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/runs/%s/attempts", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdRequest generates requests for GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptId
+func NewGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdRequest(server string, sessionId string, runId string, attemptId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "session_id", runtime.ParamLocationPath, sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithLocation("simple", false, "run_id", runtime.ParamLocationPath, runId)
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithLocation("simple", false, "attempt_id", runtime.ParamLocationPath, attemptId)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v2/sessions/%s/runs/%s/attempts/%s", pathParam0, pathParam1, pathParam2)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -19254,6 +21966,38 @@ func NewGetV2SkillsRequest(server string, params *GetV2SkillsParams) (*http.Requ
 		if params.WorkspaceId != nil {
 
 			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "workspace_id", runtime.ParamLocationQuery, *params.WorkspaceId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.AppId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "app_id", runtime.ParamLocationQuery, *params.AppId); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.ExternalRef != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "external_ref", runtime.ParamLocationQuery, *params.ExternalRef); err != nil {
 				return nil, err
 			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
 				return nil, err
@@ -21616,7 +24360,7 @@ type ClientWithResponsesInterface interface {
 	GetV2AgentTaskGroupTemplatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentTaskGroupTemplatesResponse, error)
 
 	// GetV2AgentsWithResponse request
-	GetV2AgentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentsResponse, error)
+	GetV2AgentsWithResponse(ctx context.Context, params *GetV2AgentsParams, reqEditors ...RequestEditorFn) (*GetV2AgentsResponse, error)
 
 	// PostV2AgentsWithBodyWithResponse request with any body
 	PostV2AgentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AgentsResponse, error)
@@ -21680,6 +24424,30 @@ type ClientWithResponsesInterface interface {
 
 	PostV2AgentsByAgentIdToolingHealthWithResponse(ctx context.Context, agentId string, body PostV2AgentsByAgentIdToolingHealthJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AgentsByAgentIdToolingHealthResponse, error)
 
+	// PostV2ApplicationManifestsPublishWithBodyWithResponse request with any body
+	PostV2ApplicationManifestsPublishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ApplicationManifestsPublishResponse, error)
+
+	PostV2ApplicationManifestsPublishWithResponse(ctx context.Context, body PostV2ApplicationManifestsPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ApplicationManifestsPublishResponse, error)
+
+	// PostV2ArtifactExchangesExportsWithBodyWithResponse request with any body
+	PostV2ArtifactExchangesExportsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesExportsResponse, error)
+
+	PostV2ArtifactExchangesExportsWithResponse(ctx context.Context, body PostV2ArtifactExchangesExportsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesExportsResponse, error)
+
+	// PostV2ArtifactExchangesImportsWithBodyWithResponse request with any body
+	PostV2ArtifactExchangesImportsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesImportsResponse, error)
+
+	PostV2ArtifactExchangesImportsWithResponse(ctx context.Context, body PostV2ArtifactExchangesImportsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesImportsResponse, error)
+
+	// GetV2ArtifactExchangesByExchangeIdWithResponse request
+	GetV2ArtifactExchangesByExchangeIdWithResponse(ctx context.Context, exchangeId string, reqEditors ...RequestEditorFn) (*GetV2ArtifactExchangesByExchangeIdResponse, error)
+
+	// GetV2ArtifactExchangesByExchangeIdContentWithResponse request
+	GetV2ArtifactExchangesByExchangeIdContentWithResponse(ctx context.Context, exchangeId string, params *GetV2ArtifactExchangesByExchangeIdContentParams, reqEditors ...RequestEditorFn) (*GetV2ArtifactExchangesByExchangeIdContentResponse, error)
+
+	// PutV2ArtifactExchangesByExchangeIdContentWithBodyWithResponse request with any body
+	PutV2ArtifactExchangesByExchangeIdContentWithBodyWithResponse(ctx context.Context, exchangeId string, params *PutV2ArtifactExchangesByExchangeIdContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2ArtifactExchangesByExchangeIdContentResponse, error)
+
 	// GetV2AuthConfigWithResponse request
 	GetV2AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AuthConfigResponse, error)
 
@@ -21690,6 +24458,9 @@ type ClientWithResponsesInterface interface {
 	PostV2AuthTokenExchangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error)
 
 	PostV2AuthTokenExchangeWithResponse(ctx context.Context, body PostV2AuthTokenExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2AuthTokenExchangeResponse, error)
+
+	// GetV2CapabilitiesWithResponse request
+	GetV2CapabilitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2CapabilitiesResponse, error)
 
 	// GetV2ConsoleContextWithResponse request
 	GetV2ConsoleContextWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2ConsoleContextResponse, error)
@@ -21706,7 +24477,7 @@ type ClientWithResponsesInterface interface {
 	PutV2EnvironmentVariablesByNameWithResponse(ctx context.Context, name string, params *PutV2EnvironmentVariablesByNameParams, body PutV2EnvironmentVariablesByNameJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2EnvironmentVariablesByNameResponse, error)
 
 	// GetV2EnvironmentsWithResponse request
-	GetV2EnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error)
+	GetV2EnvironmentsWithResponse(ctx context.Context, params *GetV2EnvironmentsParams, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error)
 
 	// PostV2EnvironmentsWithBodyWithResponse request with any body
 	PostV2EnvironmentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EnvironmentsResponse, error)
@@ -21751,6 +24522,37 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2EvaluationRubricsByRubricIdWithResponse request
 	GetV2EvaluationRubricsByRubricIdWithResponse(ctx context.Context, rubricId string, reqEditors ...RequestEditorFn) (*GetV2EvaluationRubricsByRubricIdResponse, error)
+
+	// GetV2EventSubscriptionsWithResponse request
+	GetV2EventSubscriptionsWithResponse(ctx context.Context, params *GetV2EventSubscriptionsParams, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsResponse, error)
+
+	// PostV2EventSubscriptionsWithBodyWithResponse request with any body
+	PostV2EventSubscriptionsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsResponse, error)
+
+	PostV2EventSubscriptionsWithResponse(ctx context.Context, body PostV2EventSubscriptionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsResponse, error)
+
+	// GetV2EventSubscriptionsEventTypesWithResponse request
+	GetV2EventSubscriptionsEventTypesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsEventTypesResponse, error)
+
+	// DeleteV2EventSubscriptionsBySubscriptionIdWithResponse request
+	DeleteV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*DeleteV2EventSubscriptionsBySubscriptionIdResponse, error)
+
+	// GetV2EventSubscriptionsBySubscriptionIdWithResponse request
+	GetV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsBySubscriptionIdResponse, error)
+
+	// PatchV2EventSubscriptionsBySubscriptionIdWithBodyWithResponse request with any body
+	PatchV2EventSubscriptionsBySubscriptionIdWithBodyWithResponse(ctx context.Context, subscriptionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2EventSubscriptionsBySubscriptionIdResponse, error)
+
+	PatchV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, body PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2EventSubscriptionsBySubscriptionIdResponse, error)
+
+	// GetV2EventSubscriptionsBySubscriptionIdDeliveriesWithResponse request
+	GetV2EventSubscriptionsBySubscriptionIdDeliveriesWithResponse(ctx context.Context, subscriptionId string, params *GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse, error)
+
+	// PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayWithResponse request
+	PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayWithResponse(ctx context.Context, subscriptionId string, deliveryId string, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse, error)
+
+	// PostV2EventSubscriptionsBySubscriptionIdRotateSecretWithResponse request
+	PostV2EventSubscriptionsBySubscriptionIdRotateSecretWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse, error)
 
 	// GetV2LlmModelsWithResponse request
 	GetV2LlmModelsWithResponse(ctx context.Context, params *GetV2LlmModelsParams, reqEditors ...RequestEditorFn) (*GetV2LlmModelsResponse, error)
@@ -21847,6 +24649,9 @@ type ClientWithResponsesInterface interface {
 	// GetV2ModelRuntimeInvocationsWithResponse request
 	GetV2ModelRuntimeInvocationsWithResponse(ctx context.Context, params *GetV2ModelRuntimeInvocationsParams, reqEditors ...RequestEditorFn) (*GetV2ModelRuntimeInvocationsResponse, error)
 
+	// GetV2ModelRuntimeMultimodalRealtimeWithResponse request
+	GetV2ModelRuntimeMultimodalRealtimeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2ModelRuntimeMultimodalRealtimeResponse, error)
+
 	// PostV2ModelRuntimeRerankWithBodyWithResponse request with any body
 	PostV2ModelRuntimeRerankWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error)
 
@@ -21935,6 +24740,25 @@ type ClientWithResponsesInterface interface {
 
 	PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectWithResponse(ctx context.Context, workspaceId string, subject string, body PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse, error)
 
+	// GetV2QuotaPoliciesWithResponse request
+	GetV2QuotaPoliciesWithResponse(ctx context.Context, params *GetV2QuotaPoliciesParams, reqEditors ...RequestEditorFn) (*GetV2QuotaPoliciesResponse, error)
+
+	// DeleteV2QuotaPoliciesApplicationsByAppIdWithResponse request
+	DeleteV2QuotaPoliciesApplicationsByAppIdWithResponse(ctx context.Context, appId string, params *DeleteV2QuotaPoliciesApplicationsByAppIdParams, reqEditors ...RequestEditorFn) (*DeleteV2QuotaPoliciesApplicationsByAppIdResponse, error)
+
+	// PutV2QuotaPoliciesApplicationsByAppIdWithBodyWithResponse request with any body
+	PutV2QuotaPoliciesApplicationsByAppIdWithBodyWithResponse(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesApplicationsByAppIdResponse, error)
+
+	PutV2QuotaPoliciesApplicationsByAppIdWithResponse(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, body PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesApplicationsByAppIdResponse, error)
+
+	// GetV2QuotaPoliciesEffectiveWithResponse request
+	GetV2QuotaPoliciesEffectiveWithResponse(ctx context.Context, params *GetV2QuotaPoliciesEffectiveParams, reqEditors ...RequestEditorFn) (*GetV2QuotaPoliciesEffectiveResponse, error)
+
+	// PutV2QuotaPoliciesWorkspaceWithBodyWithResponse request with any body
+	PutV2QuotaPoliciesWorkspaceWithBodyWithResponse(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesWorkspaceResponse, error)
+
+	PutV2QuotaPoliciesWorkspaceWithResponse(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, body PutV2QuotaPoliciesWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesWorkspaceResponse, error)
+
 	// GetV2RetrievalCollectionsWithResponse request
 	GetV2RetrievalCollectionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsResponse, error)
 
@@ -21986,7 +24810,7 @@ type ClientWithResponsesInterface interface {
 	GetV2SessionComparisonsWithResponse(ctx context.Context, params *GetV2SessionComparisonsParams, reqEditors ...RequestEditorFn) (*GetV2SessionComparisonsResponse, error)
 
 	// GetV2SessionsWithResponse request
-	GetV2SessionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2SessionsResponse, error)
+	GetV2SessionsWithResponse(ctx context.Context, params *GetV2SessionsParams, reqEditors ...RequestEditorFn) (*GetV2SessionsResponse, error)
 
 	// PostV2SessionsWithBodyWithResponse request with any body
 	PostV2SessionsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2SessionsResponse, error)
@@ -22116,6 +24940,12 @@ type ClientWithResponsesInterface interface {
 
 	// GetV2SessionsBySessionIdRunsByRunIdWithResponse request
 	GetV2SessionsBySessionIdRunsByRunIdWithResponse(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRunsByRunIdResponse, error)
+
+	// GetV2SessionsBySessionIdRunsByRunIdAttemptsWithResponse request
+	GetV2SessionsBySessionIdRunsByRunIdAttemptsWithResponse(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse, error)
+
+	// GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdWithResponse request
+	GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdWithResponse(ctx context.Context, sessionId string, runId string, attemptId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse, error)
 
 	// PostV2SessionsBySessionIdRunsByRunIdCancelWithResponse request
 	PostV2SessionsBySessionIdRunsByRunIdCancelWithResponse(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*PostV2SessionsBySessionIdRunsByRunIdCancelResponse, error)
@@ -23035,6 +25865,164 @@ func (r PostV2AgentsByAgentIdToolingHealthResponse) StatusCode() int {
 	return 0
 }
 
+type PostV2ApplicationManifestsPublishResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ApplicationManifestPublishResult
+	JSON400      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ApplicationManifestsPublishResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ApplicationManifestsPublishResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2ArtifactExchangesExportsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *ArtifactExchangeGrant
+	JSON400      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ArtifactExchangesExportsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ArtifactExchangesExportsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2ArtifactExchangesImportsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *ArtifactExchangeGrant
+	JSON400      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2ArtifactExchangesImportsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2ArtifactExchangesImportsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2ArtifactExchangesByExchangeIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ArtifactExchange
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2ArtifactExchangesByExchangeIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2ArtifactExchangesByExchangeIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2ArtifactExchangesByExchangeIdContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON404      *ErrorEnvelope
+	JSON503      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2ArtifactExchangesByExchangeIdContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2ArtifactExchangesByExchangeIdContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2ArtifactExchangesByExchangeIdContentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *ArtifactExchangeImportResult
+	JSON400      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON413      *ErrorEnvelope
+	JSON503      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2ArtifactExchangesByExchangeIdContentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2ArtifactExchangesByExchangeIdContentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2AuthConfigResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -23108,6 +26096,29 @@ func (r PostV2AuthTokenExchangeResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2CapabilitiesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CapabilityDiscoveryResponse
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2CapabilitiesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2CapabilitiesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type GetV2ConsoleContextResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -23135,6 +26146,7 @@ type GetV2EnvironmentVariablesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnvironmentVariableList
+	JSON403      *ErrorEnvelope
 	JSONDefault  *ErrorEnvelope
 }
 
@@ -23157,6 +26169,7 @@ func (r GetV2EnvironmentVariablesResponse) StatusCode() int {
 type DeleteV2EnvironmentVariablesByNameResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON403      *ErrorEnvelope
 	JSONDefault  *ErrorEnvelope
 }
 
@@ -23180,6 +26193,7 @@ type PutV2EnvironmentVariablesByNameResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSON200      *EnvironmentVariable
+	JSON403      *ErrorEnvelope
 	JSONDefault  *ErrorEnvelope
 }
 
@@ -23492,6 +26506,241 @@ func (r GetV2EvaluationRubricsByRubricIdResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2EvaluationRubricsByRubricIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EventSubscriptionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventSubscriptionList
+	JSON403      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EventSubscriptionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EventSubscriptionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EventSubscriptionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON201      *CreatedEventSubscription
+	JSON400      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EventSubscriptionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EventSubscriptionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EventSubscriptionsEventTypesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventTypeList
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EventSubscriptionsEventTypesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EventSubscriptionsEventTypesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2EventSubscriptionsBySubscriptionIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventSubscription
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2EventSubscriptionsBySubscriptionIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2EventSubscriptionsBySubscriptionIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EventSubscriptionsBySubscriptionIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventSubscription
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EventSubscriptionsBySubscriptionIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EventSubscriptionsBySubscriptionIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PatchV2EventSubscriptionsBySubscriptionIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventSubscription
+	JSON400      *ErrorEnvelope
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchV2EventSubscriptionsBySubscriptionIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchV2EventSubscriptionsBySubscriptionIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventDeliveryList
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *EventDelivery
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON409      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *CreatedEventSubscription
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON501      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -24131,6 +27380,28 @@ func (r GetV2ModelRuntimeInvocationsResponse) StatusCode() int {
 	return 0
 }
 
+type GetV2ModelRuntimeMultimodalRealtimeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2ModelRuntimeMultimodalRealtimeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2ModelRuntimeMultimodalRealtimeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type PostV2ModelRuntimeRerankResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -24689,6 +27960,131 @@ func (r PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) Status() s
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r PutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2QuotaPoliciesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRuntimeQuotaPolicyList
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2QuotaPoliciesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2QuotaPoliciesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type DeleteV2QuotaPoliciesApplicationsByAppIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRuntimeQuotaPolicy
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON412      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteV2QuotaPoliciesApplicationsByAppIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteV2QuotaPoliciesApplicationsByAppIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2QuotaPoliciesApplicationsByAppIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRuntimeQuotaPolicy
+	JSON403      *ErrorEnvelope
+	JSON404      *ErrorEnvelope
+	JSON412      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2QuotaPoliciesApplicationsByAppIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2QuotaPoliciesApplicationsByAppIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2QuotaPoliciesEffectiveResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRuntimeQuotaStatus
+	JSON403      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2QuotaPoliciesEffectiveResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2QuotaPoliciesEffectiveResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type PutV2QuotaPoliciesWorkspaceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *ModelRuntimeQuotaPolicy
+	JSON403      *ErrorEnvelope
+	JSON412      *ErrorEnvelope
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r PutV2QuotaPoliciesWorkspaceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutV2QuotaPoliciesWorkspaceResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -25787,6 +29183,52 @@ func (r GetV2SessionsBySessionIdRunsByRunIdResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r GetV2SessionsBySessionIdRunsByRunIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RunAttemptList
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *RunAttempt
+	JSONDefault  *ErrorEnvelope
+}
+
+// Status returns HTTPResponse.Status
+func (r GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -27955,8 +31397,8 @@ func (c *ClientWithResponses) GetV2AgentTaskGroupTemplatesWithResponse(ctx conte
 }
 
 // GetV2AgentsWithResponse request returning *GetV2AgentsResponse
-func (c *ClientWithResponses) GetV2AgentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AgentsResponse, error) {
-	rsp, err := c.GetV2Agents(ctx, reqEditors...)
+func (c *ClientWithResponses) GetV2AgentsWithResponse(ctx context.Context, params *GetV2AgentsParams, reqEditors ...RequestEditorFn) (*GetV2AgentsResponse, error) {
+	rsp, err := c.GetV2Agents(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -28163,6 +31605,84 @@ func (c *ClientWithResponses) PostV2AgentsByAgentIdToolingHealthWithResponse(ctx
 	return ParsePostV2AgentsByAgentIdToolingHealthResponse(rsp)
 }
 
+// PostV2ApplicationManifestsPublishWithBodyWithResponse request with arbitrary body returning *PostV2ApplicationManifestsPublishResponse
+func (c *ClientWithResponses) PostV2ApplicationManifestsPublishWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ApplicationManifestsPublishResponse, error) {
+	rsp, err := c.PostV2ApplicationManifestsPublishWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ApplicationManifestsPublishResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ApplicationManifestsPublishWithResponse(ctx context.Context, body PostV2ApplicationManifestsPublishJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ApplicationManifestsPublishResponse, error) {
+	rsp, err := c.PostV2ApplicationManifestsPublish(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ApplicationManifestsPublishResponse(rsp)
+}
+
+// PostV2ArtifactExchangesExportsWithBodyWithResponse request with arbitrary body returning *PostV2ArtifactExchangesExportsResponse
+func (c *ClientWithResponses) PostV2ArtifactExchangesExportsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesExportsResponse, error) {
+	rsp, err := c.PostV2ArtifactExchangesExportsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ArtifactExchangesExportsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ArtifactExchangesExportsWithResponse(ctx context.Context, body PostV2ArtifactExchangesExportsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesExportsResponse, error) {
+	rsp, err := c.PostV2ArtifactExchangesExports(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ArtifactExchangesExportsResponse(rsp)
+}
+
+// PostV2ArtifactExchangesImportsWithBodyWithResponse request with arbitrary body returning *PostV2ArtifactExchangesImportsResponse
+func (c *ClientWithResponses) PostV2ArtifactExchangesImportsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesImportsResponse, error) {
+	rsp, err := c.PostV2ArtifactExchangesImportsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ArtifactExchangesImportsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2ArtifactExchangesImportsWithResponse(ctx context.Context, body PostV2ArtifactExchangesImportsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2ArtifactExchangesImportsResponse, error) {
+	rsp, err := c.PostV2ArtifactExchangesImports(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2ArtifactExchangesImportsResponse(rsp)
+}
+
+// GetV2ArtifactExchangesByExchangeIdWithResponse request returning *GetV2ArtifactExchangesByExchangeIdResponse
+func (c *ClientWithResponses) GetV2ArtifactExchangesByExchangeIdWithResponse(ctx context.Context, exchangeId string, reqEditors ...RequestEditorFn) (*GetV2ArtifactExchangesByExchangeIdResponse, error) {
+	rsp, err := c.GetV2ArtifactExchangesByExchangeId(ctx, exchangeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2ArtifactExchangesByExchangeIdResponse(rsp)
+}
+
+// GetV2ArtifactExchangesByExchangeIdContentWithResponse request returning *GetV2ArtifactExchangesByExchangeIdContentResponse
+func (c *ClientWithResponses) GetV2ArtifactExchangesByExchangeIdContentWithResponse(ctx context.Context, exchangeId string, params *GetV2ArtifactExchangesByExchangeIdContentParams, reqEditors ...RequestEditorFn) (*GetV2ArtifactExchangesByExchangeIdContentResponse, error) {
+	rsp, err := c.GetV2ArtifactExchangesByExchangeIdContent(ctx, exchangeId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2ArtifactExchangesByExchangeIdContentResponse(rsp)
+}
+
+// PutV2ArtifactExchangesByExchangeIdContentWithBodyWithResponse request with arbitrary body returning *PutV2ArtifactExchangesByExchangeIdContentResponse
+func (c *ClientWithResponses) PutV2ArtifactExchangesByExchangeIdContentWithBodyWithResponse(ctx context.Context, exchangeId string, params *PutV2ArtifactExchangesByExchangeIdContentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2ArtifactExchangesByExchangeIdContentResponse, error) {
+	rsp, err := c.PutV2ArtifactExchangesByExchangeIdContentWithBody(ctx, exchangeId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2ArtifactExchangesByExchangeIdContentResponse(rsp)
+}
+
 // GetV2AuthConfigWithResponse request returning *GetV2AuthConfigResponse
 func (c *ClientWithResponses) GetV2AuthConfigWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2AuthConfigResponse, error) {
 	rsp, err := c.GetV2AuthConfig(ctx, reqEditors...)
@@ -28196,6 +31716,15 @@ func (c *ClientWithResponses) PostV2AuthTokenExchangeWithResponse(ctx context.Co
 		return nil, err
 	}
 	return ParsePostV2AuthTokenExchangeResponse(rsp)
+}
+
+// GetV2CapabilitiesWithResponse request returning *GetV2CapabilitiesResponse
+func (c *ClientWithResponses) GetV2CapabilitiesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2CapabilitiesResponse, error) {
+	rsp, err := c.GetV2Capabilities(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2CapabilitiesResponse(rsp)
 }
 
 // GetV2ConsoleContextWithResponse request returning *GetV2ConsoleContextResponse
@@ -28243,8 +31772,8 @@ func (c *ClientWithResponses) PutV2EnvironmentVariablesByNameWithResponse(ctx co
 }
 
 // GetV2EnvironmentsWithResponse request returning *GetV2EnvironmentsResponse
-func (c *ClientWithResponses) GetV2EnvironmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error) {
-	rsp, err := c.GetV2Environments(ctx, reqEditors...)
+func (c *ClientWithResponses) GetV2EnvironmentsWithResponse(ctx context.Context, params *GetV2EnvironmentsParams, reqEditors ...RequestEditorFn) (*GetV2EnvironmentsResponse, error) {
+	rsp, err := c.GetV2Environments(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -28389,6 +31918,103 @@ func (c *ClientWithResponses) GetV2EvaluationRubricsByRubricIdWithResponse(ctx c
 		return nil, err
 	}
 	return ParseGetV2EvaluationRubricsByRubricIdResponse(rsp)
+}
+
+// GetV2EventSubscriptionsWithResponse request returning *GetV2EventSubscriptionsResponse
+func (c *ClientWithResponses) GetV2EventSubscriptionsWithResponse(ctx context.Context, params *GetV2EventSubscriptionsParams, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsResponse, error) {
+	rsp, err := c.GetV2EventSubscriptions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EventSubscriptionsResponse(rsp)
+}
+
+// PostV2EventSubscriptionsWithBodyWithResponse request with arbitrary body returning *PostV2EventSubscriptionsResponse
+func (c *ClientWithResponses) PostV2EventSubscriptionsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsResponse, error) {
+	rsp, err := c.PostV2EventSubscriptionsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EventSubscriptionsResponse(rsp)
+}
+
+func (c *ClientWithResponses) PostV2EventSubscriptionsWithResponse(ctx context.Context, body PostV2EventSubscriptionsJSONRequestBody, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsResponse, error) {
+	rsp, err := c.PostV2EventSubscriptions(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EventSubscriptionsResponse(rsp)
+}
+
+// GetV2EventSubscriptionsEventTypesWithResponse request returning *GetV2EventSubscriptionsEventTypesResponse
+func (c *ClientWithResponses) GetV2EventSubscriptionsEventTypesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsEventTypesResponse, error) {
+	rsp, err := c.GetV2EventSubscriptionsEventTypes(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EventSubscriptionsEventTypesResponse(rsp)
+}
+
+// DeleteV2EventSubscriptionsBySubscriptionIdWithResponse request returning *DeleteV2EventSubscriptionsBySubscriptionIdResponse
+func (c *ClientWithResponses) DeleteV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*DeleteV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	rsp, err := c.DeleteV2EventSubscriptionsBySubscriptionId(ctx, subscriptionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2EventSubscriptionsBySubscriptionIdResponse(rsp)
+}
+
+// GetV2EventSubscriptionsBySubscriptionIdWithResponse request returning *GetV2EventSubscriptionsBySubscriptionIdResponse
+func (c *ClientWithResponses) GetV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	rsp, err := c.GetV2EventSubscriptionsBySubscriptionId(ctx, subscriptionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EventSubscriptionsBySubscriptionIdResponse(rsp)
+}
+
+// PatchV2EventSubscriptionsBySubscriptionIdWithBodyWithResponse request with arbitrary body returning *PatchV2EventSubscriptionsBySubscriptionIdResponse
+func (c *ClientWithResponses) PatchV2EventSubscriptionsBySubscriptionIdWithBodyWithResponse(ctx context.Context, subscriptionId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	rsp, err := c.PatchV2EventSubscriptionsBySubscriptionIdWithBody(ctx, subscriptionId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2EventSubscriptionsBySubscriptionIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PatchV2EventSubscriptionsBySubscriptionIdWithResponse(ctx context.Context, subscriptionId string, body PatchV2EventSubscriptionsBySubscriptionIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	rsp, err := c.PatchV2EventSubscriptionsBySubscriptionId(ctx, subscriptionId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchV2EventSubscriptionsBySubscriptionIdResponse(rsp)
+}
+
+// GetV2EventSubscriptionsBySubscriptionIdDeliveriesWithResponse request returning *GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse
+func (c *ClientWithResponses) GetV2EventSubscriptionsBySubscriptionIdDeliveriesWithResponse(ctx context.Context, subscriptionId string, params *GetV2EventSubscriptionsBySubscriptionIdDeliveriesParams, reqEditors ...RequestEditorFn) (*GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse, error) {
+	rsp, err := c.GetV2EventSubscriptionsBySubscriptionIdDeliveries(ctx, subscriptionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse(rsp)
+}
+
+// PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayWithResponse request returning *PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse
+func (c *ClientWithResponses) PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayWithResponse(ctx context.Context, subscriptionId string, deliveryId string, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse, error) {
+	rsp, err := c.PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplay(ctx, subscriptionId, deliveryId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse(rsp)
+}
+
+// PostV2EventSubscriptionsBySubscriptionIdRotateSecretWithResponse request returning *PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse
+func (c *ClientWithResponses) PostV2EventSubscriptionsBySubscriptionIdRotateSecretWithResponse(ctx context.Context, subscriptionId string, reqEditors ...RequestEditorFn) (*PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse, error) {
+	rsp, err := c.PostV2EventSubscriptionsBySubscriptionIdRotateSecret(ctx, subscriptionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse(rsp)
 }
 
 // GetV2LlmModelsWithResponse request returning *GetV2LlmModelsResponse
@@ -28690,6 +32316,15 @@ func (c *ClientWithResponses) GetV2ModelRuntimeInvocationsWithResponse(ctx conte
 	return ParseGetV2ModelRuntimeInvocationsResponse(rsp)
 }
 
+// GetV2ModelRuntimeMultimodalRealtimeWithResponse request returning *GetV2ModelRuntimeMultimodalRealtimeResponse
+func (c *ClientWithResponses) GetV2ModelRuntimeMultimodalRealtimeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2ModelRuntimeMultimodalRealtimeResponse, error) {
+	rsp, err := c.GetV2ModelRuntimeMultimodalRealtime(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2ModelRuntimeMultimodalRealtimeResponse(rsp)
+}
+
 // PostV2ModelRuntimeRerankWithBodyWithResponse request with arbitrary body returning *PostV2ModelRuntimeRerankResponse
 func (c *ClientWithResponses) PostV2ModelRuntimeRerankWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostV2ModelRuntimeRerankResponse, error) {
 	rsp, err := c.PostV2ModelRuntimeRerankWithBody(ctx, contentType, body, reqEditors...)
@@ -28970,6 +32605,67 @@ func (c *ClientWithResponses) PutV2PlatformWorkspacesByWorkspaceIdMembersBySubje
 	return ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp)
 }
 
+// GetV2QuotaPoliciesWithResponse request returning *GetV2QuotaPoliciesResponse
+func (c *ClientWithResponses) GetV2QuotaPoliciesWithResponse(ctx context.Context, params *GetV2QuotaPoliciesParams, reqEditors ...RequestEditorFn) (*GetV2QuotaPoliciesResponse, error) {
+	rsp, err := c.GetV2QuotaPolicies(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2QuotaPoliciesResponse(rsp)
+}
+
+// DeleteV2QuotaPoliciesApplicationsByAppIdWithResponse request returning *DeleteV2QuotaPoliciesApplicationsByAppIdResponse
+func (c *ClientWithResponses) DeleteV2QuotaPoliciesApplicationsByAppIdWithResponse(ctx context.Context, appId string, params *DeleteV2QuotaPoliciesApplicationsByAppIdParams, reqEditors ...RequestEditorFn) (*DeleteV2QuotaPoliciesApplicationsByAppIdResponse, error) {
+	rsp, err := c.DeleteV2QuotaPoliciesApplicationsByAppId(ctx, appId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteV2QuotaPoliciesApplicationsByAppIdResponse(rsp)
+}
+
+// PutV2QuotaPoliciesApplicationsByAppIdWithBodyWithResponse request with arbitrary body returning *PutV2QuotaPoliciesApplicationsByAppIdResponse
+func (c *ClientWithResponses) PutV2QuotaPoliciesApplicationsByAppIdWithBodyWithResponse(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesApplicationsByAppIdResponse, error) {
+	rsp, err := c.PutV2QuotaPoliciesApplicationsByAppIdWithBody(ctx, appId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2QuotaPoliciesApplicationsByAppIdResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2QuotaPoliciesApplicationsByAppIdWithResponse(ctx context.Context, appId string, params *PutV2QuotaPoliciesApplicationsByAppIdParams, body PutV2QuotaPoliciesApplicationsByAppIdJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesApplicationsByAppIdResponse, error) {
+	rsp, err := c.PutV2QuotaPoliciesApplicationsByAppId(ctx, appId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2QuotaPoliciesApplicationsByAppIdResponse(rsp)
+}
+
+// GetV2QuotaPoliciesEffectiveWithResponse request returning *GetV2QuotaPoliciesEffectiveResponse
+func (c *ClientWithResponses) GetV2QuotaPoliciesEffectiveWithResponse(ctx context.Context, params *GetV2QuotaPoliciesEffectiveParams, reqEditors ...RequestEditorFn) (*GetV2QuotaPoliciesEffectiveResponse, error) {
+	rsp, err := c.GetV2QuotaPoliciesEffective(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2QuotaPoliciesEffectiveResponse(rsp)
+}
+
+// PutV2QuotaPoliciesWorkspaceWithBodyWithResponse request with arbitrary body returning *PutV2QuotaPoliciesWorkspaceResponse
+func (c *ClientWithResponses) PutV2QuotaPoliciesWorkspaceWithBodyWithResponse(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesWorkspaceResponse, error) {
+	rsp, err := c.PutV2QuotaPoliciesWorkspaceWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2QuotaPoliciesWorkspaceResponse(rsp)
+}
+
+func (c *ClientWithResponses) PutV2QuotaPoliciesWorkspaceWithResponse(ctx context.Context, params *PutV2QuotaPoliciesWorkspaceParams, body PutV2QuotaPoliciesWorkspaceJSONRequestBody, reqEditors ...RequestEditorFn) (*PutV2QuotaPoliciesWorkspaceResponse, error) {
+	rsp, err := c.PutV2QuotaPoliciesWorkspace(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutV2QuotaPoliciesWorkspaceResponse(rsp)
+}
+
 // GetV2RetrievalCollectionsWithResponse request returning *GetV2RetrievalCollectionsResponse
 func (c *ClientWithResponses) GetV2RetrievalCollectionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2RetrievalCollectionsResponse, error) {
 	rsp, err := c.GetV2RetrievalCollections(ctx, reqEditors...)
@@ -29129,8 +32825,8 @@ func (c *ClientWithResponses) GetV2SessionComparisonsWithResponse(ctx context.Co
 }
 
 // GetV2SessionsWithResponse request returning *GetV2SessionsResponse
-func (c *ClientWithResponses) GetV2SessionsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetV2SessionsResponse, error) {
-	rsp, err := c.GetV2Sessions(ctx, reqEditors...)
+func (c *ClientWithResponses) GetV2SessionsWithResponse(ctx context.Context, params *GetV2SessionsParams, reqEditors ...RequestEditorFn) (*GetV2SessionsResponse, error) {
+	rsp, err := c.GetV2Sessions(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -29552,6 +33248,24 @@ func (c *ClientWithResponses) GetV2SessionsBySessionIdRunsByRunIdWithResponse(ct
 		return nil, err
 	}
 	return ParseGetV2SessionsBySessionIdRunsByRunIdResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdRunsByRunIdAttemptsWithResponse request returning *GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdRunsByRunIdAttemptsWithResponse(ctx context.Context, sessionId string, runId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdRunsByRunIdAttempts(ctx, sessionId, runId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsResponse(rsp)
+}
+
+// GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdWithResponse request returning *GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse
+func (c *ClientWithResponses) GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdWithResponse(ctx context.Context, sessionId string, runId string, attemptId string, reqEditors ...RequestEditorFn) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse, error) {
+	rsp, err := c.GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptId(ctx, sessionId, runId, attemptId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse(rsp)
 }
 
 // PostV2SessionsBySessionIdRunsByRunIdCancelWithResponse request returning *PostV2SessionsBySessionIdRunsByRunIdCancelResponse
@@ -31471,6 +35185,344 @@ func ParsePostV2AgentsByAgentIdToolingHealthResponse(rsp *http.Response) (*PostV
 	return response, nil
 }
 
+// ParsePostV2ApplicationManifestsPublishResponse parses an HTTP response from a PostV2ApplicationManifestsPublishWithResponse call
+func ParsePostV2ApplicationManifestsPublishResponse(rsp *http.Response) (*PostV2ApplicationManifestsPublishResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ApplicationManifestsPublishResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApplicationManifestPublishResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2ArtifactExchangesExportsResponse parses an HTTP response from a PostV2ArtifactExchangesExportsWithResponse call
+func ParsePostV2ArtifactExchangesExportsResponse(rsp *http.Response) (*PostV2ArtifactExchangesExportsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ArtifactExchangesExportsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactExchangeGrant
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2ArtifactExchangesImportsResponse parses an HTTP response from a PostV2ArtifactExchangesImportsWithResponse call
+func ParsePostV2ArtifactExchangesImportsResponse(rsp *http.Response) (*PostV2ArtifactExchangesImportsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2ArtifactExchangesImportsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactExchangeGrant
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2ArtifactExchangesByExchangeIdResponse parses an HTTP response from a GetV2ArtifactExchangesByExchangeIdWithResponse call
+func ParseGetV2ArtifactExchangesByExchangeIdResponse(rsp *http.Response) (*GetV2ArtifactExchangesByExchangeIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2ArtifactExchangesByExchangeIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ArtifactExchange
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2ArtifactExchangesByExchangeIdContentResponse parses an HTTP response from a GetV2ArtifactExchangesByExchangeIdContentWithResponse call
+func ParseGetV2ArtifactExchangesByExchangeIdContentResponse(rsp *http.Response) (*GetV2ArtifactExchangesByExchangeIdContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2ArtifactExchangesByExchangeIdContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2ArtifactExchangesByExchangeIdContentResponse parses an HTTP response from a PutV2ArtifactExchangesByExchangeIdContentWithResponse call
+func ParsePutV2ArtifactExchangesByExchangeIdContentResponse(rsp *http.Response) (*PutV2ArtifactExchangesByExchangeIdContentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2ArtifactExchangesByExchangeIdContentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ArtifactExchangeImportResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2AuthConfigResponse parses an HTTP response from a GetV2AuthConfigWithResponse call
 func ParseGetV2AuthConfigResponse(rsp *http.Response) (*GetV2AuthConfigResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -31598,6 +35650,39 @@ func ParsePostV2AuthTokenExchangeResponse(rsp *http.Response) (*PostV2AuthTokenE
 	return response, nil
 }
 
+// ParseGetV2CapabilitiesResponse parses an HTTP response from a GetV2CapabilitiesWithResponse call
+func ParseGetV2CapabilitiesResponse(rsp *http.Response) (*GetV2CapabilitiesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2CapabilitiesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CapabilityDiscoveryResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetV2ConsoleContextResponse parses an HTTP response from a GetV2ConsoleContextWithResponse call
 func ParseGetV2ConsoleContextResponse(rsp *http.Response) (*GetV2ConsoleContextResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -31652,6 +35737,13 @@ func ParseGetV2EnvironmentVariablesResponse(rsp *http.Response) (*GetV2Environme
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -31678,6 +35770,13 @@ func ParseDeleteV2EnvironmentVariablesByNameResponse(rsp *http.Response) (*Delet
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -31710,6 +35809,13 @@ func ParsePutV2EnvironmentVariablesByNameResponse(rsp *http.Response) (*PutV2Env
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -32139,6 +36245,499 @@ func ParseGetV2EvaluationRubricsByRubricIdResponse(rsp *http.Response) (*GetV2Ev
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EventSubscriptionsResponse parses an HTTP response from a GetV2EventSubscriptionsWithResponse call
+func ParseGetV2EventSubscriptionsResponse(rsp *http.Response) (*GetV2EventSubscriptionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EventSubscriptionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventSubscriptionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EventSubscriptionsResponse parses an HTTP response from a PostV2EventSubscriptionsWithResponse call
+func ParsePostV2EventSubscriptionsResponse(rsp *http.Response) (*PostV2EventSubscriptionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EventSubscriptionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest CreatedEventSubscription
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EventSubscriptionsEventTypesResponse parses an HTTP response from a GetV2EventSubscriptionsEventTypesWithResponse call
+func ParseGetV2EventSubscriptionsEventTypesResponse(rsp *http.Response) (*GetV2EventSubscriptionsEventTypesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EventSubscriptionsEventTypesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventTypeList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2EventSubscriptionsBySubscriptionIdResponse parses an HTTP response from a DeleteV2EventSubscriptionsBySubscriptionIdWithResponse call
+func ParseDeleteV2EventSubscriptionsBySubscriptionIdResponse(rsp *http.Response) (*DeleteV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2EventSubscriptionsBySubscriptionIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventSubscription
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EventSubscriptionsBySubscriptionIdResponse parses an HTTP response from a GetV2EventSubscriptionsBySubscriptionIdWithResponse call
+func ParseGetV2EventSubscriptionsBySubscriptionIdResponse(rsp *http.Response) (*GetV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EventSubscriptionsBySubscriptionIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventSubscription
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchV2EventSubscriptionsBySubscriptionIdResponse parses an HTTP response from a PatchV2EventSubscriptionsBySubscriptionIdWithResponse call
+func ParsePatchV2EventSubscriptionsBySubscriptionIdResponse(rsp *http.Response) (*PatchV2EventSubscriptionsBySubscriptionIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchV2EventSubscriptionsBySubscriptionIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventSubscription
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse parses an HTTP response from a GetV2EventSubscriptionsBySubscriptionIdDeliveriesWithResponse call
+func ParseGetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse(rsp *http.Response) (*GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2EventSubscriptionsBySubscriptionIdDeliveriesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventDeliveryList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse parses an HTTP response from a PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayWithResponse call
+func ParsePostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse(rsp *http.Response) (*PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EventSubscriptionsBySubscriptionIdDeliveriesByDeliveryIdReplayResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EventDelivery
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse parses an HTTP response from a PostV2EventSubscriptionsBySubscriptionIdRotateSecretWithResponse call
+func ParsePostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse(rsp *http.Response) (*PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostV2EventSubscriptionsBySubscriptionIdRotateSecretResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CreatedEventSubscription
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 501:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON501 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -33127,6 +37726,32 @@ func ParseGetV2ModelRuntimeInvocationsResponse(rsp *http.Response) (*GetV2ModelR
 	return response, nil
 }
 
+// ParseGetV2ModelRuntimeMultimodalRealtimeResponse parses an HTTP response from a GetV2ModelRuntimeMultimodalRealtimeWithResponse call
+func ParseGetV2ModelRuntimeMultimodalRealtimeResponse(rsp *http.Response) (*GetV2ModelRuntimeMultimodalRealtimeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2ModelRuntimeMultimodalRealtimeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePostV2ModelRuntimeRerankResponse parses an HTTP response from a PostV2ModelRuntimeRerankWithResponse call
 func ParsePostV2ModelRuntimeRerankResponse(rsp *http.Response) (*PostV2ModelRuntimeRerankResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -33990,6 +38615,241 @@ func ParsePutV2PlatformWorkspacesByWorkspaceIdMembersBySubjectResponse(rsp *http
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2QuotaPoliciesResponse parses an HTTP response from a GetV2QuotaPoliciesWithResponse call
+func ParseGetV2QuotaPoliciesResponse(rsp *http.Response) (*GetV2QuotaPoliciesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2QuotaPoliciesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRuntimeQuotaPolicyList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteV2QuotaPoliciesApplicationsByAppIdResponse parses an HTTP response from a DeleteV2QuotaPoliciesApplicationsByAppIdWithResponse call
+func ParseDeleteV2QuotaPoliciesApplicationsByAppIdResponse(rsp *http.Response) (*DeleteV2QuotaPoliciesApplicationsByAppIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteV2QuotaPoliciesApplicationsByAppIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRuntimeQuotaPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2QuotaPoliciesApplicationsByAppIdResponse parses an HTTP response from a PutV2QuotaPoliciesApplicationsByAppIdWithResponse call
+func ParsePutV2QuotaPoliciesApplicationsByAppIdResponse(rsp *http.Response) (*PutV2QuotaPoliciesApplicationsByAppIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2QuotaPoliciesApplicationsByAppIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRuntimeQuotaPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2QuotaPoliciesEffectiveResponse parses an HTTP response from a GetV2QuotaPoliciesEffectiveWithResponse call
+func ParseGetV2QuotaPoliciesEffectiveResponse(rsp *http.Response) (*GetV2QuotaPoliciesEffectiveResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2QuotaPoliciesEffectiveResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRuntimeQuotaStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutV2QuotaPoliciesWorkspaceResponse parses an HTTP response from a PutV2QuotaPoliciesWorkspaceWithResponse call
+func ParsePutV2QuotaPoliciesWorkspaceResponse(rsp *http.Response) (*PutV2QuotaPoliciesWorkspaceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutV2QuotaPoliciesWorkspaceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRuntimeQuotaPolicy
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON412 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorEnvelope
@@ -35528,6 +40388,72 @@ func ParseGetV2SessionsBySessionIdRunsByRunIdResponse(rsp *http.Response) (*GetV
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Run
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsResponse parses an HTTP response from a GetV2SessionsBySessionIdRunsByRunIdAttemptsWithResponse call
+func ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsResponse(rsp *http.Response) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdRunsByRunIdAttemptsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunAttemptList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorEnvelope
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse parses an HTTP response from a GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdWithResponse call
+func ParseGetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse(rsp *http.Response) (*GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetV2SessionsBySessionIdRunsByRunIdAttemptsByAttemptIdResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunAttempt
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

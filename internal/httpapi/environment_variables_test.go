@@ -152,6 +152,71 @@ func TestEnvironmentVariableAPIRequiresMasterKey(t *testing.T) {
 	}
 }
 
+func TestApplicationScopedEnvironmentVariablesEnforceScopesAndIsolation(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envvars.MasterKeyEnvironmentVariable, base64.StdEncoding.EncodeToString(key))
+	server, store, adminToken := newServiceIdentityHTTPTestServer(t)
+
+	createApplication := func(name string, scopes []string) (managedagents.ServiceIdentity, string) {
+		t.Helper()
+		body := `{"kind":"application","name":"` + name + `","role":"member","scopes":["` + strings.Join(scopes, `","`) + `"]}`
+		identityResponse := httptest.NewRecorder()
+		server.ServeHTTP(identityResponse, authenticatedJSONRequest(t, http.MethodPost, "/v2/service-identities", body, adminToken))
+		if identityResponse.Code != http.StatusCreated {
+			t.Fatalf("create %s identity returned %d: %s", name, identityResponse.Code, identityResponse.Body.String())
+		}
+		var identity managedagents.ServiceIdentity
+		decodeTestResponse(t, identityResponse, &identity)
+		credentialResponse := httptest.NewRecorder()
+		server.ServeHTTP(credentialResponse, authenticatedJSONRequest(t, http.MethodPost, "/v2/service-identities/"+identity.ID+"/credentials", `{"name":"test"}`, adminToken))
+		if credentialResponse.Code != http.StatusCreated {
+			t.Fatalf("create %s credential returned %d: %s", name, credentialResponse.Code, credentialResponse.Body.String())
+		}
+		var credential createdServiceCredentialResponse
+		decodeTestResponse(t, credentialResponse, &credential)
+		return identity, credential.Token
+	}
+
+	app, appToken := createApplication("biography", []string{managedagents.ServiceScopeSecretsRead, managedagents.ServiceScopeSecretsWrite})
+	_, readOnlyToken := createApplication("knowledge", []string{managedagents.ServiceScopeSecretsRead})
+
+	put := httptest.NewRecorder()
+	server.ServeHTTP(put, authenticatedJSONRequest(t, http.MethodPut, "/v2/environment-variables/SPEECH_API_KEY", `{"value":"application-secret"}`, appToken))
+	if put.Code != http.StatusOK || strings.Contains(put.Body.String(), "application-secret") {
+		t.Fatalf("put application secret returned %d: %s", put.Code, put.Body.String())
+	}
+	var metadata envvars.VariableMetadata
+	decodeTestResponse(t, put, &metadata)
+	if metadata.Scope != envvars.ScopeApplication || metadata.AppID != app.ID || !metadata.Editable {
+		t.Fatalf("unexpected application secret metadata: %+v", metadata)
+	}
+
+	list := httptest.NewRecorder()
+	server.ServeHTTP(list, authenticatedRequest(t, http.MethodGet, "/v2/environment-variables", appToken))
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "SPEECH_API_KEY") || strings.Contains(list.Body.String(), "application-secret") {
+		t.Fatalf("list application secrets returned %d: %s", list.Code, list.Body.String())
+	}
+	otherList := httptest.NewRecorder()
+	server.ServeHTTP(otherList, authenticatedRequest(t, http.MethodGet, "/v2/environment-variables", readOnlyToken))
+	if otherList.Code != http.StatusOK || strings.Contains(otherList.Body.String(), "SPEECH_API_KEY") {
+		t.Fatalf("other application observed secret metadata: %d %s", otherList.Code, otherList.Body.String())
+	}
+	blockedWrite := httptest.NewRecorder()
+	server.ServeHTTP(blockedWrite, authenticatedJSONRequest(t, http.MethodPut, "/v2/environment-variables/BLOCKED", `{"value":"blocked"}`, readOnlyToken))
+	if blockedWrite.Code != http.StatusForbidden || !strings.Contains(blockedWrite.Body.String(), managedagents.ServiceScopeSecretsWrite) {
+		t.Fatalf("read-only application secret write returned %d: %s", blockedWrite.Code, blockedWrite.Body.String())
+	}
+
+	ownerID := envvars.ApplicationOwnerID(app.ID)
+	record := store.environmentVariables[app.WorkspaceID][environmentVariableStoreKey(ownerID, "SPEECH_API_KEY")]
+	if record.OwnerID != ownerID || len(record.Ciphertext) == 0 || strings.Contains(string(record.Ciphertext), "application-secret") {
+		t.Fatalf("application secret was not encrypted and app-scoped: %+v", record)
+	}
+}
+
 func jsonRequest(t *testing.T, method string, path string, body string) *http.Request {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))

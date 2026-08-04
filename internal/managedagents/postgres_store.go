@@ -32,6 +32,8 @@ type PostgresStore struct {
 	claimCursor      int
 	auditClaimMu     sync.Mutex
 	auditClaimCursor int
+	eventClaimMu     sync.Mutex
+	eventClaimCursor int
 	skillPackageMu   sync.RWMutex
 	skillPackages    *skillpackage.Repository
 	listenerCancel   context.CancelFunc
@@ -555,6 +557,14 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 	if err != nil {
 		return Agent{}, err
 	}
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return Agent{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return Agent{}, err
+	}
 	normalizedSkills, err := s.normalizeAgentSkills(agentSkillContext(ctx, Agent{WorkspaceID: workspaceID, OwnerType: ownership.OwnerType, OwnerID: ownership.OwnerID}), workspaceID, input.Skills)
 	if err != nil {
 		return Agent{}, err
@@ -576,19 +586,23 @@ func (s *PostgresStore) ensureAgentContext(ctx context.Context, input EnsureAgen
 	if err := validateAgentEnvironmentTx(ctx, tx, workspaceID, input.EnvironmentID); err != nil {
 		return Agent{}, err
 	}
+	if err := validateApplicationIdentityTx(ctx, tx, workspaceID, applicationOwnership.AppID); err != nil {
+		return Agent{}, err
+	}
 
 	now := time.Now().UTC()
 	result, err := tx.ExecContext(ctx, `
 			INSERT INTO agents (
 				id, workspace_id, owner_type, owner_id, visibility, agent_kind,
-				name, environment_id, current_config_version, created_at
+				name, environment_id, app_id, external_ref, labels_json, current_config_version, created_at
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1, $12)
 			ON CONFLICT (id) DO NOTHING
 		`, input.ID, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
-		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), now)
+		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), nullableString(applicationOwnership.AppID),
+		applicationOwnership.ExternalRef, labelsJSON, now)
 	if err != nil {
-		return Agent{}, err
+		return Agent{}, normalizeApplicationResourceWriteError(err)
 	}
 	inserted, err := result.RowsAffected()
 	if err != nil {
@@ -672,6 +686,14 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	if err != nil {
 		return Agent{}, err
 	}
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return Agent{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return Agent{}, err
+	}
 	normalizedSkills, err := s.normalizeAgentSkills(agentSkillContext(ctx, Agent{WorkspaceID: workspaceID, OwnerType: ownership.OwnerType, OwnerID: ownership.OwnerID}), workspaceID, input.Skills)
 	if err != nil {
 		return Agent{}, err
@@ -693,6 +715,9 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	if err := validateAgentEnvironmentTx(ctx, tx, workspaceID, input.EnvironmentID); err != nil {
 		return Agent{}, err
 	}
+	if err := validateApplicationIdentityTx(ctx, tx, workspaceID, applicationOwnership.AppID); err != nil {
+		return Agent{}, err
+	}
 
 	id, err := nextSequenceID(ctx, tx, "agt", "tma_agent_id_seq")
 	if err != nil {
@@ -704,13 +729,14 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO agents (
 			id, workspace_id, owner_type, owner_id, visibility, agent_kind,
-			name, environment_id, current_config_version, created_at
+			name, environment_id, app_id, external_ref, labels_json, current_config_version, created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`, id, workspaceID, ownership.OwnerType, ownership.OwnerID, ownership.Visibility, ownership.AgentKind,
-		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), 1, now)
+		input.Name, nullableString(strings.TrimSpace(input.EnvironmentID)), nullableString(applicationOwnership.AppID),
+		applicationOwnership.ExternalRef, labelsJSON, 1, now)
 	if err != nil {
-		return Agent{}, err
+		return Agent{}, normalizeApplicationResourceWriteError(err)
 	}
 
 	_, err = tx.ExecContext(ctx, `
@@ -728,6 +754,9 @@ func (s *PostgresStore) createAgentContext(ctx context.Context, input CreateAgen
 	return Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		AppID:                applicationOwnership.AppID,
+		ExternalRef:          applicationOwnership.ExternalRef,
+		Labels:               applicationOwnership.Labels,
 		EnvironmentID:        strings.TrimSpace(input.EnvironmentID),
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
@@ -796,6 +825,7 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 	var tools []byte
 	var mcp []byte
 	var skills []byte
+	var labels []byte
 	var archivedAt sql.NullTime
 	var environmentID sql.NullString
 	err := q.QueryRowContext(ctx, `
@@ -808,6 +838,9 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 				a.agent_kind,
 				a.name,
 				a.environment_id,
+				COALESCE(a.app_id, ''),
+				a.external_ref,
+				a.labels_json,
 			a.current_config_version,
 			a.archived_at,
 			a.created_at,
@@ -834,6 +867,9 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 		&agent.AgentKind,
 		&agent.Name,
 		&environmentID,
+		&agent.AppID,
+		&agent.ExternalRef,
+		&labels,
 		&agent.CurrentConfigVersion,
 		&archivedAt,
 		&agent.CreatedAt,
@@ -856,6 +892,10 @@ func getAgentQuery(ctx context.Context, q queryer, id string, workspaceID string
 		agent.ArchivedAt = &archivedAt.Time
 	}
 	agent.EnvironmentID = environmentID.String
+	agent.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return Agent{}, err
+	}
 	agent.ConfigVersion.Tools = cloneRaw(tools)
 	agent.ConfigVersion.MCP = cloneRaw(mcp)
 	agent.ConfigVersion.Skills = cloneRaw(skills)
@@ -914,6 +954,9 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 				a.agent_kind,
 				a.name,
 				a.environment_id,
+				COALESCE(a.app_id, ''),
+				a.external_ref,
+				a.labels_json,
 			a.current_config_version,
 			a.created_at,
 			av.version,
@@ -943,6 +986,7 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 		var tools []byte
 		var mcp []byte
 		var skills []byte
+		var labels []byte
 		var environmentID sql.NullString
 		if err := rows.Scan(
 			&agent.ID,
@@ -953,6 +997,9 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 			&agent.AgentKind,
 			&agent.Name,
 			&environmentID,
+			&agent.AppID,
+			&agent.ExternalRef,
+			&labels,
 			&agent.CurrentConfigVersion,
 			&agent.CreatedAt,
 			&agent.ConfigVersion.Version,
@@ -968,6 +1015,10 @@ func listAgentsQuery(ctx context.Context, q rowsQueryer, workspaceID string) ([]
 		}
 		agent.ConfigVersion.Tools = cloneRaw(tools)
 		agent.EnvironmentID = environmentID.String
+		agent.Labels, err = unmarshalResourceLabels(labels)
+		if err != nil {
+			return nil, err
+		}
 		agent.ConfigVersion.MCP = cloneRaw(mcp)
 		agent.ConfigVersion.Skills = cloneRaw(skills)
 		agents = append(agents, agent)
@@ -1333,11 +1384,22 @@ func (s *PostgresStore) createEnvironmentContext(ctx context.Context, input Crea
 		}
 		workspaceID = scope.WorkspaceID
 	}
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return Environment{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return Environment{}, err
+	}
 	tx, scope, err := s.beginDatabaseAccessScope(ctx, workspaceID)
 	if err != nil {
 		return Environment{}, err
 	}
 	defer tx.Rollback()
+	if err := validateApplicationIdentityTx(ctx, tx, scope.WorkspaceID, applicationOwnership.AppID); err != nil {
+		return Environment{}, err
+	}
 	id, err := nextSequenceID(ctx, tx, "env", "tma_environment_id_seq")
 	if err != nil {
 		return Environment{}, err
@@ -1350,23 +1412,30 @@ func (s *PostgresStore) createEnvironmentContext(ctx context.Context, input Crea
 	now := time.Now().UTC()
 	var environment Environment
 	var storedConfig []byte
+	var storedLabels []byte
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO environments (id, workspace_id, name, config_json, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO environments (id, workspace_id, app_id, external_ref, labels_json, name, config_json, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (workspace_id, (lower(btrim(name)))) WHERE archived_at IS NULL
 		DO UPDATE SET name = environments.name
-		RETURNING id, workspace_id, name, config_json, created_at
-	`, id, scope.WorkspaceID, name, config, now).Scan(
-		&environment.ID, &environment.WorkspaceID, &environment.Name, &storedConfig, &environment.CreatedAt,
+		RETURNING id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, name, config_json, created_at
+	`, id, scope.WorkspaceID, nullableString(applicationOwnership.AppID), applicationOwnership.ExternalRef,
+		labelsJSON, name, config, now).Scan(
+		&environment.ID, &environment.WorkspaceID, &environment.AppID, &environment.ExternalRef,
+		&storedLabels, &environment.Name, &storedConfig, &environment.CreatedAt,
 	)
 	if err != nil {
-		return Environment{}, err
+		return Environment{}, normalizeApplicationResourceWriteError(err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Environment{}, err
 	}
 
 	environment.Config = cloneRaw(storedConfig)
+	environment.Labels, err = unmarshalResourceLabels(storedLabels)
+	if err != nil {
+		return Environment{}, err
+	}
 	return environment, nil
 }
 
@@ -1469,6 +1538,11 @@ func (s *PostgresStore) createSubagentSessionContext(ctx context.Context, input 
 
 	input.Session.WorkspaceID = parent.WorkspaceID
 	input.Session.OwnerID = parent.OwnerID
+	if input.Session.AppID != "" && input.Session.AppID != parent.AppID {
+		return Session{}, fmt.Errorf("%w: subagent app_id must match its parent Session", ErrInvalid)
+	}
+	input.Session.AppID = parent.AppID
+	input.Session.ExternalRef = ""
 	input.Session.ParentSessionID = parent.ID
 	input.Session.SpawnDepth = parent.SpawnDepth + 1
 	session, err := s.createSessionTx(ctx, tx, input.Session)
@@ -2651,10 +2725,10 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 		return Session{}, fmt.Errorf("%w: workspace mismatch", ErrInvalid)
 	}
 	if parentSessionID := strings.TrimSpace(input.ParentSessionID); parentSessionID != "" {
-		var parentWorkspaceID string
+		var parentWorkspaceID, parentAppID string
 		err = tx.QueryRowContext(ctx, `
-			SELECT workspace_id FROM sessions WHERE id = $1
-		`, parentSessionID).Scan(&parentWorkspaceID)
+			SELECT workspace_id, COALESCE(app_id, '') FROM sessions WHERE id = $1
+		`, parentSessionID).Scan(&parentWorkspaceID, &parentAppID)
 		if err == sql.ErrNoRows {
 			return Session{}, fmt.Errorf("%w: parent session %s", ErrNotFound, parentSessionID)
 		}
@@ -2664,6 +2738,22 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 		if parentWorkspaceID != workspaceID {
 			return Session{}, fmt.Errorf("%w: parent session workspace mismatch", ErrInvalid)
 		}
+		if strings.TrimSpace(input.AppID) == "" {
+			input.AppID = parentAppID
+		} else if input.AppID != parentAppID {
+			return Session{}, fmt.Errorf("%w: child Session app_id must match its parent", ErrInvalid)
+		}
+	}
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := validateApplicationIdentityTx(ctx, tx, workspaceID, applicationOwnership.AppID); err != nil {
+		return Session{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return Session{}, err
 	}
 
 	id, err := nextSequenceID(ctx, tx, "sesn", "tma_session_id_seq")
@@ -2675,6 +2765,9 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 	session := Session{
 		ID:                      id,
 		WorkspaceID:             workspaceID,
+		AppID:                   applicationOwnership.AppID,
+		ExternalRef:             applicationOwnership.ExternalRef,
+		Labels:                  applicationOwnership.Labels,
 		OwnerID:                 defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
 		AgentID:                 agentID,
 		AgentConfigVersion:      agentConfigVersion,
@@ -2692,11 +2785,14 @@ func (s *PostgresStore) createSessionTx(ctx context.Context, tx *sql.Tx, input C
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions (id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, runtime_settings_json, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`, session.ID, session.WorkspaceID, session.OwnerID, session.AgentID, session.AgentConfigVersion, session.EnvironmentID, nullableString(session.ParentSessionID), nullableString(session.ParentTurnID), session.SpawnDepth, session.Status, nullableString(session.Title), session.RuntimeSettings, session.CreatedBy, session.CreatedAt)
+		INSERT INTO sessions (id, workspace_id, app_id, external_ref, labels_json, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, runtime_settings_json, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+	`, session.ID, session.WorkspaceID, nullableString(session.AppID), session.ExternalRef, labelsJSON, session.OwnerID,
+		session.AgentID, session.AgentConfigVersion, session.EnvironmentID, nullableString(session.ParentSessionID),
+		nullableString(session.ParentTurnID), session.SpawnDepth, session.Status, nullableString(session.Title),
+		session.RuntimeSettings, session.CreatedBy, session.CreatedAt)
 	if err != nil {
-		return Session{}, normalizeLLMReferenceWriteError(err)
+		return Session{}, normalizeApplicationResourceWriteError(normalizeLLMReferenceWriteError(err))
 	}
 
 	if _, err := s.appendEventTx(ctx, tx, id, EventSessionStatusProvisioning, mustRaw(`{"status":"provisioning"}`), now); err != nil {
@@ -3322,6 +3418,27 @@ func terminateOpenTurnsTx(ctx context.Context, tx *sql.Tx, sessionID string, now
 			last_heartbeat_at = NULL
 		WHERE session_id = $1 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, now)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_runs
+		SET status = 'interrupted',
+			interrupt_requested_at = COALESCE(interrupt_requested_at, $2),
+			ended_at = COALESCE(ended_at, $2)
+		WHERE session_id = $1 AND status IN ('running', 'waiting_approval', 'waiting_human')
+	`, sessionID, now); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE session_run_attempts attempt
+		SET status = $3, ended_at = COALESCE(attempt.ended_at, $2),
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+		FROM session_runs run
+		WHERE run.session_id = $1 AND attempt.session_id = run.session_id
+			AND attempt.run_id = run.id AND attempt.id = run.current_attempt_id
+			AND attempt.status IN ('running', 'suspended')
+	`, sessionID, now, SessionRunAttemptStatusInterrupted)
 	return err
 }
 
@@ -3383,6 +3500,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 			s.id,
 			s.workspace_id,
 			s.owner_id,
+			COALESCE(s.app_id, ''),
 			s.agent_id,
 			s.agent_config_version,
 			s.environment_id,
@@ -3434,6 +3552,7 @@ func (s *PostgresStore) resolveAgentRuntimeConfigContext(ctx context.Context, se
 		&config.SessionID,
 		&config.WorkspaceID,
 		&config.OwnerID,
+		&config.AppID,
 		&config.AgentID,
 		&config.AgentConfigVersion,
 		&config.EnvironmentID,
@@ -3804,12 +3923,13 @@ func (s *PostgresStore) getSession(id string, scope AccessScope) (Session, error
 	var parentTurnID sql.NullString
 	var sandboxID sql.NullString
 	var runtimeSettings []byte
+	var labels []byte
 	var pinnedAt sql.NullTime
 	var tags []byte
 	var archivedAt sql.NullTime
 
 	err := s.db.QueryRowContext(context.Background(), `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3822,6 +3942,9 @@ func (s *PostgresStore) getSession(id string, scope AccessScope) (Session, error
 	`, id, scope.WorkspaceID, scope.OwnerID).Scan(
 		&session.ID,
 		&session.WorkspaceID,
+		&session.AppID,
+		&session.ExternalRef,
+		&labels,
 		&session.OwnerID,
 		&session.AgentID,
 		&session.AgentConfigVersion,
@@ -3853,6 +3976,10 @@ func (s *PostgresStore) getSession(id string, scope AccessScope) (Session, error
 	session.ParentTurnID = parentTurnID.String
 	session.SandboxID = sandboxID.String
 	session.RuntimeSettings = cloneRaw(runtimeSettings)
+	session.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return Session{}, err
+	}
 	if pinnedAt.Valid {
 		session.PinnedAt = &pinnedAt.Time
 	}
@@ -3872,7 +3999,7 @@ func (s *PostgresStore) ListSessions(input ListSessionsInput) ([]Session, error)
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(context.Background(), `
-		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
+		SELECT s.id, s.workspace_id, COALESCE(s.app_id, ''), s.external_ref, s.labels_json, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
 			COALESCE(
 				NULLIF(ss.summary_text, ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = s.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3887,9 +4014,12 @@ func (s *PostgresStore) ListSessions(input ListSessionsInput) ([]Session, error)
 			AND (NOT $5 OR s.parent_session_id IS NOT NULL)
 			AND ($6 = '' OR s.status = $6)
 			AND ($7 OR s.archived_at IS NULL)
+			AND ($8 = '' OR COALESCE(s.app_id, '') = $8)
+			AND ($9 = '' OR s.external_ref = $9)
 		ORDER BY s.pinned_at DESC NULLS LAST, s.created_at DESC, s.id DESC
-		LIMIT $8
-	`, input.WorkspaceID, input.OwnerID, input.ParentSessionID, input.ParentTurnID, input.ParentedOnly, input.Status, input.IncludeArchived, limit)
+		LIMIT $10
+	`, input.WorkspaceID, input.OwnerID, input.ParentSessionID, input.ParentTurnID, input.ParentedOnly, input.Status,
+		input.IncludeArchived, strings.TrimSpace(input.AppID), strings.TrimSpace(input.ExternalRef), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -3937,7 +4067,7 @@ func (s *PostgresStore) listSessionsScopedContext(ctx context.Context, input Lis
 		limit = 50
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT s.id, s.workspace_id, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
+		SELECT s.id, s.workspace_id, COALESCE(s.app_id, ''), s.external_ref, s.labels_json, s.owner_id, s.agent_id, s.agent_config_version, s.environment_id, s.parent_session_id, s.parent_turn_id, s.spawn_depth, s.status, s.title, s.sandbox_id, s.runtime_settings_json, s.runtime_settings_revision, s.pinned_at, s.tags_json,
 			COALESCE(
 				NULLIF(ss.summary_text, ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = s.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -3952,9 +4082,12 @@ func (s *PostgresStore) listSessionsScopedContext(ctx context.Context, input Lis
 			AND (NOT $5 OR s.parent_session_id IS NOT NULL)
 			AND ($6 = '' OR s.status = $6)
 			AND ($7 OR s.archived_at IS NULL)
+			AND ($8 = '' OR COALESCE(s.app_id, '') = $8)
+			AND ($9 = '' OR s.external_ref = $9)
 		ORDER BY s.pinned_at DESC NULLS LAST, s.created_at DESC, s.id DESC
-		LIMIT $8
-	`, input.WorkspaceID, input.OwnerID, input.ParentSessionID, input.ParentTurnID, input.ParentedOnly, input.Status, input.IncludeArchived, limit)
+		LIMIT $10
+	`, input.WorkspaceID, input.OwnerID, input.ParentSessionID, input.ParentTurnID, input.ParentedOnly, input.Status,
+		input.IncludeArchived, strings.TrimSpace(input.AppID), strings.TrimSpace(input.ExternalRef), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -4700,6 +4833,24 @@ func (s *PostgresStore) markSessionTurnWaitingStatusContext(ctx context.Context,
 	if rows == 0 {
 		return ErrNotFound
 	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_runs SET status = $3
+		WHERE session_id = $1 AND id = $2 AND status IN ($3, $4)
+	`, sessionID, turnID, waitingStatus, TurnStatusRunning); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_run_attempts attempt
+		SET status = $3, ended_at = $4,
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+		FROM session_runs run
+		WHERE run.session_id = $1 AND run.id = $2 AND run.current_attempt_id = attempt.id
+			AND attempt.session_id = run.session_id AND attempt.run_id = run.id
+			AND attempt.status = $5
+	`, sessionID, turnID, SessionRunAttemptStatusSuspended, now, SessionRunAttemptStatusRunning); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -4970,7 +5121,7 @@ func (s *PostgresStore) StartSessionRunContext(ctx context.Context, sessionID st
 	}
 	return StartSessionRunResult{
 		Run: SessionRun{
-			ID: turnID, SessionID: session.ID, AgentID: session.AgentID,
+			ID: turnID, SessionID: session.ID, TurnID: turnID, AgentID: session.AgentID,
 			AgentConfigVersion: session.AgentConfigVersion, Status: TurnStatusRunning,
 			UserEventID: userEvent.ID, UserEventSeq: userEvent.Seq, StartedAt: now,
 			IdempotencyKey: input.IdempotencyKey, RequestHash: input.RequestHash,
@@ -5027,8 +5178,8 @@ func (s *PostgresStore) ListSessionRunsContext(ctx context.Context, sessionID st
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, sessionRunSelect+`
-		WHERE turn.session_id = $1
-		ORDER BY turn.started_at ASC, turn.id ASC
+		WHERE run.session_id = $1
+		ORDER BY run.started_at ASC, run.id ASC
 	`, sessionID)
 	if err != nil {
 		return nil, err
@@ -5067,9 +5218,9 @@ func (s *PostgresStore) ListSessionRunEventsContext(ctx context.Context, session
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, session_id, COALESCE(turn_id, ''), seq, type, payload_json, created_at
+		SELECT id, session_id, COALESCE(turn_id, ''), COALESCE(run_id, ''), COALESCE(attempt_id, ''), seq, type, payload_json, created_at
 		FROM session_events
-		WHERE session_id = $1 AND turn_id = $2 AND seq > $3
+		WHERE session_id = $1 AND run_id = $2 AND seq > $3
 		ORDER BY seq ASC
 	`, sessionID, runID, afterSeq)
 	if err != nil {
@@ -5079,7 +5230,7 @@ func (s *PostgresStore) ListSessionRunEventsContext(ctx context.Context, session
 	events := []Event{}
 	for rows.Next() {
 		var event Event
-		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.RunID, &event.AttemptID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		events = append(events, event)
@@ -5109,7 +5260,7 @@ func (s *PostgresStore) ListSessionTurnControlEventsContext(ctx context.Context,
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, session_id, COALESCE(turn_id, ''), seq, type, payload_json, created_at
+		SELECT id, session_id, COALESCE(turn_id, ''), COALESCE(run_id, ''), COALESCE(attempt_id, ''), seq, type, payload_json, created_at
 		FROM session_events
 		WHERE session_id = $1 AND turn_id = $2 AND seq > $3
 			AND type IN ($4, $5, $6)
@@ -5122,7 +5273,7 @@ func (s *PostgresStore) ListSessionTurnControlEventsContext(ctx context.Context,
 	events := []Event{}
 	for rows.Next() {
 		var event Event
-		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.RunID, &event.AttemptID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		events = append(events, event)
@@ -5137,12 +5288,12 @@ func (s *PostgresStore) ListSessionTurnControlEventsContext(ctx context.Context,
 }
 
 const sessionRunSelect = `
-	SELECT turn.id, turn.session_id, turn.agent_id, turn.agent_config_version, turn.status,
-		COALESCE(turn.user_event_id, ''), COALESCE(user_event.seq, 0),
-		turn.attempt_count, turn.started_at, turn.ended_at, turn.interrupt_requested_at,
-		COALESCE(turn.error_message, ''), COALESCE(turn.idempotency_key, ''), turn.request_hash
-	FROM session_turns turn
-	LEFT JOIN session_events user_event ON user_event.id = turn.user_event_id
+	SELECT run.id, run.session_id, run.turn_id, run.agent_id, run.agent_config_version, run.status,
+		COALESCE(run.user_event_id, ''), COALESCE(user_event.seq, 0),
+		run.attempt_count, COALESCE(run.current_attempt_id, ''), run.started_at, run.ended_at, run.interrupt_requested_at,
+		COALESCE(run.error_message, ''), COALESCE(run.idempotency_key, ''), run.request_hash
+	FROM session_runs run
+	LEFT JOIN session_events user_event ON user_event.id = run.user_event_id
 `
 
 type sessionRunScanner interface {
@@ -5152,8 +5303,8 @@ type sessionRunScanner interface {
 func scanSessionRun(scanner sessionRunScanner) (SessionRun, error) {
 	var run SessionRun
 	if err := scanner.Scan(
-		&run.ID, &run.SessionID, &run.AgentID, &run.AgentConfigVersion, &run.Status, &run.UserEventID, &run.UserEventSeq,
-		&run.Attempt, &run.StartedAt, &run.EndedAt, &run.InterruptRequestedAt,
+		&run.ID, &run.SessionID, &run.TurnID, &run.AgentID, &run.AgentConfigVersion, &run.Status, &run.UserEventID, &run.UserEventSeq,
+		&run.Attempt, &run.CurrentAttemptID, &run.StartedAt, &run.EndedAt, &run.InterruptRequestedAt,
 		&run.ErrorMessage, &run.IdempotencyKey, &run.RequestHash,
 	); err != nil {
 		return SessionRun{}, err
@@ -5163,7 +5314,7 @@ func scanSessionRun(scanner sessionRunScanner) (SessionRun, error) {
 
 func getSessionRunTx(ctx context.Context, tx *sql.Tx, sessionID string, runID string) (SessionRun, bool, error) {
 	run, err := scanSessionRun(tx.QueryRowContext(ctx, sessionRunSelect+`
-		WHERE turn.session_id = $1 AND turn.id = $2
+		WHERE run.session_id = $1 AND run.id = $2
 	`, sessionID, runID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionRun{}, false, nil
@@ -5173,12 +5324,95 @@ func getSessionRunTx(ctx context.Context, tx *sql.Tx, sessionID string, runID st
 
 func getSessionRunByIdempotencyTx(ctx context.Context, tx *sql.Tx, sessionID string, key string) (SessionRun, bool, error) {
 	run, err := scanSessionRun(tx.QueryRowContext(ctx, sessionRunSelect+`
-		WHERE turn.session_id = $1 AND turn.idempotency_key = $2
+		WHERE run.session_id = $1 AND run.idempotency_key = $2
 	`, sessionID, key))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionRun{}, false, nil
 	}
 	return run, err == nil, err
+}
+
+const sessionRunAttemptSelect = `
+	SELECT attempt.id, attempt.session_id, attempt.run_id, attempt.attempt_number, attempt.status,
+		COALESCE(attempt.lease_owner, ''), attempt.lease_expires_at, attempt.last_heartbeat_at,
+		attempt.started_at, attempt.ended_at, COALESCE(attempt.error_message, ''), attempt.migration_snapshot
+	FROM session_run_attempts attempt
+`
+
+func scanSessionRunAttempt(scanner rowScanner) (SessionRunAttempt, error) {
+	var attempt SessionRunAttempt
+	if err := scanner.Scan(
+		&attempt.ID, &attempt.SessionID, &attempt.RunID, &attempt.AttemptNumber, &attempt.Status,
+		&attempt.LeaseOwner, &attempt.LeaseExpiresAt, &attempt.LastHeartbeatAt,
+		&attempt.StartedAt, &attempt.EndedAt, &attempt.ErrorMessage, &attempt.MigrationSnapshot,
+	); err != nil {
+		return SessionRunAttempt{}, err
+	}
+	return attempt, nil
+}
+
+func (s *PostgresStore) ListSessionRunAttemptsContext(ctx context.Context, sessionID string, runID string) ([]SessionRunAttempt, error) {
+	if _, err := s.GetSessionRunContext(ctx, sessionID, runID); err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, _, err := setContextDatabaseAccessScope(ctx, tx); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, sessionRunAttemptSelect+`
+		WHERE attempt.session_id = $1 AND attempt.run_id = $2
+		ORDER BY attempt.attempt_number ASC
+	`, sessionID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	attempts := []SessionRunAttempt{}
+	for rows.Next() {
+		attempt, scanErr := scanSessionRunAttempt(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+func (s *PostgresStore) GetSessionRunAttemptContext(ctx context.Context, sessionID string, runID string, attemptID string) (SessionRunAttempt, error) {
+	if _, err := s.GetSessionRunContext(ctx, sessionID, runID); err != nil {
+		return SessionRunAttempt{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return SessionRunAttempt{}, err
+	}
+	defer tx.Rollback()
+	if _, _, err := setContextDatabaseAccessScope(ctx, tx); err != nil {
+		return SessionRunAttempt{}, err
+	}
+	attempt, err := scanSessionRunAttempt(tx.QueryRowContext(ctx, sessionRunAttemptSelect+`
+		WHERE attempt.session_id = $1 AND attempt.run_id = $2 AND attempt.id = $3
+	`, sessionID, runID, attemptID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionRunAttempt{}, ErrNotFound
+	}
+	if err != nil {
+		return SessionRunAttempt{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionRunAttempt{}, err
+	}
+	return attempt, nil
 }
 
 func (s *PostgresStore) appendEventsContext(ctx context.Context, sessionID string, inputs []AppendEventInput) ([]Event, error) {
@@ -6713,6 +6947,9 @@ func (s *PostgresStore) CreateSessionArtifact(input CreateSessionArtifactInput) 
 		objectRefLinkOwnerSessionArtifact, created.ID, created.ArtifactType); err != nil {
 		return SessionArtifact{}, err
 	}
+	if err := enqueueArtifactCreatedDeliveriesTx(ctx, tx, session, created); err != nil {
+		return SessionArtifact{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return SessionArtifact{}, err
 	}
@@ -7611,7 +7848,7 @@ func (s *PostgresStore) listEventsContext(ctx context.Context, sessionID string,
 		return nil, err
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, session_id, COALESCE(turn_id, ''), seq, type, payload_json, created_at
+		SELECT id, session_id, COALESCE(turn_id, ''), COALESCE(run_id, ''), COALESCE(attempt_id, ''), seq, type, payload_json, created_at
 		FROM session_events
 		WHERE session_id = $1 AND seq > $2
 		ORDER BY seq ASC
@@ -7624,7 +7861,7 @@ func (s *PostgresStore) listEventsContext(ctx context.Context, sessionID string,
 	events := []Event{}
 	for rows.Next() {
 		var event Event
-		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
+		if err := rows.Scan(&event.ID, &event.SessionID, &event.TurnID, &event.RunID, &event.AttemptID, &event.Seq, &event.Type, &event.Payload, &event.CreatedAt); err != nil {
 			return nil, err
 		}
 		events = append(events, event)
@@ -7935,6 +8172,36 @@ func (s *PostgresStore) claimSessionTurnsWorkspace(ctx context.Context, input Cl
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
+	for index := range work {
+		item := &work[index]
+		item.AttemptID = fmt.Sprintf("attempt_%06d", item.Attempt)
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_run_attempts
+			SET status = $3, ended_at = $4, error_message = 'lease expired or work was reclaimed',
+				lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+			WHERE session_id = $1 AND run_id = $2 AND status = $5
+		`, item.SessionID, item.TurnID, SessionRunAttemptStatusAbandoned, now, SessionRunAttemptStatusRunning); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO session_run_attempts (
+				session_id, run_id, id, attempt_number, workspace_id, owner_id, status,
+				lease_owner, lease_expires_at, last_heartbeat_at, started_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		`, item.SessionID, item.TurnID, item.AttemptID, item.Attempt,
+			item.Scope.WorkspaceID, item.Scope.OwnerID, SessionRunAttemptStatusRunning,
+			input.LeaseOwner, now.Add(input.LeaseDuration), now); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_runs
+			SET status = $3, attempt_count = $4, current_attempt_id = $5
+			WHERE session_id = $1 AND id = $2
+		`, item.SessionID, item.TurnID, TurnStatusRunning, item.Attempt, item.AttemptID); err != nil {
+			return nil, err
+		}
+	}
 	for index, callID := range resumeCallIDs {
 		if callID == "" {
 			continue
@@ -7986,6 +8253,19 @@ func (s *PostgresStore) RenewSessionTurnLease(input RenewSessionTurnLeaseInput) 
 	if err != nil {
 		return false, err
 	}
+	if rows == 1 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_run_attempts attempt
+			SET lease_expires_at = CURRENT_TIMESTAMP + ($4 * interval '1 millisecond'),
+				last_heartbeat_at = CURRENT_TIMESTAMP
+			FROM session_runs run
+			WHERE run.session_id = $1 AND run.id = $2 AND run.current_attempt_id = attempt.id
+				AND attempt.session_id = run.session_id AND attempt.run_id = run.id
+				AND attempt.lease_owner = $3 AND attempt.status = 'running'
+		`, input.SessionID, input.TurnID, input.LeaseOwner, input.LeaseDuration.Milliseconds()); err != nil {
+			return false, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
@@ -8011,13 +8291,30 @@ func (s *PostgresStore) ReleaseSessionTurnLease(input ReleaseSessionTurnLeaseInp
 			return err
 		}
 	}
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
 		SET lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND lease_owner = $3 AND status = 'running'
 	`, input.SessionID, input.TurnID, input.LeaseOwner)
 	if err != nil {
 		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 1 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_run_attempts attempt
+			SET status = $4, ended_at = CURRENT_TIMESTAMP, error_message = 'lease released before completion',
+				lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+			FROM session_runs run
+			WHERE run.session_id = $1 AND run.id = $2 AND run.current_attempt_id = attempt.id
+				AND attempt.session_id = run.session_id AND attempt.run_id = run.id
+				AND attempt.lease_owner = $3 AND attempt.status = 'running'
+		`, input.SessionID, input.TurnID, input.LeaseOwner, SessionRunAttemptStatusAbandoned); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -8164,13 +8461,21 @@ func (s *PostgresStore) appendEventsTx(ctx context.Context, tx *sql.Tx, sessionI
 	}
 	events := make([]Event, len(sanitized))
 	for index, input := range sanitized {
+		turnID := payloadString(input.Payload, "turn_id")
+		runID, attemptID, err := resolveEventRunAttemptTx(ctx, tx, sessionID, turnID)
+		if err != nil {
+			return nil, err
+		}
 		events[index] = Event{
 			ID: allocations[index].id, SessionID: sessionID,
-			TurnID: payloadString(input.Payload, "turn_id"), Seq: allocations[index].seq,
+			TurnID: turnID, RunID: runID, AttemptID: attemptID, Seq: allocations[index].seq,
 			Type: input.Type, Payload: cloneRaw(input.Payload), CreatedAt: now,
 		}
 	}
 	if err := insertSessionEventsBatch(ctx, tx, events); err != nil {
+		return nil, err
+	}
+	if err := enqueueSessionEventDeliveriesTx(ctx, tx, sessionID, events); err != nil {
 		return nil, err
 	}
 	// Projection order is part of the contract: a planned Tool event creates the
@@ -8184,6 +8489,33 @@ func (s *PostgresStore) appendEventsTx(ctx context.Context, tx *sql.Tx, sessionI
 		return nil, err
 	}
 	return events, nil
+}
+
+func resolveEventRunAttemptTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string) (string, string, error) {
+	if turnID == "" {
+		return "", "", nil
+	}
+	var runID string
+	var attemptID sql.NullString
+	err := tx.QueryRowContext(ctx, `
+		SELECT run.id,
+			CASE
+				WHEN attempt.status = 'running' THEN attempt.id
+				WHEN run.status IN ('waiting_approval', 'waiting_human') AND attempt.status = 'suspended' THEN attempt.id
+			END
+		FROM session_runs run
+		LEFT JOIN session_run_attempts attempt
+			ON attempt.session_id = run.session_id AND attempt.run_id = run.id
+			AND attempt.id = run.current_attempt_id
+		WHERE run.session_id = $1 AND run.turn_id = $2
+	`, sessionID, turnID).Scan(&runID, &attemptID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return runID, attemptID.String, nil
 }
 
 func allocateEventSequences(ctx context.Context, tx *sql.Tx, sessionID string, count int) ([]eventSequenceAllocation, error) {
@@ -8233,8 +8565,8 @@ func insertSessionEventsBatch(ctx context.Context, tx *sql.Tx, events []Event) e
 		return nil
 	}
 	var query strings.Builder
-	query.WriteString(`INSERT INTO session_events (id, session_id, turn_id, seq, type, payload_json, created_at) VALUES `)
-	args := make([]any, 0, 2+len(events)*5)
+	query.WriteString(`INSERT INTO session_events (id, session_id, turn_id, run_id, attempt_id, seq, type, payload_json, created_at) VALUES `)
+	args := make([]any, 0, 2+len(events)*7)
 	args = append(args, events[0].SessionID, events[0].CreatedAt)
 	for index, event := range events {
 		if event.SessionID != events[0].SessionID {
@@ -8244,8 +8576,8 @@ func insertSessionEventsBatch(ctx context.Context, tx *sql.Tx, events []Event) e
 			query.WriteString(",")
 		}
 		first := len(args) + 1
-		fmt.Fprintf(&query, "($%d,$1,NULLIF($%d,''),$%d,$%d,$%d,$2)", first, first+1, first+2, first+3, first+4)
-		args = append(args, event.ID, event.TurnID, event.Seq, event.Type, nullableRaw(event.Payload))
+		fmt.Fprintf(&query, "($%d,$1,NULLIF($%d,''),NULLIF($%d,''),NULLIF($%d,''),$%d,$%d,$%d,$2)", first, first+1, first+2, first+3, first+4, first+5, first+6)
+		args = append(args, event.ID, event.TurnID, event.RunID, event.AttemptID, event.Seq, event.Type, nullableRaw(event.Payload))
 	}
 	_, err := tx.ExecContext(ctx, query.String(), args...)
 	return err
@@ -8311,6 +8643,17 @@ func createTurnTx(ctx context.Context, tx *sql.Tx, session Session, turnID strin
 		VALUES ($1, $2, $3, $4, $5, $6, 'running', $7, NULLIF($8, ''), $9)
 	`, session.ID, turnID, session.WorkspaceID, session.OwnerID, session.AgentID,
 		session.AgentConfigVersion, now, idempotencyKey, requestHash)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO session_runs (
+			session_id, id, turn_id, workspace_id, owner_id, agent_id, agent_config_version,
+			status, started_at, idempotency_key, request_hash
+		)
+		VALUES ($1, $2, $2, $3, $4, $5, $6, 'running', $7, NULLIF($8, ''), $9)
+	`, session.ID, turnID, session.WorkspaceID, session.OwnerID, session.AgentID,
+		session.AgentConfigVersion, now, idempotencyKey, requestHash)
 	return err
 }
 
@@ -8318,6 +8661,13 @@ func setTurnUserEventTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, user
 	_, err := tx.ExecContext(ctx, `
 		UPDATE session_turns
 		SET user_event_id = $3
+		WHERE session_id = $1 AND id = $2
+	`, sessionID, turnID, userEventID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE session_runs SET user_event_id = $3
 		WHERE session_id = $1 AND id = $2
 	`, sessionID, turnID, userEventID)
 	return err
@@ -8330,7 +8680,10 @@ func completeTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, n
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, now)
-	return err
+	if err != nil {
+		return err
+	}
+	return finishSessionRunTx(ctx, tx, sessionID, turnID, TurnStatusCompleted, SessionRunAttemptStatusCompleted, "", now)
 }
 
 func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, now time.Time) error {
@@ -8340,7 +8693,18 @@ func interruptTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID string, 
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, now)
-	return err
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		UPDATE session_runs
+		SET status = $3, interrupt_requested_at = $4, ended_at = $4, error_message = NULL
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
+	`, sessionID, turnID, TurnStatusInterrupted, now)
+	if err != nil {
+		return err
+	}
+	return finishCurrentSessionRunAttemptTx(ctx, tx, sessionID, turnID, SessionRunAttemptStatusInterrupted, "", now)
 }
 
 func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason string, now time.Time) error {
@@ -8350,6 +8714,34 @@ func failTurnTx(ctx context.Context, tx *sql.Tx, sessionID, turnID, reason strin
 			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
 		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
 	`, sessionID, turnID, nullableString(reason), now)
+	if err != nil {
+		return err
+	}
+	return finishSessionRunTx(ctx, tx, sessionID, turnID, TurnStatusFailed, SessionRunAttemptStatusFailed, reason, now)
+}
+
+func finishSessionRunTx(ctx context.Context, tx *sql.Tx, sessionID, runID, runStatus, attemptStatus, reason string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_runs
+		SET status = $3, ended_at = $4, error_message = NULLIF($5, '')
+		WHERE session_id = $1 AND id = $2 AND status IN ('running', 'waiting_approval', 'waiting_human')
+	`, sessionID, runID, runStatus, now, reason); err != nil {
+		return err
+	}
+	return finishCurrentSessionRunAttemptTx(ctx, tx, sessionID, runID, attemptStatus, reason, now)
+}
+
+func finishCurrentSessionRunAttemptTx(ctx context.Context, tx *sql.Tx, sessionID, runID, status, reason string, now time.Time) error {
+	_, err := tx.ExecContext(ctx, `
+		UPDATE session_run_attempts attempt
+		SET status = $3, ended_at = $4, error_message = NULLIF($5, ''),
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+		FROM session_runs run
+		WHERE run.session_id = $1 AND run.id = $2
+			AND attempt.session_id = run.session_id AND attempt.run_id = run.id
+			AND attempt.id = run.current_attempt_id
+			AND attempt.status IN ('running', 'suspended')
+	`, sessionID, runID, status, now, reason)
 	return err
 }
 
@@ -8825,6 +9217,14 @@ func markSessionTurnResumableTx(ctx context.Context, tx *sql.Tx, sessionID strin
 	if err != nil {
 		return false, err
 	}
+	if rows == 1 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE session_runs SET status = $3
+			WHERE session_id = $1 AND id = $2 AND status IN ($3, $4, $5)
+		`, sessionID, turnID, TurnStatusRunning, TurnStatusWaitingApproval, TurnStatusWaitingHuman); err != nil {
+			return false, err
+		}
+	}
 	return rows == 1, nil
 }
 
@@ -8900,7 +9300,7 @@ func scanSessionIntervention(scanner rowScanner) (SessionIntervention, error) {
 
 func getSessionTx(ctx context.Context, tx *sql.Tx, id string) (Session, error) {
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -8915,7 +9315,7 @@ func getSessionForUpdateTx(ctx context.Context, tx *sql.Tx, id string) (Session,
 	// Session 主键不会在状态迁移中修改。NO KEY UPDATE 仍保证状态串行化，
 	// 同时允许 session_events 的外键 KEY SHARE 与 Agent Loop 事件持久化并发。
 	return scanSession(ctx, tx, `
-		SELECT id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, owner_id, agent_id, agent_config_version, environment_id, parent_session_id, parent_turn_id, spawn_depth, status, title, sandbox_id, runtime_settings_json, runtime_settings_revision, pinned_at, tags_json,
 			COALESCE(
 				NULLIF((SELECT summary_text FROM session_summaries WHERE session_id = sessions.id), ''),
 				(SELECT COALESCE(e.payload_json->'content'->0->>'text', e.payload_json->>'message', e.payload_json->>'summary', e.payload_json->>'text') FROM session_events e WHERE e.session_id = sessions.id AND e.type = 'agent.message' ORDER BY e.seq DESC LIMIT 1),
@@ -8934,6 +9334,7 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 	var parentTurnID sql.NullString
 	var sandboxID sql.NullString
 	var runtimeSettings []byte
+	var labels []byte
 	var pinnedAt sql.NullTime
 	var tags []byte
 	var archivedAt sql.NullTime
@@ -8941,6 +9342,9 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 	err := tx.QueryRowContext(ctx, query, id).Scan(
 		&session.ID,
 		&session.WorkspaceID,
+		&session.AppID,
+		&session.ExternalRef,
+		&labels,
 		&session.OwnerID,
 		&session.AgentID,
 		&session.AgentConfigVersion,
@@ -8972,6 +9376,10 @@ func scanSession(ctx context.Context, tx *sql.Tx, query string, id string) (Sess
 	session.ParentTurnID = parentTurnID.String
 	session.SandboxID = sandboxID.String
 	session.RuntimeSettings = cloneRaw(runtimeSettings)
+	session.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return Session{}, err
+	}
 	if pinnedAt.Valid {
 		session.PinnedAt = &pinnedAt.Time
 	}
@@ -8994,12 +9402,16 @@ func scanSessionRow(scanner interface {
 	var parentTurnID sql.NullString
 	var sandboxID sql.NullString
 	var runtimeSettings []byte
+	var labels []byte
 	var pinnedAt sql.NullTime
 	var tags []byte
 	var archivedAt sql.NullTime
 	if err := scanner.Scan(
 		&session.ID,
 		&session.WorkspaceID,
+		&session.AppID,
+		&session.ExternalRef,
+		&labels,
 		&session.OwnerID,
 		&session.AgentID,
 		&session.AgentConfigVersion,
@@ -9026,6 +9438,11 @@ func scanSessionRow(scanner interface {
 	session.ParentTurnID = parentTurnID.String
 	session.SandboxID = sandboxID.String
 	session.RuntimeSettings = cloneRaw(runtimeSettings)
+	var err error
+	session.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return Session{}, err
+	}
 	if pinnedAt.Valid {
 		session.PinnedAt = &pinnedAt.Time
 	}

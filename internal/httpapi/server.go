@@ -18,6 +18,7 @@ import (
 	"tiggy-manage-agent/internal/capability"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/managedagents"
+	"tiggy-manage-agent/internal/mcp"
 	modelruntime "tiggy-manage-agent/internal/modelruntimeprovider"
 	"tiggy-manage-agent/internal/objectcleanup"
 	"tiggy-manage-agent/internal/objectstore"
@@ -49,6 +50,7 @@ type Server struct {
 	modelRuntimeAdmission *modelRuntimeAdmission
 	modelRuntimeExecutor  modelruntime.Executor
 	speechRuntime         modelruntime.SpeechProxy
+	multimodalRuntime     modelruntime.MultimodalProxy
 	speechDialer          func(context.Context, string, http.Header) (*websocket.Conn, *http.Response, error)
 	objectStore           objectstore.Client
 	executionResolver     execution.ProviderResolver
@@ -63,6 +65,8 @@ type Server struct {
 	workbenchProjects     workbenchprojects.Provisioner
 	workbenchRuntime      workbenchruntime.Provisioner
 	documentPreviewer     documentPreviewConverter
+	webhookSigningKey     []byte
+	webhookEgress         *mcp.EgressPolicy
 }
 
 func NewServerWithStoreAndRunner(store managedagents.Store, turnRunner runner.Runner, logger *slog.Logger) http.Handler {
@@ -134,6 +138,7 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		modelRuntimeExecutor = modelruntime.LocalExecutor{}
 	}
 	speechRuntime, _ := modelRuntimeExecutor.(modelruntime.SpeechProxy)
+	multimodalRuntime, _ := modelRuntimeExecutor.(modelruntime.MultimodalProxy)
 	authConfig.LegacyControlToken = controlAuthToken
 	authConfig.WorkerToken = workerAuthToken
 	authenticator, err := newIdentityAuthenticator(authConfig)
@@ -143,6 +148,13 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 	webLogin, err := newOIDCWebLogin(authConfig, authenticator)
 	if err != nil {
 		panic(fmt.Sprintf("invalid browser OIDC login config: %v", err))
+	}
+	webhookEgress, err := mcp.NewEgressPolicy(mcp.EgressPolicyConfig{
+		AllowHTTP: authConfig.WebhookAllowHTTP, AllowPrivateNetworks: authConfig.WebhookAllowPrivate,
+		AllowedHosts: authConfig.WebhookAllowedHosts, AllowedCIDRs: authConfig.WebhookAllowedCIDRs,
+	})
+	if err != nil {
+		panic(fmt.Sprintf("invalid webhook egress config: %v", err))
 	}
 	server := &Server{
 		mux:                   http.NewServeMux(),
@@ -154,6 +166,7 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		modelRuntimeAdmission: newModelRuntimeAdmission(modelRuntimePolicy),
 		modelRuntimeExecutor:  modelRuntimeExecutor,
 		speechRuntime:         speechRuntime,
+		multimodalRuntime:     multimodalRuntime,
 		speechDialer: func(ctx context.Context, target string, headers http.Header) (*websocket.Conn, *http.Response, error) {
 			return websocket.Dial(ctx, target, &websocket.DialOptions{HTTPHeader: headers})
 		},
@@ -166,6 +179,8 @@ func NewServerWithStoreRunnerLLMDefaultsAndObjectStoreExecutionResolverUnifiedAu
 		authorizationAudit: newAuthorizationAudit(authConfig.AuthorizationSink),
 		subagentPolicy:     subagentPolicy,
 		documentPreviewer:  defaultDocumentPreviewConverter(),
+		webhookSigningKey:  []byte(authConfig.WebhookSigningKey),
+		webhookEgress:      webhookEgress,
 	}
 	projectProvisioner, provisionerErr := workbenchprojects.GitLabProvisionerFromEnv(nil)
 	if provisionerErr != nil {

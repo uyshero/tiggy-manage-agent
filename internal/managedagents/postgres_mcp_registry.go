@@ -15,11 +15,22 @@ func (s *PostgresStore) CreateMCPRegistryServer(ctx context.Context, input mcpre
 	if strings.TrimSpace(input.WorkspaceID) == "" || strings.TrimSpace(input.Identifier) == "" || strings.TrimSpace(input.Name) == "" || len(input.Config) == 0 {
 		return mcpregistry.Server{}, fmt.Errorf("%w: workspace_id, identifier, name and config are required", mcpregistry.ErrInvalid)
 	}
+	applicationOwnership, err := normalizeApplicationOwnership(input.AppID, input.ExternalRef, input.Labels)
+	if err != nil {
+		return mcpregistry.Server{}, err
+	}
+	labelsJSON, err := marshalResourceLabels(applicationOwnership.Labels)
+	if err != nil {
+		return mcpregistry.Server{}, err
+	}
 	tx, scope, err := s.beginDatabaseAccessScope(ctx, input.WorkspaceID)
 	if err != nil {
 		return mcpregistry.Server{}, err
 	}
 	defer tx.Rollback()
+	if err := validateApplicationIdentityTx(ctx, tx, scope.WorkspaceID, applicationOwnership.AppID); err != nil {
+		return mcpregistry.Server{}, err
+	}
 	id, err := nextSequenceID(ctx, tx, "mcps", "tma_mcp_registry_server_id_seq")
 	if err != nil {
 		return mcpregistry.Server{}, err
@@ -31,10 +42,11 @@ func (s *PostgresStore) CreateMCPRegistryServer(ctx context.Context, input mcpre
 	now := time.Now().UTC()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO mcp_registry_servers
-			(id, workspace_id, identifier, name, description, status, current_version, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'active', 1, $6, $7, $7)
-	`, id, scope.WorkspaceID, input.Identifier, input.Name, input.Description, input.CreatedBy, now); err != nil {
-		return mcpregistry.Server{}, err
+			(id, workspace_id, app_id, external_ref, labels_json, identifier, name, description, status, current_version, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', 1, $9, $10, $10)
+	`, id, scope.WorkspaceID, nullableString(applicationOwnership.AppID), applicationOwnership.ExternalRef,
+		labelsJSON, input.Identifier, input.Name, input.Description, input.CreatedBy, now); err != nil {
+		return mcpregistry.Server{}, normalizeApplicationResourceWriteError(err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO mcp_registry_server_versions
@@ -61,8 +73,9 @@ func (s *PostgresStore) GetMCPRegistryServer(ctx context.Context, id string) (mc
 	defer tx.Rollback()
 	var server mcpregistry.Server
 	var config []byte
+	var labels []byte
 	err = tx.QueryRowContext(ctx, `
-		SELECT s.id, s.workspace_id, s.identifier, s.name, s.description, s.status,
+		SELECT s.id, s.workspace_id, COALESCE(s.app_id, ''), s.external_ref, s.labels_json, s.identifier, s.name, s.description, s.status,
 			s.current_version, v.config_json, s.created_by, s.created_at, s.updated_at,
 			(SELECT COUNT(DISTINCT a.id)
 			 FROM agents a
@@ -72,7 +85,8 @@ func (s *PostgresStore) GetMCPRegistryServer(ctx context.Context, id string) (mc
 		FROM mcp_registry_servers s
 		JOIN mcp_registry_server_versions v ON v.server_id = s.id AND v.version = s.current_version
 		WHERE s.id = $1
-	`, id).Scan(&server.ID, &server.WorkspaceID, &server.Identifier, &server.Name, &server.Description, &server.Status,
+	`, id).Scan(&server.ID, &server.WorkspaceID, &server.AppID, &server.ExternalRef, &labels,
+		&server.Identifier, &server.Name, &server.Description, &server.Status,
 		&server.CurrentVersion, &config, &server.CreatedBy, &server.CreatedAt, &server.UpdatedAt, &server.UsageCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mcpregistry.Server{}, mcpregistry.ErrNotFound
@@ -84,6 +98,10 @@ func (s *PostgresStore) GetMCPRegistryServer(ctx context.Context, id string) (mc
 		return mcpregistry.Server{}, err
 	}
 	server.Config = cloneRaw(config)
+	server.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return mcpregistry.Server{}, err
+	}
 	return server, nil
 }
 
@@ -94,7 +112,7 @@ func (s *PostgresStore) ListMCPRegistryServers(ctx context.Context, workspaceID 
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT s.id, s.workspace_id, s.identifier, s.name, s.description, s.status,
+		SELECT s.id, s.workspace_id, COALESCE(s.app_id, ''), s.external_ref, s.labels_json, s.identifier, s.name, s.description, s.status,
 			s.current_version, v.config_json, s.created_by, s.created_at, s.updated_at,
 			(SELECT COUNT(DISTINCT a.id)
 			 FROM agents a
@@ -113,12 +131,19 @@ func (s *PostgresStore) ListMCPRegistryServers(ctx context.Context, workspaceID 
 	for rows.Next() {
 		var server mcpregistry.Server
 		var config []byte
-		if err := rows.Scan(&server.ID, &server.WorkspaceID, &server.Identifier, &server.Name, &server.Description, &server.Status,
+		var labels []byte
+		if err := rows.Scan(&server.ID, &server.WorkspaceID, &server.AppID, &server.ExternalRef, &labels,
+			&server.Identifier, &server.Name, &server.Description, &server.Status,
 			&server.CurrentVersion, &config, &server.CreatedBy, &server.CreatedAt, &server.UpdatedAt, &server.UsageCount); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		server.Config = cloneRaw(config)
+		server.Labels, err = unmarshalResourceLabels(labels)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
 		servers = append(servers, server)
 	}
 	if err := rows.Close(); err != nil {

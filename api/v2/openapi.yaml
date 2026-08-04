@@ -177,6 +177,15 @@ paths:
   /v2/agents:
     get:
       operationId: get_v2_agents
+      parameters:
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: external_ref
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         "200":
           description: Successful response
@@ -569,6 +578,282 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/application-manifests/publish:
+    post:
+      operationId: post_v2_application_manifests_publish
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishApplicationManifestRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationManifestPublishResult"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/artifact-exchanges/exports:
+    post:
+      operationId: post_v2_artifact_exchanges_exports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateArtifactExportExchangeRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactExchangeGrant"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/artifact-exchanges/imports:
+    post:
+      operationId: post_v2_artifact_exchanges_imports
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateArtifactImportExchangeRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactExchangeGrant"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/artifact-exchanges/{exchange_id}:
+    get:
+      operationId: get_v2_artifact_exchanges_by_exchange_id
+      parameters:
+        - name: exchange_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactExchange"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/artifact-exchanges/{exchange_id}/content:
+    get:
+      operationId: get_v2_artifact_exchanges_by_exchange_id_content
+      parameters:
+        - name: exchange_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: true
+          schema: {type: string}
+        - name: token
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/ArtifactExchangeContent"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: put_v2_artifact_exchanges_by_exchange_id_content
+      parameters:
+        - name: exchange_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: workspace_id
+          in: query
+          required: true
+          schema: {type: string}
+        - name: token
+          in: query
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/ArtifactExchangeContent"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactExchangeImportResult"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "413":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/auth/config:
     get:
       operationId: get_v2_auth_config
@@ -647,6 +932,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/capabilities:
+    get:
+      operationId: get_v2_capabilities
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CapabilityDiscoveryResponse"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/console/context:
     get:
       operationId: get_v2_console_context
@@ -672,6 +973,10 @@ paths:
           in: query
           required: false
           schema: {type: string}
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         "200":
           description: Successful response
@@ -679,6 +984,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnvironmentVariableList"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         default:
           description: API error
           content:
@@ -697,9 +1008,19 @@ paths:
           in: query
           required: false
           schema: {type: string}
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         "204":
           description: Successful response
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         default:
           description: API error
           content:
@@ -717,6 +1038,10 @@ paths:
           in: query
           required: false
           schema: {type: string}
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
       requestBody:
         required: true
         content:
@@ -730,6 +1055,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnvironmentVariable"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         default:
           description: API error
           content:
@@ -739,6 +1070,15 @@ paths:
   /v2/environments:
     get:
       operationId: get_v2_environments
+      parameters:
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: external_ref
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         "200":
           description: Successful response
@@ -1002,6 +1342,374 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EvaluationRubric"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions:
+    get:
+      operationId: get_v2_event_subscriptions
+      parameters:
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscriptionList"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: post_v2_event_subscriptions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventSubscriptionRequest"
+      responses:
+        "201":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedEventSubscription"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions/event-types:
+    get:
+      operationId: get_v2_event_subscriptions_event_types
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventTypeList"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions/{subscription_id}:
+    delete:
+      operationId: delete_v2_event_subscriptions_by_subscription_id
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    get:
+      operationId: get_v2_event_subscriptions_by_subscription_id
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patch_v2_event_subscriptions_by_subscription_id
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEventSubscriptionRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventSubscription"
+        "400":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions/{subscription_id}/deliveries:
+    get:
+      operationId: get_v2_event_subscriptions_by_subscription_id_deliveries
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: status
+          in: query
+          required: false
+          schema: {type: string}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, format: int32}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDeliveryList"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions/{subscription_id}/deliveries/{delivery_id}/replay:
+    post:
+      operationId: post_v2_event_subscriptions_by_subscription_id_deliveries_by_delivery_id_replay
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: delivery_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDelivery"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/event-subscriptions/{subscription_id}/rotate-secret:
+    post:
+      operationId: post_v2_event_subscriptions_by_subscription_id_rotate_secret
+      parameters:
+        - name: subscription_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedEventSubscription"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "501":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
         default:
           description: API error
           content:
@@ -1322,6 +2030,14 @@ paths:
       operationId: get_v2_mcp_servers
       parameters:
         - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: external_ref
           in: query
           required: false
           schema: {type: string}
@@ -1725,6 +2441,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/model-runtime/multimodal/realtime:
+    get:
+      operationId: get_v2_model_runtime_multimodal_realtime
+      responses:
+        "101":
+          description: Successful response
         default:
           description: API error
           content:
@@ -2369,6 +3097,191 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/quota-policies:
+    get:
+      operationId: get_v2_quota_policies
+      parameters:
+        - name: include_archived
+          in: query
+          required: false
+          schema: {type: boolean}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRuntimeQuotaPolicyList"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/quota-policies/applications/{app_id}:
+    delete:
+      operationId: delete_v2_quota_policies_applications_by_app_id
+      parameters:
+        - name: app_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string}
+          description: "Quoted positive resource revision returned by the previous read."
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRuntimeQuotaPolicy"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "412":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: put_v2_quota_policies_applications_by_app_id
+      parameters:
+        - name: app_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: If-Match
+          in: header
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutModelRuntimeQuotaPolicyRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRuntimeQuotaPolicy"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "412":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/quota-policies/effective:
+    get:
+      operationId: get_v2_quota_policies_effective
+      parameters:
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRuntimeQuotaStatus"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/quota-policies/workspace:
+    put:
+      operationId: put_v2_quota_policies_workspace
+      parameters:
+        - name: If-Match
+          in: header
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PutModelRuntimeQuotaPolicyRequest"
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelRuntimeQuotaPolicy"
+        "403":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "412":
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /v2/retrieval/collections:
     get:
       operationId: get_v2_retrieval_collections
@@ -2691,6 +3604,15 @@ paths:
   /v2/sessions:
     get:
       operationId: get_v2_sessions
+      parameters:
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: external_ref
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         "200":
           description: Successful response
@@ -3572,6 +4494,60 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Run"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/runs/{run_id}/attempts:
+    get:
+      operationId: get_v2_sessions_by_session_id_runs_by_run_id_attempts
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunAttemptList"
+        default:
+          description: API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /v2/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id}:
+    get:
+      operationId: get_v2_sessions_by_session_id_runs_by_run_id_attempts_by_attempt_id
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: run_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: attempt_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunAttempt"
         default:
           description: API error
           content:
@@ -4721,6 +5697,14 @@ paths:
       operationId: get_v2_skills
       parameters:
         - name: workspace_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: app_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: external_ref
           in: query
           required: false
           schema: {type: string}
@@ -5915,6 +6899,8 @@ components:
         id: {type: string}
         session_id: {type: string}
         turn_id: {type: string}
+        run_id: {type: string}
+        attempt_id: {type: string}
         seq: {type: integer, format: int64, maximum: 9007199254740991}
         type: {type: string}
         payload: {$ref: "#/components/schemas/DynamicJSONValue"}
@@ -6007,10 +6993,13 @@ components:
         created_at: {type: string, format: date-time}
     Agent:
       type: object
-      required: [id, workspace_id, owner_type, owner_id, visibility, agent_kind, name, current_config_version, config_version, created_at]
+      required: [id, workspace_id, labels, owner_type, owner_id, visibility, agent_kind, name, current_config_version, config_version, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
@@ -6210,6 +7199,9 @@ components:
       required: [name, system]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         environment_id: {type: string}
         owner_type: {type: string, enum: [user, workspace]}
         owner_id: {type: string}
@@ -6240,10 +7232,13 @@ components:
         - {$ref: "#/components/schemas/UpdateAgentRequest"}
     Environment:
       type: object
-      required: [id, workspace_id, name, config, created_at]
+      required: [id, workspace_id, labels, name, config, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         name: {type: string}
         config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
         archived_at: {type: string, format: date-time, nullable: true}
@@ -6258,8 +7253,186 @@ components:
       required: [name, config]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         name: {type: string}
         config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    PublishApplicationManifestRequest:
+      type: object
+      required: [manifest]
+      properties:
+        app_id: {type: string, description: Required for user credentials and bound automatically for application credentials.}
+        manifest: {$ref: "#/components/schemas/ApplicationManifest"}
+    ApplicationManifest:
+      type: object
+      required: [schema_version, revision]
+      properties:
+        schema_version: {type: string, enum: [tma.application-manifest.v1]}
+        revision: {type: string, minLength: 1, maxLength: 128}
+        environments: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestEnvironment"}}
+        skills: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestSkill"}}
+        mcp_servers: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestMCPServer"}}
+        agents: {type: array, maxItems: 100, items: {$ref: "#/components/schemas/ApplicationManifestAgent"}}
+    ApplicationManifestEnvironment:
+      type: object
+      required: [external_ref, name]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        name: {type: string}
+        config: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    ApplicationManifestSkillVersion:
+      type: object
+      properties:
+        content_format: {type: string, enum: [markdown, json, hybrid]}
+        manifest: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        content_text: {type: string}
+        assets: {$ref: "#/components/schemas/DynamicJSONValue"}
+        source_ref: {type: string}
+        source_revision: {type: string}
+        source_url: {type: string}
+    ApplicationManifestSkill:
+      type: object
+      required: [external_ref, identifier, title, version]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        identifier: {type: string}
+        title: {type: string}
+        description: {type: string}
+        source_type: {type: string, enum: [inline, github, artifact, catalog, plugin, builtin]}
+        source_locator: {type: string}
+        source_path: {type: string}
+        version: {$ref: "#/components/schemas/ApplicationManifestSkillVersion"}
+    ApplicationManifestMCPServer:
+      type: object
+      required: [external_ref, identifier, name, config]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        identifier: {type: string}
+        name: {type: string}
+        description: {type: string}
+        config: {$ref: "#/components/schemas/MCPServerConfig"}
+    ApplicationManifestAgent:
+      type: object
+      required: [external_ref, name, llm_model, system]
+      properties:
+        external_ref: {type: string, minLength: 1, maxLength: 256}
+        labels: {type: object, additionalProperties: {type: string}}
+        environment_ref: {type: string}
+        name: {type: string}
+        llm_provider: {type: string}
+        llm_model: {type: string}
+        system: {type: string}
+        tools: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        mcp: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        skills: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    ApplicationManifestResourceResult:
+      type: object
+      required: [type, external_ref, resource_id, status]
+      properties:
+        type: {type: string, enum: [environment, skill, mcp_server, agent]}
+        external_ref: {type: string}
+        resource_id: {type: string}
+        status: {type: string, enum: [created, updated, unchanged]}
+        version: {type: integer, format: int32}
+    ApplicationManifestPublishResult:
+      type: object
+      required: [schema_version, revision, checksum_sha256, resources]
+      properties:
+        schema_version: {type: string, enum: [tma.application-manifest.v1]}
+        revision: {type: string}
+        checksum_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        resources: {type: array, items: {$ref: "#/components/schemas/ApplicationManifestResourceResult"}}
+    EventType:
+      type: string
+      enum: [artifact.created, intervention.required, run.completed, run.failed]
+    EventTypeList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventType"}}
+    EventSubscription:
+      type: object
+      required: [id, workspace_id, app_id, name, endpoint_url, event_types, status, secret_version, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        name: {type: string}
+        endpoint_url: {type: string, format: uri}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+        status: {type: string, enum: [active, disabled]}
+        secret_version: {type: integer, format: int32, minimum: 1}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    EventSubscriptionList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventSubscription"}}
+    CreateEventSubscriptionRequest:
+      type: object
+      required: [name, endpoint_url, event_types]
+      properties:
+        app_id: {type: string, description: Required for user credentials and bound automatically for application credentials.}
+        name: {type: string, minLength: 1, maxLength: 128}
+        endpoint_url: {type: string, format: uri, maxLength: 2048}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+    UpdateEventSubscriptionRequest:
+      type: object
+      required: [name, endpoint_url, event_types, status]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 128}
+        endpoint_url: {type: string, format: uri, maxLength: 2048}
+        event_types: {type: array, minItems: 1, uniqueItems: true, items: {$ref: "#/components/schemas/EventType"}}
+        status: {type: string, enum: [active, disabled]}
+    CreatedEventSubscription:
+      type: object
+      required: [subscription, secret]
+      properties:
+        subscription: {$ref: "#/components/schemas/EventSubscription"}
+        secret: {type: string, writeOnly: true, description: Returned only when a subscription is created or its secret is rotated.}
+    EventEnvelope:
+      type: object
+      required: [schema, event_id, type, occurred_at, workspace_id, app_id, data]
+      properties:
+        schema: {type: string, enum: [tma.event.v1]}
+        event_id: {type: string}
+        type: {$ref: "#/components/schemas/EventType"}
+        occurred_at: {type: string, format: date-time}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        data: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    EventDelivery:
+      type: object
+      required: [id, workspace_id, subscription_id, app_id, source_event_id, event_type, payload, secret_version, status, attempt_count, next_attempt_at, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        subscription_id: {type: string}
+        app_id: {type: string}
+        source_event_id: {type: string}
+        event_type: {$ref: "#/components/schemas/EventType"}
+        payload: {$ref: "#/components/schemas/EventEnvelope"}
+        secret_version: {type: integer, format: int32}
+        status: {type: string, enum: [pending, delivering, delivered, dead_letter]}
+        attempt_count: {type: integer, format: int32}
+        next_attempt_at: {type: string, format: date-time}
+        lease_expires_at: {type: string, format: date-time, nullable: true}
+        last_http_status: {type: integer, format: int32}
+        last_error: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        delivered_at: {type: string, format: date-time, nullable: true}
+    EventDeliveryList:
+      type: object
+      required: [items]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/EventDelivery"}}
     LLMProvider:
       type: object
       required: [id, provider_type, enabled, revision, created_at, updated_at]
@@ -6302,7 +7475,7 @@ components:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech, multimodal_realtime]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
@@ -6326,6 +7499,36 @@ components:
         audio_format: {type: string}
         sample_rate_hz: {type: integer, format: int32, minimum: 8000, maximum: 48000}
         upstream_model: {type: string}
+        realtime: {$ref: "#/components/schemas/LLMRealtimeCapabilities"}
+    LLMRealtimeCapabilities:
+      type: object
+      required: [input_formats, output_modalities, max_input_tracks, max_frame_bytes]
+      properties:
+        input_formats:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: {$ref: "#/components/schemas/LLMRealtimeMediaFormat"}
+        output_modalities:
+          type: array
+          minItems: 1
+          maxItems: 4
+          uniqueItems: true
+          items: {type: string, enum: [text, audio, image, video]}
+        output_formats:
+          type: array
+          maxItems: 32
+          items: {$ref: "#/components/schemas/LLMRealtimeMediaFormat"}
+        max_input_tracks: {type: integer, format: int32, minimum: 1, maximum: 8}
+        max_frame_bytes: {type: integer, format: int32, minimum: 1, maximum: 4194304}
+    LLMRealtimeMediaFormat:
+      type: object
+      required: [kind, content_type, codec]
+      additionalProperties: false
+      properties:
+        kind: {type: string, enum: [audio, image, video]}
+        content_type: {type: string}
+        codec: {type: string}
     LLMModelList:
       type: object
       required: [models]
@@ -6340,17 +7543,53 @@ components:
         context_window_tokens: {type: integer, format: int32}
         capability_type:
           type: string
-          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech]
+          enum: [text, text_image, image_generation, video_generation, embedding, reranker, speech_to_text, text_to_speech, multimodal_realtime]
         capabilities: {$ref: "#/components/schemas/LLMModelCapabilities"}
         is_default_vision: {type: boolean}
         is_default_embedding: {type: boolean}
         is_default_reranker: {type: boolean}
+    ModelImageURL:
+      type: object
+      required: [url]
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 29360128
+          description: Base64 data URL using image/png, image/jpeg, image/webp, or image/gif, or a public HTTPS URL without credentials.
+        detail: {type: string, enum: [auto, low, high]}
+    ModelTextContentPart:
+      type: object
+      required: [type, text]
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [text]}
+        text: {type: string, minLength: 1}
+    ModelImageContentPart:
+      type: object
+      required: [type, image_url]
+      additionalProperties: false
+      properties:
+        type: {type: string, enum: [image_url]}
+        image_url: {$ref: "#/components/schemas/ModelImageURL"}
+    ModelContentPart:
+      oneOf:
+        - {$ref: "#/components/schemas/ModelTextContentPart"}
+        - {$ref: "#/components/schemas/ModelImageContentPart"}
     ModelMessage:
       type: object
       required: [role, content]
+      additionalProperties: false
       properties:
         role: {type: string, enum: [system, user, assistant]}
-        content: {type: string, minLength: 1}
+        content:
+          oneOf:
+            - {type: string, minLength: 1}
+            - type: array
+              minItems: 1
+              maxItems: 256
+              items: {$ref: "#/components/schemas/ModelContentPart"}
     ModelGenerateRequest:
       type: object
       required: [messages]
@@ -6360,6 +7599,7 @@ components:
         messages:
           type: array
           minItems: 1
+          maxItems: 128
           items: {$ref: "#/components/schemas/ModelMessage"}
         max_output_tokens: {type: integer, format: int32, minimum: 1, maximum: 32768}
     ModelUsage:
@@ -6437,7 +7677,7 @@ components:
         model: {type: string}
     ModelInvocation:
       type: object
-      required: [id, workspace_id, principal_id, request_id, capability, provider_id, model, status, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at]
+      required: [id, workspace_id, principal_id, request_id, capability, provider_id, model, status, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, input_video_frames, output_video_frames, input_video_dropped, output_video_dropped, input_video_ms, output_video_ms, latency_ms, started_at, completed_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
@@ -6445,7 +7685,7 @@ components:
         service_identity_id: {type: string}
         auth_type: {type: string}
         request_id: {type: string}
-        capability: {type: string, enum: [generate, embedding, rerank, speech_to_text, text_to_speech]}
+        capability: {type: string, enum: [generate, embedding, rerank, speech_to_text, text_to_speech, multimodal_realtime]}
         provider_id: {type: string}
         provider_type: {type: string}
         model: {type: string}
@@ -6464,12 +7704,18 @@ components:
         output_characters: {type: integer, format: int64, maximum: 9007199254740991}
         input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
         output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
         latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
         started_at: {type: string, format: date-time}
         completed_at: {type: string, format: date-time}
     ModelInvocationSummary:
       type: object
-      required: [record_count, completed_count, failed_count, canceled_count, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, latency_ms]
+      required: [record_count, completed_count, failed_count, canceled_count, input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens, input_items, output_items, input_bytes, output_bytes, input_characters, output_characters, input_audio_ms, output_audio_ms, input_video_frames, output_video_frames, input_video_dropped, output_video_dropped, input_video_ms, output_video_ms, latency_ms]
       properties:
         record_count: {type: integer, format: int64, maximum: 9007199254740991}
         completed_count: {type: integer, format: int64, maximum: 9007199254740991}
@@ -6488,6 +7734,12 @@ components:
         output_characters: {type: integer, format: int64, maximum: 9007199254740991}
         input_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
         output_audio_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_frames: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_dropped: {type: integer, format: int64, maximum: 9007199254740991}
+        input_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
+        output_video_ms: {type: integer, format: int64, maximum: 9007199254740991}
         latency_ms: {type: integer, format: int64, maximum: 9007199254740991}
     ModelInvocationReport:
       type: object
@@ -6601,10 +7853,13 @@ components:
         to: {type: string, format: date-time}
     Session:
       type: object
-      required: [id, workspace_id, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
+      required: [id, workspace_id, labels, owner_id, agent_id, agent_config_version, environment_id, status, runtime_settings_revision, tags, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         owner_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
@@ -6632,6 +7887,9 @@ components:
       type: object
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         owner_id: {type: string}
         agent_id: {type: string}
         environment_id: {type: string}
@@ -6680,6 +7938,7 @@ components:
         session_id: {type: string}
         workspace_id: {type: string}
         owner_id: {type: string}
+        app_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
         environment_id: {type: string}
@@ -6750,21 +8009,44 @@ components:
         changed: {type: boolean}
     Run:
       type: object
-      required: [id, session_id, agent_id, agent_config_version, status, attempt, started_at]
+      required: [id, session_id, turn_id, agent_id, agent_config_version, status, attempt, started_at]
       properties:
         id: {type: string}
         session_id: {type: string}
+        turn_id: {type: string}
         agent_id: {type: string}
         agent_config_version: {type: integer, format: int32}
         status: {type: string, enum: [running, waiting_approval, waiting_human, completed, failed, interrupted]}
         user_event_id: {type: string}
         user_event_seq: {type: integer, format: int64, maximum: 9007199254740991}
         attempt: {type: integer, format: int32}
+        current_attempt_id: {type: string}
         started_at: {type: string, format: date-time}
         ended_at: {type: string, format: date-time, nullable: true}
         interrupt_requested_at: {type: string, format: date-time, nullable: true}
         error_message: {type: string}
         idempotency_key: {type: string}
+    RunAttempt:
+      type: object
+      required: [id, session_id, run_id, attempt_number, status, started_at]
+      properties:
+        id: {type: string}
+        session_id: {type: string}
+        run_id: {type: string}
+        attempt_number: {type: integer, format: int32, minimum: 1}
+        status: {type: string, enum: [running, suspended, completed, failed, interrupted, abandoned]}
+        lease_owner: {type: string}
+        lease_expires_at: {type: string, format: date-time, nullable: true}
+        last_heartbeat_at: {type: string, format: date-time, nullable: true}
+        started_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time, nullable: true}
+        error_message: {type: string}
+        migration_snapshot: {type: boolean}
+    RunAttemptList:
+      type: object
+      required: [attempts]
+      properties:
+        attempts: {type: array, items: {$ref: "#/components/schemas/RunAttempt"}}
     RunList:
       type: object
       required: [runs]
@@ -7214,6 +8496,81 @@ components:
         object_ref: {$ref: "#/components/schemas/ObjectRef"}
         artifact: {$ref: "#/components/schemas/Artifact"}
         workspace_path: {type: string}
+    ArtifactExchange:
+      type: object
+      required: [id, workspace_id, owner_id, direction, status, filename, artifact_type, visibility, max_size_bytes, expires_at, created_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        app_id: {type: string}
+        owner_id: {type: string}
+        direction: {type: string, enum: [import, export]}
+        status: {type: string, enum: [pending, processing, completed, failed, expired]}
+        session_id: {type: string}
+        object_ref_id: {type: string}
+        artifact_id: {type: string}
+        filename: {type: string, maxLength: 512}
+        description: {type: string}
+        artifact_type: {type: string, enum: [file, snapshot, asset]}
+        environment_id: {type: string}
+        turn_id: {type: string}
+        tool_call_id: {type: string}
+        visibility: {type: string, enum: [workspace, session]}
+        content_type: {type: string}
+        expected_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        max_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        expected_checksum_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        expires_at: {type: string, format: date-time}
+        claimed_at: {type: string, format: date-time}
+        completed_at: {type: string, format: date-time}
+        error_message: {type: string}
+        metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        created_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    CreateArtifactImportExchangeRequest:
+      type: object
+      required: [session_id, filename]
+      properties:
+        session_id: {type: string}
+        filename: {type: string, maxLength: 512}
+        description: {type: string}
+        artifact_type: {type: string, enum: [file, snapshot, asset]}
+        environment_id: {type: string}
+        turn_id: {type: string}
+        tool_call_id: {type: string}
+        visibility: {type: string, enum: [workspace, session]}
+        content_type: {type: string}
+        expected_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        max_size_bytes: {type: integer, format: int64, maximum: 9007199254740991}
+        expected_checksum_sha256: {type: string, pattern: '^[0-9a-fA-F]{64}$'}
+        ttl_seconds: {type: integer, format: int64, minimum: 60, maximum: 9007199254740991, description: Must be between 60 and 86400 seconds.}
+        metadata: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+    CreateArtifactExportExchangeRequest:
+      type: object
+      required: [session_id]
+      properties:
+        session_id: {type: string}
+        artifact_id: {type: string, description: Exactly one of artifact_id or object_ref_id is required.}
+        object_ref_id: {type: string, description: Exactly one of artifact_id or object_ref_id is required.}
+        filename: {type: string, maxLength: 512}
+        ttl_seconds: {type: integer, format: int64, minimum: 60, maximum: 9007199254740991, description: Must be between 60 and 86400 seconds.}
+    ArtifactExchangeGrant:
+      type: object
+      required: [exchange, content_url]
+      properties:
+        exchange: {$ref: "#/components/schemas/ArtifactExchange"}
+        content_url: {type: string, description: Relative one-time URL containing the exchange token.}
+    ArtifactExchangeImportResult:
+      type: object
+      required: [exchange, object_ref, artifact]
+      properties:
+        exchange: {$ref: "#/components/schemas/ArtifactExchange"}
+        object_ref: {$ref: "#/components/schemas/ObjectRef"}
+        artifact: {$ref: "#/components/schemas/Artifact"}
+    ArtifactExchangeContent:
+      type: string
+      format: binary
     AchievementLibraryItem:
       type: object
       required: [id, workspace_id, object_ref_id, name, tags, created_by, created_at, updated_at]
@@ -7534,6 +8891,119 @@ components:
       required: [round_number]
       properties:
         round_number: {type: integer, format: int32}
+    CapabilityModel:
+      type: object
+      required: [provider_id, model, capability_type]
+      properties:
+        provider_id: {type: string}
+        model: {type: string}
+        capability_type: {type: string}
+        protocol: {type: string}
+        realtime: {$ref: "#/components/schemas/LLMRealtimeCapabilities"}
+    CapabilityDescriptor:
+      type: object
+      required: [id, version, status, health, providers, updated_at]
+      properties:
+        id: {type: string}
+        version: {type: string}
+        status: {type: string, enum: [available, unavailable]}
+        health: {type: string, enum: [healthy, degraded, unavailable]}
+        providers: {type: array, items: {type: string}}
+        models: {type: array, items: {$ref: "#/components/schemas/CapabilityModel"}}
+        details: {type: object, additionalProperties: true, x-tma-dynamic-json: true}
+        updated_at: {type: string, format: date-time}
+    CapabilityDiscoveryResponse:
+      type: object
+      required: [workspace_id, capabilities, generated_at]
+      properties:
+        workspace_id: {type: string}
+        capabilities: {type: array, items: {$ref: "#/components/schemas/CapabilityDescriptor"}}
+        generated_at: {type: string, format: date-time}
+    ModelRuntimeQuotaPolicyConfig:
+      type: object
+      properties:
+        model_workspace_requests_per_minute: {type: integer, format: int32, minimum: 0}
+        model_identity_requests_per_minute: {type: integer, format: int32, minimum: 0}
+        speech_workspace_sessions_per_minute: {type: integer, format: int32, minimum: 0}
+        speech_identity_sessions_per_minute: {type: integer, format: int32, minimum: 0}
+        monthly_model_request_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        monthly_speech_session_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        alert_threshold_percent: {type: integer, format: int32, minimum: 1, maximum: 100}
+    PutModelRuntimeQuotaPolicyRequest:
+      type: object
+      required: [plan, config]
+      properties:
+        plan: {type: string}
+        config: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicyConfig"}
+    ModelRuntimeQuotaPolicy:
+      type: object
+      required: [id, workspace_id, scope, plan, config, status, revision, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: {type: string}
+        workspace_id: {type: string}
+        scope: {type: string, enum: [workspace, application]}
+        app_id: {type: string}
+        plan: {type: string}
+        config: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicyConfig"}
+        status: {type: string, enum: [active, archived]}
+        revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        created_by: {type: string}
+        updated_by: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        archived_at: {type: string, format: date-time}
+    ModelRuntimeQuotaPolicyList:
+      type: object
+      required: [policies]
+      properties:
+        policies: {type: array, items: {$ref: "#/components/schemas/ModelRuntimeQuotaPolicy"}}
+    ModelRuntimeQuotaLimits:
+      type: object
+      required: [model_workspace_requests_per_minute, model_identity_requests_per_minute, speech_workspace_sessions_per_minute, speech_identity_sessions_per_minute]
+      properties:
+        model_workspace_requests_per_minute: {type: integer, format: int32}
+        model_identity_requests_per_minute: {type: integer, format: int32}
+        speech_workspace_sessions_per_minute: {type: integer, format: int32}
+        speech_identity_sessions_per_minute: {type: integer, format: int32}
+    EffectiveModelRuntimeQuotaPolicy:
+      type: object
+      required: [workspace_id, plan, limits, monthly_model_request_budget, monthly_speech_session_budget, alert_threshold_percent]
+      properties:
+        workspace_id: {type: string}
+        app_id: {type: string}
+        workspace_policy_id: {type: string}
+        application_policy_id: {type: string}
+        workspace_policy_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        application_policy_revision: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+        plan: {type: string}
+        limits: {$ref: "#/components/schemas/ModelRuntimeQuotaLimits"}
+        monthly_model_request_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        monthly_speech_session_budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        alert_threshold_percent: {type: integer, format: int32}
+    ModelRuntimeQuotaUsage:
+      type: object
+      required: [period_started_at, period_ends_at, model_requests, speech_sessions]
+      properties:
+        period_started_at: {type: string, format: date-time}
+        period_ends_at: {type: string, format: date-time}
+        model_requests: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        speech_sessions: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+    ModelRuntimeQuotaAlert:
+      type: object
+      required: [metric, status, consumed, budget, threshold_percent]
+      properties:
+        metric: {type: string}
+        status: {type: string, enum: [warning, exceeded]}
+        consumed: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        budget: {type: integer, format: int64, minimum: 0, maximum: 9007199254740991}
+        threshold_percent: {type: integer, format: int32}
+    ModelRuntimeQuotaStatus:
+      type: object
+      required: [policy, usage, alerts]
+      properties:
+        policy: {$ref: "#/components/schemas/EffectiveModelRuntimeQuotaPolicy"}
+        usage: {$ref: "#/components/schemas/ModelRuntimeQuotaUsage"}
+        alerts: {type: array, items: {$ref: "#/components/schemas/ModelRuntimeQuotaAlert"}}
     BinaryContent:
       type: string
       format: binary
@@ -8182,10 +9652,13 @@ components:
         actions: {type: array, items: {type: string}}
     Skill:
       type: object
-      required: [id, workspace_id, identifier, title, owner_type, owner_id, visibility, source_type, status, created_by, created_at]
+      required: [id, workspace_id, labels, identifier, title, owner_type, owner_id, visibility, source_type, status, created_by, created_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
@@ -8212,6 +9685,9 @@ components:
       required: [identifier, title]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         title: {type: string}
         description: {type: string}
@@ -9142,6 +10618,9 @@ components:
       additionalProperties: false
       properties:
         name: {type: string, minLength: 1, maxLength: 200}
+    ServiceIdentityScope:
+      type: string
+      enum: [applications:publish, agents:read, agents:write, artifacts:read, artifacts:write, capabilities:read, environments:read, environments:write, evaluations:read, evaluations:write, events:manage, mcp:read, mcp:write, model:embedding, model:generate, model:realtime, model:rerank, quota:read, quota:write, retrieval:read, retrieval:write, secrets:read, secrets:write, sessions:read, sessions:write, skills:read, skills:write, speech:realtime]
     ServiceIdentity:
       type: object
       required: [id, workspace_id, kind, name, role, scopes, status, created_by, created_at, updated_at]
@@ -9152,7 +10631,7 @@ components:
         name: {type: string}
         description: {type: string}
         role: {type: string, enum: [viewer, member, operator]}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
         status: {type: string, enum: [active, disabled]}
         created_by: {type: string}
         created_at: {type: string, format: date-time}
@@ -9166,7 +10645,7 @@ components:
       type: object
       required: [scopes]
       properties:
-        scopes: {type: array, items: {type: string}}
+        scopes: {type: array, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
     CreateServiceIdentityRequest:
       type: object
       required: [name, scopes]
@@ -9175,7 +10654,7 @@ components:
         name: {type: string, minLength: 1, maxLength: 120}
         description: {type: string, maxLength: 1000}
         role: {type: string, enum: [viewer, member, operator], default: member}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
     UpdateServiceIdentityRequest:
       type: object
       minProperties: 1
@@ -9183,7 +10662,7 @@ components:
         name: {type: string, minLength: 1, maxLength: 120}
         description: {type: string, maxLength: 1000}
         role: {type: string, enum: [viewer, member, operator]}
-        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {type: string}}
+        scopes: {type: array, minItems: 1, maxItems: 32, uniqueItems: true, items: {$ref: "#/components/schemas/ServiceIdentityScope"}}
         status: {type: string, enum: [active, disabled]}
     ServiceCredential:
       type: object
@@ -9264,7 +10743,8 @@ components:
       properties:
         name: {type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]*$", maxLength: 128}
         configured: {type: boolean}
-        scope: {type: string, enum: [personal, workspace]}
+        scope: {type: string, enum: [application, personal, workspace]}
+        app_id: {type: string, description: Present only for application-scoped secret references.}
         editable: {type: boolean}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -9437,10 +10917,13 @@ components:
         _registry: {$ref: "#/components/schemas/MCPRegistrySource"}
     MCPServer:
       type: object
-      required: [id, workspace_id, identifier, name, status, current_version, config, usage_count, created_at, updated_at]
+      required: [id, workspace_id, labels, identifier, name, status, current_version, config, usage_count, created_at, updated_at]
       properties:
         id: {type: string}
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         name: {type: string}
         description: {type: string}
@@ -9461,6 +10944,9 @@ components:
       required: [identifier, name, config]
       properties:
         workspace_id: {type: string}
+        app_id: {type: string}
+        external_ref: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
         identifier: {type: string}
         name: {type: string}
         description: {type: string}

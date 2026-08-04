@@ -55,7 +55,7 @@ export class MCPService extends ServiceBase {
 }
 
 function serversPath(query: MCPServerQuery): string {
-  return withQuery("/v2/mcp-servers", { workspace_id: query.workspaceId });
+  return withQuery("/v2/mcp-servers", { workspace_id: query.workspaceId, app_id: query.appId, external_ref: query.externalRef });
 }
 
 function serverPath(serverId: string): string {

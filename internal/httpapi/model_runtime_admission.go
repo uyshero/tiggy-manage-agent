@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	modelRuntimeFamilyModel  = "model"
-	modelRuntimeFamilySpeech = "speech"
+	modelRuntimeFamilyModel      = "model"
+	modelRuntimeFamilySpeech     = "speech"
+	modelRuntimeFamilyMultimodal = "multimodal"
 )
 
 type ModelRuntimePolicy struct {
@@ -75,8 +76,11 @@ func (e *modelRuntimeAdmissionError) Error() string {
 
 func (e *modelRuntimeAdmissionError) code(family string) string {
 	prefix := "model"
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		prefix = "speech"
+	}
+	if family == modelRuntimeFamilyMultimodal {
+		prefix = "multimodal"
 	}
 	return prefix + "_" + e.kind + "_exceeded"
 }
@@ -205,35 +209,35 @@ func (a *modelRuntimeAdmission) reserveLocalQuota(request modelRuntimeAdmissionR
 }
 
 func (a *modelRuntimeAdmission) globalConcurrency(family string) int {
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		return a.policy.SpeechGlobalConcurrency
 	}
 	return a.policy.ModelGlobalConcurrency
 }
 
 func (a *modelRuntimeAdmission) workspaceConcurrency(family string) int {
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		return a.policy.SpeechWorkspaceConcurrency
 	}
 	return a.policy.ModelWorkspaceConcurrency
 }
 
 func (a *modelRuntimeAdmission) identityConcurrency(family string) int {
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		return a.policy.SpeechIdentityConcurrency
 	}
 	return a.policy.ModelIdentityConcurrency
 }
 
 func (a *modelRuntimeAdmission) routeConcurrency(family string) int {
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		return a.policy.SpeechRouteConcurrency
 	}
 	return a.policy.ModelRouteConcurrency
 }
 
 func (a *modelRuntimeAdmission) quotaLimits(family string) (int, int) {
-	if family == modelRuntimeFamilySpeech {
+	if modelRuntimeSessionFamily(family) {
 		return a.policy.SpeechWorkspaceSessionsPerMinute, a.policy.SpeechIdentitySessionsPerMinute
 	}
 	return a.policy.ModelWorkspaceRequestsPerMinute, a.policy.ModelIdentityRequestsPerMinute
@@ -247,7 +251,11 @@ func (s *Server) admitModelRuntime(ctx context.Context, request modelRuntimeAdmi
 	if err != nil {
 		return nil, err
 	}
-	workspaceLimit, identityLimit := s.modelRuntimeAdmission.quotaLimits(request.Family)
+	workspaceLimit, identityLimit, err := s.effectiveModelRuntimeQuotaLimits(ctx, request)
+	if err != nil {
+		release()
+		return nil, err
+	}
 	if workspaceLimit == 0 && identityLimit == 0 {
 		return release, nil
 	}
@@ -275,12 +283,58 @@ func (s *Server) admitModelRuntime(ctx context.Context, request modelRuntimeAdmi
 	return release, nil
 }
 
+func (s *Server) effectiveModelRuntimeQuotaLimits(ctx context.Context, request modelRuntimeAdmissionRequest) (int, int, error) {
+	effective, err := s.effectiveModelRuntimeQuotaPolicy(ctx, request.WorkspaceID, request.ServiceIdentityID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if modelRuntimeSessionFamily(request.Family) {
+		return effective.Limits.SpeechWorkspaceSessionsPerMinute, effective.Limits.SpeechIdentitySessionsPerMinute, nil
+	}
+	return effective.Limits.ModelWorkspaceRequestsPerMinute, effective.Limits.ModelIdentityRequestsPerMinute, nil
+}
+
+func (s *Server) effectiveModelRuntimeQuotaPolicy(ctx context.Context, workspaceID, appID string) (managedagents.EffectiveModelRuntimeQuotaPolicy, error) {
+	modelWorkspace, modelIdentity := s.modelRuntimeAdmission.quotaLimits(modelRuntimeFamilyModel)
+	speechWorkspace, speechIdentity := s.modelRuntimeAdmission.quotaLimits(modelRuntimeFamilySpeech)
+	defaults := managedagents.ModelRuntimeQuotaLimits{
+		ModelWorkspaceRequestsPerMinute: modelWorkspace, ModelIdentityRequestsPerMinute: modelIdentity,
+		SpeechWorkspaceSessionsPerMinute: speechWorkspace, SpeechIdentitySessionsPerMinute: speechIdentity,
+	}
+	store, ok := s.store.(managedagents.ModelRuntimeQuotaPolicyStore)
+	if !ok {
+		return managedagents.EffectiveModelRuntimeQuota(defaults, workspaceID, appID, nil, nil), nil
+	}
+	var workspacePolicy, applicationPolicy *managedagents.ModelRuntimeQuotaPolicy
+	policy, err := store.GetModelRuntimeQuotaPolicyContext(ctx, workspaceID, managedagents.ModelRuntimeQuotaScopeWorkspace, "")
+	if err == nil && policy.Status == managedagents.ModelRuntimeQuotaPolicyStatusActive {
+		workspace := policy
+		workspacePolicy = &workspace
+	} else if err != nil && !errors.Is(err, managedagents.ErrNotFound) {
+		return managedagents.EffectiveModelRuntimeQuotaPolicy{}, fmt.Errorf("resolve workspace model runtime quota policy: %w", err)
+	}
+	if appID != "" {
+		policy, err = store.GetModelRuntimeQuotaPolicyContext(ctx, workspaceID, managedagents.ModelRuntimeQuotaScopeApplication, appID)
+		if err == nil && policy.Status == managedagents.ModelRuntimeQuotaPolicyStatusActive {
+			application := policy
+			applicationPolicy = &application
+		} else if err != nil && !errors.Is(err, managedagents.ErrNotFound) {
+			return managedagents.EffectiveModelRuntimeQuotaPolicy{}, fmt.Errorf("resolve application model runtime quota policy: %w", err)
+		}
+	}
+	return managedagents.EffectiveModelRuntimeQuota(defaults, workspaceID, appID, workspacePolicy, applicationPolicy), nil
+}
+
 func modelRuntimeAdmissionRequestFromInvocation(family string, invocation managedagents.RecordModelInvocationInput) modelRuntimeAdmissionRequest {
 	return modelRuntimeAdmissionRequest{
 		Family: family, WorkspaceID: invocation.WorkspaceID, PrincipalID: invocation.PrincipalID,
 		ServiceIdentityID: invocation.ServiceIdentityID, Capability: invocation.Capability,
 		ProviderID: invocation.ProviderID, Model: invocation.Model,
 	}
+}
+
+func modelRuntimeSessionFamily(family string) bool {
+	return family == modelRuntimeFamilySpeech || family == modelRuntimeFamilyMultimodal
 }
 
 func (s *Server) writeModelRuntimeAdmissionError(w http.ResponseWriter, r *http.Request, family string, err error) {

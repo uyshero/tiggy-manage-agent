@@ -79,6 +79,11 @@ type AuthConfig struct {
 	WorkerToken             string
 	WorkerWorkspaceID       string
 	AuthorizationSink       observability.AuthorizationDecisionSink
+	WebhookSigningKey       string
+	WebhookAllowHTTP        bool
+	WebhookAllowPrivate     bool
+	WebhookAllowedHosts     []string
+	WebhookAllowedCIDRs     []string
 }
 
 type Principal struct {
@@ -1156,7 +1161,15 @@ func isPublicRequest(r *http.Request) bool {
 		path == "/inspector" || path == "/space" || strings.HasPrefix(path, "/share/") || strings.HasPrefix(path, "/auth/") ||
 		strings.HasPrefix(path, "/app/assets/") || strings.HasPrefix(path, "/console/assets/") || strings.HasPrefix(path, "/inspector/assets/") ||
 		strings.HasPrefix(path, "/space/assets/") || strings.HasPrefix(path, "/knowledge/assets/") ||
-		strings.HasPrefix(path, "/v2/public/knowledge-shares/")
+		strings.HasPrefix(path, "/v2/public/knowledge-shares/") || isPublicArtifactExchangeContentRequest(r)
+}
+
+func isPublicArtifactExchangeContentRequest(r *http.Request) bool {
+	if r == nil || r.Method != http.MethodGet && r.Method != http.MethodPut {
+		return false
+	}
+	segments := splitRequestPath(r.URL.Path)
+	return len(segments) == 4 && segments[0] == "v2" && segments[1] == "artifact-exchanges" && segments[2] != "" && segments[3] == "content"
 }
 
 func (s *Server) shouldRedirectUnauthenticatedToLogin(r *http.Request) bool {

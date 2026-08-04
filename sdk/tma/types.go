@@ -13,32 +13,43 @@ const (
 	RunStatusInterrupted     = "interrupted"
 )
 
+type ApplicationResourceQuery struct {
+	AppID       string
+	ExternalRef string
+}
+
 type Session struct {
-	ID                      string          `json:"id"`
-	WorkspaceID             string          `json:"workspace_id"`
-	OwnerID                 string          `json:"owner_id"`
-	AgentID                 string          `json:"agent_id"`
-	AgentConfigVersion      int             `json:"agent_config_version"`
-	EnvironmentID           string          `json:"environment_id"`
-	ParentSessionID         string          `json:"parent_session_id,omitempty"`
-	ParentTurnID            string          `json:"parent_turn_id,omitempty"`
-	SpawnDepth              int             `json:"spawn_depth,omitempty"`
-	Status                  string          `json:"status"`
-	Title                   string          `json:"title,omitempty"`
-	SandboxID               string          `json:"sandbox_id,omitempty"`
-	RuntimeSettings         json.RawMessage `json:"runtime_settings,omitempty"`
-	RuntimeSettingsRevision int64           `json:"runtime_settings_revision"`
-	PinnedAt                *time.Time      `json:"pinned_at"`
-	Tags                    []string        `json:"tags"`
-	SummaryText             string          `json:"summary_text,omitempty"`
-	CreatedBy               string          `json:"created_by"`
-	CreatedAt               time.Time       `json:"created_at"`
-	ArchivedAt              *time.Time      `json:"archived_at,omitempty"`
+	ID                      string            `json:"id"`
+	WorkspaceID             string            `json:"workspace_id"`
+	AppID                   string            `json:"app_id,omitempty"`
+	ExternalRef             string            `json:"external_ref,omitempty"`
+	Labels                  map[string]string `json:"labels"`
+	OwnerID                 string            `json:"owner_id"`
+	AgentID                 string            `json:"agent_id"`
+	AgentConfigVersion      int               `json:"agent_config_version"`
+	EnvironmentID           string            `json:"environment_id"`
+	ParentSessionID         string            `json:"parent_session_id,omitempty"`
+	ParentTurnID            string            `json:"parent_turn_id,omitempty"`
+	SpawnDepth              int               `json:"spawn_depth,omitempty"`
+	Status                  string            `json:"status"`
+	Title                   string            `json:"title,omitempty"`
+	SandboxID               string            `json:"sandbox_id,omitempty"`
+	RuntimeSettings         json.RawMessage   `json:"runtime_settings,omitempty"`
+	RuntimeSettingsRevision int64             `json:"runtime_settings_revision"`
+	PinnedAt                *time.Time        `json:"pinned_at"`
+	Tags                    []string          `json:"tags"`
+	SummaryText             string            `json:"summary_text,omitempty"`
+	CreatedBy               string            `json:"created_by"`
+	CreatedAt               time.Time         `json:"created_at"`
+	ArchivedAt              *time.Time        `json:"archived_at,omitempty"`
 }
 
 type Agent struct {
 	ID                   string             `json:"id"`
 	WorkspaceID          string             `json:"workspace_id"`
+	AppID                string             `json:"app_id,omitempty"`
+	ExternalRef          string             `json:"external_ref,omitempty"`
+	Labels               map[string]string  `json:"labels"`
 	EnvironmentID        string             `json:"environment_id,omitempty"`
 	OwnerType            string             `json:"owner_type"`
 	OwnerID              string             `json:"owner_id"`
@@ -63,20 +74,23 @@ type AgentConfigVersion struct {
 }
 
 type CreateAgentRequest struct {
-	WorkspaceID   string          `json:"workspace_id,omitempty"`
-	EnvironmentID string          `json:"environment_id,omitempty"`
-	OwnerType     string          `json:"owner_type,omitempty"`
-	OwnerID       string          `json:"owner_id,omitempty"`
-	Visibility    string          `json:"visibility,omitempty"`
-	AgentKind     string          `json:"agent_kind,omitempty"`
-	Name          string          `json:"name"`
-	LLMProvider   string          `json:"llm_provider,omitempty"`
-	LLMModel      string          `json:"llm_model,omitempty"`
-	Model         string          `json:"model,omitempty"`
-	System        string          `json:"system"`
-	Tools         json.RawMessage `json:"tools,omitempty"`
-	MCP           json.RawMessage `json:"mcp,omitempty"`
-	Skills        json.RawMessage `json:"skills,omitempty"`
+	WorkspaceID   string            `json:"workspace_id,omitempty"`
+	AppID         string            `json:"app_id,omitempty"`
+	ExternalRef   string            `json:"external_ref,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	EnvironmentID string            `json:"environment_id,omitempty"`
+	OwnerType     string            `json:"owner_type,omitempty"`
+	OwnerID       string            `json:"owner_id,omitempty"`
+	Visibility    string            `json:"visibility,omitempty"`
+	AgentKind     string            `json:"agent_kind,omitempty"`
+	Name          string            `json:"name"`
+	LLMProvider   string            `json:"llm_provider,omitempty"`
+	LLMModel      string            `json:"llm_model,omitempty"`
+	Model         string            `json:"model,omitempty"`
+	System        string            `json:"system"`
+	Tools         json.RawMessage   `json:"tools,omitempty"`
+	MCP           json.RawMessage   `json:"mcp,omitempty"`
+	Skills        json.RawMessage   `json:"skills,omitempty"`
 }
 
 // UpdateAgentRequest uses pointers so an omitted field is distinct from an
@@ -104,18 +118,24 @@ type CreateAgentConfigVersionRequest struct {
 }
 
 type Environment struct {
-	ID          string          `json:"id"`
-	WorkspaceID string          `json:"workspace_id"`
-	Name        string          `json:"name"`
-	Config      json.RawMessage `json:"config"`
-	ArchivedAt  *time.Time      `json:"archived_at,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID          string            `json:"id"`
+	WorkspaceID string            `json:"workspace_id"`
+	AppID       string            `json:"app_id,omitempty"`
+	ExternalRef string            `json:"external_ref,omitempty"`
+	Labels      map[string]string `json:"labels"`
+	Name        string            `json:"name"`
+	Config      json.RawMessage   `json:"config"`
+	ArchivedAt  *time.Time        `json:"archived_at,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
 }
 
 type CreateEnvironmentRequest struct {
-	WorkspaceID string          `json:"workspace_id,omitempty"`
-	Name        string          `json:"name"`
-	Config      json.RawMessage `json:"config"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	AppID       string            `json:"app_id,omitempty"`
+	ExternalRef string            `json:"external_ref,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Name        string            `json:"name"`
+	Config      json.RawMessage   `json:"config"`
 }
 
 type LLMProvider struct {
@@ -159,17 +179,32 @@ type LLMModel struct {
 }
 
 type LLMModelCapabilities struct {
-	Dimensions     int    `json:"dimensions,omitempty"`
-	DistanceMetric string `json:"distance_metric,omitempty"`
-	Normalized     bool   `json:"normalized"`
-	MaxBatchSize   int    `json:"max_batch_size,omitempty"`
-	MaxCandidates  int    `json:"max_candidates,omitempty"`
-	Protocol       string `json:"protocol,omitempty"`
-	ResourceID     string `json:"resource_id,omitempty"`
-	DefaultVoice   string `json:"default_voice,omitempty"`
-	AudioFormat    string `json:"audio_format,omitempty"`
-	SampleRateHz   int    `json:"sample_rate_hz,omitempty"`
-	UpstreamModel  string `json:"upstream_model,omitempty"`
+	Dimensions     int                      `json:"dimensions,omitempty"`
+	DistanceMetric string                   `json:"distance_metric,omitempty"`
+	Normalized     bool                     `json:"normalized"`
+	MaxBatchSize   int                      `json:"max_batch_size,omitempty"`
+	MaxCandidates  int                      `json:"max_candidates,omitempty"`
+	Protocol       string                   `json:"protocol,omitempty"`
+	ResourceID     string                   `json:"resource_id,omitempty"`
+	DefaultVoice   string                   `json:"default_voice,omitempty"`
+	AudioFormat    string                   `json:"audio_format,omitempty"`
+	SampleRateHz   int                      `json:"sample_rate_hz,omitempty"`
+	UpstreamModel  string                   `json:"upstream_model,omitempty"`
+	Realtime       *LLMRealtimeCapabilities `json:"realtime,omitempty"`
+}
+
+type LLMRealtimeCapabilities struct {
+	InputFormats     []LLMRealtimeMediaFormat `json:"input_formats"`
+	OutputModalities []string                 `json:"output_modalities"`
+	OutputFormats    []LLMRealtimeMediaFormat `json:"output_formats,omitempty"`
+	MaxInputTracks   int                      `json:"max_input_tracks"`
+	MaxFrameBytes    int64                    `json:"max_frame_bytes"`
+}
+
+type LLMRealtimeMediaFormat struct {
+	Kind        string `json:"kind"`
+	ContentType string `json:"content_type"`
+	Codec       string `json:"codec"`
 }
 
 type PutLLMModelRequest struct {
@@ -231,14 +266,17 @@ type LLMUsageQueryResult struct {
 }
 
 type CreateSessionRequest struct {
-	WorkspaceID     string `json:"workspace_id,omitempty"`
-	OwnerID         string `json:"owner_id,omitempty"`
-	AgentID         string `json:"agent_id,omitempty"`
-	EnvironmentID   string `json:"environment_id,omitempty"`
-	Title           string `json:"title,omitempty"`
-	CreatedBy       string `json:"created_by,omitempty"`
-	ParentSessionID string `json:"parent_session_id,omitempty"`
-	ParentTurnID    string `json:"parent_turn_id,omitempty"`
+	WorkspaceID     string            `json:"workspace_id,omitempty"`
+	AppID           string            `json:"app_id,omitempty"`
+	ExternalRef     string            `json:"external_ref,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	OwnerID         string            `json:"owner_id,omitempty"`
+	AgentID         string            `json:"agent_id,omitempty"`
+	EnvironmentID   string            `json:"environment_id,omitempty"`
+	Title           string            `json:"title,omitempty"`
+	CreatedBy       string            `json:"created_by,omitempty"`
+	ParentSessionID string            `json:"parent_session_id,omitempty"`
+	ParentTurnID    string            `json:"parent_turn_id,omitempty"`
 }
 
 type UpdateSessionRuntimeSettingsRequest struct {
@@ -296,6 +334,8 @@ type Event struct {
 	ID        string          `json:"id"`
 	SessionID string          `json:"session_id"`
 	TurnID    string          `json:"turn_id,omitempty"`
+	RunID     string          `json:"run_id,omitempty"`
+	AttemptID string          `json:"attempt_id,omitempty"`
 	Seq       int64           `json:"seq"`
 	Type      string          `json:"type"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
@@ -321,17 +361,34 @@ type AppendEventsResult struct {
 type Run struct {
 	ID                   string     `json:"id"`
 	SessionID            string     `json:"session_id"`
+	TurnID               string     `json:"turn_id"`
 	AgentID              string     `json:"agent_id"`
 	AgentConfigVersion   int32      `json:"agent_config_version"`
 	Status               string     `json:"status"`
 	UserEventID          string     `json:"user_event_id,omitempty"`
 	UserEventSeq         int64      `json:"user_event_seq,omitempty"`
 	Attempt              int32      `json:"attempt"`
+	CurrentAttemptID     string     `json:"current_attempt_id,omitempty"`
 	StartedAt            time.Time  `json:"started_at"`
 	EndedAt              *time.Time `json:"ended_at,omitempty"`
 	InterruptRequestedAt *time.Time `json:"interrupt_requested_at,omitempty"`
 	ErrorMessage         string     `json:"error_message,omitempty"`
 	IdempotencyKey       string     `json:"idempotency_key,omitempty"`
+}
+
+type RunAttempt struct {
+	ID                string     `json:"id"`
+	SessionID         string     `json:"session_id"`
+	RunID             string     `json:"run_id"`
+	AttemptNumber     int32      `json:"attempt_number"`
+	Status            string     `json:"status"`
+	LeaseOwner        string     `json:"lease_owner,omitempty"`
+	LeaseExpiresAt    *time.Time `json:"lease_expires_at,omitempty"`
+	LastHeartbeatAt   *time.Time `json:"last_heartbeat_at,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	ErrorMessage      string     `json:"error_message,omitempty"`
+	MigrationSnapshot bool       `json:"migration_snapshot,omitempty"`
 }
 
 type StartRunRequest struct {
@@ -529,6 +586,73 @@ type ArtifactUpload struct {
 	ObjectRef     ObjectRef `json:"object_ref"`
 	Artifact      Artifact  `json:"artifact"`
 	WorkspacePath string    `json:"workspace_path,omitempty"`
+}
+
+type ArtifactExchange struct {
+	ID                     string          `json:"id"`
+	WorkspaceID            string          `json:"workspace_id"`
+	AppID                  string          `json:"app_id,omitempty"`
+	OwnerID                string          `json:"owner_id"`
+	Direction              string          `json:"direction"`
+	Status                 string          `json:"status"`
+	SessionID              string          `json:"session_id,omitempty"`
+	ObjectRefID            string          `json:"object_ref_id,omitempty"`
+	ArtifactID             string          `json:"artifact_id,omitempty"`
+	Filename               string          `json:"filename"`
+	Description            string          `json:"description,omitempty"`
+	ArtifactType           string          `json:"artifact_type"`
+	EnvironmentID          string          `json:"environment_id,omitempty"`
+	TurnID                 string          `json:"turn_id,omitempty"`
+	ToolCallID             string          `json:"tool_call_id,omitempty"`
+	Visibility             string          `json:"visibility"`
+	ContentType            string          `json:"content_type,omitempty"`
+	ExpectedSizeBytes      *int64          `json:"expected_size_bytes,omitempty"`
+	MaxSizeBytes           int64           `json:"max_size_bytes"`
+	ExpectedChecksumSHA256 string          `json:"expected_checksum_sha256,omitempty"`
+	ExpiresAt              time.Time       `json:"expires_at"`
+	ClaimedAt              *time.Time      `json:"claimed_at,omitempty"`
+	CompletedAt            *time.Time      `json:"completed_at,omitempty"`
+	ErrorMessage           string          `json:"error_message,omitempty"`
+	Metadata               json.RawMessage `json:"metadata,omitempty"`
+	CreatedBy              string          `json:"created_by"`
+	CreatedAt              time.Time       `json:"created_at"`
+	UpdatedAt              time.Time       `json:"updated_at"`
+}
+
+type CreateArtifactImportExchangeRequest struct {
+	SessionID              string          `json:"session_id"`
+	Filename               string          `json:"filename"`
+	Description            string          `json:"description,omitempty"`
+	ArtifactType           string          `json:"artifact_type,omitempty"`
+	EnvironmentID          string          `json:"environment_id,omitempty"`
+	TurnID                 string          `json:"turn_id,omitempty"`
+	ToolCallID             string          `json:"tool_call_id,omitempty"`
+	Visibility             string          `json:"visibility,omitempty"`
+	ContentType            string          `json:"content_type,omitempty"`
+	ExpectedSizeBytes      *int64          `json:"expected_size_bytes,omitempty"`
+	MaxSizeBytes           *int64          `json:"max_size_bytes,omitempty"`
+	ExpectedChecksumSHA256 string          `json:"expected_checksum_sha256,omitempty"`
+	TTLSeconds             int64           `json:"ttl_seconds,omitempty"`
+	Metadata               json.RawMessage `json:"metadata,omitempty"`
+}
+
+type CreateArtifactExportExchangeRequest struct {
+	SessionID   string `json:"session_id"`
+	ArtifactID  string `json:"artifact_id,omitempty"`
+	ObjectRefID string `json:"object_ref_id,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	TTLSeconds  int64  `json:"ttl_seconds,omitempty"`
+}
+
+type ArtifactExchangeGrant struct {
+	Exchange   ArtifactExchange `json:"exchange"`
+	ContentURL string           `json:"content_url"`
+}
+
+type ArtifactExchangeImportResult struct {
+	Exchange  ArtifactExchange `json:"exchange"`
+	ObjectRef ObjectRef        `json:"object_ref"`
+	Artifact  Artifact         `json:"artifact"`
 }
 
 func TextInput(text string) json.RawMessage {

@@ -107,6 +107,12 @@ func mcpServersPath(query MCPServerQuery) string {
 	if query.WorkspaceID != "" {
 		values.Set("workspace_id", query.WorkspaceID)
 	}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if query.ExternalRef != "" {
+		values.Set("external_ref", query.ExternalRef)
+	}
 	if len(values) == 0 {
 		return "/v2/mcp-servers"
 	}
@@ -222,16 +228,30 @@ func (s *EnvironmentVariablesService) Delete(ctx context.Context, name string, q
 
 func environmentVariablesPath(query EnvironmentVariableQuery) string {
 	path := "/v2/environment-variables"
+	values := url.Values{}
 	if query.WorkspaceID != "" {
-		path += "?workspace_id=" + url.QueryEscape(query.WorkspaceID)
+		values.Set("workspace_id", query.WorkspaceID)
+	}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 	return path
 }
 
 func environmentVariablePath(name string, query EnvironmentVariableQuery) string {
 	path := "/v2/environment-variables/" + url.PathEscape(name)
+	values := url.Values{}
 	if query.WorkspaceID != "" {
-		path += "?workspace_id=" + url.QueryEscape(query.WorkspaceID)
+		values.Set("workspace_id", query.WorkspaceID)
+	}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
 	}
 	return path
 }

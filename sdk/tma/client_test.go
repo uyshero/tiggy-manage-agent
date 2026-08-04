@@ -39,6 +39,49 @@ func TestClientInjectsTokenAndDecodesV2Error(t *testing.T) {
 	}
 }
 
+func TestQuotaPoliciesServiceUsesRevisionHeadersAndEscapesApplicationID(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.EscapedPath() != "/v2/quota-policies/applications/app%2Fone" {
+			t.Fatalf("unexpected quota policy path %q", r.URL.EscapedPath())
+		}
+		switch r.Method {
+		case http.MethodPut:
+			if r.Header.Get("If-Match") != `"3"` {
+				t.Fatalf("put If-Match = %q", r.Header.Get("If-Match"))
+			}
+		case http.MethodDelete:
+			if r.Header.Get("If-Match") != `"4"` {
+				t.Fatalf("delete If-Match = %q", r.Header.Get("If-Match"))
+			}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, `{"id":"policy_1","workspace_id":"wksp","scope":"application","app_id":"app/one","plan":"pro","config":{"model_identity_requests_per_minute":20},"status":"active","revision":4,"created_by":"admin","updated_by":"admin","created_at":"2026-08-01T00:00:00Z","updated_at":"2026-08-01T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	client, err := NewClient(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit := int32(20)
+	policy, err := client.QuotaPolicies.PutApplication(t.Context(), "app/one", PutModelRuntimeQuotaPolicyRequest{
+		Plan: "pro", Config: ModelRuntimeQuotaPolicyConfig{ModelIdentityRequestsPerMinute: &limit},
+	}, 3)
+	if err != nil || policy.Revision != 4 {
+		t.Fatalf("put quota policy: policy=%+v err=%v", policy, err)
+	}
+	if _, err := client.QuotaPolicies.ArchiveApplication(t.Context(), "app/one", 4); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("quota policy calls = %d", calls.Load())
+	}
+}
+
 func TestClientSupportsLegacyErrorsAndDownload(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -212,6 +255,37 @@ func TestModelRuntimeServiceGenerate(t *testing.T) {
 	}
 }
 
+func TestModelRuntimeServiceGenerateMultimodal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request ModelGenerateRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		if len(request.Messages) != 1 || request.Messages[0].Content != "" || len(request.Messages[0].Parts) != 2 {
+			t.Fatalf("unexpected multimodal request: %+v", request)
+		}
+		image := request.Messages[0].Parts[1].ImageURL
+		if image == nil || image.URL != "https://images.example.com/scan.png" || image.Detail != "high" {
+			t.Fatalf("unexpected image part: %+v", request.Messages[0].Parts[1])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"text":"Normal","provider_id":"vision","model":"vision-v1","usage":{}}`)
+	}))
+	defer server.Close()
+
+	client, _ := NewClient(server.URL)
+	response, err := client.ModelRuntime.Generate(t.Context(), ModelGenerateRequest{Messages: []ModelMessage{{
+		Role: "user",
+		Parts: []ModelContentPart{
+			{Type: "text", Text: "Inspect this scan"},
+			{Type: "image_url", ImageURL: &ModelImageURL{URL: "https://images.example.com/scan.png", Detail: "high"}},
+		},
+	}}})
+	if err != nil || response.Text != "Normal" {
+		t.Fatalf("unexpected multimodal response: %+v err=%v", response, err)
+	}
+}
+
 func TestModelRuntimeServiceEmbedAndRerank(t *testing.T) {
 	requestIndex := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,12 +342,13 @@ func TestModelRuntimeServiceListsInvocations(t *testing.T) {
 			t.Fatalf("unexpected invocation request %s %s", r.Method, r.URL.String())
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"summary":{"record_count":1,"completed_count":1,"input_tokens":5},"records":[{"id":"minv_1","workspace_id":"wksp_1","principal_id":"service/knowledge","request_id":"req_1","capability":"embedding","provider_id":"fake","model":"embed","status":"completed","input_tokens":5,"output_tokens":0,"total_tokens":5,"cached_input_tokens":0,"reasoning_tokens":0,"input_items":1,"output_items":1,"input_bytes":0,"output_bytes":0,"input_characters":4,"output_characters":0,"input_audio_ms":0,"output_audio_ms":0,"latency_ms":10,"started_at":"2026-07-31T00:00:00Z","completed_at":"2026-07-31T00:00:00.01Z"}]}`)
+		fmt.Fprint(w, `{"summary":{"record_count":1,"completed_count":1,"input_tokens":5,"input_video_frames":4,"input_video_dropped":2},"records":[{"id":"minv_1","workspace_id":"wksp_1","principal_id":"service/knowledge","request_id":"req_1","capability":"multimodal_realtime","provider_id":"fake","model":"realtime","status":"completed","input_tokens":5,"output_tokens":0,"total_tokens":5,"cached_input_tokens":0,"reasoning_tokens":0,"input_items":4,"output_items":3,"input_bytes":100,"output_bytes":80,"input_characters":4,"output_characters":0,"input_audio_ms":10,"output_audio_ms":5,"input_video_frames":4,"output_video_frames":3,"input_video_dropped":2,"output_video_dropped":1,"input_video_ms":120,"output_video_ms":80,"latency_ms":10,"started_at":"2026-07-31T00:00:00Z","completed_at":"2026-07-31T00:00:00.01Z"}]}`)
 	}))
 	defer server.Close()
 	client, _ := NewClient(server.URL)
 	report, err := client.ModelRuntime.Invocations(t.Context(), ModelInvocationQuery{PrincipalID: "service/knowledge", ServiceIdentityID: "svc/knowledge", Capability: "embedding", Limit: 25})
-	if err != nil || report.Summary.RecordCount != 1 || len(report.Records) != 1 || report.Records[0].InputTokens != 5 {
+	if err != nil || report.Summary.RecordCount != 1 || report.Summary.InputVideoFrames != 4 || len(report.Records) != 1 ||
+		report.Records[0].InputTokens != 5 || report.Records[0].InputVideoDropped != 2 || report.Records[0].OutputVideoMillis != 80 {
 		t.Fatalf("unexpected invocation report: %+v err=%v", report, err)
 	}
 }
@@ -709,6 +784,30 @@ func TestRunWaitFollowsSSEToTerminalState(t *testing.T) {
 	result, err := handle.Wait(t.Context())
 	if err != nil || result.Run.Status != RunStatusCompleted || !bytes.Contains(result.Output, []byte("done")) || streamCalls.Load() != 1 {
 		t.Fatalf("unexpected run result: %+v calls=%d err=%v", result, streamCalls.Load(), err)
+	}
+}
+
+func TestRunsServiceListsAndGetsAttempts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/attempts"):
+			fmt.Fprint(w, `{"attempts":[{"id":"attempt_000001","session_id":"sesn/1","run_id":"turn/1","attempt_number":1,"status":"abandoned","started_at":"2026-07-14T00:00:00Z"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/attempts/attempt_000001"):
+			fmt.Fprint(w, `{"id":"attempt_000001","session_id":"sesn/1","run_id":"turn/1","attempt_number":1,"status":"abandoned","started_at":"2026-07-14T00:00:00Z"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.URL)
+	attempts, err := client.Runs.ListAttempts(t.Context(), "sesn/1", "turn/1")
+	if err != nil || len(attempts) != 1 || attempts[0].AttemptNumber != 1 {
+		t.Fatalf("unexpected attempt list: attempts=%+v err=%v", attempts, err)
+	}
+	attempt, err := client.Runs.GetAttempt(t.Context(), "sesn/1", "turn/1", "attempt_000001")
+	if err != nil || attempt.Status != "abandoned" {
+		t.Fatalf("unexpected attempt: attempt=%+v err=%v", attempt, err)
 	}
 }
 

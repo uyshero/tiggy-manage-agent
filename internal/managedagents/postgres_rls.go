@@ -459,10 +459,15 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('agent_schedule_runs', 'agent_schedule_runs_workspace_isolation'),
 				('agent_schedules', 'agent_schedules_workspace_isolation'),
 				('agents', 'agents_workspace_isolation'),
+				('artifact_exchanges', 'artifact_exchanges_workspace_isolation'),
 				('environments', 'environments_workspace_isolation'),
+				('event_deliveries', 'event_deliveries_workspace_isolation'),
+				('event_subscriptions', 'event_subscriptions_workspace_isolation'),
 				('evaluation_rubrics', 'evaluation_rubrics_workspace_isolation'),
 				('llm_usage_records', 'llm_usage_records_session_isolation'),
 				('model_invocations', 'model_invocations_workspace_isolation'),
+				('model_runtime_quota_policies', 'model_runtime_quota_policies_workspace_isolation'),
+				('model_runtime_quota_policy_versions', 'model_runtime_quota_policy_versions_workspace_isolation'),
 				('managed_environment_variables', 'managed_environment_variables_workspace_isolation'),
 				('mcp_registry_server_versions', 'mcp_registry_server_versions_workspace_isolation'),
 				('mcp_registry_servers', 'mcp_registry_servers_workspace_isolation'),
@@ -479,6 +484,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('session_event_counters', 'session_event_counters_session_isolation'),
 				('session_events', 'session_events_session_isolation'),
 				('session_interventions', 'session_interventions_session_isolation'),
+				('session_run_attempts', 'session_run_attempts_session_isolation'),
+				('session_runs', 'session_runs_session_isolation'),
 				('session_task_items', 'session_task_items_plan_isolation'),
 				('session_task_plans', 'session_task_plans_session_isolation'),
 				('session_summaries', 'session_summaries_session_isolation'),
@@ -556,8 +563,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant RLS tables: %w", err)
 	}
-	if checked != 59 {
-		return errors.New("tenant RLS tables are missing; apply migrations through 000109")
+	if checked != 66 {
+		return errors.New("tenant RLS tables are missing; apply migrations through 000115")
 	}
 
 	sequenceRows, err := s.db.QueryContext(ctx, `
@@ -568,11 +575,16 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 				('tma_agent_deliberation_id_seq'),
 				('tma_agent_schedule_id_seq'),
 				('tma_agent_schedule_run_id_seq'),
-				('tma_environment_id_seq'),
-				('tma_evaluation_rubric_id_seq'),
-				('tma_event_id_seq'),
+				('tma_artifact_exchange_id_seq'),
+					('tma_environment_id_seq'),
+					('tma_evaluation_rubric_id_seq'),
+					('tma_event_delivery_id_seq'),
+					('tma_event_id_seq'),
+					('tma_event_subscription_id_seq'),
 				('tma_llm_usage_id_seq'),
 				('tma_model_invocation_id_seq'),
+				('tma_model_runtime_quota_policy_id_seq'),
+				('tma_model_runtime_quota_policy_version_id_seq'),
 				('tma_mcp_registry_server_id_seq'),
 				('tma_mcp_registry_version_id_seq'),
 				('tma_object_ref_id_seq'),
@@ -630,8 +642,8 @@ func (s *PostgresStore) ValidateDatabaseTenantIsolation(ctx context.Context) err
 	if err := sequenceRows.Err(); err != nil {
 		return fmt.Errorf("inspect tenant object sequences: %w", err)
 	}
-	if checked != 38 {
-		return errors.New("tenant resource sequences are missing; apply migrations through 000109")
+	if checked != 43 {
+		return errors.New("tenant resource sequences are missing; apply migrations through 000115")
 	}
 	return nil
 }

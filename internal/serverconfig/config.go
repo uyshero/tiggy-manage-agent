@@ -37,6 +37,7 @@ const (
 	DefaultMaxToolRounds                           = 100
 	DefaultLLMProvider                             = "fake"
 	DefaultLLMModel                                = "fake-demo"
+	DefaultLLMCapabilityType                       = "text"
 	DefaultLLMBaseURL                              = "https://api.openai.com/v1"
 	DefaultLLMAPIKeyEnv                            = "TMA_LLM_API_KEY"
 	DefaultLLMMaxAttempts                          = 3
@@ -48,6 +49,11 @@ const (
 	DefaultModelRuntimeWorkspaceRequestsPerMinute  = 600
 	DefaultModelRuntimeIdentityRequestsPerMinute   = 120
 	DefaultModelRuntimeHTTPTimeoutSeconds          = 70
+	DefaultModelRuntimeAuthMode                    = "static"
+	DefaultModelRuntimeTokenIssuer                 = "tma-server"
+	DefaultModelRuntimeTokenAudience               = "tma-model-runtime"
+	DefaultModelRuntimeTokenTTLSeconds             = 60
+	DefaultModelRuntimeTLSMode                     = "disabled"
 	DefaultSpeechRuntimeGlobalConcurrency          = 100
 	DefaultSpeechRuntimeWorkspaceConcurrency       = 20
 	DefaultSpeechRuntimeIdentityConcurrency        = 10
@@ -121,6 +127,17 @@ const (
 	DefaultSecurityAuditRetentionDays              = 90
 	DefaultSecurityAuditPruneIntervalMS            = 3600000
 	DefaultSecurityAuditPruneLimit                 = 1000
+	DefaultEventWebhookEnabled                     = false
+	DefaultEventWebhookWorkerEnabled               = true
+	DefaultEventWebhookBatchSize                   = 50
+	DefaultEventWebhookPollIntervalMS              = 1000
+	DefaultEventWebhookLeaseDurationMS             = 30000
+	DefaultEventWebhookMaxAttempts                 = 8
+	DefaultEventWebhookRetryInitialDelayMS         = 1000
+	DefaultEventWebhookRetryMaxDelayMS             = 300000
+	DefaultEventWebhookHTTPTimeoutSeconds          = 15
+	DefaultEventWebhookAllowHTTP                   = false
+	DefaultEventWebhookAllowPrivateNetworks        = false
 	DefaultTraceIndexRetentionEnabled              = false
 	DefaultTraceIndexRetentionDays                 = 30
 	DefaultTraceIndexRetentionIntervalMS           = 3600000
@@ -151,6 +168,7 @@ type Config struct {
 	Worker        WorkerConfig
 	Observability ObservabilityConfig
 	Auth          AuthConfig
+	EventWebhooks EventWebhookConfig
 }
 
 type AuthConfig struct {
@@ -204,6 +222,8 @@ type LLMConfig struct {
 	Provider             string
 	ProviderType         string
 	Model                string
+	CapabilityType       string
+	IsDefaultVision      bool
 	BaseURL              string
 	APIKeyEnv            string
 	APIKey               string
@@ -214,7 +234,17 @@ type LLMConfig struct {
 
 type ModelRuntimeGovernanceConfig struct {
 	Endpoint                         string
+	AuthMode                         string
 	AuthToken                        string
+	TokenIssuer                      string
+	TokenAudience                    string
+	TokenTTL                         time.Duration
+	TokenTTLSeconds                  int
+	TLSMode                          string
+	TLSCAFile                        string
+	TLSClientCertificateFile         string
+	TLSClientKeyFile                 string
+	TLSServerName                    string
 	HTTPTimeout                      time.Duration
 	HTTPTimeoutSeconds               int
 	ModelGlobalConcurrency           int
@@ -403,6 +433,28 @@ type SecurityAuditExporterConfig struct {
 	PruneLimit              int
 }
 
+type EventWebhookConfig struct {
+	Enabled                 bool
+	WorkerEnabled           bool
+	SigningKey              string
+	BatchSize               int
+	PollInterval            time.Duration
+	PollIntervalMillis      int
+	LeaseDuration           time.Duration
+	LeaseDurationMillis     int
+	MaxAttempts             int
+	RetryInitialDelay       time.Duration
+	RetryInitialDelayMillis int
+	RetryMaxDelay           time.Duration
+	RetryMaxDelayMillis     int
+	HTTPTimeout             time.Duration
+	HTTPTimeoutSeconds      int
+	AllowHTTP               bool
+	AllowPrivateNetworks    bool
+	AllowedHosts            []string
+	AllowedCIDRs            []string
+}
+
 type ObservabilityExporterRetryConfig struct {
 	Enabled        bool
 	Interval       time.Duration
@@ -461,6 +513,8 @@ func FromEnv() (Config, error) {
 			Provider:             envOrDefault("TMA_LLM_PROVIDER", DefaultLLMProvider),
 			ProviderType:         os.Getenv("TMA_LLM_PROVIDER_TYPE"),
 			Model:                envOrDefault("TMA_LLM_MODEL", DefaultLLMModel),
+			CapabilityType:       strings.ToLower(strings.TrimSpace(envOrDefault("TMA_LLM_CAPABILITY_TYPE", DefaultLLMCapabilityType))),
+			IsDefaultVision:      envBoolOrDefault("TMA_LLM_IS_DEFAULT_VISION", false),
 			BaseURL:              envOrDefault("TMA_LLM_BASE_URL", DefaultLLMBaseURL),
 			APIKeyEnv:            envOrDefault("TMA_LLM_API_KEY_ENV", DefaultLLMAPIKeyEnv),
 			MaxAttempts:          envIntegerOrDefault("TMA_LLM_MAX_ATTEMPTS", DefaultLLMMaxAttempts),
@@ -468,7 +522,16 @@ func FromEnv() (Config, error) {
 		},
 		ModelRuntime: ModelRuntimeGovernanceConfig{
 			Endpoint:                         strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_ENDPOINT")),
+			AuthMode:                         strings.ToLower(strings.TrimSpace(envOrDefault("TMA_MODEL_RUNTIME_AUTH_MODE", DefaultModelRuntimeAuthMode))),
 			AuthToken:                        strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_AUTH_TOKEN")),
+			TokenIssuer:                      strings.TrimSpace(envOrDefault("TMA_MODEL_RUNTIME_TOKEN_ISSUER", DefaultModelRuntimeTokenIssuer)),
+			TokenAudience:                    strings.TrimSpace(envOrDefault("TMA_MODEL_RUNTIME_TOKEN_AUDIENCE", DefaultModelRuntimeTokenAudience)),
+			TokenTTLSeconds:                  envIntegerOrDefault("TMA_MODEL_RUNTIME_TOKEN_TTL_SECONDS", DefaultModelRuntimeTokenTTLSeconds),
+			TLSMode:                          strings.ToLower(strings.TrimSpace(envOrDefault("TMA_MODEL_RUNTIME_TLS_MODE", DefaultModelRuntimeTLSMode))),
+			TLSCAFile:                        strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_TLS_CA_FILE")),
+			TLSClientCertificateFile:         strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_TLS_CLIENT_CERT_FILE")),
+			TLSClientKeyFile:                 strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_TLS_CLIENT_KEY_FILE")),
+			TLSServerName:                    strings.TrimSpace(os.Getenv("TMA_MODEL_RUNTIME_TLS_SERVER_NAME")),
 			HTTPTimeoutSeconds:               envIntegerOrDefault("TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS", DefaultModelRuntimeHTTPTimeoutSeconds),
 			ModelGlobalConcurrency:           envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_GLOBAL_CONCURRENCY", DefaultModelRuntimeGlobalConcurrency),
 			ModelWorkspaceConcurrency:        envNonNegativeIntOrDefault("TMA_MODEL_RUNTIME_WORKSPACE_CONCURRENCY", DefaultModelRuntimeWorkspaceConcurrency),
@@ -644,6 +707,22 @@ func FromEnv() (Config, error) {
 			DelegationAudience:      strings.TrimSpace(os.Getenv("TMA_AUTH_DELEGATION_AUDIENCE")),
 			DelegationTTLSeconds:    envIntOrDefault("TMA_AUTH_DELEGATION_TTL_SECONDS", DefaultDelegationTTLSeconds),
 		},
+		EventWebhooks: EventWebhookConfig{
+			Enabled:                 envBoolOrDefault("TMA_EVENT_WEBHOOK_ENABLED", DefaultEventWebhookEnabled),
+			WorkerEnabled:           envBoolOrDefault("TMA_EVENT_WEBHOOK_WORKER_ENABLED", DefaultEventWebhookWorkerEnabled),
+			SigningKey:              strings.TrimSpace(os.Getenv("TMA_EVENT_WEBHOOK_SIGNING_KEY")),
+			BatchSize:               envIntOrDefault("TMA_EVENT_WEBHOOK_BATCH_SIZE", DefaultEventWebhookBatchSize),
+			PollIntervalMillis:      envIntOrDefault("TMA_EVENT_WEBHOOK_POLL_INTERVAL_MS", DefaultEventWebhookPollIntervalMS),
+			LeaseDurationMillis:     envIntOrDefault("TMA_EVENT_WEBHOOK_LEASE_DURATION_MS", DefaultEventWebhookLeaseDurationMS),
+			MaxAttempts:             envIntOrDefault("TMA_EVENT_WEBHOOK_MAX_ATTEMPTS", DefaultEventWebhookMaxAttempts),
+			RetryInitialDelayMillis: envIntOrDefault("TMA_EVENT_WEBHOOK_RETRY_INITIAL_DELAY_MS", DefaultEventWebhookRetryInitialDelayMS),
+			RetryMaxDelayMillis:     envIntOrDefault("TMA_EVENT_WEBHOOK_RETRY_MAX_DELAY_MS", DefaultEventWebhookRetryMaxDelayMS),
+			HTTPTimeoutSeconds:      envIntOrDefault("TMA_EVENT_WEBHOOK_HTTP_TIMEOUT_SECONDS", DefaultEventWebhookHTTPTimeoutSeconds),
+			AllowHTTP:               envBoolOrDefault("TMA_EVENT_WEBHOOK_ALLOW_HTTP", DefaultEventWebhookAllowHTTP),
+			AllowPrivateNetworks:    envBoolOrDefault("TMA_EVENT_WEBHOOK_ALLOW_PRIVATE_NETWORKS", DefaultEventWebhookAllowPrivateNetworks),
+			AllowedHosts:            splitCommaSeparated(os.Getenv("TMA_EVENT_WEBHOOK_ALLOWED_HOSTS")),
+			AllowedCIDRs:            splitCommaSeparated(os.Getenv("TMA_EVENT_WEBHOOK_ALLOWED_CIDRS")),
+		},
 	}
 	config.Turn.Timeout = time.Duration(config.Turn.TimeoutMillis) * time.Millisecond
 	config.Turn.PollInterval = time.Duration(config.Turn.PollIntervalMillis) * time.Millisecond
@@ -678,8 +757,14 @@ func FromEnv() (Config, error) {
 	config.Observability.SecurityAudit.RetryMaxDelay = time.Duration(config.Observability.SecurityAudit.RetryMaxDelayMillis) * time.Millisecond
 	config.Observability.SecurityAudit.Retention = time.Duration(config.Observability.SecurityAudit.RetentionDays) * 24 * time.Hour
 	config.Observability.SecurityAudit.PruneInterval = time.Duration(config.Observability.SecurityAudit.PruneIntervalMillis) * time.Millisecond
+	config.EventWebhooks.PollInterval = time.Duration(config.EventWebhooks.PollIntervalMillis) * time.Millisecond
+	config.EventWebhooks.LeaseDuration = time.Duration(config.EventWebhooks.LeaseDurationMillis) * time.Millisecond
+	config.EventWebhooks.RetryInitialDelay = time.Duration(config.EventWebhooks.RetryInitialDelayMillis) * time.Millisecond
+	config.EventWebhooks.RetryMaxDelay = time.Duration(config.EventWebhooks.RetryMaxDelayMillis) * time.Millisecond
+	config.EventWebhooks.HTTPTimeout = time.Duration(config.EventWebhooks.HTTPTimeoutSeconds) * time.Second
 	config.LLM.RetryBaseDelay = time.Duration(config.LLM.RetryBaseDelayMillis) * time.Millisecond
 	config.ModelRuntime.HTTPTimeout = time.Duration(config.ModelRuntime.HTTPTimeoutSeconds) * time.Second
+	config.ModelRuntime.TokenTTL = time.Duration(config.ModelRuntime.TokenTTLSeconds) * time.Second
 	config.ModelRuntime.SpeechMaxSessionDuration = time.Duration(config.ModelRuntime.SpeechMaxSessionSeconds) * time.Second
 	config.LLM.APIKey = os.Getenv(config.LLM.APIKeyEnv)
 	config.ObjectStore.AccessKey = os.Getenv(config.ObjectStore.AccessKeyEnv)
@@ -705,6 +790,31 @@ func FromEnv() (Config, error) {
 		}
 		if config.ModelRuntime.AuthToken == "" {
 			return Config{}, errors.New("TMA_MODEL_RUNTIME_AUTH_TOKEN is required when TMA_MODEL_RUNTIME_ENDPOINT is configured")
+		}
+		if config.ModelRuntime.AuthMode != "static" && config.ModelRuntime.AuthMode != "signed" {
+			return Config{}, errors.New("TMA_MODEL_RUNTIME_AUTH_MODE must be static or signed")
+		}
+		if config.ModelRuntime.AuthMode == "signed" {
+			if len(config.ModelRuntime.AuthToken) < 32 {
+				return Config{}, errors.New("TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes for signed authentication")
+			}
+			if config.ModelRuntime.TokenIssuer == "" || config.ModelRuntime.TokenAudience == "" {
+				return Config{}, errors.New("model runtime signed authentication requires issuer and audience")
+			}
+			if config.ModelRuntime.TokenTTLSeconds < 1 || config.ModelRuntime.TokenTTLSeconds > 300 {
+				return Config{}, errors.New("TMA_MODEL_RUNTIME_TOKEN_TTL_SECONDS must be between 1 and 300")
+			}
+		}
+		if config.ModelRuntime.TLSMode != "disabled" && config.ModelRuntime.TLSMode != "mtls" && config.ModelRuntime.TLSMode != "service_mesh" {
+			return Config{}, errors.New("TMA_MODEL_RUNTIME_TLS_MODE must be disabled, mtls, or service_mesh")
+		}
+		if config.ModelRuntime.TLSMode == "mtls" {
+			if endpoint.Scheme != "https" {
+				return Config{}, errors.New("TMA_MODEL_RUNTIME_ENDPOINT must use https when TMA_MODEL_RUNTIME_TLS_MODE=mtls")
+			}
+			if config.ModelRuntime.TLSCAFile == "" || config.ModelRuntime.TLSClientCertificateFile == "" || config.ModelRuntime.TLSClientKeyFile == "" {
+				return Config{}, errors.New("model runtime mTLS requires CA, client certificate, and client key files")
+			}
 		}
 	}
 	for _, value := range []int{
@@ -832,6 +942,29 @@ func FromEnv() (Config, error) {
 	if config.Observability.SecurityAudit.PruneIntervalMillis < 1000 || config.Observability.SecurityAudit.PruneLimit < 1 || config.Observability.SecurityAudit.PruneLimit > 10000 {
 		return Config{}, errors.New("TMA security audit prune settings are invalid")
 	}
+	if config.EventWebhooks.Enabled {
+		if len(config.EventWebhooks.SigningKey) < 32 {
+			return Config{}, errors.New("TMA_EVENT_WEBHOOK_SIGNING_KEY must be at least 32 bytes when webhooks are enabled")
+		}
+		if config.EventWebhooks.BatchSize < 1 || config.EventWebhooks.BatchSize > 1000 {
+			return Config{}, errors.New("TMA_EVENT_WEBHOOK_BATCH_SIZE must be between 1 and 1000")
+		}
+		if config.EventWebhooks.PollIntervalMillis < 10 || config.EventWebhooks.PollIntervalMillis > 60000 || config.EventWebhooks.LeaseDurationMillis <= config.EventWebhooks.PollIntervalMillis {
+			return Config{}, errors.New("event webhook poll and lease settings are invalid")
+		}
+		if config.EventWebhooks.MaxAttempts < 1 || config.EventWebhooks.MaxAttempts > 100 || config.EventWebhooks.RetryInitialDelayMillis < 10 || config.EventWebhooks.RetryMaxDelayMillis < config.EventWebhooks.RetryInitialDelayMillis {
+			return Config{}, errors.New("event webhook retry settings are invalid")
+		}
+		if config.EventWebhooks.HTTPTimeoutSeconds < 1 || config.EventWebhooks.HTTPTimeoutSeconds > 120 {
+			return Config{}, errors.New("TMA_EVENT_WEBHOOK_HTTP_TIMEOUT_SECONDS must be between 1 and 120")
+		}
+		if err := validateMCPHTTPEgressConfig(MCPStreamableHTTPHostConfig{
+			EgressAllowedHosts: config.EventWebhooks.AllowedHosts,
+			EgressAllowedCIDRs: config.EventWebhooks.AllowedCIDRs,
+		}); err != nil {
+			return Config{}, fmt.Errorf("event webhook egress policy: %w", err)
+		}
+	}
 
 	return config, nil
 }
@@ -844,8 +977,13 @@ func validateAuthConfig(config Config) error {
 		return fmt.Errorf("unsupported TMA_ENV %q", config.Environment)
 	}
 	production := environment == "production" || environment == "prod"
-	if production && config.ModelRuntime.Endpoint != "" && len(config.ModelRuntime.AuthToken) < 32 {
-		return errors.New("TMA_MODEL_RUNTIME_AUTH_TOKEN must be at least 32 bytes in production")
+	if production && config.ModelRuntime.Endpoint != "" {
+		if config.ModelRuntime.AuthMode != "signed" {
+			return errors.New("TMA_MODEL_RUNTIME_AUTH_MODE must be signed in production")
+		}
+		if config.ModelRuntime.TLSMode != "mtls" && config.ModelRuntime.TLSMode != "service_mesh" {
+			return errors.New("TMA_MODEL_RUNTIME_TLS_MODE must be mtls or service_mesh in production")
+		}
 	}
 	switch config.Auth.Mode {
 	case "disabled":

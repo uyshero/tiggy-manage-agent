@@ -1,5 +1,5 @@
 import { streamEvents, type EventStreamOptions } from "../sse.js";
-import type { Event, InterventionDecision, Run, RunResult, StartRunRequest } from "../types.js";
+import type { Event, InterventionDecision, Run, RunAttempt, RunResult, StartRunRequest } from "../types.js";
 import type { Transport } from "../transport.js";
 import { ServiceBase, resourcePath, withQuery } from "./base.js";
 import type { InterventionsService } from "./interventions.js";
@@ -31,6 +31,14 @@ export class RunsService extends ServiceBase {
 
   cancel(sessionId: string, runId: string, signal?: AbortSignal): Promise<Run> {
     return this.transport.requestJSON("POST", `${runPath(sessionId, runId)}/cancel`, {}, signal ? { signal } : {});
+  }
+
+  listAttempts(sessionId: string, runId: string, signal?: AbortSignal): Promise<RunAttempt[]> {
+    return this.transport.requestJSON<{ attempts: RunAttempt[] }>("GET", `${runPath(sessionId, runId)}/attempts`, undefined, signal ? { signal } : {}).then((value) => value.attempts);
+  }
+
+  getAttempt(sessionId: string, runId: string, attemptId: string, signal?: AbortSignal): Promise<RunAttempt> {
+    return this.transport.requestJSON("GET", resourcePath(`${runPath(sessionId, runId)}/attempts`, attemptId), undefined, signal ? { signal } : {});
   }
 
   listEvents(sessionId: string, runId: string, afterSeq = 0, signal?: AbortSignal): Promise<Event[]> {

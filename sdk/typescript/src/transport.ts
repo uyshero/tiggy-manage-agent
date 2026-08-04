@@ -1,12 +1,14 @@
 import { APIError } from "./errors.js";
 
 export type TokenSource = (signal?: AbortSignal) => Promise<string | undefined>;
+export type WebSocketFactory = (url: string, protocols: string | string[]) => WebSocket;
 
 export interface TransportOptions {
   token?: string;
   tokenSource?: TokenSource;
   fetch?: typeof globalThis.fetch;
   headers?: HeadersInit;
+  webSocketFactory?: WebSocketFactory;
 }
 
 export interface JSONRequestOptions {
@@ -20,6 +22,7 @@ export class Transport {
   private readonly tokenSource: TokenSource | undefined;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly defaultHeaders: Headers;
+  private readonly webSocketFactory: WebSocketFactory | undefined;
 
   constructor(baseURL: string, options: TransportOptions = {}) {
     const parsed = new URL(baseURL.trim());
@@ -33,6 +36,17 @@ export class Transport {
     if (!fetchImpl) throw new TypeError("A Fetch API implementation is required");
     this.fetchImpl = fetchImpl.bind(globalThis);
     this.defaultHeaders = new Headers(options.headers);
+    this.webSocketFactory = options.webSocketFactory;
+  }
+
+  openWebSocket(path: string, protocols: string | string[]): WebSocket {
+    const url = new URL(this.url(path));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    if (this.webSocketFactory !== undefined) return this.webSocketFactory(url.toString(), protocols);
+    if (typeof globalThis.WebSocket !== "function") {
+      throw new TypeError("A WebSocket implementation or webSocketFactory is required");
+    }
+    return new globalThis.WebSocket(url, protocols);
   }
 
   url(path: string): string {

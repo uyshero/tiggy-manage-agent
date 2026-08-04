@@ -218,9 +218,9 @@ describe("typed control-plane services", () => {
     const permissionAudit = await client.audit.listToolPermissions("session/1", { decision: "ask", tool: "default_edit_file", limit: 20, cursor: "cursor/1" });
     await client.audit.integrityKeys();
     await client.audit.replayDeadLetters(50);
-    await client.environmentVariables.list({ workspaceId: "workspace/1" });
-    await client.environmentVariables.put("SERVICE/API KEY", { value: "secret" }, { workspaceId: "workspace/1" });
-    await client.environmentVariables.delete("SERVICE/API KEY", { workspaceId: "workspace/1" });
+    await client.environmentVariables.list({ workspaceId: "workspace/1", appId: "app/1" });
+    await client.environmentVariables.put("SERVICE/API KEY", { value: "secret" }, { workspaceId: "workspace/1", appId: "app/1" });
+    await client.environmentVariables.delete("SERVICE/API KEY", { workspaceId: "workspace/1", appId: "app/1" });
 
     expect(servers[0]?.status).toBe("future_state");
     expect(versions[0]?.config).toMatchObject({ extension: { preserved: true } });
@@ -230,8 +230,8 @@ describe("typed control-plane services", () => {
     expect(requests).toContain("POST /v2/mcp-servers/mcp%2F1/versions/1/restore");
     expect(requests).toContain("GET /v2/operator-audit?workspace_id=workspace%2F1&session_id=session%2F1&principal_id=user%2F1&action=mcp_registry.update&limit=25");
     expect(requests).toContain("GET /v2/sessions/session%2F1/tool-permission-audit?decision=ask&tool=default_edit_file&limit=20&cursor=cursor%2F1");
-    expect(requests).toContain("PUT /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
-    expect(requests).toContain("DELETE /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1");
+    expect(requests).toContain("PUT /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1&app_id=app%2F1");
+    expect(requests).toContain("DELETE /v2/environment-variables/SERVICE%2FAPI%20KEY?workspace_id=workspace%2F1&app_id=app%2F1");
   });
 });
 

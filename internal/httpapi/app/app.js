@@ -26105,6 +26105,10 @@ class AgentsService extends ServiceBase {
   list(signal) {
     return this.transport.requestJSON("GET", "/v2/agents", void 0, signal ? { signal } : {}).then((value) => value.agents);
   }
+  listByApplication(query = {}, signal) {
+    const path2 = withQuery("/v2/agents", { app_id: query.appId, external_ref: query.externalRef });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.agents);
+  }
   get(agentId, signal) {
     return this.transport.requestJSON("GET", agentPath(agentId), void 0, signal ? { signal } : {});
   }
@@ -26132,6 +26136,11 @@ class AgentsService extends ServiceBase {
 }
 function agentPath(agentId) {
   return resourcePath("/v2/agents", agentId);
+}
+class ApplicationManifestsService extends ServiceBase {
+  publish(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/application-manifests/publish", request, signal ? { signal } : {});
+  }
 }
 class ParseError extends Error {
   constructor(message, options) {
@@ -26523,6 +26532,8 @@ class SessionsService extends ServiceBase {
   list(query = {}, signal) {
     const path2 = withQuery("/v2/sessions", {
       workspace_id: query.workspaceId,
+      app_id: query.appId,
+      external_ref: query.externalRef,
       owner_id: query.ownerId,
       status: query.status,
       include_archived: query.includeArchived || void 0,
@@ -26698,6 +26709,28 @@ function artifactsPath(sessionId) {
 function artifactPath(sessionId, artifactId) {
   return resourcePath(artifactsPath(sessionId), artifactId);
 }
+class ArtifactExchangesService extends ServiceBase {
+  createImport(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/artifact-exchanges/imports", request, signal ? { signal } : {});
+  }
+  createExport(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/artifact-exchanges/exports", request, signal ? { signal } : {});
+  }
+  get(exchangeId, signal) {
+    return this.transport.requestJSON("GET", resourcePath("/v2/artifact-exchanges", exchangeId), void 0, signal ? { signal } : {});
+  }
+  async upload(grant, body, contentType = "application/octet-stream", signal) {
+    const response = await this.transport.request("PUT", grant.content_url, {
+      body,
+      headers: { "Content-Type": contentType },
+      ...signal ? { signal } : {}
+    });
+    return await response.json();
+  }
+  download(grant, signal) {
+    return this.transport.request("GET", grant.content_url, signal ? { signal } : {});
+  }
+}
 class AuthService extends ServiceBase {
   configuration(signal) {
     return this.transport.requestJSON("GET", "/v2/auth/config", void 0, signal ? { signal } : {});
@@ -26709,9 +26742,18 @@ class AuthService extends ServiceBase {
     return this.transport.requestJSON("POST", "/v2/auth/token-exchange", request, signal ? { signal } : {});
   }
 }
+class CapabilitiesService extends ServiceBase {
+  list(signal) {
+    return this.transport.requestJSON("GET", "/v2/capabilities", void 0, signal ? { signal } : {});
+  }
+}
 class EnvironmentsService extends ServiceBase {
   list(signal) {
     return this.transport.requestJSON("GET", "/v2/environments", void 0, signal ? { signal } : {}).then((value) => value.environments);
+  }
+  listByApplication(query = {}, signal) {
+    const path2 = withQuery("/v2/environments", { app_id: query.appId, external_ref: query.externalRef });
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.environments);
   }
   get(environmentId, signal) {
     return this.transport.requestJSON("GET", resourcePath("/v2/environments", environmentId), void 0, signal ? { signal } : {});
@@ -26770,6 +26812,49 @@ class EvaluationsService extends ServiceBase {
     });
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.evaluations);
   }
+}
+class EventSubscriptionsService extends ServiceBase {
+  eventTypes(signal) {
+    return this.transport.requestJSON("GET", "/v2/event-subscriptions/event-types", void 0, signal ? { signal } : {}).then((value) => value.items);
+  }
+  list(appId, signal) {
+    const query = new URLSearchParams();
+    if (appId)
+      query.set("app_id", appId);
+    const path2 = "/v2/event-subscriptions" + (query.size ? `?${query}` : "");
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.items);
+  }
+  create(request, signal) {
+    return this.transport.requestJSON("POST", "/v2/event-subscriptions", request, signal ? { signal } : {});
+  }
+  get(subscriptionId, signal) {
+    return this.transport.requestJSON("GET", subscriptionPath(subscriptionId), void 0, signal ? { signal } : {});
+  }
+  update(subscriptionId, request, signal) {
+    return this.transport.requestJSON("PATCH", subscriptionPath(subscriptionId), request, signal ? { signal } : {});
+  }
+  disable(subscriptionId, signal) {
+    return this.transport.requestJSON("DELETE", subscriptionPath(subscriptionId), void 0, signal ? { signal } : {});
+  }
+  rotateSecret(subscriptionId, signal) {
+    return this.transport.requestJSON("POST", subscriptionPath(subscriptionId) + "/rotate-secret", void 0, signal ? { signal } : {});
+  }
+  deliveries(subscriptionId, query = {}, signal) {
+    const values = new URLSearchParams();
+    if (query.status)
+      values.set("status", query.status);
+    if (query.limit && query.limit > 0)
+      values.set("limit", String(query.limit));
+    const path2 = subscriptionPath(subscriptionId) + "/deliveries" + (values.size ? `?${values}` : "");
+    return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.items);
+  }
+  replay(subscriptionId, deliveryId, signal) {
+    const path2 = subscriptionPath(subscriptionId) + "/deliveries/" + encodeURIComponent(deliveryId) + "/replay";
+    return this.transport.requestJSON("POST", path2, void 0, signal ? { signal } : {});
+  }
+}
+function subscriptionPath(subscriptionId) {
+  return resourcePath("/v2/event-subscriptions", subscriptionId);
 }
 class InterventionsService extends ServiceBase {
   list(sessionId, status, signal) {
@@ -26904,7 +26989,7 @@ class MCPService extends ServiceBase {
   }
 }
 function serversPath(query) {
-  return withQuery("/v2/mcp-servers", { workspace_id: query.workspaceId });
+  return withQuery("/v2/mcp-servers", { workspace_id: query.workspaceId, app_id: query.appId, external_ref: query.externalRef });
 }
 function serverPath(serverId) {
   return resourcePath("/v2/mcp-servers", serverId);
@@ -26914,7 +26999,7 @@ class SkillsService extends ServiceBase {
     return this.transport.requestJSON("POST", "/v2/skills", request, signal ? { signal } : {});
   }
   list(query = {}, signal) {
-    const path2 = withQuery("/v2/skills", { workspace_id: query.workspaceId, include_archived: query.includeArchived || void 0 });
+    const path2 = withQuery("/v2/skills", { workspace_id: query.workspaceId, app_id: query.appId, external_ref: query.externalRef, include_archived: query.includeArchived || void 0 });
     return this.transport.requestJSON("GET", path2, void 0, signal ? { signal } : {}).then((value) => value.skills);
   }
   get(skillId, signal) {
@@ -27211,6 +27296,12 @@ class RunsService extends ServiceBase {
   }
   cancel(sessionId, runId, signal) {
     return this.transport.requestJSON("POST", `${runPath(sessionId, runId)}/cancel`, {}, signal ? { signal } : {});
+  }
+  listAttempts(sessionId, runId, signal) {
+    return this.transport.requestJSON("GET", `${runPath(sessionId, runId)}/attempts`, void 0, signal ? { signal } : {}).then((value) => value.attempts);
+  }
+  getAttempt(sessionId, runId, attemptId, signal) {
+    return this.transport.requestJSON("GET", resourcePath(`${runPath(sessionId, runId)}/attempts`, attemptId), void 0, signal ? { signal } : {});
   }
   listEvents(sessionId, runId, afterSeq = 0, signal) {
     const path2 = withQuery(`${runPath(sessionId, runId)}/events`, { after_seq: afterSeq > 0 ? afterSeq : void 0 });
@@ -27580,13 +27671,17 @@ class TMAClient {
   constructor(baseURL2, options = {}) {
     __publicField(this, "raw");
     __publicField(this, "auth");
+    __publicField(this, "capabilities");
+    __publicField(this, "applicationManifests");
     __publicField(this, "agents");
     __publicField(this, "environments");
     __publicField(this, "sessions");
     __publicField(this, "evaluations");
+    __publicField(this, "eventSubscriptions");
     __publicField(this, "runs");
     __publicField(this, "interventions");
     __publicField(this, "artifacts");
+    __publicField(this, "artifactExchanges");
     __publicField(this, "traces");
     __publicField(this, "orchestration");
     __publicField(this, "llm");
@@ -27609,13 +27704,17 @@ class TMAClient {
     const transport = new Transport(baseURL2, options);
     this.raw = createLowLevelClient(transport.baseURL, transport.fetch);
     this.auth = new AuthService(transport);
+    this.capabilities = new CapabilitiesService(transport);
+    this.applicationManifests = new ApplicationManifestsService(transport);
     this.agents = new AgentsService(transport);
     this.environments = new EnvironmentsService(transport);
     this.sessions = new SessionsService(transport);
     this.evaluations = new EvaluationsService(transport);
+    this.eventSubscriptions = new EventSubscriptionsService(transport);
     this.interventions = new InterventionsService(transport);
     this.runs = new RunsService(transport, this.interventions);
     this.artifacts = new ArtifactsService(transport);
+    this.artifactExchanges = new ArtifactExchangesService(transport);
     this.traces = new TracesService(transport);
     this.orchestration = new OrchestrationService(transport);
     this.llm = new LLMService(transport);

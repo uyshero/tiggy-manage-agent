@@ -58,6 +58,47 @@ func TestModelRuntimeGenerateUsesConfiguredExecutor(t *testing.T) {
 	}
 }
 
+func TestModelRuntimeGenerateForwardsMultimodalContentAndAuditsInput(t *testing.T) {
+	store := newTestStore()
+	store.models[llmModelKey("fake", "vision-demo")] = managedagents.LLMModel{
+		ProviderID: "fake", Model: "vision-demo", CapabilityType: managedagents.LLMModelCapabilityTextImage,
+	}
+	executor := recordingModelRuntimeExecutor{generate: func(_ context.Context, request modelruntime.GenerateRequest) (llm.Response, error) {
+		if len(request.Messages) != 1 || len(request.Messages[0].Content) != 3 {
+			t.Fatalf("unexpected multimodal messages: %+v", request.Messages)
+		}
+		parts := request.Messages[0].Content
+		if parts[0].Type != "text" || parts[0].Text != "inspect" || parts[1].Type != "image_url" || parts[1].ImageURL == nil ||
+			parts[1].ImageURL.URL != "data:image/png;base64,cG5n" || parts[1].ImageURL.Detail != "high" || parts[2].ImageURL == nil ||
+			parts[2].ImageURL.URL != "https://images.example.com/scan.png" {
+			t.Fatalf("unexpected multimodal content: %+v", parts)
+		}
+		return llm.Response{Message: llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "a small image"}}}}, nil
+	}}
+	server := &Server{
+		store: store, logger: slog.Default(), defaultLLMProvider: "fake", defaultLLMModel: "fake-demo",
+		modelRuntimeAdmission: newModelRuntimeAdmission(DefaultModelRuntimePolicy()), modelRuntimeExecutor: executor,
+	}
+	handler := http.HandlerFunc(server.withV2Request(server.generateModelRuntimeText))
+	response := postJSONWithStatus[modelRuntimeGenerateResponse](t, handler, http.MethodPost, "/v2/model-runtime/generate", `{
+		"provider_id":"fake","model":"vision-demo","messages":[{"role":"user","content":[
+			{"type":"text","text":" inspect "},
+			{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5n","detail":"HIGH"}},
+			{"type":"image_url","image_url":{"url":"https://images.example.com/scan.png"}}
+		]}]
+	}`, http.StatusOK)
+	if response.Text != "a small image" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if len(store.modelInvocations) != 1 {
+		t.Fatalf("expected one invocation, got %+v", store.modelInvocations)
+	}
+	invocation := store.modelInvocations[0]
+	if invocation.InputItems != 3 || invocation.InputCharacters != 7 || invocation.InputBytes != int64(10+len("https://images.example.com/scan.png")) {
+		t.Fatalf("unexpected multimodal input audit: %+v", invocation)
+	}
+}
+
 func TestModelRuntimeGenerateUsesPlatformDefault(t *testing.T) {
 	store := newTestStore()
 	server := NewServerWithStoreRunnerAndLLMDefaults(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "fake-demo")
@@ -91,7 +132,30 @@ func TestModelRuntimeGenerateValidatesProviderAndCapability(t *testing.T) {
 
 	store.models[llmModelKey("fake", "embed")] = managedagents.LLMModel{ProviderID: "fake", Model: "embed", CapabilityType: managedagents.LLMModelCapabilityEmbedding}
 	assertModelRuntimeError(t, server, `{"provider_id":"fake","model":"embed","messages":[{"role":"user","content":"x"}]}`, http.StatusBadRequest, "unsupported_model_capability")
+	assertModelRuntimeError(t, server, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5n"}}]}]}`, http.StatusBadRequest, "vision_model_required")
 	assertModelRuntimeError(t, server, `{"provider_id":"fake","model":"missing","messages":[{"role":"user","content":"x"}]}`, http.StatusNotFound, "model_not_found")
+}
+
+func TestModelRuntimeGenerateRejectsUnsafeMultimodalContent(t *testing.T) {
+	store := newTestStore()
+	store.models[llmModelKey("fake", "vision-demo")] = managedagents.LLMModel{
+		ProviderID: "fake", Model: "vision-demo", CapabilityType: managedagents.LLMModelCapabilityTextImage,
+	}
+	server := NewServerWithStoreRunnerAndLLMDefaults(store, runner.NewMockRunner(store, runner.DefaultMockTurnDelay, nil), nil, "fake", "vision-demo")
+	tests := []string{
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"http://example.com/image.png"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://127.0.0.1/image.png"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://2130706433/image.png"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://0177.0.0.1/image.png"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/svg+xml;base64,PHN2Zz4="}}]}]}`,
+		`{"messages":[{"role":"system","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5n"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,cG5n","detail":"original"}}]}]}`,
+		`{"messages":[{"role":"user","content":[{"type":"text","text":"x","unexpected":true}]}]}`,
+		`{"messages":[{"role":"user","content":[]}]}`,
+	}
+	for _, body := range tests {
+		assertModelRuntimeError(t, server, body, http.StatusBadRequest, "invalid_request")
+	}
 }
 
 func TestModelRuntimeEmbeddingAndRerankUseCapabilityDefaults(t *testing.T) {

@@ -152,7 +152,7 @@ func (s *serviceIdentityHTTPTestStore) AuthenticateServiceCredential(_ context.C
 }
 
 func TestServiceIdentityCredentialLifecycleAndScopeAuthorization(t *testing.T) {
-	server, _, adminToken := newServiceIdentityHTTPTestServer(t)
+	server, store, adminToken := newServiceIdentityHTTPTestServer(t)
 	createIdentity := authenticatedJSONRequest(t, http.MethodPost, "/v2/service-identities", `{
 		"kind":"application","name":"knowledge","role":"member","scopes":["agents:read"]
 	}`, adminToken)
@@ -193,6 +193,30 @@ func TestServiceIdentityCredentialLifecycleAndScopeAuthorization(t *testing.T) {
 	server.ServeHTTP(writeAgents, authenticatedJSONRequest(t, http.MethodPost, "/v2/agents", `{"name":"blocked","system":"test"}`, created.Token))
 	if writeAgents.Code != http.StatusForbidden || !strings.Contains(writeAgents.Body.String(), managedagents.ServiceScopeAgentsWrite) {
 		t.Fatalf("unscoped agent write returned %d: %s", writeAgents.Code, writeAgents.Body.String())
+	}
+	capabilitiesWithoutScope := httptest.NewRecorder()
+	server.ServeHTTP(capabilitiesWithoutScope, authenticatedRequest(t, http.MethodGet, "/v2/capabilities", created.Token))
+	if capabilitiesWithoutScope.Code != http.StatusForbidden || !strings.Contains(capabilitiesWithoutScope.Body.String(), managedagents.ServiceScopeCapabilitiesRead) {
+		t.Fatalf("unscoped capability discovery returned %d: %s", capabilitiesWithoutScope.Code, capabilitiesWithoutScope.Body.String())
+	}
+	identity.Scopes = append(identity.Scopes, managedagents.ServiceScopeCapabilitiesRead)
+	store.identities[identity.ID] = identity
+	capabilitiesWithScope := httptest.NewRecorder()
+	server.ServeHTTP(capabilitiesWithScope, authenticatedRequest(t, http.MethodGet, "/v2/capabilities", created.Token))
+	if capabilitiesWithScope.Code != http.StatusOK {
+		t.Fatalf("scoped capability discovery returned %d: %s", capabilitiesWithScope.Code, capabilitiesWithScope.Body.String())
+	}
+	identity.Scopes = append(identity.Scopes, managedagents.ServiceScopeQuotaRead, managedagents.ServiceScopeQuotaWrite)
+	store.identities[identity.ID] = identity
+	otherQuota := httptest.NewRecorder()
+	server.ServeHTTP(otherQuota, authenticatedRequest(t, http.MethodGet, "/v2/quota-policies/effective?app_id=svc_other", created.Token))
+	if otherQuota.Code != http.StatusForbidden {
+		t.Fatalf("application credential read another application's quota: %d %s", otherQuota.Code, otherQuota.Body.String())
+	}
+	writeQuota := httptest.NewRecorder()
+	server.ServeHTTP(writeQuota, authenticatedJSONRequest(t, http.MethodPut, "/v2/quota-policies/applications/"+identity.ID, `{"plan":"blocked","config":{"model_identity_requests_per_minute":1}}`, created.Token))
+	if writeQuota.Code != http.StatusForbidden {
+		t.Fatalf("application credential wrote quota policy: %d %s", writeQuota.Code, writeQuota.Body.String())
 	}
 	registry := httptest.NewRecorder()
 	server.ServeHTTP(registry, authenticatedRequest(t, http.MethodGet, "/v2/llm-models", created.Token))

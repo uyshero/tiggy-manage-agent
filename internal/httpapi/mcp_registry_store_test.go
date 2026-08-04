@@ -28,7 +28,7 @@ func (s *testStore) CreateMCPRegistryServer(_ context.Context, input mcpregistry
 	s.nextMCPRegistryID++
 	id := fmt.Sprintf("mcps_%06d", s.nextMCPRegistryID)
 	now := time.Now().UTC()
-	server := mcpregistry.Server{ID: id, WorkspaceID: workspaceID, Identifier: input.Identifier, Name: input.Name, Description: input.Description, Status: mcpregistry.StatusActive, CurrentVersion: 1, Config: cloneJSONRaw(input.Config), CreatedBy: input.CreatedBy, CreatedAt: now, UpdatedAt: now}
+	server := mcpregistry.Server{ID: id, WorkspaceID: workspaceID, AppID: input.AppID, ExternalRef: input.ExternalRef, Labels: cloneStringMap(input.Labels), Identifier: input.Identifier, Name: input.Name, Description: input.Description, Status: mcpregistry.StatusActive, CurrentVersion: 1, Config: cloneJSONRaw(input.Config), CreatedBy: input.CreatedBy, CreatedAt: now, UpdatedAt: now}
 	version := mcpregistry.Version{ID: fmt.Sprintf("mcpsv_%06d", s.nextMCPRegistryID), ServerID: id, Version: 1, Config: cloneJSONRaw(input.Config), Checksum: mcpregistry.Checksum(input.Config), CreatedBy: input.CreatedBy, CreatedAt: now}
 	s.mcpRegistryServers[id] = server
 	s.mcpRegistryVersions[id] = []mcpregistry.Version{version}

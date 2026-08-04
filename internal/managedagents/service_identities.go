@@ -18,36 +18,49 @@ const (
 	ServiceCredentialStatusActive  = "active"
 	ServiceCredentialStatusRevoked = "revoked"
 
-	ServiceScopeAgentsRead        = "agents:read"
-	ServiceScopeAgentsWrite       = "agents:write"
-	ServiceScopeArtifactsRead     = "artifacts:read"
-	ServiceScopeArtifactsWrite    = "artifacts:write"
-	ServiceScopeEnvironmentsRead  = "environments:read"
-	ServiceScopeEnvironmentsWrite = "environments:write"
-	ServiceScopeEvaluationsRead   = "evaluations:read"
-	ServiceScopeEvaluationsWrite  = "evaluations:write"
-	ServiceScopeMCPRead           = "mcp:read"
-	ServiceScopeMCPWrite          = "mcp:write"
-	ServiceScopeModelEmbedding    = "model:embedding"
-	ServiceScopeModelGenerate     = "model:generate"
-	ServiceScopeModelRerank       = "model:rerank"
-	ServiceScopeRetrievalRead     = "retrieval:read"
-	ServiceScopeRetrievalWrite    = "retrieval:write"
-	ServiceScopeSessionsRead      = "sessions:read"
-	ServiceScopeSessionsWrite     = "sessions:write"
-	ServiceScopeSkillsRead        = "skills:read"
-	ServiceScopeSkillsWrite       = "skills:write"
-	ServiceScopeSpeechRealtime    = "speech:realtime"
+	ServiceScopeApplicationsPublish = "applications:publish"
+	ServiceScopeAgentsRead          = "agents:read"
+	ServiceScopeAgentsWrite         = "agents:write"
+	ServiceScopeArtifactsRead       = "artifacts:read"
+	ServiceScopeArtifactsWrite      = "artifacts:write"
+	ServiceScopeCapabilitiesRead    = "capabilities:read"
+	ServiceScopeEnvironmentsRead    = "environments:read"
+	ServiceScopeEnvironmentsWrite   = "environments:write"
+	ServiceScopeEvaluationsRead     = "evaluations:read"
+	ServiceScopeEvaluationsWrite    = "evaluations:write"
+	ServiceScopeEventsManage        = "events:manage"
+	ServiceScopeMCPRead             = "mcp:read"
+	ServiceScopeMCPWrite            = "mcp:write"
+	ServiceScopeModelEmbedding      = "model:embedding"
+	ServiceScopeModelGenerate       = "model:generate"
+	ServiceScopeModelRealtime       = "model:realtime"
+	ServiceScopeModelRerank         = "model:rerank"
+	ServiceScopeRetrievalRead       = "retrieval:read"
+	ServiceScopeRetrievalWrite      = "retrieval:write"
+	ServiceScopeQuotaRead           = "quota:read"
+	ServiceScopeQuotaWrite          = "quota:write"
+	ServiceScopeSecretsRead         = "secrets:read"
+	ServiceScopeSecretsWrite        = "secrets:write"
+	ServiceScopeSessionsRead        = "sessions:read"
+	ServiceScopeSessionsWrite       = "sessions:write"
+	ServiceScopeSkillsRead          = "skills:read"
+	ServiceScopeSkillsWrite         = "skills:write"
+	ServiceScopeSpeechRealtime      = "speech:realtime"
 )
 
 var supportedServiceIdentityScopes = map[string]struct{}{
-	ServiceScopeAgentsRead: {}, ServiceScopeAgentsWrite: {},
+	ServiceScopeApplicationsPublish: {},
+	ServiceScopeAgentsRead:          {}, ServiceScopeAgentsWrite: {},
 	ServiceScopeArtifactsRead: {}, ServiceScopeArtifactsWrite: {},
+	ServiceScopeCapabilitiesRead: {},
 	ServiceScopeEnvironmentsRead: {}, ServiceScopeEnvironmentsWrite: {},
 	ServiceScopeEvaluationsRead: {}, ServiceScopeEvaluationsWrite: {},
-	ServiceScopeMCPRead: {}, ServiceScopeMCPWrite: {},
-	ServiceScopeModelEmbedding: {}, ServiceScopeModelGenerate: {}, ServiceScopeModelRerank: {},
+	ServiceScopeEventsManage: {},
+	ServiceScopeMCPRead:      {}, ServiceScopeMCPWrite: {},
+	ServiceScopeModelEmbedding: {}, ServiceScopeModelGenerate: {}, ServiceScopeModelRealtime: {}, ServiceScopeModelRerank: {},
 	ServiceScopeRetrievalRead: {}, ServiceScopeRetrievalWrite: {},
+	ServiceScopeQuotaRead: {}, ServiceScopeQuotaWrite: {},
+	ServiceScopeSecretsRead: {}, ServiceScopeSecretsWrite: {},
 	ServiceScopeSessionsRead: {}, ServiceScopeSessionsWrite: {},
 	ServiceScopeSkillsRead: {}, ServiceScopeSkillsWrite: {},
 	ServiceScopeSpeechRealtime: {},

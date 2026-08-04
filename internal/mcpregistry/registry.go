@@ -26,18 +26,21 @@ var (
 )
 
 type Server struct {
-	ID             string          `json:"id"`
-	WorkspaceID    string          `json:"workspace_id"`
-	Identifier     string          `json:"identifier"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description,omitempty"`
-	Status         string          `json:"status"`
-	CurrentVersion int             `json:"current_version"`
-	Config         json.RawMessage `json:"config"`
-	UsageCount     int             `json:"usage_count"`
-	CreatedBy      string          `json:"created_by,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID             string            `json:"id"`
+	WorkspaceID    string            `json:"workspace_id"`
+	AppID          string            `json:"app_id,omitempty"`
+	ExternalRef    string            `json:"external_ref,omitempty"`
+	Labels         map[string]string `json:"labels"`
+	Identifier     string            `json:"identifier"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description,omitempty"`
+	Status         string            `json:"status"`
+	CurrentVersion int               `json:"current_version"`
+	Config         json.RawMessage   `json:"config"`
+	UsageCount     int               `json:"usage_count"`
+	CreatedBy      string            `json:"created_by,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
 type Version struct {
@@ -52,6 +55,9 @@ type Version struct {
 
 type CreateInput struct {
 	WorkspaceID string
+	AppID       string
+	ExternalRef string
+	Labels      map[string]string
 	Identifier  string
 	Name        string
 	Description string

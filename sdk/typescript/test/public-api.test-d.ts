@@ -1,6 +1,7 @@
 import {
   AgentsService,
   ArtifactsService,
+  ArtifactExchangesService,
   AuditService,
   AuthService,
   EnvironmentVariablesService,
@@ -24,8 +25,14 @@ import {
   WorkspaceToolPermissionsService,
   type CreateSkillRequest,
   type LLMDiagnosticResult,
+  type LLMRealtimeCapabilities,
+  type MultimodalMediaFrame,
+  type MultimodalSessionStart,
+  MultimodalRealtimeSession,
+  type ModelInvocation,
   type ObjectReconciliationReport,
   type ObjectReconciliationArtifactExport,
+  type RunAttempt,
   type SessionListQuery,
   type TMAClientOptions,
   type ToolPermissionAuditPage,
@@ -36,6 +43,19 @@ declare const client: TMAClient;
 declare const options: TMAClientOptions;
 declare const skillRequest: CreateSkillRequest;
 declare const sessionQuery: SessionListQuery;
+declare const realtimeCapabilities: LLMRealtimeCapabilities;
+declare const multimodalInvocation: ModelInvocation;
+declare const multimodalStart: MultimodalSessionStart;
+declare const multimodalFrame: MultimodalMediaFrame;
+
+realtimeCapabilities.input_formats[0]!.codec satisfies string;
+realtimeCapabilities.max_frame_bytes satisfies number;
+multimodalInvocation.capability satisfies "generate" | "embedding" | "rerank" | "speech_to_text" | "text_to_speech" | "multimodal_realtime";
+multimodalInvocation.input_video_frames satisfies number;
+multimodalInvocation.output_video_ms satisfies number;
+const multimodalSession: MultimodalRealtimeSession = client.modelRuntime.connectMultimodalRealtime();
+const startedMultimodal = multimodalSession.start(multimodalStart);
+const sentMultimodal = multimodalSession.sendMedia(multimodalFrame);
 
 const services: [
   AuthService,
@@ -45,6 +65,7 @@ const services: [
   RunsService,
   InterventionsService,
   ArtifactsService,
+  ArtifactExchangesService,
   ObjectRefsService,
   ObjectCleanupService,
   LLMService,
@@ -67,6 +88,7 @@ const services: [
   client.runs,
   client.interventions,
   client.artifacts,
+  client.artifactExchanges,
   client.objectRefs,
   client.objectCleanup,
   client.llm,
@@ -106,6 +128,8 @@ const permissionAudit: Promise<ToolPermissionAuditPage> = client.audit.listToolP
 const reconciliation: Promise<ObjectReconciliationReport> = client.objectCleanup.previewReconciliation({ workspace_id: "workspace/1", limit: 50 });
 const reconciliationArtifact: Promise<ObjectReconciliationArtifactExport> = client.objectCleanup.exportReconciliationArtifact({ session_id: "session/1", workspace_id: "workspace/1", limit: 50 });
 const handle: Promise<RunHandle> = client.runs.start("session/1", { input: { text: "run" } });
+const attempts: Promise<RunAttempt[]> = client.runs.listAttempts("session/1", "run/1");
+const attempt: Promise<RunAttempt> = client.runs.getAttempt("session/1", "run/1", "attempt/1");
 const rawPaths: paths | undefined = undefined;
 
 // These boundaries must remain absent from the Core SDK.
@@ -118,8 +142,13 @@ client.templates.list();
 
 void services;
 void handle;
+void attempts;
+void attempt;
 void rawPaths;
 void providerDiagnostic;
 void modelDiagnostic;
 void permissionAudit;
 void reconciliation;
+void multimodalSession;
+void startedMultimodal;
+void sentMultimodal;

@@ -328,13 +328,13 @@ db-logs:
 	docker compose logs -f postgres
 
 migrate-up:
-	docker compose exec -T postgres sh -c 'set -eu; for file in /migrations/*.sql; do psql -v ON_ERROR_STOP=1 --single-transaction -U tma -d tma -f "$$file"; done'
+	sh scripts/migrate_up.sh
 
 generate-sql-baseline:
-	sh scripts/generate_sql_baseline.sh 000110
+	sh scripts/generate_sql_baseline.sh 000117
 
 verify-sql-baseline: generate-sql-baseline
-	sh scripts/verify_sql_baseline.sh sql/baselines/000110_baseline.sql
+	sh scripts/verify_sql_baseline.sh sql/baselines/000117_baseline.sql
 	sh scripts/verify_repository_split_migrations.sh
 
 verify-repository-split-migrations:

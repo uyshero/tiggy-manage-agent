@@ -46,6 +46,8 @@ var configEnvKeys = []string{
 	"TMA_LLM_PROVIDER",
 	"TMA_LLM_PROVIDER_TYPE",
 	"TMA_LLM_MODEL",
+	"TMA_LLM_CAPABILITY_TYPE",
+	"TMA_LLM_IS_DEFAULT_VISION",
 	"TMA_LLM_BASE_URL",
 	"TMA_LLM_API_KEY_ENV",
 	"TMA_LLM_API_KEY",
@@ -54,7 +56,16 @@ var configEnvKeys = []string{
 	"TMA_LLM_RETRY_BASE_DELAY_MS",
 	"TMA_MODEL_RUNTIME_GLOBAL_CONCURRENCY",
 	"TMA_MODEL_RUNTIME_ENDPOINT",
+	"TMA_MODEL_RUNTIME_AUTH_MODE",
 	"TMA_MODEL_RUNTIME_AUTH_TOKEN",
+	"TMA_MODEL_RUNTIME_TOKEN_ISSUER",
+	"TMA_MODEL_RUNTIME_TOKEN_AUDIENCE",
+	"TMA_MODEL_RUNTIME_TOKEN_TTL_SECONDS",
+	"TMA_MODEL_RUNTIME_TLS_MODE",
+	"TMA_MODEL_RUNTIME_TLS_CA_FILE",
+	"TMA_MODEL_RUNTIME_TLS_CLIENT_CERT_FILE",
+	"TMA_MODEL_RUNTIME_TLS_CLIENT_KEY_FILE",
+	"TMA_MODEL_RUNTIME_TLS_SERVER_NAME",
 	"TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS",
 	"TMA_MODEL_RUNTIME_WORKSPACE_CONCURRENCY",
 	"TMA_MODEL_RUNTIME_IDENTITY_CONCURRENCY",
@@ -166,6 +177,20 @@ var configEnvKeys = []string{
 	"TMA_SECURITY_AUDIT_RETENTION_DAYS",
 	"TMA_SECURITY_AUDIT_PRUNE_INTERVAL_MS",
 	"TMA_SECURITY_AUDIT_PRUNE_LIMIT",
+	"TMA_EVENT_WEBHOOK_ENABLED",
+	"TMA_EVENT_WEBHOOK_WORKER_ENABLED",
+	"TMA_EVENT_WEBHOOK_SIGNING_KEY",
+	"TMA_EVENT_WEBHOOK_BATCH_SIZE",
+	"TMA_EVENT_WEBHOOK_POLL_INTERVAL_MS",
+	"TMA_EVENT_WEBHOOK_LEASE_DURATION_MS",
+	"TMA_EVENT_WEBHOOK_MAX_ATTEMPTS",
+	"TMA_EVENT_WEBHOOK_RETRY_INITIAL_DELAY_MS",
+	"TMA_EVENT_WEBHOOK_RETRY_MAX_DELAY_MS",
+	"TMA_EVENT_WEBHOOK_HTTP_TIMEOUT_SECONDS",
+	"TMA_EVENT_WEBHOOK_ALLOW_HTTP",
+	"TMA_EVENT_WEBHOOK_ALLOW_PRIVATE_NETWORKS",
+	"TMA_EVENT_WEBHOOK_ALLOWED_HOSTS",
+	"TMA_EVENT_WEBHOOK_ALLOWED_CIDRS",
 	"TMA_TRACE_INDEX_RETENTION_ENABLED",
 	"TMA_TRACE_INDEX_RETENTION_DAYS",
 	"TMA_TRACE_INDEX_RETENTION_INTERVAL_MS",
@@ -499,6 +524,9 @@ func TestFromEnvUsesDefaults(t *testing.T) {
 	if config.Worker.AuthToken != "" {
 		t.Fatalf("expected empty default worker auth token, got %q", config.Worker.AuthToken)
 	}
+	if config.EventWebhooks.Enabled || !config.EventWebhooks.WorkerEnabled || config.EventWebhooks.SigningKey != "" || config.EventWebhooks.BatchSize != DefaultEventWebhookBatchSize {
+		t.Fatalf("unexpected default event webhook config: %+v", config.EventWebhooks)
+	}
 	if config.Worker.ControlAuthToken != "" {
 		t.Fatalf("expected empty default worker control auth token, got %q", config.Worker.ControlAuthToken)
 	}
@@ -769,6 +797,8 @@ func TestFromEnvParsesLLMConfig(t *testing.T) {
 	t.Setenv("TMA_LLM_PROVIDER", "fake")
 	t.Setenv("TMA_LLM_PROVIDER_TYPE", "openai")
 	t.Setenv("TMA_LLM_MODEL", "fake-custom")
+	t.Setenv("TMA_LLM_CAPABILITY_TYPE", "text_image")
+	t.Setenv("TMA_LLM_IS_DEFAULT_VISION", "true")
 	t.Setenv("TMA_LLM_BASE_URL", "http://custom.example/v1")
 	t.Setenv("TMA_LLM_API_KEY_ENV", "TMA_LLM_API_KEY_CUSTOM")
 	t.Setenv("TMA_LLM_API_KEY_CUSTOM", "custom-key")
@@ -788,6 +818,9 @@ func TestFromEnvParsesLLMConfig(t *testing.T) {
 	}
 	if config.LLM.Model != "fake-custom" {
 		t.Fatalf("expected llm model fake-custom, got %q", config.LLM.Model)
+	}
+	if config.LLM.CapabilityType != "text_image" || !config.LLM.IsDefaultVision {
+		t.Fatalf("unexpected llm model capability config: %+v", config.LLM)
 	}
 	if config.LLM.BaseURL != "http://custom.example/v1" {
 		t.Fatalf("expected llm base url custom, got %q", config.LLM.BaseURL)
@@ -845,17 +878,55 @@ func TestFromEnvValidatesModelRuntimeEndpoint(t *testing.T) {
 	}
 }
 
-func TestValidateAuthConfigRejectsShortProductionModelRuntimeToken(t *testing.T) {
+func TestValidateAuthConfigRequiresSignedProtectedProductionModelRuntime(t *testing.T) {
 	err := validateAuthConfig(Config{
 		Environment: "production",
 		Auth: AuthConfig{
 			Mode: "jwt", JWTSecret: strings.Repeat("j", 32), JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
 		},
 		Worker:       WorkerConfig{AuthToken: "worker-secret"},
-		ModelRuntime: ModelRuntimeGovernanceConfig{Endpoint: "http://tma-model-runtime:8090", AuthToken: "short"},
+		ModelRuntime: ModelRuntimeGovernanceConfig{Endpoint: "http://tma-model-runtime:8090", AuthMode: "static", AuthToken: strings.Repeat("s", 32)},
 	})
-	if err == nil || !strings.Contains(err.Error(), "TMA_MODEL_RUNTIME_AUTH_TOKEN") {
-		t.Fatalf("expected production model runtime token validation error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "AUTH_MODE") {
+		t.Fatalf("expected production model runtime signed auth validation error, got %v", err)
+	}
+	err = validateAuthConfig(Config{
+		Environment: "production",
+		Auth: AuthConfig{
+			Mode: "jwt", JWTSecret: strings.Repeat("j", 32), JWTIssuer: "https://issuer.example", JWTAudience: "tma-api",
+		},
+		Worker: WorkerConfig{AuthToken: "worker-secret"},
+		ModelRuntime: ModelRuntimeGovernanceConfig{
+			Endpoint: "https://tma-model-runtime:8090", AuthMode: "signed", AuthToken: strings.Repeat("s", 32), TLSMode: "disabled",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "TLS_MODE") {
+		t.Fatalf("expected production model runtime transport validation error, got %v", err)
+	}
+}
+
+func TestFromEnvParsesSignedMTLSModelRuntime(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_MODEL_RUNTIME_ENDPOINT", "https://runtime.internal:8090")
+	t.Setenv("TMA_MODEL_RUNTIME_AUTH_MODE", "signed")
+	t.Setenv("TMA_MODEL_RUNTIME_AUTH_TOKEN", strings.Repeat("s", 32))
+	t.Setenv("TMA_MODEL_RUNTIME_TOKEN_ISSUER", "platform-a")
+	t.Setenv("TMA_MODEL_RUNTIME_TOKEN_AUDIENCE", "runtime-a")
+	t.Setenv("TMA_MODEL_RUNTIME_TOKEN_TTL_SECONDS", "45")
+	t.Setenv("TMA_MODEL_RUNTIME_TLS_MODE", "mtls")
+	t.Setenv("TMA_MODEL_RUNTIME_TLS_CA_FILE", "/tls/ca.crt")
+	t.Setenv("TMA_MODEL_RUNTIME_TLS_CLIENT_CERT_FILE", "/tls/client.crt")
+	t.Setenv("TMA_MODEL_RUNTIME_TLS_CLIENT_KEY_FILE", "/tls/client.key")
+	t.Setenv("TMA_MODEL_RUNTIME_TLS_SERVER_NAME", "runtime.internal")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.ModelRuntime.AuthMode != "signed" || config.ModelRuntime.TokenTTL != 45*time.Second ||
+		config.ModelRuntime.TLSMode != "mtls" || config.ModelRuntime.TLSCAFile != "/tls/ca.crt" ||
+		config.ModelRuntime.TLSClientCertificateFile != "/tls/client.crt" || config.ModelRuntime.TLSServerName != "runtime.internal" {
+		t.Fatalf("unexpected signed mTLS runtime config: %+v", config.ModelRuntime)
 	}
 }
 
@@ -1247,6 +1318,26 @@ func TestFromEnvRejectsInvalidMCPHTTPEgressAllowlist(t *testing.T) {
 				t.Fatalf("expected %s validation error, got %v", test.key, err)
 			}
 		})
+	}
+}
+
+func TestFromEnvValidatesEventWebhookConfiguration(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TMA_DATABASE_URL", "postgres://example")
+	t.Setenv("TMA_EVENT_WEBHOOK_ENABLED", "true")
+	t.Setenv("TMA_EVENT_WEBHOOK_SIGNING_KEY", "short")
+	if _, err := FromEnv(); err == nil || !strings.Contains(err.Error(), "at least 32 bytes") {
+		t.Fatalf("expected short webhook signing key rejection, got %v", err)
+	}
+
+	t.Setenv("TMA_EVENT_WEBHOOK_SIGNING_KEY", "event-webhook-test-key-at-least-32-bytes")
+	t.Setenv("TMA_EVENT_WEBHOOK_ALLOWED_HOSTS", "events.example.com,*.hooks.example.com")
+	config, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.EventWebhooks.Enabled || config.EventWebhooks.SigningKey == "" || len(config.EventWebhooks.AllowedHosts) != 2 || config.EventWebhooks.PollInterval != time.Second {
+		t.Fatalf("unexpected event webhook config: %+v", config.EventWebhooks)
 	}
 }
 

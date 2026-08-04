@@ -52,7 +52,12 @@ for migration in \
 	sql/migrations/000106_retrieval_runtime.sql \
 	sql/migrations/000107_speech_model_capabilities.sql \
 	sql/migrations/000108_model_invocations.sql \
-	sql/migrations/000109_service_identities.sql; do
+	sql/migrations/000109_service_identities.sql \
+	sql/migrations/000110_model_invocation_quota.sql \
+	sql/migrations/000111_application_resource_ownership.sql \
+	sql/migrations/000112_event_subscriptions.sql \
+	sql/migrations/000113_first_class_runs.sql \
+	sql/migrations/000114_signed_artifact_exchange.sql; do
 	docker compose exec -T postgres psql -v ON_ERROR_STOP=1 --single-transaction \
 		-U "$POSTGRES_USER" -d "$UPGRADE_DATABASE" <"$migration" >/dev/null
 done
@@ -92,6 +97,13 @@ BEGIN
 	IF to_regclass('public.service_identities') IS NULL
 	   OR to_regclass('public.service_identity_credentials') IS NULL THEN
 	  RAISE EXCEPTION 'service identity tables are incomplete';
+	END IF;
+	IF to_regclass('public.event_subscriptions') IS NULL
+	   OR to_regclass('public.event_deliveries') IS NULL THEN
+	  RAISE EXCEPTION 'event subscription tables are incomplete';
+	END IF;
+	IF to_regclass('public.artifact_exchanges') IS NULL THEN
+	  RAISE EXCEPTION 'artifact exchange table is missing';
 	END IF;
 
   PERFORM 1 FROM retrieval_collections WHERE id = 'kb-upgrade' AND workspace_id = 'ws-upgrade';

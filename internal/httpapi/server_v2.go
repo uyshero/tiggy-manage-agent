@@ -35,8 +35,13 @@ type v2ErrorEnvelope struct {
 
 func (s *Server) registerV2Routes() {
 	s.mux.HandleFunc("POST /v2/auth/token-exchange", s.withV2Request(s.exchangeDelegatedToken))
+	s.registerCapabilityRoutes()
+	s.registerModelRuntimeQuotaPolicyRoutes()
 	s.registerTenantAdministrationRoutes()
 	s.registerServiceIdentityRoutes()
+	s.registerApplicationManifestRoutes()
+	s.registerEventSubscriptionRoutes()
+	s.registerArtifactExchangeRoutes()
 	s.registerRetrievalRoutes()
 	s.registerModelRuntimeRoutes()
 	s.registerSpeechRoutes()
@@ -45,6 +50,8 @@ func (s *Server) registerV2Routes() {
 	s.mux.HandleFunc("POST /v2/sessions/{session_id}/runs", s.withV2Request(s.startSessionRunV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs", s.withV2Request(s.listSessionRunsV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}", s.withV2Request(s.getSessionRunV2))
+	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/attempts", s.withV2Request(s.listSessionRunAttemptsV2))
+	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/attempts/{attempt_id}", s.withV2Request(s.getSessionRunAttemptV2))
 	s.mux.HandleFunc("POST /v2/sessions/{session_id}/runs/{run_id}/cancel", s.withV2Request(s.cancelSessionRunV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/events", s.withV2Request(s.listSessionRunEventsV2))
 	s.mux.HandleFunc("GET /v2/sessions/{session_id}/runs/{run_id}/events/stream", s.withV2Request(s.streamSessionRunEventsV2))
@@ -58,6 +65,7 @@ func (s *Server) registerModelRuntimeRoutes() {
 	s.mux.HandleFunc("POST /v2/model-runtime/generate", s.withV2Request(s.generateModelRuntimeText))
 	s.mux.HandleFunc("POST /v2/model-runtime/embeddings", s.withV2Request(s.createModelRuntimeEmbeddings))
 	s.mux.HandleFunc("POST /v2/model-runtime/rerank", s.withV2Request(s.rerankModelRuntimeDocuments))
+	s.mux.HandleFunc("GET /v2/model-runtime/multimodal/realtime", s.withV2Request(s.serveMultimodalRealtime))
 	s.mux.HandleFunc("GET /v2/model-runtime/invocations", s.withV2Request(s.requireWorkspaceAdmin(s.listModelRuntimeInvocations)))
 }
 
@@ -215,7 +223,7 @@ func (s *Server) withV2Request(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) v2EnvelopeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/v2/") || r.URL.Path == "/v2/speech/realtime" {
+		if !strings.HasPrefix(r.URL.Path, "/v2/") || r.URL.Path == "/v2/speech/realtime" || r.URL.Path == "/v2/model-runtime/multimodal/realtime" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -322,6 +330,34 @@ func (s *Server) getSessionRunV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run)
+}
+
+func (s *Server) listSessionRunAttemptsV2(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(managedagents.SessionRunAttemptStore)
+	if !ok {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusNotImplemented, "run_attempt_store_unavailable", "run attempt API is unavailable", false, nil)
+		return
+	}
+	attempts, err := store.ListSessionRunAttemptsContext(r.Context(), r.PathValue("session_id"), r.PathValue("run_id"))
+	if err != nil {
+		writeV2ManagedError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attempts": nonNilSlice(attempts)})
+}
+
+func (s *Server) getSessionRunAttemptV2(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(managedagents.SessionRunAttemptStore)
+	if !ok {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusNotImplemented, "run_attempt_store_unavailable", "run attempt API is unavailable", false, nil)
+		return
+	}
+	attempt, err := store.GetSessionRunAttemptContext(r.Context(), r.PathValue("session_id"), r.PathValue("run_id"), r.PathValue("attempt_id"))
+	if err != nil {
+		writeV2ManagedError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, attempt)
 }
 
 func (s *Server) getRunV2(r *http.Request) (managedagents.SessionRun, error) {

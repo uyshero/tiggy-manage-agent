@@ -13,17 +13,20 @@ import (
 )
 
 type createSkillRequest struct {
-	WorkspaceID    string `json:"workspace_id,omitempty"`
-	Identifier     string `json:"identifier"`
-	Title          string `json:"title"`
-	Description    string `json:"description,omitempty"`
-	OwnerType      string `json:"owner_type,omitempty"`
-	OwnerID        string `json:"owner_id,omitempty"`
-	Visibility     string `json:"visibility,omitempty"`
-	SourcePluginID string `json:"source_plugin_id,omitempty"`
-	SourceType     string `json:"source_type,omitempty"`
-	SourceLocator  string `json:"source_locator,omitempty"`
-	SourcePath     string `json:"source_path,omitempty"`
+	WorkspaceID    string            `json:"workspace_id,omitempty"`
+	AppID          string            `json:"app_id,omitempty"`
+	ExternalRef    string            `json:"external_ref,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Identifier     string            `json:"identifier"`
+	Title          string            `json:"title"`
+	Description    string            `json:"description,omitempty"`
+	OwnerType      string            `json:"owner_type,omitempty"`
+	OwnerID        string            `json:"owner_id,omitempty"`
+	Visibility     string            `json:"visibility,omitempty"`
+	SourcePluginID string            `json:"source_plugin_id,omitempty"`
+	SourceType     string            `json:"source_type,omitempty"`
+	SourceLocator  string            `json:"source_locator,omitempty"`
+	SourcePath     string            `json:"source_path,omitempty"`
 }
 
 type createSkillVersionRequest struct {
@@ -80,6 +83,10 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := bindApplicationResource(r, &request.AppID); err != nil {
+		writeError(w, err)
+		return
+	}
 	principal := controlPrincipalFromRequest(r)
 	ownerType := request.OwnerType
 	ownerID := request.OwnerID
@@ -97,7 +104,8 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	created, err := registry.CreateSkill(r.Context(), skills.CreateSkillInput{
-		WorkspaceID: requestWorkspaceID(r, request.WorkspaceID), Identifier: request.Identifier, Title: request.Title,
+		WorkspaceID: requestWorkspaceID(r, request.WorkspaceID), AppID: request.AppID,
+		ExternalRef: request.ExternalRef, Labels: request.Labels, Identifier: request.Identifier, Title: request.Title,
 		Description: request.Description, OwnerType: ownerType, OwnerID: ownerID, Visibility: visibility, SourcePluginID: request.SourcePluginID,
 		SourceType: request.SourceType, SourceLocator: request.SourceLocator, SourcePath: request.SourcePath,
 		CreatedBy: principal.ID,
@@ -127,7 +135,8 @@ func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	items, err := registry.ListSkills(ctx, skills.ListSkillsInput{
-		WorkspaceID: requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), IncludeArchived: includeArchived != nil && *includeArchived,
+		WorkspaceID: requestWorkspaceID(r, r.URL.Query().Get("workspace_id")), AppID: r.URL.Query().Get("app_id"),
+		ExternalRef: r.URL.Query().Get("external_ref"), IncludeArchived: includeArchived != nil && *includeArchived,
 	})
 	if err != nil {
 		writeError(w, err)

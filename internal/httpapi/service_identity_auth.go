@@ -69,6 +69,9 @@ func serviceIdentityScopeForRequest(r *http.Request) (string, bool) {
 		return "", false
 	}
 	resource := segments[1]
+	if segments[0] == "v2" && resource == "capabilities" && len(segments) == 2 && r.Method == http.MethodGet {
+		return managedagents.ServiceScopeCapabilitiesRead, true
+	}
 	if resource == "auth" && len(segments) == 3 {
 		if segments[2] == "me" && r.Method == http.MethodGet {
 			return "", true
@@ -76,6 +79,9 @@ func serviceIdentityScopeForRequest(r *http.Request) (string, bool) {
 		if segments[2] == "token-exchange" && r.Method == http.MethodPost {
 			return "", true
 		}
+	}
+	if resource == "model-runtime" && len(segments) == 4 && segments[2] == "multimodal" && segments[3] == "realtime" && r.Method == http.MethodGet {
+		return managedagents.ServiceScopeModelRealtime, true
 	}
 	if resource == "model-runtime" && len(segments) == 3 && r.Method == http.MethodPost {
 		switch segments[2] {
@@ -97,6 +103,21 @@ func serviceIdentityScopeForRequest(r *http.Request) (string, bool) {
 		}
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeRetrievalRead, managedagents.ServiceScopeRetrievalWrite)
 	}
+	if resource == "environment-variables" {
+		return readWriteServiceScope(r.Method, managedagents.ServiceScopeSecretsRead, managedagents.ServiceScopeSecretsWrite)
+	}
+	if resource == "quota-policies" {
+		return readWriteServiceScope(r.Method, managedagents.ServiceScopeQuotaRead, managedagents.ServiceScopeQuotaWrite)
+	}
+	if resource == "application-manifests" && r.Method == http.MethodPost {
+		return managedagents.ServiceScopeApplicationsPublish, true
+	}
+	if resource == "event-subscriptions" {
+		return managedagents.ServiceScopeEventsManage, true
+	}
+	if resource == "artifact-exchanges" && len(segments) >= 3 && segments[2] == "exports" {
+		return managedagents.ServiceScopeArtifactsRead, true
+	}
 	switch resource {
 	case "agent", "agents":
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeAgentsRead, managedagents.ServiceScopeAgentsWrite)
@@ -108,7 +129,7 @@ func serviceIdentityScopeForRequest(r *http.Request) (string, bool) {
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeMCPRead, managedagents.ServiceScopeMCPWrite)
 	case "environments":
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeEnvironmentsRead, managedagents.ServiceScopeEnvironmentsWrite)
-	case "object-refs", "artifacts", "achievement-library":
+	case "object-refs", "artifacts", "artifact-exchanges", "achievement-library":
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeArtifactsRead, managedagents.ServiceScopeArtifactsWrite)
 	case "evaluations", "evaluation-rubrics", "evaluation-datasets", "evaluation-experiments":
 		return readWriteServiceScope(r.Method, managedagents.ServiceScopeEvaluationsRead, managedagents.ServiceScopeEvaluationsWrite)

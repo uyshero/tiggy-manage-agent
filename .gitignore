@@ -16,6 +16,7 @@ deploy/kubernetes/migration-secrets.env
 deploy/kubernetes/release.production.env
 .tma-worker.pid
 .tma-worker.log
+.tma-*.log*
 .verify-agent-runtime-server.log
 *.log
 *.pid

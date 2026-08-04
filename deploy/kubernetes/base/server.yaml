@@ -24,6 +24,8 @@ spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -76,10 +78,17 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: model-runtime-tls
+              mountPath: /run/tma-model-runtime-tls
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 512Mi
+        - name: model-runtime-tls
+          secret:
+            secretName: tma-model-runtime-tls
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service
@@ -93,4 +102,3 @@ spec:
     - name: http
       port: 8080
       targetPort: http
-

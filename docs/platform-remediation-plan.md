@@ -156,17 +156,30 @@ Knowledge 只组合这些能力形成具体产品，拥有 Service、场景 Prom
    Biography 已要求使用各自的 Service Credential，生产凭据仍只在切流阶段签发。
 4. 已增加短期 On-behalf-of Token Exchange：绑定用户、Workspace、应用/凭据和 Scope，禁止委托链并支持撤销立即失效；
    Knowledge 的 Retrieval/Model 调用与 Biography 的 Session/Speech 调用已按操作交换短期用户委托 Token。
-5. 为 Agent、Skill、MCP、Session 增加通用 `app_id`、`external_ref`、labels 和幂等发布语义。
-6. 定义 Declarative Application Manifest，统一发布 Agent、Skill、MCP 和默认 Environment。
-7. 将 Run 提升为一等持久化实体，明确 `Session -> Turn -> Run -> Attempt/Event`。
-8. 定义可靠 Event Subscription/Webhook，使用 Outbox 和幂等 delivery ID。
+5. 已为 Agent、Environment、Skill、MCP、Session 增加通用 `app_id`、`external_ref`、受限 labels、
+   应用凭据强制归属和按应用查询。
+6. 已提供 Declarative Application Manifest 和 Go/TypeScript SDK，按依赖顺序幂等调和 Agent、Skill、
+   MCP 和默认 Environment，返回 `created`、`updated`、`unchanged`。
+7. 已将 Run 提升为一等持久化实体，明确 `Session -> Turn -> Run -> Attempt/Event`；每次 Worker
+   claim、租约恢复、挂起和终止均保存独立 Attempt，Event 可直接关联 Run/Attempt。
+8. 已定义可靠 Event Subscription/Webhook，使用事务性 Outbox、幂等 delivery ID、HMAC 签名、
+   指数退避、死信和 replay。
+9. 已提供 `GET /v2/capabilities` Capability Discovery 和 Go/TypeScript SDK；按 Workspace 聚合
+   Model/Speech 路由、Retrieval、Artifact、Event Subscription 与 Worker 能力，不返回 Provider
+   secret 或内部凭证。
+10. 已将现有加密 Environment Variable 收敛为 App-scoped Secret Reference：Application Identity
+    通过 `secrets:read` / `secrets:write` 管理自己的密钥，API 只返回元数据；Session Runtime 按
+    `app_id` 解析应用记录并通过加密信封传递给 Worker，同名应用值优先于用户/Workspace 变量。
 
 兼容策略：旧 v2 路径保留代理或 deprecated alias；SDK 先支持新契约，再迁移应用。
 
 完成门槛：一个最小示例应用只使用已发布 SDK 即可发布 Agent/Skill、创建 Session/Run 并在重启后
 恢复结果，不 import Platform 源码。
 
-当前进度：Knowledge 和 Biography 已固定消费 `v0.1.0-alpha.6` Core SDK 快照并通过独立仓库 CI；
+当前进度：Resource Ownership、Declarative Application Manifest、Reliable Event Subscription/Webhook
+与 First-class Run Persistence 已进入 Core OpenAPI、Go/TypeScript SDK 和 PostgreSQL 集成门禁。
+Knowledge 和 Biography 已固定消费
+`v0.1.0-alpha.6` Core SDK 快照并通过独立仓库 CI；
 用户触发的 Platform 调用使用 OBO，公开分享等无用户后台路径使用 Service Credential。R语言生存
 分析工作台当前只调用 `/v2/auth/me` 建立本地应用权限边界，尚无 Platform Core 业务调用，因此不
 为形式接入增加无用途的 Service Credential；未来新增 Agent、Run、Artifact 或 Model 调用时再按
@@ -189,7 +202,24 @@ Knowledge 只组合这些能力形成具体产品，拥有 Service、场景 Prom
    Knowledge Agent + `retrieval.search` Capability。
 
 当前进度：Generate、Embedding、Rerank、Realtime ASR/TTS、Go/TypeScript SDK 和 Biography SDK
-接入已完成，Biography 厂商直连已经删除。Embedding 支持 OpenAI/TEI/Ollama 协议，Rerank 支持
+接入已完成，Biography 厂商直连已经删除。Generate Phase 1 已支持兼容纯文本的结构化图片输入、
+公共 HTTPS/data URL 校验、输入大小限制、`text_image` capability gate 和 Invocation 指标；视频、
+音视频实时混合流的 Phase 2A 已定义版本化 track、媒体帧、ObjectRef 和双向 credit window，并实现
+共享编解码、校验和流控状态。Phase 2B 的第一切片已完成 TMA-native WebSocket Provider Adapter、
+签名认证的 Server→Runtime 内部路由、双向 credit/sequence/track 校验与取消传播。模型目录 realtime
+capability 和 Capability Discovery 也已完成，Server/Runtime 会对输入格式、输出模态、track 数和帧
+上限执行双层准入。Server ObjectRef 解析器现已完成 Workspace/Owner/Session Artifact ACL、受限读取
+以及客户端、track、数据库、存储元数据和实际内容校验。Invocation recorder 使用独立
+`multimodal_realtime` capability 聚合媒体指标、规范化终态、保证单次落库，并复用长会话 admission
+和 Workspace/Application Quota。公共路由现已不可绕过地串联用户/Application Scope、目录准入、
+Provider Credential、ObjectRef ACL、admission、Runtime proxy 和 Invocation recorder；独立 Runtime
+只接收解析后的媒体帧。Go/TypeScript Realtime Core SDK 现已提供兼容帧编解码、credit 等待、
+`latest` 丢弃、discontinuity 和有界事件队列。首个真实云厂商协议 Adapter 已选择 OpenAI Realtime：
+模型目录只允许 24 kHz 单声道 PCM16、JPEG/PNG 图片帧和文本/音频输出，Runtime 完成 Bearer Header、
+厂商事件、TMA 帧及 credit 的双向转换，并已通过本地 WebSocket 契约、慢 Provider、慢客户端、
+双向断线和双 Server 共享 Quota Store 测试。下一切片仍需真实 OpenAI 账号和部署环境中的 PostgreSQL
+多副本压测。Server→Runtime 内部路由不进入 Core OpenAPI。
+Embedding 支持 OpenAI/TEI/Ollama 协议，Rerank 支持
 Jina/Cohere/vLLM 协议，并强制执行模型目录中的维度、批量和候选数约束。直接 Model/Speech 调用
 已经写入独立、租户隔离的 `model_invocations` Usage/Audit 记录，并通过 Workspace 管理员查询 API
 读取；不会伪造 Session/Turn。Application/Service Identity 已提供强制 RLS 的身份/凭据模型、
@@ -200,8 +230,9 @@ Provider 和 Model 跨副本执行请求配额；Speech 另有最大会话时长
 `Retry-After`/WebSocket 重试字段，并写入 Invocation 审计。公开同步 Generate、Embedding、Rerank、
 Agent Turn 流式 Generate 和 Realtime ASR/TTS 已提取为不连接 Platform 数据库的
 `tma-model-runtime` 独立发布单元；Server 可通过受保护、支持取消传播的内部 HTTP/NDJSON/WebSocket
-协议调用，并保留进程内开发模式。阶段 2 仍需完善内部链路 mTLS/短期调用凭证与流式背压指标，
-以及增加可管理的每租户 Quota 套餐后关闭。
+协议调用，并保留进程内开发模式。内部链路现已支持生产强制的原生 mTLS 或 Service Mesh、逐请求
+短期签名凭证，以及 NDJSON/WebSocket 活跃流、事件和背压指标。可管理的 Workspace 套餐、
+Application Identity 覆盖、版本化策略 API、跨副本分钟执行和月度预算告警也已完成，阶段 2 关闭。
 
 ## 阶段 3：拆分 Retrieval Runtime 与 Knowledge
 

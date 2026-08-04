@@ -80,6 +80,46 @@ Model Registry；应用可以覆盖 voice，但不能获得 Provider 凭据。Sp
 `SpeechEvent` 的 `code` 为 `speech_capacity_exceeded` 或 `speech_quota_exceeded`，并携带
 `retry_after_seconds` 与 `limit_scope`；客户端应在等待该秒数后重连，不能立即循环重试。
 
+Multimodal Realtime 使用 `ModelRuntime.DialMultimodalRealtime`（Go）或
+`client.modelRuntime.connectMultimodalRealtime()`（TypeScript）。SDK 强制协商
+`tma.multimodal.realtime.v1`，并在发送媒体前扣除 bytes/frames credit：
+
+```go
+realtime, err := client.ModelRuntime.DialMultimodalRealtime(ctx)
+started, err := realtime.Start(ctx, tma.MultimodalSessionStart{
+    ProviderID: "enterprise-realtime", Model: "realtime-v1", SessionID: sessionID,
+    InputTracks: []tma.MultimodalTrack{{
+        ID: "camera", Kind: "video", ContentType: "video/h264", Codec: "h264",
+        Delivery: tma.MultimodalDeliveryLatest, Width: 1280, Height: 720, MaxFPS: 30,
+    }},
+    OutputModalities: []string{"text"},
+})
+sent, err := realtime.SendMedia(ctx, frame)
+// sent=false 表示 latest 帧尚未 Reserve，已安全丢弃；下一次成功发送会自动标记 discontinuity。
+_ = started
+```
+
+```ts
+const realtime = client.modelRuntime.connectMultimodalRealtime({ maxBufferedEvents: 32 });
+await realtime.start({
+  provider_id: "enterprise-realtime",
+  model: "realtime-v1",
+  session_id: sessionId,
+  input_tracks: [{
+    id: "camera", kind: "video", content_type: "video/h264", codec: "h264",
+    delivery: "latest", width: 1280, height: 720, max_fps: 30,
+  }],
+  output_modalities: ["text"],
+});
+const sent = await realtime.sendMedia(frame, abortSignal);
+```
+
+`reliable` 输入在 credit 不足时等待 `Read` 消费到 `flow.credit`，因此发送和读取应由两个协程/异步
+任务推进。收到二进制输出并完成消费后，调用 `GrantOutputCredit`，不能在尚未处理 payload 时提前
+归还。TypeScript 默认使用浏览器同源 Cookie；浏览器 WebSocket 不能设置 Authorization Header。
+Node 或自定义鉴权环境通过 `webSocketFactory` 注入实现，服务端 Application Credential 场景优先使用
+Go SDK。TypeScript 的 `maxBufferedEvents` 默认是 32，达到上限会关闭连接而不是建立无界队列。
+
 Workspace 管理员可以通过 Go SDK 的 `ModelRuntime.Invocations` 或 TypeScript SDK 的
 `client.modelRuntime.invocations()` 查询 Generate、Embedding、Rerank 和 Speech 的独立 Usage/Audit。
 记录只包含主体、模型、状态、耗时和计量值，不保存 Prompt、文档或音频。现有 Session/Turn Usage

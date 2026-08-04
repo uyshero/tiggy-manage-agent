@@ -70,12 +70,14 @@ func (s *PostgresStore) ListEnvironmentsContext(ctx context.Context) ([]Environm
 func queryEnvironment(ctx context.Context, q queryer, id string, workspaceID string) (Environment, error) {
 	var environment Environment
 	var config []byte
+	var labels []byte
 	var archivedAt sql.NullTime
 	err := q.QueryRowContext(ctx, `
-		SELECT id, workspace_id, name, config_json, archived_at, created_at
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, name, config_json, archived_at, created_at
 		FROM environments
 		WHERE id = $1 AND ($2 = '' OR workspace_id = $2)
-	`, id, workspaceID).Scan(&environment.ID, &environment.WorkspaceID, &environment.Name, &config, &archivedAt, &environment.CreatedAt)
+	`, id, workspaceID).Scan(&environment.ID, &environment.WorkspaceID, &environment.AppID, &environment.ExternalRef,
+		&labels, &environment.Name, &config, &archivedAt, &environment.CreatedAt)
 	if err == sql.ErrNoRows {
 		return Environment{}, ErrNotFound
 	}
@@ -83,6 +85,10 @@ func queryEnvironment(ctx context.Context, q queryer, id string, workspaceID str
 		return Environment{}, err
 	}
 	environment.Config = cloneRaw(config)
+	environment.Labels, err = unmarshalResourceLabels(labels)
+	if err != nil {
+		return Environment{}, err
+	}
 	if archivedAt.Valid {
 		environment.ArchivedAt = &archivedAt.Time
 	}
@@ -91,7 +97,7 @@ func queryEnvironment(ctx context.Context, q queryer, id string, workspaceID str
 
 func queryEnvironments(ctx context.Context, q rowsQueryer, workspaceID string) ([]Environment, error) {
 	rows, err := q.QueryContext(ctx, `
-		SELECT id, workspace_id, name, config_json, created_at
+		SELECT id, workspace_id, COALESCE(app_id, ''), external_ref, labels_json, name, config_json, created_at
 		FROM environments
 		WHERE archived_at IS NULL AND ($1 = '' OR workspace_id = $1)
 		ORDER BY name, id
@@ -104,10 +110,16 @@ func queryEnvironments(ctx context.Context, q rowsQueryer, workspaceID string) (
 	for rows.Next() {
 		var environment Environment
 		var config []byte
-		if err := rows.Scan(&environment.ID, &environment.WorkspaceID, &environment.Name, &config, &environment.CreatedAt); err != nil {
+		var labels []byte
+		if err := rows.Scan(&environment.ID, &environment.WorkspaceID, &environment.AppID, &environment.ExternalRef,
+			&labels, &environment.Name, &config, &environment.CreatedAt); err != nil {
 			return nil, err
 		}
 		environment.Config = cloneRaw(config)
+		environment.Labels, err = unmarshalResourceLabels(labels)
+		if err != nil {
+			return nil, err
+		}
 		environments = append(environments, environment)
 	}
 	if err := rows.Err(); err != nil {

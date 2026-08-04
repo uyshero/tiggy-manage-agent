@@ -39,10 +39,21 @@ func (s *AgentsService) Get(ctx context.Context, agentID string) (Agent, error) 
 }
 
 func (s *AgentsService) List(ctx context.Context) ([]Agent, error) {
+	return s.ListByApplication(ctx, ApplicationResourceQuery{})
+}
+
+func (s *AgentsService) ListByApplication(ctx context.Context, query ApplicationResourceQuery) ([]Agent, error) {
+	values := url.Values{}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if query.ExternalRef != "" {
+		values.Set("external_ref", query.ExternalRef)
+	}
 	var response struct {
 		Agents []Agent `json:"agents"`
 	}
-	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/agents", nil, &response)
+	err := s.client.DoJSON(ctx, http.MethodGet, withQuery("/v2/agents", values), nil, &response)
 	return response.Agents, err
 }
 
@@ -94,10 +105,21 @@ func agentPath(agentID string) string { return "/v2/agents/" + url.PathEscape(ag
 type EnvironmentsService struct{ client *Client }
 
 func (s *EnvironmentsService) List(ctx context.Context) ([]Environment, error) {
+	return s.ListByApplication(ctx, ApplicationResourceQuery{})
+}
+
+func (s *EnvironmentsService) ListByApplication(ctx context.Context, query ApplicationResourceQuery) ([]Environment, error) {
+	values := url.Values{}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if query.ExternalRef != "" {
+		values.Set("external_ref", query.ExternalRef)
+	}
 	var response struct {
 		Environments []Environment `json:"environments"`
 	}
-	err := s.client.DoJSON(ctx, http.MethodGet, "/v2/environments", nil, &response)
+	err := s.client.DoJSON(ctx, http.MethodGet, withQuery("/v2/environments", values), nil, &response)
 	return response.Environments, err
 }
 
@@ -546,6 +568,20 @@ func (s *RunsService) Cancel(ctx context.Context, sessionID string, runID string
 	var run Run
 	err := s.client.DoJSON(ctx, http.MethodPost, runPath(sessionID, runID)+"/cancel", struct{}{}, &run)
 	return run, err
+}
+
+func (s *RunsService) ListAttempts(ctx context.Context, sessionID string, runID string) ([]RunAttempt, error) {
+	var response struct {
+		Attempts []RunAttempt `json:"attempts"`
+	}
+	err := s.client.DoJSON(ctx, http.MethodGet, runPath(sessionID, runID)+"/attempts", nil, &response)
+	return response.Attempts, err
+}
+
+func (s *RunsService) GetAttempt(ctx context.Context, sessionID string, runID string, attemptID string) (RunAttempt, error) {
+	var attempt RunAttempt
+	err := s.client.DoJSON(ctx, http.MethodGet, runPath(sessionID, runID)+"/attempts/"+url.PathEscape(attemptID), nil, &attempt)
+	return attempt, err
 }
 
 func (s *RunsService) Events(ctx context.Context, sessionID string, runID string, afterSeq int64) (*EventStream, error) {

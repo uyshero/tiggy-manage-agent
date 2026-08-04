@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"tiggy-manage-agent/internal/envvars"
 	mcppkg "tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/mcpregistry"
 	"tiggy-manage-agent/internal/runner"
@@ -75,7 +74,7 @@ func (s *Server) checkAgentToolingHealth(w http.ResponseWriter, r *http.Request)
 		}
 		managedEnvironment := map[string]string{}
 		if resolveErr == nil {
-			managedEnvironment, _, resolveErr = envvars.ResolveWorkspace(r.Context(), s.store, agent.WorkspaceID)
+			managedEnvironment, resolveErr = s.resolveManagedEnvironmentForApp(r.Context(), agent.WorkspaceID, agent.AppID)
 		}
 		if resolveErr != nil {
 			response.MCP = []toolingHealthItem{{Kind: "mcp", Identifier: request.Identifier, Status: "configuration_error", Detail: safeHealthError(resolveErr)}}

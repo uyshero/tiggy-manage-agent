@@ -666,6 +666,23 @@ func (a agentLoopPark) apply(ctx context.Context, _ *PostgresStore, tx *sql.Tx, 
 	if rows != 1 {
 		return nil, fmt.Errorf("%w: turn cannot be parked from its current status", ErrConflict)
 	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_runs SET status = $3
+		WHERE session_id = $1 AND id = $2 AND status = $4
+	`, state.SessionID, state.TurnID, waitingStatus, TurnStatusRunning); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE session_run_attempts attempt
+		SET status = $3, ended_at = $4,
+			lease_owner = NULL, lease_expires_at = NULL, last_heartbeat_at = NULL
+		FROM session_runs run
+		WHERE run.session_id = $1 AND run.id = $2 AND run.current_attempt_id = attempt.id
+			AND attempt.session_id = run.session_id AND attempt.run_id = run.id
+			AND attempt.status = $5
+	`, state.SessionID, state.TurnID, SessionRunAttemptStatusSuspended, now, SessionRunAttemptStatusRunning); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 

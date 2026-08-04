@@ -24,6 +24,8 @@ spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 45
       securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -31,33 +33,57 @@ spec:
           image: registry.example.com/tma-model-runtime:0.1.0
           imagePullPolicy: IfNotPresent
           env:
+            - name: TMA_ENV
+              value: production
             - name: TMA_MODEL_RUNTIME_HTTP_ADDR
               value: :8090
+            - name: TMA_MODEL_RUNTIME_HEALTH_HTTP_ADDR
+              value: :8091
+            - name: TMA_MODEL_RUNTIME_AUTH_MODE
+              value: signed
             - name: TMA_MODEL_RUNTIME_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: tma-runtime-secrets
                   key: TMA_MODEL_RUNTIME_AUTH_TOKEN
+            - name: TMA_MODEL_RUNTIME_TOKEN_ISSUER
+              value: tma-server
+            - name: TMA_MODEL_RUNTIME_TOKEN_AUDIENCE
+              value: tma-model-runtime
+            - name: TMA_MODEL_RUNTIME_TOKEN_TTL_SECONDS
+              value: "60"
+            - name: TMA_MODEL_RUNTIME_TLS_MODE
+              value: mtls
+            - name: TMA_MODEL_RUNTIME_TLS_SERVER_CERT_FILE
+              value: /run/tma-model-runtime-tls/server.crt
+            - name: TMA_MODEL_RUNTIME_TLS_SERVER_KEY_FILE
+              value: /run/tma-model-runtime-tls/server.key
+            - name: TMA_MODEL_RUNTIME_TLS_CLIENT_CA_FILE
+              value: /run/tma-model-runtime-tls/ca.crt
+            - name: TMA_MODEL_RUNTIME_BACKPRESSURE_THRESHOLD_MS
+              value: "100"
           ports:
             - name: http
               containerPort: 8090
+            - name: health
+              containerPort: 8091
           startupProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: health
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
             httpGet:
               path: /readyz
-              port: http
+              port: health
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz
-              port: http
+              port: health
             periodSeconds: 20
             timeoutSeconds: 3
             failureThreshold: 3
@@ -79,10 +105,17 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: model-runtime-tls
+              mountPath: /run/tma-model-runtime-tls
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: model-runtime-tls
+          secret:
+            secretName: tma-model-runtime-tls
+            defaultMode: 0440
 ---
 apiVersion: v1
 kind: Service
@@ -96,6 +129,9 @@ spec:
     - name: http
       port: 8090
       targetPort: http
+    - name: metrics
+      port: 8091
+      targetPort: health
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -116,3 +152,8 @@ spec:
       ports:
         - protocol: TCP
           port: 8090
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8091

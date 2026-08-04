@@ -33,9 +33,9 @@ func TestTypedAdministrationServices(t *testing.T) {
 		"GET /v2/sessions/sesn%2F1/tool-permission-audit?cursor=cursor%2F1&decision=ask&limit=20&tool=default_edit_file": `{"records":[{"session_id":"sesn/1","turn_id":"turn/1","call_id":"call/1","tool":"default_edit_file","path":"/workspace/src/main.go","decision":"ask","allowed":false,"required":true,"intervention_mode":"request_approval","approval_policy":"conditional","approval_status":"approved","execution_status":"succeeded","matched_rule_id":"ask-src","rule_source":"session","created_at":"2026-07-15T00:00:00Z"}],"next_cursor":"next/cursor","has_more":true}`,
 		"GET /v2/observability/security-audit/integrity-keys":                                                            `{"active_key_id":"key_1","historical_unidentified_blocking":0,"keys":[]}`,
 		"POST /v2/observability/security-audit/replay?limit=50":                                                          `{"replayed":3}`,
-		"GET /v2/environment-variables?workspace_id=wksp%2F1":                                                            `{"variables":[]}`,
-		"PUT /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1":                                            `{"name":"SERVICE_API_KEY","configured":true,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`,
-		"DELETE /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1":                                         "",
+		"GET /v2/environment-variables?app_id=svc%2F1&workspace_id=wksp%2F1":                                             `{"variables":[]}`,
+		"PUT /v2/environment-variables/SERVICE_API_KEY?app_id=svc%2F1&workspace_id=wksp%2F1":                             `{"name":"SERVICE_API_KEY","configured":true,"scope":"application","app_id":"svc/1","editable":true,"created_at":"2026-07-15T00:00:00Z","updated_at":"2026-07-15T00:00:00Z"}`,
+		"DELETE /v2/environment-variables/SERVICE_API_KEY?app_id=svc%2F1&workspace_id=wksp%2F1":                          "",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Method + " " + r.URL.EscapedPath()
@@ -47,7 +47,7 @@ func TestTypedAdministrationServices(t *testing.T) {
 			t.Fatalf("unexpected administration request %s", key)
 		}
 		delete(expected, key)
-		if key == "DELETE /v2/environment-variables/SERVICE_API_KEY?workspace_id=wksp%2F1" {
+		if key == "DELETE /v2/environment-variables/SERVICE_API_KEY?app_id=svc%2F1&workspace_id=wksp%2F1" {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -127,7 +127,7 @@ func TestTypedAdministrationServices(t *testing.T) {
 	if _, err = client.Audit.ReplayDeadLetters(ctx, 50); err != nil {
 		t.Fatal(err)
 	}
-	environmentQuery := EnvironmentVariableQuery{WorkspaceID: "wksp/1"}
+	environmentQuery := EnvironmentVariableQuery{WorkspaceID: "wksp/1", AppID: "svc/1"}
 	if _, err = client.EnvironmentVariables.List(ctx, environmentQuery); err != nil {
 		t.Fatal(err)
 	}

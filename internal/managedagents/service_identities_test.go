@@ -6,11 +6,11 @@ import (
 )
 
 func TestNormalizeServiceIdentityScopesRejectsUnknownAndSorts(t *testing.T) {
-	got, err := NormalizeServiceIdentityScopes([]string{ServiceScopeSpeechRealtime, ServiceScopeModelGenerate, ServiceScopeSpeechRealtime})
+	got, err := NormalizeServiceIdentityScopes([]string{ServiceScopeSpeechRealtime, ServiceScopeModelRealtime, ServiceScopeModelGenerate, ServiceScopeSpeechRealtime})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{ServiceScopeModelGenerate, ServiceScopeSpeechRealtime}
+	want := []string{ServiceScopeModelGenerate, ServiceScopeModelRealtime, ServiceScopeSpeechRealtime}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalized scopes = %#v, want %#v", got, want)
 	}

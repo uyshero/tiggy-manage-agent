@@ -28,6 +28,9 @@ type Client struct {
 	transport   http.RoundTripper
 
 	Auth                 *AuthService
+	Capabilities         *CapabilitiesService
+	ApplicationManifests *ApplicationManifestsService
+	EventSubscriptions   *EventSubscriptionsService
 	Agents               *AgentsService
 	Environments         *EnvironmentsService
 	Sessions             *SessionsService
@@ -35,6 +38,7 @@ type Client struct {
 	Runs                 *RunsService
 	Interventions        *InterventionsService
 	Artifacts            *ArtifactsService
+	ArtifactExchanges    *ArtifactExchangesService
 	ObjectRefs           *ObjectRefsService
 	Traces               *TracesService
 	LLM                  *LLMService
@@ -51,6 +55,7 @@ type Client struct {
 	ModelRuntime         *ModelRuntimeService
 	Speech               *SpeechService
 	ServiceIdentities    *ServiceIdentityService
+	QuotaPolicies        *QuotaPoliciesService
 }
 
 func NewClient(baseURL string, options ...Option) (*Client, error) {
@@ -134,6 +139,9 @@ func WithTransport(transport http.RoundTripper) Option {
 
 func (c *Client) initializeServices() {
 	c.Auth = &AuthService{client: c}
+	c.Capabilities = &CapabilitiesService{client: c}
+	c.ApplicationManifests = &ApplicationManifestsService{client: c}
+	c.EventSubscriptions = &EventSubscriptionsService{client: c}
 	c.Agents = &AgentsService{client: c}
 	c.Environments = &EnvironmentsService{client: c}
 	c.Sessions = &SessionsService{client: c}
@@ -141,6 +149,7 @@ func (c *Client) initializeServices() {
 	c.Runs = &RunsService{client: c}
 	c.Interventions = &InterventionsService{client: c}
 	c.Artifacts = &ArtifactsService{client: c}
+	c.ArtifactExchanges = &ArtifactExchangesService{client: c}
 	c.ObjectRefs = &ObjectRefsService{client: c}
 	c.Traces = &TracesService{client: c}
 	c.LLM = &LLMService{client: c}
@@ -157,6 +166,7 @@ func (c *Client) initializeServices() {
 	c.ModelRuntime = &ModelRuntimeService{client: c}
 	c.Speech = &SpeechService{client: c}
 	c.ServiceIdentities = &ServiceIdentityService{client: c}
+	c.QuotaPolicies = &QuotaPoliciesService{client: c}
 }
 
 type Service struct {

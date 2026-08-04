@@ -3,7 +3,6 @@ package modelruntimeprovider
 import (
 	"bytes"
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,15 +48,22 @@ type RuntimeError struct {
 }
 
 type HandlerConfig struct {
-	AuthToken string
-	Executor  Executor
-	Speech    SpeechProxy
+	AuthToken  string
+	Auth       AuthConfig
+	Executor   Executor
+	Speech     SpeechProxy
+	Multimodal MultimodalProxy
+	Metrics    *RuntimeMetrics
 }
 
 func NewHandler(config HandlerConfig) (http.Handler, error) {
-	token := strings.TrimSpace(config.AuthToken)
-	if token == "" {
-		return nil, errors.New("model runtime auth token is required")
+	authConfig := config.Auth
+	if strings.TrimSpace(authConfig.Secret) == "" {
+		authConfig = AuthConfig{Mode: AuthModeStatic, Secret: config.AuthToken}
+	}
+	authenticator, err := newRequestAuthenticator(authConfig)
+	if err != nil {
+		return nil, err
 	}
 	executor := config.Executor
 	if executor == nil {
@@ -67,6 +73,14 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 	if speech == nil {
 		speech = LocalExecutor{}
 	}
+	multimodal := config.Multimodal
+	if multimodal == nil {
+		multimodal = LocalExecutor{}
+	}
+	metrics := config.Metrics
+	if metrics == nil {
+		metrics = NewRuntimeMetrics(0)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -74,7 +88,8 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	mux.Handle("POST /internal/v1/generate", requireToken(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /metrics", metrics.ServeHTTP)
+	mux.Handle("POST /internal/v1/generate", requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request GenerateRequest
 		if !decodeRequest(w, r, &request) {
 			return
@@ -82,7 +97,7 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 		response, err := executor.Generate(r.Context(), request)
 		writeExecutionResult(w, response, err)
 	})))
-	mux.Handle("POST /internal/v1/generate-stream", requireToken(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /internal/v1/generate-stream", requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request GenerateRequest
 		if !decodeRequest(w, r, &request) {
 			return
@@ -95,9 +110,9 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 			}})
 			return
 		}
-		writeGenerateStream(w, r, streaming, request)
+		writeGenerateStream(w, r, streaming, request, metrics)
 	})))
-	mux.Handle("POST /internal/v1/embeddings", requireToken(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /internal/v1/embeddings", requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request EmbeddingRequest
 		if !decodeRequest(w, r, &request) {
 			return
@@ -105,7 +120,7 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 		response, err := executor.Embed(r.Context(), request)
 		writeExecutionResult(w, response, err)
 	})))
-	mux.Handle("POST /internal/v1/rerank", requireToken(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /internal/v1/rerank", requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request RerankRequest
 		if !decodeRequest(w, r, &request) {
 			return
@@ -113,20 +128,39 @@ func NewHandler(config HandlerConfig) (http.Handler, error) {
 		response, err := executor.Rerank(r.Context(), request)
 		writeExecutionResult(w, response, err)
 	})))
-	mux.Handle("GET /internal/v1/speech/realtime", requireToken(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveSpeechRuntime(w, r, speech)
+	mux.Handle("GET /internal/v1/speech/realtime", requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveSpeechRuntime(w, r, speech, metrics)
+	})))
+	mux.Handle("GET "+multimodalRuntimePath, requireToken(authenticator, metrics, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serveMultimodalRuntime(w, r, multimodal, metrics)
 	})))
 	return mux, nil
 }
 
-func requireToken(expected string, next http.Handler) http.Handler {
+func NewHealthHandler(metrics *RuntimeMetrics) http.Handler {
+	if metrics == nil {
+		metrics = NewRuntimeMetrics(0)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	})
+	mux.HandleFunc("GET /metrics", metrics.ServeHTTP)
+	return mux
+}
+
+func requireToken(authenticator *requestAuthenticator, metrics *RuntimeMetrics, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if len(provided) != len(expected) || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
+		if !authenticator.verifyRequest(r) {
+			metrics.observeAuthentication(false)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="tma-model-runtime"`)
 			writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: RuntimeError{Class: llm.ErrorClassAuth, StatusCode: http.StatusUnauthorized, Message: "model runtime authentication failed"}})
 			return
 		}
+		metrics.observeAuthentication(true)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -162,10 +196,13 @@ func writeExecutionResult[T any](w http.ResponseWriter, response T, err error) {
 	writeJSON(w, status, ErrorResponse{Error: runtimeError})
 }
 
-func writeGenerateStream(w http.ResponseWriter, r *http.Request, executor StreamingExecutor, request GenerateRequest) {
+func writeGenerateStream(w http.ResponseWriter, r *http.Request, executor StreamingExecutor, request GenerateRequest, metrics *RuntimeMetrics) {
+	metrics.streamStarted(streamProtocolNDJSON)
+	defer metrics.streamFinished(streamProtocolNDJSON)
 	encoder := json.NewEncoder(w)
 	started := false
 	writeEvent := func(event streamEvent) error {
+		startedAt := time.Now()
 		if !started {
 			w.Header().Set("Content-Type", streamContentType)
 			w.WriteHeader(http.StatusOK)
@@ -177,6 +214,7 @@ func writeGenerateStream(w http.ResponseWriter, r *http.Request, executor Stream
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
+		metrics.observeStreamEvent(streamProtocolNDJSON, streamDirectionRuntimeToClient, time.Since(startedAt))
 		return nil
 	}
 	response, err := executor.GenerateStream(r.Context(), request, func(delta llm.Delta) error {
@@ -228,7 +266,7 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 type HTTPExecutor struct {
 	endpoint string
-	token    string
+	auth     *requestAuthenticator
 	client   *http.Client
 }
 
@@ -239,6 +277,10 @@ type HTTPModelClient struct {
 }
 
 func NewHTTPExecutor(endpoint string, authToken string, client *http.Client) (*HTTPExecutor, error) {
+	return NewHTTPExecutorWithAuth(endpoint, AuthConfig{Mode: AuthModeStatic, Secret: authToken}, client)
+}
+
+func NewHTTPExecutorWithAuth(endpoint string, authConfig AuthConfig, client *http.Client) (*HTTPExecutor, error) {
 	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -247,17 +289,26 @@ func NewHTTPExecutor(endpoint string, authToken string, client *http.Client) (*H
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, errors.New("model runtime endpoint must use http or https")
 	}
-	if strings.TrimSpace(authToken) == "" {
-		return nil, errors.New("model runtime auth token is required when an endpoint is configured")
+	authenticator, err := newRequestAuthenticator(authConfig)
+	if err != nil {
+		return nil, err
 	}
 	if client == nil {
 		client = &http.Client{Timeout: 70 * time.Second}
 	}
-	return &HTTPExecutor{endpoint: endpoint, token: strings.TrimSpace(authToken), client: client}, nil
+	return &HTTPExecutor{endpoint: endpoint, auth: authenticator, client: client}, nil
 }
 
 func NewHTTPModelClient(endpoint string, authToken string, client *http.Client, maxAttempts int, retryBaseDelay time.Duration) (*HTTPModelClient, error) {
 	executor, err := NewHTTPExecutor(endpoint, authToken, client)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPModelClient{executor: executor, maxAttempts: maxAttempts, retryBaseDelay: retryBaseDelay}, nil
+}
+
+func NewHTTPModelClientWithAuth(endpoint string, authConfig AuthConfig, client *http.Client, maxAttempts int, retryBaseDelay time.Duration) (*HTTPModelClient, error) {
+	executor, err := NewHTTPExecutorWithAuth(endpoint, authConfig, client)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +353,9 @@ func (e *HTTPExecutor) GenerateStream(ctx context.Context, request GenerateReque
 	if err != nil {
 		return llm.Response{}, fmt.Errorf("build model runtime stream request: %w", err)
 	}
-	httpRequest.Header.Set("Authorization", "Bearer "+e.token)
+	if err := e.authorize(httpRequest); err != nil {
+		return llm.Response{}, err
+	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", streamContentType)
 	httpResponse, err := e.client.Do(httpRequest)
@@ -409,7 +462,9 @@ func (e *HTTPExecutor) post(ctx context.Context, path string, payload any, targe
 	if err != nil {
 		return fmt.Errorf("build model runtime request: %w", err)
 	}
-	request.Header.Set("Authorization", "Bearer "+e.token)
+	if err := e.authorize(request); err != nil {
+		return err
+	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := e.client.Do(request)
 	if err != nil {
@@ -435,6 +490,15 @@ func (e *HTTPExecutor) post(ctx context.Context, path string, payload any, targe
 	if err := json.Unmarshal(body, target); err != nil {
 		return &llm.ProviderError{Class: llm.ErrorClassServer, Retryable: false, Message: "model runtime returned invalid JSON", Cause: err}
 	}
+	return nil
+}
+
+func (e *HTTPExecutor) authorize(request *http.Request) error {
+	authorization, err := e.auth.authorization(request.Method, request.URL.Path)
+	if err != nil {
+		return &llm.ProviderError{Class: llm.ErrorClassServer, Retryable: false, Message: "model runtime authentication token could not be issued", Cause: err}
+	}
+	request.Header.Set("Authorization", authorization)
 	return nil
 }
 

@@ -26,22 +26,29 @@ func (s *PostgresStore) RecordModelInvocationContext(ctx context.Context, input 
 			id, workspace_id, principal_id, service_identity_id, auth_type, request_id, capability,
 			provider_id, provider_type, model, status, error_code,
 			input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens,
-			input_items, output_items, input_bytes, output_bytes, input_characters, output_characters,
-			input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-			$13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
-		)
+				input_items, output_items, input_bytes, output_bytes, input_characters, output_characters,
+				input_audio_ms, output_audio_ms, input_video_frames, output_video_frames,
+				input_video_dropped, output_video_dropped, input_video_ms, output_video_ms,
+				latency_ms, started_at, completed_at
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+				$13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+				$27, $28, $29, $30, $31, $32, $33, $34
+			)
 		RETURNING id, workspace_id, principal_id, service_identity_id, auth_type, request_id, capability,
 			provider_id, provider_type, model, status, error_code,
 			input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens,
 			input_items, output_items, input_bytes, output_bytes, input_characters, output_characters,
-			input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at
+				input_audio_ms, output_audio_ms, input_video_frames, output_video_frames,
+				input_video_dropped, output_video_dropped, input_video_ms, output_video_ms,
+				latency_ms, started_at, completed_at
 	`, id, input.WorkspaceID, input.PrincipalID, input.ServiceIdentityID, input.AuthType, input.RequestID, input.Capability,
 		input.ProviderID, input.ProviderType, input.Model, input.Status, input.ErrorCode,
 		input.InputTokens, input.OutputTokens, input.TotalTokens, input.CachedInputTokens, input.ReasoningTokens,
 		input.InputItems, input.OutputItems, input.InputBytes, input.OutputBytes, input.InputCharacters, input.OutputCharacters,
-		input.InputAudioMillis, input.OutputAudioMillis, input.LatencyMillis, input.StartedAt, input.CompletedAt)
+		input.InputAudioMillis, input.OutputAudioMillis, input.InputVideoFrames, input.OutputVideoFrames,
+		input.InputVideoDropped, input.OutputVideoDropped, input.InputVideoMillis, input.OutputVideoMillis,
+		input.LatencyMillis, input.StartedAt, input.CompletedAt)
 	record, err := scanModelInvocation(row)
 	if err != nil {
 		return ModelInvocation{}, err
@@ -73,7 +80,9 @@ func (s *PostgresStore) ListModelInvocationsContext(ctx context.Context, input L
 			provider_id, provider_type, model, status, error_code,
 			input_tokens, output_tokens, total_tokens, cached_input_tokens, reasoning_tokens,
 			input_items, output_items, input_bytes, output_bytes, input_characters, output_characters,
-			input_audio_ms, output_audio_ms, latency_ms, started_at, completed_at
+				input_audio_ms, output_audio_ms, input_video_frames, output_video_frames,
+				input_video_dropped, output_video_dropped, input_video_ms, output_video_ms,
+				latency_ms, started_at, completed_at
 		FROM model_invocations
 		WHERE workspace_id = $1
 			AND ($2 = '' OR principal_id = $2)
@@ -188,7 +197,9 @@ func scanModelInvocation(scanner modelInvocationScanner) (ModelInvocation, error
 		&record.ProviderID, &record.ProviderType, &record.Model, &record.Status, &record.ErrorCode,
 		&record.InputTokens, &record.OutputTokens, &record.TotalTokens, &record.CachedInputTokens, &record.ReasoningTokens,
 		&record.InputItems, &record.OutputItems, &record.InputBytes, &record.OutputBytes, &record.InputCharacters, &record.OutputCharacters,
-		&record.InputAudioMillis, &record.OutputAudioMillis, &record.LatencyMillis, &record.StartedAt, &record.CompletedAt,
+		&record.InputAudioMillis, &record.OutputAudioMillis, &record.InputVideoFrames, &record.OutputVideoFrames,
+		&record.InputVideoDropped, &record.OutputVideoDropped, &record.InputVideoMillis, &record.OutputVideoMillis,
+		&record.LatencyMillis, &record.StartedAt, &record.CompletedAt,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return ModelInvocation{}, ErrNotFound

@@ -101,6 +101,8 @@ Session `runtime_settings` 可热更新 intervention mode、completion gate、ru
 TMA_LLM_PROVIDER=openai-main
 TMA_LLM_PROVIDER_TYPE=openai
 TMA_LLM_MODEL=gpt-4o-mini
+TMA_LLM_CAPABILITY_TYPE=text
+TMA_LLM_IS_DEFAULT_VISION=false
 TMA_LLM_BASE_URL=https://api.openai.com/v1
 TMA_LLM_API_KEY_ENV=TMA_LLM_API_KEY
 TMA_LLM_API_KEY=replace-in-secret-manager
@@ -108,7 +110,9 @@ TMA_LLM_MAX_ATTEMPTS=3
 TMA_LLM_RETRY_BASE_DELAY_MS=250
 ```
 
-Provider/Model 也可通过 API 管理。数据库只保存 API key 的环境变量名。认证、invalid request
+`TMA_LLM_CAPABILITY_TYPE` 决定全新数据库中默认模型的能力类型；视觉模型必须显式设为
+`text_image`，需要作为统一默认视觉路由时同时设置 `TMA_LLM_IS_DEFAULT_VISION=true`。已有模型
+配置不会在 Server 重启时被这些默认值覆盖。Provider/Model 也可通过 API 管理。数据库只保存 API key 的环境变量名。认证、invalid request
 等不可重试；rate limit、timeout 和 server error 使用有界退避并尊重 `Retry-After`。响应流
 开始后不自动重放。
 
@@ -117,9 +121,17 @@ Model/Speech 公共入口默认执行两层 admission control：
 | 变量组 | 默认值 | 作用 |
 | --- | --- | --- |
 | `TMA_MODEL_RUNTIME_ENDPOINT` | 空 | 为空时 Server 进程内执行；配置绝对 HTTP(S) URL 后转发 Generate/Embedding/Rerank、Agent Turn 流式 Generate 和 Realtime Speech 到独立数据面 |
-| `TMA_MODEL_RUNTIME_AUTH_TOKEN` | 空 | Server 与独立数据面之间的专用 Bearer Token；配置 Endpoint 时必填，生产至少 32 bytes |
+| `TMA_MODEL_RUNTIME_AUTH_MODE` | `static` | `static` 仅用于开发；`signed` 为每次调用签发请求绑定的短期 Token，生产强制使用 |
+| `TMA_MODEL_RUNTIME_AUTH_TOKEN` | 空 | `static` 模式下为 Bearer Token；`signed` 模式下为不会上网传输的 HMAC Secret，至少 32 bytes |
+| `TMA_MODEL_RUNTIME_TOKEN_{ISSUER,AUDIENCE,TTL_SECONDS}` | `tma-server/tma-model-runtime/60` | 短期调用 Token 约束；TTL 范围 `1..300` 秒 |
 | `TMA_MODEL_RUNTIME_HTTP_TIMEOUT_SECONDS` | `70` | Server 调用独立数据面同步/NDJSON HTTP 请求的总超时，范围 `1..3600`；Realtime Speech 使用单独的最大会话时长 |
 | `TMA_MODEL_RUNTIME_HTTP_ADDR` | `:8090` | 仅供 `tma-model-runtime` 进程使用的监听地址 |
+| `TMA_MODEL_RUNTIME_TLS_MODE` | `disabled` | `disabled/mtls/service_mesh`；生产只允许后两者 |
+| `TMA_MODEL_RUNTIME_TLS_{CA,CLIENT_CERT,CLIENT_KEY}_FILE` | 空 | Server 连接 Runtime 的 CA 和客户端证书；原生 mTLS 必填 |
+| `TMA_MODEL_RUNTIME_TLS_SERVER_NAME` | 空 | 可选的 Runtime 服务端证书名称覆盖 |
+| `TMA_MODEL_RUNTIME_TLS_{SERVER_CERT,SERVER_KEY,CLIENT_CA}_FILE` | 空 | Runtime 监听端的证书、私钥和客户端 CA；原生 mTLS 必填 |
+| `TMA_MODEL_RUNTIME_HEALTH_HTTP_ADDR` | 空 | 可选独立探针/Prometheus 地址，不承载 `/internal/v1/*` |
+| `TMA_MODEL_RUNTIME_BACKPRESSURE_THRESHOLD_MS` | `100` | NDJSON/WebSocket 转发超过该时长时累计背压事件和阻塞时长指标 |
 | `TMA_MODEL_RUNTIME_{GLOBAL,WORKSPACE,IDENTITY,ROUTE}_CONCURRENCY` | `64/16/8/32` | 每个 Server 副本的同步 Generate/Embedding/Rerank 并发上限 |
 | `TMA_MODEL_RUNTIME_{WORKSPACE,IDENTITY}_REQUESTS_PER_MINUTE` | `600/120` | PostgreSQL 原子分钟桶，按 Capability + Provider + Model 跨副本执行 |
 | `TMA_SPEECH_RUNTIME_{GLOBAL,WORKSPACE,IDENTITY,ROUTE}_CONCURRENCY` | `100/20/10/50` | 每个 Server 副本的实时语音连接上限 |
@@ -133,7 +145,7 @@ WebSocket 已升级后通过 `error` 事件返回 `retry_after_seconds` 和 `lim
 
 独立数据面不读取 Platform 数据库，也不接受用户 Token。Server 完成认证、模型路由、Credential
 解析、Quota 和审计后，通过内部协议发送一次已批准的调用。该内部端点不能由 Ingress 暴露；生产
-应同时使用 NetworkPolicy/私有网络和 TLS 或 Service Mesh 加密，不能把 Bearer Token 当成网络隔离
+必须同时使用 NetworkPolicy/私有网络和原生 mTLS 或 Service Mesh 双向身份，不能把短期 Token 当成网络隔离
 的替代品。完整边界见 [model-runtime.md](./model-runtime.md)。
 
 ## 对象存储与沙箱
@@ -207,6 +219,13 @@ Trace index retention 使用 `TMA_TRACE_INDEX_RETENTION_*`。自动导出使用
 授权审计使用 `TMA_SECURITY_AUDIT_OTLP_ENDPOINT/TOKEN`、durable outbox、batch/flush、lease、
 retry、retention 和 queue 配置。生产必须配置 HMAC integrity key ring 和 active key ID；轮换前
 通过状态 API 确认旧 key 没有 pending/delivering 记录。详见 [operations.md](./operations.md)。
+
+可靠应用事件订阅使用 `TMA_EVENT_WEBHOOK_*`。启用时必须配置独立的至少 32 字节
+`TMA_EVENT_WEBHOOK_SIGNING_KEY`；该主密钥只用于按订阅和 `secret_version` 派生一次性返回给应用的
+`whsec_` secret，数据库不保存 secret 明文。投递 worker 默认批量 50、1 秒轮询、30 秒租约、最多
+8 次指数退避重试；HTTP 410 直接进入死信。出站默认只允许 HTTPS 和公网地址，使用
+`ALLOWED_HOSTS/CIDRS` 收紧目标；仅受控内网测试环境才应开启 `ALLOW_HTTP` 或
+`ALLOW_PRIVATE_NETWORKS`。
 
 ## 验证
 

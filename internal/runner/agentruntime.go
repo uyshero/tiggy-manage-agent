@@ -142,7 +142,7 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 	}
 
 	startedAt := time.Now()
-	managedEnvironment, environmentCipher, err := envvars.ResolveWorkspace(ctx, e.Store, config.WorkspaceID)
+	managedEnvironment, environmentCipher, err := resolveManagedRuntimeEnvironment(ctx, e.Store, config)
 	if err != nil {
 		_ = e.recordRuntimeFailed(ctx, err, emit)
 		return TurnResult{}, fmt.Errorf("resolve managed environment: %w", err)
@@ -260,6 +260,39 @@ func (e AgentRuntimeTurnExecutor) RunTurn(ctx context.Context, request TurnReque
 		}
 	}
 	return result, err
+}
+
+func resolveManagedRuntimeEnvironment(ctx context.Context, store any, config managedagents.AgentRuntimeConfig) (map[string]string, *envvars.Cipher, error) {
+	values, environmentCipher, err := envvars.ResolveWorkspace(ctx, store, config.WorkspaceID)
+	if err != nil || strings.TrimSpace(config.AppID) == "" {
+		return values, environmentCipher, err
+	}
+	appOwnerID := envvars.ApplicationOwnerID(config.AppID)
+	appContext, err := managedagents.ContextWithDatabaseAccessScope(ctx, managedagents.AccessScope{
+		WorkspaceID: config.WorkspaceID,
+		OwnerID:     appOwnerID,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	appValues, appCipher, err := envvars.ResolveOwned(appContext, store, config.WorkspaceID, appOwnerID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(appValues) == 0 {
+		return values, environmentCipher, nil
+	}
+	merged := make(map[string]string, len(values)+len(appValues))
+	for name, value := range values {
+		merged[name] = value
+	}
+	for name, value := range appValues {
+		merged[name] = value
+	}
+	if appCipher != nil {
+		environmentCipher = appCipher
+	}
+	return merged, environmentCipher, nil
 }
 
 func (e AgentRuntimeTurnExecutor) SubscribeLiveEvents(sessionID string) (<-chan LiveEvent, func(), error) {

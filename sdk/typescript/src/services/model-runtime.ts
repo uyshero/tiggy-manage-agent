@@ -9,8 +9,14 @@ import type {
   ModelRerankResponse,
 } from "../types.js";
 import { ServiceBase, withQuery } from "./base.js";
+import { MULTIMODAL_REALTIME_PROTOCOL, MultimodalRealtimeSession, type MultimodalRealtimeOptions } from "../multimodal-realtime.js";
 
 export class ModelRuntimeService extends ServiceBase {
+  connectMultimodalRealtime(options: MultimodalRealtimeOptions = {}): MultimodalRealtimeSession {
+    const socket = this.transport.openWebSocket("/v2/model-runtime/multimodal/realtime", MULTIMODAL_REALTIME_PROTOCOL);
+    return new MultimodalRealtimeSession(socket, options);
+  }
+
   generate(request: ModelGenerateRequest, signal?: AbortSignal): Promise<ModelGenerateResponse> {
     return this.transport.requestJSON("POST", "/v2/model-runtime/generate", request, signal ? { signal } : {});
   }

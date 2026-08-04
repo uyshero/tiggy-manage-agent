@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"tiggy-manage-agent/internal/envvars"
 	"tiggy-manage-agent/internal/managedagents"
 	"tiggy-manage-agent/internal/mcp"
 	"tiggy-manage-agent/internal/mcpregistry"
@@ -17,11 +16,14 @@ import (
 )
 
 type mcpRegistryCreateRequest struct {
-	WorkspaceID string          `json:"workspace_id,omitempty"`
-	Identifier  string          `json:"identifier"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Config      json.RawMessage `json:"config"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	AppID       string            `json:"app_id,omitempty"`
+	ExternalRef string            `json:"external_ref,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Identifier  string            `json:"identifier"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Config      json.RawMessage   `json:"config"`
 }
 
 type mcpRegistryUpdateRequest struct {
@@ -52,6 +54,17 @@ func (s *Server) listMCPRegistryServers(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeMCPRegistryError(w, err)
 		return
+	}
+	requestedAppID := r.URL.Query().Get("app_id")
+	requestedExternalRef := r.URL.Query().Get("external_ref")
+	if requestedAppID != "" || requestedExternalRef != "" {
+		filtered := servers[:0]
+		for _, server := range servers {
+			if matchesApplicationResource(server.AppID, server.ExternalRef, requestedAppID, requestedExternalRef) {
+				filtered = append(filtered, server)
+			}
+		}
+		servers = filtered
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"servers": nonNilSlice(servers)})
 }
@@ -100,6 +113,10 @@ func (s *Server) createMCPRegistryServer(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := bindApplicationResource(r, &request.AppID); err != nil {
+		writeMCPRegistryError(w, err)
+		return
+	}
 	identifier := mcp.NormalizeName(request.Identifier, "mcp")
 	config, err := mcpregistry.NormalizeServerConfig(identifier, request.Config)
 	if err != nil {
@@ -112,7 +129,8 @@ func (s *Server) createMCPRegistryServer(w http.ResponseWriter, r *http.Request)
 		workspaceID = managedagents.DefaultWorkspaceID
 	}
 	server, err := store.CreateMCPRegistryServer(r.Context(), mcpregistry.CreateInput{
-		WorkspaceID: workspaceID, Identifier: identifier,
+		WorkspaceID: workspaceID, AppID: request.AppID, ExternalRef: request.ExternalRef,
+		Labels: request.Labels, Identifier: identifier,
 		Name: strings.TrimSpace(request.Name), Description: strings.TrimSpace(request.Description),
 		Config: config, CreatedBy: principal.ID,
 	})
@@ -269,7 +287,7 @@ func (s *Server) testMCPRegistryServer(w http.ResponseWriter, r *http.Request) {
 		writeMCPRegistryError(w, mcpregistry.ErrDisabled)
 		return
 	}
-	managedEnvironment, _, err := envvars.ResolveWorkspace(r.Context(), s.store, server.WorkspaceID)
+	managedEnvironment, err := s.resolveManagedEnvironmentForApp(r.Context(), server.WorkspaceID, server.AppID)
 	if err != nil {
 		writeMCPRegistryError(w, err)
 		return
@@ -329,6 +347,8 @@ func writeMCPRegistryError(w http.ResponseWriter, err error) {
 	case errors.Is(err, mcpregistry.ErrNotFound), errors.Is(err, managedagents.ErrNotFound):
 		status, message = http.StatusNotFound, "mcp registry server not found"
 	case errors.Is(err, mcpregistry.ErrDisabled):
+		status, message = http.StatusConflict, err.Error()
+	case errors.Is(err, managedagents.ErrConflict):
 		status, message = http.StatusConflict, err.Error()
 	case errors.Is(err, managedagents.ErrForbidden):
 		status, message = http.StatusForbidden, "forbidden"

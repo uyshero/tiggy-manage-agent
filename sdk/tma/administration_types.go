@@ -53,18 +53,21 @@ type AuthOIDCClientConfiguration struct {
 }
 
 type MCPServer struct {
-	ID             string          `json:"id"`
-	WorkspaceID    string          `json:"workspace_id"`
-	Identifier     string          `json:"identifier"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description,omitempty"`
-	Status         string          `json:"status"`
-	CurrentVersion int32           `json:"current_version"`
-	Config         MCPServerConfig `json:"config"`
-	UsageCount     int32           `json:"usage_count"`
-	CreatedBy      string          `json:"created_by,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	ID             string            `json:"id"`
+	WorkspaceID    string            `json:"workspace_id"`
+	AppID          string            `json:"app_id,omitempty"`
+	ExternalRef    string            `json:"external_ref,omitempty"`
+	Labels         map[string]string `json:"labels"`
+	Identifier     string            `json:"identifier"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description,omitempty"`
+	Status         string            `json:"status"`
+	CurrentVersion int32             `json:"current_version"`
+	Config         MCPServerConfig   `json:"config"`
+	UsageCount     int32             `json:"usage_count"`
+	CreatedBy      string            `json:"created_by,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 }
 
 type MCPServerVersion struct {
@@ -78,11 +81,14 @@ type MCPServerVersion struct {
 }
 
 type CreateMCPServerRequest struct {
-	WorkspaceID string          `json:"workspace_id,omitempty"`
-	Identifier  string          `json:"identifier"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Config      MCPServerConfig `json:"config"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	AppID       string            `json:"app_id,omitempty"`
+	ExternalRef string            `json:"external_ref,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Identifier  string            `json:"identifier"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Config      MCPServerConfig   `json:"config"`
 }
 
 type UpdateMCPServerRequest struct {
@@ -246,6 +252,8 @@ func (v *MCPConfigValue) UnmarshalJSON(raw []byte) error {
 
 type MCPServerQuery struct {
 	WorkspaceID string
+	AppID       string
+	ExternalRef string
 }
 
 type MCPRuntimeStatus struct {
@@ -362,6 +370,7 @@ type EnvironmentVariable struct {
 	Name       string    `json:"name"`
 	Configured bool      `json:"configured"`
 	Scope      string    `json:"scope"`
+	AppID      string    `json:"app_id,omitempty"`
 	Editable   bool      `json:"editable"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -369,6 +378,7 @@ type EnvironmentVariable struct {
 
 type EnvironmentVariableQuery struct {
 	WorkspaceID string
+	AppID       string
 }
 
 type PutEnvironmentVariableRequest struct {

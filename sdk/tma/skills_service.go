@@ -46,6 +46,12 @@ func (s *SkillsService) List(ctx context.Context, query SkillListQuery) ([]Skill
 	if query.WorkspaceID != "" {
 		values.Set("workspace_id", query.WorkspaceID)
 	}
+	if query.AppID != "" {
+		values.Set("app_id", query.AppID)
+	}
+	if query.ExternalRef != "" {
+		values.Set("external_ref", query.ExternalRef)
+	}
 	if query.IncludeArchived {
 		values.Set("include_archived", "true")
 	}

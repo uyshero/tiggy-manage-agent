@@ -304,6 +304,9 @@ func (s *PostgresStore) CreateSessionArtifactContext(ctx context.Context, input 
 		objectRefLinkOwnerSessionArtifact, created.ID, created.ArtifactType); err != nil {
 		return SessionArtifact{}, err
 	}
+	if err := enqueueArtifactCreatedDeliveriesTx(ctx, tx, session, created); err != nil {
+		return SessionArtifact{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return SessionArtifact{}, err
 	}

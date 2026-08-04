@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -24,37 +25,38 @@ import (
 type testStore struct {
 	mu sync.Mutex
 
-	nextAgentID          int64
-	nextEnvironmentID    int64
-	nextSessionID        int64
-	nextEventID          int64
-	nextObjectID         int64
-	nextArtifactID       int64
-	nextAchievementID    int64
-	nextWorkerID         int64
-	nextWorkID           int64
-	nextExporterRunID    int64
-	nextStartRequestID   int64
-	nextOperatorAuditID  int64
-	nextDeliberationID   int64
-	nextSkillID          int64
-	nextSkillVersionID   int64
-	nextPolicyID         int64
-	nextPolicyVersionID  int64
-	nextMCPRegistryID    int64
-	nextScheduleID       int64
-	nextScheduleRunID    int64
-	nextRubricID         int64
-	nextEvaluationID     int64
-	nextDatasetID        int64
-	nextDatasetItemID    int64
-	nextExperimentID     int64
-	nextExperimentItemID int64
-	nextKnowledgeBaseID  int64
-	nextRetrievalJobID   int64
-	nextKnowledgeDocID   int64
-	nextKnowledgeSvcID   int64
-	nextKnowledgeShareID int64
+	nextAgentID            int64
+	nextEnvironmentID      int64
+	nextSessionID          int64
+	nextEventID            int64
+	nextObjectID           int64
+	nextArtifactID         int64
+	nextAchievementID      int64
+	nextWorkerID           int64
+	nextWorkID             int64
+	nextExporterRunID      int64
+	nextStartRequestID     int64
+	nextOperatorAuditID    int64
+	nextDeliberationID     int64
+	nextSkillID            int64
+	nextSkillVersionID     int64
+	nextPolicyID           int64
+	nextPolicyVersionID    int64
+	nextMCPRegistryID      int64
+	nextScheduleID         int64
+	nextScheduleRunID      int64
+	nextRubricID           int64
+	nextEvaluationID       int64
+	nextDatasetID          int64
+	nextDatasetItemID      int64
+	nextExperimentID       int64
+	nextExperimentItemID   int64
+	nextKnowledgeBaseID    int64
+	nextRetrievalJobID     int64
+	nextKnowledgeDocID     int64
+	nextKnowledgeSvcID     int64
+	nextKnowledgeShareID   int64
+	nextArtifactExchangeID int64
 
 	agents                    map[string]managedagents.Agent
 	agentConfigVersions       map[string][]managedagents.AgentConfigVersion
@@ -111,6 +113,12 @@ type testStore struct {
 	knowledgeShareTokenHashes map[string]string
 	knowledgeQuestions        []testKnowledgeQuestion
 	retrievalIngestionJobs    map[string]managedagents.RetrievalIngestionJob
+	artifactExchanges         map[string]testArtifactExchange
+}
+
+type testArtifactExchange struct {
+	Exchange  managedagents.ArtifactExchange
+	TokenHash []byte
 }
 
 type testRunIdempotency struct {
@@ -187,6 +195,7 @@ func newTestStore() *testStore {
 		knowledgeShares:           make(map[string]managedagents.KnowledgeServiceShare),
 		knowledgeShareTokenHashes: make(map[string]string),
 		retrievalIngestionJobs:    make(map[string]managedagents.RetrievalIngestionJob),
+		artifactExchanges:         make(map[string]testArtifactExchange),
 	}
 	now := time.Now().UTC()
 	store.providers["fake"] = managedagents.LLMProvider{
@@ -513,7 +522,7 @@ func (s *testStore) UpsertLLMModel(input managedagents.UpsertLLMModelInput) (man
 		model.Revision = existing.Revision
 		model.CreatedAt = existing.CreatedAt
 		if existing.ContextWindowTokens != model.ContextWindowTokens || existing.CapabilityType != model.CapabilityType ||
-			existing.Capabilities != model.Capabilities || existing.IsDefaultVision != model.IsDefaultVision ||
+			!reflect.DeepEqual(existing.Capabilities, model.Capabilities) || existing.IsDefaultVision != model.IsDefaultVision ||
 			existing.IsDefaultEmbedding != model.IsDefaultEmbedding || existing.IsDefaultReranker != model.IsDefaultReranker {
 			model.Revision++
 		} else {
@@ -743,7 +752,8 @@ func (s *testStore) CreateSkill(ctx context.Context, input skills.CreateSkillInp
 	}
 	s.nextSkillID++
 	item := skills.Skill{
-		ID: fmt.Sprintf("skl_%d", s.nextSkillID), WorkspaceID: workspaceID, Identifier: input.Identifier,
+		ID: fmt.Sprintf("skl_%d", s.nextSkillID), WorkspaceID: workspaceID, AppID: input.AppID,
+		ExternalRef: input.ExternalRef, Labels: cloneStringMap(input.Labels), Identifier: input.Identifier,
 		Title: input.Title, Description: input.Description, OwnerType: ownerType, OwnerID: ownerID, Visibility: visibility,
 		ForkedFromSkillID: input.ForkedFromSkillID, ForkedFromVersion: input.ForkedFromVersion,
 		SourcePluginID: input.SourcePluginID, SourceType: defaultString(input.SourceType, skills.SourceTypeInline),
@@ -1173,6 +1183,9 @@ func (s *testStore) EnsureAgent(input managedagents.EnsureAgentInput) (managedag
 	agent := managedagents.Agent{
 		ID:                   input.ID,
 		WorkspaceID:          workspaceID,
+		AppID:                input.AppID,
+		ExternalRef:          input.ExternalRef,
+		Labels:               cloneStringMap(input.Labels),
 		EnvironmentID:        input.EnvironmentID,
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
@@ -1247,6 +1260,9 @@ func (s *testStore) CreateAgent(input managedagents.CreateAgentInput) (managedag
 	agent := managedagents.Agent{
 		ID:                   id,
 		WorkspaceID:          workspaceID,
+		AppID:                input.AppID,
+		ExternalRef:          input.ExternalRef,
+		Labels:               cloneStringMap(input.Labels),
 		EnvironmentID:        input.EnvironmentID,
 		OwnerType:            ownership.OwnerType,
 		OwnerID:              ownership.OwnerID,
@@ -1477,6 +1493,9 @@ func (s *testStore) CreateEnvironment(input managedagents.CreateEnvironmentInput
 	environment := managedagents.Environment{
 		ID:          id,
 		WorkspaceID: defaultString(input.WorkspaceID, managedagents.DefaultWorkspaceID),
+		AppID:       input.AppID,
+		ExternalRef: input.ExternalRef,
+		Labels:      cloneStringMap(input.Labels),
 		Name:        input.Name,
 		Config:      cloneRaw(input.Config),
 		CreatedAt:   now,
@@ -2065,6 +2084,9 @@ func (s *testStore) createSessionLocked(input managedagents.CreateSessionInput) 
 	session := managedagents.Session{
 		ID:                      id,
 		WorkspaceID:             workspaceID,
+		AppID:                   input.AppID,
+		ExternalRef:             input.ExternalRef,
+		Labels:                  cloneStringMap(input.Labels),
 		OwnerID:                 defaultString(input.OwnerID, defaultString(input.CreatedBy, "system")),
 		AgentID:                 agent.ID,
 		AgentConfigVersion:      agentConfigVersion,
@@ -2890,6 +2912,8 @@ func (s *testStore) ResolveAgentRuntimeConfig(sessionID string) (managedagents.A
 		ParentSessionID:       session.ParentSessionID,
 		SpawnDepth:            session.SpawnDepth,
 		WorkspaceID:           session.WorkspaceID,
+		OwnerID:               session.OwnerID,
+		AppID:                 session.AppID,
 		AgentID:               agent.ID,
 		AgentConfigVersion:    session.AgentConfigVersion,
 		EnvironmentID:         session.EnvironmentID,
@@ -3189,6 +3213,9 @@ func (s *testStore) RecordModelInvocationContext(ctx context.Context, input mana
 		InputItems: input.InputItems, OutputItems: input.OutputItems, InputBytes: input.InputBytes,
 		OutputBytes: input.OutputBytes, InputCharacters: input.InputCharacters, OutputCharacters: input.OutputCharacters,
 		InputAudioMillis: input.InputAudioMillis, OutputAudioMillis: input.OutputAudioMillis,
+		InputVideoFrames: input.InputVideoFrames, OutputVideoFrames: input.OutputVideoFrames,
+		InputVideoDropped: input.InputVideoDropped, OutputVideoDropped: input.OutputVideoDropped,
+		InputVideoMillis: input.InputVideoMillis, OutputVideoMillis: input.OutputVideoMillis,
 		LatencyMillis: input.LatencyMillis, StartedAt: input.StartedAt, CompletedAt: input.CompletedAt,
 	}
 	s.modelInvocations = append(s.modelInvocations, record)
@@ -5250,6 +5277,19 @@ func (s *testStore) ListSessionRunEventsContext(_ context.Context, sessionID str
 	return events, nil
 }
 
+func (s *testStore) ListSessionRunAttemptsContext(_ context.Context, sessionID string, runID string) ([]managedagents.SessionRunAttempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.sessionRunLocked(sessionID, runID); !ok {
+		return nil, managedagents.ErrNotFound
+	}
+	return []managedagents.SessionRunAttempt{}, nil
+}
+
+func (s *testStore) GetSessionRunAttemptContext(_ context.Context, sessionID string, runID string, attemptID string) (managedagents.SessionRunAttempt, error) {
+	return managedagents.SessionRunAttempt{}, managedagents.ErrNotFound
+}
+
 func (s *testStore) CreateEvaluationRubricContext(_ context.Context, input managedagents.CreateEvaluationRubricInput) (managedagents.EvaluationRubric, error) {
 	criteria, err := managedagents.ValidateEvaluationCriteria(input.Criteria)
 	if err != nil {
@@ -5566,7 +5606,7 @@ func (s *testStore) ListSessionTurnControlEventsContext(_ context.Context, sessi
 }
 
 func (s *testStore) sessionRunLocked(sessionID string, runID string) (managedagents.SessionRun, bool) {
-	run := managedagents.SessionRun{ID: runID, SessionID: sessionID, Status: managedagents.TurnStatusRunning}
+	run := managedagents.SessionRun{ID: runID, SessionID: sessionID, TurnID: runID, Status: managedagents.TurnStatusRunning}
 	found := false
 	for _, event := range s.events[sessionID] {
 		if payloadString(event.Payload, "turn_id") != runID {
@@ -5992,6 +6032,7 @@ func (s *testStore) appendEventLocked(sessionID, eventType string, payload json.
 		ID:        s.nextID("evt", &s.nextEventID),
 		SessionID: sessionID,
 		TurnID:    payloadString(payload, "turn_id"),
+		RunID:     payloadString(payload, "turn_id"),
 		Seq:       seq,
 		Type:      eventType,
 		Payload:   cloneRaw(payload),
@@ -6266,6 +6307,14 @@ func cloneRaw(value json.RawMessage) json.RawMessage {
 	clone := make([]byte, len(value))
 	copy(clone, value)
 	return clone
+}
+
+func cloneStringMap(value map[string]string) map[string]string {
+	result := make(map[string]string, len(value))
+	for key, item := range value {
+		result[key] = item
+	}
+	return result
 }
 
 func metadataJSON(value json.RawMessage) json.RawMessage {

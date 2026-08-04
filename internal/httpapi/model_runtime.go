@@ -15,14 +15,10 @@ import (
 )
 
 const (
-	modelRuntimeMaxOutputTokens = 32768
-	modelRuntimeMaxRequestBytes = 2 << 20
+	modelRuntimeMaxOutputTokens         = 32768
+	modelRuntimeMaxRequestBytes         = 2 << 20
+	modelRuntimeMaxGenerateRequestBytes = 30 << 20
 )
-
-type modelRuntimeMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
 
 type modelRuntimeGenerateRequest struct {
 	ProviderID      string                `json:"provider_id,omitempty"`
@@ -112,13 +108,13 @@ func (s *Server) listModelRuntimeInvocations(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) generateModelRuntimeText(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, modelRuntimeMaxRequestBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, modelRuntimeMaxGenerateRequestBytes)
 	var request modelRuntimeGenerateRequest
 	if err := decodeJSON(r, &request); err != nil {
 		writeV2ManagedError(w, r, fmt.Errorf("%w: %v", managedagents.ErrInvalid, err))
 		return
 	}
-	providerID, modelName, messages, err := s.validateModelRuntimeRequest(request)
+	providerID, modelName, messages, inputMetrics, hasImages, err := s.validateModelRuntimeRequest(request)
 	if err != nil {
 		writeV2ManagedError(w, r, err)
 		return
@@ -146,11 +142,16 @@ func (s *Server) generateModelRuntimeText(w http.ResponseWriter, r *http.Request
 		writeV2Error(w, requestIDFromRequest(r), http.StatusBadRequest, "unsupported_model_capability", "the selected model does not support text generation", false, map[string]any{"capability_type": model.CapabilityType})
 		return
 	}
+	if hasImages && !managedagents.LLMModelSupportsVision(model.CapabilityType) {
+		writeV2Error(w, requestIDFromRequest(r), http.StatusBadRequest, "vision_model_required", "image input requires a model with text_image capability", false, map[string]any{"capability_type": model.CapabilityType})
+		return
+	}
 
 	startedAt := time.Now().UTC()
 	invocation := s.newModelInvocationInput(r, provider, model, managedagents.ModelInvocationCapabilityGenerate, startedAt)
-	invocation.InputItems = int64(len(messages))
-	invocation.InputCharacters = modelMessagesCharacterCount(messages)
+	invocation.InputItems = inputMetrics.Items
+	invocation.InputCharacters = inputMetrics.Characters
+	invocation.InputBytes = inputMetrics.Bytes
 	release, admitted := s.admitModelInvocationHTTP(w, r, &invocation)
 	if !admitted {
 		return
@@ -397,7 +398,7 @@ func modelRuntimeRerankProtocolSupported(protocol string) bool {
 	}
 }
 
-func (s *Server) validateModelRuntimeRequest(request modelRuntimeGenerateRequest) (string, string, []llm.Message, error) {
+func (s *Server) validateModelRuntimeRequest(request modelRuntimeGenerateRequest) (string, string, []llm.Message, modelRuntimeInputMetrics, bool, error) {
 	providerID := strings.TrimSpace(request.ProviderID)
 	modelName := strings.TrimSpace(request.Model)
 	if providerID == "" {
@@ -407,29 +408,16 @@ func (s *Server) validateModelRuntimeRequest(request modelRuntimeGenerateRequest
 		modelName = strings.TrimSpace(s.defaultLLMModel)
 	}
 	if providerID == "" || modelName == "" {
-		return "", "", nil, fmt.Errorf("%w: provider_id and model must be configured explicitly or as Platform defaults", managedagents.ErrInvalid)
-	}
-	if len(request.Messages) == 0 {
-		return "", "", nil, fmt.Errorf("%w: messages must contain at least one message", managedagents.ErrInvalid)
+		return "", "", nil, modelRuntimeInputMetrics{}, false, fmt.Errorf("%w: provider_id and model must be configured explicitly or as Platform defaults", managedagents.ErrInvalid)
 	}
 	if request.MaxOutputTokens < 0 || request.MaxOutputTokens > modelRuntimeMaxOutputTokens {
-		return "", "", nil, fmt.Errorf("%w: max_output_tokens must be between 1 and %d when specified", managedagents.ErrInvalid, modelRuntimeMaxOutputTokens)
+		return "", "", nil, modelRuntimeInputMetrics{}, false, fmt.Errorf("%w: max_output_tokens must be between 1 and %d when specified", managedagents.ErrInvalid, modelRuntimeMaxOutputTokens)
 	}
-	messages := make([]llm.Message, 0, len(request.Messages))
-	for index, message := range request.Messages {
-		role := strings.TrimSpace(message.Role)
-		switch role {
-		case "system", "user", "assistant":
-		default:
-			return "", "", nil, fmt.Errorf("%w: messages[%d].role must be system, user, or assistant", managedagents.ErrInvalid, index)
-		}
-		content := strings.TrimSpace(message.Content)
-		if content == "" {
-			return "", "", nil, fmt.Errorf("%w: messages[%d].content is required", managedagents.ErrInvalid, index)
-		}
-		messages = append(messages, llm.Message{Role: role, Content: []llm.ContentPart{{Type: "text", Text: content}}})
+	messages, metrics, hasImages, err := validateModelRuntimeMessages(request.Messages)
+	if err != nil {
+		return "", "", nil, modelRuntimeInputMetrics{}, false, err
 	}
-	return providerID, modelName, messages, nil
+	return providerID, modelName, messages, metrics, hasImages, nil
 }
 
 func modelRuntimeMessageText(message llm.Message) string {

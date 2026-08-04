@@ -24,6 +24,8 @@ import { ServiceBase, resourcePath, withQuery } from "./base.js";
 
 export interface SessionListQuery {
   workspaceId?: string;
+  appId?: string;
+  externalRef?: string;
   ownerId?: string;
   status?: string;
   includeArchived?: boolean;
@@ -38,6 +40,8 @@ export class SessionsService extends ServiceBase {
   list(query: SessionListQuery = {}, signal?: AbortSignal): Promise<Session[]> {
     const path = withQuery("/v2/sessions", {
       workspace_id: query.workspaceId,
+      app_id: query.appId,
+      external_ref: query.externalRef,
       owner_id: query.ownerId,
       status: query.status,
       include_archived: query.includeArchived || undefined,

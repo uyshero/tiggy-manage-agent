@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 WORKER_BIN="${TMA_WORKER_BIN:-$ROOT_DIR/bin/tma-worker}"
 PID_FILE="${TMA_WORKER_PID_FILE:-$ROOT_DIR/.tma-worker.pid}"
 LOG_FILE="${TMA_WORKER_LOG_FILE:-$ROOT_DIR/.tma-worker.log}"
+LOG_MAX_BYTES="${TMA_WORKER_LOG_MAX_BYTES:-104857600}"
+LOG_BACKUP_COUNT="${TMA_WORKER_LOG_BACKUP_COUNT:-3}"
 START_WAIT_SECONDS="${TMA_WORKER_START_WAIT_SECONDS:-2}"
 STOP_WAIT_SECONDS="${TMA_WORKER_STOP_WAIT_SECONDS:-45}"
 
@@ -22,6 +24,8 @@ Process manager overrides:
   TMA_WORKER_BIN                worker binary path
   TMA_WORKER_PID_FILE           pid file path
   TMA_WORKER_LOG_FILE           worker log path
+  TMA_WORKER_LOG_MAX_BYTES      rotate before start at this size (default 104857600)
+  TMA_WORKER_LOG_BACKUP_COUNT   rotated files to keep (default 3)
   TMA_WORKER_START_WAIT_SECONDS seconds the process must remain alive on start
   TMA_WORKER_STOP_WAIT_SECONDS  seconds to wait for graceful drain on stop
 EOF
@@ -115,6 +119,7 @@ start_worker() {
 
   ensure_worker_bin
   mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
+  sh "$ROOT_DIR/scripts/rotate_process_log.sh" "$LOG_FILE" "$LOG_MAX_BYTES" "$LOG_BACKUP_COUNT"
   rm -f "$PID_FILE"
 
   echo "Starting tma-worker"

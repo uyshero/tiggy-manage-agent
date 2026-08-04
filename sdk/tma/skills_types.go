@@ -7,42 +7,50 @@ import (
 )
 
 type Skill struct {
-	ID                string     `json:"id"`
-	WorkspaceID       string     `json:"workspace_id"`
-	Identifier        string     `json:"identifier"`
-	Title             string     `json:"title"`
-	Description       string     `json:"description,omitempty"`
-	OwnerType         string     `json:"owner_type"`
-	OwnerID           string     `json:"owner_id"`
-	Visibility        string     `json:"visibility"`
-	ForkedFromSkillID string     `json:"forked_from_skill_id,omitempty"`
-	ForkedFromVersion int        `json:"forked_from_version,omitempty"`
-	SourcePluginID    string     `json:"source_plugin_id,omitempty"`
-	SourceType        string     `json:"source_type"`
-	SourceLocator     string     `json:"source_locator,omitempty"`
-	SourcePath        string     `json:"source_path,omitempty"`
-	Status            string     `json:"status"`
-	CreatedBy         string     `json:"created_by"`
-	CreatedAt         time.Time  `json:"created_at"`
-	ArchivedAt        *time.Time `json:"archived_at,omitempty"`
+	ID                string            `json:"id"`
+	WorkspaceID       string            `json:"workspace_id"`
+	AppID             string            `json:"app_id,omitempty"`
+	ExternalRef       string            `json:"external_ref,omitempty"`
+	Labels            map[string]string `json:"labels"`
+	Identifier        string            `json:"identifier"`
+	Title             string            `json:"title"`
+	Description       string            `json:"description,omitempty"`
+	OwnerType         string            `json:"owner_type"`
+	OwnerID           string            `json:"owner_id"`
+	Visibility        string            `json:"visibility"`
+	ForkedFromSkillID string            `json:"forked_from_skill_id,omitempty"`
+	ForkedFromVersion int               `json:"forked_from_version,omitempty"`
+	SourcePluginID    string            `json:"source_plugin_id,omitempty"`
+	SourceType        string            `json:"source_type"`
+	SourceLocator     string            `json:"source_locator,omitempty"`
+	SourcePath        string            `json:"source_path,omitempty"`
+	Status            string            `json:"status"`
+	CreatedBy         string            `json:"created_by"`
+	CreatedAt         time.Time         `json:"created_at"`
+	ArchivedAt        *time.Time        `json:"archived_at,omitempty"`
 }
 
 type CreateSkillRequest struct {
-	WorkspaceID    string `json:"workspace_id,omitempty"`
-	Identifier     string `json:"identifier"`
-	Title          string `json:"title"`
-	Description    string `json:"description,omitempty"`
-	OwnerType      string `json:"owner_type,omitempty"`
-	OwnerID        string `json:"owner_id,omitempty"`
-	Visibility     string `json:"visibility,omitempty"`
-	SourcePluginID string `json:"source_plugin_id,omitempty"`
-	SourceType     string `json:"source_type,omitempty"`
-	SourceLocator  string `json:"source_locator,omitempty"`
-	SourcePath     string `json:"source_path,omitempty"`
+	WorkspaceID    string            `json:"workspace_id,omitempty"`
+	AppID          string            `json:"app_id,omitempty"`
+	ExternalRef    string            `json:"external_ref,omitempty"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Identifier     string            `json:"identifier"`
+	Title          string            `json:"title"`
+	Description    string            `json:"description,omitempty"`
+	OwnerType      string            `json:"owner_type,omitempty"`
+	OwnerID        string            `json:"owner_id,omitempty"`
+	Visibility     string            `json:"visibility,omitempty"`
+	SourcePluginID string            `json:"source_plugin_id,omitempty"`
+	SourceType     string            `json:"source_type,omitempty"`
+	SourceLocator  string            `json:"source_locator,omitempty"`
+	SourcePath     string            `json:"source_path,omitempty"`
 }
 
 type SkillListQuery struct {
 	WorkspaceID     string
+	AppID           string
+	ExternalRef     string
 	IncludeArchived bool
 }
 

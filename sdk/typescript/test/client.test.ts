@@ -110,6 +110,24 @@ describe("TMAClient", () => {
     expect(error).toMatchObject({ status: 409, code: "idempotency_conflict", requestId: "req_1", retryable: false, details: { resource_type: "run" } });
   });
 
+  it("lists and gets first-class Run attempts", async () => {
+    const requests: string[] = [];
+    server = await startServer((request, response) => {
+      requests.push(`${request.method} ${request.url}`);
+      const attempt = { id: "attempt_000001", session_id: "sesn/1", run_id: "turn/1", attempt_number: 1, status: "abandoned", started_at: "2026-07-14T00:00:00Z" };
+      json(response, 200, request.url?.endsWith("/attempts") ? { attempts: [attempt] } : attempt);
+    });
+    const client = new TMAClient(server.baseURL);
+    const attempts = await client.runs.listAttempts("sesn/1", "turn/1");
+    const attempt = await client.runs.getAttempt("sesn/1", "turn/1", "attempt/1");
+    expect(attempts[0]?.status).toBe("abandoned");
+    expect(attempt.attempt_number).toBe(1);
+    expect(requests).toEqual([
+      "GET /v2/sessions/sesn%2F1/runs/turn%2F1/attempts",
+      "GET /v2/sessions/sesn%2F1/runs/turn%2F1/attempts/attempt%2F1",
+    ]);
+  });
+
   it("uploads multipart without replacing its boundary and downloads bytes", async () => {
     let uploaded = false;
     server = await startServer(async (request, response) => {
@@ -195,8 +213,8 @@ describe("TMAClient", () => {
 	  if (request.method === "GET") {
 			expect(request.url).toBe("/v2/model-runtime/invocations?principal_id=service%2Fknowledge&service_identity_id=svc%2Fknowledge&capability=embedding&limit=25");
 		json(response, 200, {
-		  summary: { record_count: 1, completed_count: 1, input_tokens: 5 },
-		  records: [{ id: "minv_1", workspace_id: "wksp_1", principal_id: "service/knowledge", request_id: "req_1", capability: "embedding", provider_id: "fake", model: "embed", status: "completed", input_tokens: 5 }],
+		  summary: { record_count: 1, completed_count: 1, input_tokens: 5, input_video_frames: 4, input_video_dropped: 2 },
+		  records: [{ id: "minv_1", workspace_id: "wksp_1", principal_id: "service/knowledge", request_id: "req_1", capability: "multimodal_realtime", provider_id: "fake", model: "realtime", status: "completed", input_tokens: 5, input_video_frames: 4, input_video_dropped: 2, output_video_ms: 80 }],
 		});
 		return;
 	  }
@@ -234,6 +252,40 @@ describe("TMAClient", () => {
 	expect(embeddings.embeddings[1]?.embedding[0]).toBe(0.3);
 	expect(reranked.results[0]?.index).toBe(1);
 	expect(invocations.records[0]?.request_id).toBe("req_1");
+	expect(invocations.records[0]?.input_video_dropped).toBe(2);
+	expect(invocations.records[0]?.output_video_ms).toBe(80);
+  });
+
+  it("sends typed multimodal model content", async () => {
+    server = await startServer(async (request, response) => {
+      expect(request.method).toBe("POST");
+      expect(request.url).toBe("/v2/model-runtime/generate");
+      expect(JSON.parse((await readBody(request)).toString())).toEqual({
+        provider_id: "vision",
+        model: "vision-v1",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: "Inspect this scan" },
+            { type: "image_url", image_url: { url: "https://images.example.com/scan.png", detail: "high" } },
+          ],
+        }],
+      });
+      json(response, 200, { text: "Normal", provider_id: "vision", model: "vision-v1", usage: {} });
+    });
+    const client = new TMAClient(server.baseURL);
+    const generated = await client.modelRuntime.generate({
+      provider_id: "vision",
+      model: "vision-v1",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "Inspect this scan" },
+          { type: "image_url", image_url: { url: "https://images.example.com/scan.png", detail: "high" } },
+        ],
+      }],
+    });
+    expect(generated.text).toBe("Normal");
   });
 
   it("keeps unknown Run status values", async () => {

@@ -21,6 +21,7 @@ import (
 	"tiggy-manage-agent/internal/agentruntime"
 	"tiggy-manage-agent/internal/agentschedule"
 	"tiggy-manage-agent/internal/capability"
+	"tiggy-manage-agent/internal/eventsubscription"
 	"tiggy-manage-agent/internal/execution"
 	"tiggy-manage-agent/internal/httpapi"
 	"tiggy-manage-agent/internal/llm"
@@ -176,10 +177,15 @@ func main() {
 	defer cancelServerContext()
 	modelRuntimeExecutor := modelruntime.Executor(modelruntime.LocalExecutor{})
 	if config.ModelRuntime.Endpoint != "" {
-		remoteExecutor, runtimeErr := modelruntime.NewHTTPExecutor(
+		runtimeHTTPClient, runtimeErr := buildModelRuntimeHTTPClient(config.ModelRuntime)
+		if runtimeErr != nil {
+			logger.Error("configure remote model runtime transport failed", "error", runtimeErr)
+			os.Exit(1)
+		}
+		remoteExecutor, runtimeErr := modelruntime.NewHTTPExecutorWithAuth(
 			config.ModelRuntime.Endpoint,
-			config.ModelRuntime.AuthToken,
-			&http.Client{Timeout: config.ModelRuntime.HTTPTimeout},
+			modelRuntimeAuthConfig(config.ModelRuntime),
+			runtimeHTTPClient,
 		)
 		if runtimeErr != nil {
 			logger.Error("configure remote model runtime failed", "error", runtimeErr)
@@ -226,6 +232,11 @@ func main() {
 				DelegationTTL:           time.Duration(config.Auth.DelegationTTLSeconds) * time.Second,
 				WorkerWorkspaceID:       config.Worker.AuthWorkspaceID,
 				AuthorizationSink:       authorizationSink,
+				WebhookSigningKey:       config.EventWebhooks.SigningKey,
+				WebhookAllowHTTP:        config.EventWebhooks.AllowHTTP,
+				WebhookAllowPrivate:     config.EventWebhooks.AllowPrivateNetworks,
+				WebhookAllowedHosts:     config.EventWebhooks.AllowedHosts,
+				WebhookAllowedCIDRs:     config.EventWebhooks.AllowedCIDRs,
 			},
 			httpapi.SubagentPolicy{
 				MaxDepth:              config.Subagent.MaxDepth,
@@ -283,6 +294,7 @@ func main() {
 	}
 	stopObservabilityRetry := startObservabilityExporterRetry(config.Observability.ExporterRetry, store, logger)
 	stopSecurityAuditWorker := startSecurityAuditWorker(securityAuditPipeline)
+	stopEventWebhookWorker := startEventWebhookWorker(serverContext, config.EventWebhooks, store, logger)
 	stopObjectCleanup := func() {}
 	if cleanupStore, ok := store.(objectcleanup.Store); ok {
 		stopObjectCleanup = startObjectCleanup(config.ObjectStore.Cleanup, cleanupStore, objectStore, logger)
@@ -320,6 +332,7 @@ func main() {
 	stopObservabilityRetry()
 	stopWorkerReaper()
 	stopWorkerWorkReaper()
+	stopEventWebhookWorker()
 
 	// 收到退出信号后给连接一点时间完成，避免直接中断 SSE / HTTP 请求。
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -351,6 +364,48 @@ func startSecurityAuditWorker(pipeline *observability.DurableSecurityAuditPipeli
 		defer close(done)
 		pipeline.Run(ctx)
 	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func startEventWebhookWorker(parent context.Context, config serverconfig.EventWebhookConfig, store managedagents.Store, logger *slog.Logger) func() {
+	if !config.Enabled || !config.WorkerEnabled {
+		return func() {}
+	}
+	eventStore, ok := store.(eventsubscription.Store)
+	if !ok {
+		logger.Warn("event webhook worker disabled: store does not support event deliveries")
+		return func() {}
+	}
+	egress, err := mcp.NewEgressPolicy(mcp.EgressPolicyConfig{
+		AllowHTTP: config.AllowHTTP, AllowPrivateNetworks: config.AllowPrivateNetworks,
+		AllowedHosts: config.AllowedHosts, AllowedCIDRs: config.AllowedCIDRs,
+	})
+	if err != nil {
+		logger.Error("configure event webhook egress failed", "error", err)
+		return func() {}
+	}
+	worker, err := eventsubscription.NewWorker(eventsubscription.WorkerConfig{
+		Store: eventStore, SigningKey: []byte(config.SigningKey),
+		HTTPClient: egress.HTTPClient(&http.Client{Timeout: config.HTTPTimeout}),
+		BatchSize:  config.BatchSize, PollInterval: config.PollInterval,
+		LeaseDuration: config.LeaseDuration, MaxAttempts: config.MaxAttempts,
+		RetryInitialDelay: config.RetryInitialDelay, RetryMaxDelay: config.RetryMaxDelay,
+		Logger: logger,
+	})
+	if err != nil {
+		logger.Error("configure event webhook worker failed", "error", err)
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.Run(ctx)
+	}()
+	logger.Info("event webhook worker enabled", "batch_size", config.BatchSize, "poll_interval", config.PollInterval)
 	return func() {
 		cancel()
 		<-done
@@ -912,10 +967,13 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 		"llm_base_url", provider.BaseURL,
 		"llm_api_key_env", provider.APIKeyEnv,
 	)
+	defaultVision := config.LLM.IsDefaultVision
 	model, err := ensureDefaultLLMModel(store, managedagents.UpsertLLMModelInput{
 		ProviderID:          provider.ID,
 		Model:               config.LLM.Model,
 		ContextWindowTokens: config.Context.DefaultWindowTokens,
+		CapabilityType:      config.LLM.CapabilityType,
+		IsDefaultVision:     &defaultVision,
 	})
 	if err != nil {
 		return err
@@ -923,6 +981,8 @@ func ensureDefaultLLMProvider(store managedagents.Store, config serverconfig.Con
 	logger.Info("ensured default llm model",
 		"llm_provider", model.ProviderID,
 		"llm_model", model.Model,
+		"capability_type", model.CapabilityType,
+		"is_default_vision", model.IsDefaultVision,
 		"context_window_tokens", model.ContextWindowTokens,
 		"context_budget_ratio_percent", managedagents.ContextBudgetRatioPercent,
 	)
@@ -1076,10 +1136,14 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 	var coreModelClient llm.Client = llmManager
 	modelExecutionMode := "in_process"
 	if config.ModelRuntime.Endpoint != "" {
-		remoteClient, runtimeErr := modelruntime.NewHTTPModelClient(
+		runtimeHTTPClient, runtimeErr := buildModelRuntimeHTTPClient(config.ModelRuntime)
+		if runtimeErr != nil {
+			return nil, nil, fmt.Errorf("configure Agent Turn model runtime transport: %w", runtimeErr)
+		}
+		remoteClient, runtimeErr := modelruntime.NewHTTPModelClientWithAuth(
 			config.ModelRuntime.Endpoint,
-			config.ModelRuntime.AuthToken,
-			&http.Client{Timeout: config.ModelRuntime.HTTPTimeout},
+			modelRuntimeAuthConfig(config.ModelRuntime),
+			runtimeHTTPClient,
 			config.LLM.MaxAttempts,
 			config.LLM.RetryBaseDelay,
 		)
@@ -1191,6 +1255,20 @@ func buildRunner(config serverconfig.Config, store managedagents.Store, objectSt
 		mcpHost.Close()
 		mcpHTTPHost.Close()
 	}, nil
+}
+
+func modelRuntimeAuthConfig(config serverconfig.ModelRuntimeGovernanceConfig) modelruntime.AuthConfig {
+	return modelruntime.AuthConfig{
+		Mode: config.AuthMode, Secret: config.AuthToken, Issuer: config.TokenIssuer,
+		Audience: config.TokenAudience, TokenTTL: config.TokenTTL,
+	}
+}
+
+func buildModelRuntimeHTTPClient(config serverconfig.ModelRuntimeGovernanceConfig) (*http.Client, error) {
+	return modelruntime.NewHTTPClient(config.HTTPTimeout, modelruntime.ClientTLSConfig{
+		CAFile: config.TLSCAFile, CertificateFile: config.TLSClientCertificateFile,
+		KeyFile: config.TLSClientKeyFile, ServerName: config.TLSServerName,
+	})
 }
 
 func shutdownSignal() <-chan os.Signal {

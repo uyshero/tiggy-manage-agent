@@ -2377,6 +2377,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	if err := bindApplicationResource(r, &input.AppID); err != nil {
+		writeError(w, err)
+		return
+	}
 	if principal, ok := PrincipalFromRequest(r); ok {
 		if strings.TrimSpace(input.OwnerType) == "" {
 			input.OwnerType = managedagents.AgentOwnerUser
@@ -2451,6 +2455,17 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	requestedAppID := r.URL.Query().Get("app_id")
+	requestedExternalRef := r.URL.Query().Get("external_ref")
+	if requestedAppID != "" || requestedExternalRef != "" {
+		filtered := agents[:0]
+		for _, agent := range agents {
+			if matchesApplicationResource(agent.AppID, agent.ExternalRef, requestedAppID, requestedExternalRef) {
+				filtered = append(filtered, agent)
+			}
+		}
+		agents = filtered
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agents": nonNilSlice(agents)})
 }
@@ -2761,6 +2776,10 @@ func (s *Server) createEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	if err := bindApplicationResource(r, &input.AppID); err != nil {
+		writeError(w, err)
+		return
+	}
 
 	environment, err := managedagents.CreateEnvironmentWithContext(r.Context(), s.store, input)
 	if err != nil {
@@ -2776,6 +2795,17 @@ func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	requestedAppID := r.URL.Query().Get("app_id")
+	requestedExternalRef := r.URL.Query().Get("external_ref")
+	if requestedAppID != "" || requestedExternalRef != "" {
+		filtered := environments[:0]
+		for _, environment := range environments {
+			if matchesApplicationResource(environment.AppID, environment.ExternalRef, requestedAppID, requestedExternalRef) {
+				filtered = append(filtered, environment)
+			}
+		}
+		environments = filtered
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"environments": nonNilSlice(environments)})
 }
@@ -2796,6 +2826,10 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.WorkspaceID = requestWorkspaceID(r, input.WorkspaceID)
+	if err := bindApplicationResource(r, &input.AppID); err != nil {
+		writeError(w, err)
+		return
+	}
 	input.OwnerID = requestOwnerID(r, input.OwnerID)
 	input.CreatedBy = requestActorID(r, input.CreatedBy)
 	if input.ParentSessionID != "" {
@@ -2836,6 +2870,8 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 
 	sessions, err := s.listSessionsForRequest(r, managedagents.ListSessionsInput{
 		WorkspaceID:     requestWorkspaceID(r, r.URL.Query().Get("workspace_id")),
+		AppID:           r.URL.Query().Get("app_id"),
+		ExternalRef:     r.URL.Query().Get("external_ref"),
 		OwnerID:         requestSessionOwnerFilter(r),
 		Status:          r.URL.Query().Get("status"),
 		IncludeArchived: includeArchived != nil && *includeArchived,

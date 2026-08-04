@@ -87,13 +87,13 @@ func TestCommandModelUpsertUsesConditionalCreateOrUpdate(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatal(err)
 			}
-			if body["context_window_tokens"] != float64(128000) || body["capability_type"] != "text" {
+			if body["context_window_tokens"] != float64(128000) || body["capability_type"] != "text_image" || body["is_default_vision"] != true {
 				t.Fatalf("existing model fields were not preserved: %#v", body)
 			}
 			return jsonResponse(`{"provider_id":"provider/1","model":"gpt-5","context_window_tokens":128000,"revision":10}`), nil
 		})
 		captureStdout(t, func() {
-			if err := commandModel(client, []string{"upsert", "--provider", "provider/1", "--model", "gpt-5"}); err != nil {
+			if err := commandModel(client, []string{"upsert", "--provider", "provider/1", "--model", "gpt-5", "--capability", "text_image", "--default-vision=true"}); err != nil {
 				t.Fatalf("model update: %v", err)
 			}
 		})

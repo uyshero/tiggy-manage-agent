@@ -29,9 +29,10 @@
 
 ## P2：模型与编排
 
-- Agent Turn 流式 Generate 和 Realtime Speech 已迁入独立 Model Runtime 数据面；后续补齐内部
-  mTLS、短期调用凭证和流式背压指标。
-- 增加真实 tokenizer、多模态上下文和更多 Provider 原生 tool calling adapter。
+- Model Runtime 已具备原生 mTLS/Service Mesh、逐请求短期凭证、流式背压指标、Workspace/Application
+  Quota Policy 和预算告警；后续增加 Provider Router/failover。
+- 图片多模态 Generate、Multimodal Realtime v1 协议基线、TMA-native/OpenAI Realtime Adapter、Runtime 内部链路、模型目录准入、Server ObjectRef 治理、公共治理路由、Invocation 审计和 Realtime SDK 已完成；
+  豆包 Agent Plan 的真实文本/图片 Generate、Usage 和 Invocation Audit 已通过全新数据库与 Go Core SDK 验证，本地慢 Provider/慢客户端、双向断线和双 Server 共享配额验证已完成；后续完成 OpenAI Realtime 真实账号和部署环境 PostgreSQL 多副本压测，再评估连续视频 Provider，同时增加真实 tokenizer 与更多 Provider 原生 tool calling adapter。
 - 在统一 Provider 接口上实现显式 Router/failover，保留 usage 和错误归因。
 - 评测渐进式工具暴露效果，并继续探索按需 Tool Search；不以固定工具数量替代数据。
 - 在权限不放大的前提下改进子 Agent 结果归并、配额和可观测性。
